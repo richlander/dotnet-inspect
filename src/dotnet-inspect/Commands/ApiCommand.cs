@@ -357,8 +357,30 @@ public class ApiCommand
         MemberOptions resolved,
         SectionPipeline<ApiType> pipeline)
     {
+        var countMapSelectionSections = resolved.IncludeSections;
+        if (resolved.IncludeSections is { Count: > 0 }
+            && resolved.HasCallerScope)
+        {
+            countMapSelectionSections = new HashSet<string>(
+                resolved.IncludeSections,
+                StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.Callers
+            };
+        }
+        var countMapSections = OutputFormatter.ResolveCountMapSections(
+            pipeline,
+            countMapSelectionSections,
+            fixedOverview: false);
         if (resolved.Discover == null && resolved.Count
-            && !CountOutput.ValidateSingleSection(resolved.IncludeSections))
+            && (!CountOutput.ValidateSectionsSelected(
+                    resolved.IncludeSections,
+                    fixedOverview: false)
+                || !CountOutput.ValidateMapFormat(
+                    resolved.Format,
+                    countMapSections,
+                    resolved.Tree,
+                    resolved.EmbeddedMermaid)))
         {
             return null;
         }
@@ -378,13 +400,15 @@ public class ApiCommand
             return null;
         }
 
-        if (!OutputFormatResolver.ValidateSingleSectionForTabular(
+        if (!resolved.Count
+            && !OutputFormatResolver.ValidateSingleSectionForTabular(
                 resolved.TabularExplicitlySet, resolved.IncludeSections))
         {
             return null;
         }
 
-        if (resolved.Discover is null)
+        if (resolved.Discover is null
+            && !(resolved.Count && countMapSections is null))
         {
             resolved = NormalizeMemberGraphFormat(resolved, resolved.IncludeSections);
             if (!ValidateMemberGraphFormat(resolved, resolved.IncludeSections))
@@ -2653,8 +2677,7 @@ public class ApiCommand
         if (options.JsonOutput && !options.Count && !IsProjectionRequested(options) && !sourceDocumentJson)
         {
             var requestedMemberSections = GetRequestedMemberSections(type, options);
-            if (requestedMemberSections.Contains(SectionNames.Callers)
-                && options.ExactIncludeSections?.Contains(
+            if (options.ExactIncludeSections?.Contains(
                     SectionNames.Callers) == true)
             {
                 CommandError.Write(

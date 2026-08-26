@@ -8546,7 +8546,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_MixedPipelineCountMap_RetainsRequestedZeroRows()
+    public async Task Member_AutoSelectedMixedPipelineCountMapRetainsInventoryRows()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(SampleKeywordParameterHost).FullName!,
@@ -8563,8 +8563,8 @@ public partial class CommandExecutionTests
             .ToDictionary(
                 row => row.GetProperty("section").GetString()!,
                 row => row.GetProperty("count").GetInt32());
-        Assert.Equal(0, counts["Member Index"]);
-        Assert.Equal(0, counts["Methods"]);
+        Assert.Equal(1, counts["Member Index"]);
+        Assert.Equal(1, counts["Methods"]);
         Assert.Equal(1, counts["Signature"]);
     }
 
@@ -14863,6 +14863,41 @@ public partial class CommandExecutionTests
         Assert.Contains("--tsv", result.Error);
         Assert.Contains("--table", result.Error);
         Assert.Contains("--count", result.Error);
+    }
+
+    [Fact]
+    public async Task Member_InapplicableExactCallersDocumentJsonFailsClosed()
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "C",
+            Kind = "class",
+            Members = [new ApiMember { Name = "Field", Kind = "field" }],
+        };
+        var options = new MemberOptions
+        {
+            JsonOutput = true,
+            IncludeSections = [SectionNames.Callers],
+            ExactIncludeSectionsOverride = [SectionNames.Callers],
+            MemberSectionsPreResolved = true,
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Document --json cannot represent {SectionNames.Callers} analysis.",
+            error);
     }
 
     [Fact]
