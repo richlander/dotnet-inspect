@@ -28,6 +28,12 @@ public static class ProductInspectionDemos
 
     public const string OptionsAddCallGraphScenarioId = "options-add-callgraph";
 
+    public const string DiTryAddCallGraphScenarioId = "di-tryadd-callgraph";
+
+    public const string HttpAddHttpClientCallGraphScenarioId = "http-addhttpclient-callgraph";
+
+    public const string StjGetDecimalCallGraphScenarioId = "stj-getdecimal-callgraph";
+
     private static readonly Entry[] s_entries =
     [
         new(
@@ -55,6 +61,21 @@ public static class ProductInspectionDemos
             "Options hub",
             "Inbound fan-in at AddOptions",
             CreateOptionsAddCallGraphRecords),
+        new(
+            DiTryAddCallGraphScenarioId,
+            "DI TryAdd hub",
+            "Keyed/scoped Try* fan-in",
+            CreateDiTryAddCallGraphRecords),
+        new(
+            HttpAddHttpClientCallGraphScenarioId,
+            "AddHttpClient",
+            "HttpClient factory registration",
+            CreateHttpAddHttpClientCallGraphRecords),
+        new(
+            StjGetDecimalCallGraphScenarioId,
+            "JsonElement.GetDecimal",
+            "STJ number parse path",
+            CreateStjGetDecimalCallGraphRecords),
     ];
 
     /// <summary>
@@ -370,6 +391,145 @@ public static class ProductInspectionDemos
                 context: "options",
                 view: "options-add-call-graph",
                 navigation: "options-add-callgraph-navigation"),
+        ];
+    }
+
+    /// <summary>
+    /// Package-local inbound hub: <c>TryAdd(IServiceCollection, ServiceDescriptor)</c>.
+    /// Keyed/scoped/singleton/transient Try* overloads fan into the hub (high fan-in).
+    /// </summary>
+    private static InspectionDefinitionRecord[] CreateDiTryAddCallGraphRecords()
+    {
+        const int v = InspectionDefinitionJson.CurrentSchemaVersion;
+        var di = Package(
+            "Microsoft.Extensions.DependencyInjection.Abstractions",
+            "10.0.0",
+            "net10.0");
+        return
+        [
+            new WorkspaceDefinition(
+                v,
+                "di-tryadd-callgraph-workspace",
+                [
+                    new WorkspaceContextDefinition(
+                        "di",
+                        framework: "net10.0",
+                        members: [di]),
+                ],
+                title: "DI TryAdd call graph",
+                description: "Inbound fan-in Call Graph at ServiceCollectionDescriptorExtensions.TryAdd."),
+            new ViewDefinition(
+                v,
+                "di-tryadd-call-graph",
+                type: "Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions",
+                memberAnchor: "6ce164c602",
+                memberKey: "method:TryAdd",
+                section: ProductDemoSections.CallGraph),
+            new NavigationDefinition(
+                v,
+                "di-tryadd-callgraph-navigation",
+                [new NavigationTabDefinition("di", coordinate: di)],
+                focus: "di"),
+            new ScenarioDefinition(
+                v,
+                DiTryAddCallGraphScenarioId,
+                title: "DI TryAdd hub",
+                description: "Keyed/scoped Try* fan-in",
+                workspace: "di-tryadd-callgraph-workspace",
+                context: "di",
+                view: "di-tryadd-call-graph",
+                navigation: "di-tryadd-callgraph-navigation"),
+        ];
+    }
+
+    /// <summary>
+    /// HttpClient factory registration: <c>AddHttpClient(IServiceCollection)</c>.
+    /// Overload family funnels into one body that wires Logging, Options, Metrics,
+    /// and TryAddEnumerable externally.
+    /// </summary>
+    private static InspectionDefinitionRecord[] CreateHttpAddHttpClientCallGraphRecords()
+    {
+        const int v = InspectionDefinitionJson.CurrentSchemaVersion;
+        var http = Package("Microsoft.Extensions.Http", "10.0.0", "net10.0");
+        return
+        [
+            new WorkspaceDefinition(
+                v,
+                "http-addhttpclient-callgraph-workspace",
+                [
+                    new WorkspaceContextDefinition(
+                        "http",
+                        framework: "net10.0",
+                        members: [http]),
+                ],
+                title: "AddHttpClient call graph",
+                description: "HttpClient factory registration Call Graph."),
+            new ViewDefinition(
+                v,
+                "http-addhttpclient-call-graph",
+                type: "Microsoft.Extensions.DependencyInjection.HttpClientFactoryServiceCollectionExtensions",
+                memberAnchor: "5c44566d15",
+                memberKey: "method:AddHttpClient",
+                section: ProductDemoSections.CallGraph),
+            new NavigationDefinition(
+                v,
+                "http-addhttpclient-callgraph-navigation",
+                [new NavigationTabDefinition("http", coordinate: http)],
+                focus: "http"),
+            new ScenarioDefinition(
+                v,
+                HttpAddHttpClientCallGraphScenarioId,
+                title: "AddHttpClient",
+                description: "HttpClient factory registration",
+                workspace: "http-addhttpclient-callgraph-workspace",
+                context: "http",
+                view: "http-addhttpclient-call-graph",
+                navigation: "http-addhttpclient-callgraph-navigation"),
+        ];
+    }
+
+    /// <summary>
+    /// STJ number parse path: <c>JsonElement.GetDecimal()</c>.
+    /// Complements Serialize with a document/Utf8Parser-oriented outbound graph.
+    /// </summary>
+    private static InspectionDefinitionRecord[] CreateStjGetDecimalCallGraphRecords()
+    {
+        const int v = InspectionDefinitionJson.CurrentSchemaVersion;
+        var stj = Package("System.Text.Json", "10.0.0", "net10.0");
+        return
+        [
+            new WorkspaceDefinition(
+                v,
+                "stj-getdecimal-callgraph-workspace",
+                [
+                    new WorkspaceContextDefinition(
+                        "stj",
+                        framework: "net10.0",
+                        members: [stj]),
+                ],
+                title: "JsonElement.GetDecimal call graph",
+                description: "STJ number parse Call Graph for JsonElement.GetDecimal."),
+            new ViewDefinition(
+                v,
+                "stj-getdecimal-call-graph",
+                type: "System.Text.Json.JsonElement",
+                memberAnchor: "cfd9980a6c",
+                memberKey: "method:GetDecimal",
+                section: ProductDemoSections.CallGraph),
+            new NavigationDefinition(
+                v,
+                "stj-getdecimal-callgraph-navigation",
+                [new NavigationTabDefinition("stj", coordinate: stj)],
+                focus: "stj"),
+            new ScenarioDefinition(
+                v,
+                StjGetDecimalCallGraphScenarioId,
+                title: "JsonElement.GetDecimal",
+                description: "STJ number parse path",
+                workspace: "stj-getdecimal-callgraph-workspace",
+                context: "stj",
+                view: "stj-getdecimal-call-graph",
+                navigation: "stj-getdecimal-callgraph-navigation"),
         ];
     }
 
