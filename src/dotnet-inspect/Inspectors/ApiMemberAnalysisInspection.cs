@@ -109,7 +109,10 @@ internal sealed class ApiMemberAnalysisInspection
             ApiBodyMemberCorrespondence.Resolve(
                 [sourceToken],
                 _tokenOriginAssembly,
-                TargetAssembly);
+                TargetAssembly,
+                _options?.ProjectAssetsPath,
+                _options?.Tfm,
+                _options?.PlatformFramework);
         int targetToken = resolved[sourceToken];
         _bodyTokens.Add(sourceToken, targetToken);
         return targetToken;

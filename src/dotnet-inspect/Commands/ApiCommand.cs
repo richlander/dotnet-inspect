@@ -2423,7 +2423,10 @@ public class ApiCommand
                 ApiBodyMemberCorrespondence.Resolve(
                     ApiOutputFormatter.ResolveTypeBodyShapeMethodTokens(type),
                     tokenOrigin,
-                    assembly);
+                    assembly,
+                    options.ProjectAssetsPath,
+                    options.Tfm,
+                    options.PlatformFramework);
             Decompiler.DecompilerResult projection =
                 Decompiler.MemberBodyProducer.Project(
                 type,

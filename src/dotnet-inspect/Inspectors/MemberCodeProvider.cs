@@ -19,7 +19,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class MemberCodeProvider
 {
-    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false, bool FidelityCauses = false, bool AppliedTaste = false, bool SourceDocument = false, string? ProjectAssetsPath = null, string? TargetFramework = null, ResolvedAssemblyReference? AssemblyReference = null, ResolvedAssemblyReference? TokenOriginAssemblyReference = null, string? CaretFocus = null)
+    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false, bool FidelityCauses = false, bool AppliedTaste = false, bool SourceDocument = false, string? ProjectAssetsPath = null, string? TargetFramework = null, string? PlatformFramework = null, ResolvedAssemblyReference? AssemblyReference = null, ResolvedAssemblyReference? TokenOriginAssemblyReference = null, string? CaretFocus = null)
     {
         internal bool RequiresCodeCollection =>
             DecompiledSource
@@ -128,7 +128,10 @@ internal static class MemberCodeProvider
                     ? ApiBodyMemberCorrespondence.Resolve(
                         [sourceToken],
                         request.TokenOriginAssemblyReference ?? assembly,
-                        assembly)[sourceToken]
+                        assembly,
+                        request.ProjectAssetsPath,
+                        request.TargetFramework,
+                        request.PlatformFramework)[sourceToken]
                     : null);
             int? methodToken = selection?.MetadataToken;
 

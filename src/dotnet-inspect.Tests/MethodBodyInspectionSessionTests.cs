@@ -90,7 +90,10 @@ public class MethodBodyInspectionSessionTests
             ApiBodyMemberCorrespondence.Resolve(
                 sourceTokens,
                 tokenOrigin,
-                bodyAssembly);
+                bodyAssembly,
+                projectAssetsPath: null,
+                targetFramework: null,
+                platformFramework: null);
 
         Assert.Equal(2, sourceTokens.Length);
         Assert.Single(canonicalSignatures.Distinct(StringComparer.Ordinal));
@@ -206,7 +209,10 @@ public class MethodBodyInspectionSessionTests
                 ApiBodyMemberCorrespondence.Resolve(
                     ApiOutputFormatter.ResolveTypeBodyShapeMethodTokens(type),
                     tokenOrigin,
-                    bodyAssembly);
+                    bodyAssembly,
+                    projectAssetsPath: null,
+                    targetFramework: null,
+                    platformFramework: null);
             var resolver = new AssemblyDependencyResolver(
                 new AssemblyDependencyResolutionOptions(runtimePath));
             DecompilerResult wholeType = MemberBodyProducer.Project(
@@ -229,7 +235,7 @@ public class MethodBodyInspectionSessionTests
     }
 
     [Fact]
-    public void BodyCorrespondence_NormalizesDefinitionAndReferenceTypeNames()
+    public void BodyCorrespondence_RejectsUnrelatedReferenceAndDefinitionTypes()
     {
         byte[] signatureTypes = CompileFixture(
             "SignatureTypes",
@@ -275,6 +281,11 @@ public class MethodBodyInspectionSessionTests
                 "ref",
                 "NominalTypeCorrespondence.dll",
                 referenceImage);
+            WriteFixture(
+                root,
+                "ref",
+                "SignatureTypes.dll",
+                signatureTypes);
             string runtimePath = WriteFixture(
                 root,
                 "runtime",
@@ -293,11 +304,184 @@ public class MethodBodyInspectionSessionTests
                         member => member.Name == "Target"))
                     .Members);
 
+            InvalidOperationException exception =
+                Assert.ThrowsAny<InvalidOperationException>(
+                    () => ApiBodyMemberCorrespondence.Resolve(
+                        [target.MetadataToken!.Value],
+                        tokenOrigin,
+                        bodyAssembly,
+                        projectAssetsPath: null,
+                        targetFramework: null,
+                        platformFramework: null));
+
+            Assert.Contains(
+                "Cannot correspond",
+                exception.Message);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void BodyCorrespondence_RejectsSingletonDependencyOwnerSwap()
+    {
+        byte[] firstType = CompileFixture(
+            "FirstSignatureTypes",
+            "namespace Shared; public sealed class Value { }");
+        byte[] secondType = CompileFixture(
+            "SecondSignatureTypes",
+            "namespace Shared; public sealed class Value { }");
+        byte[] referenceImage = CompileFixture(
+            "DependencyOwnerCorrespondence",
+            """
+            namespace Sample;
+            public static class Widget
+            {
+                public static void Target(Shared.Value value) { }
+            }
+            """,
+            firstType);
+        byte[] runtimeImage = CompileFixture(
+            "DependencyOwnerCorrespondence",
+            """
+            namespace Sample;
+            public static class Widget
+            {
+                public static int Other() => 0;
+                public static void Target(Shared.Value value) { }
+            }
+            """,
+            secondType);
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"dependency-owner-correspondence-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            string referencePath = WriteFixture(
+                root,
+                "ref",
+                "DependencyOwnerCorrespondence.dll",
+                referenceImage);
+            WriteFixture(
+                root,
+                "ref",
+                "FirstSignatureTypes.dll",
+                firstType);
+            string runtimePath = WriteFixture(
+                root,
+                "runtime",
+                "DependencyOwnerCorrespondence.dll",
+                runtimeImage);
+            WriteFixture(
+                root,
+                "runtime",
+                "SecondSignatureTypes.dll",
+                secondType);
+            ResolvedAssemblyReference tokenOrigin =
+                TestAssemblyReferences.Designated(referencePath);
+            ResolvedAssemblyReference bodyAssembly =
+                TestAssemblyReferences.Designated(runtimePath);
+            ApiMember target = Assert.Single(
+                Assert.Single(
+                    Assert.IsType<ApiSurface>(
+                        AssemblyReader.ExtractApiSurface(tokenOrigin))
+                        .Types)
+                    .Members);
+
+            InvalidOperationException exception =
+                Assert.Throws<InvalidOperationException>(
+                    () => ApiBodyMemberCorrespondence.Resolve(
+                        [target.MetadataToken!.Value],
+                        tokenOrigin,
+                        bodyAssembly,
+                        projectAssetsPath: null,
+                        targetFramework: null,
+                        platformFramework: null));
+
+            Assert.Contains(
+                "Cannot correspond",
+                exception.Message);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void BodyCorrespondence_ResolvesReferenceIntoSelectedRuntimeRoot()
+    {
+        byte[] runtimeImage = CompileFixture(
+            "SelectedRuntimeRoot",
+            """
+            namespace Shared
+            {
+                public sealed class Value { }
+                public sealed class Other { }
+            }
+            namespace Sample
+            {
+                public static class Widget
+                {
+                    public static int Other() => 0;
+                    public static void Target(Shared.Value value) { }
+                    public static void Target(Shared.Other value) { }
+                }
+            }
+            """);
+        byte[] referenceImage = CompileFixture(
+            "ReferenceSurface",
+            """
+            namespace Sample;
+            public static class Widget
+            {
+                public static void Target(Shared.Value value) { }
+            }
+            """,
+            runtimeImage);
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"selected-runtime-root-correspondence-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            string referencePath = WriteFixture(
+                root,
+                "ref",
+                "ReferenceSurface.dll",
+                referenceImage);
+            WriteFixture(
+                root,
+                "ref",
+                "SelectedRuntimeRoot.dll",
+                runtimeImage);
+            string runtimePath = WriteFixture(
+                root,
+                "runtime",
+                "SelectedRuntimeRoot.dll",
+                runtimeImage);
+            ResolvedAssemblyReference tokenOrigin =
+                TestAssemblyReferences.Designated(referencePath);
+            ResolvedAssemblyReference bodyAssembly =
+                TestAssemblyReferences.Designated(runtimePath);
+            ApiMember target = Assert.Single(
+                Assert.Single(
+                    Assert.IsType<ApiSurface>(
+                        AssemblyReader.ExtractApiSurface(tokenOrigin))
+                        .Types)
+                    .Members);
+
             IReadOnlyDictionary<int, int> correspondence =
                 ApiBodyMemberCorrespondence.Resolve(
                     [target.MetadataToken!.Value],
                     tokenOrigin,
-                    bodyAssembly);
+                    bodyAssembly,
+                    projectAssetsPath: null,
+                    targetFramework: null,
+                    platformFramework: null);
 
             Assert.Single(correspondence);
             Assert.NotEqual(
@@ -308,6 +492,93 @@ public class MethodBodyInspectionSessionTests
         {
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    [Fact]
+    public void BodyCorrespondence_PathlessRootLocalSignaturesDoNotNeedResolver()
+    {
+        byte[] externalImage = CompileFixture(
+            "UnavailableConstraint",
+            "namespace External; public class Base { }");
+        byte[] referenceImage = CompileFixture(
+            "PathlessReference",
+            """
+            namespace Shared
+            {
+                public sealed class Value { }
+            }
+            namespace Unrelated
+            {
+                public class Generic<T> where T : External.Base { }
+            }
+            namespace Sample
+            {
+                public static class Widget
+                {
+                    public static Shared.Value Target(
+                        Shared.Value value) => value;
+                }
+            }
+            """,
+            externalImage);
+        byte[] runtimeImage = CompileFixture(
+            "PathlessRuntime",
+            """
+            namespace Shared
+            {
+                public sealed class Value { }
+            }
+            namespace Unrelated
+            {
+                public class Generic<T> where T : External.Base { }
+            }
+            namespace Sample
+            {
+                public static class Widget
+                {
+                    public static int Other() => 0;
+                    public static Shared.Value Target(
+                        Shared.Value value) => value;
+                }
+            }
+            """,
+            externalImage);
+        ResolvedAssemblyReference tokenOrigin =
+            Assert.IsType<ResolvedAssemblyReference>(
+                ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                    () => new MemoryStream(
+                        referenceImage,
+                        writable: false),
+                    AssemblyResolutionProvenance.Local("test")));
+        ResolvedAssemblyReference bodyAssembly =
+            Assert.IsType<ResolvedAssemblyReference>(
+                ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                    () => new MemoryStream(
+                        runtimeImage,
+                        writable: false),
+                    AssemblyResolutionProvenance.Local("test")));
+        ApiMember target = Assert.Single(
+            Assert.Single(
+                Assert.IsType<ApiSurface>(
+                    AssemblyReader.ExtractApiSurface(tokenOrigin))
+                    .Types,
+                type => type.Members.Any(
+                    member => member.Name == "Target"))
+                .Members);
+
+        IReadOnlyDictionary<int, int> correspondence =
+            ApiBodyMemberCorrespondence.Resolve(
+                [target.MetadataToken!.Value],
+                tokenOrigin,
+                bodyAssembly,
+                projectAssetsPath: null,
+                targetFramework: null,
+                platformFramework: null);
+
+        Assert.Single(correspondence);
+        Assert.NotEqual(
+            target.MetadataToken.Value,
+            correspondence[target.MetadataToken.Value]);
     }
 
     [Fact]
@@ -381,7 +652,9 @@ public class MethodBodyInspectionSessionTests
             IReadOnlyDictionary<int, MethodBodySelection> correspondence =
                 originImage.MethodBodies.ResolveCorrespondingMethods(
                     [sourceTokens[0]],
-                    bodyImage.MethodBodies);
+                    bodyImage.MethodBodies,
+                    reference => reference.Type.ToEscapedFullName(),
+                    reference => reference.Type.ToEscapedFullName());
 
             Assert.Equal(2, sourceTokens.Length);
             Assert.Empty(correspondence);
@@ -451,7 +724,8 @@ public class MethodBodyInspectionSessionTests
             int runtimeToken = MemberCommand.ResolveSourceMetadataToken(
                 selected,
                 tokenOrigin,
-                runtime);
+                runtime,
+                options: null);
             using var runtimeImageSession =
                 AssemblyInspectionSession.Open(runtime);
             var runtimeAnchor =

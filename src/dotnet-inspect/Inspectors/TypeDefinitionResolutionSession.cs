@@ -98,6 +98,43 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
         return context.Resolve(request);
     }
 
+    public TypeResolutionOutcome Resolve(
+        MetadataNamedTypeReference reference)
+    {
+        ArgumentNullException.ThrowIfNull(reference);
+        TypeResolutionRequest request = reference.Scope switch
+        {
+            MetadataTypeReferenceScope.CurrentAssembly =>
+                TypeResolutionRequest.FromAssembly(
+                    _root,
+                    AssemblyResolutionScope.Any,
+                    reference.Type),
+            MetadataTypeReferenceScope.AssemblyReference assembly =>
+                TypeResolutionRequest.FromReference(
+                    assembly.Assembly,
+                    AssemblyBindingOrigin.FromAssembly(_root),
+                    AssemblyResolutionScope.Any,
+                    reference.Type),
+            MetadataTypeReferenceScope.IntrinsicCoreLibrary =>
+                TypeResolutionRequest.FromCoreLibrary(
+                    _root,
+                    AssemblyResolutionScope.Any,
+                    reference.Type),
+            MetadataTypeReferenceScope.ModuleReference module =>
+                TypeResolutionRequest.FromModule(
+                    _root,
+                    module.Name,
+                    reference.Type),
+            _ => throw new InvalidOperationException(
+                "Unsupported named-type resolution scope."),
+        };
+        using TypeResolutionContext context = _catalog.CreateContext(
+            _policy,
+            [_root],
+            [request]);
+        return context.Resolve(request);
+    }
+
     public ApiSurface? ExtractApiSurface(
         bool includeAll = false,
         bool typesOnly = false) =>

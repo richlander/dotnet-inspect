@@ -158,6 +158,16 @@ only inside their owning artifact generation. A digest and immutable source
 coordinate can provide durable content evidence, but neither recreates the
 owner-issued registration after that generation ends.
 
+An assembly acquisition registration binds once to the module MVID of the
+immutable content generation that it selects. Factories that already have open
+metadata bind at descriptor creation; lazy descriptors bind on their first
+verified open. Every later open, including a content snapshot, must carry the
+same MVID. Registration equality permits direct token reuse only after both
+descriptors have passed that validation. It does not permit a path replacement
+or same-identity content swap to reinterpret a token RID.
+`InspectionAcquisitionPlanTests.WithContentSnapshot_RejectsDifferentBoundModuleGeneration`
+gates this bind-once rule.
+
 Metadata tokens are acquisition-local addresses and never establish
 correspondence between registrations. When an API member selected from a
 reference acquisition is analyzed against a distinct runtime acquisition, the
@@ -166,17 +176,28 @@ independently from each acquisition's SRM metadata and maps to the runtime
 MethodDef before opening any body-backed section. This correspondence identity
 is intentionally stricter than the durable, user-facing `MemberAnchor`: it
 retains calling conventions, return and parameter signatures, generic
-positions, function-pointer conventions, and custom modifiers. A nominal type
-inside that signature is projected by namespace and root-to-leaf metadata name,
-not by whether one acquisition encodes it as a TypeDef or as a TypeRef through
-an assembly scope. That erasure may establish correspondence only when the
-projected MethodDef identity is unique in both acquisitions. Missing or
-ambiguous identity correspondence is a visible failure; a foreign token or
-overload ordinal is never used as a fallback.
-`MethodBodyInspectionSessionTests.BodyCorrespondence_NormalizesDefinitionAndReferenceTypeNames`
-gates TypeDef/TypeRef and generic-constraint normalization;
-`BodyCorrespondence_AmbiguousMetadataNamesFailClosed` gates source-wide
-uniqueness for a singleton request; and
+positions and constraints, function-pointer conventions, and custom modifiers.
+
+Nominal types in that identity require definition correspondence, not equal
+display names. A TypeDef in either selected source/runtime root is identified
+by the root pair plus its namespace and root-to-leaf metadata name. A TypeRef
+is resolved from its recorded current-assembly, assembly-reference,
+intrinsic-core-library, or module-reference scope through the frozen type
+resolution catalog. A definition outside the selected roots is identified by
+its module MVID and TypeDef token. A TypeRef that resolves into either selected
+root uses the root-pair identity, allowing a reference facade to correspond to
+the selected implementation TypeDef. Unresolved, ambiguous, stale, or
+differently owned nominal types do not correspond. The resulting MethodDef
+identity must also be unique in both acquisitions.
+
+Missing or ambiguous identity correspondence is a visible failure; a foreign
+token, metadata-name fallback, or overload ordinal is never used as a fallback.
+`MethodBodyInspectionSessionTests.BodyCorrespondence_ResolvesReferenceIntoSelectedRuntimeRoot`
+gates the permitted TypeRef-to-selected-TypeDef normalization;
+`BodyCorrespondence_RejectsUnrelatedReferenceAndDefinitionTypes` and
+`BodyCorrespondence_RejectsSingletonDependencyOwnerSwap` gate the nominal-owner
+boundary; `BodyCorrespondence_AmbiguousMetadataNamesFailClosed` gates
+source-wide uniqueness for a singleton request; and
 `PdbSourceToken_CorrespondsReorderedOverloads` gates exact runtime-token
 selection for PDB lookup.
 

@@ -176,8 +176,39 @@ public abstract record AssemblyResolutionProvenance
 /// </summary>
 public sealed class AssemblyAcquisitionRegistration
 {
+    readonly object _gate = new();
+    Guid? _contentModuleVersionId;
+
     internal AssemblyAcquisitionRegistration()
     {
+    }
+
+    internal Guid? ContentModuleVersionId
+    {
+        get
+        {
+            lock (_gate)
+                return _contentModuleVersionId;
+        }
+    }
+
+    internal void BindContentModuleVersionId(Guid moduleVersionId)
+    {
+        lock (_gate)
+        {
+            if (_contentModuleVersionId is null)
+            {
+                _contentModuleVersionId = moduleVersionId;
+                return;
+            }
+
+            if (_contentModuleVersionId != moduleVersionId)
+            {
+                throw new BadImageFormatException(
+                    "The opened image does not match the acquisition "
+                    + $"registration MVID '{_contentModuleVersionId}'.");
+            }
+        }
     }
 }
 
@@ -202,6 +233,8 @@ public sealed class ResolvedAssemblyReference
         OpenRead = openRead;
         Provenance = provenance;
         LastWriteTimeUtc = lastWriteTimeUtc;
+        if (moduleVersionId is { } selectedModuleVersionId)
+            Registration.BindContentModuleVersionId(selectedModuleVersionId);
     }
 
     public static ResolvedAssemblyReference Create(
@@ -276,12 +309,15 @@ public sealed class ResolvedAssemblyReference
             if (string.IsNullOrWhiteSpace(identity.Name))
                 return null;
 
-            return Create(
+            ResolvedAssemblyReference reference = Create(
                 identity,
                 fullPath,
                 () => File.OpenRead(fullPath),
                 provenance,
                 File.GetLastWriteTimeUtc(stream.SafeFileHandle));
+            reference.Registration.BindContentModuleVersionId(
+                metadata.GetGuid(metadata.GetModuleDefinition().Mvid));
+            return reference;
         }
     }
 
@@ -402,12 +438,16 @@ public sealed class ResolvedAssemblyReference
             if (string.IsNullOrWhiteSpace(identity.Name))
                 return null;
 
-            return Create(
+            ResolvedAssemblyReference reference = Create(
                 identity,
                 path: null,
                 openRead,
                 provenance,
                 lastWriteTimeUtc);
+            reference.Registration.BindContentModuleVersionId(
+                peReader.GetMetadataReader().GetGuid(
+                    peReader.GetMetadataReader().GetModuleDefinition().Mvid));
+            return reference;
         }
     }
 
@@ -458,6 +498,13 @@ public sealed class ResolvedAssemblyReference
     /// assembly descriptor.
     /// </summary>
     public Guid? ModuleVersionId { get; }
+    /// <summary>
+    /// The module generation bound to this acquisition registration. Assembly
+    /// descriptors bind it when selected or on their first verified open;
+    /// netmodule descriptors bind it at creation.
+    /// </summary>
+    public Guid? ContentModuleVersionId =>
+        Registration.ContentModuleVersionId;
     public bool IsAssembly => ModuleVersionId is null;
     public string? Path { get; }
     /// <summary>
@@ -528,12 +575,15 @@ public sealed class ResolvedAssemblyReference
 
     /// <summary>
     /// Returns an immutable-content view of this acquisition after verifying
-    /// that the supplied image has the selected assembly identity.
+    /// that the supplied image has the selected assembly identity and bound
+    /// module generation.
     /// </summary>
     /// <remarks>
     /// `InspectionAcquisitionPlanTests.WithContentSnapshot_PreservesRegistrationAndAcquisition`
     /// and
-    /// `InspectionAcquisitionPlanTests.WithContentSnapshot_RejectsDifferentAssemblyIdentity`
+    /// `InspectionAcquisitionPlanTests.WithContentSnapshot_RejectsDifferentAssemblyIdentity`,
+    /// plus
+    /// `InspectionAcquisitionPlanTests.WithContentSnapshot_RejectsDifferentBoundModuleGeneration`
     /// gate the two properties.
     /// </remarks>
     public ResolvedAssemblyReference WithContentSnapshot(
@@ -580,11 +630,12 @@ public sealed class ResolvedAssemblyReference
     public void ValidateOpenedMetadata(MetadataReader metadata)
     {
         ArgumentNullException.ThrowIfNull(metadata);
+        Guid openedModuleVersionId = metadata.GetGuid(
+            metadata.GetModuleDefinition().Mvid);
         if (ModuleVersionId is { } expectedModuleVersionId)
         {
             if (metadata.IsAssembly
-                || metadata.GetGuid(metadata.GetModuleDefinition().Mvid)
-                    != expectedModuleVersionId)
+                || openedModuleVersionId != expectedModuleVersionId)
             {
                 throw new BadImageFormatException(
                     "The opened image does not match the acquired "
@@ -609,6 +660,7 @@ public sealed class ResolvedAssemblyReference
                     + $"the acquired assembly identity '{Identity}'.");
             }
         }
+        Registration.BindContentModuleVersionId(openedModuleVersionId);
     }
 
     internal ResolvedAssemblyReference WithOpenRead(

@@ -195,12 +195,51 @@ public sealed class MethodBodySource : IOperandNameResolver
     }
 
     /// <summary>
-    /// Resolves source MethodDef tokens to exact corresponding methods in a
-    /// distinct metadata source. Missing and ambiguous identities are omitted.
+    /// Resolves source MethodDef tokens to methods with the same exact
+    /// acquisition-address structural identity in a distinct metadata source.
+    /// Use the nominal-identity overload when the sources may encode a
+    /// corresponding type through different metadata scopes. Missing and
+    /// ambiguous identities are omitted.
     /// </summary>
     public IReadOnlyDictionary<int, MethodBodySelection> ResolveCorrespondingMethods(
         IEnumerable<int> sourceMethodTokens,
-        MethodBodySource target)
+        MethodBodySource target) =>
+        ResolveCorrespondingMethodsCore(
+            sourceMethodTokens,
+            target,
+            sourceNominalTypeIdentity: null,
+            targetNominalTypeIdentity: null);
+
+    /// <summary>
+    /// Resolves source MethodDefs using caller-supplied identities for every
+    /// named signature type. The callbacks must return equal values only for
+    /// type definitions proven to correspond.
+    /// </summary>
+    public IReadOnlyDictionary<int, MethodBodySelection> ResolveCorrespondingMethods(
+        IEnumerable<int> sourceMethodTokens,
+        MethodBodySource target,
+        Func<MetadataNamedTypeReference, string>
+            sourceNominalTypeIdentity,
+        Func<MetadataNamedTypeReference, string>
+            targetNominalTypeIdentity)
+    {
+        ArgumentNullException.ThrowIfNull(sourceNominalTypeIdentity);
+        ArgumentNullException.ThrowIfNull(targetNominalTypeIdentity);
+        return ResolveCorrespondingMethodsCore(
+            sourceMethodTokens,
+            target,
+            sourceNominalTypeIdentity,
+            targetNominalTypeIdentity);
+    }
+
+    IReadOnlyDictionary<int, MethodBodySelection>
+        ResolveCorrespondingMethodsCore(
+            IEnumerable<int> sourceMethodTokens,
+            MethodBodySource target,
+            Func<MetadataNamedTypeReference, string>?
+                sourceNominalTypeIdentity,
+            Func<MetadataNamedTypeReference, string>?
+                targetNominalTypeIdentity)
     {
         _ensureAlive();
         ArgumentNullException.ThrowIfNull(sourceMethodTokens);
@@ -220,10 +259,27 @@ public sealed class MethodBodySource : IOperandNameResolver
                 "The source method table exceeds the correspondence safety limit.");
         }
 
-        var sourceSignatures = new StructuralSignatureBuilder(
-            _reader,
-            StructuralNominalTypeIdentity.MetadataName);
+        StructuralSignatureWorkBudget? sourceWorkBudget =
+            sourceNominalTypeIdentity is null
+                ? null
+                : new StructuralSignatureWorkBudget();
+        var sourceSignatures = sourceNominalTypeIdentity is null
+            ? new StructuralSignatureBuilder(_reader)
+            : new StructuralSignatureBuilder(
+                _reader,
+                sourceWorkBudget!,
+                new NominalTypeIdentityAdapter(
+                    sourceNominalTypeIdentity));
+        var sourceFilterSignatures =
+            sourceNominalTypeIdentity is null
+                ? sourceSignatures
+                : new StructuralSignatureBuilder(
+                    _reader,
+                    sourceWorkBudget!,
+                    new NominalTypeIdentityAdapter(
+                        MetadataNameIdentity));
         var requested = new Dictionary<StructuralMethodKey, List<int>>();
+        var requestedFilterTypes = new HashSet<StructuralTypeKey>();
         foreach (int sourceToken in sourceMethodTokens.Distinct())
         {
             EntityHandle entity = MetadataTokens.EntityHandle(sourceToken);
@@ -246,6 +302,9 @@ public sealed class MethodBodySource : IOperandNameResolver
 
             StructuralMethodKey key =
                 sourceSignatures.BuildMethodKey(sourceMethod);
+            requestedFilterTypes.Add(
+                sourceFilterSignatures.BuildTypeKey(
+                    sourceMethod.GetDeclaringType()));
             if (!requested.TryGetValue(key, out List<int>? tokens))
             {
                 tokens = [];
@@ -254,9 +313,6 @@ public sealed class MethodBodySource : IOperandNameResolver
             tokens.Add(sourceToken);
         }
 
-        var requestedTypes = requested.Keys
-            .Select(key => key.DeclaringType)
-            .ToHashSet();
         var sourceMatchCounts = requested.Keys
             .ToDictionary(key => key, _ => 0);
         var sourceDeclaringTypes =
@@ -272,8 +328,9 @@ public sealed class MethodBodySource : IOperandNameResolver
                     declaringType,
                     out bool declaringTypeMatches))
             {
-                declaringTypeMatches = requestedTypes.Contains(
-                    sourceSignatures.BuildTypeKey(declaringType));
+                declaringTypeMatches = requestedFilterTypes.Contains(
+                    sourceFilterSignatures.BuildTypeKey(
+                        declaringType));
                 sourceDeclaringTypes.Add(
                     declaringType,
                     declaringTypeMatches);
@@ -294,9 +351,25 @@ public sealed class MethodBodySource : IOperandNameResolver
                 || sourceMatchCounts[entry.Key] != 1)
             .SelectMany(entry => entry.Value)
             .ToHashSet();
-        var targetSignatures = new StructuralSignatureBuilder(
-            target._reader,
-            StructuralNominalTypeIdentity.MetadataName);
+        StructuralSignatureWorkBudget? targetWorkBudget =
+            targetNominalTypeIdentity is null
+                ? null
+                : new StructuralSignatureWorkBudget();
+        var targetSignatures = targetNominalTypeIdentity is null
+            ? new StructuralSignatureBuilder(target._reader)
+            : new StructuralSignatureBuilder(
+                target._reader,
+                targetWorkBudget!,
+                new NominalTypeIdentityAdapter(
+                    targetNominalTypeIdentity));
+        var targetFilterSignatures =
+            targetNominalTypeIdentity is null
+                ? targetSignatures
+                : new StructuralSignatureBuilder(
+                    target._reader,
+                    targetWorkBudget!,
+                    new NominalTypeIdentityAdapter(
+                        MetadataNameIdentity));
         var matchingDeclaringTypes =
             new Dictionary<TypeDefinitionHandle, bool>();
         foreach (MethodDefinitionHandle targetHandle
@@ -310,8 +383,9 @@ public sealed class MethodBodySource : IOperandNameResolver
                     declaringType,
                     out bool declaringTypeMatches))
             {
-                declaringTypeMatches = requestedTypes.Contains(
-                    targetSignatures.BuildTypeKey(declaringType));
+                declaringTypeMatches = requestedFilterTypes.Contains(
+                    targetFilterSignatures.BuildTypeKey(
+                        declaringType));
                 matchingDeclaringTypes.Add(
                     declaringType,
                     declaringTypeMatches);
@@ -342,6 +416,63 @@ public sealed class MethodBodySource : IOperandNameResolver
         foreach (int sourceToken in ambiguous)
             resolved.Remove(sourceToken);
         return resolved;
+    }
+
+    static string MetadataNameIdentity(
+        MetadataNamedTypeReference reference) =>
+        reference.Type.ToEscapedFullName();
+
+    sealed class NominalTypeIdentityAdapter(
+        Func<MetadataNamedTypeReference, string> identity)
+        : IStructuralNominalTypeIdentityProvider
+    {
+        public string GetTypeFromDefinition(
+            MetadataReader reader,
+            TypeDefinitionHandle handle) =>
+            Resolve(
+                MetadataNamedTypeSignatureDecoder.DecodeTypeDefinition(
+                    reader,
+                    handle));
+
+        public string GetTypeFromReference(
+            MetadataReader reader,
+            TypeReferenceHandle handle) =>
+            Resolve(
+                MetadataNamedTypeSignatureDecoder.DecodeTypeReference(
+                    reader,
+                    handle));
+
+        string Resolve(MetadataNamedTypeReference? reference)
+        {
+            if (reference is null)
+            {
+                throw new BadImageFormatException(
+                    "The nominal signature type could not be decoded.");
+            }
+
+            string resolved;
+            try
+            {
+                resolved = identity(reference);
+            }
+            catch (StructuralNominalTypeResolutionException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException)
+            {
+                throw new StructuralNominalTypeResolutionException(
+                    "The nominal signature type identity could not be "
+                    + "resolved.",
+                    ex);
+            }
+            if (string.IsNullOrWhiteSpace(resolved))
+            {
+                throw new StructuralNominalTypeResolutionException(
+                    "The nominal signature type identity is empty.");
+            }
+            return resolved;
+        }
     }
 
     /// <summary>

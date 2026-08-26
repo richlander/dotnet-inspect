@@ -418,11 +418,21 @@ sealed class StructuralSignatureWorkBudget
     }
 }
 
-internal enum StructuralNominalTypeIdentity
+internal interface IStructuralNominalTypeIdentityProvider
 {
-    AcquisitionAddress,
-    MetadataName,
+    string GetTypeFromDefinition(
+        MetadataReader reader,
+        TypeDefinitionHandle handle);
+
+    string GetTypeFromReference(
+        MetadataReader reader,
+        TypeReferenceHandle handle);
 }
+
+internal sealed class StructuralNominalTypeResolutionException(
+    string message,
+    Exception? innerException = null)
+    : InvalidOperationException(message, innerException);
 
 /// <summary>
 /// Builds structural keys for one metadata module and one stable type-name
@@ -449,18 +459,32 @@ public sealed class StructuralSignatureBuilder
             reader,
             typeNameOverrides,
             new StructuralSignatureWorkBudget(),
-            StructuralNominalTypeIdentity.AcquisitionAddress)
+            nominalTypeIdentityProvider: null)
     {
     }
 
     internal StructuralSignatureBuilder(
         MetadataReader reader,
-        StructuralNominalTypeIdentity nominalTypeIdentity)
+        IStructuralNominalTypeIdentityProvider
+            nominalTypeIdentityProvider)
         : this(
             reader,
             typeNameOverrides: null,
             new StructuralSignatureWorkBudget(),
-            nominalTypeIdentity)
+            nominalTypeIdentityProvider)
+    {
+    }
+
+    internal StructuralSignatureBuilder(
+        MetadataReader reader,
+        StructuralSignatureWorkBudget workBudget,
+        IStructuralNominalTypeIdentityProvider
+            nominalTypeIdentityProvider)
+        : this(
+            reader,
+            typeNameOverrides: null,
+            workBudget,
+            nominalTypeIdentityProvider)
     {
     }
 
@@ -472,7 +496,7 @@ public sealed class StructuralSignatureBuilder
             reader,
             typeNameOverrides,
             workBudget,
-            StructuralNominalTypeIdentity.AcquisitionAddress)
+            nominalTypeIdentityProvider: null)
     {
     }
 
@@ -480,7 +504,8 @@ public sealed class StructuralSignatureBuilder
         MetadataReader reader,
         IReadOnlyDictionary<TypeDefinitionHandle, string>? typeNameOverrides,
         StructuralSignatureWorkBudget workBudget,
-        StructuralNominalTypeIdentity nominalTypeIdentity)
+        IStructuralNominalTypeIdentityProvider?
+            nominalTypeIdentityProvider)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(workBudget);
@@ -489,7 +514,7 @@ public sealed class StructuralSignatureBuilder
         _workBudget = workBudget;
         _provider = new StructuralSignatureTypeProvider(
             workBudget,
-            nominalTypeIdentity);
+            nominalTypeIdentityProvider);
     }
 
     /// <summary>Builds a method key, optionally substituting its name.</summary>
@@ -600,6 +625,10 @@ static class StructuralSignatureKey
             return build();
         }
         catch (BadImageFormatException)
+        {
+            throw;
+        }
+        catch (StructuralNominalTypeResolutionException)
         {
             throw;
         }
@@ -1114,18 +1143,19 @@ sealed class StructuralSignatureTypeProvider
     : ISignatureTypeProvider<StructuralSignatureType, object?>
 {
     readonly StructuralSignatureWorkBudget _workBudget;
-    readonly StructuralNominalTypeIdentity _nominalTypeIdentity;
+    readonly IStructuralNominalTypeIdentityProvider?
+        _nominalTypeIdentityProvider;
     readonly Dictionary<EntityHandle, string> _constraintTypes = [];
     readonly Dictionary<BlobHandle, string> _constraintTypeSpecifications = [];
     readonly Dictionary<BlobHandle, StructuralSignatureType> _typeSpecifications = [];
 
     internal StructuralSignatureTypeProvider(
         StructuralSignatureWorkBudget workBudget,
-        StructuralNominalTypeIdentity nominalTypeIdentity =
-            StructuralNominalTypeIdentity.AcquisitionAddress)
+        IStructuralNominalTypeIdentityProvider?
+            nominalTypeIdentityProvider = null)
     {
         _workBudget = workBudget;
-        _nominalTypeIdentity = nominalTypeIdentity;
+        _nominalTypeIdentityProvider = nominalTypeIdentityProvider;
     }
 
     public StructuralSignatureType GetPrimitiveType(
@@ -1141,15 +1171,12 @@ sealed class StructuralSignatureTypeProvider
         byte rawTypeKind)
         => NamedTypeUse(
             reader,
-            _nominalTypeIdentity
-                == StructuralNominalTypeIdentity.MetadataName
-                    ? 'n'
-                    : 'd',
+            _nominalTypeIdentityProvider is null ? 'd' : 'n',
             rawTypeKind,
-            _nominalTypeIdentity
-                == StructuralNominalTypeIdentity.MetadataName
-                    ? StructuralTypeName.OfDefinitionName(reader, handle)
-                    : StructuralTypeName.OfDefinition(
+            _nominalTypeIdentityProvider?.GetTypeFromDefinition(
+                reader,
+                handle)
+                ?? StructuralTypeName.OfDefinition(
                         reader,
                         handle,
                         typeNameOverrides: null));
@@ -1160,15 +1187,12 @@ sealed class StructuralSignatureTypeProvider
         byte rawTypeKind)
         => NamedTypeUse(
             reader,
-            _nominalTypeIdentity
-                == StructuralNominalTypeIdentity.MetadataName
-                    ? 'n'
-                    : 'r',
+            _nominalTypeIdentityProvider is null ? 'r' : 'n',
             rawTypeKind,
-            _nominalTypeIdentity
-                == StructuralNominalTypeIdentity.MetadataName
-                    ? StructuralTypeName.OfReferenceName(reader, handle)
-                    : StructuralTypeName.OfReference(reader, handle));
+            _nominalTypeIdentityProvider?.GetTypeFromReference(
+                reader,
+                handle)
+                ?? StructuralTypeName.OfReference(reader, handle));
 
     public StructuralSignatureType GetTypeFromSpecification(
         MetadataReader reader,
@@ -1215,33 +1239,23 @@ sealed class StructuralSignatureTypeProvider
         {
             HandleKind.TypeDefinition =>
                 new PartPrefixStructuralSignatureType(
-                    _nominalTypeIdentity
-                        == StructuralNominalTypeIdentity.MetadataName
-                            ? 'n'
-                            : 'd',
+                    _nominalTypeIdentityProvider is null ? 'd' : 'n',
                     NamedType(
-                        _nominalTypeIdentity
-                            == StructuralNominalTypeIdentity.MetadataName
-                                ? StructuralTypeName.OfDefinitionName(
-                                    reader,
-                                    (TypeDefinitionHandle)handle)
-                                : StructuralTypeName.OfDefinition(
+                        _nominalTypeIdentityProvider?.GetTypeFromDefinition(
+                            reader,
+                            (TypeDefinitionHandle)handle)
+                            ?? StructuralTypeName.OfDefinition(
                                     reader,
                                     (TypeDefinitionHandle)handle,
                                     typeNameOverrides: null))),
             HandleKind.TypeReference =>
                 new PartPrefixStructuralSignatureType(
-                    _nominalTypeIdentity
-                        == StructuralNominalTypeIdentity.MetadataName
-                            ? 'n'
-                            : 'r',
+                    _nominalTypeIdentityProvider is null ? 'r' : 'n',
                     NamedType(
-                        _nominalTypeIdentity
-                            == StructuralNominalTypeIdentity.MetadataName
-                                ? StructuralTypeName.OfReferenceName(
-                                    reader,
-                                    (TypeReferenceHandle)handle)
-                                : StructuralTypeName.OfReference(
+                        _nominalTypeIdentityProvider?.GetTypeFromReference(
+                            reader,
+                            (TypeReferenceHandle)handle)
+                            ?? StructuralTypeName.OfReference(
                                     reader,
                                     (TypeReferenceHandle)handle))),
             HandleKind.TypeSpecification =>
@@ -1475,80 +1489,4 @@ static class StructuralTypeName
         return builder.ToString();
     }
 
-    internal static string OfDefinitionName(
-        MetadataReader reader,
-        TypeDefinitionHandle handle)
-    {
-        Span<TypeDefinitionHandle> chain =
-            stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
-        if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
-                reader,
-                handle,
-                chain,
-                out int consumed,
-                out EntityHandle terminal,
-                out var rejection)
-            || consumed == 0
-            || !terminal.IsNil)
-        {
-            throw new BadImageFormatException(
-                rejection?.Detail ?? "The type has an invalid declaring-type chain.");
-        }
-
-        var builder = new StringBuilder("N");
-        var outer = reader.GetTypeDefinition(chain[0]);
-        StructuralSignatureKey.AppendPart(
-            builder,
-            MetadataSafetyPolicy.ReadStructuralString(
-                reader,
-                outer.Namespace));
-        StructuralSignatureKey.AppendNumber(builder, consumed);
-        for (int i = 0; i < consumed; i++)
-        {
-            StructuralSignatureKey.AppendPart(
-                builder,
-                MetadataSafetyPolicy.ReadStructuralString(
-                    reader,
-                    reader.GetTypeDefinition(chain[i]).Name));
-        }
-        return builder.ToString();
-    }
-
-    internal static string OfReferenceName(
-        MetadataReader reader,
-        TypeReferenceHandle handle)
-    {
-        Span<TypeReferenceHandle> chain =
-            stackalloc TypeReferenceHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
-        if (!MetadataRelationshipTraversal.TryWalkTypeReferenceResolutionScope(
-                reader,
-                handle,
-                chain,
-                out int consumed,
-                out _,
-                out var rejection)
-            || consumed == 0)
-        {
-            throw new BadImageFormatException(
-                rejection?.Detail ?? "The type has an invalid resolution-scope chain.");
-        }
-
-        var builder = new StringBuilder("N");
-        var outer = reader.GetTypeReference(chain[0]);
-        StructuralSignatureKey.AppendPart(
-            builder,
-            MetadataSafetyPolicy.ReadStructuralString(
-                reader,
-                outer.Namespace));
-        StructuralSignatureKey.AppendNumber(builder, consumed);
-        for (int i = 0; i < consumed; i++)
-        {
-            StructuralSignatureKey.AppendPart(
-                builder,
-                MetadataSafetyPolicy.ReadStructuralString(
-                    reader,
-                    reader.GetTypeReference(chain[i]).Name));
-        }
-        return builder.ToString();
-    }
 }

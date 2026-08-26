@@ -394,6 +394,70 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
+    public void WithContentSnapshot_RejectsDifferentBoundModuleGeneration()
+    {
+        byte[] first = BuildSimpleAssembly(
+            "SameIdentity",
+            "First",
+            Guid.NewGuid());
+        byte[] second = BuildSimpleAssembly(
+            "SameIdentity",
+            "Second",
+            Guid.NewGuid());
+        ResolvedAssemblyReference descriptor =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(first),
+                path: null,
+                () => new MemoryStream(first, writable: false),
+                AssemblyResolutionProvenance.Local("test"));
+        using (AssemblyInspectionSession.Open(descriptor))
+        {
+        }
+
+        BadImageFormatException exception =
+            Assert.Throws<BadImageFormatException>(
+                () => descriptor.WithContentSnapshot(
+                    second.ToImmutableArray()));
+
+        Assert.Contains(
+            "acquisition registration MVID",
+            exception.Message);
+    }
+
+    [Fact]
+    public void RegisteredDescriptorOpen_RejectsDifferentModuleGeneration()
+    {
+        byte[] first = BuildSimpleAssembly(
+            "SameIdentity",
+            "First",
+            Guid.NewGuid());
+        byte[] second = BuildSimpleAssembly(
+            "SameIdentity",
+            "Second",
+            Guid.NewGuid());
+        ResolvedAssemblyReference descriptor =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(first),
+                path: null,
+                () => new MemoryStream(first, writable: false),
+                AssemblyResolutionProvenance.Local("test"));
+        using (AssemblyInspectionSession.Open(descriptor))
+        {
+        }
+        ResolvedAssemblyReference replacement = descriptor.WithOpenRead(
+            () => new MemoryStream(second, writable: false),
+            lastWriteTimeUtc: null);
+
+        BadImageFormatException exception =
+            Assert.Throws<BadImageFormatException>(
+                () => AssemblyInspectionSession.Open(replacement));
+
+        Assert.Contains(
+            "acquisition registration MVID",
+            exception.Message);
+    }
+
+    [Fact]
     public void ModuleContentSnapshot_PreservesRegistrationAndAcquisition()
     {
         byte[] image = BuildModuleImage();

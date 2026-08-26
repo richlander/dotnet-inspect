@@ -60,6 +60,16 @@ public sealed record MetadataNamedTypeReference
 
 internal static class MetadataNamedTypeSignatureDecoder
 {
+    internal static MetadataNamedTypeReference? DecodeTypeDefinition(
+        MetadataReader reader,
+        TypeDefinitionHandle handle) =>
+        MetadataNamedTypeProvider.TypeFromDefinition(reader, handle);
+
+    internal static MetadataNamedTypeReference? DecodeTypeReference(
+        MetadataReader reader,
+        TypeReferenceHandle handle) =>
+        MetadataNamedTypeProvider.TypeFromReference(reader, handle);
+
     internal static MethodSignature<MetadataNamedTypeReference?>? DecodeMethod(
         MetadataReader reader,
         MethodDefinition method,
@@ -127,6 +137,11 @@ internal static class MetadataNamedTypeSignatureDecoder
             MetadataReader reader,
             TypeDefinitionHandle handle,
             byte rawTypeKind) =>
+            TypeFromDefinition(reader, handle);
+
+        internal static MetadataNamedTypeReference? TypeFromDefinition(
+            MetadataReader reader,
+            TypeDefinitionHandle handle) =>
             MetadataTypeDefinitionNameReader.Read(reader, handle)
                 is MetadataTypeDefinitionNameReadResult.Read read
                     ? new MetadataNamedTypeReference(
@@ -137,7 +152,12 @@ internal static class MetadataNamedTypeSignatureDecoder
         public MetadataNamedTypeReference? GetTypeFromReference(
             MetadataReader reader,
             TypeReferenceHandle handle,
-            byte rawTypeKind)
+            byte rawTypeKind) =>
+            TypeFromReference(reader, handle);
+
+        internal static MetadataNamedTypeReference? TypeFromReference(
+            MetadataReader reader,
+            TypeReferenceHandle handle)
         {
             if (MetadataTypeDefinitionNameReader.Read(reader, handle)
                 is not MetadataTypeDefinitionNameReadResult.Read read)

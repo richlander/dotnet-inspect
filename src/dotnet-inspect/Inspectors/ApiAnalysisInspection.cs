@@ -109,7 +109,10 @@ internal static class ApiAnalysisInspection
             ApiBodyMemberCorrespondence.Resolve(
                 selected,
                 tokenOrigin,
-                bodyAssembly);
+                bodyAssembly,
+                options.ProjectAssetsPath,
+                options.Tfm,
+                options.PlatformFramework);
 
         using var context = PdbContext.Open(bodyAssembly);
         return selected

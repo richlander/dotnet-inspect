@@ -1590,6 +1590,7 @@ public static class ApiOutputFormatter
             AppliedTaste: requestedSections.Contains(SectionNames.AppliedTaste),
             ProjectAssetsPath: options?.ProjectAssetsPath,
             TargetFramework: options?.Tfm,
+            PlatformFramework: options?.PlatformFramework,
             AssemblyReference: options?.AssemblyReference,
             TokenOriginAssemblyReference: options?.TokenOriginAssemblyReference,
             CaretFocus: options?.Focus);
@@ -2395,7 +2396,10 @@ public static class ApiOutputFormatter
             .. ApiBodyMemberCorrespondence.Resolve(
                     sourceTokens,
                     options.TokenOriginAssemblyReference ?? bodyAssembly,
-                    bodyAssembly)
+                    bodyAssembly,
+                    options.ProjectAssetsPath,
+                    options.Tfm,
+                    options.PlatformFramework)
                 .Values,
         ];
 
@@ -2467,7 +2471,10 @@ public static class ApiOutputFormatter
                         sourceTokens,
                         apiOptions?.TokenOriginAssemblyReference
                             ?? bodyAssembly,
-                        bodyAssembly)
+                        bodyAssembly,
+                        apiOptions?.ProjectAssetsPath,
+                        apiOptions?.Tfm,
+                        apiOptions?.PlatformFramework)
                     .Values
                     .ToHashSet();
         HashSet<int>? memberTokens = restrictToModelMembers
@@ -2607,7 +2614,10 @@ public static class ApiOutputFormatter
             .. ApiBodyMemberCorrespondence.Resolve(
                     methodTokens,
                     tokenOrigin,
-                    assembly)
+                    assembly,
+                    options.ProjectAssetsPath,
+                    options.Tfm,
+                    options.PlatformFramework)
                 .Values,
         ];
         using var source = Decompiler.Pipeline.MetadataSource.Open(
@@ -2781,7 +2791,10 @@ public static class ApiOutputFormatter
                 : ApiBodyMemberCorrespondence.Resolve(
                     sourceDrillByToken.Keys,
                     options?.TokenOriginAssemblyReference ?? bodyAssembly,
-                    bodyAssembly);
+                    bodyAssembly,
+                    options?.ProjectAssetsPath,
+                    options?.Tfm,
+                    options?.PlatformFramework);
         var drillByToken = new Dictionary<
             int,
             (string? Stable, string Visibility, string Selector)>();

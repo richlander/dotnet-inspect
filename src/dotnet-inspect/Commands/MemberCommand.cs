@@ -494,7 +494,8 @@ public static class MemberCommand
                 int sourceMetadataToken = ResolveSourceMetadataToken(
                     sourceMember,
                     memberMetadataAssembly,
-                    sourceResolutionAssembly);
+                    sourceResolutionAssembly,
+                    effectiveOptions);
                 var resolved = await ApiCommand.ResolveMethodSourceAsync(
                     pdbLookupPath,
                     sourceResolutionAssembly,
@@ -670,7 +671,8 @@ public static class MemberCommand
     internal static int ResolveSourceMetadataToken(
         ApiMember? sourceMember,
         ResolvedAssemblyReference? memberMetadataAssembly,
-        ResolvedAssemblyReference sourceResolutionAssembly)
+        ResolvedAssemblyReference sourceResolutionAssembly,
+        ApiOptions? options)
     {
         if (sourceMember?.MetadataToken is not int sourceToken
             || memberMetadataAssembly is null)
@@ -688,7 +690,10 @@ public static class MemberCommand
         return ApiBodyMemberCorrespondence.Resolve(
             [sourceToken],
             memberMetadataAssembly,
-            sourceResolutionAssembly)[sourceToken];
+            sourceResolutionAssembly,
+            options?.ProjectAssetsPath,
+            options?.Tfm,
+            options?.PlatformFramework)[sourceToken];
     }
 
     private static bool DeferredExactTargetUsesTypePipeline(
