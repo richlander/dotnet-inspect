@@ -12,4 +12,8 @@ public abstract class MemberBodylessEvidenceFixture
     public int Mixed(byte value) => value;
 
     public unsafe int Mixed(int* value) => *value;
+
+    public int this[byte value] => value;
+
+    public unsafe int this[int* value] => *value;
 }

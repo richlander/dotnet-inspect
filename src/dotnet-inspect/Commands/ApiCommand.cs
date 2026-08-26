@@ -2533,8 +2533,15 @@ public class ApiCommand
 
         if (options.JsonOutput && !options.Count && !IsProjectionRequested(options) && !sourceDocumentJson)
         {
-            if (GetRequestedMemberSections(type, options)
-                    .Contains(SectionNames.PerformanceTriage)
+            var requestedMemberSections = GetRequestedMemberSections(type, options);
+            if (requestedMemberSections.Contains(SectionNames.Callers))
+            {
+                CommandError.Write(
+                    "Document --json cannot represent Callers analysis. "
+                    + "Use Markdown/plaintext, --jsonl, --tsv, --table, or --count.");
+                return 1;
+            }
+            if (requestedMemberSections.Contains(SectionNames.PerformanceTriage)
                 && HasExplicitPerformanceTriageSelector(options))
             {
                 CommandError.Write(
@@ -2542,8 +2549,7 @@ public class ApiCommand
                     + "Use --jsonl, --tsv, --table, or --print.");
                 return 1;
             }
-            if (GetRequestedMemberSections(type, options)
-                    .Contains(SectionNames.BodyShapes)
+            if (requestedMemberSections.Contains(SectionNames.BodyShapes)
                 && options.IncludeSections?.Contains(
                     SectionNames.BodyShapes) == true)
             {

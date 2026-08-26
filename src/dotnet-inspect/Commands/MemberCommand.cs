@@ -400,6 +400,7 @@ public static class MemberCommand
                     return 1;
                 }
                 apiType.Members = [selected];
+                selected.SelectorOverloadIndex = target.SelectorIndex;
                 var detailDllPath = apiType.SourceAssemblyPath ?? apiDllPath;
                 effectiveOptions = effectiveOptions with
                 {
@@ -577,14 +578,15 @@ public static class MemberCommand
 
             // Aggregated caller queries always inspect the member's own assembly, with any
             // explicit caller scope contributing additional assemblies below.
+            var callerTargetAssembly = apiType.SourceAssemblyPath ?? apiDllPath;
             if ((effectiveOptions.HasCallerScope
                  || ApiMemberSectionPipelines.ShouldAggregateCallers(
                      apiType,
                      effectiveOptions))
                 && effectiveOptions.DllPath == null
-                && apiDllPath != null)
+                && callerTargetAssembly != null)
             {
-                effectiveOptions = effectiveOptions with { DllPath = apiDllPath };
+                effectiveOptions = effectiveOptions with { DllPath = callerTargetAssembly };
             }
 
             // Expand --bin/--directory, --project, and --caller-package into assemblies

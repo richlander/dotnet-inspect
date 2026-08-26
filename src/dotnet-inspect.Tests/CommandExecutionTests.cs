@@ -13607,6 +13607,46 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_TypeScopeCallersUsesForwardedImplementationAssembly()
+    {
+        const string typeName =
+            "System.Runtime.CompilerServices.RuntimeFeature";
+        var facade = await RunAppAsync(
+            "member", typeName, "--platform", "System.Runtime",
+            "-S", SectionNames.Callers, "--count", "--tips", "q");
+        var implementation = await RunAppAsync(
+            "member", typeName, "--platform", "System.Private.CoreLib",
+            "-S", SectionNames.Callers, "--count", "--tips", "q");
+
+        Assert.Equal(0, facade.Exit);
+        Assert.Equal(0, implementation.Exit);
+        Assert.Empty(facade.Error);
+        Assert.Empty(implementation.Error);
+        Assert.Equal(implementation.Output, facade.Output);
+        Assert.True(int.Parse(facade.Output.Trim()) > 0);
+    }
+
+    [Fact]
+    public async Task Member_TypeScopeCallersDocumentJsonFailsClosed()
+    {
+        string fixtureAssembly = typeof(CallerScopeCountFixture).Assembly.Location;
+        var result = await RunAppAsync(
+            "member", typeof(CallerScopeCountFixture).FullName!,
+            "--library", fixtureAssembly,
+            "-S", SectionNames.Callers, "--json", "--tips", "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"Document --json cannot represent {SectionNames.Callers} analysis.",
+            result.Error);
+        Assert.Contains("--jsonl", result.Error);
+        Assert.Contains("--tsv", result.Error);
+        Assert.Contains("--table", result.Error);
+        Assert.Contains("--count", result.Error);
+    }
+
+    [Fact]
     public async Task Member_TypeScopeCallGraphRemainsUnselectable()
     {
         string fixtureAssembly = typeof(CallerScopeCountFixture).Assembly.Location;
@@ -13623,18 +13663,25 @@ public partial class CommandExecutionTests
             result.Error);
     }
 
-    [Fact]
-    public async Task Member_UnsafeFilterAutoSelectsOriginalOverloadIndex()
+    [Theory]
+    [InlineData(nameof(MemberBodylessEvidenceFixture.Mixed), "Mixed:2", "Mixed(int* value)")]
+    [InlineData("this[]", "Item:2", "this[int* value]")]
+    public async Task Member_UnsafeFilterAutoSelectsOriginalOverloadIndex(
+        string memberName,
+        string selector,
+        string signature)
     {
         var result = await RunAppAsync(
             "member", typeof(MemberBodylessEvidenceFixture).FullName!,
             "--library", typeof(MemberBodylessEvidenceFixture).Assembly.Location,
-            nameof(MemberBodylessEvidenceFixture.Mixed),
-            "--unsafe", "-S", SectionNames.Signature, "--tips", "q");
+            memberName,
+            "--unsafe", "-S",
+            $"{SectionNames.Signature},{SectionNames.MemberIndex}",
+            "--tips", "q");
 
         Assert.Equal(0, result.Exit);
-        Assert.Contains("Mixed(int* value)", result.Output);
-        Assert.DoesNotContain("Mixed(byte value)", result.Output);
+        Assert.Contains(signature, result.Output);
+        Assert.Contains($"`{selector}`", result.Output);
         Assert.Empty(result.Error);
     }
 
