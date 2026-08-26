@@ -11,9 +11,10 @@ namespace ILInspector.Metadata;
 /// name and then consumes that many value bytes. The pre-decode guard has to
 /// skip the same number of bytes or every later declared count is read from
 /// the wrong offset. Both callers therefore resolve a handle or serialized
-/// name to a local <see cref="TypeDefinition"/> the same way and apply the
-/// same <see cref="SignatureBlobGuard"/> fallback to
-/// <see cref="PrimitiveTypeCode.Int32"/>.
+/// name to a local <see cref="TypeDefinition"/> the same way. A name that is
+/// not a TypeDef in the current image falls back to
+/// <see cref="PrimitiveTypeCode.Int32"/> so the skip stays aligned, unless a
+/// caller-supplied resolver found the defining image first.
 /// </summary>
 static class EnumUnderlyingPrimitive
 {
@@ -93,11 +94,30 @@ static class EnumUnderlyingPrimitive
     public static PrimitiveTypeCode FromSerializedName(
         MetadataReader reader,
         string name)
+        => TryFromSerializedName(reader, name, out PrimitiveTypeCode code)
+            ? code
+            : PrimitiveTypeCode.Int32;
+
+    /// <summary>
+    /// Resolves a serialized enum name to a local TypeDef's underlying
+    /// primitive. Returns <see langword="false"/> when the name is not a
+    /// TypeDef in <paramref name="reader"/>, including when it is defined
+    /// only in a referenced assembly.
+    /// </summary>
+    public static bool TryFromSerializedName(
+        MetadataReader reader,
+        string name,
+        out PrimitiveTypeCode code)
     {
         ReadOnlySpan<char> simple = NormalizeSerializedName(name).AsSpan();
-        return TryFindDefinition(reader, simple, out var definition)
-            ? FromDefinition(reader, definition)
-            : PrimitiveTypeCode.Int32;
+        if (TryFindDefinition(reader, simple, out var definition))
+        {
+            code = FromDefinition(reader, definition);
+            return true;
+        }
+
+        code = default;
+        return false;
     }
 
     static bool TryFindDefinition(

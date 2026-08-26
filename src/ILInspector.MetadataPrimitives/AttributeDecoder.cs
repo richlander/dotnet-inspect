@@ -125,7 +125,8 @@ public static class AttributeDecoder
             reader,
             attribute,
             preserveSerializedTypeNames: false,
-            beforeMaterialize: null);
+            beforeMaterialize: null,
+            enumUnderlyingType: null);
 
     public static CustomAttributeValue<string>? TryDecode(
         MetadataReader reader,
@@ -135,7 +136,25 @@ public static class AttributeDecoder
             reader,
             attribute,
             preserveSerializedTypeNames: false,
-            beforeMaterialize);
+            beforeMaterialize,
+            enumUnderlyingType: null);
+
+    /// <summary>
+    /// Decodes an attribute, consulting <paramref name="enumUnderlyingType"/>
+    /// for serialized enum names that are not TypeDefs in
+    /// <paramref name="reader"/>.
+    /// </summary>
+    public static CustomAttributeValue<string>? TryDecode(
+        MetadataReader reader,
+        CustomAttribute attribute,
+        Action<int>? beforeMaterialize,
+        Func<string, PrimitiveTypeCode>? enumUnderlyingType)
+        => TryDecode(
+            reader,
+            attribute,
+            preserveSerializedTypeNames: false,
+            beforeMaterialize,
+            enumUnderlyingType);
 
     /// <summary>
     /// Decodes an attribute while preserving the complete serialized names of
@@ -148,18 +167,21 @@ public static class AttributeDecoder
             reader,
             attribute,
             preserveSerializedTypeNames: true,
-            beforeMaterialize: null);
+            beforeMaterialize: null,
+            enumUnderlyingType: null);
 
     static CustomAttributeValue<string>? TryDecode(
         MetadataReader reader,
         CustomAttribute attribute,
         bool preserveSerializedTypeNames,
-        Action<int>? beforeMaterialize)
+        Action<int>? beforeMaterialize,
+        Func<string, PrimitiveTypeCode>? enumUnderlyingType)
     {
         var provider = new ArgTypeProvider(
             reader,
             preserveSerializedTypeNames,
-            beforeMaterialize);
+            beforeMaterialize,
+            enumUnderlyingType);
         try
         {
             if (!CustomAttributeValueGuard.IsSafeToDecode(
@@ -199,7 +221,8 @@ public static class AttributeDecoder
     sealed class ArgTypeProvider(
         MetadataReader reader,
         bool preserveSerializedTypeNames,
-        Action<int>? beforeMaterialize) : ICustomAttributeTypeProvider<string>
+        Action<int>? beforeMaterialize,
+        Func<string, PrimitiveTypeCode>? enumUnderlyingType) : ICustomAttributeTypeProvider<string>
     {
         Dictionary<string, TypeDefinitionHandle>? _typeDefinitionsByName;
         readonly MaterializationContext? _materializationContext =
@@ -243,11 +266,18 @@ public static class AttributeDecoder
         }
 
         public PrimitiveTypeCode GetUnderlyingEnumType(string type)
-            => TypeDefinitionsByName.TryGetValue(
+        {
+            if (TypeDefinitionsByName.TryGetValue(
                     EnumUnderlyingPrimitive.NormalizeSerializedName(type),
-                    out var handle)
-                ? EnumUnderlyingPrimitive.FromDefinition(reader, handle)
+                    out var handle))
+            {
+                return EnumUnderlyingPrimitive.FromDefinition(reader, handle);
+            }
+
+            return enumUnderlyingType is not null
+                ? EnumUnderlyingPrimitive.Normalize(enumUnderlyingType(type))
                 : PrimitiveTypeCode.Int32;
+        }
 
         Dictionary<string, TypeDefinitionHandle> TypeDefinitionsByName =>
             _materializationContext?.GetOrCreateTypeDefinitionsByName(

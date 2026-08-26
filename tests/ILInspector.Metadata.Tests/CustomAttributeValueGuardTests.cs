@@ -318,6 +318,100 @@ public sealed class CustomAttributeValueGuardTests
     }
 
     [Fact]
+    public void CrossAssemblyInt64NamedEnum_WithoutDefiningImage_DoesNotDecode()
+    {
+        using var image = Open(BuildCrossAssemblyInt64NamedEnumImage());
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
+    }
+
+    [Fact]
+    public void CrossAssemblyInt64NamedEnum_WithDefiningImage_Decodes()
+    {
+        using var defining = Open(BuildDefiningInt64EnumImage());
+        using var image = Open(BuildCrossAssemblyInt64NamedEnumImage());
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        PrimitiveTypeCode Width(string name) =>
+            EnumUnderlyingPrimitive.TryFromSerializedName(
+                defining.Reader,
+                name,
+                out PrimitiveTypeCode code)
+                ? code
+                : PrimitiveTypeCode.Int32;
+
+        Assert.True(
+            CustomAttributeValueGuard.IsSafeToDecode(
+                image.Reader,
+                attribute,
+                beforeMaterialize: null,
+                Width));
+        var decoded = AttributeDecoder.TryDecode(
+            image.Reader,
+            attribute,
+            beforeMaterialize: null,
+            Width);
+        Assert.NotNull(decoded);
+        Assert.Equal(2, decoded.Value.NamedArguments.Length);
+        Assert.Equal("Kind", decoded.Value.NamedArguments[0].Name);
+        Assert.Equal(7L, decoded.Value.NamedArguments[0].Value);
+        Assert.Equal("Name", decoded.Value.NamedArguments[1].Name);
+        Assert.Equal("ok", decoded.Value.NamedArguments[1].Value);
+    }
+
+    [Fact]
+    public void CrossAssemblyInt64NamedEnum_WithDefiningImage_StillRefusesHostileCount()
+    {
+        using var defining = Open(BuildDefiningInt64EnumImage());
+        using var image = Open(
+            BuildCrossAssemblyInt64NamedEnumImage(elementCount: 100_000_000));
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        PrimitiveTypeCode Width(string name) =>
+            EnumUnderlyingPrimitive.TryFromSerializedName(
+                defining.Reader,
+                name,
+                out PrimitiveTypeCode code)
+                ? code
+                : PrimitiveTypeCode.Int32;
+
+        int charged = 0;
+        Assert.False(
+            CustomAttributeValueGuard.IsSafeToDecode(
+                image.Reader,
+                attribute,
+                count => charged = checked(charged + count),
+                Width));
+        Assert.Equal(
+            (2 + 100_000_000) * CustomAttributeValueGuard.DeclaredSlotCharge,
+            charged);
+        Assert.Null(
+            AttributeDecoder.TryDecode(
+                image.Reader,
+                attribute,
+                beforeMaterialize: null,
+                Width));
+    }
+
+    [Fact]
+    public void LocalInt64EnumFixedArgument_IgnoresConflictingExternalResolver()
+    {
+        using var image = Open(BuildLocalInt64EnumImage());
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        Assert.True(
+            CustomAttributeValueGuard.IsSafeToDecode(
+                image.Reader,
+                attribute,
+                beforeMaterialize: null,
+                _ => PrimitiveTypeCode.Int32));
+        var decoded = AttributeDecoder.TryDecode(
+            image.Reader,
+            attribute,
+            beforeMaterialize: null,
+            _ => PrimitiveTypeCode.Int32);
+        Assert.NotNull(decoded);
+        Assert.Equal(7L, decoded.Value.FixedArguments[0].Value);
+    }
+
+    [Fact]
     public void ClassSystemStringFixedArgument_SeesFollowingArrayCount()
     {
         using var image = Open(
@@ -1018,6 +1112,78 @@ public sealed class CustomAttributeValueGuardTests
             attributed,
             constructor,
             metadata.GetOrAddBlob(value));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildDefiningInt64EnumImage()
+    {
+        var metadata = CreateMetadata("Other");
+        AssemblyReferenceHandle runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle systemEnum = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Enum"));
+        var fieldSignature = new BlobBuilder();
+        new BlobEncoder(fieldSignature).FieldSignature().Int64();
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName,
+            metadata.GetOrAddString("value__"),
+            metadata.GetOrAddBlob(fieldSignature));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("E"),
+            systemEnum,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildCrossAssemblyInt64NamedEnumImage(int? elementCount = null)
+    {
+        var metadata = CreateMetadata("User");
+        MemberReferenceHandle constructor = AddConstructor(
+            metadata,
+            _ => { },
+            parameterCount: 0);
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteUInt16(2);
+        value.WriteByte(0x53);
+        value.WriteByte(0x55);
+        value.WriteSerializedString("Samples.E, Other");
+        value.WriteSerializedString("Kind");
+        value.WriteInt64(7);
+        if (elementCount is int count)
+        {
+            value.WriteByte(0x53);
+            value.WriteByte(0x1d);
+            value.WriteByte(0x08);
+            value.WriteSerializedString("V");
+            value.WriteInt32(count);
+        }
+        else
+        {
+            value.WriteByte(0x53);
+            value.WriteByte(0x0e);
+            value.WriteSerializedString("Name");
+            value.WriteSerializedString("ok");
+        }
+
+        AddAttributedType(metadata, constructor, value);
         return Serialize(metadata);
     }
 
