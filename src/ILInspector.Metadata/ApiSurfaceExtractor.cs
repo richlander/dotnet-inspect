@@ -703,6 +703,13 @@ public static class ApiSurfaceExtractor
             var typeDef = reader.GetTypeDefinition(typeDefHandle);
             var attributes = typeDef.Attributes;
 
+            if (typesOnly
+                && scope == ApiSurfaceExtractionScope.Public
+                && !typeDef.IsPublic)
+            {
+                continue;
+            }
+
             budget?.BeginTypeCandidate();
             observeDecodeWork?.Invoke(
                 reader.GetBlobReader(typeDef.Name).Length
