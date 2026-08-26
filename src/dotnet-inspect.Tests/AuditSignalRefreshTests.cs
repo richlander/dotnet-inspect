@@ -68,7 +68,7 @@ public class AuditSignalRefreshTests
                 packageVersion: null,
                 httpClient,
                 queries: [retarget],
-                queryRegistry: registry);
+                queryCatalog: registry.Compile());
 
             Assert.NotNull(inspection);
             Assert.Equal(expectedB, PInvokeCount(linkedAssembly));

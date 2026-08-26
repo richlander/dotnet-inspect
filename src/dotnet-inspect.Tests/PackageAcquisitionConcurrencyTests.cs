@@ -200,7 +200,41 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         Assert.Equal(
             NuGetCache.GetPackageCachePath(PayloadPackage, Version, TestSourceKey),
             outcome.Result.ExtractPath);
+        ToolWrapperPackage wrapper = Assert.Single(outcome.Result.ToolWrapperChain);
+        Assert.Equal(WrapperPackage, wrapper.PackageName);
+        Assert.Equal(Version, wrapper.Version);
+        Assert.Equal(TestSourceKey, wrapper.ProducerKey);
         Assert.Equal(2, handler.RequestCount);
+    }
+
+    [Theory]
+    [InlineData("Victim.Package@junk")]
+    [InlineData("Bad Package")]
+    [InlineData("Bad|Package")]
+    public async Task ExtractPackageAsync_InvalidToolWrapperRedirectIsRejected(
+        string redirectPackageName)
+    {
+        const string WrapperPackage = "Wrapper.Invalid";
+        const string Version = "1.0.0";
+        var handler = new QueuePackageHandler(
+            CreateToolWrapperArchive(
+                WrapperPackage,
+                Version,
+                redirectPackageName));
+        using var client = new HttpClient(handler);
+
+        PackageExtractionOutcome outcome =
+            await PackageExtractor.ExtractPackageAsync(
+                client,
+                WrapperPackage,
+                sourceOptions: s_nugetOrgSource,
+                version: Version);
+
+        Assert.False(outcome.IsSuccess);
+        Assert.Equal(
+            $"Tool wrapper package '{WrapperPackage}' declares an invalid redirect package id.",
+            outcome.ErrorMessage);
+        Assert.Equal(1, handler.RequestCount);
     }
 
     [Fact]
@@ -241,6 +275,11 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         Assert.Equal(
             NuGetCache.GetSourceKey(FeedB),
             outcome.Result.ProducerKey);
+        ToolWrapperPackage wrapper = Assert.Single(outcome.Result.ToolWrapperChain);
+        Assert.Equal(wrapperPackage, wrapper.PackageName);
+        Assert.Equal(
+            NuGetCache.GetSourceKey(FeedA),
+            wrapper.ProducerKey);
     }
 
     [Fact]
@@ -574,7 +613,7 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     /// (dependency-resolution hot path).
     /// </summary>
     [Fact]
-    public async Task TryGetNuspecXmlAsync_OversizedCachedNuspec_ReturnsNull()
+    public async Task ProbeNuspecXmlAsync_OversizedCachedNuspec_IsIndeterminate()
     {
         const string PackageName = "Nuspec.Bound.Test";
         const string Version = "1.0.0";
@@ -604,12 +643,163 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
 
         // Cache path is present but unusable; network fallthrough must not throw.
         using var client = new HttpClient(new NotFoundHandler());
-        Assert.Null(
+        NuspecProbeResult probe =
+            await PackageExtractor.ProbeNuspecXmlAsync(
+                client,
+                PackageName,
+                Version,
+                sourceOptions: s_nugetOrgSource);
+        Assert.Equal(NuspecProbeStatus.Indeterminate, probe.Status);
+        Assert.Null(probe.Xml);
+    }
+
+    [Fact]
+    public async Task ProbeNuspecXmlAsync_InvalidUtf8CachedNuspec_IsIndeterminate()
+    {
+        const string PackageName = "Nuspec.Invalid.Utf8";
+        const string Version = "1.0.0";
+        string sourceDir = Path.Combine(_testRoot, "nuspec-invalid-utf8");
+        Directory.CreateDirectory(sourceDir);
+        byte[] prefix = System.Text.Encoding.UTF8.GetBytes(
+            $"<package><metadata><id>{PackageName}</id>"
+            + $"<version>{Version}</version><!--");
+        byte[] suffix = """--></metadata></package>"""u8.ToArray();
+        File.WriteAllBytes(
+            Path.Combine(sourceDir, $"{PackageName}.nuspec"),
+            [.. prefix, 0xFF, .. suffix]);
+        NuGetCache.CommitPackage(
+            sourceDir,
+            nupkgPath: null,
+            PackageName,
+            Version,
+            TestSourceKey);
+
+        using var client = new HttpClient(new NotFoundHandler());
+        NuspecProbeResult probe =
+            await PackageExtractor.ProbeNuspecXmlAsync(
+                client,
+                PackageName,
+                Version,
+                sourceOptions: s_nugetOrgSource);
+
+        Assert.Equal(NuspecProbeStatus.Indeterminate, probe.Status);
+        Assert.Null(probe.Xml);
+        Assert.NotNull(
             await PackageExtractor.TryGetNuspecXmlAsync(
                 client,
                 PackageName,
                 Version,
                 sourceOptions: s_nugetOrgSource));
+    }
+
+    [Fact]
+    public async Task ProbeNuspecXmlAsync_UnreadableCachedReplica_IsIndeterminate()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Skip("Unix permissions are required for this cache replica test.");
+            return;
+        }
+
+        const string PackageName = "Nuspec.Unreadable.Cache";
+        const string Version = "1.0.0";
+        string sourceDir = Path.Combine(
+            _testRoot,
+            "nuspec-unreadable");
+        Directory.CreateDirectory(sourceDir);
+        File.WriteAllText(
+            Path.Combine(sourceDir, $"{PackageName}.nuspec"),
+            $"<package><metadata><id>{PackageName}</id>"
+            + $"<version>{Version}</version></metadata></package>");
+        CommittedPackage committed = NuGetCache.CommitPackage(
+            sourceDir,
+            nupkgPath: null,
+            PackageName,
+            Version,
+            TestSourceKey);
+
+        File.SetUnixFileMode(
+            committed.ExtractPath,
+            UnixFileMode.UserExecute);
+        try
+        {
+            using var client = new HttpClient(new NotFoundHandler());
+            NuspecProbeResult probe =
+                await PackageExtractor.ProbeNuspecXmlAsync(
+                    client,
+                    PackageName,
+                    Version,
+                    sourceOptions: s_nugetOrgSource);
+
+            Assert.Equal(
+                NuspecProbeStatus.Indeterminate,
+                probe.Status);
+            Assert.Null(probe.Xml);
+        }
+        finally
+        {
+            File.SetUnixFileMode(
+                committed.ExtractPath,
+                UnixFileMode.UserRead
+                    | UnixFileMode.UserWrite
+                    | UnixFileMode.UserExecute);
+        }
+    }
+
+    [Fact]
+    public async Task ProbeNuspecXmlAsync_UsesValidLowerPrecedenceCachedReplica()
+    {
+        string packageName = $"Nuspec.Replica.{Guid.NewGuid():N}";
+        const string version = "1.0.0";
+        string sourceA = "https://a.example/v3/index.json";
+        string sourceB = "https://b.example/v3/index.json";
+        string sourceAKey = NuGetCache.GetSourceKey(sourceA);
+        string sourceBKey = NuGetCache.GetSourceKey(sourceB);
+
+        string invalidSource = Path.Combine(_testRoot, "replica-a");
+        Directory.CreateDirectory(invalidSource);
+        File.WriteAllText(
+            Path.Combine(invalidSource, $"{packageName}.nuspec"),
+            """<package><metadata><id>Other.Package</id><version>1.0.0</version></metadata></package>""");
+        NuGetCache.CommitPackage(
+            invalidSource,
+            nupkgPath: null,
+            packageName,
+            version,
+            sourceAKey);
+
+        string validSource = Path.Combine(_testRoot, "replica-b");
+        Directory.CreateDirectory(validSource);
+        File.WriteAllText(
+            Path.Combine(validSource, $"{packageName}.nuspec"),
+            $"""
+            <package>
+              <metadata>
+                <id>{packageName}</id>
+                <version>{version}</version>
+              </metadata>
+            </package>
+            """);
+        NuGetCache.CommitPackage(
+            validSource,
+            nupkgPath: null,
+            packageName,
+            version,
+            sourceBKey);
+
+        using var client = new HttpClient(new FailingHandler());
+        NuspecProbeResult probe =
+            await PackageExtractor.ProbeNuspecXmlAsync(
+                client,
+                packageName,
+                version,
+                sourceOptions: new NuGetSourceOptions
+                {
+                    Sources = [sourceA, sourceB],
+                });
+
+        Assert.Equal(NuspecProbeStatus.Present, probe.Status);
+        Assert.Contains($"<id>{packageName}</id>", probe.Xml);
     }
 
     /// <summary>

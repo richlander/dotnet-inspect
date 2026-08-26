@@ -50,10 +50,11 @@ Each window must identify its PR, current state, and any decision it needs.
 ### Name the window for identity
 
 ```sh
-tmux rename-window -t "$TMUX_PANE" pr<number>
+tmux rename-window -t "${TMUX_PANE:?}" pr<number>
 ```
 
-Always target `"$TMUX_PANE"`; a bare command can rename another window. Rename
+Always target `"${TMUX_PANE:?}"`; a bare command renames another window, and an
+empty variable silently targets the current one. Rename
 the window, never the shared session. Use `pr<number>`, or `i<number>` before a
 PR exists. Keep the name stable except for these temporary suffixes:
 
@@ -85,17 +86,28 @@ not the record.
 Update both window-scoped options whenever state changes:
 
 ```sh
-tmux set -w -t "$TMUX_PANE" @agent "round 6 on pr4405, waiting on CI"
-tmux set -w -t "$TMUX_PANE" @agent_state \
-  "pr=4463 head=595e5d4b round=6 reviews=1/2 blocked=4597,4611 rec=wait"
-tmux show -w -t "$TMUX_PANE" @agent_state
+tmux set -w -t "${TMUX_PANE:?}" @agent "round 6 on pr4405, waiting on CI"
+tmux set -w -t "${TMUX_PANE:?}" @agent_state "pr=4463 head=595e5d4b round=6 reviews=1/2 blocked=4597,4611 rec=wait"
 
 # Clear when this window no longer owns the PR.
-tmux set -w -t "$TMUX_PANE" -u @agent
-tmux set -w -t "$TMUX_PANE" -u @agent_state
+tmux set -w -t "${TMUX_PANE:?}" -u @agent
+tmux set -w -t "${TMUX_PANE:?}" -u @agent_state
 ```
 
-Always use `-w -t "$TMUX_PANE"` and read back `@agent_state`. It must include
+**Publish state as single, separate commands.** Never wrap them in `if`, `&&`,
+or a `for` loop. Publishing is the one thing that must never stop to ask
+permission: an approval prompt on it blocks the agent on the very act of
+reporting that it is blocked, and semi-autonomous work stops dead. A bare
+`tmux …` matches an approval rule for `tmux`; `if [ … ]; then tmux … && tmux …;
+fi` does not match it, because the command being judged is now the compound.
+That difference has stalled real work.
+
+`${TMUX_PANE:?}` is what keeps the target safe without a guard clause. If the
+variable is empty the shell fails the command outright and nothing is written —
+which matters, because `tmux set -w -t ""` does not error: it silently applies
+to whichever window is *current*, which is somebody else's.
+
+Always target `"${TMUX_PANE:?}"`. The state must include
 `head` and either `pr` or, before a PR exists, `issue`; add `round`, `reviews`,
 `blocked`, `waiting`, and `rec` when applicable. Values contain no spaces. `rec`
 is `continue`, `wait`, `merge`, `approve`, or `stop`. Clear both options when the
@@ -123,8 +135,8 @@ When blocked on a human decision, set a persistent `HELP` state and send one
 best-effort nudge:
 
 ```sh
-tmux set -w -t "$TMUX_PANE" @agent "HELP: integrate main into pr4405, or close it?"
-tmux display-message -d 10000 -t "$TMUX_PANE" \
+tmux set -w -t "${TMUX_PANE:?}" @agent "HELP: integrate main into pr4405, or close it?"
+tmux display-message -d 10000 -t "${TMUX_PANE:?}" \
   "HELP pr4405 in w#{window_index}: integrate main, or close it?"
 ```
 
@@ -147,6 +159,11 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
   the user may authorize auto-merge for the intended final head; the agent may
   ask. If the head moves after arming, disarm, review the new head, and ask
   again.
+- **"CI is ready":** the user's statement that CI has no failures and the PR is
+  mergeable. Trust it without re-checking and move to the next task, such as
+  dispatching the next round's reviewers.
+- **Authorizing the next round before CI completes:** the agent does not need
+  to check CI status first; proceed with the authorized round.
 
 ## Before changing files
 
@@ -208,6 +225,7 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
 | Skills | `taste/skill-guidance.md` |
 | Stacked PRs and restacking | `docs/stacked-prs.md` |
 | Running a review round, or checking PR status | `docs/round-orchestration.md` |
+| Hosting a network-accessible inspect-web demo | `docs/runbooks/inspect-web-demo-hosting.md` |
 | Release and publishing | `docs/release-workflow.md` |
 | Changes spanning Markout and this repo | `docs/markout-co-development.md` |
 
@@ -824,6 +842,14 @@ Before requesting another block, answer:
    decision is not standing authorization; identify the new evidence that makes
    implementation rounds the better investment.
 
+At round 12 and every 6-round boundary after (18, 24, and so on), also answer:
+
+1. **Would a design doc better define the design space?** Foundational APIs
+   weigh heavily toward yes.
+2. **Can hardening move to followups?** State whether deferring remaining
+   hardening to followup work would unlock this PR's value for other agent
+   work sooner.
+
 State the proposed remedy and end with one recommendation: approve the next
 implementation block, switch to a docs-only design PR, or stop. If consecutive
 rounds only strengthen the harness while the product goes unchallenged, report
@@ -838,6 +864,10 @@ must not contain the checkpoint itself.
 
 Validation proves correctness; a demo shows value. Post the intended demo early
 enough to change the implementation.
+
+For a network-accessible inspect-web demo, follow
+[`docs/runbooks/inspect-web-demo-hosting.md`](docs/runbooks/inspect-web-demo-hosting.md).
+A local HTTP listener or successful `curl` is not a user-visible demo.
 
 A useful demo:
 
