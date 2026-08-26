@@ -392,6 +392,50 @@ public sealed class CustomAttributeValueGuardTests
     }
 
     [Fact]
+    public void CrossAssemblyInt64NamedEnum_ExactSimpleNameResolver_Decodes()
+    {
+        using var image = Open(BuildCrossAssemblyInt64NamedEnumImage());
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        Assert.True(
+            CustomAttributeValueGuard.IsSafeToDecode(
+                image.Reader,
+                attribute,
+                beforeMaterialize: null,
+                ExactSimpleNameInt64));
+        var decoded = AttributeDecoder.TryDecode(
+            image.Reader,
+            attribute,
+            beforeMaterialize: null,
+            ExactSimpleNameInt64);
+        Assert.NotNull(decoded);
+        Assert.Equal(7L, decoded.Value.NamedArguments[0].Value);
+        Assert.Equal("ok", decoded.Value.NamedArguments[1].Value);
+    }
+
+    [Fact]
+    public void CrossAssemblyInt64NamedEnum_ExactSimpleNameResolver_SeesOverlappingHostileCount()
+    {
+        using var image = Open(BuildOverlappingInt64NamedEnumHostileImage());
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        int charged = 0;
+        Assert.False(
+            CustomAttributeValueGuard.IsSafeToDecode(
+                image.Reader,
+                attribute,
+                count => charged = checked(charged + count),
+                ExactSimpleNameInt64));
+        Assert.Equal(
+            (2 + 100_000_000) * CustomAttributeValueGuard.DeclaredSlotCharge,
+            charged);
+        Assert.Null(
+            AttributeDecoder.TryDecode(
+                image.Reader,
+                attribute,
+                beforeMaterialize: null,
+                ExactSimpleNameInt64));
+    }
+
+    [Fact]
     public void LocalInt64EnumFixedArgument_IgnoresConflictingExternalResolver()
     {
         using var image = Open(BuildLocalInt64EnumImage());
@@ -1183,6 +1227,40 @@ public sealed class CustomAttributeValueGuardTests
             value.WriteSerializedString("ok");
         }
 
+        AddAttributedType(metadata, constructor, value);
+        return Serialize(metadata);
+    }
+
+    static PrimitiveTypeCode ExactSimpleNameInt64(string name)
+        => name == "Samples.E" ? PrimitiveTypeCode.Int64 : PrimitiveTypeCode.Int32;
+
+    static byte[] BuildOverlappingInt64NamedEnumHostileImage()
+    {
+        var metadata = CreateMetadata("User");
+        MemberReferenceHandle constructor = AddConstructor(
+            metadata,
+            _ => { },
+            parameterCount: 0);
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteUInt16(2);
+        value.WriteByte(0x53);
+        value.WriteByte(0x55);
+        value.WriteSerializedString("Samples.E, Other");
+        value.WriteSerializedString("Kind");
+        value.WriteByte(0x07);
+        value.WriteByte(0x00);
+        value.WriteByte(0x00);
+        value.WriteByte(0x00);
+        value.WriteByte(0x53);
+        value.WriteByte(0x05);
+        value.WriteByte(0x00);
+        value.WriteByte(0x00);
+        value.WriteByte(0x53);
+        value.WriteByte(0x1d);
+        value.WriteByte(0x08);
+        value.WriteSerializedString("V");
+        value.WriteInt32(100_000_000);
         AddAttributedType(metadata, constructor, value);
         return Serialize(metadata);
     }

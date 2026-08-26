@@ -142,7 +142,9 @@ public static class AttributeDecoder
     /// <summary>
     /// Decodes an attribute, consulting <paramref name="enumUnderlyingType"/>
     /// for serialized enum names that are not TypeDefs in
-    /// <paramref name="reader"/>.
+    /// <paramref name="reader"/>. The resolver receives the blob name with
+    /// the assembly suffix stripped and nested <c>+</c> rewritten to <c>.</c>,
+    /// matching the string SRM later passes to <c>GetUnderlyingEnumType</c>.
     /// </summary>
     public static CustomAttributeValue<string>? TryDecode(
         MetadataReader reader,
@@ -267,15 +269,12 @@ public static class AttributeDecoder
 
         public PrimitiveTypeCode GetUnderlyingEnumType(string type)
         {
-            if (TypeDefinitionsByName.TryGetValue(
-                    EnumUnderlyingPrimitive.NormalizeSerializedName(type),
-                    out var handle))
-            {
+            string normalized = EnumUnderlyingPrimitive.NormalizeSerializedName(type);
+            if (TypeDefinitionsByName.TryGetValue(normalized, out var handle))
                 return EnumUnderlyingPrimitive.FromDefinition(reader, handle);
-            }
 
             return enumUnderlyingType is not null
-                ? EnumUnderlyingPrimitive.Normalize(enumUnderlyingType(type))
+                ? EnumUnderlyingPrimitive.Normalize(enumUnderlyingType(normalized))
                 : PrimitiveTypeCode.Int32;
         }
 

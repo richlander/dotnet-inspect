@@ -705,10 +705,13 @@ full name collides with an earlier row, an over-deep
 such as `string`, cannot desynchronize later count reads.
 A serialized enum name that is not a TypeDef in the current image
 stays `int32` unless a caller-supplied resolver found the defining
-image; local TypeDefs still win over that resolver. Absent a defining
-image, decode returns null rather than emitting values from a
-four-byte skip of an eight-byte argument. A defining image does not
-make a later hostile count legal.
+image; local TypeDefs still win over that resolver. Guard and SRM
+invoke that resolver with the same normalized name (assembly suffix
+stripped), so a resolver keyed on the simple name cannot skip four
+bytes in the guard and eight in SRM. Absent a defining image, decode
+returns null rather than emitting values from a four-byte skip of an
+eight-byte argument. A defining image does not make a later hostile
+count legal.
 `CLASS`/`VALUETYPE` `System.Type` uses the same rendered-name oracle as
 SRM (`type == "System.Type"`), so a TypeRef whose namespace is empty
 and whose name is `System.Type`, or a nested `System`+`Type` TypeRef,
@@ -808,6 +811,8 @@ pre-decoding rejection.
 `CustomAttributeValueGuardTests.CrossAssemblyInt64NamedEnum_WithoutDefiningImage_DoesNotDecode`,
 `CustomAttributeValueGuardTests.CrossAssemblyInt64NamedEnum_WithDefiningImage_Decodes`,
 `CustomAttributeValueGuardTests.CrossAssemblyInt64NamedEnum_WithDefiningImage_StillRefusesHostileCount`,
+`CustomAttributeValueGuardTests.CrossAssemblyInt64NamedEnum_ExactSimpleNameResolver_Decodes`,
+`CustomAttributeValueGuardTests.CrossAssemblyInt64NamedEnum_ExactSimpleNameResolver_SeesOverlappingHostileCount`,
 `CustomAttributeValueGuardTests.LocalInt64EnumFixedArgument_IgnoresConflictingExternalResolver`,
 `CustomAttributeValueGuardTests.ClassSystemStringFixedArgument_SeesFollowingArrayCount`,
 `CustomAttributeValueGuardTests.DottedSystemTypeTypeRef_SeesFollowingArrayCount`,

@@ -680,9 +680,10 @@ public static class CustomAttributeValueGuard
     {
         if (enumName is null)
             return PrimitiveTypeCode.Int32;
+        string normalized = EnumUnderlyingPrimitive.NormalizeSerializedName(enumName);
         return enumUnderlyingType is not null
-            ? enumUnderlyingType(enumName)
-            : EnumUnderlyingPrimitive.FromSerializedName(reader, enumName);
+            ? enumUnderlyingType(normalized)
+            : EnumUnderlyingPrimitive.FromSerializedName(reader, normalized);
     }
 
     static Result SkipSerString(ref BlobReader blob)
