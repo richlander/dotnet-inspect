@@ -54,7 +54,7 @@ const widenings = [
     find: '  ["annotated", "Annotated source"],\n] as const;',
     replace: '  ["annotated", "Annotated source"],\n  ["probe-member-section", "Probe"],\n] as const;',
     token: "probe-member-section",
-    dispatches: ["applyMemberSection", "applyView", "renderMember", "loadSelectionData"],
+    dispatches: ["loadMemberSectionContent", "applyView", "renderMember", "loadSelectionData"],
   },
   {
     vocabulary: "WorkspaceScope",
