@@ -109,7 +109,11 @@ implementation methods. Constructor authentication is cached per metadata
 handle. Untrusted constructor parents are rejected before method signatures are
 decoded, and each distinct terminal assembly reference is projected once with
 its public-key blob charged once, so a type reference shared by many
-constructors cannot re-copy and re-hash an unbounded key. This image's own
+constructors cannot re-copy and re-hash an unbounded key. Projecting a
+reference row also decodes its name and culture, and distinct rows can share one
+oversized name string while differing only by version, which defeats row-keyed
+projection caching; those strings are therefore charged per projected row. This
+image's own
 assembly identity is projected once for the whole index, with its public-key
 blob charged the same way, so an assembly-qualified claim repeated across many
 kickoffs cannot re-copy and re-hash the assembly-definition key either. A
@@ -155,6 +159,10 @@ makes it pass.
 property for this image's own assembly key across repeated qualified claims:
 one arm fails if the charge is removed, the other if the projection stops being
 cached.
+`StateMachineRelationshipIndex_ChargesRepeatedAssemblyRowNames` gates the
+per-row name charge with several reference rows sharing one oversized name
+string: one arm fails if the charge is removed, the other if it over-charges an
+image the budget should admit.
 `StateMachineRelationshipIndex_RejectsNamedArgumentsBeforeDecode` gates the
 value-blob preflight; and
 `StateMachineRelationshipIndex_ExpandsAmbiguousClaimsOnce` gates that

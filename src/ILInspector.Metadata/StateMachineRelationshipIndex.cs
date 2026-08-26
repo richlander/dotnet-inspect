@@ -644,10 +644,25 @@ public sealed class StateMachineRelationshipIndex
             if (_assemblyDefinition is { } projected)
                 return projected;
 
-            BlobHandle key =
-                _reader.GetAssemblyDefinition().PublicKey;
+            AssemblyDefinition definition =
+                _reader.GetAssemblyDefinition();
+            BlobHandle key = definition.PublicKey;
             if (!key.IsNil)
                 ChargeNameWork(_reader.GetBlobReader(key).Length);
+
+            // The projection decodes the name and culture too. Charging them
+            // keeps an unsigned assembly, whose key blob is nil, from reaching
+            // this path entirely uncharged.
+            if (!definition.Name.IsNil)
+            {
+                ChargeNameWork(
+                    _reader.GetBlobReader(definition.Name).Length);
+            }
+            if (!definition.Culture.IsNil)
+            {
+                ChargeNameWork(
+                    _reader.GetBlobReader(definition.Culture).Length);
+            }
 
             _assemblyDefinition =
                 AssemblyReferenceIdentity.FromAssemblyDefinition(
@@ -1563,11 +1578,17 @@ public sealed class StateMachineRelationshipIndex
                 return platform;
             }
 
-            BlobHandle key =
-                _reader.GetAssemblyReference(handle)
-                    .PublicKeyOrToken;
+            System.Reflection.Metadata.AssemblyReference reference =
+                _reader.GetAssemblyReference(handle);
+            BlobHandle key = reference.PublicKeyOrToken;
             if (!key.IsNil && _chargedAssemblyKeys.Add(key))
                 _beforeMaterialize(_reader.GetBlobReader(key).Length);
+
+            // Projecting the row also decodes its name and culture. Distinct
+            // rows can share one oversized name `StringHandle` while differing
+            // by version, which defeats row-keyed projection caching, so the
+            // decode really does repeat per row and has to be charged per row.
+            ChargeAssemblyStrings(reference.Name, reference.Culture);
 
             platform = PlatformKeys.IsPlatform(
                 AssemblyReferenceIdentity.From(
@@ -1576,6 +1597,22 @@ public sealed class StateMachineRelationshipIndex
                     .PublicKeyToken);
             _platformAssemblies.Add(handle, platform);
             return platform;
+        }
+
+        /// <summary>
+        /// Charges the encoded length of an assembly row's name and culture
+        /// before either is decoded. <see cref="MetadataReader.GetBlobReader"/>
+        /// measures the UTF-8 heap span without materializing a string, so the
+        /// charge precedes the allocation it accounts for.
+        /// </summary>
+        void ChargeAssemblyStrings(
+            StringHandle name,
+            StringHandle culture)
+        {
+            if (!name.IsNil)
+                _beforeMaterialize(_reader.GetBlobReader(name).Length);
+            if (!culture.IsNil)
+                _beforeMaterialize(_reader.GetBlobReader(culture).Length);
         }
 
         internal AttributeConstructorClassification

@@ -950,6 +950,60 @@ public sealed class StateMachineRelationshipIndexTests
             admitted.Failure.Kind);
     }
 
+    /// <summary>
+    /// Gates that projecting an assembly-reference row charges the name it
+    /// decodes. Distinct rows sharing one oversized name `StringHandle` defeat
+    /// row-keyed projection caching, so the decode repeats per row; without a
+    /// per-row charge that work is unbounded and ends as a success-shaped
+    /// `Absent` rather than `BudgetExceeded`. The `false` arm fails if the
+    /// charge is removed; the `true` arm fails if the charge runs away and
+    /// rejects an image the budget should admit.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void
+        StateMachineRelationshipIndex_ChargesRepeatedAssemblyRowNames(
+            bool admitted)
+    {
+        const int rows = 4;
+        const int nameChars = 4_096;
+        using var image = new LoadedImage(
+            BuildUntrustedAssemblyKeyImage(
+                constructors: rows,
+                keyBytes: 64,
+                referenceRows: rows,
+                sharedNameChars: nameChars));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(
+                image.Reader,
+                relationshipBudget:
+                    MetadataSafetyPolicy.MaxCorrespondenceMethodRows,
+                nameWorkBudget: admitted
+                    ? 16 * nameChars
+                    : 2 * nameChars);
+
+        StateMachineRelationshipResult result =
+            index.GetByKickoff(
+                MetadataTokens.MethodDefinitionHandle(1));
+
+        if (!admitted)
+        {
+            var rejected =
+                Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                    result);
+            Assert.Equal(
+                StateMachineRelationshipFailureKind.BudgetExceeded,
+                rejected.Failure.Kind);
+            return;
+        }
+
+        // Untrusted parents make every claim foreign, so an admitted image
+        // reports no relationship at all rather than a budget failure.
+        Assert.IsType<StateMachineRelationshipResult.Absent>(result);
+    }
+
     [Theory]
     [InlineData("PublicKeyToken=null", false)]
     [InlineData("PublicKeyToken=0011223344556677", false)]
@@ -1323,7 +1377,8 @@ public sealed class StateMachineRelationshipIndexTests
     static byte[] BuildUntrustedAssemblyKeyImage(
         int constructors,
         int keyBytes,
-        int referenceRows = 1)
+        int referenceRows = 1,
+        int sharedNameChars = 0)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1347,13 +1402,27 @@ public sealed class StateMachineRelationshipIndexTests
             Enumerable.Range(0, keyBytes)
                 .Select(value => (byte)value)
                 .ToArray();
+        // When a shared name is requested every row reuses one `StringHandle`
+        // and differs only by version. That is the shape row-keyed projection
+        // caching cannot collapse, so the name really is decoded once per row.
+        StringHandle sharedName =
+            sharedNameChars > 0
+                ? metadata.GetOrAddString(
+                    new string('N', sharedNameChars))
+                : default;
         var untrustedRows = new AssemblyReferenceHandle[referenceRows];
         for (int row = 0; row < referenceRows; row++)
         {
             untrustedRows[row] =
                 metadata.AddAssemblyReference(
-                    metadata.GetOrAddString($"Untrusted{row}"),
-                    new Version(1, 0, 0, 0),
+                    sharedNameChars > 0
+                        ? sharedName
+                        : metadata.GetOrAddString($"Untrusted{row}"),
+                    new Version(
+                        1,
+                        0,
+                        0,
+                        sharedNameChars > 0 ? row : 0),
                     default,
                     metadata.GetOrAddBlob(key),
                     AssemblyFlags.PublicKey,
