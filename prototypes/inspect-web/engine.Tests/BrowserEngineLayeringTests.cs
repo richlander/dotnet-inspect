@@ -66,8 +66,29 @@ public sealed class BrowserEngineLayeringTests
         Assert.Contains("T:ILInspector.Decompiler.Pipeline.MetadataSource", banned);
         Assert.Contains("T:ILInspector.Decompiler.MemberBodyProducer", banned);
         Assert.Contains("T:ILInspector.SourceLink.SourceLinkService", banned);
+        Assert.Contains("T:ILInspector.SourceLink.SourceLinkInspector", banned);
         Assert.Contains("T:ILInspector.Instructions.IlAssemblyDiff", banned);
         Assert.Contains("T:DotnetInspector.Services.PdbAcquisitionService", banned);
+        Assert.Contains("T:ILInspector.Analysis.LeakTriageAnalyzer", banned);
+        Assert.Contains("T:ILInspector.Analysis.ResourceLifecycleAnalysis", banned);
+        Assert.Contains("T:ILInspector.Decompiler.CSharpBodyDiff", banned);
+        Assert.Contains("T:ILInspector.Decompiler.CSharpFindings", banned);
+        Assert.Contains("T:ILInspector.Metadata.MemberSearch", banned);
+        Assert.Contains("T:ILInspector.Research.ImplementationDiff", banned);
+        Assert.Contains("T:ILInspector.Research.ResearchDiff", banned);
+        Assert.Contains("T:ILInspector.Research.ResearchDiffInput", banned);
+        Assert.Contains("T:ILInspector.Research.ResearchMatch", banned);
+        Assert.Contains(
+            "T:DotnetInspector.Services.AssemblyDependencyResolver",
+            banned);
+        Assert.Contains(
+            "T:DotnetInspector.Services.AssemblySetResolutionSession",
+            banned);
+        Assert.Contains(
+            "T:DotnetInspector.Services.AssemblySetSurfaceBuilder",
+            banned);
+        Assert.Contains("T:DotnetInspector.Services.PlatformResolver", banned);
+        Assert.Contains("T:DotnetInspector.Services.TfmSelector", banned);
         Assert.Contains(
             "T:ILInspector.Analysis.CallerScopeReachabilityPlan",
             banned);
@@ -271,6 +292,77 @@ public sealed class BrowserEngineLayeringTests
             approved,
             banned,
             "Descriptor owner");
+    }
+
+    [Fact]
+    public void EveryPublicPathMethodOwnerIsBannedOrApprovedNonInspectionSurface()
+    {
+        IReadOnlyList<string> banned = BannedSymbols();
+        string[] approvedOwners =
+        [
+            "CSharpText.XmlDocText",
+            "DotnetInspector.Core.CoreCache",
+            "DotnetInspector.Core.HardenedXml",
+            "DotnetInspector.Packages.FileSystemPackageContent",
+            "DotnetInspector.Packages.HttpRetryHelper",
+            "DotnetInspector.Packages.IPackageContent",
+            "DotnetInspector.Packages.IPackageContentEntryManifest",
+            "DotnetInspector.Packages.InMemoryPackageContent",
+            "DotnetInspector.Packages.NuGetCache",
+            "DotnetInspector.Packages.PackageCoordinateResolver",
+            "DotnetInspector.Packages.PackageExtractor",
+            "DotnetInspector.Packages.SymbolPackageDownloader",
+            "DotnetInspector.Services.DepsJsonParser",
+            "DotnetInspector.Services.GitHubUrlResolver",
+            "DotnetInspector.Services.LocalRepoSourceAcquisition",
+            "DotnetInspector.Services.NuspecParser",
+            "DotnetInspector.Services.PackageContentAudit",
+            "DotnetInspector.Services.PdbSourceAcquisition",
+            "DotnetInspector.Services.ProjectAssetsParser",
+            "DotnetInspector.Services.SignatureVerifier",
+            "ILInspector.Metadata.ApiSurface",
+            "ILInspector.Metadata.ResolvedAssemblyReference",
+            "ILInspector.SourceLink.SourceLinkResolver",
+            "NuGetFetch.NuGetClient",
+            "NuGetFetch.PackageCache",
+            "NuGetFetch.PackageExtractor",
+            "NuGetFetch.PackageSignatureVerifier",
+            "NuGetFetch.SourceResolver",
+            "NuGetFetch.TfmResolver",
+            "SourceLinkFetch.SourceLinkProvenance",
+            "SourceLinkFetch.SourceLinkResolver",
+        ];
+        HashSet<string> approved =
+            approvedOwners.ToHashSet(StringComparer.Ordinal);
+        Type[] owners =
+        [
+            .. ProductAssemblies
+                .SelectMany(assembly => assembly.GetExportedTypes())
+                .Distinct()
+                .Where(type =>
+                    type.GetMembers(
+                            BindingFlags.Public
+                            | BindingFlags.Instance
+                            | BindingFlags.Static
+                            | BindingFlags.DeclaredOnly)
+                        .OfType<MethodBase>()
+                        .Any(method =>
+                            !method.IsConstructor
+                            && !method.IsSpecialName
+                            && method.Name != "Deconstruct"
+                            && method.GetParameters().Any(parameter =>
+                                parameter.Name?.Contains(
+                                    "path",
+                                    StringComparison.OrdinalIgnoreCase)
+                                == true)))
+                .OrderBy(type => type.FullName, StringComparer.Ordinal),
+        ];
+
+        AssertGuardedOwners(
+            owners,
+            approved,
+            banned,
+            "Path-method owner");
     }
 
     [Fact]

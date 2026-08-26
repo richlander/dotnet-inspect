@@ -25,19 +25,35 @@ T:ILInspector.Metadata.SignatureSpellability;Signature inspection and its transi
 T:ILInspector.Decompiler.MemberBodyProducer;Member-body projection opens descriptors transitively and belongs to product queries, not the browser host.
 T:ILInspector.Decompiler.Pipeline.MetadataSource;Research projections open their own source inside DotnetInspector.ResearchQueries.
 T:ILInspector.SourceLink.SourceLinkService;SourceLink and PDB inspection open descriptors transitively and belong to product queries, not the browser host.
+T:ILInspector.SourceLink.SourceLinkInspector;Path-based SourceLink inspection belongs to product queries, not the browser host.
 T:ILInspector.Analysis.CallerScopeReachabilityPlan;Caller-scope metadata inspection belongs to product queries, not transitive descriptor openers in the browser host.
 T:ILInspector.Analysis.LibraryBodyIndex;Analysis lifetimes belong to the query that needs them, not to the browser host.
 T:ILInspector.Analysis.LibraryBodyAnalysisResult;Body analysis is reached through a query result, never built here.
+T:ILInspector.Analysis.LeakTriageAnalyzer;Path-based body analysis belongs to product queries, not the browser host.
+T:ILInspector.Analysis.ResourceLifecycleAnalysis;Path-based lifecycle analysis belongs to product queries, not the browser host.
 T:ILInspector.Instructions.IlAssemblyDiff;Raw IL stream comparison belongs to product queries, not the browser host.
+T:ILInspector.Decompiler.CSharpBodyDiff;Path-based decompiler comparison belongs to product queries, not the browser host.
+T:ILInspector.Decompiler.CSharpFindings;Path-based decompiler Finding comparison belongs to product queries, not the browser host.
 T:ILInspector.Metadata.AssemblyReader;Assembly projection belongs to a product query, never to the browser host.
 T:ILInspector.Metadata.ApiSurfaceExtractor;API projection belongs to a product query, never to the browser host.
+T:ILInspector.Metadata.AssemblyDetailScanner;Path-based assembly detail inspection belongs to product queries, not the browser host.
 T:ILInspector.Metadata.AssemblyIdentityScanner;Path-based assembly identity inspection belongs to product queries, not the browser host.
 T:ILInspector.Metadata.ExtensionMethodScanner;Extension-method inspection belongs to product queries, not raw package streams in the browser host.
 T:ILInspector.Metadata.MethodClassificationScanner;Method classification belongs to product queries, not raw package streams in the browser host.
 T:ILInspector.Metadata.ResourceScanner;Resource inspection belongs to product queries, not raw package streams in the browser host.
 T:ILInspector.Metadata.TypeHierarchyScanner;Type-hierarchy inspection belongs to product queries, not raw package streams in the browser host.
 T:ILInspector.Metadata.TypeDependencyScanner;Path-based type dependency inspection belongs to product queries, not the browser host.
+T:ILInspector.Metadata.MemberSearch;Path-based member inspection belongs to product queries, not the browser host.
 T:DotnetInspector.Services.PdbAcquisitionService;PDB acquisition belongs to the source query that owns its metadata context, not the browser host.
+T:DotnetInspector.Services.AssemblyDependencyResolver;Path-based dependency resolution and descriptor creation belong to product workspace composition, not the browser host.
+T:DotnetInspector.Services.AssemblySetResolutionSession;Path-based assembly-set inspection belongs to product queries, not the browser host.
+T:DotnetInspector.Services.AssemblySetSurfaceBuilder;Path-based assembly-set projection belongs to product queries, not the browser host.
+T:DotnetInspector.Services.PlatformResolver;Installed-platform probing and path-based inspection belong to product workspace composition, not the browser host.
+T:DotnetInspector.Services.TfmSelector;Path-based package asset inspection belongs to product package selection, not the browser host.
+T:ILInspector.Research.ImplementationDiff;Path-based implementation comparison belongs to product queries, not the browser host.
+T:ILInspector.Research.ResearchDiff;Path-based research comparison belongs to product queries, not the browser host.
+T:ILInspector.Research.ResearchDiffInput;Path-based research input construction belongs to product queries, not the browser host.
+T:ILInspector.Research.ResearchMatch;Path-based research matching belongs to product queries, not the browser host.
 P:ILInspector.Metadata.ResolvedAssemblyReference.OpenRead;A descriptor may carry identity into a query, but the browser host must not open its image.
 T:ILInspector.Metadata.IAssemblyReferenceResolver;Assembly-role binding belongs to product workspace composition, never to the browser host.
 T:ILInspector.Metadata.AssemblyReferenceBindingPolicy;Assembly-role binding belongs to product workspace composition, never to the browser host.
