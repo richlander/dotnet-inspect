@@ -4913,10 +4913,11 @@ static class FidelityCheck
             while (root is QualifiedNameSyntax nested)
                 root = nested.Left;
             if (root is SimpleNameSyntax simpleRoot
-                && HasNestedOrBaseInterfaceIdentifierCollision(
-                    reader,
-                    bodyType,
-                    simpleRoot.Identifier.ValueText))
+                && (typeParameters.Contains(simpleRoot.Identifier.ValueText)
+                    || HasNestedOrBaseInterfaceIdentifierCollision(
+                        reader,
+                        bodyType,
+                        simpleRoot.Identifier.ValueText)))
             {
                 return true;
             }

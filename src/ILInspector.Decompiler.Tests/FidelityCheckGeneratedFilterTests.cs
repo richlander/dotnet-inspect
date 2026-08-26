@@ -110,7 +110,15 @@ public class FidelityCheckGeneratedFilterTests
                 public interface IBody { object M(); }
                 public interface IGeneric { void M<T>(Models.T value); }
                 public interface INested { void M(Models.Widget value); }
+                public interface IQualifiedMethodGeneric
+                {
+                    Models.Outer.Inner Create<Outer>();
+                }
                 public interface IQualifiedNested { object Create(); }
+                public interface IQualifiedTypeGeneric
+                {
+                    Models.Outer.Inner Create();
+                }
                 public interface ITypeGeneric { void M(Models.T value); }
 
                 public class BaseWithNested
@@ -156,6 +164,20 @@ public class FidelityCheckGeneratedFilterTests
                         => new Models.Outer.Inner();
                 }
 
+                public sealed class QualifiedMethodGeneric
+                    : IQualifiedMethodGeneric
+                {
+                    Models.Outer.Inner IQualifiedMethodGeneric.Create<Outer>()
+                        => new Models.Outer.Inner();
+                }
+
+                public sealed class QualifiedTypeGeneric<Outer>
+                    : IQualifiedTypeGeneric
+                {
+                    Models.Outer.Inner IQualifiedTypeGeneric.Create()
+                        => new Models.Outer.Inner();
+                }
+
                 public sealed class TypeGeneric<T> : ITypeGeneric
                 {
                     void ITypeGeneric.M(Models.T value) { }
@@ -177,7 +199,9 @@ public class FidelityCheckGeneratedFilterTests
                 ("C", "SignatureCollision.I.M", false),
                 ("Generic", "SignatureCollision.IGeneric.M", false),
                 ("Nested", "SignatureCollision.INested.M", false),
+                ("QualifiedMethodGeneric", "SignatureCollision.IQualifiedMethodGeneric.Create", false),
                 ("QualifiedNested", "SignatureCollision.IQualifiedNested.Create", false),
+                ("QualifiedTypeGeneric`1", "SignatureCollision.IQualifiedTypeGeneric.Create", false),
                 ("TypeGeneric`1", "SignatureCollision.ITypeGeneric.M", false)
             })
             {
@@ -216,7 +240,9 @@ public class FidelityCheckGeneratedFilterTests
                     or "SignatureCollision.C"
                     or "SignatureCollision.Generic"
                     or "SignatureCollision.Nested"
+                    or "SignatureCollision.QualifiedMethodGeneric"
                     or "SignatureCollision.QualifiedNested"
+                    or "SignatureCollision.QualifiedTypeGeneric`1"
                     or "SignatureCollision.TypeGeneric`1",
                 candidate => candidate.Method.EndsWith(
                     "Clone",
@@ -235,7 +261,9 @@ public class FidelityCheckGeneratedFilterTests
                     or "SignatureCollision.C"
                     or "SignatureCollision.Generic"
                     or "SignatureCollision.Nested"
+                    or "SignatureCollision.QualifiedMethodGeneric"
                     or "SignatureCollision.QualifiedNested"
+                    or "SignatureCollision.QualifiedTypeGeneric`1"
                     or "SignatureCollision.TypeGeneric`1");
             foreach (var results in new[] { targetedResults, batchResults })
             {
@@ -254,7 +282,9 @@ public class FidelityCheckGeneratedFilterTests
                     "SignatureCollision.C",
                     "SignatureCollision.Generic",
                     "SignatureCollision.Nested",
+                    "SignatureCollision.QualifiedMethodGeneric",
                     "SignatureCollision.QualifiedNested",
+                    "SignatureCollision.QualifiedTypeGeneric`1",
                     "SignatureCollision.TypeGeneric`1"
                 })
                 {
@@ -2188,6 +2218,72 @@ public class FidelityCheckGeneratedFilterTests
                     typeName => typeName == "HiddenImplementation",
                     candidate => candidate.Method == "IHidden.Use"));
             Assert.False(result.UsedProductWholeMember);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void Evaluate_DeclinesUnresolvedExplicitInterfaceSignatureAssembly()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string libraryPath = Path.Combine(directory, "MissingContract.dll");
+        string assemblyPath = Path.Combine(directory, "fixture.dll");
+        try
+        {
+            CompileAssembly(
+                libraryPath,
+                """
+                namespace MissingContract;
+
+                public sealed class External { }
+                """);
+            CompileAssembly(
+                assemblyPath,
+                """
+                public interface I
+                {
+                    MissingContract.External Echo(
+                        MissingContract.External value);
+                }
+
+                public sealed class MissingImplementation : I
+                {
+                    MissingContract.External I.Echo(
+                        MissingContract.External value) => value;
+                }
+                """,
+                [MetadataReference.CreateFromFile(libraryPath)]);
+
+            var control = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "MissingImplementation",
+                    candidate => candidate.Method == "I.Echo"));
+            Assert.True(control.UsedProductWholeMember);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, control.Status);
+
+            File.Delete(libraryPath);
+            var targetedResults = FidelityCheck.Evaluate(
+                assemblyPath,
+                typeName => typeName == "MissingImplementation",
+                candidate => candidate.Method == "I.Echo");
+            var batchResults = FidelityCheck.Evaluate(
+                assemblyPath,
+                typeName => typeName == "MissingImplementation");
+            foreach (var results in new[] { targetedResults, batchResults })
+            {
+                Assert.False(Assert.Single(
+                    results,
+                    result => result.Method == "I.Echo")
+                    .UsedProductWholeMember);
+            }
         }
         finally
         {

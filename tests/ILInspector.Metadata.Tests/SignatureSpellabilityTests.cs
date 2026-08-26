@@ -71,6 +71,21 @@ public sealed class SignatureSpellabilityTests
     }
 
     [Fact]
+    public void InspectMethod_RejectsUnresolvedReferencedType()
+    {
+        using var fixture = OpenFixture(new MapResolver());
+        var method = GetMethod(fixture.Reader, fixture.Type, "VisibleMethod");
+
+        var result = fixture.Spellability.InspectMethod(
+            fixture.Reader,
+            method,
+            GenericContext.ForMethod(fixture.Reader, fixture.Type, method));
+
+        Assert.False(result.CanSpell);
+        Assert.Equal(SignatureDecodeStatus.Degraded, result.DecodeStatus);
+    }
+
+    [Fact]
     public void CanSpellField_RelaxesVersionWhenResolverUnifiesReferences()
     {
         using var fixture = OpenFixture(new VersionRelaxingResolver(typeof(VisibleReferenceType).Assembly.Location));

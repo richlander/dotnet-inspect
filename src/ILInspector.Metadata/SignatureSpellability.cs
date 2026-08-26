@@ -111,13 +111,20 @@ public sealed class SignatureSpellability
     static bool IsDecodeException(Exception ex)
         => ex is BadImageFormatException or InvalidOperationException or ArgumentException;
 
-    bool IsInaccessible(MetadataReader reader, TypeReferenceHandle handle)
+    SpellabilityEvidence InspectTypeReference(
+        MetadataReader reader,
+        TypeReferenceHandle handle)
     {
         if (AssemblyScope(reader, handle) is not { } reference)
-            return false;
+            return default;
 
+        var nonPublicTypes = NonPublicTypes(reference).Types;
+        if (nonPublicTypes is null)
+            return SpellabilityEvidence.Degraded;
         string fullName = reader.GetFullTypeName(reader.GetTypeReference(handle));
-        return NonPublicTypes(reference).Types?.Contains(fullName) == true;
+        return new(
+            IsInaccessible: nonPublicTypes.Contains(fullName),
+            IsDegraded: false);
     }
 
     NonPublicTypeSet NonPublicTypes(ReferenceKey reference)
@@ -212,7 +219,7 @@ public sealed class SignatureSpellability
         public SpellabilityEvidence GetPrimitiveType(PrimitiveTypeCode typeCode) => default;
         public SpellabilityEvidence GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => default;
         public SpellabilityEvidence GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
-            => new(spellability.IsInaccessible(reader, handle), IsDegraded: false);
+            => spellability.InspectTypeReference(reader, handle);
         public SpellabilityEvidence GetTypeFromSpecification(
             MetadataReader reader,
             GenericContext? context,
