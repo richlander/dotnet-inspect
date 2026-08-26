@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using DotnetInspector.Commands;
 using DotnetInspector.Queries.Definitions;
@@ -12,6 +13,13 @@ public sealed class WorkspaceStateCommandTests
         + "WyJTeXN0ZW0uVGV4dC5Kc29uIiwiMTAuMC4wIiwibmV0MTAuMCIsbnVsbF1dLCJnIjpb"
         + "WzAsMV1dLCJhIjoxLCJ4IjowLCJ2IjoiYXBpIiwieSI6IlN5c3RlbS5UZXh0Lkpzb24u"
         + "SnNvblNlcmlhbGl6ZXIiLCJsIjpbIlN5c3RlbS5UZXh0Lkpzb24iXX0";
+
+    private const string UnicodeVector =
+        "eyJmIjoxLCJ0IjpbWyJDb250b3NvLkpzb24iLCIyLjAuMCIsIm5ldDEwLjAiLCJsaW51"
+        + "eC14NjQiXV0sImciOltbMF1dLCJhIjowLCJ4IjowLCJ2IjoibWVtYmVyIiwieSI6IuS-"
+        + "iy5Kc29uU2VyaWFsaXplcjxUPiIsInMiOiJEZXNlcmlhbGl6ZUFzeW5jKFN5c3RlbS5T"
+        + "dHJpbmcsIFN5c3RlbS5UaHJlYWRpbmcuQ2FuY2VsbGF0aW9uVG9rZW4pIiwiYyI6IlNv"
+        + "dXJjZSIsImwiOlsiQ29udG9zby5Kc29uIl19";
 
     private const string EquivalentJson =
         """
@@ -269,6 +277,51 @@ public sealed class WorkspaceStateCommandTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.StartsWith("Error:", result.Error);
+    }
+
+    [Fact]
+    public async Task UnicodePacket_PipesAsUtf8UnderLegacyWindowsCodePage()
+    {
+        Assert.SkipUnless(
+            OperatingSystem.IsWindows(),
+            "Windows console code pages do not apply on this platform.");
+
+        string executable = Path.Combine(
+            AppContext.BaseDirectory,
+            "dotnet-inspect.exe");
+        Assert.True(
+            File.Exists(executable),
+            $"Expected the built CLI at {executable}.");
+
+        string command =
+            $"chcp 437>nul & \"{executable}\" workspace-state decode "
+            + $"\"{UnicodeVector}\" | \"{executable}\" workspace-state encode -";
+        var startInfo = new ProcessStartInfo("cmd.exe")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        startInfo.ArgumentList.Add("/d");
+        startInfo.ArgumentList.Add("/s");
+        startInfo.ArgumentList.Add("/c");
+        startInfo.ArgumentList.Add(command);
+
+        using Process process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Could not start cmd.exe.");
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        Task<string> output = process.StandardOutput.ReadToEndAsync(
+            cancellationToken);
+        Task<string> error = process.StandardError.ReadToEndAsync(
+            cancellationToken);
+        await process.WaitForExitAsync(cancellationToken);
+        string outputText = await output;
+        string errorText = await error;
+        Assert.Equal(0, process.ExitCode);
+        Assert.Empty(errorText);
+        Assert.Equal(UnicodeVector, outputText.TrimEnd());
     }
 
     [Fact]

@@ -92,6 +92,12 @@ public static class WorkspaceSharePacketCodec
         ArgumentNullException.ThrowIfNull(json);
         if (json.Length == 0)
             throw Failure(WorkspaceSharePacketFailureKind.Empty, "Workspace share JSON is empty.");
+        if (json.Length > MaxDecodedUtf8Length)
+        {
+            throw Failure(
+                WorkspaceSharePacketFailureKind.DecodedLimitExceeded,
+                $"Workspace share JSON exceeds the {MaxDecodedUtf8Length}-byte limit.");
+        }
 
         byte[] utf8Json;
         try

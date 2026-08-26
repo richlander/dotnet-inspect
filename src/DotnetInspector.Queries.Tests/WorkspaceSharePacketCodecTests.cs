@@ -96,6 +96,17 @@ public sealed class WorkspaceSharePacketCodecTests
             WorkspaceSharePacketFailureKind.DecodedLimitExceeded,
             oversized.Kind);
 
+        WorkspaceSharePacketException oversizedInvalidUnicode =
+            Assert.Throws<WorkspaceSharePacketException>(
+                () => WorkspaceSharePacketCodec.ParseJson(
+                    "\uD800" + new string(
+                        ' ',
+                        WorkspaceSharePacketCodec.MaxDecodedUtf8Length),
+                    TestContext.Current.CancellationToken));
+        Assert.Equal(
+            WorkspaceSharePacketFailureKind.DecodedLimitExceeded,
+            oversizedInvalidUnicode.Kind);
+
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
         Assert.Throws<OperationCanceledException>(
