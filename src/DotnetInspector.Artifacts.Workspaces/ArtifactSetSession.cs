@@ -91,7 +91,10 @@ public abstract class ArtifactSetPublicationOutcome
 /// <c>ArtifactSetSession_SealRejectsAcquisitionInProgress</c> and
 /// <c>ArtifactSetSession_DisposalDuringSealCannotPublish</c>. Owner-held
 /// content release is gated by
-/// <c>ArtifactSetSession_DisposalReleasesOwnerHeldState</c>.
+/// <c>ArtifactSetSession_DisposalReleasesOwnerHeldState</c>. Concurrent
+/// termination completion is gated by
+/// <c>ArtifactSetSession_ConcurrentTerminationWaitsForCleanup</c> and
+/// <c>ArtifactSetSession_ConcurrentAbortAndDisposalShareCleanup</c>.
 /// </remarks>
 public sealed class ArtifactSetSession : IAsyncDisposable
 {
@@ -107,6 +110,7 @@ public sealed class ArtifactSetSession : IAsyncDisposable
     private IReadOnlyList<ArtifactDescriptor>? _catalog;
     private Dictionary<ArtifactIdentity, PublishedArtifact>? _artifacts;
     private IReadOnlyList<Exception> _cleanupFailures = [];
+    private Task<IReadOnlyList<Exception>>? _terminationTask;
     private SessionState _state;
     private bool _acquisitionInProgress;
 
@@ -538,14 +542,7 @@ public sealed class ArtifactSetSession : IAsyncDisposable
     /// </summary>
     public async ValueTask DisposeAsync()
     {
-        if (!TryBeginDisposal())
-            return;
-
-        _authority.EndGeneration();
-        _admissionLease.Dispose();
-        IReadOnlyList<Exception> failures =
-            await DisposeLeasesAsync().ConfigureAwait(false);
-        RecordCleanupFailures(failures);
+        await TerminateAsync().ConfigureAwait(false);
     }
 
     private async ValueTask<byte[]> MaterializeAsync(
@@ -595,31 +592,50 @@ public sealed class ArtifactSetSession : IAsyncDisposable
 
     private async ValueTask<IReadOnlyList<Exception>> AbortAsync()
     {
-        if (!TryBeginDisposal())
-            return CleanupFailures;
-
-        _authority.EndGeneration();
-        _admissionLease.Dispose();
-        IReadOnlyList<Exception> failures =
-            await DisposeLeasesAsync().ConfigureAwait(false);
-        RecordCleanupFailures(failures);
-        return failures;
+        return await TerminateAsync().ConfigureAwait(false);
     }
 
-    private bool TryBeginDisposal()
+    private async ValueTask<IReadOnlyList<Exception>> TerminateAsync()
     {
+        TaskCompletionSource<IReadOnlyList<Exception>>? starter = null;
+        Task<IReadOnlyList<Exception>> termination;
         lock (_gate)
         {
-            if (_state == SessionState.Disposed)
-                return false;
+            if (_terminationTask is null)
+            {
+                starter =
+                    new(
+                        TaskCreationOptions
+                            .RunContinuationsAsynchronously);
+                _terminationTask = starter.Task;
+                _state = SessionState.Disposed;
+                _catalog = null;
+                _artifacts = null;
+                _acquired.Clear();
+                _failures.Clear();
+            }
 
-            _state = SessionState.Disposed;
-            _catalog = null;
-            _artifacts = null;
-            _acquired.Clear();
-            _failures.Clear();
-            return true;
+            termination = _terminationTask;
         }
+
+        if (starter is not null)
+        {
+            try
+            {
+                _authority.EndGeneration();
+                _admissionLease.Dispose();
+                IReadOnlyList<Exception> failures =
+                    await DisposeLeasesAsync().ConfigureAwait(false);
+                RecordCleanupFailures(failures);
+                starter.SetResult(failures);
+            }
+            catch (Exception ex)
+            {
+                starter.SetException(ex);
+            }
+        }
+
+        return await termination.ConfigureAwait(false);
     }
 
     private void RecordCleanupFailures(

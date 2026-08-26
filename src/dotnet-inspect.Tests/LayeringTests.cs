@@ -74,7 +74,10 @@ public sealed class LayeringTests
         Assert.Contains(
             "Microsoft.CodeAnalysis.BannedApiAnalyzers",
             CommandErrorOwnershipTests.ProjectPackageDependencies(project));
-        AssertNoForbiddenImplementations(root, closure, PackageImplementationProjects);
+        AssertNoForbiddenImplementations(
+            root,
+            closure,
+            PackageOrStorageImplementationProjects);
     }
 
     [Fact]

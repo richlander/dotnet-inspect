@@ -121,6 +121,75 @@ public sealed class ArtifactSetSessionTests
     }
 
     [Fact]
+    public async Task ArtifactSetSession_ConcurrentTerminationWaitsForCleanup()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        var lease = new BlockingThrowingLease();
+        var session = new ArtifactSetSession();
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) => Acquired(
+                scope,
+                new Provenance("blocking-cleanup"),
+                [1],
+                lease),
+            cancellationToken: cancellationToken);
+        Assert.IsType<ArtifactSetPublicationOutcome.Published>(
+            await session.SealAsync(cancellationToken));
+
+        Task first = session.DisposeAsync().AsTask();
+        await lease.Entered.WaitAsync(cancellationToken);
+        Task second = session.DisposeAsync().AsTask();
+
+        Assert.False(second.IsCompleted);
+        Assert.Empty(session.CleanupFailures);
+        lease.Release();
+        await Task.WhenAll(first, second);
+        Assert.IsType<IOException>(
+            Assert.Single(session.CleanupFailures));
+    }
+
+    [Fact]
+    public async Task ArtifactSetSession_ConcurrentAbortAndDisposalShareCleanup()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        var lease = new BlockingThrowingLease();
+        var session = new ArtifactSetSession();
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) => Acquired(
+                scope,
+                new Provenance("blocking-cleanup"),
+                [1],
+                lease),
+            cancellationToken: cancellationToken);
+
+        Task acquisition = session.AddRequiredAcquisitionAsync(
+            static (_, _) =>
+                ValueTask.FromException<ArtifactAcquisitionOutcome>(
+                    new InvalidDataException("primary failure")),
+            cancellationToken: cancellationToken).AsTask();
+        await lease.Entered.WaitAsync(cancellationToken);
+        Task disposal = session.DisposeAsync().AsTask();
+
+        Assert.False(disposal.IsCompleted);
+        lease.Release();
+        InvalidDataException primary =
+            await Assert.ThrowsAsync<InvalidDataException>(
+                async () => await acquisition);
+        await disposal;
+
+        Assert.Equal("primary failure", primary.Message);
+        IReadOnlyList<Exception> attached =
+            Assert.IsAssignableFrom<IReadOnlyList<Exception>>(
+                primary.Data[
+                    "DotnetInspector.Artifacts.Workspaces.CleanupFailures"]);
+        Assert.Same(
+            Assert.Single(attached),
+            Assert.Single(session.CleanupFailures));
+    }
+
+    [Fact]
     public async Task ArtifactSetSession_DisposalDuringAcquisitionDisposesLateLease()
     {
         CancellationToken cancellationToken =
@@ -615,6 +684,26 @@ public sealed class ArtifactSetSessionTests
         public ValueTask DisposeAsync() =>
             ValueTask.FromException(
                 new IOException("cleanup failed"));
+    }
+
+    private sealed class BlockingThrowingLease :
+        IArtifactAcquisitionLease
+    {
+        private readonly TaskCompletionSource _entered =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Entered => _entered.Task;
+
+        public void Release() => _release.TrySetResult();
+
+        public async ValueTask DisposeAsync()
+        {
+            _entered.TrySetResult();
+            await _release.Task;
+            throw new IOException("cleanup failed");
+        }
     }
 
     private sealed class GatedReadStream(

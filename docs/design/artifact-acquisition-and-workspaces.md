@@ -826,6 +826,8 @@ The target is complete only when tests equivalent to these exist:
 - `LeaseScopedPath_IsNotADesignationGrant`
 - `ArtifactSetSession_DisposesEveryContributingLease`
 - `ArtifactSetSession_DisposalReleasesOwnerHeldState`
+- `ArtifactSetSession_ConcurrentTerminationWaitsForCleanup`
+- `ArtifactSetSession_ConcurrentAbortAndDisposalShareCleanup`
 - `ArtifactSetSession_DisposalDuringAcquisitionDisposesLateLease`
 - `ArtifactSetSession_SealRejectsAcquisitionInProgress`
 - `ArtifactSetSession_DisposalDuringSealCannotPublish`
@@ -886,8 +888,8 @@ one retained snapshot for every minted registration.
 immutability, bounded owner-private materialization, read-only retained streams,
 visible required-acquisition and cleanup failures, acquisition-lease disposal,
 owner-held state release, late-outcome lease disposal, seal exclusion during
-acquisition and disposal, query revocation, non-masking disposal, and role
-assignment separate from provenance.
+acquisition and disposal, shared termination completion, query revocation,
+non-masking disposal, and role assignment separate from provenance.
 `LocalArtifactSourceTests` enforce pre-registration local snapshots, typed
 missing/limit diagnostics, mutation and deletion resistance, and cancellation
 remaining cancellation. `LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`
