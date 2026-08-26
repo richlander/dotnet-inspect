@@ -169,7 +169,7 @@ public static class SignatureBlobGuard
                     break;
 
                 case Op.ArrayShape:
-                    if (SkipArrayShape(ref blob))
+                    if (SkipArrayShape(ref blob, ref remainingTypeNodes))
                         return true;
                     break;
             }
@@ -418,21 +418,43 @@ public static class SignatureBlobGuard
 
     }
 
-    /// <summary>Skips an ArrayShape (rank, sizes, lower bounds). Returns true (unsafe) if either
-    /// count exceeds the remaining blob: SRM's array decoder pre-allocates a builder from these
-    /// counts before reading elements, so an unbounded count (a compressed integer can encode ~536M)
-    /// would OOM SRM even though the blob is only a few bytes.</summary>
-    static bool SkipArrayShape(ref BlobReader blob)
+    /// <summary>
+    /// Consumes an ArrayShape, charging its size and lower-bound counts to the shared type-node
+    /// budget before either is materialized.
+    /// </summary>
+    /// <remarks>
+    /// The remaining-bytes check alone is not a bound on work: SRM allocates and fills an
+    /// <c>ImmutableArray</c> for each count while decoding the shape, before
+    /// <c>TypeNodeProvider.GetArrayType</c> gets a chance to charge anything. A blob that is
+    /// merely long can therefore encode many shapes whose counts each pass the per-shape byte
+    /// check while their aggregate is arbitrarily large. Charging the same currency the type
+    /// nodes use bounds the aggregate too, and leaves ordinary wide-but-shallow signatures —
+    /// whose real ranks are single digits — untouched.
+    /// <c>SignatureBlobGuardTests.Rejects_array_shape_counts_beyond_the_type_node_budget</c> and
+    /// <c>SignatureBlobGuardTests.Rejects_aggregate_array_shape_counts_beyond_the_type_node_budget</c>
+    /// gate it.
+    /// </remarks>
+    static bool SkipArrayShape(ref BlobReader blob, ref int remainingTypeNodes)
     {
         blob.ReadCompressedInteger();           // rank
         int numSizes = blob.ReadCompressedInteger();
-        if (numSizes < 0 || numSizes > blob.RemainingBytes)
+        if (numSizes < 0
+            || numSizes > blob.RemainingBytes
+            || numSizes > remainingTypeNodes)
+        {
             return true;
+        }
+        remainingTypeNodes -= numSizes;
         for (int i = 0; i < numSizes; i++)
             blob.ReadCompressedInteger();        // size
         int numLoBounds = blob.ReadCompressedInteger();
-        if (numLoBounds < 0 || numLoBounds > blob.RemainingBytes)
+        if (numLoBounds < 0
+            || numLoBounds > blob.RemainingBytes
+            || numLoBounds > remainingTypeNodes)
+        {
             return true;
+        }
+        remainingTypeNodes -= numLoBounds;
         for (int i = 0; i < numLoBounds; i++)
             blob.ReadCompressedSignedInteger();  // lower bound
         return false;
