@@ -104,6 +104,10 @@ canonical `/index.json` segment. The v3 client constructor is the single owner
 of that source normalization for search, version, manifest, and package
 operations, including for legacy factory overloads. Exact package pins are
 normalized once before cache lookup and payload acquisition.
+`ProductStack_UsesLegacyFeedApisOnlyFromApprovedOwners` scans the compiled
+product closure through `LibraryBodyIndex` and keeps direct legacy
+service-index API use confined to its owning compatibility helper and the
+approved metadata-enrichment path.
 Borrowed clients retain authoritative listing state for floating selection,
 exclude unlisted candidates, and reject partial answers. NuGet.org listing
 policy follows the stable producer identity rather than the first signed alias
