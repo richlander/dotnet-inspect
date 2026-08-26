@@ -175,10 +175,7 @@ import {
   type AnnotatedSourceResult,
   type CSharpSyntaxToken,
 } from "./annotated-source-explorer.ts";
-import {
-  MEDIA,
-  validateAnnotatedSourceDocument,
-} from "./annotated-source-view.ts";
+import { validateAnnotatedSourceDocument } from "./annotated-source-view.ts";
 import {
   bindDependencyGraphNodes,
   bindGraphBack,
@@ -538,10 +535,6 @@ interface Diagnostics {
   transfer: number;
   decoded: number;
   assets: number;
-}
-
-function isAnnotatedMedium(value: string): value is (typeof MEDIA)[number] {
-  return MEDIA.some(medium => medium === value);
 }
 
 let spotlightCache: SpotlightCache | null = null;
