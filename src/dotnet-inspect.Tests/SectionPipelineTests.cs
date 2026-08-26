@@ -1693,6 +1693,12 @@ public class SectionPipelineTests
             .. pipeline.DeclaredQueries.Where(
                 catalog.GroupQueryRegistry.RegisteredQueries.Contains),
         ];
+        HashSet<InspectionQueryDefinition> commandQueries =
+        [
+            .. LibraryCommand.DiscoveryQueries.Select(demand => demand.Query),
+            .. LibraryCommand.BareDiscoveryQueries.Select(demand => demand.Query),
+        ];
+        perAssemblyQueries.UnionWith(commandQueries);
         HashSet<InspectionQueryDefinition> closure =
             catalog.QueryRegistry.ExpandRequired(perAssemblyQueries);
         closure.UnionWith(
@@ -1710,7 +1716,7 @@ public class SectionPipelineTests
             closure.OrderBy(q => q.Name, StringComparer.Ordinal),
             registered.OrderBy(q => q.Name, StringComparer.Ordinal));
         Assert.Equal(
-            pipeline.DeclaredQueries.OrderBy(
+            pipeline.DeclaredQueries.Union(commandQueries).OrderBy(
                 query => query.Name,
                 StringComparer.Ordinal),
             perAssemblyQueries.Union(groupQueries).OrderBy(
@@ -5550,6 +5556,39 @@ public class SectionPipelineTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Unsafe Members" });
 
         Assert.Contains("Unsafe Members", effective);
+    }
+
+    [Fact]
+    public void Discoverable_UnsafeMembers_UsesDegradedDecodeStatusAfterNegativePresenceProbe()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasMethodBodies = true,
+            UnsafeEvidencePresent = false,
+            UnsafeSignatureDecodeStatus = SignatureDecodeStatus.Degraded
+        };
+
+        var discoverable = pipeline.GetDiscoverableSections(model);
+
+        Assert.Contains("Unsafe Members", discoverable);
+    }
+
+    [Fact]
+    public void Discoverable_UnsafeMembers_NegativePresenceProbeOverridesMethodBodyFallback()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasMethodBodies = true,
+            UnsafeEvidencePresent = false
+        };
+
+        var discoverable = pipeline.GetDiscoverableSections(model);
+
+        Assert.DoesNotContain("Unsafe Members", discoverable);
     }
 
     [Fact]
