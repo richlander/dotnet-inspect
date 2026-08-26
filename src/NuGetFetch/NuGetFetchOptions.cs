@@ -14,6 +14,11 @@ public sealed record NuGetFetchOptions
     public const long DefaultMaxMetadataResponseBytes = 16 * 1024 * 1024;
 
     /// <summary>
+    /// Default maximum size of an exact package manifest.
+    /// </summary>
+    public const long DefaultMaxManifestResponseBytes = 1024 * 1024;
+
+    /// <summary>
     /// Default maximum aggregate size of one Gallery registration join.
     /// </summary>
     public const long DefaultMaxRegistrationMetadataBytes =
@@ -48,6 +53,12 @@ public sealed record NuGetFetchOptions
     /// </summary>
     public long MaxMetadataResponseBytes { get; init; } =
         DefaultMaxMetadataResponseBytes;
+
+    /// <summary>
+    /// Gets the maximum accepted package-manifest size in bytes.
+    /// </summary>
+    public long MaxManifestResponseBytes { get; init; } =
+        DefaultMaxManifestResponseBytes;
 
     /// <summary>
     /// Gets the maximum aggregate bytes admitted across one Gallery
@@ -109,6 +120,8 @@ public sealed record NuGetFetchOptions
         ArgumentNullException.ThrowIfNull(options);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             options.MaxMetadataResponseBytes);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            options.MaxManifestResponseBytes);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             options.MaxRegistrationMetadataBytes);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
