@@ -1033,6 +1033,35 @@ function observedAttributeReadExemptions(
   return [...observed].sort((left, right) => left.localeCompare(right));
 }
 
+const unsupportedReflectiveReads = new Set([
+  "Object.getOwnPropertyDescriptor",
+  "Object.getOwnPropertyDescriptors",
+  "Reflect.get",
+  "Reflect.getOwnPropertyDescriptor",
+]);
+
+function reflectiveReadViolations(files: readonly SourceFile[]): string[] {
+  const violations: string[] = [];
+  for (const file of files) {
+    const aliases = domAliases(file.program);
+    walk(file.program, node => {
+      if (node.type !== "MemberExpression"
+        || node.object.type !== "Identifier") {
+        return;
+      }
+      const method = resolvedMemberName(node, aliases);
+      const call = method
+        ? `${node.object.name}.${method}`
+        : "";
+      if (!unsupportedReflectiveReads.has(call)) return;
+      violations.push(
+        `${file.name}:${lineOf(file.text, node.start)}: `
+        + file.text.slice(node.start, node.end));
+    });
+  }
+  return violations;
+}
+
 test("no browser payload is numerically coerced outside the canonical parsers", () => {
   const files = sources();
   assert.deepEqual(
@@ -1054,6 +1083,10 @@ test("no browser payload is numerically coerced outside the canonical parsers", 
     [...exemptAttributeReadMembers.keys()]
       .sort((left, right) => left.localeCompare(right)),
     "an alternate-attribute exemption is missing or no longer needed");
+  assert.deepEqual(
+    reflectiveReadViolations(files),
+    [],
+    "a reflective property read erased the DOM payload's typed access path");
 });
 
 test("the gate rejects preprocessing, dynamic reads, and defaulted aliases", () => {
@@ -1151,6 +1184,16 @@ delete button.dataset.mdeRow;
     new Set(["parseNonNegativeInteger"]));
   assert.deepEqual(writeReads.get("slIndex") ?? [], []);
   assert.deepEqual(writeReads.get("mdeRow") ?? [], []);
+  const reflectionProbe = sourceFile("reflection-probe.ts", `
+let key = "dataset";
+const mapped = Reflect.get(button, key);
+Number(mapped.overload);
+const reflectMethod = "get" as const;
+Reflect[reflectMethod](button, key);
+Object.getOwnPropertyDescriptor(button, key);
+const erasedGet = Reflect.get;
+`);
+  assert.equal(reflectiveReadViolations([reflectionProbe]).length, 4);
 });
 
 test("the gate tracks dataset destructuring and rejects object escapes", () => {

@@ -13,6 +13,7 @@ import {
   resolveWorkspaceMemberSection,
   resolveWorkspaceRoute,
   shouldInterceptLinkClick,
+  unavailableWorkspaceMemberContextFields,
   workspaceViewSignature,
   type LinkNavigationClick,
   type WorkspaceLocationSnapshot,
@@ -299,6 +300,41 @@ test("rich workspace URLs round-trip coordinates, scope, and member selection", 
 });
 
 test("member share context reports unavailable filters and overloads", () => {
+  assert.deepEqual(
+    unavailableWorkspaceMemberContextFields({
+      member: "method:Missing",
+      overload: 1,
+      section: "source",
+      bodyTarget: {
+        memberName: "Missing",
+        selectorKey: "method",
+        metadataToken: 42,
+      },
+      memberBrowse: true,
+      memberTextFilter: "missing",
+      memberKindFilter: "method",
+      memberAccessibilityFilter: "public",
+      memberTraitFilter: "isStatic",
+    }, true),
+    [
+      "member",
+      "overload",
+      "member section",
+      "member body",
+      "member browse",
+      "member text filter",
+      "member kind filter",
+      "member accessibility filter",
+      "member trait filter",
+    ]);
+  assert.deepEqual(
+    unavailableWorkspaceMemberContextFields({
+      section: "overview",
+      memberKindFilter: "all",
+      memberAccessibilityFilter: "all",
+    }, false),
+    []);
+
   assert.deepEqual(
     resolveWorkspaceMemberFilters({
       memberKindFilter: "unknown-kind",
@@ -779,7 +815,16 @@ test("malformed rich packet fields cannot override the visible package", () => {
       .map(p => ({ ...base, p })),
     ...[null, "0", -1, 0.5, Number.MAX_SAFE_INTEGER + 1]
       .map(o => ({ ...base, o })),
-    ...[null, "body", [], [null, null, null], ["Build", null, 0.5]]
+    ...[
+      null,
+      "body",
+      [],
+      [null, null, null],
+      ["Build", null, 0.5],
+      [null, null, -1],
+      [null, null, 0x1_0000_0000],
+      [null, null, Number.MAX_SAFE_INTEGER + 1],
+    ]
       .map(d => ({ ...base, d })),
     ...[null, 0, true, "1"]
       .map(b => ({ ...base, b })),
@@ -796,6 +841,16 @@ test("malformed rich packet fields cannot override the visible package", () => {
   assert.deepEqual(rejectedNegativeZero.tabs, []);
   assert.equal(
     rejectedNegativeZero.workspaceNotice,
+    "The shared workspace state is invalid and was ignored.");
+  const negativeZeroBody = Buffer.from(
+    '{"t":[["Hidden.Package","1.0.0","net10.0"]],"a":0,"d":[null,null,-0]}')
+    .toString("base64url");
+  const rejectedNegativeZeroBody = parseWorkspaceLocation(locationSnapshot(
+    `https://inspect.example/?package=Visible.Package&w=${negativeZeroBody}`));
+  assert.equal(rejectedNegativeZeroBody.package, "Visible.Package");
+  assert.deepEqual(rejectedNegativeZeroBody.tabs, []);
+  assert.equal(
+    rejectedNegativeZeroBody.workspaceNotice,
     "The shared workspace state is invalid and was ignored.");
 
   for (const packet of invalidPackets) {

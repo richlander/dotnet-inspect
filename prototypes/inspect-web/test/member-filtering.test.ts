@@ -64,6 +64,21 @@ test("body targets round-trip through the compact rich-packet tuple", () => {
     { memberName: "get_Value", selectorKey: "getter", metadataToken: null });
   assert.equal(decodeBodyTarget([null, null, null]), null);
   assert.equal(decodeBodyTarget(["get_Value", "getter", "11"]), null);
+  assert.deepEqual(
+    decodeBodyTarget([null, null, 0xffff_ffff]),
+    { memberName: null, selectorKey: null, metadataToken: 0xffff_ffff });
+  for (const invalidToken of [
+    -1,
+    -0,
+    0.5,
+    0x1_0000_0000,
+    Number.MAX_SAFE_INTEGER + 1,
+  ]) {
+    assert.equal(
+      decodeBodyTarget([null, null, invalidToken]),
+      null,
+      String(invalidToken));
+  }
 });
 
 test("history restores type filters independently of Member browse scope", () => {

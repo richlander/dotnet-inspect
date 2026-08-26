@@ -88,6 +88,7 @@ import {
   resolveWorkspaceMemberFilters,
   resolveWorkspaceMemberOverload,
   resolveWorkspaceMemberSection,
+  unavailableWorkspaceMemberContextFields,
   workspaceViewSignature,
   type ParsedWorkspaceLocation,
   type WorkspaceDeepLink,
@@ -6041,6 +6042,12 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   state.memberSection = "overview";
+  const rejectedContextFields: string[] = [];
+  if (deep && !restoreType) {
+    if (deep.type && !deep.graphTarget) rejectedContextFields.push("type");
+    rejectedContextFields.push(
+      ...unavailableWorkspaceMemberContextFields(deep, true));
+  }
   if (deep?.graphTarget && !restoreType) {
     appendQueryNotice(
       "The shared graph member's declaring type is no longer available and was not opened.");
@@ -6054,7 +6061,7 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
       accessibilities: memberAccessibilities(type),
       traits: availableMemberTraits(type).map(([property]) => property),
     });
-    const rejectedContextFields = [...restoredFilters.rejectedFields];
+    rejectedContextFields.push(...restoredFilters.rejectedFields);
     state.memberTextFilter = deep.memberTextFilter || "";
     state.memberKindFilter = restoredFilters.kind;
     state.memberAccessibilityFilter = restoredFilters.accessibility;
@@ -6062,6 +6069,10 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
     if (deep.memberBrowse && groups.length)
       state.memberBrowseTypeId = type.id;
     const group = deep.member ? groups.find(item => item.key === deep.member) : null;
+    if (!deep.graphTarget && !group) {
+      rejectedContextFields.push(
+        ...unavailableWorkspaceMemberContextFields(deep, false));
+    }
     const graphCandidate = deep.member && deep.graphTarget
       ? pkg.isRuntimePack
         ? resolveRuntimeGraphTargetCandidate(pkg, deep.graphTarget)
@@ -6128,6 +6139,8 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
         target: deep.graphTarget
       };
     } else if (disposition === "mismatch") {
+      rejectedContextFields.push(
+        ...unavailableWorkspaceMemberContextFields(deep, false));
       appendQueryNotice(
         "The shared graph member no longer matches this package and was not opened.");
     } else if (disposition === "public" && group && deep.member) {
@@ -6158,8 +6171,8 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
         state.selectedBodyTarget = deep.bodyTarget ?? null;
       }
     }
-    appendRejectedLinkFields(rejectedContextFields);
   }
+  appendRejectedLinkFields(rejectedContextFields);
   state.typeCursor = Math.max(0, filteredTypes().findIndex(item => item.id === state.selectedTypeId));
 }
 

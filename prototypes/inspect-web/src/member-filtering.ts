@@ -206,7 +206,10 @@ export function decodeBodyTarget(value: unknown): BodyTarget | null {
     || (selectorKeyValue != null && typeof selectorKeyValue !== "string")
     || (metadataTokenValue != null
       && (typeof metadataTokenValue !== "number"
-        || !Number.isInteger(metadataTokenValue)))) {
+        || !Number.isSafeInteger(metadataTokenValue)
+        || metadataTokenValue < 0
+        || Object.is(metadataTokenValue, -0)
+        || metadataTokenValue > 0xffff_ffff))) {
     return null;
   }
   const target: BodyTarget = {

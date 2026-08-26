@@ -642,16 +642,17 @@ Closed workspace scopes, type and package lenses, member sections, and
 Spotlight scopes are literal unions derived from their UI catalogs. DOM and URL
 tokens are decoded before they reach typed state or actions; the scope-bar and
 workspace-navigation tests gate rejection of unknown values.
-Numeric DOM and URL payloads accept only non-negative safe decimal integers,
-and `dom-data` and the owning binding tests gate what the parsers reject.
+Numeric DOM and URL payloads accept only non-negative safe decimal integers;
+legacy body-target metadata tokens are additionally UInt32-bounded. `dom-data`
+and the owning binding tests gate what the parsers reject.
 `dom-payload-boundary` gates that call sites use them. It parses the TypeScript
 AST, compares canonical decoder calls with the product-owned
 attribute-to-decoder catalog, and rejects direct `Number`, `parseInt`, or unary
 `+` coercions plus numeric attributes read raw elsewhere.
 Dataset aliases and destructuring remain visible to the gate, dataset objects
-cannot escape to unaudited helpers, dynamic property reads cannot masquerade as
-named attributes, alternate attribute APIs fail closed, and only unshadowed
-imports from `dom-data` count as canonical decoders.
+cannot escape to unaudited helpers, dynamic or reflective property reads cannot
+masquerade as named attributes, alternate attribute APIs fail closed, and only
+unshadowed imports from `dom-data` count as canonical decoders.
 A malformed URL field -- a bad percent-escape in a package route, an unknown
 lens or member section, a non-canonical overload, or a member filter, section,
 or overload that is unavailable in the restored type or inconsistent with its

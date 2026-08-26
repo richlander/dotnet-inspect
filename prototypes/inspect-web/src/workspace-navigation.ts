@@ -281,6 +281,32 @@ export interface ResolvedWorkspaceMemberFilters {
   rejectedFields: string[];
 }
 
+export function unavailableWorkspaceMemberContextFields(
+  deep: WorkspaceDeepLink,
+  includeFilters: boolean,
+): string[] {
+  const fields: string[] = [];
+  if (deep.member) fields.push("member");
+  if (deep.overload != null) fields.push("overload");
+  if (deep.section && deep.section !== "overview") {
+    fields.push("member section");
+  }
+  if (deep.bodyTarget) fields.push("member body");
+  if (includeFilters) {
+    if (deep.memberBrowse) fields.push("member browse");
+    if (deep.memberTextFilter) fields.push("member text filter");
+    if (deep.memberKindFilter && deep.memberKindFilter !== "all") {
+      fields.push("member kind filter");
+    }
+    if (deep.memberAccessibilityFilter
+      && deep.memberAccessibilityFilter !== "all") {
+      fields.push("member accessibility filter");
+    }
+    if (deep.memberTraitFilter) fields.push("member trait filter");
+  }
+  return fields;
+}
+
 export function resolveWorkspaceMemberFilters(
   deep: WorkspaceDeepLink,
   context: WorkspaceMemberFilterContext,

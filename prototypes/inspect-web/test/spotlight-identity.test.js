@@ -199,15 +199,16 @@ const appSource = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.u
 const parsedAppSource = parseSync("dotnet-inspect.ts", appSource);
 const appSyntax = parsedAppSource.program;
 
-function walkSyntax(node, visit) {
+function walkSyntax(node, visit, ancestors = []) {
   if (!node) return;
-  visit(node);
+  visit(node, ancestors);
+  const nextAncestors = [...ancestors, node];
   for (const key of visitorKeys[node.type] ?? []) {
     const child = node[key];
     if (Array.isArray(child)) {
-      for (const item of child) walkSyntax(item, visit);
+      for (const item of child) walkSyntax(item, visit, nextAncestors);
     } else if (child) {
-      walkSyntax(child, visit);
+      walkSyntax(child, visit, nextAncestors);
     }
   }
 }
@@ -274,6 +275,24 @@ function memberExpressionsOn(root, objectName) {
     node => node.type === "MemberExpression"
       && node.object?.type === "Identifier"
       && node.object.name === objectName);
+}
+
+function selectorMethodEscapes(root) {
+  const escapes = [];
+  walkSyntax(root, (node, ancestors) => {
+    if (node.type !== "MemberExpression") return;
+    const property = node.property;
+    const name = property?.type === "Identifier"
+      ? property.name
+      : property?.type === "Literal" && typeof property.value === "string"
+        ? property.value
+        : "";
+    if (name !== "querySelector" && name !== "querySelectorAll") return;
+    const parent = ancestors.at(-1);
+    if (parent?.type === "CallExpression" && parent.callee === node) return;
+    escapes.push(node);
+  });
+  return escapes;
 }
 
 function callbackProperty(actions, name) {
@@ -949,6 +968,18 @@ test("typed package view owns package navigation bindings", () => {
     documentSelectorArguments(nongenericProbeSyntax, nongenericProbe),
     ['"[data-perf-selector]"'],
     "nongeneric selector calls must remain visible to the ownership scan");
+  assert.deepEqual(
+    selectorMethodEscapes(appSyntax),
+    [],
+    "querySelector methods must not escape direct-call ownership inspection");
+  const extractedSelectorProbe = parseSync(
+    "package-view-selector-extraction-probe.ts",
+    'const selector = document.querySelector; selector.call(doc, "[data-dep-group]");')
+    .program;
+  assert.equal(
+    selectorMethodEscapes(extractedSelectorProbe).length,
+    1,
+    "selector-method extraction must remain visible to the ownership scan");
   assert.doesNotMatch(
     appSource,
     /document\.querySelectorAll<HTMLElement>\("\[data-(?:dep-group|dep-open|dep-load|kind-jump|namespace-jump|lib-scope|graph-type|perf-selector)\]"\)/);
@@ -2274,7 +2305,10 @@ test("shared member views retain scope and filter state", () => {
   assert.match(appSource, /if \(deep\.memberBrowse && groups\.length\)\s*state\.memberBrowseTypeId = type\.id/);
   assert.match(
     deepLink,
-    /resolveWorkspaceMemberFilters\(deep,[\s\S]*traits: availableMemberTraits\(type\)[\s\S]*const rejectedContextFields = \[\.\.\.restoredFilters\.rejectedFields\][\s\S]*deep\.overload !== localGraphSelection\.overloadIndex[\s\S]*resolveWorkspaceMemberOverload\([\s\S]*if \(restoredSelection\.rejected\) rejectedContextFields\.push\("overload"\)[\s\S]*appendRejectedLinkFields\(rejectedContextFields\)/);
+    /resolveWorkspaceMemberFilters\(deep,[\s\S]*traits: availableMemberTraits\(type\)[\s\S]*rejectedContextFields\.push\(\.\.\.restoredFilters\.rejectedFields\)[\s\S]*deep\.overload !== localGraphSelection\.overloadIndex[\s\S]*resolveWorkspaceMemberOverload\([\s\S]*if \(restoredSelection\.rejected\) rejectedContextFields\.push\("overload"\)[\s\S]*appendRejectedLinkFields\(rejectedContextFields\)/);
+  assert.match(
+    deepLink,
+    /const rejectedContextFields: string\[\] = \[\];[\s\S]*if \(deep && !restoreType\)[\s\S]*deep\.type && !deep\.graphTarget[\s\S]*unavailableWorkspaceMemberContextFields\(deep, true\)[\s\S]*!deep\.graphTarget && !group[\s\S]*unavailableWorkspaceMemberContextFields\(deep, false\)[\s\S]*The shared graph member no longer matches this package[\s\S]*appendRejectedLinkFields\(rejectedContextFields\)/);
   assert.match(
     deepLink,
     /resolveWorkspaceMemberSection\([\s\S]*localGraphSelection\.group[\s\S]*const hasSelectedBody = bodyTargetMatchesOverload\(\s*deep\.bodyTarget,\s*group,\s*restoredOverload\)[\s\S]*resolveWorkspaceMemberSection\([\s\S]*memberSectionIdsFor\([\s\S]*hasSelectedBody[\s\S]*if \(hasSelectedBody\) \{\s*state\.selectedBodyTarget = deep\.bodyTarget/);
