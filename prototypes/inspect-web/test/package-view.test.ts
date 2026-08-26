@@ -59,7 +59,7 @@ function recordingActions(calls: string[]): PackageViewBindingActions {
     onNamespaceJump: value => calls.push(`namespace:${value}`),
     onPerformanceMemberSelect: (target: PackagePerformanceTarget) =>
       calls.push(
-        `performance:${target.metadataToken}:${target.assembly}:${target.typeId}`),
+        `performance:${target.stableSelector}:${target.assembly}:${target.typeId}`),
   };
 }
 
@@ -88,7 +88,7 @@ test("package view bindings decode navigation controls without eager work", () =
   const graphType = new FakeElement({ graphType: "System.String" });
   const defaultGraphType = new FakeElement();
   const performance = new FakeElement({
-    perfToken: "0x06000001",
+    perfSelector: "M:Example.Type.Run",
     perfAssembly: "Example.dll",
     perfType: "Example.Type",
   });
@@ -100,7 +100,7 @@ test("package view bindings decode navigation controls without eager work", () =
   root.addAll("[data-namespace-jump]", namespace, defaultNamespace);
   root.addAll("[data-lib-scope]", library, defaultLibrary);
   root.addAll("[data-graph-type]", graphType, defaultGraphType);
-  root.addAll("[data-perf-token]", performance, defaultPerformance);
+  root.addAll("[data-perf-selector]", performance, defaultPerformance);
   const calls: string[] = [];
 
   bindPackageView(
@@ -142,7 +142,7 @@ test("package view bindings decode navigation controls without eager work", () =
     "library:undefined:",
     "graph-type:System.String",
     "graph-type:",
-    "performance:0x06000001:Example.dll:Example.Type",
+    "performance:M:Example.Type.Run:Example.dll:Example.Type",
     "performance:::",
   ]);
 });

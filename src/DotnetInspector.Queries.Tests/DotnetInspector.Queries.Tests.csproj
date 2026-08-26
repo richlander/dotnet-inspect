@@ -25,6 +25,7 @@
     <ProjectReference Include="..\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
     <ProjectReference Include="..\DotnetInspector.Queries.EmbeddedFixtures\DotnetInspector.Queries.EmbeddedFixtures.csproj" />
     <ProjectReference Include="..\DotnetInspector.ResearchQueries\DotnetInspector.ResearchQueries.csproj" />
+    <ProjectReference Include="..\ILInspector.Analysis.Fixtures\ILInspector.Analysis.Fixtures.csproj" />
     <ProjectReference Include="..\ILInspector.Analysis.CallerGraphCaller\ILInspector.Analysis.CallerGraphCaller.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Analysis.CallerGraphTarget\ILInspector.Analysis.CallerGraphTarget.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Analysis.CallerGraphTargetV2\ILInspector.Analysis.CallerGraphTargetV2.csproj" ReferenceOutputAssembly="false" />

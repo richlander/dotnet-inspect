@@ -50,10 +50,11 @@ Each window must identify its PR, current state, and any decision it needs.
 ### Name the window for identity
 
 ```sh
-tmux rename-window -t "$TMUX_PANE" pr<number>
+tmux rename-window -t "${TMUX_PANE:?}" pr<number>
 ```
 
-Always target `"$TMUX_PANE"`; a bare command can rename another window. Rename
+Always target `"${TMUX_PANE:?}"`; a bare command renames another window, and an
+empty variable silently targets the current one. Rename
 the window, never the shared session. Use `pr<number>`, or `i<number>` before a
 PR exists. Keep the name stable except for these temporary suffixes:
 
@@ -80,22 +81,57 @@ Do not repeat or move the round report, architectural checkpoint, carry-forward
 analysis, evidence, or recommendation into the prompt. The prompt is a control,
 not the record.
 
+### Keep PR readiness labels current
+
+`ready-to-merge` and `carry-forward` are mutually exclusive live state, not
+historical milestones. Reconcile them after every resume and whenever the head,
+review result, base, draft state, or mergeability changes. Remove a stale label
+before reporting the new state. Neither label authorizes a merge.
+
+- **`ready-to-merge`:** add it when, and only when, the current head satisfies
+  the repository's `Ready to merge` claim: every required review is
+  review-clean and GitHub reports positive mergeability. Remove it before a new
+  round, author change, conflict recovery, restack, unresolved finding, draft
+  transition, or non-positive mergeability. When base movement enters the
+  carry-forward path, replace it with `carry-forward`.
+- **`carry-forward`:** add it when the
+  [clean-review carry-forward rule](#clean-reviews-are-not-spent-by-main-moving)
+  applies and analysis or approval is the next action. Keep it while that
+  analysis or decision is pending, including when another base movement requires
+  re-analysis. Remove it when carry-forward is unavailable or declined, before
+  integrating an approved tip, or when the review-clean evidence is otherwise
+  invalidated.
+
+Never leave both labels on a PR. A successful approved carry-forward may restore
+`ready-to-merge` only after the new head again satisfies its conditions.
+
 ### Publish your state where tooling can read it
 
 Update both window-scoped options whenever state changes:
 
 ```sh
-tmux set -w -t "$TMUX_PANE" @agent "round 6 on pr4405, waiting on CI"
-tmux set -w -t "$TMUX_PANE" @agent_state \
-  "pr=4463 head=595e5d4b round=6 reviews=1/2 blocked=4597,4611 rec=wait"
-tmux show -w -t "$TMUX_PANE" @agent_state
+tmux set -w -t "${TMUX_PANE:?}" @agent "round 6 on pr4405, waiting on CI"
+tmux set -w -t "${TMUX_PANE:?}" @agent_state "pr=4463 head=595e5d4b round=6 reviews=1/2 blocked=4597,4611 rec=wait"
 
 # Clear when this window no longer owns the PR.
-tmux set -w -t "$TMUX_PANE" -u @agent
-tmux set -w -t "$TMUX_PANE" -u @agent_state
+tmux set -w -t "${TMUX_PANE:?}" -u @agent
+tmux set -w -t "${TMUX_PANE:?}" -u @agent_state
 ```
 
-Always use `-w -t "$TMUX_PANE"` and read back `@agent_state`. It must include
+**Publish state as single, separate commands.** Never wrap them in `if`, `&&`,
+or a `for` loop. Publishing is the one thing that must never stop to ask
+permission: an approval prompt on it blocks the agent on the very act of
+reporting that it is blocked, and semi-autonomous work stops dead. A bare
+`tmux …` matches an approval rule for `tmux`; `if [ … ]; then tmux … && tmux …;
+fi` does not match it, because the command being judged is now the compound.
+That difference has stalled real work.
+
+`${TMUX_PANE:?}` is what keeps the target safe without a guard clause. If the
+variable is empty the shell fails the command outright and nothing is written —
+which matters, because `tmux set -w -t ""` does not error: it silently applies
+to whichever window is *current*, which is somebody else's.
+
+Always target `"${TMUX_PANE:?}"`. The state must include
 `head` and either `pr` or, before a PR exists, `issue`; add `round`, `reviews`,
 `blocked`, `waiting`, and `rec` when applicable. Values contain no spaces. `rec`
 is `continue`, `wait`, `merge`, `approve`, or `stop`. Clear both options when the
@@ -123,8 +159,8 @@ When blocked on a human decision, set a persistent `HELP` state and send one
 best-effort nudge:
 
 ```sh
-tmux set -w -t "$TMUX_PANE" @agent "HELP: integrate main into pr4405, or close it?"
-tmux display-message -d 10000 -t "$TMUX_PANE" \
+tmux set -w -t "${TMUX_PANE:?}" @agent "HELP: integrate main into pr4405, or close it?"
+tmux display-message -d 10000 -t "${TMUX_PANE:?}" \
   "HELP pr4405 in w#{window_index}: integrate main, or close it?"
 ```
 
@@ -209,6 +245,7 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
 | Shared IL/control-flow substrate | `docs/design/instruction-substrate.md`, plus the consuming subsystem's docs |
 | IL round-trip tests | `tests/DotnetInspector.ILRoundtrip.Tests/README.md` |
 | Decompiler raising, structuring, typing, or printer behavior | `docs/decompiler-correctness-pipeline.md`, then `docs/decompiler-raise-discipline.md` |
+| Classic async state-machine reconstruction | `docs/design/classic-async-reconstruction.md` |
 | Decompiler harness-only behavior | `docs/decompiler-correctness-pipeline.md`, then the owning harness README |
 | Skills | `taste/skill-guidance.md` |
 | Stacked PRs and restacking | `docs/stacked-prs.md` |

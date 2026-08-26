@@ -72,4 +72,45 @@ public class ProjectionDiagnosticsTests
         Assert.DoesNotContain("'Fanin'", error);
         Assert.DoesNotContain("No fields matched projection", error);
     }
+
+    [Theory]
+    [InlineData("| Signed | Yes |", false)]
+    [InlineData("| Authors | Example |", true)]
+    public async Task DiagnoseRendered_WildcardUsesResolvedNames(
+        string rendered,
+        bool expectsMissingNote)
+    {
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            ProjectionDiagnostics.DiagnoseRendered(
+                ["Sign*"],
+                rendered,
+                ["Signed", "Status"]);
+            return Task.FromResult(0);
+        });
+
+        Assert.Equal(
+            expectsMissingNote,
+            error.Contains("field has no data: Sign*", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task DiagnoseRendered_OverlappingPatternsUseResolvedNames()
+    {
+        const string rendered =
+            "| Field | Value |\n"
+            + "| --- | --- |\n"
+            + "| Authors | Example |\n";
+
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            ProjectionDiagnostics.DiagnoseRendered(
+                ["Field", "*"],
+                rendered,
+                ["Field", "Value"]);
+            return Task.FromResult(0);
+        });
+
+        Assert.Empty(error);
+    }
 }

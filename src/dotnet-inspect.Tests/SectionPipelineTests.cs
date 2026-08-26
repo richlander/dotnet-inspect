@@ -2155,7 +2155,6 @@ public class SectionPipelineTests
         {
             int exitCode = PackageCommand.WriteMultiPackageCount(
                 [Result("One"), Result("Two")],
-                rowSection: null,
                 new InspectionOptions
                 {
                     Count = true,
@@ -2219,7 +2218,6 @@ public class SectionPipelineTests
         {
             int exitCode = PackageCommand.WriteMultiPackageCount(
                 results,
-                rowSection: null,
                 options,
                 PackageSectionDescriptors.CreatePipeline());
             string output = File.ReadAllText(outputPath);
@@ -2253,7 +2251,6 @@ public class SectionPipelineTests
                         Version = "1.0.0",
                     },
                 ],
-                rowSection: null,
                 new InspectionOptions
                 {
                     Count = true,
@@ -2303,9 +2300,13 @@ public class SectionPipelineTests
         {
             int exitCode = PackageCommand.WriteMultiPackageCount(
                 [clean, mismatch],
-                PackageSections.Files,
-                new InspectionOptions { Count = true, OutputPath = outputPath },
-                PackageSectionDescriptors.CreatePipeline());
+                new InspectionOptions
+                {
+                    Count = true,
+                    IncludeSections = new HashSet<string> { PackageSections.Files },
+                    OutputPath = outputPath,
+                },
+                PackageSectionDescriptors.CreateCatalog().Pipeline);
 
             Assert.Equal(1, exitCode);
             Assert.Equal("2", File.ReadAllText(outputPath).Trim());
@@ -2356,7 +2357,6 @@ public class SectionPipelineTests
                         SignatureResult = signature,
                     },
                 ],
-                null,
                 options,
                 PackageSectionDescriptors.CreatePipeline());
 
@@ -2394,7 +2394,6 @@ public class SectionPipelineTests
                     new InspectionResult { PackageName = "First" },
                     new InspectionResult { PackageName = "Second" },
                 ],
-                null,
                 options,
                 PackageSectionDescriptors.CreatePipeline());
 
@@ -2433,7 +2432,6 @@ public class SectionPipelineTests
                     new InspectionResult { PackageName = "First" },
                     new InspectionResult { PackageName = "Second" },
                 ],
-                null,
                 options,
                 PackageSectionDescriptors.CreatePipeline());
 
@@ -2487,7 +2485,6 @@ public class SectionPipelineTests
                         SignatureResult = signature,
                     },
                 ],
-                null,
                 options,
                 PackageSectionDescriptors.CreatePipeline());
 
@@ -4625,21 +4622,26 @@ public class SectionPipelineTests
     [Fact]
     public void Trace_ExplainsEveryQueryThatRan_AndRendersInertLines()
     {
-        var registry = LibrarySections.CreateQueryRegistry();
+        InspectionQueryCatalog<InspectionQueryContext> queryCatalog =
+            LibrarySections.QueryCatalog;
         var pipeline = LibrarySections.CreatePipeline();
         var trace = new InspectionTrace
         {
             Target = new InertString(TextPolicy.Field, "target\nError: FORGED"),
         };
-        (string Reason, InspectionQueryDefinition Query)[] discoveryDemand =
-            [("discovery catalog", MetadataImageQuery.Definition)];
+        (string Reason, InspectionQueryDefinition Query)[] commandDemand =
+        [
+            ("discovery catalog", MetadataImageQuery.Definition),
+            ("source availability", SourceAvailabilityQuery.Definition),
+        ];
 
         HashSet<InspectionQueryDefinition> requested = pipeline.GetRequiredQueries(
             Verbosity.Detailed,
             trace: trace,
-            commandDemand: discoveryDemand);
-        HashSet<InspectionQueryDefinition> closure = registry.ExpandRequired(requested);
-        trace.RecordQueryClosure(closure);
+            commandDemand: commandDemand);
+        InspectionQueryPlan<InspectionQueryContext> plan =
+            queryCatalog.Plan(requested);
+        trace.RecordQueryClosure(plan.Queries);
 
         var claimed = trace.QueryDemand.Select(d => d.Query)
             .Concat(trace.CommandQueryDemand.Select(d => d.Query))
@@ -4648,14 +4650,19 @@ public class SectionPipelineTests
         var queue = new Queue<InspectionQueryDefinition>(claimed);
         while (queue.Count > 0)
         {
-            foreach (InspectionQueryDefinition requirement in registry.RequirementsOf(queue.Dequeue()))
+            foreach (InspectionQueryDefinition requirement in
+                queryCatalog.RequirementsOf(queue.Dequeue()))
             {
                 if (reachable.Add(requirement))
                     queue.Enqueue(requirement);
             }
         }
 
-        Assert.Empty(trace.QueryClosure.Except(reachable));
+        Assert.DoesNotContain(SourceLinkDocumentsQuery.Definition, requested);
+        Assert.Contains(SourceLinkDocumentsQuery.Definition, trace.QueryClosure);
+        Assert.Equal(
+            reachable.OrderBy(query => query.Name, StringComparer.Ordinal),
+            trace.QueryClosure);
         Assert.Equal(
             [
                 AssemblyReferencesQuery.Definition,
@@ -4665,6 +4672,7 @@ public class SectionPipelineTests
                 ExtensionMethodsQuery.Definition,
                 MetadataImageQuery.Definition,
                 ResourcesQuery.Definition,
+                SourceAvailabilityQuery.Definition,
                 SwitchesQuery.Definition,
                 TypeForwardersQuery.Definition,
                 UnionTypesQuery.Definition,
