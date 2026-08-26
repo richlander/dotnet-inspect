@@ -224,6 +224,36 @@ current product behavior and tests over design history. When current sources
 disagree, stop and resolve which owner is authoritative rather than silently
 choosing one.
 
+## Design scope and composition
+
+Default every design effort to one component architecture and its immediate
+typed boundaries. Put the normative input, output, identity, authority,
+lifetime, and failure contracts in that component's owning document. A
+composition document may name sequencing and handoffs, but must reference those
+contracts rather than restating participating components' internal inventories
+or policies.
+
+When another component needs prerequisite work, file or record that residual
+and handle it as an independently reviewable effort or stack slice. Do not
+expand the current design merely to make the whole end-to-end system appear
+closed. The preference for fewer coherent PRs does not justify combining
+independently owned component designs.
+
+A **broad design** normatively specifies multiple independently owned
+components or sweeps an end-to-end lifecycle such as acquisition, analysis,
+publication, and presentation. Do not start one or broaden a focused effort
+into one unless the user explicitly requests or approves that scope. A large
+issue, cross-cutting motivation, general request to redesign a subsystem, or
+reviewer suggestion is not approval. Before requesting approval, present the
+component map, explain why focused designs cannot close independently, and name
+the intended claims and non-claims.
+
+Review focused designs against the component architecture and its boundaries.
+If repeated review keeps discovering new component-internal contracts or
+manually synchronized cross-component inventories, stop and recommend splitting
+or abandoning the design. Adding more prose, stages, gates, or receipts to a
+sweeping document is not evidence that it closes.
+
 Keep user-facing product skills and repository-maintainer skills separate:
 
 - `skills/` contains user-facing guidance shipped in the dotnet-inspect binary.
