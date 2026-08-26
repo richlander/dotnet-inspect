@@ -4921,6 +4921,13 @@ static class FidelityCheck
 
         foreach (string identifier in identifiers)
         {
+            if (HasNestedOrBaseInterfaceIdentifierCollision(
+                    reader,
+                    bodyType,
+                    identifier))
+            {
+                return true;
+            }
             var symbols = new HashSet<string>(StringComparer.Ordinal);
             if (typeParameters.Contains(identifier))
                 symbols.Add($"type-parameter:{identifier}");

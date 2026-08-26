@@ -92,15 +92,36 @@ public class FidelityCheckGeneratedFilterTests
 
             namespace Models
             {
+                public sealed class Spanner { }
                 public sealed class T { }
                 public sealed class Timer { }
+                public sealed class Widget { }
             }
 
             namespace SignatureCollision
             {
                 public interface I { void M(Models.Timer value); }
+                public interface IBaseNested { void M(Models.Widget value); }
+                public interface IBody { object M(); }
                 public interface IGeneric { void M<T>(Models.T value); }
+                public interface INested { void M(Models.Widget value); }
                 public interface ITypeGeneric { void M(Models.T value); }
+
+                public class BaseWithNested
+                {
+                    public sealed class Widget { }
+                }
+
+                public sealed class BaseNested : BaseWithNested, IBaseNested
+                {
+                    void IBaseNested.M(Models.Widget value) { }
+                }
+
+                public sealed class Body : IBody
+                {
+                    public sealed class Spanner { }
+                    object IBody.M() => new Models.Spanner();
+                }
 
                 public sealed class C : I
                 {
@@ -110,6 +131,12 @@ public class FidelityCheckGeneratedFilterTests
                 public sealed class Generic : IGeneric
                 {
                     void IGeneric.M<T>(Models.T value) { }
+                }
+
+                public sealed class Nested : INested
+                {
+                    public sealed class Widget { }
+                    void INested.M(Models.Widget value) { }
                 }
 
                 public sealed class TypeGeneric<T> : ITypeGeneric
@@ -128,8 +155,11 @@ public class FidelityCheckGeneratedFilterTests
                 ("SameNamespace", "Contracts.ICloneable.Clone", true),
                 ("SkeletonUsingCollision", "Contracts.ICloneable.Clone", false),
                 ("ChildNamespaceCollision", "N.I.M", false),
+                ("BaseNested", "SignatureCollision.IBaseNested.M", false),
+                ("Body", "SignatureCollision.IBody.M", false),
                 ("C", "SignatureCollision.I.M", false),
                 ("Generic", "SignatureCollision.IGeneric.M", false),
+                ("Nested", "SignatureCollision.INested.M", false),
                 ("TypeGeneric`1", "SignatureCollision.ITypeGeneric.M", false)
             })
             {
@@ -163,8 +193,11 @@ public class FidelityCheckGeneratedFilterTests
                 typeName => typeName is "Contracts.SameNamespace"
                     or "App.SkeletonUsingCollision"
                     or "T.ChildNamespaceCollision"
+                    or "SignatureCollision.BaseNested"
+                    or "SignatureCollision.Body"
                     or "SignatureCollision.C"
                     or "SignatureCollision.Generic"
+                    or "SignatureCollision.Nested"
                     or "SignatureCollision.TypeGeneric`1",
                 candidate => candidate.Method.EndsWith(
                     "Clone",
@@ -175,8 +208,11 @@ public class FidelityCheckGeneratedFilterTests
                 typeName => typeName is "Contracts.SameNamespace"
                     or "App.SkeletonUsingCollision"
                     or "T.ChildNamespaceCollision"
+                    or "SignatureCollision.BaseNested"
+                    or "SignatureCollision.Body"
                     or "SignatureCollision.C"
                     or "SignatureCollision.Generic"
+                    or "SignatureCollision.Nested"
                     or "SignatureCollision.TypeGeneric`1");
             foreach (var results in new[] { targetedResults, batchResults })
             {
@@ -190,8 +226,11 @@ public class FidelityCheckGeneratedFilterTests
                 {
                     "App.SkeletonUsingCollision",
                     "T.ChildNamespaceCollision",
+                    "SignatureCollision.BaseNested",
+                    "SignatureCollision.Body",
                     "SignatureCollision.C",
                     "SignatureCollision.Generic",
+                    "SignatureCollision.Nested",
                     "SignatureCollision.TypeGeneric`1"
                 })
                 {
