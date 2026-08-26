@@ -34,12 +34,17 @@ duplicate, cross-kind, budget-exceeded, or ambiguous metadata and retains the
 available kickoff addresses, state-machine addresses, and parsed claimed type
 names. Ambiguous claimed names remain discoverable from every matching
 `TypeDef`, and a rejection shared by multiple claims retains every contributing
-kickoff. `StateMachineRelationshipIndex_RejectsMalformedTrustedConstructor`,
+kickoff. Rejection publications form shared components during construction, so
+overlapping failures merge once and every forward or reverse entry freezes to
+the same immutable result without repeatedly scanning the accumulated indexes.
+`StateMachineRelationshipIndex_RejectsMalformedTrustedConstructor`,
 `StateMachineRelationshipIndex_RejectsCompetingKickoffClaims`,
 `StateMachineRelationshipIndex_RejectsAmbiguousClaimedType`,
 `StateMachineRelationshipIndex_RejectsSharedStateMachineClaims`, and
-`StateMachineRelationshipIndex_PreservesUnresolvedClaimedType` gate those
-distinctions and evidence paths.
+`StateMachineRelationshipIndex_MergesEveryOverlappingRejection` gate those
+distinctions and evidence paths;
+`StateMachineRelationshipIndex_MergesRejectionsWithoutQuadraticRescan` gates
+the bounded propagation cost.
 
 ## Authentication
 
@@ -96,24 +101,33 @@ cumulative relationship budget charges every inspected custom-attribute row,
 including the bounded authentication work needed to ignore an unrelated or
 untrusted attribute, plus interface rows, `MethodImpl` rows, and candidate
 implementation methods. Constructor authentication is cached per metadata
-handle, and a separate cumulative name-work budget bounds the encoded metadata
-names materialized while classifying distinct constructors. State-machine
-`System.Type` values receive an encoded byte-length preflight before SRM
-materializes their strings. Existing signature, custom-attribute,
-serialized-name, and metadata-relationship guards bound recursive or allocated
-decoding.
+handle. Untrusted constructor parents are rejected before method signatures are
+decoded, while a separate cumulative signature-work budget charges every
+constructor, method, and TypeSpec blob that is decoded or compared. A cumulative
+name-work budget bounds both metadata names materialized while classifying
+distinct constructors and serialized state-machine names before attribute
+decoding. State-machine `System.Type` values also receive an individual encoded
+byte-length preflight before SRM materializes their strings. The TypeDef index
+retains ambiguous handles with amortized-linear growth. Existing signature,
+custom-attribute, serialized-name, and metadata-relationship guards bound
+recursive or allocated decoding.
 
 Exhausting a bound rejects the index with `BudgetExceeded`; malformed SRM data
 rejects it with `Malformed`. Neither becomes an empty successful index.
 `StateMachineRelationshipIndex_PropagatesTypedBudgetFailure` and
-`StateMachineRelationshipIndex_RejectsMethodTableBeyondScanBudget` gate the
-visible budget results;
+`StateMachineRelationshipIndex_RejectsMethodTableBeyondScanBudget`,
+`StateMachineRelationshipIndex_ReportsTypeDefNameBudget`, and
+`TypeDefinitionIndex_DuplicateNamesAllocateLinearly` gate the visible budget
+results and TypeDef indexing cost;
 `StateMachineRelationshipIndex_ChargesUnrelatedAttributeRows` and
 `StateMachineRelationshipIndex_RejectsOversizedTypeBeforeDecode` gate the
 attribute-row and serialized-name bounds;
 `StateMachineRelationshipIndex_BoundsAttributeNameMaterialization` and
 `StateMachineRelationshipIndex_CachesConstructorAuthentication` gate
-cumulative constructor-name work and reuse.
+cumulative constructor-name work and reuse; and
+`StateMachineRelationshipIndex_BoundsCumulativeConstructorSignatures` and
+`StateMachineRelationshipIndex_BoundsCumulativeSerializedTypeNames` gate the
+remaining cumulative decode and materialization paths.
 
 ## Ownership boundaries
 

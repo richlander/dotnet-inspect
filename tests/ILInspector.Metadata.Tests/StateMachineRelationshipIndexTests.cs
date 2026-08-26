@@ -260,11 +260,50 @@ public sealed class StateMachineRelationshipIndexTests
                 trustedAttributeAssembly: false));
 
         StateMachineRelationshipIndex index =
-            StateMachineRelationshipIndex.Create(image.Reader);
+            StateMachineRelationshipIndex.Create(
+                image.Reader,
+                relationshipBudget: 10,
+                signatureWorkBudget: 1);
 
         Assert.IsType<StateMachineRelationshipResult.Absent>(
             index.GetByKickoff(
                 MetadataTokens.MethodDefinitionHandle(1)));
+    }
+
+    [Fact]
+    public void
+        StateMachineRelationshipIndex_BoundsCumulativeConstructorSignatures()
+    {
+        using var image = new LoadedImage(
+            BuildClaimImage(
+                [
+                    StateMachineClaimKind.ClassicAsync,
+                    StateMachineClaimKind.ClassicAsync,
+                ]));
+        CustomAttribute firstAttribute = image.Reader.GetCustomAttribute(
+            image.Reader.GetMethodDefinition(
+                    MetadataTokens.MethodDefinitionHandle(1))
+                .GetCustomAttributes()
+                .First());
+        MemberReference constructor =
+            image.Reader.GetMemberReference(
+                (MemberReferenceHandle)firstAttribute.Constructor);
+        int oneSignature =
+            image.Reader.GetBlobReader(constructor.Signature).Length;
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(
+                image.Reader,
+                relationshipBudget: 10,
+                signatureWorkBudget: oneSignature);
+        var result =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.BudgetExceeded,
+            result.Failure.Kind);
     }
 
     [Theory]
@@ -445,6 +484,80 @@ public sealed class StateMachineRelationshipIndexTests
         Assert.Single(first.Failure.StateMachineCandidates);
     }
 
+    [Fact]
+    public void
+        StateMachineRelationshipIndex_MergesEveryOverlappingRejection()
+    {
+        using var image = new LoadedImage(
+            BuildClaimImage(
+                [
+                    StateMachineClaimKind.ClassicAsync,
+                    StateMachineClaimKind.ClassicAsync,
+                ],
+                additionalKickoffClaims:
+                [
+                    StateMachineClaimKind.ClassicAsync,
+                    StateMachineClaimKind.ClassicAsync,
+                ]));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(image.Reader);
+        var first =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+        var second =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(2)));
+        var third =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(3)));
+        var stateMachine =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByStateMachine(
+                    MetadataTokens.TypeDefinitionHandle(3)));
+
+        Assert.Same(first.Failure, second.Failure);
+        Assert.Same(first.Failure, third.Failure);
+        Assert.Same(first.Failure, stateMachine.Failure);
+        Assert.Equal(
+            [0x06000001, 0x06000002, 0x06000003],
+            first.Failure.KickoffCandidates.Select(
+                candidate => candidate.Token));
+    }
+
+    [Fact]
+    public void
+        StateMachineRelationshipIndex_MergesRejectionsWithoutQuadraticRescan()
+    {
+        const int relationships = 10_000;
+        using var image = new LoadedImage(
+            BuildRejectionMergeImage(relationships));
+        int rejectionWork = 0;
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(
+                image.Reader,
+                relationshipBudget:
+                    MetadataSafetyPolicy.MaxCorrespondenceMethodRows,
+                rejectionWorkObserved: () => rejectionWork++);
+        var result =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.Duplicate,
+            result.Failure.Kind);
+        Assert.Equal(2, result.Failure.KickoffCandidates.Length);
+        Assert.InRange(
+            rejectionWork,
+            relationships * 8,
+            relationships * 16);
+    }
+
     [Theory]
     [InlineData(
         ClassicRelationshipMutation.CustomModifiedSetStateMachine,
@@ -607,6 +720,57 @@ public sealed class StateMachineRelationshipIndexTests
                 MetadataTokens.MethodDefinitionHandle(1)));
     }
 
+    [Fact]
+    public void
+        StateMachineRelationshipIndex_BoundsCumulativeSerializedTypeNames()
+    {
+        using var image = new LoadedImage(
+            BuildClaimImage(
+                [StateMachineClaimKind.ClassicAsync],
+                serializedTypeName:
+                    "Fixtures.Owner+" + new string('X', 200),
+                additionalKickoffClaims:
+                [
+                    StateMachineClaimKind.ClassicAsync,
+                    StateMachineClaimKind.ClassicAsync,
+                    StateMachineClaimKind.ClassicAsync,
+                ],
+                reuseClaimConstructors: true));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(
+                image.Reader,
+                relationshipBudget: 10,
+                nameWorkBudget: 512);
+        var result =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.BudgetExceeded,
+            result.Failure.Kind);
+    }
+
+    [Fact]
+    public void
+        StateMachineRelationshipIndex_ReportsTypeDefNameBudget()
+    {
+        using var image = new LoadedImage(
+            BuildTypeDefinitionNameBudgetImage());
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(image.Reader);
+        var result =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByStateMachine(
+                    MetadataTokens.TypeDefinitionHandle(2)));
+
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.BudgetExceeded,
+            result.Failure.Kind);
+    }
+
     static MethodDefinitionHandle FindMethod(
         MetadataReader reader,
         string name,
@@ -652,6 +816,208 @@ public sealed class StateMachineRelationshipIndexTests
             $"A method containing '{fragment}' was not found.");
     }
 
+    static byte[] BuildTypeDefinitionNameBudgetImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("TypeNameBudget.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("TypeNameBudget"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        for (int i = 0; i < 1_025; i++)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(
+                    new string('X', 4_088)
+                    + i.ToString("D6")),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        }
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildRejectionMergeImage(int count)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("RejectionMerge.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("RejectionMerge"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+
+        AssemblyName core =
+            typeof(AsyncStateMachineAttribute).Assembly.GetName();
+        AssemblyReferenceHandle coreReference =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(core.Name!),
+                core.Version!,
+                default,
+                metadata.GetOrAddBlob(
+                    core.GetPublicKeyToken()!),
+                default,
+                default);
+        TypeReferenceHandle systemType =
+            metadata.AddTypeReference(
+                coreReference,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Type"));
+        TypeReferenceHandle asyncAttribute =
+            metadata.AddTypeReference(
+                coreReference,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString(
+                    nameof(AsyncStateMachineAttribute)));
+        MemberReferenceHandle constructor =
+            metadata.AddMemberReference(
+                asyncAttribute,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(
+                    TypeConstructorSignature(systemType)));
+
+        var staticVoid = new BlobBuilder();
+        new BlobEncoder(staticVoid)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                0,
+                result => result.Void(),
+                parameters => { });
+        BlobHandle staticVoidSignature =
+            metadata.GetOrAddBlob(staticVoid);
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle owner =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract,
+                metadata.GetOrAddString("Fixtures"),
+                metadata.GetOrAddString("Owner"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+
+        var stateMachines =
+            new List<TypeDefinitionHandle>(count);
+        for (int i = 0; i < count; i++)
+        {
+            stateMachines.Add(
+                metadata.AddTypeDefinition(
+                    TypeAttributes.NestedPrivate
+                        | TypeAttributes.Sealed,
+                    default,
+                    metadata.GetOrAddString($"M{i}"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(
+                        2 * count + 1)));
+        }
+        foreach (TypeDefinitionHandle stateMachine
+            in stateMachines)
+        {
+            metadata.AddNestedType(stateMachine, owner);
+        }
+
+        var kickoffs =
+            new List<MethodDefinitionHandle>(2 * count);
+        for (int i = 0; i < count; i++)
+        {
+            kickoffs.Add(
+                metadata.AddMethodDefinition(
+                    MethodAttributes.Public
+                        | MethodAttributes.Static,
+                    MethodImplAttributes.IL,
+                    metadata.GetOrAddString($"A{i}"),
+                    staticVoidSignature,
+                    bodyOffset: 0,
+                    MetadataTokens.ParameterHandle(1)));
+            kickoffs.Add(
+                metadata.AddMethodDefinition(
+                    MethodAttributes.Public
+                        | MethodAttributes.Static,
+                    MethodImplAttributes.IL,
+                    metadata.GetOrAddString($"B{i}"),
+                    staticVoidSignature,
+                    bodyOffset: 0,
+                    MetadataTokens.ParameterHandle(1)));
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            var value = new BlobBuilder();
+            value.WriteUInt16(1);
+            value.WriteSerializedString(
+                $"Fixtures.Owner+M{i}");
+            value.WriteUInt16(0);
+            BlobHandle valueBlob =
+                metadata.GetOrAddBlob(value);
+            metadata.AddCustomAttribute(
+                kickoffs[2 * i],
+                constructor,
+                valueBlob);
+            metadata.AddCustomAttribute(
+                kickoffs[2 * i],
+                constructor,
+                valueBlob);
+            metadata.AddCustomAttribute(
+                kickoffs[2 * i + 1],
+                constructor,
+                valueBlob);
+        }
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
     static byte[] BuildClaimImage(
         IReadOnlyList<StateMachineClaimKind> claims,
         bool malformedConstructor = false,
@@ -660,7 +1026,10 @@ public sealed class StateMachineRelationshipIndexTests
         bool duplicateStateMachineType = false,
         StateMachineClaimKind? secondKickoffClaim = null,
         string serializedTypeName = "Fixtures.Owner+Machine",
-        int unrelatedAttributeCount = 0)
+        int unrelatedAttributeCount = 0,
+        IReadOnlyList<StateMachineClaimKind>?
+            additionalKickoffClaims = null,
+        bool reuseClaimConstructors = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -718,8 +1087,11 @@ public sealed class StateMachineRelationshipIndexTests
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
+        int additionalKickoffCount =
+            (secondKickoffClaim is null ? 0 : 1)
+            + (additionalKickoffClaims?.Count ?? 0);
         int methodSentinelRow =
-            secondKickoffClaim is null ? 2 : 3;
+            2 + additionalKickoffCount;
         if (includeStateMachineType)
         {
             metadata.AddTypeDefinition(
@@ -751,6 +1123,10 @@ public sealed class StateMachineRelationshipIndexTests
                 MetadataTokens.TypeDefinitionHandle(2));
         }
 
+        var constructors =
+            new Dictionary<
+                StateMachineClaimKind,
+                MemberReferenceHandle>();
         MethodDefinitionHandle kickoff =
             metadata.AddMethodDefinition(
                 MethodAttributes.Public
@@ -766,16 +1142,20 @@ public sealed class StateMachineRelationshipIndexTests
 
         if (secondKickoffClaim is { } secondKind)
         {
-            MethodDefinitionHandle secondKickoff =
-                metadata.AddMethodDefinition(
-                    MethodAttributes.Public
-                        | MethodAttributes.Static,
-                    MethodImplAttributes.IL,
-                    metadata.GetOrAddString("SecondKickoff"),
-                    metadata.GetOrAddBlob(methodSignature),
-                    bodyOffset: 0,
-                    MetadataTokens.ParameterHandle(1));
-            AddClaimAttribute(secondKickoff, secondKind);
+            AddAdditionalKickoff(
+                "SecondKickoff",
+                secondKind);
+        }
+        if (additionalKickoffClaims is not null)
+        {
+            for (int i = 0;
+                i < additionalKickoffClaims.Count;
+                i++)
+            {
+                AddAdditionalKickoff(
+                    $"AdditionalKickoff{i}",
+                    additionalKickoffClaims[i]);
+            }
         }
 
         if (unrelatedAttributeCount > 0)
@@ -822,6 +1202,22 @@ public sealed class StateMachineRelationshipIndexTests
         pe.Serialize(image);
         return image.ToArray();
 
+        void AddAdditionalKickoff(
+            string name,
+            StateMachineClaimKind kind)
+        {
+            MethodDefinitionHandle additional =
+                metadata.AddMethodDefinition(
+                    MethodAttributes.Public
+                        | MethodAttributes.Static,
+                    MethodImplAttributes.IL,
+                    metadata.GetOrAddString(name),
+                    metadata.GetOrAddBlob(methodSignature),
+                    bodyOffset: 0,
+                    MetadataTokens.ParameterHandle(1));
+            AddClaimAttribute(additional, kind);
+        }
+
         void AddClaimAttribute(
             MethodDefinitionHandle owner,
             StateMachineClaimKind kind)
@@ -836,21 +1232,29 @@ public sealed class StateMachineRelationshipIndexTests
                     nameof(IteratorStateMachineAttribute),
                 _ => throw new InvalidOperationException(),
             };
-            TypeReferenceHandle attributeType =
-                metadata.AddTypeReference(
-                    coreReference,
-                    metadata.GetOrAddString(
-                        "System.Runtime.CompilerServices"),
-                    metadata.GetOrAddString(attributeName));
-            BlobBuilder constructorSignature =
-                malformedConstructor
-                    ? ValueTypeConstructorSignature(systemType)
-                    : TypeConstructorSignature(systemType);
-            MemberReferenceHandle constructor =
-                metadata.AddMemberReference(
-                    attributeType,
-                    metadata.GetOrAddString(".ctor"),
-                    metadata.GetOrAddBlob(constructorSignature));
+            if (!reuseClaimConstructors
+                || !constructors.TryGetValue(
+                    kind,
+                    out MemberReferenceHandle constructor))
+            {
+                TypeReferenceHandle attributeType =
+                    metadata.AddTypeReference(
+                        coreReference,
+                        metadata.GetOrAddString(
+                            "System.Runtime.CompilerServices"),
+                        metadata.GetOrAddString(attributeName));
+                BlobBuilder constructorSignature =
+                    malformedConstructor
+                        ? ValueTypeConstructorSignature(systemType)
+                        : TypeConstructorSignature(systemType);
+                constructor =
+                    metadata.AddMemberReference(
+                        attributeType,
+                        metadata.GetOrAddString(".ctor"),
+                        metadata.GetOrAddBlob(constructorSignature));
+                if (reuseClaimConstructors)
+                    constructors.Add(kind, constructor);
+            }
             var value = new BlobBuilder();
             value.WriteUInt16(1);
             value.WriteSerializedString(serializedTypeName);

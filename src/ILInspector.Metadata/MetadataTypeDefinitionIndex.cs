@@ -11,7 +11,8 @@ namespace ILInspector.Metadata;
 /// <remarks>
 /// Gated by
 /// <c>TypeDefinitionIndex_VisitsDefinitionsOnceAndQueriesExactNames</c>,
-/// <c>TypeDefinitionIndex_DeepSharedAncestryAllocatesLinearly</c>, and
+/// <c>TypeDefinitionIndex_DeepSharedAncestryAllocatesLinearly</c>,
+/// <c>TypeDefinitionIndex_DuplicateNamesAllocateLinearly</c>, and
 /// <c>TypeDefinitionIndex_RejectsCumulativeNameWorkBeyondBudget</c>.
 /// </remarks>
 public sealed class MetadataTypeDefinitionIndex
@@ -28,8 +29,17 @@ public sealed class MetadataTypeDefinitionIndex
     }
 
     public static MetadataTypeDefinitionIndex Create(
-        MetadataReader reader) =>
-        Create(reader, definitionVisited: null);
+        MetadataReader reader)
+    {
+        try
+        {
+            return Create(reader, definitionVisited: null);
+        }
+        catch (MetadataTypeDefinitionIndexBudgetException ex)
+        {
+            throw new BadImageFormatException(ex.Message, ex);
+        }
+    }
 
     internal static MetadataTypeDefinitionIndex Create(
         MetadataReader reader,
@@ -39,7 +49,7 @@ public sealed class MetadataTypeDefinitionIndex
         int rowCount = reader.GetTableRowCount(TableIndex.TypeDef);
         var nodeByRow = new int[rowCount + 1];
         var nodesByKey = new Dictionary<NodeKey, int>();
-        var nodes = new List<IndexedNode>
+        var nodes = new List<MutableIndexedNode>
         {
             default,
         };
@@ -136,13 +146,11 @@ public sealed class MetadataTypeDefinitionIndex
                         key,
                         out int existingNode))
                 {
-                    IndexedNode existing = nodes[existingNode];
-                    nodes[existingNode] = existing with
-                    {
-                        Handles = existing.Handles.Add(
-                            definitionHandle),
-                        Ambiguous = true,
-                    };
+                    MutableIndexedNode existing = nodes[existingNode];
+                    existing.AdditionalHandles ??= [];
+                    existing.AdditionalHandles.Add(
+                        definitionHandle);
+                    nodes[existingNode] = existing;
                     parentNode = existingNode;
                 }
                 else
@@ -150,9 +158,8 @@ public sealed class MetadataTypeDefinitionIndex
                     parentNode = nodes.Count;
                     nodesByKey.Add(key, parentNode);
                     nodes.Add(new(
-                        [definitionHandle],
-                        nodes[key.Parent].Depth + 1,
-                        Ambiguous: false));
+                        definitionHandle,
+                        nodes[key.Parent].Depth + 1));
                 }
                 nodeByRow[
                     MetadataTokens.GetRowNumber(definitionHandle)] =
@@ -160,7 +167,32 @@ public sealed class MetadataTypeDefinitionIndex
             }
         }
 
-        return new(nodesByKey, nodes);
+        var immutableNodes = new IndexedNode[nodes.Count];
+        for (int i = 1; i < nodes.Count; i++)
+        {
+            MutableIndexedNode node = nodes[i];
+            ImmutableArray<TypeDefinitionHandle> handles;
+            if (node.AdditionalHandles is null)
+            {
+                handles = [node.FirstHandle];
+            }
+            else
+            {
+                var builder =
+                    ImmutableArray.CreateBuilder<TypeDefinitionHandle>(
+                        node.AdditionalHandles.Count + 1);
+                builder.Add(node.FirstHandle);
+                builder.AddRange(node.AdditionalHandles);
+                handles = builder.MoveToImmutable();
+            }
+
+            immutableNodes[i] = new(
+                handles,
+                node.Depth,
+                Ambiguous: node.AdditionalHandles is not null);
+        }
+
+        return new(nodesByKey, immutableNodes);
     }
 
     public bool TryGetUniqueDefinition(
@@ -231,7 +263,7 @@ public sealed class MetadataTypeDefinitionIndex
             remainingWork -= Math.Max(charge, 1);
             if (remainingWork < 0)
             {
-                throw new BadImageFormatException(
+                throw new MetadataTypeDefinitionIndexBudgetException(
                     "The TypeDef name index exceeded its structural-name "
                     + "work budget.");
             }
@@ -257,4 +289,18 @@ public sealed class MetadataTypeDefinitionIndex
         ImmutableArray<TypeDefinitionHandle> Handles,
         int Depth,
         bool Ambiguous);
+
+    record struct MutableIndexedNode(
+        TypeDefinitionHandle FirstHandle,
+        int Depth)
+    {
+        internal List<TypeDefinitionHandle>? AdditionalHandles
+        {
+            get;
+            set;
+        }
+    }
 }
+
+internal sealed class MetadataTypeDefinitionIndexBudgetException(
+    string message) : BadImageFormatException(message);

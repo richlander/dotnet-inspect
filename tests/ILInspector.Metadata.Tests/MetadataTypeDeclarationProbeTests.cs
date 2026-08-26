@@ -498,6 +498,37 @@ public class MetadataTypeDeclarationProbeTests
     }
 
     [Fact]
+    public void TypeDefinitionIndex_DuplicateNamesAllocateLinearly()
+    {
+        const int definitions = 10_000;
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            for (int i = 0; i < definitions; i++)
+            {
+                AddTypeDefinition(
+                    metadata,
+                    TypeAttributes.Public,
+                    "N",
+                    "Duplicate");
+            }
+        });
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        MetadataTypeDefinitionIndex index =
+            MetadataTypeDefinitionIndex.Create(image.Reader);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.InRange(allocated, 0, 4 * 1024 * 1024);
+        Assert.True(index.TryGetDefinitions(
+            Name("N", "Duplicate"),
+            out ImmutableArray<TypeDefinitionHandle> handles,
+            out bool ambiguous));
+        Assert.True(ambiguous);
+        Assert.Equal(definitions, handles.Length);
+    }
+
+    [Fact]
     public void TypeDefinitionIndex_RejectsCumulativeNameWorkBeyondBudget()
     {
         string leaf = new(
