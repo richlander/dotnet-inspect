@@ -286,7 +286,7 @@ public record InspectionOptions : IProjectionOptions
     public bool Schema { get; init; }
 
     /// <summary>
-    /// Output the number of rendered table rows for a single selected section.
+    /// Output selected table-row cardinality as a scalar or per-section count rows.
     /// </summary>
     public bool Count { get; init; }
 
