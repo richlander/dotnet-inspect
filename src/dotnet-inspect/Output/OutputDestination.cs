@@ -22,7 +22,7 @@ internal static class OutputDestination
             append: false,
             new UTF8Encoding(encoderShouldEmitUTF8Identifier: false))
         {
-            NewLine = Console.Out.NewLine
+            NewLine = "\n"
         };
         CountingTextWriter? countingWriter = null;
         TextWriter destination = output;
@@ -31,6 +31,7 @@ internal static class OutputDestination
             countingWriter = new CountingTextWriter(output);
             destination = countingWriter;
         }
+        destination = new LfTextWriter(destination);
 
         TailLineLimitingTextWriter? tailWriter = null;
         bool hasLineWindow = false;
