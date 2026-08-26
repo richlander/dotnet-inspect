@@ -18,7 +18,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class PackageIndexCache
 {
-    internal const string Category = "pkg-index-v14";
+    internal const string Category = "pkg-index-v16";
     private static ReadOnlySpan<byte> DescriptionLengthPrefix => "description-bytes: "u8;
     private static readonly UTF8Encoding StrictUtf8 =
         new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
@@ -193,7 +193,7 @@ internal static class PackageIndexCache
         WriteArray(buf, "libraryFiles"u8, result.LibraryFiles);
         if (result.RuntimeIdentifierPackages is { Count: > 0 })
             WriteArray(buf, "runtimeIdentifierPackages"u8,
-                result.RuntimeIdentifierPackages.Select(FormatRidPackageReference).ToList());
+                result.RuntimeIdentifierPackages.Select(SerializeRidPackageReference).ToList());
 
         // Each dependency group is one structured JSON value in the field array.
         if (result.DependencyGroups is { Count: > 0 })
@@ -422,23 +422,29 @@ internal static class PackageIndexCache
         };
     }
 
-    private static string FormatRidPackageReference(RidPackageReference reference)
-        // Availability depends on the active source policy; cache identity only.
-        => $"{reference.RuntimeIdentifier}|{reference.PackageId}|unknown";
+    private static string SerializeRidPackageReference(
+        RidPackageReference reference)
+    {
+        var buffer = new ArrayBufferWriter<byte>();
+        using var writer = new Utf8JsonWriter(buffer);
+        writer.WriteStartObject();
+        writer.WriteString("runtimeIdentifier", reference.RuntimeIdentifier);
+        writer.WriteString("packageId", reference.PackageId);
+        writer.WriteEndObject();
+        writer.Flush();
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
+    }
 
     private static RidPackageReference ParseRidPackageReference(string raw)
     {
-        var parts = raw.Split('|', 3);
+        using var document = HardenedJson.Parse(raw);
+        JsonElement root = document.RootElement;
         return new RidPackageReference
         {
-            RuntimeIdentifier = parts.ElementAtOrDefault(0) ?? "",
-            PackageId = parts.ElementAtOrDefault(1) ?? "",
-            Exists = parts.ElementAtOrDefault(2) switch
-            {
-                "yes" => true,
-                "no" => false,
-                _ => null
-            }
+            RuntimeIdentifier =
+                root.GetProperty("runtimeIdentifier").GetString() ?? "",
+            PackageId = root.GetProperty("packageId").GetString() ?? "",
+            Exists = null,
         };
     }
 }

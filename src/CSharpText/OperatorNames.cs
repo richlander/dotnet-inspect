@@ -17,9 +17,15 @@ public static class OperatorNames
     /// byte-identical (issue #3319).
     /// </remarks>
     public static string FormatDisplayName(string name)
-        => CSharpIdentifierCore.ContainComposedName(FormatDisplayNameCore(name));
+        => CSharpIdentifierCore.ContainComposedName(
+            FormatDisplayNameUntreated(name));
 
-    static string FormatDisplayNameCore(string name)
+    /// <summary>
+    /// Converts an IL operator method name to its untreated C# display form.
+    /// Presentation boundaries that carry <c>InertString</c> use this overload
+    /// so the typed value retains the original text concerns.
+    /// </summary>
+    public static string FormatDisplayNameUntreated(string name)
     {
         if (!name.StartsWith("op_", StringComparison.Ordinal))
             return name;
