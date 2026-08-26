@@ -43,7 +43,6 @@ public static class ApiTypeSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiSurface model) => true;
     }
 
@@ -51,7 +50,6 @@ public static class ApiTypeSectionDescriptors
     {
         public static string Name => "Classes";
         public static bool IsExpensive => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiSurface model)
             => model.Types.Any(t => t.Kind == "class");
     }
@@ -60,7 +58,6 @@ public static class ApiTypeSectionDescriptors
     {
         public static string Name => "Structs";
         public static bool IsExpensive => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiSurface model)
             => model.Types.Any(t => t.Kind == "struct");
     }
@@ -69,7 +66,6 @@ public static class ApiTypeSectionDescriptors
     {
         public static string Name => "Interfaces";
         public static bool IsExpensive => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiSurface model)
             => model.Types.Any(t => t.Kind == "interface");
     }
@@ -78,7 +74,6 @@ public static class ApiTypeSectionDescriptors
     {
         public static string Name => "Enums";
         public static bool IsExpensive => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiSurface model)
             => model.Types.Any(t => t.Kind == "enum");
     }
@@ -87,7 +82,6 @@ public static class ApiTypeSectionDescriptors
     {
         public static string Name => "Delegates";
         public static bool IsExpensive => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiSurface model)
             => model.Types.Any(t => t.Kind == "delegate");
     }
@@ -96,7 +90,6 @@ public static class ApiTypeSectionDescriptors
     {
         public static string Name => SectionNames.InspectionFailures;
         public static bool IsExpensive => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiSurface model)
             => model.InspectionFailures.Count > 0;
     }
@@ -137,9 +130,10 @@ public static class ApiMemberSectionDescriptors
             .Add<CostFacts>()
             .Add<TopLeverage>()
             .Add<OptimizationOpportunities>()
+            .Add<ApiMemberDetailSectionDescriptors.BodyShapes>()
             .Add<SourceFiles>()
             .Add<DecompiledSource>()
-            .Add<OriginalSource>()
+            .Add<PdbSource>()
             .Add<ApiMemberDetailSectionDescriptors.SourceDiff>()
             .Add<ILBody>()
             .Add<Facts>()
@@ -171,7 +165,6 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model) => true;
     }
 
@@ -180,7 +173,6 @@ public static class ApiMemberSectionDescriptors
         public static string Name => "Values";
         public static bool IsExpensive => false;
         public static bool Info => true;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Kind == "enum"
                && model.Members.Any(m => m.Kind == "field" && m.EnumValue.HasValue);
@@ -190,7 +182,6 @@ public static class ApiMemberSectionDescriptors
     {
         public static string Name => "Type Parameters";
         public static bool IsExpensive => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.TypeParameters.Count > 0;
     }
@@ -199,7 +190,6 @@ public static class ApiMemberSectionDescriptors
     {
         public static string Name => "Interfaces";
         public static bool IsExpensive => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Interfaces.Count > 0;
     }
@@ -208,7 +198,6 @@ public static class ApiMemberSectionDescriptors
     {
         public static string Name => "Baseclass";
         public static bool IsExpensive => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => !string.IsNullOrEmpty(model.BaseType)
                && model.BaseType != "System.Object"
@@ -223,7 +212,6 @@ public static class ApiMemberSectionDescriptors
         public static string Name => "Constructors";
         public static bool IsExpensive => false;
         public static bool Info => true;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "constructor");
     }
@@ -233,7 +221,6 @@ public static class ApiMemberSectionDescriptors
         public static string Name => SectionNames.Finalizer;
         public static bool IsExpensive => false;
         public static bool Info => true;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "finalizer");
     }
@@ -243,7 +230,6 @@ public static class ApiMemberSectionDescriptors
         public static string Name => "Fields";
         public static bool IsExpensive => false;
         public static bool Info => true;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "field" && !m.EnumValue.HasValue);
     }
@@ -253,7 +239,6 @@ public static class ApiMemberSectionDescriptors
         public static string Name => "Properties";
         public static bool IsExpensive => false;
         public static bool Info => true;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "property");
     }
@@ -262,7 +247,6 @@ public static class ApiMemberSectionDescriptors
     {
         public static string Name => SectionNames.Methods;
         public static bool IsExpensive => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => HasMethods(model);
     }
@@ -272,7 +256,6 @@ public static class ApiMemberSectionDescriptors
         public static string Name => SectionNames.MemberIndex;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => !MemberFilters.IsCompilerGenerated(m.Name));
     }
@@ -282,7 +265,6 @@ public static class ApiMemberSectionDescriptors
         public static string Name => SectionNames.MethodGroups;
         public static bool IsExpensive => false;
         public static bool Info => true;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => HasMethods(model);
     }
@@ -292,7 +274,6 @@ public static class ApiMemberSectionDescriptors
         public static string Name => "Events";
         public static bool IsExpensive => false;
         public static bool Info => true;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "event");
     }
@@ -302,7 +283,6 @@ public static class ApiMemberSectionDescriptors
         public static string Name => SectionNames.Operators;
         public static bool IsExpensive => false;
         public static bool Info => true;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => HasOperators(model);
     }
@@ -312,7 +292,6 @@ public static class ApiMemberSectionDescriptors
         public static string Name => SectionNames.ExplicitInterfaceImplementations;
         public static bool IsExpensive => false;
         public static bool Info => true;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => HasExplicitInterfaceImplementations(model);
     }
@@ -322,7 +301,6 @@ public static class ApiMemberSectionDescriptors
         public static string Name => SectionNames.ExtensionMethods;
         public static bool IsExpensive => false;
         public static bool Info => true;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => HasExtensionMethods(model);
     }
@@ -331,7 +309,6 @@ public static class ApiMemberSectionDescriptors
     {
         public static string Name => "Custom Attributes";
         public static bool IsExpensive => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsMethodLike);
     }
@@ -343,7 +320,6 @@ public static class ApiMemberSectionDescriptors
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsMethodLike);
     }
@@ -355,7 +331,6 @@ public static class ApiMemberSectionDescriptors
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsMethodLike);
     }
@@ -365,7 +340,6 @@ public static class ApiMemberSectionDescriptors
         public static string Name => SectionNames.UnsafeMembers;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsMethodLike);
     }
@@ -376,7 +350,6 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsMethodLike);
     }
@@ -387,7 +360,6 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsMethodLike);
     }
@@ -398,7 +370,6 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model) => model.Members.Any(IsBodyBacked);
     }
 
@@ -408,7 +379,6 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model) => model.Members.Any(IsBodyBacked);
     }
 
@@ -418,7 +388,6 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model) => model.Members.Any(IsBodyBacked);
     }
 
@@ -430,7 +399,6 @@ public static class ApiMemberSectionDescriptors
         // Backed by the whole-assembly body index; list structurally during -D rather
         // than opening the index to probe, mirroring OptimizationOpportunities.
         public static bool ProbeEffectiveness => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsBodyBacked);
     }
@@ -443,7 +411,6 @@ public static class ApiMemberSectionDescriptors
         // Backed by the whole-assembly body index; list structurally during -D rather
         // than opening the index to probe, mirroring SourceLocations/UnsafeOperations.
         public static bool ProbeEffectiveness => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsBodyBacked);
     }
@@ -455,7 +422,6 @@ public static class ApiMemberSectionDescriptors
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsMethodLike);
     }
@@ -467,7 +433,6 @@ public static class ApiMemberSectionDescriptors
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsMethodLike)
                || !string.IsNullOrWhiteSpace(model.SourceUrl)
@@ -480,7 +445,6 @@ public static class ApiMemberSectionDescriptors
     {
         public static string Name => SectionNames.DecompiledSource;
         public static bool IsExpensive => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             // Enums have no method bodies but the whole-type listing renders
             // their declaration and values.
@@ -491,7 +455,6 @@ public static class ApiMemberSectionDescriptors
     {
         public static string Name => SectionNames.IL;
         public static bool IsExpensive => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsMethodLike);
     }
@@ -503,18 +466,16 @@ public static class ApiMemberSectionDescriptors
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1 && model.Members.Any(IsBodyBacked);
     }
 
-    public sealed class OriginalSource : ISectionDescriptor<ApiType>
+    public sealed class PdbSource : ISectionDescriptor<ApiType>
     {
-        public static string Name => SectionNames.OriginalSource;
+        public static string Name => SectionNames.PdbSource;
         public static bool IsExpensive => true;
         public static SectionCapabilities Capabilities =>
             SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsMethodLike);
     }
@@ -612,7 +573,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberDetailSectionDescriptors.AppliedTaste>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.AnnotatedSource>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.AnnotatedSourceDocument>(HasSingleBodyBackedMember)
-            .Add<ApiMemberSectionDescriptors.OriginalSource>(HasSingleBodyBackedMember)
+            .Add<ApiMemberSectionDescriptors.PdbSource>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.SourceDiff>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.Calls>()
             .Add<ApiMemberDetailSectionDescriptors.ExceptionRegions>()
@@ -632,7 +593,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .AddCategory(SectionCategoryNames.Source,
                 SectionNames.DecompiledSource,
                 SectionNames.AnnotatedSource,
-                SectionNames.OriginalSource,
+                SectionNames.PdbSource,
                 SectionNames.SourceDiff,
                 SectionNames.IL);
     }
@@ -645,7 +606,6 @@ public static class ApiMemberOverloadSectionDescriptors
         public static string Name => SectionNames.Methods;
         public static bool IsExpensive => false;
         public static bool Info => true;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "method");
     }
@@ -669,7 +629,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<AnnotatedSourceDocument>()
             .Add<CostOverlay>()
             .Add<SemanticsOverlay>()
-            .Add<OriginalSource>()
+            .Add<PdbSource>()
             .Add<SourceDiff>()
             .Add<SourceLocations>()
             .Add<Calls>()
@@ -688,7 +648,7 @@ public static class ApiMemberDetailSectionDescriptors
             .AddCategory(SectionCategoryNames.Source,
                 SectionNames.DecompiledSource,
                 SectionNames.AnnotatedSource,
-                SectionNames.OriginalSource,
+                SectionNames.PdbSource,
                 SectionNames.SourceDiff,
                 SectionNames.IL);
     }
@@ -697,7 +657,6 @@ public static class ApiMemberDetailSectionDescriptors
     {
         public static string Name => SectionNames.Summary;
         public static bool IsExpensive => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1;
     }
@@ -708,7 +667,6 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1;
     }
@@ -717,7 +675,6 @@ public static class ApiMemberDetailSectionDescriptors
     {
         public static string Name => SectionNames.CustomAttributes;
         public static bool IsExpensive => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
@@ -728,7 +685,6 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
@@ -739,7 +695,6 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
@@ -752,7 +707,6 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
                && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
@@ -764,7 +718,6 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
@@ -775,7 +728,6 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
@@ -787,7 +739,6 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
@@ -799,20 +750,18 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
 
-    public sealed class OriginalSource : ISectionDescriptor<ApiType>
+    public sealed class PdbSource : ISectionDescriptor<ApiType>
     {
-        public static string Name => SectionNames.OriginalSource;
+        public static string Name => SectionNames.PdbSource;
         public static bool IsExpensive => true;
         public static SectionCapabilities Capabilities =>
             SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources;
-        public static string? ScannerKey => null;
         // A property/event resolves through the accessor the selected ordinal addresses, whose
-        // PDB sequence points carry the authored source, so it renders like a method (#3278).
+        // PDB sequence points locate its source, so it renders like a method (#3278).
         public static bool CanRender(ApiType model)
             => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
@@ -824,7 +773,6 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool ExplicitOnly => true;
         public static SectionCapabilities Capabilities =>
             SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
                && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
@@ -837,7 +785,6 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
                && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
@@ -847,7 +794,6 @@ public static class ApiMemberDetailSectionDescriptors
     {
         public static string Name => SectionNames.IL;
         public static bool IsExpensive => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
@@ -858,7 +804,6 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1 && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
@@ -869,7 +814,6 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
                && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
@@ -881,7 +825,6 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
                && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
@@ -893,7 +836,6 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
                && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
@@ -905,7 +847,6 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
                && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
@@ -920,10 +861,8 @@ public static class ApiMemberDetailSectionDescriptors
         public static SectionCost Cost => SectionCost.Unbounded;
         public static SectionCapabilities Capabilities =>
             SectionCapabilities.MayDownloadPdb;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Count == 1
-               && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+            => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
 
     /// <summary>
@@ -939,7 +878,6 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
-        public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
                && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);

@@ -315,12 +315,15 @@ public static class OutputFormatter
     /// silently included.
     /// </summary>
     public static void WriteVersionListings(IEnumerable<PackageVersionInfo> versions,
-        bool tsv, bool jsonl, TextWriter output)
+        InspectionOptions options, TextWriter output)
     {
         var rows = versions.Select(v => new[] { v.Version, v.Listed ? "listed" : "unlisted" }).ToArray();
-        WriteTable(output, showHeader: false, (writer, formatter) =>
+        WriteTable(output, showHeader: !options.NoHeader, (writer, formatter) =>
         {
-            var markoutWriter = new MarkoutWriter(writer, formatter, CreateTableWriterOptions(tsv, jsonl));
+            var markoutWriter = new MarkoutWriter(
+                writer,
+                formatter,
+                CreateTableWriterOptions(options.Tsv, options.Jsonl));
             markoutWriter.WriteTable(["Version", "Listing"], ["version", "listing"], rows);
             markoutWriter.Flush();
         });
@@ -467,7 +470,10 @@ public static class OutputFormatter
 
         if (options.Tree && options.Discover == null)
         {
-            WriteReferenceTree(inspection);
+            OutputDestination.Write(
+                options.OutputPath,
+                options.Rows,
+                output => WriteReferenceTree(inspection, output));
             return;
         }
 
@@ -539,11 +545,13 @@ public static class OutputFormatter
             : plainText;
     }
 
-    private static void WriteReferenceTree(LibraryInspection inspection)
+    private static void WriteReferenceTree(
+        LibraryInspection inspection,
+        TextWriter output)
     {
         var references = inspection.AssemblyInfo?.TransitiveReferences ?? [];
         var tree = LibraryInspectionView.BuildNestedReferenceTree(references);
-        var writer = MarkoutWriter.Create(Console.Out, new MarkdownFormatter());
+        var writer = MarkoutWriter.Create(output, new MarkdownFormatter());
         writer.WriteHeading(1, LibraryViewText.Contain(inspection.FileName) ?? string.Empty);
         writer.WriteHeading(2, SectionNames.References);
         writer.WriteTree([.. tree]);

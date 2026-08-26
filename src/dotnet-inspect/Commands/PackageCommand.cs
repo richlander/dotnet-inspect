@@ -49,6 +49,8 @@ public class PackageCommand
         var queryRegistry = catalog.QueryRegistry;
         var sectionNames = pipeline.SelectableSectionNames;
         bool packageLibraryMode = options.PackageLibrary != null || options.AllLibraries;
+        if (!packageLibraryMode)
+            options = NormalizeDependencyProjection(options);
 
         if (packageArgs.Length > 1
             && !ValidateMultiPackageMode(options))
@@ -65,6 +67,33 @@ public class PackageCommand
         if (!packageLibraryMode && options.Discover != null && (options.Schema || packageArgs.Length < 1))
         {
             var schemaMap = PackageDiscoverySchema();
+            if (options.Schema)
+            {
+                var selectedSections = options.IncludeSections is { Count: > 0 }
+                    ? new HashSet<string>(
+                        options.IncludeSections,
+                        StringComparer.OrdinalIgnoreCase)
+                    : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var hasExplicitSelection = options.Select is { Length: > 0 };
+                if (hasExplicitSelection || options.SelectDefault)
+                {
+                    var selectResult = SelectResolver.ResolveSelectAsSections(
+                        options.Select,
+                        sectionNames,
+                        pipeline.BareSelectSectionNames,
+                        pipeline.GetCategoryMap(),
+                        selectDefault: options.SelectDefault
+                            && !hasExplicitSelection);
+                    if (SelectOutput.WriteUnresolved(selectResult))
+                        return 1;
+                    if (selectResult.Sections is { Count: > 0 })
+                        selectedSections.UnionWith(selectResult.Sections);
+                }
+
+                if (selectedSections.Count > 0)
+                    schemaMap = FilterDiscoverySchema(schemaMap, selectedSections);
+            }
+
             return DiscoverOutput.Execute(options.Discover, schemaMap,
                 tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
                 verbosity: (int)options.Verbosity,
@@ -115,6 +144,10 @@ public class PackageCommand
             // rejected outright below rather than silently dropped.
             var lensMode = options.ListVersions || options.ListLayout || options.ListTfms
                 || options.ShowContent;
+            var dependencyTreeProjection = options.Tree
+                && options.Discover == null
+                && options.IncludeSections is { Count: 1 }
+                && options.IncludeSections.Contains(PackageSections.Dependencies);
             // Discovery also renders its own payload, so it is exempt from the single-section
             // requirement below. It is deliberately not part of lensMode: unlike the lenses, -S
             // is meaningful with -D, which restricts discovery to the selected sections.
@@ -123,16 +156,27 @@ public class PackageCommand
             // and rejecting that would break the lens modes' normal use. The refusal is
             // unconditional rather than excusing --print: the lens prints its own document
             // without a selection, so accepting -S there would silently ignore it.
-            if (lensMode && options.SelectExplicitlySet)
+            if (lensMode
+                && (options.SelectExplicitlySet
+                    || options.ShowDependencies
+                    || dependencyTreeProjection))
             {
                 var lensName = options.ListVersions ? "--versions"
                     : options.ListLayout ? "--layout"
                     : options.ListTfms ? "--tfms"
                     : "--content";
-                CommandError.Write(
-                    $"-S/--select is not available with {lensName}, which renders its own payload rather than sections.");
+                if (options.ShowDependencies)
+                    CommandError.Write($"--dependencies cannot be combined with {lensName}.");
+                else if (dependencyTreeProjection && !options.SelectExplicitlySet)
+                    CommandError.Write($"--tree cannot be combined with {lensName}.");
+                else
+                    CommandError.Write(
+                        $"-S/--select is not available with {lensName}, which renders its own payload rather than sections.");
                 return 1;
             }
+
+            if (!ValidateDependencyTreeProjection(options))
+                return 1;
 
             // #3448 aligns the package gate with the library one: a count over several selected
             // sections is meaningful now that the file family is disjoint, so require a selection
@@ -282,7 +326,10 @@ public class PackageCommand
                         var rangeRows = unlistedVector.Take(options.Limit ?? int.MaxValue).ToList();
                         if (LensProjection.TryProject(options, "--versions", rangeRows.Count, out var rangeListingExit))
                             return rangeListingExit;
-                        OutputFormatter.WriteVersionListings(rangeRows, options.Tsv, options.Jsonl, Console.Out);
+                        OutputFormatter.WriteVersionListings(
+                            rangeRows,
+                            options,
+                            Console.Out);
                         return 0;
                     }
 
@@ -365,7 +412,10 @@ public class PackageCommand
                     if (LensProjection.TryProject(options, "--versions", 1, out var knownPinnedExit))
                         return knownPinnedExit;
                     if (options.IncludeUnlisted)
-                        OutputFormatter.WriteVersionListings([pinnedMatch], options.Tsv, options.Jsonl, Console.Out);
+                        OutputFormatter.WriteVersionListings(
+                            [pinnedMatch],
+                            options,
+                            Console.Out);
                     else
                         WriteSingleVersion(versionQueryPinned, options);
                     return 0;
@@ -416,7 +466,9 @@ public class PackageCommand
                     // listed by construction. Emit it as a one-row listing so the flag still
                     // produces the tagged column the user asked for.
                     OutputFormatter.WriteVersionListings(
-                        [new PackageVersionInfo(latest, Listed: true)], options.Tsv, options.Jsonl, Console.Out);
+                        [new PackageVersionInfo(latest, Listed: true)],
+                        options,
+                        Console.Out);
                     return 0;
                 }
 
@@ -497,7 +549,10 @@ public class PackageCommand
 
                 if (LensProjection.TryProject(options, "--versions", listings.Count, out var listingExit))
                     return listingExit;
-                OutputFormatter.WriteVersionListings(listings, options.Tsv, options.Jsonl, Console.Out);
+                OutputFormatter.WriteVersionListings(
+                    listings,
+                    options,
+                    Console.Out);
                 return 0;
             }
 
@@ -566,9 +621,10 @@ public class PackageCommand
             version.Length > 0 ? $"package {packageName}@{version}" : $"package {packageName}",
             "package inspect");
 
-        if (options.ShowDependencies)
+        if (options.Tree && options.Discover == null && !packageLibraryMode)
         {
-            CommandError.WriteLine("Tip: use 'depends --package' for dependency trees.");
+            if (options.ShowDependencies)
+                CommandError.WriteLine("Tip: use 'depends --package' for dependency trees.");
             string packageReference = target.IsLocalFile
                 ? target.OriginalArgument
                 : version.Length > 0
@@ -696,6 +752,8 @@ public class PackageCommand
             result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
 
             PopulatePackageFileSections(result, extractPath, options);
+            if (ShouldPopulatePackageContentAudit(options, pipeline))
+                PopulatePackageContentAudit(result, extractPath);
             HashSet<InspectionQueryDefinition> sourceQueries =
                 pipeline.GetRequiredQueries(
                     options.Verbosity,
@@ -965,6 +1023,7 @@ public class PackageCommand
                 && pipeline.BareSelectSectionNames.Any(IsPackageFileSection))
             || options.IncludeSections?.Contains(PackageSections.Signals) == true
             || options.IncludeSections?.Contains(PackageSections.AuditArtifactText) == true
+            || options.IncludeSections?.Contains(PackageSections.AuditFindings) == true
             || options.FixedOverview
             || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         if (!options.Count && !options.JsonOutput && rowSection == null)
@@ -1458,6 +1517,7 @@ public class PackageCommand
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.Print) conflicts.Add("--print");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
+        else if (options.Tree && options.Discover == null) conflicts.Add("--tree");
         if (options.PackageLibrary != null) conflicts.Add("--library");
         if (options.AllLibraries) conflicts.Add("--all-libraries");
         if (options.Discover != null) conflicts.Add("-D/--discover");
@@ -1473,13 +1533,6 @@ public class PackageCommand
     private static bool ValidatePackageContentMode(InspectionOptions options)
     {
         bool scopedContent = options.ContentScope != PackageFileContentScope.Full;
-        if (options.Tree && options.Discover == null)
-        {
-            CommandError.Write("package --tree is discovery-tree output and requires -D/--discover.");
-            CommandError.WriteLine("Use --layout to show the package file tree.");
-            return false;
-        }
-
         if (options.FrontmatterRequested && options.BodyRequested)
         {
             CommandError.Write("--frontmatter/--yaml-header cannot be combined with --body.");
@@ -1552,6 +1605,92 @@ public class PackageCommand
         }
 
         return true;
+    }
+
+    private static InspectionOptions NormalizeDependencyProjection(InspectionOptions options)
+    {
+        if (!options.ShowDependencies)
+            return options;
+
+        var select = options.Select?.ToList() ?? [];
+        if (options.IncludeSections is { Count: > 0 })
+        {
+            foreach (var section in options.IncludeSections)
+            {
+                if (!select.Contains(section, StringComparer.OrdinalIgnoreCase))
+                    select.Add(section);
+            }
+        }
+        if (!select.Contains(PackageSections.Dependencies, StringComparer.OrdinalIgnoreCase))
+            select.Add(PackageSections.Dependencies);
+
+        return options with
+        {
+            Select = [.. select],
+            SelectDefault = false,
+            Tree = true,
+        };
+    }
+
+    private static bool ValidateDependencyTreeProjection(InspectionOptions options)
+    {
+        if (!options.Tree || options.Discover != null)
+            return true;
+
+        if (options.IncludeSections is not { Count: 1 }
+            || !options.IncludeSections.Contains(PackageSections.Dependencies))
+        {
+            CommandError.Write(
+                options.ShowDependencies
+                    ? "--dependencies is an alias for -S Dependencies --tree and cannot be combined with other section selections."
+                    : "--tree requires exactly one tree-shaped section (-S Dependencies).");
+            return false;
+        }
+
+        if (options.Count
+            || options.Print
+            || options.Value
+            || options.Urls
+            || options.Paths
+            || options.Columns is { Length: > 0 }
+            || options.Fields is { Length: > 0 }
+            || options.Rows is not null
+            || options.Bare
+            || options.JsonOutput
+            || options.Format != OutputFormat.Markdown
+            || options.Tabular
+            || options.Tsv
+            || options.Jsonl
+            || options.JsonArray
+            || options.NoHeader
+            || options.TabularExplicitlySet)
+        {
+            var optionName = options.ShowDependencies ? "--dependencies" : "--tree";
+            CommandError.Write($"{optionName} cannot be combined with row projections or non-Markdown formats.");
+            return false;
+        }
+
+        return true;
+    }
+
+    private static DocumentSchema FilterDiscoverySchema(
+        DocumentSchema schema,
+        IReadOnlySet<string> selectedSections)
+    {
+        var result = new DocumentSchema();
+        foreach (var name in schema.SectionNames)
+        {
+            if (!selectedSections.Contains(name))
+                continue;
+
+            var section = schema.GetSection(name);
+            if (section is { Items.Length: > 0 })
+                result.Add(name, section.ItemKind, section.Items.Select(item => item.Name).ToArray());
+            else
+                result.AddSection(name);
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -1672,13 +1811,19 @@ public class PackageCommand
 
         return PrintProjectionOutput.Write(
             printableRows,
-            row => ReadPackageFileContent(
-                extractPath,
-                result.PackageName ?? string.Empty,
-                result.Version ?? string.Empty,
-                sourceByRow[row],
-                options.ContentScope,
-                normalizeGithubLinksToRaw: !options.BrowsableUrls).Content,
+            row =>
+            {
+                PackageFileContent content = ReadPackageFileContent(
+                    extractPath,
+                    result.PackageName ?? string.Empty,
+                    result.Version ?? string.Empty,
+                    sourceByRow[row],
+                    options.ContentScope,
+                    normalizeGithubLinksToRaw: !options.BrowsableUrls,
+                    includeExactContent: HasUnstructuredOutputPath(options)
+                        && options.ContentScope == PackageFileContentScope.Full);
+                return new PrintableContent(content.Content, content.ExactContent);
+            },
             new PrintProjectionOptions(
                 options.PrintRow,
                 options.JsonOutput,
@@ -1765,16 +1910,7 @@ public class PackageCommand
         }
 
         var text = new PackageInspectionText(result);
-        string? rawSigned = result.SignatureResult is null
-            ? null
-            : result.SignatureResult.IsUnsigned ? "Unsigned"
-                : result.SignatureResult.AuthorVerified || result.SignatureResult.RepositoryVerified ? "Verified"
-                : result.SignatureResult.StatusMessage;
-        string? containedSigned = text.SignatureResult is not { } signature
-            ? null
-            : signature.IsUnsigned ? "Unsigned"
-                : signature.AuthorVerified || signature.RepositoryVerified ? "Verified"
-                : signature.StatusMessage?.ToString();
+        string? signed = GetPackageSignedValue(result);
 
         (string? Raw, string? Contained) value = field.ToLowerInvariant() switch
         {
@@ -1797,7 +1933,7 @@ public class PackageCommand
                 text.PackageTypes is { Count: > 0 } containedTypes
                     ? InertString.Join(", ", TextPolicy.Field, containedTypes).ToString()
                     : null),
-            "signed" => (rawSigned, containedSigned),
+            "signed" => (signed, signed),
             "size" => (
                 result.PackageSize?.ToString(CultureInfo.InvariantCulture),
                 result.PackageSize?.ToString(CultureInfo.InvariantCulture)),
@@ -1808,6 +1944,14 @@ public class PackageCommand
             ? []
             : [new ShapeProjectionRow(1, section, value.Contained!, Label: field)];
     }
+
+    internal static string? GetPackageSignedValue(InspectionResult result)
+        => result.Signed switch
+        {
+            true => "Verified",
+            false => "Unsigned",
+            null => null,
+        };
 
     private static bool ValidatePathMatchMode(InspectionOptions options)
     {
@@ -1851,6 +1995,29 @@ public class PackageCommand
 
     private sealed record PackageFileContentSet(string PackageName, string Version, List<PackageFileContent> Files);
 
+    private sealed class PackageFileContentAcquisition(
+        PackageExtractionResult resolution,
+        string packageName,
+        string packageVersion,
+        string? readmeFile,
+        string? declaredReadmeFile) : IDisposable
+    {
+        public PackageFileContentSet Read(
+            InspectionOptions options,
+            bool suppressUnaryPayloadRead)
+            => ReadPackageFileContents(
+                resolution.ExtractPath,
+                packageName,
+                packageVersion,
+                readmeFile,
+                declaredReadmeFile,
+                options,
+                suppressUnaryPayloadRead);
+
+        public void Dispose()
+            => CleanupPackageExtraction(resolution);
+    }
+
     private static async Task<int> ExecuteMultiPackageContentAsync(
         string[] packageArgs,
         InspectionOptions options,
@@ -1865,35 +2032,123 @@ public class PackageCommand
         }
 
         var results = new List<PackageFileContentSet>();
-        foreach (var target in targets)
+        bool unaryPayload = RequiresUnaryPackageContent(options);
+        if (!unaryPayload)
         {
-            var result = await ReadPackageFileContentsAsync(target, options, context);
-            if (result == null)
-                return 1;
-            results.Add(result);
+            foreach (var target in targets)
+            {
+                var result = await ReadPackageFileContentsAsync(
+                    target,
+                    options,
+                    context,
+                    suppressUnaryPayloadRead: false);
+                if (result == null)
+                    return 1;
+                results.Add(result);
+            }
+
+            return PrintPackageFileContents(results, options);
         }
 
-        return PrintPackageFileContents(results, options);
+        PackageFileContentAcquisition? selectedAcquisition = null;
+        int selectedPackage = -1;
+        int selectedFiles = 0;
+        try
+        {
+            foreach (var target in targets)
+            {
+                PackageFileContentAcquisition? acquisition =
+                    await AcquirePackageFileContentAsync(
+                        target,
+                        options,
+                        context);
+                if (acquisition == null)
+                    return 1;
+                try
+                {
+                    PackageFileContentSet result =
+                        acquisition.Read(
+                            options,
+                            suppressUnaryPayloadRead: true);
+                    results.Add(result);
+                    int packageSelectedFiles =
+                        result.Files.Count(static file => file.Found);
+                    if (selectedFiles == 0
+                        && packageSelectedFiles == 1)
+                    {
+                        selectedAcquisition = acquisition;
+                        acquisition = null;
+                        selectedPackage = results.Count - 1;
+                    }
+                    selectedFiles += packageSelectedFiles;
+                    if (selectedFiles > 1
+                        && selectedAcquisition is not null)
+                    {
+                        selectedAcquisition.Dispose();
+                        selectedAcquisition = null;
+                        selectedPackage = -1;
+                    }
+                }
+                finally
+                {
+                    acquisition?.Dispose();
+                }
+            }
+
+            if (selectedFiles == 1)
+            {
+                results[selectedPackage] =
+                    selectedAcquisition!.Read(
+                        options,
+                        suppressUnaryPayloadRead: false);
+            }
+
+            return PrintPackageFileContents(results, options);
+        }
+        finally
+        {
+            selectedAcquisition?.Dispose();
+        }
     }
 
     private static async Task<PackageFileContentSet?> ReadPackageFileContentsAsync(
         PackageReferenceTarget target,
         InspectionOptions options,
-        CommandContext context)
+        CommandContext context,
+        bool suppressUnaryPayloadRead)
+    {
+        using PackageFileContentAcquisition? acquisition =
+            await AcquirePackageFileContentAsync(
+                target,
+                options,
+                context);
+        return acquisition?.Read(
+            options,
+            suppressUnaryPayloadRead);
+    }
+
+    private static async Task<PackageFileContentAcquisition?>
+        AcquirePackageFileContentAsync(
+            PackageReferenceTarget target,
+            InspectionOptions options,
+            CommandContext context)
     {
         var logger = context.Logger;
-        string? extractPath = null;
         PackageExtractionResult? resolution = null;
+        bool ownershipTransferred = false;
         string version = target.Version;
-
         try
         {
             var outcome = await PackageExtractor.ExtractPackageAsync(
                 context.HttpClient,
-                target.IsLocalFile ? target.OriginalArgument : target.PackageName,
+                target.IsLocalFile
+                    ? target.OriginalArgument
+                    : target.PackageName,
                 logger.Log,
                 sourceOptions: options.SourceOptions,
-                version: target.IsLocalFile ? null : (version.Length > 0 ? version : null),
+                version: target.IsLocalFile
+                    ? null
+                    : (version.Length > 0 ? version : null),
                 forceLatest: options.ForceLatest,
                 includePrerelease: options.IncludePrerelease);
 
@@ -1904,32 +2159,53 @@ public class PackageCommand
             }
 
             resolution = outcome.Result!;
-            extractPath = resolution.ExtractPath;
             version = resolution.Version ?? version;
-
-            var nuspec = Services.NuspecParser.FindAndParse(extractPath);
-
-            var packageId =
-                nuspec?.PackageName
-                ?? resolution.PackageName
-                ?? target.PackageName;
-            var packageVersion = nuspec?.Version ?? version;
-            var packageReadme = PackageFileLister.ResolvePackageReadme(extractPath, nuspec?.ReadmeFile);
-            return ReadPackageFileContents(extractPath, packageId, packageVersion, packageReadme, nuspec?.ReadmeFile, options);
+            var nuspec =
+                Services.NuspecParser.FindAndParse(
+                    resolution.ExtractPath);
+            var acquisition =
+                new PackageFileContentAcquisition(
+                    resolution,
+                    nuspec?.PackageName
+                        ?? resolution.PackageName
+                        ?? target.PackageName,
+                    nuspec?.Version ?? version,
+                    PackageFileLister.ResolvePackageReadme(
+                        resolution.ExtractPath,
+                        nuspec?.ReadmeFile),
+                    nuspec?.ReadmeFile);
+            ownershipTransferred = true;
+            return acquisition;
         }
         finally
         {
-            if (resolution is { FromCache: false, TempDir: not null } && Directory.Exists(resolution.TempDir))
+            if (!ownershipTransferred)
+                CleanupPackageExtraction(resolution);
+        }
+    }
+
+    private static void CleanupPackageExtraction(
+        PackageExtractionResult? resolution)
+    {
+        if (resolution is not
             {
-                try
-                {
-                    Directory.Delete(resolution.TempDir, recursive: true);
-                }
-                catch
-                {
-                    // Ignore cleanup errors
-                }
+                FromCache: false,
+                TempDir: not null
             }
+            || !Directory.Exists(resolution.TempDir))
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.Delete(
+                resolution.TempDir,
+                recursive: true);
+        }
+        catch
+        {
+            // Ignore cleanup errors
         }
     }
 
@@ -2014,6 +2290,13 @@ public class PackageCommand
 
             if (wantsFilesSection)
                 PopulatePackageFileSections(result, extractPath, options);
+
+            if (ShouldPopulatePackageContentAudit(options, pipeline))
+            {
+                if (result.PackageFiles is null)
+                    PopulatePackageFileSections(result, extractPath, options);
+                PopulatePackageContentAudit(result, extractPath);
+            }
 
             HashSet<InspectionQueryDefinition> sourceQueries =
                 pipeline.GetRequiredQueries(
@@ -2380,27 +2663,79 @@ public class PackageCommand
         }
     }
 
+    private static bool ShouldPopulatePackageContentAudit(
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline)
+        => options.IncludeSections?.Contains(PackageSections.AuditFindings) == true
+            || DiscoverRequestsSection(
+                options.Discover,
+                PackageSections.AuditFindings,
+                pipeline);
+
+    private static void PopulatePackageContentAudit(
+        InspectionResult result,
+        string extractPath)
+    {
+        result.PackageContentAudit = PackageContentAudit.Scan(
+            extractPath,
+            result.PackageFiles?.Select(file => file.Path) ?? []);
+    }
+
     private static PackageFileContentSet ReadPackageFileContents(
         string extractPath,
         string packageName,
         string version,
         string? readmeFile,
         string? declaredReadmeFile,
-        InspectionOptions options)
+        InspectionOptions options,
+        bool suppressUnaryPayloadRead = false)
     {
         var files = PackageFileLister.ListAll(extractPath, readmeFile);
-        var selectedFiles = FilterPackageFiles(files, options);
+        List<PackageFile> selectedFiles =
+        [
+            .. FilterPackageFiles(files, options)
+                .Select(file => WithDeclaredReadmeRole(file, declaredReadmeFile)),
+        ];
+        bool unaryPayload = RequiresUnaryPackageContent(options);
+        bool skipPayloadReads =
+            unaryPayload
+            && (suppressUnaryPayloadRead || selectedFiles.Count != 1);
+        bool includeExactContent =
+            unaryPayload
+            && HasUnstructuredOutputPath(options)
+            && options.ContentScope == PackageFileContentScope.Full;
         var contents = selectedFiles
-            .Select(file => ReadPackageFileContent(
-                extractPath,
-                packageName,
-                version,
-                WithDeclaredReadmeRole(file, declaredReadmeFile),
-                options.ContentScope,
-                normalizeGithubLinksToRaw: !options.BrowsableUrls))
+            .Select(file => skipPayloadReads
+                ? new PackageFileContent(
+                    packageName,
+                    version,
+                    file.Path,
+                    file.Size,
+                    Found: true,
+                    Content: string.Empty,
+                    file.IsReadme)
+                : ReadPackageFileContent(
+                    extractPath,
+                    packageName,
+                    version,
+                    file,
+                    options.ContentScope,
+                    normalizeGithubLinksToRaw: !options.BrowsableUrls,
+                    includeExactContent))
             .ToList();
         return new PackageFileContentSet(packageName, version, contents);
     }
+
+    private static bool RequiresUnaryPackageContent(InspectionOptions options)
+        => !LensProjection.IsRequested(options)
+            && (options.Bare
+                || HasUnstructuredOutputPath(options));
+
+    private static bool HasUnstructuredOutputPath(InspectionOptions options)
+        => !string.IsNullOrEmpty(options.OutputPath)
+            && !options.JsonOutput
+            && !options.Jsonl
+            && !options.JsonArray;
 
     /// <summary>
     /// Restores the readme role to the document the manifest declares when
@@ -2459,9 +2794,11 @@ public class PackageCommand
         string version,
         PackageFile file,
         PackageFileContentScope scope,
-        bool normalizeGithubLinksToRaw)
+        bool normalizeGithubLinksToRaw,
+        bool includeExactContent)
     {
         var fullPath = Path.Combine(extractPath, file.Path.Replace('/', Path.DirectorySeparatorChar));
+        byte[] exactContent = File.ReadAllBytes(fullPath);
 
         // Scoping and link rewriting are Markdown conventions. Applied to anything else they
         // corrupt the document the package shipped rather than presenting it, and the caller
@@ -2469,13 +2806,33 @@ public class PackageCommand
         // other kind is passed through exactly as shipped -- including its byte order mark,
         // which ReadAllText would otherwise consume and silently shorten the document by.
         if (!IsMarkdownDocument(file.Path, file.IsReadme))
-            return new PackageFileContent(packageName, version, file.Path, file.Size, Found: true, ReadTextPreservingPreamble(fullPath), file.IsReadme);
+        {
+            return new PackageFileContent(
+                packageName,
+                version,
+                file.Path,
+                file.Size,
+                Found: true,
+                ReadTextPreservingPreamble(exactContent),
+                file.IsReadme,
+                includeExactContent ? exactContent : null);
+        }
 
-        var content = MarkdownContent.ApplyScope(File.ReadAllText(fullPath), scope);
+        var content = MarkdownContent.ApplyScope(
+            ReadText(exactContent),
+            scope);
         if (normalizeGithubLinksToRaw)
             content = GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(content);
 
-        return new PackageFileContent(packageName, version, file.Path, file.Size, Found: true, content, file.IsReadme);
+        return new PackageFileContent(
+            packageName,
+            version,
+            file.Path,
+            file.Size,
+            Found: true,
+            content,
+            file.IsReadme,
+            includeExactContent ? exactContent : null);
     }
 
     /// <summary>
@@ -2484,16 +2841,27 @@ public class PackageCommand
     /// as a character so a verbatim document round-trips through the text pipeline with the same
     /// bytes it shipped with rather than three fewer.
     /// </summary>
-    private static string ReadTextPreservingPreamble(string fullPath)
+    private static string ReadTextPreservingPreamble(byte[] content)
     {
-        var content = File.ReadAllText(fullPath);
+        string text = ReadText(content);
+        ReadOnlySpan<byte> bytes = content;
+        bool hasPreamble =
+            bytes.StartsWith(Encoding.UTF8.Preamble)
+            || bytes.StartsWith(Encoding.Unicode.Preamble)
+            || bytes.StartsWith(Encoding.BigEndianUnicode.Preamble)
+            || bytes.StartsWith(Encoding.UTF32.Preamble)
+            || bytes.StartsWith(new byte[] { 0x00, 0x00, 0xFE, 0xFF });
+        return hasPreamble ? '\uFEFF' + text : text;
+    }
 
-        Span<byte> head = stackalloc byte[3];
-        using var stream = File.OpenRead(fullPath);
-        var read = stream.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
-        var hasUtf8Preamble = read == 3 && head[0] == 0xEF && head[1] == 0xBB && head[2] == 0xBF;
-
-        return hasUtf8Preamble ? '\uFEFF' + content : content;
+    private static string ReadText(byte[] content)
+    {
+        using var stream = new MemoryStream(content, writable: false);
+        using var reader = new StreamReader(
+            stream,
+            Encoding.UTF8,
+            detectEncodingFromByteOrderMarks: true);
+        return reader.ReadToEnd();
     }
 
     private static int PrintPackageFileContents(IReadOnlyList<PackageFileContentSet> results, InspectionOptions options)
@@ -2523,6 +2891,21 @@ public class PackageCommand
         if (options.Bare)
             return PrintBarePackageFileContentRows(rows, options.OutputPath);
 
+        if (HasUnstructuredOutputPath(options)
+            && options.OutputPath is { } exactOutputPath)
+        {
+            List<PackageFileContent> found = rows.Where(row => row.Found).ToList();
+            if (found.Count != 1)
+            {
+                CommandError.Write(
+                    $"--content --out requires exactly one selected package content file; found {found.Count}.");
+                return 1;
+            }
+
+            WritePackageFileExport(found[0], exactOutputPath);
+            return 0;
+        }
+
         var textRows = rows.Select(PackageFileContentText.Create).ToList();
         var output = options.Jsonl
             ? RenderPackageFileContentJsonl(textRows)
@@ -2547,7 +2930,13 @@ public class PackageCommand
             return 1;
         }
 
-        return WriteBarePackageText(found[0].Content, outputPath);
+        if (!string.IsNullOrEmpty(outputPath))
+        {
+            WritePackageFileExport(found[0], outputPath);
+            return 0;
+        }
+
+        return WriteBarePackageText(found[0].Content, outputPath: null);
     }
 
     private static IEnumerable<PackageFileContent> FlattenPackageFileContentRows(
@@ -2608,7 +2997,7 @@ public class PackageCommand
                 continue;
             }
 
-            builder.Append(row.Content);
+            builder.Append(row.EncodedContent);
             if (row.Content.Length == 0 || row.Content[^1] != '\n')
                 builder.AppendLine();
         }
@@ -2806,8 +3195,13 @@ public class PackageCommand
         bool wantsSignals,
         VerboseLogger logger)
     {
+        bool wantsSignedField =
+            options.Fields?.Contains("Signed", StringComparer.OrdinalIgnoreCase) == true
+            || options.Columns?.Contains("Signed", StringComparer.OrdinalIgnoreCase) == true;
         if (nupkgPath == null
-            || (options.Verbosity < Verbosity.Normal && !wantsSignals))
+            || (options.Verbosity < Verbosity.Normal
+                && !wantsSignals
+                && !wantsSignedField))
         {
             return;
         }
@@ -3032,8 +3426,15 @@ public class PackageCommand
             version,
             files[0],
             PackageFileContentScope.Full,
-            normalizeGithubLinksToRaw: !options.BrowsableUrls);
-        return WriteBarePackageText(content.Content, options.OutputPath);
+            normalizeGithubLinksToRaw: !options.BrowsableUrls,
+            includeExactContent: HasUnstructuredOutputPath(options));
+        if (!string.IsNullOrEmpty(options.OutputPath))
+        {
+            WritePackageFileExport(content, options.OutputPath);
+            return 0;
+        }
+
+        return WriteBarePackageText(content.Content, outputPath: null);
     }
 
     private static int PrintBarePackageUrlColumn(IEnumerable<string?>? urls, string section, string? outputPath)
@@ -3056,8 +3457,18 @@ public class PackageCommand
         if (!string.IsNullOrEmpty(outputPath))
             File.WriteAllText(outputPath, output);
         else
-            Console.Write(output);
+            Console.Write(new InertString(TextPolicy.Prose, output));
         return 0;
+    }
+
+    private static void WritePackageFileExport(
+        PackageFileContent content,
+        string outputPath)
+    {
+        if (content.ExactContent is { } exact)
+            File.WriteAllBytes(outputPath, exact);
+        else
+            File.WriteAllText(outputPath, content.Content);
     }
 
     private static List<PackageFile> GetPackageFileRows(InspectionResult result, string section)
@@ -3266,6 +3677,20 @@ public class PackageCommand
 
     private static bool ValidatePackageLibraryMode(InspectionOptions options)
     {
+        if (options.Tree
+            && options.Discover == null
+            && (options.Format != OutputFormat.Markdown
+                || options.Bare
+                || options.Tabular
+                || options.Tsv
+                || options.Jsonl
+                || options.JsonArray
+                || options.NoHeader))
+        {
+            CommandError.Write("--tree cannot be combined with row projections or non-Markdown formats.");
+            return false;
+        }
+
         List<string> conflicts = [];
         if (options.AllLibraries) conflicts.Add("--all-libraries");
         if (options.ListLayout) conflicts.Add("--layout");
@@ -3294,6 +3719,7 @@ public class PackageCommand
         if (options.Print) conflicts.Add("--print");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (options.Discover != null) conflicts.Add("-D/--discover");
+        if (options.Tree && options.Discover == null) conflicts.Add("--tree");
         if (options.Columns != null) conflicts.Add("--columns");
         if (options.Fields != null) conflicts.Add("--fields");
 
@@ -3351,7 +3777,6 @@ public class PackageCommand
 
         var catalog = LibrarySections.CreateCatalog();
         var pipeline = catalog.Pipeline;
-        var scannerRegistry = catalog.ScannerRegistry;
         var queryRegistry = catalog.QueryRegistry;
         var libraryOptions = CreateLibraryOptions(assemblyName: null, packageReference, options);
 
@@ -3405,18 +3830,24 @@ public class PackageCommand
                 candidates.Contains(SectionNames.IdentifierConfusion),
         };
 
-        var scanners = pipeline.GetRequiredScanners(
+        HashSet<InspectionQueryDefinition> sectionQueries = pipeline.GetRequiredQueries(
             libraryOptions.Verbosity,
             libraryOptions.IncludeSections,
             libraryOptions.FixedOverview);
         List<(string Reason, InspectionQueryDefinition Query)> commandQueryDemand = [];
         if (libraryOptions.CollectReferenceTree)
             commandQueryDemand.Add(("reference tree", AssemblyReferencesQuery.Definition));
-        var queries = pipeline.GetRequiredQueries(
-            libraryOptions.Verbosity,
-            libraryOptions.IncludeSections,
-            libraryOptions.FixedOverview,
-            commandDemand: commandQueryDemand);
+        if (sectionQueries.Contains(BodyShapesQuery.Definition)
+            && libraryOptions.BodyKindQuery.HasFilter
+            && libraryOptions.PerformanceTriage.HasCandidateFilters)
+        {
+            commandQueryDemand.Add(
+                ("Body Shapes performance predicates",
+                    OptimizationOpportunitiesQuery.Definition));
+        }
+        HashSet<InspectionQueryDefinition> queries = sectionQueries;
+        foreach ((_, InspectionQueryDefinition query) in commandQueryDemand)
+            queries.Add(query);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         bool requiresGroupedIntegrations =
@@ -3463,8 +3894,6 @@ public class PackageCommand
                     packageName,
                     version,
                     context.HttpClient,
-                    scanners: scanners,
-                    scannerRegistry: scannerRegistry,
                     queries: queries,
                     queryRegistry: queryRegistry,
                     assemblyReference: assemblyReference,
@@ -3542,7 +3971,7 @@ public class PackageCommand
             string json = JsonSerializer.Serialize(
                 inspections.ToArray(),
                 JsonContext.Default.LibraryInspectionArray);
-            WriteAllLibrariesOutput(
+            OutputDestination.Write(
                 libraryOptions.OutputPath,
                 libraryOptions.Rows,
                 writer => writer.WriteLine(json));
@@ -3610,7 +4039,7 @@ public class PackageCommand
             }
             else
             {
-                WriteAllLibrariesOutput(
+                OutputDestination.Write(
                     libraryOptions.OutputPath,
                     libraryOptions.Rows,
                     static _ => { });
@@ -3666,7 +4095,7 @@ public class PackageCommand
         }
         else
         {
-            WriteAllLibrariesOutput(
+            OutputDestination.Write(
                 libraryOptions.OutputPath,
                 libraryOptions.Rows,
                 writer => OutputFormatter.WriteLfLine(writer, markdown));
@@ -3846,16 +4275,13 @@ public class PackageCommand
             TypeFilter = options.TypeFilter,
             BrowsableUrls = options.BrowsableUrls,
             JsonOutput = options.JsonOutput,
+            PlainText = options.Format == OutputFormat.PlainText,
             Tabular = options.Tabular,
             Tsv = options.Tsv,
             Jsonl = options.Jsonl,
             TabularExplicitlySet = options.TabularExplicitlySet,
             FormatExplicitlySet = options.FormatExplicitlySet,
-            Format = options.JsonOutput ? OutputFormat.Json
-                : options.Jsonl ? OutputFormat.Jsonl
-                : options.Tsv ? OutputFormat.Tsv
-                : options.Tabular ? OutputFormat.Table
-                : OutputFormat.Markdown,
+            Format = options.Format,
             Verbose = options.Verbose,
             Verbosity = options.Verbosity,
             IncludeSections = options.IncludeSections,
@@ -4003,14 +4429,14 @@ public class PackageCommand
         if (!table.HasRowsBeforeWindow)
         {
             CommandError.WriteNote("matched section has no row data across all libraries.");
-            WriteAllLibrariesOutput(
+            OutputDestination.Write(
                 options.OutputPath,
                 options.Rows,
                 static _ => { });
             return true;
         }
 
-        WriteAllLibrariesOutput(options.OutputPath, options.Rows, output =>
+        OutputDestination.Write(options.OutputPath, options.Rows, output =>
         {
             OutputFormatter.WriteTable(output, !options.NoHeader, (writer, formatter) =>
             {
@@ -4029,71 +4455,6 @@ public class PackageCommand
             });
         });
         return true;
-    }
-
-    private static void WriteAllLibrariesOutput(
-        string? outputPath,
-        RowWindow? rowWindow,
-        Action<TextWriter> write)
-    {
-        if (string.IsNullOrEmpty(outputPath))
-        {
-            write(Console.Out);
-            return;
-        }
-
-        using var output = new StreamWriter(
-            outputPath,
-            append: false,
-            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false))
-        {
-            NewLine = Console.Out.NewLine
-        };
-        CountingTextWriter? countingWriter = null;
-        TextWriter destination = output;
-        if (InfoTracker.Enabled)
-        {
-            countingWriter = new CountingTextWriter(output);
-            destination = countingWriter;
-        }
-
-        TailLineLimitingTextWriter? tailWriter = null;
-        bool hasLineWindow = false;
-        if (rowWindow is null
-            && CommandLineBuilder.HeadLines is int headLines)
-        {
-            destination = new LineLimitingTextWriter(
-                destination,
-                headLines);
-            hasLineWindow = true;
-        }
-
-        if (rowWindow is null
-            && CommandLineBuilder.TailLines is int tailLines)
-        {
-            tailWriter = new TailLineLimitingTextWriter(
-                destination,
-                tailLines);
-            destination = tailWriter;
-            hasLineWindow = true;
-        }
-
-        // Console.SetOut exposes its writer through a synchronized wrapper. Mirror that
-        // composition so formatters take the same streaming path for stdout and files.
-        if (hasLineWindow)
-            destination = TextWriter.Synchronized(destination);
-
-        try
-        {
-            write(destination);
-            tailWriter?.FlushTail();
-            destination.Flush();
-        }
-        finally
-        {
-            if (countingWriter is not null)
-                InfoTracker.RecordOutputChars(countingWriter.CharCount);
-        }
     }
 
     private sealed record AllLibrariesTable(
@@ -4748,13 +5109,6 @@ public class PackageCommand
 
         if (result is PackageDependencyGraphResult.Empty empty)
         {
-            if (empty.Kind
-                == PackageDependencyGraphResult.EmptyKind.NoDependencyGroups)
-            {
-                CommandError.WriteLine(empty.Message);
-                return 0;
-            }
-
             var packageName =
                 new InertString(
                     TextPolicy.Field,
@@ -4772,9 +5126,12 @@ public class PackageCommand
                     $"{packageName} ({version})").ToString(),
                 Description = description.ToString()
             };
-            Console.WriteLine(
-                MarkoutSerializer.Serialize(
+            OutputDestination.Write(
+                options.OutputPath,
+                options.Rows,
+                writer => MarkoutSerializer.Serialize(
                     emptyView,
+                    writer,
                     InspectionContext.Default));
             return 0;
         }
@@ -4796,10 +5153,13 @@ public class PackageCommand
             Dependencies = ToTreeNodes(graph.Dependencies)
         };
 
-        MarkoutSerializer.Serialize(
-            view,
-            Console.Out,
-            PackageDependenciesContext.Default);
+        OutputDestination.Write(
+            options.OutputPath,
+            options.Rows,
+            writer => MarkoutSerializer.Serialize(
+                view,
+                writer,
+                PackageDependenciesContext.Default));
         return 0;
     }
 

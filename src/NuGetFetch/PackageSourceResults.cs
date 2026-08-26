@@ -317,16 +317,18 @@ internal static class PackageSourceOperation
     {
         kind = exception switch
         {
-            NuGetRequestTimeoutException
-                or NuGetOperationTimeoutException
-                or NuGetMetadataBodyTimeoutException =>
+            TimeoutException =>
                 PackageSourceFailureKind.Timeout,
             NuGetMetadataResponseTooLargeException =>
                 PackageSourceFailureKind.ResponseRejected,
-            NuGetRedirectLimitExceededException =>
+            NuGetRedirectLimitExceededException
+                or NuGetRegistrationResourceLimitExceededException =>
                 PackageSourceFailureKind.ResponseRejected,
+            NuGetSourceCapabilityUnavailableException =>
+                PackageSourceFailureKind.Unsupported,
             NuGetSourceResponseException
-                or JsonException =>
+                or JsonException
+                or InvalidDataException =>
                 PackageSourceFailureKind.InvalidResponse,
             HttpRequestException
             {
@@ -350,20 +352,24 @@ internal static class PackageSourceOperation
                 PackageSourceFailureKind.AuthenticationRequired,
             HttpRequestException =>
                 PackageSourceFailureKind.Transport,
+            OperationCanceledException =>
+                PackageSourceFailureKind.Transport,
             IOException =>
                 PackageSourceFailureKind.Transport,
             _ => default,
         };
 
         return exception is
-            NuGetRequestTimeoutException
-            or NuGetOperationTimeoutException
-            or NuGetMetadataBodyTimeoutException
+            TimeoutException
             or NuGetMetadataResponseTooLargeException
             or NuGetRedirectLimitExceededException
+            or NuGetRegistrationResourceLimitExceededException
+            or NuGetSourceCapabilityUnavailableException
             or NuGetSourceResponseException
             or JsonException
+            or InvalidDataException
             or HttpRequestException
+            or OperationCanceledException
             or IOException;
     }
 
@@ -387,6 +393,10 @@ internal static class PackageSourceOperation
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
 }
+
+internal sealed class NuGetSourceCapabilityUnavailableException()
+    : InvalidOperationException(
+        "The package source does not advertise the requested capability.");
 
 internal sealed class NuGetSourceResponseException : InvalidOperationException
 {

@@ -1,4 +1,5 @@
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -57,6 +58,158 @@ public class StructuringGotoScopeTests
     }
 
     [Fact]
+    public void RegionExitDiamondWithCrossArmTransferStaysFlat()
+    {
+        var crossArm = new Block(21);
+        crossArm.Add(new Branch(30));
+        var blocks = new[]
+        {
+            Block(0, new ConditionalBranch(Cond(), 40)),
+            Block(10, new ConditionalBranch(Cond(), 30)),
+            Block(
+                20,
+                new IfStatement(
+                    new Constant(true, TypeRef.CoreLib("System", "Boolean")),
+                    crossArm,
+                    null),
+                new Branch(40)),
+            Block(
+                30,
+                new StoreLocal(0, Int32, new Constant(7, Int32)),
+                new Branch(40)),
+            Block(40, new Return(new LoadLocal(0, Int32))),
+        };
+
+        var function = Structured(blocks);
+
+        Assert.Equal(blocks.Length, function.Body.Blocks.Count);
+        Assert.Single(function.Descendants.OfType<IfStatement>());
+        Assert.Contains(
+            function.Descendants.OfType<Branch>(),
+            branch => branch.TargetOffset == 30);
+    }
+
+    [Fact]
+    public void ClonedSiblingTargetWithNestedSiblingTransferStaysOutOfDiamond()
+    {
+        var nestedTransfer = Block(41, new Branch(50));
+        var blocks = new[]
+        {
+            Block(0, new ConditionalBranch(Cond(), 30)),
+            Block(10, new ConditionalBranch(Cond(), 40)),
+            Block(20, new Branch(60)),
+            Block(30, new Throw(new Constant(null, TypeRef.CoreLib("System", "Object")))),
+            Block(
+                40,
+                new IfStatement(Cond(), nestedTransfer, null),
+                new Return(new Constant(4, Int32))),
+            Block(50, new Return(new Constant(5, Int32))),
+            Block(60, new Return(new Constant(6, Int32))),
+        };
+
+        var function = Structured(blocks);
+
+        Assert.DoesNotContain(function.Descendants.OfType<IfStatement>(), statement => statement.HasElse);
+        Assert.Contains(
+            function.Descendants.OfType<Branch>(),
+            branch => branch.TargetOffset == 50);
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("goto IL_0032;", output);
+        Assert.Contains("IL_0032:", output);
+    }
+
+    [Fact]
+    public void ReverseNestedSiblingTransferStaysOutOfDiamond()
+    {
+        var nestedTransfer = Block(21, new Branch(10));
+        var blocks = new[]
+        {
+            Block(0, new ConditionalBranch(Cond(), 20)),
+            Block(
+                10,
+                new StoreLocal(0, Int32, new Constant(1, Int32)),
+                new Branch(30)),
+            Block(
+                20,
+                new IfStatement(Cond(), nestedTransfer, null),
+                new StoreLocal(0, Int32, new Constant(2, Int32))),
+            Block(30, new Return(new LoadLocal(0, Int32))),
+        };
+
+        var function = Structured(blocks);
+
+        Assert.DoesNotContain(function.Descendants.OfType<IfStatement>(), statement => statement.HasElse);
+        Assert.Contains(
+            function.Descendants.OfType<Branch>(),
+            branch => branch.TargetOffset == 10);
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("goto IL_000A;", output);
+        Assert.Contains("IL_000A:", output);
+    }
+
+    [Fact]
+    public void SiblingHeadPastRegionCloneIsEmittedAtConsumingDepth()
+    {
+        var boolean = TypeRef.CoreLib("System", "Boolean");
+        var blocks = new[]
+        {
+            Block(0, new ConditionalBranch(new LoadArgument(0, "outer", boolean), 3)),
+            Block(1, new ConditionalBranch(new LoadArgument(1, "inner", boolean), 3)),
+            Block(2, new Branch(5)),
+            Block(3, new Return(new Constant(10, Int32))),
+            Block(4, new Branch(0)),
+            Block(5, new Return(new Constant(20, Int32))),
+        };
+        var container = new BlockContainer();
+        foreach (var block in blocks)
+            container.Add(block);
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(
+                Int32,
+                [
+                    new Parameter("outer", boolean),
+                    new Parameter("inner", boolean),
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Equal(2, output.Split("return 10;", StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
+    public void CompilerTwoCaseSwitchReturnKeepsDissolvingCrossArmStructured()
+    {
+        var (function, output) = GeneratedFixtureRunner.RunWithMaterializedFixtures(
+            [GeneratedFixtureCatalog.MinimalSwitchTwoCaseLowersIf],
+            options: null,
+            (_, assemblyPath) =>
+            {
+                using var metadata = MetadataSource.OpenWithoutSymbols(assemblyPath);
+                var imported = IrImporter.Import(
+                    metadata,
+                    "GeneratedFixtures.MinimalSwitchTwoCaseLowersIf.Class1",
+                    "Method1");
+                Assert.NotNull(imported);
+
+                IrPasses.Run(imported!, IrPasses.Default, PassContext.None);
+                imported!.CheckInvariant();
+                return (imported, CSharpPrinter.Print(imported).Output!);
+            });
+
+        Assert.Empty(function.Descendants.OfType<Branch>());
+        Assert.NotEmpty(function.Descendants.OfType<IfStatement>());
+        Assert.Contains("return \"many\";", output);
+    }
+
+    [Fact]
     public void SwitchTargetInsideArm_StaysFlat()
     {
         // Same diamond, but a leading (unraised) switch also dispatches into the
@@ -107,6 +260,14 @@ public class StructuringGotoScopeTests
         // label and the Leave survives at top level (legal goto).
         Assert.Empty(function.Descendants.OfType<IfStatement>());
         Assert.NotEmpty(function.Descendants.OfType<Leave>());
+    }
+
+    static Block Block(int offset, params IrNode[] statements)
+    {
+        var block = new Block(offset);
+        foreach (var statement in statements)
+            block.Add(statement);
+        return block;
     }
 
     [Fact]

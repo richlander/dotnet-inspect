@@ -12,6 +12,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using InertText;
 using Markout;
 
 using Decompiler = ILInspector.Decompiler;
@@ -221,9 +222,17 @@ public static class ApiOutputFormatter
         var effectiveVerbosity = options.Verbosity;
 
         var pipeline = ApiMemberSectionPipelines.Create(options);
-        var selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
+        var sectionsPreResolved = options is MemberOptions { MemberSectionsPreResolved: true };
+        var selectAll = SelectResolver.IsActiveAllSelector(
+            options.Select,
+            options.IncludeSections,
+            sectionsPreResolved);
         var includeSections = pipeline.ComputeIncludeSections(
-            type, effectiveVerbosity, options.IncludeSections, selectAll);
+            type,
+            effectiveVerbosity,
+            options.IncludeSections,
+            selectAll,
+            explicitInclude: sectionsPreResolved);
         if (ShouldRenderMemberDetailContext(options) && includeSections is { Count: > 0 }
             && !includeSections.Contains(SectionNames.Summary))
             includeSections = [SectionNames.Summary, .. includeSections];
@@ -239,8 +248,14 @@ public static class ApiOutputFormatter
     internal static bool ShouldRenderMemberDetailContext(ApiOptions options) =>
         options is MemberOptions { OverloadIndex: not null }
         && options.IncludeSections is { Count: > 0 }
-        && !SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
-        && !SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
+        && !SelectResolver.IsActiveAllSelector(
+            options.Select,
+            options.IncludeSections,
+            options is MemberOptions { MemberSectionsPreResolved: true })
+        && !SelectResolver.IsActiveInfoSelector(
+            options.SelectDefault,
+            options.IncludeSections,
+            options is MemberOptions { MemberSectionsPreResolved: true })
         && !options.Count
         && !options.JsonOutput
         && !options.Tabular;
@@ -263,7 +278,10 @@ public static class ApiOutputFormatter
         options.Verbosity != Verbosity.Minimal
         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options)
         || SectionRequested(options.IncludeSections, SectionNames.Methods)
-        || (!SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
+        || (!SelectResolver.IsActiveInfoSelector(
+                options.SelectDefault,
+                options.IncludeSections,
+                options is MemberOptions { MemberSectionsPreResolved: true })
             && (SectionRequested(options.IncludeSections, SectionNames.Operators)
                 || SectionRequested(options.IncludeSections, SectionNames.ExplicitInterfaceImplementations)
                 || SectionRequested(options.IncludeSections, SectionNames.ExtensionMethods)))
@@ -283,7 +301,10 @@ public static class ApiOutputFormatter
         options.Verbosity == Verbosity.Minimal
         && !ShouldRenderMemberRows(options)
         && (options.IncludeSections is null
-            || SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections));
+            || SelectResolver.IsActiveInfoSelector(
+                options.SelectDefault,
+                options.IncludeSections,
+                options is MemberOptions { MemberSectionsPreResolved: true }));
 
     /// <summary>
     /// True when the type-listing tabular view must project the fixed fact table rather than type
@@ -312,6 +333,12 @@ public static class ApiOutputFormatter
 
     internal static bool ShouldRenderSectionedTabularView(ApiType type, ApiOptions options)
     {
+        if (options is MemberOptions
+            {
+                MemberSectionsPreResolved: true,
+                IncludeSections.Count: 0
+            })
+            return true;
         if (options.IncludeSections is { Count: 1 })
             return true;
         if (!ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options))
@@ -633,7 +660,11 @@ public static class ApiOutputFormatter
             foreach (var group in membersByKind)
             {
                 var membersInGroup = group.ToList();
-                var children = BuildShapeMemberNodes(group.Key, membersInGroup, expandOverloads, type.Name);
+                var children = BuildShapeMemberNodes(
+                    group.Key,
+                    membersInGroup,
+                    expandOverloads,
+                    type);
                 var logicalCount = IsOverloadGroupedKind(group.Key)
                     ? membersInGroup.Select(m => m.Name).Distinct(StringComparer.Ordinal).Count()
                     : membersInGroup.Count;
@@ -642,7 +673,11 @@ public static class ApiOutputFormatter
             }
         }
 
-        static List<TreeNode> BuildShapeMemberNodes(string kind, IEnumerable<ApiMember> members, bool expandOverloads, string declaringTypeName)
+        static List<TreeNode> BuildShapeMemberNodes(
+            string kind,
+            IEnumerable<ApiMember> members,
+            bool expandOverloads,
+            ApiType declaringType)
         {
             if (IsOverloadGroupedKind(kind))
             {
@@ -678,32 +713,17 @@ public static class ApiOutputFormatter
                 .OrderBy(m => m.Name, StringComparer.Ordinal)
                 .Select(m => new TreeNode(
                     m.IsFinalizer
-                        ? ShapeDestructorSpelling(declaringTypeName)
+                        ? ShapeDestructorSpelling(declaringType)
                         : CSharpIdentifier.ContainRenderedText(m.Signature ?? OperatorNames.FormatDisplayName(m.Name))))
                 .ToList();
         }
 
         // A finalizer renders as the C# destructor `~Type()` rather than its raw
         // metadata signature (`void Finalize()`).
-        static string ShapeDestructorSpelling(string typeName)
+        static string ShapeDestructorSpelling(ApiType type)
         {
-            var name = typeName;
-            // Isolate the innermost nested-type segment BEFORE stripping generic
-            // arity, so a finalizer on a type nested inside a generic outer
-            // (e.g. "Outer`1.Nested" or "Outer`1+Nested") spells "~Nested()"
-            // rather than "~Outer()".
-            int sep = name.LastIndexOfAny(['.', '+']);
-            if (sep >= 0)
-                name = name[(sep + 1)..];
-            int angle = name.IndexOf('<');
-            if (angle >= 0)
-                name = name[..angle];
-            int tick = name.IndexOf('`');
-            if (tick >= 0)
-                name = name[..tick];
-            // Contained on the composed spelling rather than at the call site:
-            // the sibling branch there contains its own text, and a finalizer
-            // node reached output raw because only that one branch was covered.
+            string name =
+                CSharpFormatter.FormatDeclarationLeafMetadataName(type);
             return CSharpIdentifier.ContainRenderedText($"~{name}()");
         }
 
@@ -1607,6 +1627,11 @@ public static class ApiOutputFormatter
                 .OrderBy(call => call.ILOffset)
                 .Select(call => new CallSiteRow(
                     MarkoutInline.Code($"IL_{call.ILOffset:X4}"),
+                    call.Caller == call.EvidenceMethod
+                        ? null
+                        : MarkoutInline.Code(
+                            $"{FormatMethod(call.EvidenceMethod)} "
+                            + $"[0x{call.EvidenceMethod.MetadataToken:X8}]"),
                     string.IsNullOrEmpty(call.Opcode) ? FormatOpcode(call.Kind) : call.Opcode,
                     FormatCallsiteKind(call.Kind),
                     MarkoutInline.Code(FormatCallee(call.Callee)),
@@ -1646,22 +1671,34 @@ public static class ApiOutputFormatter
         if (request.Callers && bodyMethods.Count > 0)
         {
             RequestTelemetry.Breadcrumb("il-analysis.callers", $"{bodyMethods.Count} member(s)");
-            var rows = new List<CallerSiteRow>();
+            var edges = new List<(
+                string Source,
+                Analysis.DirectCall Call)>();
 
             // Collect callers for each method (all overloads if multiple methods selected)
             foreach (var method in bodyMethods.Where(m => m.MetadataToken.HasValue))
             {
                 var targetToken = method.MetadataToken!.Value;
-                rows.AddRange(analysisInspection.CallerEdges(targetToken)
-                    .Select(edge => CreateCallerRow(edge.Source, edge.Call)));
+                edges.AddRange(
+                    analysisInspection.CallerEdges(targetToken)
+                        .Select(edge => (edge.Source, edge.Call)));
             }
 
-            // Deduplicate and sort
-            rows = rows
-                .GroupBy(row => (row.Source, row.Caller, row.ILOffset, row.OperandToken))
-                .Select(g => g.First())
+            var rows = edges
+                .GroupBy(edge => (
+                    edge.Source,
+                    edge.Call.EvidenceMethod.ModuleVersionId,
+                    edge.Call.EvidenceMethod.MetadataToken,
+                    edge.Call.ILOffset,
+                    edge.Call.OperandToken))
+                .Select(group => group.First())
+                .Select(edge =>
+                    CreateCallerRow(edge.Source, edge.Call))
                 .OrderBy(row => row.Source, StringComparer.Ordinal)
                 .ThenBy(row => row.Caller, StringComparer.Ordinal)
+                .ThenBy(
+                    row => row.EvidenceMethod,
+                    StringComparer.Ordinal)
                 .ThenBy(row => row.ILOffset, StringComparer.Ordinal)
                 .ToList();
 
@@ -1704,8 +1741,14 @@ public static class ApiOutputFormatter
                 memberCode.CallGraph = CallGraphSectionAdapter.ToGraph(
                     projection,
                     FormatCallee,
-                    GetRequestedCallGraphFields(options),
-                    renderedRows);
+                    analysisInspection.CallGraphFields,
+                    analysisInspection.HasCallGraphFieldProjection,
+                    renderedRows,
+                    analysisInspection.IncludesCallGraphOpportunities
+                        ? BuildCallGraphOpportunityAnnotations(
+                            projection,
+                            analysisInspection.CallGraphBodyIndexes)
+                        : null);
                 hasCode = true;
             }
             else if (ExplicitlySelected(SectionNames.CallGraph)
@@ -1793,7 +1836,8 @@ public static class ApiOutputFormatter
             if (requestedSections.Contains(SectionNames.CostFacts))
             {
                 var rows = Analysis.SemanticFactProjection.CostFacts(
-                        analysisInspection.BodyIndex.GetDirectCallsByCaller(),
+                        analysisInspection.BodyIndex
+                            .GetDirectCallsByEvidenceMethod(),
                         semanticToken)
                     .Select(fact => ToCostFactRow(fact, includeMember: false))
                     .ToList();
@@ -1813,7 +1857,9 @@ public static class ApiOutputFormatter
             if (code.Attributes is { Count: > 0 } attributes)
             {
                 view.MethodAttributeRows = attributes
-                    .Select(a => new MethodAttributeRow(a.Name, a.Value ?? ""))
+                    .Select(a => new MethodAttributeRow(
+                        new InertString(TextPolicy.Field, a.Name),
+                        new InertString(TextPolicy.Field, a.Value ?? "")))
                     .ToList();
             }
 
@@ -2200,12 +2246,54 @@ public static class ApiOutputFormatter
         return FormatMember(member.DeclaringType, member.Name, member.ParameterTypes, member.TypeArguments);
     }
 
-    static IReadOnlyList<string> GetRequestedCallGraphFields(ApiOptions? options)
-        => options?.Fields is { Length: > 0 } fields
-            ? fields
-            : options?.Columns is { Length: > 0 } columns
-                ? columns
-                : [];
+    static IReadOnlyDictionary<int, CallGraphOpportunityAnnotations>
+        BuildCallGraphOpportunityAnnotations(
+            ILInspector.CallGraph.CallGraphProjection projection,
+            IReadOnlyList<Analysis.LibraryBodyIndex> indexes)
+    {
+        var candidatesByNode =
+            new Dictionary<int, HashSet<string>>();
+        foreach (Analysis.LibraryBodyIndex index in indexes)
+        {
+            IReadOnlySet<Analysis.TypeRef> generatedFrameworkTypes =
+                index.GeneratedFrameworkTypes;
+            foreach (Analysis.OptimizationOpportunity opportunity in
+                index.OptimizationOpportunities.Where(opportunity =>
+                    opportunity.Shape == "sync-call-in-async"
+                    && LibraryMetadataService.IncludePerformanceOpportunity(
+                        opportunity,
+                        generatedFrameworkTypes)))
+            {
+                if (projection.FindNode(
+                        opportunity.Method,
+                        out ILInspector.CallGraph.CallGraphNode node)
+                    != ILInspector.CallGraph.CallGraphNodeMatch.Found)
+                {
+                    continue;
+                }
+
+                string candidate = opportunity.CandidateId
+                    ?? $"{opportunity.Method.ModuleVersionId:N}:"
+                        + $"{opportunity.Method.MetadataToken:X8}:"
+                        + $"{opportunity.EvidenceMethodToken:X8}:"
+                        + $"{opportunity.ILOffset:X4}:"
+                        + $"{opportunity.OperandToken:X8}";
+                if (!candidatesByNode.TryGetValue(
+                    node.Id,
+                    out HashSet<string>? candidates))
+                {
+                    candidates = new HashSet<string>(
+                        StringComparer.Ordinal);
+                    candidatesByNode.Add(node.Id, candidates);
+                }
+                candidates.Add(candidate);
+            }
+        }
+        return candidatesByNode.ToDictionary(
+            pair => pair.Key,
+            pair => new CallGraphOpportunityAnnotations(
+                pair.Value.Count));
+    }
 
     internal static void PopulateUnsafeMembers(TypeView view, ApiType type, Analysis.LibraryBodyIndex index)
     {
@@ -2318,7 +2406,8 @@ public static class ApiOutputFormatter
 
         if (requestedSections?.Contains(SectionNames.CostFacts) == true)
         {
-            var directCallsByCaller = index.GetDirectCallsByCaller();
+            var directCallsByCaller =
+                index.GetDirectCallsByEvidenceMethod();
             var rows = methodTokens
                 .SelectMany(token => Analysis.SemanticFactProjection.CostFacts(directCallsByCaller, token))
                 .Select(fact => ToCostFactRow(fact, includeMember: true))
@@ -2381,6 +2470,26 @@ public static class ApiOutputFormatter
                 opportunity.EvidenceMethodToken is { } evidenceMethod
                     ? MarkoutInline.Code($"0x{evidenceMethod:X8}")
                     : null,
+                opportunity.SupportingCallSite
+                    ?.SourceFinding,
+                opportunity.SupportingCallSite
+                    ?.Operation,
+                opportunity.SupportingCallSite
+                    ?.OperandToken is { } supportingToken
+                    ? MarkoutInline.Code(
+                        $"0x{supportingToken:X8}")
+                    : null,
+                opportunity.SupportingCallSite
+                    ?.EvidenceMethodToken is
+                        { } supportingMethod
+                    ? MarkoutInline.Code(
+                        $"0x{supportingMethod:X8}")
+                    : null,
+                opportunity.SupportingCallSite is
+                    { ILOffset: var supportingOffset }
+                    ? MarkoutInline.Code(
+                        $"IL_{supportingOffset:X4}")
+                    : null,
                 MarkoutInline.Code(opportunity.Evidence),
                 opportunity.SafeFixDirection,
                 LibraryMetadataService.TriagePriority(opportunity),
@@ -2416,9 +2525,6 @@ public static class ApiOutputFormatter
         IReadOnlyList<ApiMember> methods,
         MemberOptions options)
     {
-        string kind = options.BodyKindQuery.Kind
-            ?? throw new InvalidOperationException(
-                "The Body Shapes section requires a validated body-kind predicate.");
         IReadOnlyList<ApiMember> scopedMethods = ResolveBodyShapeMethods(
             methods,
             options.OverloadIndex);
@@ -2428,7 +2534,24 @@ public static class ApiOutputFormatter
                 .Where(method => method.MetadataToken.HasValue)
                 .Select(method => method.MetadataToken!.Value),
         ];
+        PopulateBodyShapes(
+            view,
+            assemblyPath,
+            pdbPath,
+            methodTokens,
+            options);
+    }
 
+    internal static void PopulateBodyShapes(
+        TypeView view,
+        string assemblyPath,
+        string? pdbPath,
+        IReadOnlySet<int> methodTokens,
+        ApiOptions options)
+    {
+        string kind = options.BodyKindQuery.Kind
+            ?? throw new InvalidOperationException(
+                "The Body Shapes section requires a validated body-kind predicate.");
         options.RenderConfigWarnings?.EmitOnce();
         using var source = Decompiler.Pipeline.MetadataSource.Open(
             assemblyPath,
@@ -2465,6 +2588,38 @@ public static class ApiOutputFormatter
             CommandError.WriteWarning(
                 $"Body Shapes skipped {result.Failures.Count} candidates; "
                 + "rerun with --verbose for details.");
+        }
+    }
+
+    internal static HashSet<int> ResolveTypeBodyShapeMethodTokens(ApiType type)
+    {
+        var tokens = new HashSet<int>();
+        foreach (var member in type.Members)
+        {
+            if (member.DeclaringType is { Length: > 0 } declaringType
+                && !string.Equals(declaringType, type.FullName, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (ApiMemberSectionDescriptors.IsMethodLike(member)
+                && member.MetadataToken is { } methodToken)
+            {
+                tokens.Add(methodToken);
+            }
+
+            Add(member.GetterToken);
+            Add(member.SetterToken);
+            Add(member.AdderToken);
+            Add(member.RemoverToken);
+        }
+
+        return tokens;
+
+        void Add(int? token)
+        {
+            if (token is { } value)
+                tokens.Add(value);
         }
     }
 
@@ -2633,6 +2788,11 @@ public static class ApiOutputFormatter
         => new(
             source,
             MarkoutInline.Code(FormatMethod(call.Caller)),
+            call.Caller == call.EvidenceMethod
+                ? null
+                : MarkoutInline.Code(
+                    $"{FormatMethod(call.EvidenceMethod)} "
+                    + $"[0x{call.EvidenceMethod.MetadataToken:X8}]"),
             MarkoutInline.Code($"IL_{call.ILOffset:X4}"),
             string.IsNullOrEmpty(call.Opcode) ? FormatOpcode(call.Kind) : call.Opcode,
             FormatCallsiteKind(call.Kind),

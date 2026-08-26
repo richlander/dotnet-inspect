@@ -17,7 +17,8 @@ internal sealed record MethodBodyAnalysisResult(
     ImmutableArray<DirectCall> DirectCalls,
     IReadOnlyDictionary<int, BodySignals> BodySignals,
     IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException,
-    IReadOnlySet<int> NonHeapNewObjOperandTokens);
+    IReadOnlySet<int> NonHeapNewObjOperandTokens,
+    IReadOnlyDictionary<int, MethodIdentity> DeclaredSources);
 
 internal sealed record SafetyAnalysisResult(
     ImmutableArray<UnsafeEvidence> Evidence,
@@ -32,6 +33,7 @@ internal sealed record AllocationAnalysisResult(
 internal sealed record OptimizationAnalysisResult(
     ImmutableArray<OptimizationOpportunity> Opportunities,
     IReadOnlySet<int> SuppressedMethodTokens,
+    IReadOnlySet<int> ScopeExcludedMethodTokens,
     IReadOnlySet<string> ExceptionTypeNames);
 
 internal sealed record ResourceLifecycleAnalysisResult(

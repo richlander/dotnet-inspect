@@ -1,0 +1,91 @@
+type LensDefinition = readonly [id: string, label: string];
+
+type Scope = "package" | "type" | "member";
+
+export interface RenderScopeBarOptions {
+  scope: Scope;
+  strip: readonly LensDefinition[];
+  activeStripId: string | null;
+  stripAttribute: string;
+  showMemberScope?: boolean;
+  emptyStripLabel?: string;
+  escapeHtml: (value: unknown) => string;
+}
+
+export interface ScopeBarBindingActions {
+  onMemberSectionSelect: (section: string | undefined) => void;
+  onPackageLensSelect: (lens: string) => void;
+  onScopeSelect: (scope: string | undefined) => void;
+  onTypeLensSelect: (lens: string) => void;
+}
+
+export function bindScopeBar(
+  root: ParentNode,
+  actions: ScopeBarBindingActions,
+) {
+  root.querySelectorAll<HTMLElement>("[data-scope]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onScopeSelect(button.dataset.scope)));
+  root.querySelectorAll<HTMLElement>("[data-package-lens]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onPackageLensSelect(
+        button.dataset.packageLens ?? "overview")));
+  root.querySelectorAll<HTMLElement>("[data-lens]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onTypeLensSelect(button.dataset.lens ?? "api")));
+  root.querySelectorAll<HTMLElement>("[data-member-section]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onMemberSectionSelect(button.dataset.memberSection)));
+}
+
+function lensButton(
+  id: string,
+  label: string,
+  active: boolean,
+  attribute: string,
+  index: number,
+  escapeHtml: (value: unknown) => string,
+): string {
+  return `<button class="lens ${active ? "active" : ""}" ${attribute}="${id}">${escapeHtml(label)}<kbd>${index + 1}</kbd></button>`;
+}
+
+function scopeSegment(id: string, label: string, active: boolean): string {
+  return `<button class="scope-seg ${active ? "active" : ""}" data-scope="${id}" role="tab" aria-selected="${active}">${label}</button>`;
+}
+
+// The scope switcher + lens strip. The leading segmented control is the scope ladder —
+// Package (whole package), Types (one public type), and Member (a member of that type,
+// shown only once you drill in). Each segment is selectable and swaps the strip beside it:
+//   package → package lenses   type → type lenses   member → member sections
+// Keeping all three families of buttons on one strip means the member modes (Overview,
+// Call graph, …) live here too instead of inside the detail pane.
+export function renderScopeBar(options: RenderScopeBarOptions): string {
+  const {
+    scope,
+    strip,
+    activeStripId,
+    stripAttribute,
+    showMemberScope = scope === "member",
+    emptyStripLabel = "",
+    escapeHtml,
+  } = options;
+  const stripHtml = strip
+    .map(([id, label], i) => lensButton(id, label, activeStripId === id, stripAttribute, i, escapeHtml))
+    .join("") || (emptyStripLabel
+      ? `<span class="lens-context">${escapeHtml(emptyStripLabel)}</span>`
+      : "");
+  return `
+    <nav class="lensbar" aria-label="Scope and lenses">
+      <div class="scope-switch" role="tablist" aria-label="Scope">
+        ${scopeSegment("package", "Package", scope === "package")}
+        ${scopeSegment("type", "Types", scope === "type")}
+        ${showMemberScope ? scopeSegment("member", "Member", scope === "member") : ""}
+      </div>
+      <span class="lens-separator"></span>
+      ${stripHtml}
+    </nav>`;
+}

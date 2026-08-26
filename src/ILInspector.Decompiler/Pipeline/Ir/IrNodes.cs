@@ -1607,6 +1607,16 @@ public sealed class ForeachStatement : IrNode
     public override string Describe() => $"{(IsAwait ? "AwaitForeachStatement" : "ForeachStatement")} V_{LocalIndex} ({LocalType.ToDisplayString()})";
 }
 
+/// <summary>
+/// A stable empty statement that owns a retained branch-target label. Unlike a
+/// neighboring statement, later expression and sugar passes cannot consume it,
+/// and the printer keeps it outside any synthesized <c>unsafe</c> block.
+/// </summary>
+public sealed class LabelAnchor : IrNode
+{
+    public override string Describe() => "LabelAnchor";
+}
+
 /// <summary>An unconditional branch to the block starting at <see cref="TargetOffset"/>.</summary>
 public sealed class Branch : IrNode
 {
@@ -1620,16 +1630,27 @@ public sealed class Branch : IrNode
 /// <summary>Branches to <see cref="TargetOffset"/> when the condition is true; falls through otherwise.</summary>
 public sealed class ConditionalBranch : IrNode
 {
-    public ConditionalBranch(IrExpression condition, int targetOffset)
+    public ConditionalBranch(
+        IrExpression condition,
+        int targetOffset,
+        ConditionalBranchOrigin origin = ConditionalBranchOrigin.Synthesized)
     {
         TargetOffset = targetOffset;
+        Origin = origin;
         AddChild(condition);
     }
 
     public IrExpression Condition => (IrExpression)Children[0];
     public int TargetOffset { get; }
+    public ConditionalBranchOrigin Origin { get; }
 
     public override string Describe() => $"ConditionalBranch IL_{TargetOffset:X4}";
+}
+
+public enum ConditionalBranchOrigin
+{
+    Synthesized,
+    Imported,
 }
 
 /// <summary>
@@ -3335,6 +3356,12 @@ public sealed class LocalFunctionStatement : IrNode
     public BlockContainer Body => (BlockContainer)Children[0];
 
     public override IEnumerable<TypeRef> DirectTypes => Parameters.Select(p => p.Type).Append(ReturnType);
+
+    public void ResetBody(BlockContainer body)
+    {
+        DetachChildren();
+        AddChild(body);
+    }
 
     /// <summary>The single returned expression when the body is one block ending in a bare <c>return expr;</c>.</summary>
     public IrExpression? ExpressionBody

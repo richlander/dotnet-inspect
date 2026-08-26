@@ -137,7 +137,7 @@ at the command boundary.
 | `HiddenFacts` | offset-keyed annotations used by Facts/overlays | Research |
 | `DecompiledSource` | raised/lowered source and diagnostics | Decompiler / Research |
 | `AnnotatedSource` | raised source plus hidden facts and IL | Research |
-| `OriginalSource` | fetched source slice | Metadata / SourceLink |
+| `PdbSource` | checksum-verified PDB-mapped source slice | Services / SourceLink |
 
 The important rule: a facet has one canonical owner. CLI sections such as
 `Allocation Facts`, `Context: Allocation`, `Facts`, or `Annotated Source` may
@@ -198,10 +198,24 @@ Owns metadata-local method-body facts:
 - MethodDef token and overload resolution
 - instruction context
 - exception regions
-- SourceLink/source-line coordinate resolution
-- original-source body/slice acquisition helper APIs
+- portable-PDB document names, checksums, and sequence-point coordinates
 
 It stays SRM-only and does not load inspected assemblies.
+
+### `DotnetInspector.Services` / `ILInspector.SourceLink`
+
+Owns PDB-source acquisition and verification:
+
+- host-authorized local or SourceLink source acquisition
+- portable-PDB checksum verification
+- exact member/type body slicing
+
+It consumes Metadata-owned PDB document and coordinate facts without making
+Metadata own textual C#. `PdbSourceAcquisitionTests.FromContent_VerifiedSourceProducesCompleteLineCensus`,
+`PdbSourceAcquisitionTests.FromContent_UsesSequencePointEvidenceToSelectAConditionalMember`,
+and
+`AssemblyContextSourceQueryTests.LocalPdbSource_DoesNotRequireSourceLinkMap`
+gate that boundary.
 
 ### `ILInspector.Analysis`
 
@@ -336,6 +350,20 @@ method analysis.
 `OptimizationOpportunities_AsyncStateMachineTypesArePrewarmedBeforeParallelAnalysis`
 gate projection, authentication, close-negative scope behavior, and
 read-only parallel cache consumption.
+`LibraryBodyAsyncSiblingSignatureMatcher` supplies the async-sibling
+subsystem's stateless signature decoding, exact identity/comparison, async
+return compatibility, optional cancellation matching, and bounded finding
+display. `LibraryBodyAsyncSiblingDispatchAnalyzer` owns reader-relative type
+relationships, constructed generic projection, virtual-slot and MethodImpl
+correspondence, constrained-method suppression, and conservative unknown
+handling. It consumes assembly-builder callbacks for synchronized external
+type resolution and the shared per-type method-name index.
+`LibraryBodyAsyncSiblingAccessibilityAnalyzer` owns CLR member-access,
+protected-receiver, friend-assembly identity, and directional nested-private
+access policy. It consumes the primary reader and assembly identity plus
+dispatch relationship proofs without owning metadata resolution or caches.
+Reader-relative candidate lookup, caches, orchestration, diagnostics, and
+result ordering remain assembly-builder policy.
 `CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn`,
 `OptimizationOpportunities_AsyncStateMachine_IsAmortized`, and
 `Allocations_ClassifiesCrossAndInAssemblyValueTypeNewobj_ByShape` gate
@@ -349,8 +377,9 @@ instructions for their own policy; this ownership split does not claim one
 instruction traversal overall.
 `MethodInstructionFacts` owns the metadata-free local/argument-slot, operand,
 and single-branch-target grammar shared by safety and allocation interpretation,
-and `CompilerGeneratedNames` owns the unspeakable-name grammar shared by
-allocation escape classification and optimization-opportunity classification.
+and `CompilerGeneratedNames` owns the unspeakable-name grammar and conservative
+containing-type projection shared by allocation escape classification and
+optimization-opportunity classification.
 `SemanticFactProjection` remains the coordinate projection substrate.
 Coordinate scope should be added in Analysis, not rebuilt in CLI code.
 
@@ -461,7 +490,7 @@ Move in reviewable slices.
    lands.
 
 The command-owned path-backed acquisitions for `diff` body-signal comparison,
-implementation comparison, and authored-source target indexing, plus `timeline`
+implementation comparison, and PDB-source target indexing, plus `timeline`
 analysis inspection, use `MethodBodyInspectionSession` for their selected
 capabilities and scope, then pass its neutral `BodyIndex` to the owning query.
 This adopts the step 2 boundary without claiming command-wide reuse: separate
@@ -492,6 +521,6 @@ This adopts the step 2 boundary without claiming command-wide reuse: separate
   `library --il-offset` currently returns command errors for required contexts.
 - How should caller-scope assembly resolution move behind assembly inspection
   while source attribution and cross-index composition remain session concerns?
-- Should `OriginalSource` be a method-body facet or remain a SourceLink service
+- Should `PdbSource` be a method-body facet or remain a SourceLink service
   call that CLI composition joins? It is a facet from the user's perspective,
   even if SourceLink owns the fetch.

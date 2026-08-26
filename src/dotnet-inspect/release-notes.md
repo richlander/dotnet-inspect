@@ -1,13 +1,219 @@
 # Release Notes
 
+## v0.22.0
+
+### Inspection and matching
+
+- Adds the `match` command for identity-agnostic structural comparison of two
+  selected methods in one retained assembly. It preserves exact, near,
+  different, unsupported, failed, limit-reached, and
+  ambiguous-correspondence results instead of collapsing incomplete
+  comparisons into matches. Add `--implementation` for side-by-side decompiled
+  C# and IL views of both selected methods (#4540, #4555).
+- Adds `graph integrations` for inducing typed Integration relationships over
+  an explicit, binding-consistent package set. Markdown, tree, Mermaid, count,
+  and structured formats project the same logical edges, while missing peer
+  packages remain visible as failures instead of silently shortening the graph
+  (#4421).
+- Adds `demo` for listing and running closed product-home scenarios backed by
+  real section output rather than separate demonstration logic (#4463).
+- Fixes canonical metadata generic-arity handling across API identity,
+  relationship traversal, type forwarding, PDB/source mapping, decompilation,
+  and selector spelling. Nested and foreign generic types now retain their
+  declared arity without trusting unvalidated name suffixes. Extension members
+  now attach to their exact target type rather than an approximate same-named
+  or enclosing type (#4233, #4539).
+- **Breaking:** Canonical member identity now preserves exact metadata
+  structure and spelling in declaring-type anchors and repairs represented
+  canonical components used by selectors. Corrections include nested `+`
+  separators, normalized generic-argument separators, literal-name escaping,
+  encoded-arity handling, and malformed generic-instantiation spelling.
+  Because `Name~digest` fingerprints that represented canonical signature,
+  persisted selectors can change whenever one of those components was
+  repaired; refresh affected selectors from `Member Index`. Extension
+  selectors can also move between same-named types of different arity or from
+  an enclosing type to a nested target; rediscover them on the exact target
+  type (#4233).
+
+### Library inspection safety
+
+- Library-inspection references, classified methods, resources, performance,
+  source-integrity summaries, failures, and union rows now carry their remaining
+  presentation text through typed inert-text boundaries (#3463).
+
+### Source and implementation evidence
+
+- Renames `Original Source` to `PDB Source` and the Implementation Diff
+  `--authored-source` flag to `--pdb-source`, reflecting that checksum and
+  SourceLink-origin evidence do not independently prove build provenance.
+  Both old spellings remain accepted as hidden compatibility aliases. The
+  Implementation Diff `Mechanism` value likewise changes from `Source` to
+  `PDB Source` in Markdown and structured output (#4385).
+- **Breaking:** exact `PDB Source` or `Source Diff` acquisition failures now
+  return a non-zero exit status in count, tabular, JSONL, and document JSON
+  output. Markdown, plaintext, bare, and print projections continue to render
+  the explanatory payload. PDB Source can also use checksum-verified local
+  documents without requiring a SourceLink map (#4385).
+- Bodyless members now report that fact instead of a missing-PDB-mapping reason
+  when platform API shape comes from a reference assembly and source lookup
+  uses a different runtime image (#4588).
+
+### Package acquisition and audit
+
+- Adds the opt-in `Audit: Findings` package section for bounded scans of
+  text-bearing package files and decoded SourceLink maps. Findings identify
+  control or bidi text, package-source declarations, cleared restore sources,
+  concerning SourceLink text, and literal parent-path references while keeping
+  artifact text visually encoded in terminal output (#4408).
+- **Breaking:** Package signature inspection now verifies signed archive
+  content against its embedded hash and validates NuGet signer, repository,
+  certificate, and accepted timestamp profiles before reporting valid
+  provenance. Malformed signature entries and invalid profiles fail closed.
+  For a valid repository signature without a verified author signature, the
+  Signature section now reports `Author Verified: No`, where v0.21.0 omitted
+  that field. The `Repository` field now reports the verified repository
+  certificate identity instead of a fixed `nuget.org` value, and `Repository
+  Verified` is present when a valid repository signature is established,
+  either as the primary signature or a valid countersignature (#4408).
+- Package Signals now include default `Provenance / Signature` and
+  `NuGet / Listing` rows for the verified signature and Gallery listing facts
+  already acquired by package inspection (#4408, #4486).
+- Uses authoritative Gallery registration metadata for package listing and
+  version state. Pagination, malformed responses, deadline exhaustion, and
+  rejected results remain explicit rather than being interpreted as complete
+  package history (#4486).
+- **Breaking:** Listing-aware `package` version output now emits column headers
+  by default for every non-JSONL projection, including Markdown/table, TSV,
+  plaintext, bare, and the current JSON compatibility path. This applies to
+  plain, pinned, and ranged `--versions --include-unlisted` requests and to
+  `--latest-version --include-unlisted`; JSONL is unchanged. Use `--no-headers`
+  to retain the v0.21.0 headerless shape (#4486).
+- Tool v2 RID-companion verification now falls back from direct nuspec lookup
+  to authoritative version indexes on the active configured sources. `RID
+  Package` availability remains `Unknown` after indeterminate source failures
+  rather than being reported as absent, and cache hits with unknown
+  source-dependent availability recheck the active sources (#4594).
+
+### Performance analysis
+
+- Moves Performance Triage onto the typed inspection-query path while
+  preserving section selection, ranking, candidate identity, and structured
+  output behavior. Body-shape predicates continue to intersect with the exact
+  source MethodDefs selected by Performance Triage (#4409).
+- Aggregate repeated-scan rows can now retain a separate exact supporting call
+  coordinate in structured output. The support remains distinct from the
+  aggregate Finding and candidate identity, enabling external runtime
+  correlation without changing static priority or confidence (#4544).
+- Distinguishes unresolved scoped recommendation owners instead of assigning
+  async-alternative evidence to an unauthenticated source method (#4488).
+
+### Analysis, decompiler, and trust correctness
+
+- Materializes complete stack-slot copy components and raises the bounded
+  structural-clone comparison limit, improving coverage without emitting
+  partial clone results (#4407, #4506).
+- Hardens scoped analysis diagnostic aggregation and aligns structural-review
+  carets with their rendered evidence (#4499, #4374).
+- Matches exact conversion callers by return type and rejects malformed trusted
+  generic ownership rather than accepting ambiguous metadata identity (#4562,
+  #4561).
+- Grants core-platform status only to a provenance-backed coherent closure,
+  preventing unrelated assemblies from acquiring platform trust by name or
+  declaration alone (#4500).
+
+## v0.21.0
+
+### Query and package workflows
+
+- Adds the `vocabulary` command for discovering product-owned query values and
+  typed `Body Shapes` queries for library, type, and member scopes. Body-kind
+  predicates use ordinary section projection and structured output, resolve
+  property and event accessors, and, at library scope, compose with Performance
+  Triage predicates without widening the selected source MethodDefs (#4312,
+  #4370, #4390, #4410, #4435, #4442).
+- **Breaking:** Removes the standalone `body-shape` command without a
+  compatibility alias. Use `--where "Kind=<C# Body Kinds ID>"` with `library`,
+  one exact `type`, or one exact `member` (#4460).
+- Adds package dependency-tree projection and avoids package archive downloads
+  when nuspec or dependency-only evidence is sufficient.
+  `package --all-libraries` bare selection preserves its fixed overview and
+  `--count` returns per-section maps; multi-library output paths and global row
+  windows stay aligned across output formats (#4313, #4318, #4329, #4340,
+  #4353, #4423).
+- Adds a version-matched `package-skills` guide for discovering, validating,
+  selecting, and persisting `SKILL.md` files supplied by restored NuGet
+  dependencies. `project -S Skills` now validates package skill identity and
+  descriptions and fails visibly for invalid metadata or missing restored
+  skill files instead of returning tolerant rows (#4404).
+- **Breaking:** `Unsafe Members` no longer expands from `@Audit`; select the
+  independently selectable library section by name. Its rows are backed by
+  typed unsafe evidence (#4319, #4415).
+- Carries diff titles, summaries, versions, grouped type names, row values, and
+  composed document fields through typed inert-text boundaries while
+  preserving Markdown and structured output shapes (#4308).
+
+### Performance analysis and runtime evidence
+
+- Adds opt-in `sync-call-in-async` Performance Triage findings for synchronous
+  calls made by async methods when a signature-compatible accessible Async
+  sibling can be established. Findings retain exact call-site provenance and
+  fail closed for ambiguous receivers, overloads, accessibility, or incomplete
+  metadata. This is static structural evidence, not proof of runtime heat or
+  behavioral interchangeability (#4091).
+- Performance Triage structured JSON now carries declaring assembly, source
+  MethodDef, physical evidence MethodDef, module version ID, and IL offset for
+  runtime joins. Compact Performance JSONL remains intentionally
+  non-correlatable (#4091, #4326, #4347).
+- Top Leverage ranking now uses the typed query path, and call-graph selectors
+  preserve physical file identity and full signature structure across scoped
+  projections (#4335, #4388, #4396).
+- Adds the opt-in Call Graph `AsyncAlternatives` field for per-method
+  `sync-call-in-async` opportunity counts while Performance Triage retains the
+  exact call-site evidence and replacement (#4380).
+- Attributes async state-machine and lifted-body calls to their declared source
+  methods in logical call output while retaining the physical `Evidence Method`
+  and IL offset for each call-site receipt (#4466, #4461).
+- Type-targeted body analysis retains the async/lifted physical evidence needed
+  by the selected type while filtering performance opportunities and allocation
+  fanout by the authenticated ultimate source owner. Ambiguous or unresolved
+  ownership fails closed (#4481).
+
+### Acquisition and safety
+
+- Adds standard nuget.org search discovery. Package deadlines, redirects,
+  response addresses, and SSRF classification fail visibly at their owning
+  source boundary (#4155, #4349).
+- Preserves primary assembly acquisition failures and refactors symbol-package
+  and method-reference resolution into shared bounded owners (#4310, #4330,
+  #4337).
+- Rejects hostile symbol-package entry lengths before expansion or allocation
+  (#4332).
+- Bounds custom-attribute decoding and metadata type-name construction before
+  allocation, rejecting amplified element counts, excessive nesting, and
+  oversized names (#4234, #4345).
+- Under the default policy, grants core-library identity from acquisition
+  provenance instead of self-declaration so resolver-discovered sibling
+  assemblies cannot mint trusted core definitions (#4428).
+
+### Decompiler and analysis correctness
+
+- Fixes explicit-interface accessor identity and API-surface retention,
+  nested-generic and byref selector keys, generated framework type identity,
+  async/lifted source ownership, and signature re-lexing that could produce
+  malformed parameter declarations (#4359, #4371, #4386, #4402, #4425, #4431,
+  #4445).
+- Preserves raw reference-equality binding instead of rebinding decompiled
+  comparisons to user-defined equality operators (#4250).
+- Improves control-flow and dataflow fidelity for sparse switch partitions,
+  legal multi-block `do`/`while` loops, retained-merge loop structuring, early
+  region exits, and proven cross-block stack-slot live ranges. Unsupported
+  lambda parameter types are declined rather than rendered with unspellable
+  explicit types (#3971, #4154, #4299, #4301, #4314, #4333, #4363).
+
 ## v0.20.0
 
 ### Inspection reliability
 
-- Diff presentation now carries titles, summaries, versions, grouped type
-  names, row values, and composed document fields through typed inert-text
-  boundaries while preserving Markdown, table, JSONL, and document JSON shapes
-  (#3463).
 - **Breaking:** `library` and `package --all-libraries` now return a non-zero
   exit status when an explicitly selected section is empty because its
   inspection failed. Resource Triage reports incomplete method analysis as a
@@ -36,15 +242,6 @@
 
 ### Experimental analysis and decompilation
 
-- Rendered body-kind queries can now target one exact `member` overload. The
-  query resolves properties and events to their accessor MethodDef tokens,
-  emits round-tripping owner-plus-accessor selectors, supports non-public
-  selections with `--all`, and decompiles only the selected body instead of
-  scanning the assembly.
-- Library body-kind queries now compose with existing Performance Triage
-  predicates. Matching opportunities are joined through typed source
-  MethodDef identities before decompilation, so only candidate methods are
-  searched for the requested rendered syntax.
 - Adds bounded exact structural clone comparison and same-assembly discovery.
   Exact normalized IL/control-flow witnesses remain distinct from unsupported,
   failed, limited, ambiguous, and different outcomes; incomplete candidate
@@ -137,13 +334,13 @@
 - Fixes fully qualified ASP.NET Core type and member routing when runtime
   catalogs span multiple shared frameworks or a namespace prefix names a
   non-owning assembly, while retaining real ambiguity errors (#4135).
-- Uses a bounded declaration index for authored `Original Source` and `Source
+- Uses a bounded declaration index for `PDB Source` and `Source
   Diff` slicing. Accessors now select their enclosing property or event,
   constructors retain their exact identity, and ambiguous or overly complex
   source boundaries fail visibly instead of returning fragments or empty
   output (#3927).
 - Uses document-scoped PDB sequence points to select live conditional branches
-  in authored source, and refuses invalid coordinates or unsafe declaration
+  in PDB-mapped source, and refuses invalid coordinates or unsafe declaration
   boundaries instead of leaking inactive sibling declarations (#4158).
 - Resolves assembly references by metadata identity rather than derived paths,
   preserving sibling/platform precedence, culture and token constraints, and
@@ -193,8 +390,7 @@
 - Gives `package` and `library` authored base and domain categories. Package
   exposes `@Package`, `@Files`, `@Dependencies`, `@Audit`, and `@SourceLink`;
   library exposes `@Library`, `@Surface`, `@Audit`, `@Performance`,
-  `@SourceLink`, `@Integrations`, `@Metadata`, and `@Context`
-  (#3838, #4061).
+  `@SourceLink`, `@Integrations`, `@Metadata`, and `@Context` (#3838, #4061).
 - Makes discovery distinguish structural membership from effective evidence.
   `-D --schema` reports the static graph, library `--effective` runs full
   probes, and bare `-S` returns high-value, fixed-length, network-free base
@@ -220,9 +416,6 @@
 - Adds `body-shape` for exact rendered-syntax searches in one assembly, with
   stable kinds, containing members, MethodDef tokens, exact ranges, and
   selected text (#4048).
-- Adds the library `Body Shapes` section. A validated
-  `--where "Kind=<C# Body Kinds ID>"` predicate auto-selects it and uses the
-  ordinary section projection, count, and structured output formats.
 - Makes `Call Graph` one bidirectional evidence section with Markdown edge
   rows, tree, Mermaid, TSV, and JSONL projections; adds bounded cycle findings
   and scoped cross-library traversal (#4001, #4013, #4069, #4065).
@@ -378,7 +571,7 @@
   raw URLs in the default agent-friendly URL mode.
 - Removes the standalone `source` command. Use `package`, `library`, and `type`
   `-S "Source Files"` for type-to-SourceLink URL rows, and use `member -S
-  "Source Locations"` / `member -S "Original Source"` for member-level source
+  "Source Locations"` / `member -S "PDB Source"` for member-level source
   evidence.
 - Adds `library --il-offset` for MethodDef token + IL offset source
   symbolication through coordinate-scoped sections such as `Source Location`.

@@ -139,6 +139,42 @@ public class DeferredCallbackCensusTests
     }
 
     [Fact]
+    public void Analyze_RetainsPhysicalEvidenceMethodToken()
+    {
+        var owner = Method(1, "Owner");
+        var lifted = Method(2, "<Owner>b__0");
+        var callback = Method(3, "Callback");
+        DirectCall load = FunctionLoad(
+            owner,
+            callback,
+            4,
+            returnAddress: 10) with
+        {
+            EvidenceMethod = lifted,
+        };
+        DirectCall construction = DelegateConstruction(
+            owner,
+            10,
+            returnAddress: 15) with
+        {
+            EvidenceMethod = lifted,
+        };
+
+        var result = DeferredCallbackCensus.Analyze(
+            "Fixture.dll",
+            [owner, lifted, callback],
+            [load, construction],
+            Allocations(DelegateAllocation(lifted, 10)),
+            []);
+
+        var site = Assert.Single(result.Sites);
+        Assert.Equal(owner.MetadataToken, site.CallerToken);
+        Assert.Equal(
+            lifted.MetadataToken,
+            site.EvidenceMethodToken);
+    }
+
+    [Fact]
     public void Analyze_ProvenInvocationTakesPriorityOverUnknownConsumer()
     {
         var unknownCaller = Method(1, "AUnknownCaller");

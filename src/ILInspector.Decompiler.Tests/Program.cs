@@ -61,7 +61,20 @@ internal static class Program
 
     public static int Main(string[] args)
     {
-        GateExpansion expansion = GateArgumentExpander.Expand(args, Presets);
+        int preflightArgumentIndex = args.Length > 0
+            && args[0] == ExplicitFilterGuard.PreflightArgument
+                ? 0
+                : args.Length > 1
+                    && args[0] == typeof(Program).Assembly.Location
+                    && args[1] == ExplicitFilterGuard.PreflightArgument
+                        ? 1
+                        : -1;
+        bool isFilterPreflight = preflightArgumentIndex >= 0;
+        ReadOnlySpan<string> inputArgs = isFilterPreflight
+            ? args.AsSpan(preflightArgumentIndex + 1)
+            : args;
+
+        GateExpansion expansion = GateArgumentExpander.Expand(inputArgs.ToArray(), Presets);
         switch (expansion.Outcome)
         {
             case GateOutcome.Help:
@@ -74,6 +87,13 @@ internal static class Program
 
         string[] runArgs = expansion.Args as string[] ?? expansion.Args.ToArray();
 
+        if (isFilterPreflight)
+        {
+            return ExplicitFilterGuard
+                .RunPreflightAsync(runArgs, typeof(Program).Assembly)
+                .GetAwaiter().GetResult();
+        }
+
         // Mirror the xUnit v3 auto-generated entry point: honor the Microsoft
         // Testing Platform server handshake, otherwise use the console runner.
         if (global::System.Linq.Enumerable.Any(runArgs, arg => arg == "--server" || arg == "--internal-msbuild-node"))
@@ -81,6 +101,15 @@ internal static class Program
             return global::Xunit.MicrosoftTestingPlatform.TestPlatformTestFramework
                 .RunAsync(runArgs, SelfRegisteredExtensions.AddSelfRegisteredExtensions)
                 .GetAwaiter().GetResult();
+        }
+
+        string? filterError = ExplicitFilterGuard
+            .ValidateAsync(runArgs, typeof(Program).Assembly)
+            .GetAwaiter().GetResult();
+        if (filterError is not null)
+        {
+            Console.Error.WriteLine(filterError);
+            return 2;
         }
 
         return global::Xunit.Runner.InProc.SystemConsole.ConsoleRunner

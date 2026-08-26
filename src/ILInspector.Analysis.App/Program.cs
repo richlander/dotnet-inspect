@@ -27,7 +27,10 @@ foreach (var call in matches.OrderBy(c => c.Caller.DeclaringType.ToQualifiedDisp
              .ThenBy(c => c.ILOffset)
              .Take(options.Limit))
 {
-    Console.WriteLine($"{MethodDisplay(call.Caller)} IL_{call.ILOffset:X4} {call.Kind} -> {MemberDisplay(call.Callee)}");
+    string evidence = call.Caller == call.EvidenceMethod
+        ? ""
+        : $" [{MethodDisplay(call.EvidenceMethod)}]";
+    Console.WriteLine($"{MethodDisplay(call.Caller)}{evidence} IL_{call.ILOffset:X4} {call.Kind} -> {MemberDisplay(call.Callee)}");
 }
 
 if (matches.Length > options.Limit)

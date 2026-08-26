@@ -77,6 +77,7 @@ public class PrintedBodyMapTests
             $"{pair.Key.Name} maps to undocumented kind {pair.Value}."));
         Assert.DoesNotContain(mappings, pair => pair.Value == AnnotatedSourceNodeKinds.Unknown);
 
+        Assert.Equal("EmptyStatement", AnnotatedSourceNodeKindProjection.From(new LabelAnchor()));
         Assert.Equal("ConversionExpression", AnnotatedSourceNodeKindProjection.From(
             new Coerce(
                 TypeRef.CoreLib("System", "Int64"),

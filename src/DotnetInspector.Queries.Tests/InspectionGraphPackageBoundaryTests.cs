@@ -268,6 +268,7 @@ public sealed class InspectionGraphPackageBoundaryTests
         var loaded = new WorkspaceContextLoadOutcome.Loaded(
             group,
             [first],
+            [],
             package.Framework,
             package.RuntimeIdentifier);
 

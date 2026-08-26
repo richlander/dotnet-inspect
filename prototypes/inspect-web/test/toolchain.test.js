@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import {
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   unlinkSync,
@@ -9,11 +11,35 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
+import {
+  supportedAnalysisHosts,
+  verifyAnalysisHost,
+} from "../scripts/verify-analysis-host.js";
 import { verifySiteArtifact } from "../scripts/verify-site-artifact.js";
 
 const packageLock = JSON.parse(
   readFileSync(new URL("../package-lock.json", import.meta.url), "utf8"),
+);
+const packageJson = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+);
+const oxlintConfig = JSON.parse(
+  readFileSync(new URL("../.oxlintrc.json", import.meta.url), "utf8"),
+);
+const browserTsconfig = JSON.parse(
+  readFileSync(new URL("../tsconfig.json", import.meta.url), "utf8"),
+);
+const testTsconfig = JSON.parse(
+  readFileSync(new URL("tsconfig.json", import.meta.url), "utf8"),
+);
+const staticWebAppConfig = JSON.parse(
+  readFileSync(new URL("../staticwebapp.config.json", import.meta.url), "utf8"),
+);
+const siteIndexHtml = readFileSync(
+  new URL("../index.html", import.meta.url),
+  "utf8",
 );
 
 test("the package lock pins every registry artifact", () => {
@@ -27,6 +53,236 @@ test("the package lock pins every registry artifact", () => {
   assert.deepEqual(missingArtifactIdentity, []);
 });
 
+test("TypeScript compiler contexts keep Node globals out of browser source", () => {
+  assert.deepEqual(browserTsconfig.compilerOptions.types, []);
+  assert.deepEqual(browserTsconfig.include, ["src/**/*.ts"]);
+  assert.equal(testTsconfig.extends, "../tsconfig.json");
+  assert.deepEqual(testTsconfig.compilerOptions.types, ["node"]);
+  assert.deepEqual(testTsconfig.include, ["./**/*.ts"]);
+  assert.equal(
+    packageJson.scripts.typecheck,
+    "tsc --noEmit && tsc --noEmit -p test/tsconfig.json",
+  );
+});
+
+test("the strictness options this project relies on stay enabled", () => {
+  // Adversarial review (Claude Opus 5) pointed out that deleting
+  // `noUncheckedIndexedAccess` left the entire suite green: the option is this project's
+  // deliverable and nothing asserted it. Every guard written to satisfy it would still
+  // compile without it, so its removal is silent and permanent.
+  //
+  // This pin is the cheap half of that answer, and on its own it is only a restatement of
+  // the config. The test below is the half that actually holds, because it asserts the
+  // *effect* rather than the declaration.
+  for (const option of ["strict", "noUncheckedIndexedAccess", "noImplicitReturns"]) {
+    assert.equal(
+      browserTsconfig.compilerOptions[option],
+      true,
+      `${option} must stay enabled`);
+  }
+  assert.equal(testTsconfig.extends, "../tsconfig.json");
+  assert.equal(testTsconfig.compilerOptions.noUncheckedIndexedAccess, undefined,
+    "the test project must inherit the option rather than restate it");
+});
+
+// Round 6 review (GPT-5.6 Sol, converging with Claude Opus 5) defeated the pin above
+// without touching any value it reads: adding `"noCheck": true` leaves every pinned
+// option literally `true` while TypeScript stops checking anything at all, and the suite
+// stayed green with a genuinely unsafe indexed read restored. A per-file `// @ts-nocheck`
+// walked past it the same way.
+//
+// Enumerating the neutering options is the losing move -- `noCheck` was already the
+// second one found, and the compiler keeps adding surface. So this asserts the property
+// the project actually depends on: *this configuration rejects an unchecked indexed
+// read*. Anything that turns checking off, at any level, fails here regardless of how it
+// spells itself, because the fixture stops being rejected.
+//
+// Opus established that the remaining vector, narrowing `include`/`exclude` to drop files
+// from the program, is already caught by `npm run analyze`: oxlint's type-aware rules
+// lose their type information and fail. So this covers the vectors that gate leaves open.
+for (const [name, project] of [["browser", "tsconfig.json"], ["test", "test/tsconfig.json"]]) {
+  test(`the ${name} project rejects an unchecked indexed read`, () => {
+    const root = new URL("../", import.meta.url);
+    const probe = mkdtempSync(join(tmpdir(), "inspect-web-strictness-"));
+    try {
+      // An indexed read used without a presence test. Under `noUncheckedIndexedAccess`
+      // the element type includes `undefined`, so `.length` on it cannot compile.
+      writeFileSync(
+        join(probe, "probe.ts"),
+        "export function first(values: string[]): number {\n"
+          + "  return values[0].length;\n"
+          + "}\n",
+      );
+      writeFileSync(
+        join(probe, "tsconfig.json"),
+        JSON.stringify({
+          extends: fileURLToPath(new URL(project, root)),
+          compilerOptions: { noEmit: true, types: [] },
+          include: ["probe.ts"],
+        }),
+      );
+
+      const compile = spawnSync(
+        process.execPath,
+        [fileURLToPath(new URL("node_modules/typescript/bin/tsc", root)), "-p", probe],
+        { encoding: "utf8" },
+      );
+
+      assert.notEqual(
+        compile.status,
+        0,
+        `the ${name} project accepted an unchecked indexed read, so its strictness is not `
+          + `in effect however the options are spelled:\n${compile.stdout}`);
+      // Pin the reason as well as the failure. Any config error would also be non-zero,
+      // and would leave this passing while proving nothing about strictness.
+      assert.match(
+        compile.stdout,
+        /probe\.ts\(2,10\): error TS18048|probe\.ts\(2,10\): error TS2532/,
+        `the ${name} project failed for some reason other than the unchecked read:\n`
+          + compile.stdout);
+    } finally {
+      rmSync(probe, { recursive: true, force: true });
+    }
+  });
+}
+
+// The other half of the same vector: `noCheck` turns the compiler off for a project, and
+// `@ts-nocheck` turns it off for a file. The fixture above cannot see the second, because
+// it compiles a file of its own. Unlike a naming or roster ban, the set of suppression
+// directives is closed and owned by the compiler rather than by us, so listing them here
+// is not a restatement that can drift out of date.
+test("no source file suppresses type checking", () => {
+  const root = new URL("../", import.meta.url);
+  const files = [];
+  for (const directory of ["src", "test"]) {
+    for (const entry of readdirSync(new URL(directory, root), {
+      recursive: true,
+      withFileTypes: true,
+    })) {
+      if (entry.isFile() && entry.name.endsWith(".ts")) {
+        files.push(join(entry.parentPath, entry.name));
+      }
+    }
+  }
+
+  assert.ok(files.length > 50, `expected the TypeScript sources, found ${files.length}`);
+  const suppressed = files.filter(file =>
+    /@ts-nocheck|@ts-ignore/.test(readFileSync(file, "utf8")));
+  assert.deepEqual(
+    suppressed.map(file => file.slice(fileURLToPath(root).length)),
+    [],
+    "these files opt out of type checking; use a narrowing guard or @ts-expect-error");
+});
+
+test("static hosting serves credits links through the application entry point", () => {
+  const creditsRoutes = staticWebAppConfig.routes
+    .filter(route => route.route === "/credits" || route.route === "/credits/");
+
+  assert.deepEqual(creditsRoutes, [
+    {
+      route: "/credits",
+      rewrite: "/index.html",
+      headers: {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+      },
+    },
+  ]);
+  assert.equal(staticWebAppConfig.navigationFallback.rewrite, "/index.html");
+  assert.deepEqual(
+    staticWebAppConfig.navigationFallback.exclude,
+    ["/api/*", "/assets/*", "/_framework/*"],
+  );
+  assert.match(siteIndexHtml, /<base href="\/" \/>/);
+});
+
+const linuxLibcs = ["glibc", "musl"];
+
+function optionalNativeVariants(packagePath, dependencyPrefix) {
+  const packageEntry = packageLock.packages[packagePath];
+  assert.ok(packageEntry);
+  const dependencies = Object.keys(packageEntry.optionalDependencies ?? {})
+    .filter(dependency => dependency.startsWith(dependencyPrefix));
+  assert.notEqual(dependencies.length, 0);
+
+  const variants = new Set();
+  for (const dependency of dependencies) {
+    const nativeEntry = packageLock.packages[`node_modules/${dependency}`];
+    assert.ok(nativeEntry);
+    assert.equal(nativeEntry.os?.length, 1);
+    assert.equal(nativeEntry.cpu?.length, 1);
+    assert.ok(nativeEntry.libc === undefined || nativeEntry.libc.length === 1);
+
+    const host = `${nativeEntry.os[0]}-${nativeEntry.cpu[0]}`;
+    const libcs = nativeEntry.libc
+      ?? (nativeEntry.os[0] === "linux" ? linuxLibcs : ["none"]);
+    for (const libc of libcs) {
+      variants.add(`${host}/${libc}`);
+    }
+  }
+  return variants;
+}
+
+function completeAnalyzerHosts(oxlintVariants, tsgolintVariants) {
+  const sharedVariants = new Set(
+    [...tsgolintVariants].filter(variant => oxlintVariants.has(variant)),
+  );
+  const hosts = new Set(
+    [...oxlintVariants, ...tsgolintVariants]
+      .map(variant => variant.slice(0, variant.indexOf("/"))),
+  );
+
+  return new Set([...hosts].filter(host => {
+    const requiredLibcs = host.startsWith("linux-") ? linuxLibcs : ["none"];
+    return requiredLibcs.every(libc => sharedVariants.has(`${host}/${libc}`));
+  }));
+}
+
+test("the analysis host check matches locked native packages and lint wiring", () => {
+  const oxlintVariants = optionalNativeVariants(
+    "node_modules/oxlint",
+    "@oxlint/binding-",
+  );
+  const tsgolintVariants = optionalNativeVariants(
+    "node_modules/oxlint-tsgolint",
+    "@oxlint-tsgolint/",
+  );
+  const expectedHosts = completeAnalyzerHosts(oxlintVariants, tsgolintVariants);
+
+  assert.deepEqual(new Set(supportedAnalysisHosts), expectedHosts);
+  const availableHosts = new Set(
+    [...oxlintVariants, ...tsgolintVariants]
+      .map(variant => variant.slice(0, variant.indexOf("/"))),
+  );
+  for (const host of availableHosts) {
+    const separator = host.indexOf("-");
+    const platform = host.slice(0, separator);
+    const architecture = host.slice(separator + 1);
+    const verify = () => verifyAnalysisHost(platform, architecture);
+    if (expectedHosts.has(host)) {
+      assert.doesNotThrow(verify);
+    } else {
+      assert.throws(verify, new RegExp(`current host is ${host}`));
+    }
+  }
+
+  assert.equal(
+    packageJson.scripts.lint,
+    "node scripts/verify-analysis-host.js && oxlint src test scripts "
+      + "engine/wwwroot/inspect-web-engine.js vite.config.js",
+  );
+});
+
+test("the lint gate includes both generated tsbindgen outputs", () => {
+  assert.ok(
+    !(oxlintConfig.ignorePatterns ?? []).includes("src/inspect-web-engine.d.ts"),
+  );
+  assert.match(packageJson.scripts.lint, /(?:^| )src(?: |$)/);
+  assert.match(
+    packageJson.scripts.lint,
+    /(?:^| )engine\/wwwroot\/inspect-web-engine\.js(?: |$)/,
+  );
+});
+
 test("the site artifact rejects a missing Vite output", (context) => {
   const site = mkdtempSync(join(tmpdir(), "inspect-web-artifact-"));
   context.after(() => rmSync(site, { recursive: true, force: true }));
@@ -35,10 +291,10 @@ test("the site artifact rejects a missing Vite output", (context) => {
     "index.html": {
       file: "assets/index.js",
       css: ["assets/index.css"],
-      dynamicImports: ["src/app.js"],
+      dynamicImports: ["src/dotnet-inspect.ts"],
       isEntry: true,
     },
-    "src/app.js": {
+    "src/dotnet-inspect.ts": {
       file: "assets/app.js",
       isDynamicEntry: true,
     },
@@ -46,7 +302,10 @@ test("the site artifact rejects a missing Vite output", (context) => {
   writeFileSync(join(site, "manifest.json"), JSON.stringify(manifest));
   writeFileSync(
     join(site, "index.html"),
-    '<script type="module" src="/assets/index.js"></script>'
+    '<base href="/">'
+      + '<link rel="preload" href="/_framework/dotnet.js">'
+      + '<script type="importmap">{}</script>'
+      + '<script type="module" src="/assets/index.js"></script>'
       + '<link rel="stylesheet" href="/assets/index.css">',
   );
   writeFileSync(join(site, "assets/index.js"), "");
@@ -54,14 +313,56 @@ test("the site artifact rejects a missing Vite output", (context) => {
   writeFileSync(join(site, "assets/app.js"), "");
 
   assert.doesNotThrow(() => verifySiteArtifact(site));
-  delete manifest["src/app.js"];
+  writeFileSync(
+    join(site, "index.html"),
+    '<link rel="preload" href="/_framework/dotnet.js">'
+      + '<script type="importmap">{}</script>'
+      + '<script type="module" src="/assets/index.js"></script>'
+      + '<link rel="stylesheet" href="/assets/index.css">',
+  );
+  assert.throws(
+    () => verifySiteArtifact(site),
+    /index\.html is missing <base href="\/">/,
+  );
+  writeFileSync(
+    join(site, "index.html"),
+    '<link rel="preload" href="/_framework/dotnet.js">'
+      + '<script type="importmap">{}</script>'
+      + '<base href="/">'
+      + '<script type="module" src="/assets/index.js"></script>'
+      + '<link rel="stylesheet" href="/assets/index.css">',
+  );
+  assert.throws(
+    () => verifySiteArtifact(site),
+    /index\.html places <base href="\/"> after the runtime preload/,
+  );
+  writeFileSync(
+    join(site, "index.html"),
+    '<script type="importmap">{}</script>'
+      + '<base href="/">'
+      + '<script type="module" src="/assets/index.js"></script>'
+      + '<link rel="stylesheet" href="/assets/index.css">',
+  );
+  assert.throws(
+    () => verifySiteArtifact(site),
+    /index\.html places <base href="\/"> after the import map/,
+  );
+  writeFileSync(
+    join(site, "index.html"),
+    '<base href="/">'
+      + '<link rel="preload" href="/_framework/dotnet.js">'
+      + '<script type="importmap">{}</script>'
+      + '<script type="module" src="/assets/index.js"></script>'
+      + '<link rel="stylesheet" href="/assets/index.css">',
+  );
+  delete manifest["src/dotnet-inspect.ts"];
   writeFileSync(join(site, "manifest.json"), JSON.stringify(manifest));
   assert.throws(
     () => verifySiteArtifact(site),
-    /entry 'index\.html' imports missing entry 'src\/app\.js'/,
+    /entry 'index\.html' imports missing entry 'src\/dotnet-inspect\.ts'/,
   );
 
-  manifest["src/app.js"] = {
+  manifest["src/dotnet-inspect.ts"] = {
     file: "assets/app.js",
     isDynamicEntry: true,
   };

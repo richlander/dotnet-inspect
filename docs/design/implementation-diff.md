@@ -4,8 +4,8 @@
 > point for choosing a type, member, or API identity shape. This document owns
 > the details below.
 
-`ImplementationDiff` is the product-side decompiled C# + IL/body + authored
-Source diff projection in
+`ImplementationDiff` is the product-side decompiled C# + IL/body + PDB Source
+diff projection in
 `ILInspector.Research`. It is the reusable implementation-diff component for
 the CLI, ReturnToSender, harnesses, and other consumers that need one
 member-centric change model instead of separate C# and IL renderers.
@@ -22,14 +22,14 @@ family.
 - `ILInspector.ILDiff` owns IL/body diff production and display rows
   through `IlBodyDiff`, `IlAssemblyDiff`, and `IlDiffPrinter`.
 - `ILInspector.Research` owns the join. `ImplementationDiff` compares assemblies
-  with decompiled C# and IL/body mechanisms, accepts checksum-gated authored
+  with decompiled C# and IL/body mechanisms, accepts checksum-gated PDB-source
   line inspections from Services, groups changes by `ResearchSubjectKey`, and
   exposes typed display rows and unified lines without reformatting producer
   wording.
 - `ResearchComparison.RetainedComparisons` keeps the native
   `FindingComparison<CSharpCanonicalLine>` and
-  `FindingComparison<CanonicalIlOperation>` envelopes when requested. Authored
-  Source comparisons retain `FindingComparison<string>` with the `text.line`
+  `FindingComparison<CanonicalIlOperation>` envelopes when requested. PDB Source
+  comparisons retain `FindingComparison<string>` with the `text.line`
   descriptor. Research
   cross-checks their exactness against the richer semantic projections for
   members present on both sides. A disagreement is retained as a per-member
@@ -142,19 +142,24 @@ never reported as "no structural changes."
 This model exists only for node/span structure that the line-oriented
 `CSharpDiffRow` cannot represent; it does not introduce another generic
 diff-row hierarchy. Ordinary indented spans reuse the annotation comment gutter
-and its stacking rules. When a covered extent includes indentation and a
-non-whitespace token, the display caret starts at that token; whitespace-only
-extents preserve their exact geometry. Tab-indented extents retain the source
-tab prefix in an exact fallback row so the renderer's tab stops remain aligned;
-a tabbed member indent also selects exact fallback because it cannot establish
-a stable comment-gutter column for differently indented lines. A resulting span
-too close to the left edge for the gutter uses an exact gutter-free caret row
-instead. Typed UTF-16 spans are unchanged.
+and its stacking rules. Structural details render below their caret and start at
+the first caret column while the comment marker remains in the shared gutter;
+wrapped continuations keep that detail column. When a covered extent includes
+indentation and a non-whitespace token, the display caret starts at that token;
+whitespace-only extents preserve their exact geometry. Tab-indented extents
+retain the source tab prefix in exact fallback caret and detail rows so the
+renderer's tab stops remain aligned; a tabbed member indent also selects exact
+fallback because it cannot establish a stable comment-gutter column for
+differently indented lines. A resulting span too close to the left edge for the
+gutter uses exact gutter-free caret and detail rows instead. Typed UTF-16 spans
+are unchanged.
 `CSharpStructuralComparisonTests.
-RenderAnnotatedBody_IndentedExtentAlignsCaretToFirstCoveredToken` and
+RenderAnnotatedBody_IndentedExtentAlignsCaretToFirstCoveredToken`,
 `RenderAnnotatedBody_TabIndentedExtentPreservesTabAlignment` and
 `RenderAnnotatedBody_TabbedMemberIndentUsesExactFallback` gate this display-only
-alignment.
+alignment; `AnnotationGestureTests.
+AlignedDetailContinuationsShareTheFirstCaretColumn` gates continuation
+alignment in the reusable renderer.
 
 ## Research comparison model
 
@@ -173,9 +178,10 @@ old/new Finding censuses yet, so the cross-mechanism `ResearchChange` projection
 must not manufacture Finding atoms or misuse `PairKind`. `ResearchChange` is a Research-owned migration projection, not the seed of a
 parallel generic `EvidenceRow` spine. C# and IL now have native comparisons;
 their semantic rows remain because they carry richer producer-owned evidence,
-while retained comparisons expose the exact census transitions. `Source` never
-replaces or changes the meaning of `CSharp`: one describes checksum-verified
-authored text and the other describes product-decompiled text.
+while retained comparisons expose the exact census transitions. The `Source`
+mechanism never replaces or changes the meaning of `CSharp`: one describes
+checksum-verified PDB-mapped text and the other describes product-decompiled
+text.
 
 ### Deliberate dual-representation decision
 
@@ -283,9 +289,9 @@ member result keeps the typed C# diff, typed IL diff, joined implementation
 changes, and a single `ResearchSubjectKey`; exact members return an empty
 change list with `IsExact` set.
 
-Use `CompareMembersWithAuthoredSource` when the caller also has old/new
+Use `CompareMembersWithPdbSource` when the caller also has old/new
 `FindingInspection<string>` envelopes from Services. Use
-`WithAuthoredSourceComparisons` to enrich an assembly comparison. These APIs
+`WithPdbSourceComparisons` to enrich an assembly comparison. These APIs
 preserve `Complete`, `Absent`, and `Failed` independently and retain the native
 line comparison. Research does not fetch source.
 
@@ -333,10 +339,10 @@ assembly descriptors, reference resolvers, and body indexes. The query opens
 those descriptors for the offline C# and IL producers and returns
 `ImplementationDiffResult`; the CLI adapter's current path-backed descriptors
 are an acquisition boundary, not part of the query contract.
-With `--authored-source`, it acquires each changed implementation member's
+With `--pdb-source`, it acquires each changed implementation member's
 endpoint PDB and
 SourceLink body, verifies the document checksum, and adds a separately labeled
-`Source` lane. Missing mappings and acquisition failures remain visible rather
+`PDB Source` lane. Missing mappings and acquisition failures remain visible rather
 than falling back to decompiled C#.
 The authored A→IL lane reuses the final RTS shell/request but compiles with
 portable-PDB-recorded options when available; the decompiled B→IL lane uses the

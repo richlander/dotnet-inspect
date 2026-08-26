@@ -144,6 +144,49 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void ConstructorAndFinalizer_UseExactLeafSegment()
+    {
+        MetadataTypeDefinitionName exactName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Samples",
+                    ["A+B"]))
+                .Name;
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "A+B",
+            DefinitionName = exactName,
+            Kind = "class",
+        };
+        var constructor = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            Signature = "void .ctor()",
+            Accessibility = "public",
+        };
+        var finalizer = new ApiMember
+        {
+            Name = "Finalize",
+            Kind = "finalizer",
+            Signature = "void Finalize()",
+            IsFinalizer = true,
+        };
+
+        Assert.Equal(
+            @"public A\+B()",
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type,
+                constructor));
+        Assert.Equal(
+            @"~A\+B()",
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type,
+                finalizer));
+    }
+
+    [Fact]
     public void FinalizerMember_WithSuppressFinalizerSpelling_KeepsLiteralFinalize()
     {
         // Issue #3157 (fidelity hardening): the '~Type()' spelling assumes the
@@ -1218,6 +1261,67 @@ public sealed class CSharpDeclarationWriterTests
         var member = new ApiMember { Name = "M", Kind = "method", Signature = signature };
 
         Assert.Equal(expected, CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
+    /// <summary>
+    /// #3561: when <see cref="ApiSignature"/> is present, the writer must not
+    /// consult <see cref="ApiMember.Signature"/>. A poisoned comment <c>)</c>
+    /// would close the text scanner early; the model still emits the escaped name
+    /// and an unmangled tuple return.
+    /// </summary>
+    [Fact]
+    public void MemberDeclaration_SignatureModel_EscapesParametersWithoutScanningText()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Pair",
+            Kind = "method",
+            Signature = "(int, string) Pair(/* ) */ int event)",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "(int, string)",
+                MemberName = "Pair",
+                Parameters =
+                [
+                    new ApiParameter { Type = "int", Name = "event" }
+                ]
+            }
+        };
+
+        Assert.Equal(
+            "public (int, string) Pair(int @event)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
+    /// <summary>
+    /// Skip-vs-scan gate for #3561. An unnamed model parameter is emitted as the
+    /// type alone. Re-lexing that string treats the type keyword as a name and
+    /// produces <c>@int</c> (CS0246) — the #3489/#3528 defect on the model path.
+    /// </summary>
+    [Fact]
+    public void MemberDeclaration_SignatureModel_DoesNotEscapeUnnamedParameterType()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "M",
+            Kind = "method",
+            Signature = "void M(@int)",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "void",
+                MemberName = "M",
+                Parameters =
+                [
+                    new ApiParameter { Type = "int" }
+                ]
+            }
+        };
+
+        Assert.Equal(
+            "public void M(int)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
     }
 
     /// <summary>

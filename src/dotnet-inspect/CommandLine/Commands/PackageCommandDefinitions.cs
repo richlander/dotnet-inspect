@@ -25,7 +25,7 @@ public static class PackageCommandDefinitions
             Arity = ArgumentArity.ZeroOrMore
         };
 
-        var dependenciesOption = new Option<bool>("--dependencies") { Description = "Show transitive package dependency tree (tip: use 'depends --package' instead)" };
+        var dependenciesOption = new Option<bool>("--dependencies") { Description = "Legacy alias for -S Dependencies --tree (tip: use 'depends --package' instead)" };
         var layoutOption = new Option<bool>("--layout") { Description = "Show package file tree" };
         var pathOption = new Option<string[]>("--path")
         {

@@ -91,6 +91,32 @@ the exact-only comparator path, so near cases in the population remain outside
 exact clusters. Seeded fuzzy retrieval is independently graded and does not
 establish a relation.
 
+The cross-assembly corpus grades product retrieval over the authored
+`DiffFixtures.V1` and `DiffFixtures.V2` version pair:
+
+```bash
+dotnet "$DLL" --clone-cross-assembly-corpus \
+  artifacts/bin/DiffFixtures.V1/release/DiffFixtureSample.dll \
+  artifacts/bin/DiffFixtures.V2/release/DiffFixtureSample.dll
+dotnet "$DLL" --clone-cross-assembly-corpus old.dll new.dll --json
+```
+
+The committed `corpus/structural-clone-cross-assembly.json` ledger declares
+each side's assembly, type, and source project, independently labels every
+reviewed right-side row, and keeps a relevant rank-three candidate as an
+explicit miss at K=2. The harness requires distinct MVIDs, resolves methods
+through SRM, and calls the product's cross-image `RetrieveSimilar` overload. It
+does not reconstruct portable operand categories or claim that a score proves
+a relationship; cross-reader `Compare` remains a separate future producer.
+
+The seven-query card passes with six relevant rows among 14 reviewed rows
+(42.85% labeled precision) and recovers six of seven relevant labels (85.71%
+labeled recall). It includes six hard negatives, two semantic hazards, and one
+known miss. `StructuralCloneCrossAssemblyCorpusTests.CommittedCorpus_GradesVersionPair`
+gates the fixture run, exact metrics, distinct artifact identities, and text
+card. `CommittedCorpus_PinsNonVacuousReviewCoverage` always gates the declared
+projects, type, query count, reviewed K, label count, and relevant-label count.
+
 The real-artifact corpus grades retrieval against independently source-reviewed
 CoreLib labels:
 
