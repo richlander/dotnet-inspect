@@ -223,8 +223,8 @@ secure-context treatment.
 
 ## Pattern B: Tailscale Serve through a stable gateway
 
-Use this pattern when the viewer already has tailnet access and needs a stable
-shared HTTPS URL. It has three hops:
+Use this pattern when the user has indicated that a Tailscale Serve session is
+available. It has three hops:
 
 ```text
 viewer browser
