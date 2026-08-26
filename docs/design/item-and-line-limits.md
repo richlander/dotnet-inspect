@@ -134,10 +134,13 @@ select subject and section/lens
 -> render
 ```
 
-`--count` branches after filtering and before ordering or windows. It reports
-the full matched-row count within the declared input extent, so it is mutually
-exclusive with `-n`, `--top`, `--rows`, `--row`, `--head`, `--tail`, and
-`--lines`; no accepted selector may be silently ignored. For an exhaustive
+`--count` resolves and applies any accepted `--fields`/`--columns` source
+selection after filtering, then branches before ordering or windows.
+Unsupported, unmatched, or inapplicable field/column requests reject rather
+than being ignored. The count reports the full matched-row cardinality within
+that projected declared input extent, so it is mutually exclusive with `-n`,
+`--top`, `--rows`, `--row`, `--head`, `--tail`, `--lines`, and
+`--tail-lines`; no accepted selector may be silently ignored. For an exhaustive
 input that is the source cardinality. For an explicitly upstream-bounded input
 it is the complete count of the bounded candidate set, never an extrapolated
 corpus total.
@@ -517,7 +520,7 @@ The implementation must provide named Release gates for these target properties:
 | `AbsoluteRangesIntersectWithoutRenumbering` | `--rows` range intersections retain stable row addresses across item limits and rankings. |
 | `SingleRowAddressRejectsWindows` | `--row` rejects item-mode `-n`/`--head`/`--tail`, `--top`, and `--rows`, while remaining compatible with a line window. |
 | `First_And_Last_ResolveToDisplayedEndpoints` | Gap-producing `--value`, `--urls`, and `--paths` projections resolve `first` and `last` to the first and last projected rows without renumbering their stable addresses; normal framed and structured `--print` retains every selected row as a success or failure. |
-| `CountReportsFullPostFilterCardinality` | `--count` reports the full cardinality within the declared input extent after filters and before ordering or windows, including zero matches, aggregate inspections, an exhaustive source, and a multi-source upstream-bounded candidate set with enough unique rows to exceed the global display cap, without extrapolating a corpus total. |
+| `CountReportsFullPostFilterCardinality` | `--count` reports the full cardinality within the declared input extent after filters and accepted field/column source selection but before ordering or windows. Fixtures include zero matches, aggregate inspections, a field-set projection that changes row membership, a column-only projection that preserves it, rejected unmatched/inapplicable projections, an exhaustive source, and a multi-source upstream-bounded candidate set with enough unique rows to exceed the global display cap, without extrapolating a corpus total. |
 | `CountRejectsItemAndLineWindows` | `--count` rejects every row address, result/line window, or direction, with explicit negative fixtures for `--row`, `--head`, current windowed `--rows` counting, and silently ignored `--top`. |
 | `WindowModifiersBindOnlyToActiveCount` | `--lines`, `--head`, `--tail`, and `--tail-lines` each require one active `-n` window and reject when bare. `--lines` changes its unit; `--head` and `--tail` direct the item or line window, reject together, and never modify an absolute range or ranking. `--tail-lines` is equivalent to `--lines --tail` for ordinary and multi-print output. Positive fixtures cover both spellings, `-n N --tail --rows A..B`, and `--rows A..B --print -n N --lines --tail`; negative fixtures cover bare `--lines`, bare `--tail-lines`, and a range with bare `--head` or `--tail`. |
 | `UniversalLimitShorthandIsArityAware` | Separate and inline `-n`, bare `-N`, zero, duplicate counts, the `--` terminator, required-value, optional-value, and value-less options prove that only one positive count option is recognized; numeric long `--type`/`--member` values remain selector values and reject. |

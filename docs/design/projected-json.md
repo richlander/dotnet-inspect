@@ -112,8 +112,10 @@ dropped modifier.
 Payload projections such as `--count`, `--value`, `--print`, `--urls`, and
 `--paths` keep the contracts in [Output shapes](output-shapes.md). An accepted
 payload projection claims the request before the JSON dialect is chosen.
-`--fields`/`--columns` may then select which source feeds that payload; they do
-not opt the enclosing request into lowered document JSON.
+`--fields`/`--columns` then select which source feeds that payload where
+supported; applicability and source selection are validated before `--count`
+reduces the rows, and an unsupported request rejects. They do not opt the
+enclosing request into lowered document JSON.
 
 Lens modes keep the same precedence. Discovery, package-content, version,
 layout, and other lens-owned output either honors its own accepted projection
