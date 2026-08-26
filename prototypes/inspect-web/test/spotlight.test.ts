@@ -7,10 +7,15 @@ import {
   nextSpotlightSelection,
   visibleSpotlightPackageHits,
 } from "../src/spotlight.ts";
-import type { SpotlightResult, SpotlightState } from "../src/spotlight.ts";
+import type {
+  SpotlightResult,
+  SpotlightScope,
+  SpotlightState,
+} from "../src/spotlight.ts";
 import type { CommandContext } from "../src/command-bar.ts";
 import { KeybindingRegistry } from "../src/keybinding-registry.ts";
 import { fakeDom } from "./fake-dom.ts";
+import type { TypeLens } from "../src/data.ts";
 
 function escapeHtml(value: unknown) {
   return String(value)
@@ -21,7 +26,7 @@ function escapeHtml(value: unknown) {
 }
 
 interface HarnessOptions {
-  scope?: string;
+  scope?: SpotlightScope;
   query?: string;
   commandContext?: CommandContext | null;
   focusAfterDismiss?: () => void;
@@ -98,6 +103,35 @@ function createHarness({
     focusAfterDismiss,
   });
   return { keybindings, spotlight, state };
+}
+
+// open() ends by scheduling input focus through the real DOM. These tests are about
+// scope admission, so they install the minimal focus target and restore it after.
+function withStubbedFocusTarget(body: () => void): void {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  const globals = globalThis as unknown as {
+    document?: Document;
+    requestAnimationFrame?: (callback: FrameRequestCallback) => number;
+  };
+  const previousDocument = globals.document;
+  const previousRequestAnimationFrame = globals.requestAnimationFrame;
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  globals.document = { querySelector: () => null } as unknown as Document;
+  globals.requestAnimationFrame = (callback: FrameRequestCallback) => {
+    callback(0);
+    return 0;
+  };
+  try {
+    body();
+  } finally {
+    if (previousDocument === undefined) delete globals.document;
+    else globals.document = previousDocument;
+    if (previousRequestAnimationFrame === undefined) {
+      delete globals.requestAnimationFrame;
+    } else {
+      globals.requestAnimationFrame = previousRequestAnimationFrame;
+    }
+  }
 }
 
 const packageContext: CommandContext["package"] = {
@@ -295,7 +329,7 @@ test("workspace Spotlight exposes commands as a dedicated scope", () => {
 });
 
 test("workspace command lenses are resolved from the current package", () => {
-  let lenses: readonly (readonly [string, string])[] =
+  let lenses: readonly (readonly [TypeLens, string])[] =
     [["api", "API"], ["metadata", "Metadata"]];
   const harness = createHarness({
     scope: "commands",
@@ -308,6 +342,28 @@ test("workspace command lenses are resolved from the current package", () => {
   lenses = [["api", "API"]];
   assert.doesNotMatch(harness.spotlight.modalHtml(), />show metadata</);
   assert.match(harness.spotlight.modalHtml(), />show api</);
+});
+
+test("Spotlight rejects a scope the current context does not offer", () => {
+  const { spotlight, state } = createHarness();
+
+  // "commands" is a well-typed SpotlightScope, but scopes() only offers it when a
+  // command context exists. Without one, open() must fall back rather than seat a
+  // scope whose results() branch can only ever return an empty list.
+  withStubbedFocusTarget(() => spotlight.open("", "commands"));
+
+  assert.equal(state.spotlightScope, "all");
+  assert.doesNotMatch(spotlight.modalHtml(), /data-sl-scope="commands"/);
+});
+
+test("Spotlight accepts a scope the current context does offer", () => {
+  const { spotlight, state } = createHarness({
+    commandContext: { command: "", package: packageContext },
+  });
+
+  withStubbedFocusTarget(() => spotlight.open("", "commands"));
+
+  assert.equal(state.spotlightScope, "commands");
 });
 
 test("home Spotlight keeps the shared typed UI without workspace commands", () => {
