@@ -407,10 +407,11 @@ unchanged. Because the lens owns the shape, its answers are fixed:
   `--skip-empty` removes it and `--bare` never emits it: under `--skip-empty` the
   rendered rows and the count agree exactly. This is the one place the count is
   deliberately smaller than the default render's row total.
-- `--print`, `--value`, `--urls`, and `--paths` are refused with the reason,
-  not approximated. They address a cell or a column of a selected section, and a
-  lens payload has neither; answering anyway would require inferring structure
-  from rendered text.
+- An opaque lens payload refuses `--print`, `--value`, `--urls`, and `--paths`
+  with the reason rather than inferring structure from rendered text. A lens
+  that declares rows and their capabilities composes with ordinary projections:
+  for example, version rows may expose URLs, and `--print` emits a visible
+  failure for each selected version row that declares no printable payload.
 - `-S`/`--select` is refused when the caller typed it, rather than ignored. A
   lens and a section selection are competing answers to *what am I looking at*,
   and silently honoring the lens hides that the selection did nothing.
@@ -456,8 +457,10 @@ Two consequences define the boundary:
 - `--content` and target `--print` write framing to stdout. `--content`
   delimits each matched file with a
   `------------ <package> :: <path> ------------` banner; `--print` uses its
-  row-identity and line-metadata frame. Every frame field is contained, and the
-  payload beneath it is encoded under the same prose policy.
+  row-identity and line-metadata frame. Every frame field is contained.
+  `--print` additionally prefixes each terminal-safe payload line with a
+  tool-owned `|` followed by one space, so payload text cannot forge a sibling
+  frame.
 
 These are gated by `PayloadLensContainmentTests`, which runs the built CLI over
 a package whose README carries bidi, ESC, and LS hazards and asserts encoded
@@ -466,7 +469,8 @@ export. `PackageContentOutput_ContainsNoLiveControlsOnStdoutAndPreservesExplicit
 gates both framed and `--bare` single-file content export with a UTF-16 payload
 that has no trailing newline. The target
 `MultiPrintFrameFieldsAreContained` gate applies the same adversarial coverage
-to every `--print` frame field.
+to every `--print` frame field, and `MultiPrintPayloadCannotForgeFrames` covers
+frame-shaped payload lines and line-ending edge cases.
 
 Discovery (`-D`/`--discover`) is a lens for the projections above but not for
 `-S`, which legitimately narrows what discovery reports. Its own `--count` must
@@ -663,7 +667,7 @@ dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
 
 # Printable payload: the visually encoded resolved source line
 dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
-  -S "Context: Source Location" --print
+  -S "Context: Source Location" --print --bare
 #         return JsonSerializer.Serialize(value, options);
 
 # Singleton count
@@ -702,8 +706,8 @@ The stable vocabulary is:
   1. Any future selector that takes an ordinal joins this rule: the number a
   reader arrives at by counting rows is the number that can be addressed, and no
   later item/range window or projection may renumber it.
-- `--bare` is a presentation modifier: it strips the surrounding framing from an
-  already-selected payload.
+- `--bare` is a presentation modifier: for one selected payload, it strips the
+  surrounding frame and payload gutter.
 - `--raw` / `--blob` are URL-shape modifiers: they control the form of emitted
   GitHub links, not the shape of the payload itself.
 - `--plaintext` remains distinct from `--bare`; if it stays in the product, it is

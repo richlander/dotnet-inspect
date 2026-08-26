@@ -135,6 +135,11 @@ A semantic result limit is not automatically a work budget:
   order is already final.
 - `--lines` limits projected text, not acquisition. It does not authorize
   partial artifact reads or change whether a selected payload must be fetched.
+- A printable section declares when each row may require separate network
+  acquisition. Multi-row `--print` over such a section requires an explicit
+  finite item bound: `--row`, item-mode `-n`, `--top`, or a closed `--rows`
+  range. Line-mode `-n`, `--where`, and an open-ended range do not bound that
+  fan-out.
 - Expensive promoted-tier queries retain their own explicit candidate/work
   budget, such as the proposed package-query `--deepen` bound.
 
@@ -214,17 +219,26 @@ survive concatenation:
 
 ```text
 ------ [skills/query/SKILL.md]; lines 1-20 of 86 ------
-<content>
+| <content line 1>
+| <content line 2>
 ```
 
 The frame uses contained typed row identity, not text parsed back from a
 rendered cell. Every successful frame includes the selected line range, total
 line count, and whether content was truncated. Full acquisition makes that
-metadata available even when the content projection is clipped. Frame lines do
-not consume the line budget.
+metadata available even when the content projection is clipped.
 
-`--bare` remains valid only when exactly one row is selected. Multiple unframed
-payloads are rejected because their boundary and row identity would be lost.
+Framed text prefixes every rendered payload line with the tool-owned `|`
+followed by one space, including empty lines, and inserts a tool-owned line ending after the
+last payload line when another frame follows. A payload line that looks exactly
+like a frame therefore remains visibly and structurally payload text. Frame and
+gutter text do not consume the line budget. Identity-dependent machine
+consumers should prefer `--jsonl` or `--json-array`, which carry explicit
+objects rather than presentation framing.
+
+`--bare` remains valid only when exactly one row is selected. It removes both
+the frame and payload gutter. Multiple unframed payloads are rejected because
+their boundary and row identity would be lost.
 Exact `--out` payload export likewise remains unary; a multi-item file export
 requires a structured format or a separately designed directory export.
 
@@ -309,5 +323,8 @@ The implementation must add named Release gates for these target properties:
 | `AddressProjectionDoesNotAcquirePayloads` | `--paths` and `--urls` project selected row addresses without fetching printable content. |
 | `MultiPrintPreservesIdentityAndFailures` | Every selected row emits one framed or structured success/failure result, and any failure makes the exit nonzero. |
 | `MultiPrintFrameFieldsAreContained` | Adversarial row identity, path, URL, and failure values cannot forge a frame or emit live terminal controls. |
+| `MultiPrintPayloadCannotForgeFrames` | Payload lines matching the frame grammar, mixed line terminators, empty lines, and missing final newlines remain guttered payload and cannot create a sibling frame. |
 | `MultiPrintLineWindowsArePerPayload` | Line budgets exclude frames, apply independently per payload, and preserve complete structured values. |
+| `RemoteMultiPrintRequiresBoundedSelection` | A per-row network payload source rejects multi-row `--print` without an explicit finite item bound before any fetch. |
+| `UnaryPrintModesRejectMultipleRows` | `--bare`, plain `--json`, and exact `--out` reject multiple rows before writing stdout or a file. |
 | `LegacyResultLimitSpellingsAreAbsent` | CLI aliases, help, README, workflows, and embedded skills contain no retired result-limit spelling. |

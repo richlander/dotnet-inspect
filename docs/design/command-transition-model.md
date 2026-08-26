@@ -233,6 +233,9 @@ Shape reducers do not revise operation arity. In particular:
   declared payload, but it still cannot evaluate a version address that the
   operation did not already select; a row without a declared payload produces
   a visible failure;
+- a row source whose printable payload may require separate network acquisition
+  rejects unbounded multi-row `--print`; `--row`, item-mode `-n`, `--top`, or a
+  closed `--rows` range must bound the authorized fetch set;
 - `-n N` and `--rows N..M` select rows before `--print`, while
   `--row N|first|last` remains the exactly-one address;
 - `-n N --lines` runs after selected payload acquisition and applies per
