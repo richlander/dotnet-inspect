@@ -382,7 +382,7 @@ test("location preflight preserves malformed visible-coordinate notices for home
   for (const [url, field] of [
     ["https://inspect.example/packages/%/1.0.0", "package"],
     ["https://inspect.example/?overload=abc", "overload"],
-  ]) {
+  ] as const) {
     href = url;
     const preflight = persistence.preflightCurrent();
     assert.equal(preflight.visible.package, null);
