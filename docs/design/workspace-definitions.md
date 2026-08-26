@@ -1048,8 +1048,11 @@ Implementation must add, at minimum:
   resolve the static product-registry scenario to `WorkspaceMemberCoordinate`
   plans, member anchor `74b6b4b321`, browser workspace requests, and exact
   activation identity;
-  `BrowserProductHomeDemosTests.ToCallGraphRunPlan_DerivesNonFirstFocusFromNavigation`
-  gates non-first focus derivation from the product navigation plan;
+  `BrowserProductHomeDemosTests.ToRunPlan_DerivesNonFirstFocusForTypeOnlyMethodsView`
+  gates type-only Methods lowering and non-first focus derivation from the
+  product navigation plan;
+  `BrowserEngineBoundaryTests.HomeDemoRunCore_ProjectsTypeOnlyMethodsSurface`
+  gates the real projected type/member surface and expected fixture methods;
   `BrowserEngineBoundaryTests.HomeDemoRunCore_ProjectsTheAnchoredMemberAndItsGraph`
   gates aggregate workspace projection, non-first focus consumption,
   digest-prefix selection, and graph execution;
