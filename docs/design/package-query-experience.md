@@ -8,7 +8,10 @@ and wired to it afterward. It extends
 [browser-package-sources.md](browser-package-sources.md) (source clients) and
 [progressive-disclosure.md](progressive-disclosure.md) (explicit, capability-
 gated expensive work), and follows the terminology and honesty rules in
-[untrusted-data-threat-model.md](untrusted-data-threat-model.md).
+[untrusted-data-threat-model.md](untrusted-data-threat-model.md). The CLI
+counterpart — where the facet engine and its layering actually live — is
+[package-query-cli.md](package-query-cli.md); this document's facets are the
+browser front end for that one product surface.
 
 **What is already enforced vs. what is a design requirement.** The pure
 state/render contract in `src/package-query.ts` and
