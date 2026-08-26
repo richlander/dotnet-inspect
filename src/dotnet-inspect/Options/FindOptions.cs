@@ -66,6 +66,11 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     public int? Limit { get; init; }
 
     /// <summary>
+    /// Raw value supplied to <c>-t</c>/<c>--type</c>.
+    /// </summary>
+    public string? TypeFilter { get; init; }
+
+    /// <summary>
     /// Limit data rows per rendered table.
     /// </summary>
     public RowWindow? Rows { get; init; }
@@ -146,6 +151,19 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     public string? PackagePrefix { get; init; }
 
     /// <summary>
+    /// Whether <c>--package-prefix</c> was explicitly supplied.
+    /// </summary>
+    public bool PackagePrefixSpecified { get; init; }
+
+    /// <summary>
+    /// True when a patternless package-prefix search projects package manifests
+    /// rather than acquiring package archives for API search.
+    /// </summary>
+    public bool IsPackageProfile =>
+        Pattern.Length == 0
+        && (PackagePrefixSpecified || PackagePrefix is not null);
+
+    /// <summary>
     /// Returns true if any search scope is specified.
     /// </summary>
     public bool HasAnyScope =>
@@ -155,7 +173,8 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
         PlatformFrameworks.Length > 0 ||
         Projects.Length > 0 ||
         BinPaths.Length > 0 ||
-        PackagePrefix != null;
+        PackagePrefixSpecified ||
+        PackagePrefix is not null;
 
     /// <summary>
     /// True when output is raw text (not rendered markdown).
