@@ -236,7 +236,8 @@ export async function queryPackageOpportunities(packageId, version, targetFramew
 
 export async function queryPackagePerformance(packageId, version, targetFramework) {
   if (!queryPackagePerformanceExport) throw new Error("The browser inspection engine is not initialized.");
-  return await queryPackagePerformanceExport(packageId, version, targetFramework);
+  const result = await queryPackagePerformanceExport(packageId, version, targetFramework);
+  return JSON.parse(result);
 }
 
 export async function queryPackageVersions(packageId) {

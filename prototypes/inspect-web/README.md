@@ -296,11 +296,13 @@ case gate those boundaries.
 Each retained scope has an explicit compile role and implementation role. The
 compile group uses the selector's reference-preferred assets for API and type
 views; the implementation group uses matching `lib/` assets for bodies,
-Integrations, and call graphs. Opportunities use the compile group because they
-classify the package's reference-preferred public surface. Packages without
-`ref/` assets share one group for both roles. When both roles exist and differ, they split the scope's 64 MB retained image
-budget rather than doubling it. A reference-only package has one group and uses
-the full budget.
+Integrations, call graphs, and whole-assembly performance analysis.
+Opportunities use the compile group because they classify the package's
+reference-preferred public surface. Packages without `ref/` assets share one
+group for both roles. When both roles exist and differ, they split the scope's
+64 MB retained image budget rather than doubling it. A reference-only package
+has one group and uses the full budget; performance analysis falls back to that
+surface group when no implementation participant exists.
 
 ## Supported
 
@@ -313,6 +315,7 @@ the full budget.
 | `QueryPackageDependencies` | one package/version/framework | `PackageDependencyGroupsQuery.ExecuteAsync(content, ...)` and `AssemblyContextReferencesQuery.ExecuteParticipant(...)` |
 | `QueryPackageIntegrations` | one package/version/framework | `AssemblyContextIntegrationsQuery.Execute(group)` |
 | `QueryPackageOpportunities` | one package/version/framework | `AssemblyContextIntegrationOpportunitiesQuery.Execute(group, prerequisites)` |
+| `QueryPackagePerformance` | one package/version/framework, implementation group | `AssemblyContextOptimizationOpportunitiesQuery.Execute(group)` |
 | `QueryMemberCallGraph` | every open package coordinate, implementation group | `MemberCallGraphSession` |
 | `LoadRuntimePack`, `LoadRuntimePackAssembly` | selected platform assemblies accumulated per target framework | `AssemblyContextApiSurfaceQuery.ExecuteBounded(group, scope, limits, participants)` |
 | `QueryPlatformIntegrations` | one selected participant in the cumulative platform group | `AssemblyContextIntegrationsQuery.ExecuteParticipant(...)` |
@@ -458,6 +461,25 @@ surface group. The product owns opportunity classification, existing-integration
 suppression, and participant failures. The browser only deduplicates identical
 rows and groups them by the returned integration name.
 
+`QueryPackagePerformance` runs the product's group-scoped optimization query
+over implementation participants, falling back to the surface group only for a
+reference-only package. Analysis owns opportunity priority, semantic loop
+classification, generated-framework suppression, member aggregation, and
+deterministic order. The query owns body-index lifetime, binding-contained
+sibling resolution, public API attribution, and typed failures. Lifted evidence
+aggregates under its source owner. Exact metadata type identity and stable member
+selectors bridge implementation evidence to the exact rendered
+reference-preferred surface without treating MethodDef tokens as cross-image
+identities. The browser removes rows absent from that surface, emits the surface
+assembly identity, and applies its 200-member display bound afterward while
+preserving product order. Extra implementation-only assemblies are omitted
+rather than making the lens fail, and any bounded-surface notice remains visible
+beside the Analysis result. A 201st navigable ranked member produces a visible
+truncation notice instead of making the top 200 look complete. Accessor evidence
+is aggregated under its owning property or event with every body token retained.
+Rows open the supported member Overview; Facts remains unavailable in the
+browser. Non-public opportunities remain visible in the aggregate count.
+
 `QueryPackageDependencies` asks the package-content query for every dependency
 group in manifest order and an exact-framework selection outcome. A missing
 exact group remains visible while the UI permits inspecting the groups that were
@@ -510,8 +532,7 @@ rather than fixture results or success-shaped empty output.
 | Unsupported export | Missing product query |
 | --- | --- |
 | `QueryMemberFacts` | method-scoped Analysis evidence over a group participant |
-| `QueryPackagePerformance` | assembly-wide Analysis ranking over a group |
-| `QueryPlatformPerformance` | the same missing assembly-wide Analysis ranking query as the package export |
+| `QueryPlatformPerformance` | assembly-wide Analysis ranking over a platform group |
 
 Package and Platform Metadata use
 `AssemblyContextMetadataImageQuery`, `AssemblyContextMetadataTableQuery`, and
