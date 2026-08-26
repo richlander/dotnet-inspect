@@ -32,7 +32,9 @@ row at a time and drives it to a PR, explicit blocker, or pivot issue.
 6. Open a PR and update the row to `In review — #PR`.
 7. When all merge-blocking validation, CI, and required review are complete,
    post a PR comment that clearly says `Ready to merge`. Label any later tests
-   or review as non-blocking follow-up work.
+   or review as non-blocking follow-up work. Keep the `ready-to-merge` and
+   `carry-forward` PR labels synchronized with
+   [repository guidance](../AGENTS.md#keep-pr-readiness-labels-current).
 8. When merged, the curator or runner updates the row to `Done — #PR`.
 
 ## If blocked

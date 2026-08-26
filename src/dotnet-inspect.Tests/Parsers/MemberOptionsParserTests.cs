@@ -270,6 +270,7 @@ public class MemberOptionsParserTests
         Assert.True(options.TabularExplicitlySet);
         Assert.True(options.FormatExplicitlySet);
         Assert.True(options.FormatFlagExplicitlySet);
+        Assert.Equal(OutputFormat.Table, options.Format);
     }
 
     [Fact]
@@ -282,6 +283,7 @@ public class MemberOptionsParserTests
         Assert.False(options.EmbeddedMermaid);
         Assert.True(options.IsRawOutput);
         Assert.True(options.FormatFlagExplicitlySet);
+        Assert.Equal(OutputFormat.Mermaid, options.Format);
     }
 
     [Fact]
@@ -331,6 +333,7 @@ public class MemberOptionsParserTests
             Assert.True(options.TabularExplicitlySet);
             Assert.True(options.FormatExplicitlySet);
             Assert.False(options.FormatFlagExplicitlySet);
+            Assert.Equal(OutputFormat.Table, options.Format);
         }
         finally
         {

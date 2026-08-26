@@ -8,17 +8,23 @@ document's vocabulary as canonical rather than inventing its own.
 
 ## Status
 
-Design proposal. `find --package-prefix`'s corpus-streaming mechanism is
-proposed in the still-open #4551; the facet/predicate layer, the
-row-declaration step, and the tier capability gate described here do not exist
-even there. Nothing in this document is a claim about behavior that is merged
-today unless stated otherwise; #4551's own identifiers and mechanism are cited
-from its current diff, not from `main`. The corpus-limit
-flag used in examples below (`-n`) is pending
-[#4677](https://github.com/richlander/dotnet-inspect/issues/4677), a
-repository-wide flag-numbering issue this document's own analysis
-surfaced — see
-[`-t` is the wrong flag to build on](#-t-is-the-wrong-flag-to-build-on-the-corpus-limit-spelling-is-an-open-issue).
+Design proposal, partially landed. `find --package-prefix`'s corpus-streaming
+mechanism and typed L1 query (`PackageProfileQuery`) — plus, further than
+this document originally recommended as a follow-up slice, its rendering
+path — already merged in #4551 onto the shared `Sections`/shape-ladder
+registry (`PackageProfileSections`, `SectionPipeline<PackageProfileView>`),
+the same registry `library`, `member`, and `package` use. `PackageDependencyGroupsQuery`
+also landed in #4551, in the same L1 layer, but backs the browser's
+single-package dependency view (`InspectionEngine.QueryPackageDependencies`),
+not `find --package-prefix`'s corpus-streaming query. See
+[Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing)
+for what shipped and what did not.
+
+Still proposal-only, not present on `main`: the facet/predicate layer, the
+tier capability gate, and — despite the Sections migration landing —
+`find --package-prefix`'s corpus limit is still spelled `-t`, not the settled
+`-n` target from [Item and line limits](item-and-line-limits.md), which
+resolves the repository-wide flag-numbering problem this document surfaced.
 
 Related docs:
 
@@ -38,8 +44,8 @@ Related docs:
   package row must follow.
 - [Package source model](package-source-model.md) and
   [browser package sources](browser-package-sources.md) — own the source
-  clients and manifest acquisition `find --package-prefix`'s #4551 diff
-  streams from.
+  clients and manifest acquisition `find --package-prefix` streams from
+  (merged in #4551).
 - [Progressive disclosure](progressive-disclosure.md) — owns the
   capability-gated, explicit-cost pattern the promoted tier's IL evaluation
   must follow.
@@ -49,9 +55,13 @@ Related docs:
 
 ## Thesis
 
-`find --package-prefix`'s #4551 diff already makes it the right CLI verb: it
-streams typed manifests over a corpus, bounded by `-t`, honest about
-truncation and partial source failure. What it does not have yet is a way to
+`find --package-prefix` (#4551, merged) is the right CLI verb: it streams
+typed manifests over a corpus, with an explicit bound and honest truncation
+and partial-source failure, rendered through the shared Sections registry
+just as `library`/`member`/`package` are. Its corpus-limit spelling is still
+`-t`, not yet the target `-n` vocabulary — see
+[Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing).
+What it does not have yet is a way to
 ask "and does each package satisfy *this*" — a facet predicate — cheaply for
 nuspec-derived facts and, on explicit request, expensively for facts that
 require opening IL. This document proposes that predicate layer, and where each piece of it
@@ -64,8 +74,8 @@ split existed.
 Core. Concretely:
 
 - **L1 — `DotnetInspector.Queries`.** The facet-matching engine belongs here,
-  next to `PackageProfileQuery` and `PackageDependencyGroupsQuery`, which the
-  still-open #4551 places in this layer rather than in the CLI project. A typed
+  next to `PackageProfileQuery` and `PackageDependencyGroupsQuery`, which
+  #4551 places in this layer rather than in the CLI project. A typed
   query that evaluates nuspec-tier facets over a streamed manifest, and a
   second typed query that evaluates promoted-tier (IL) facets over an
   explicitly bounded package/version set, both return typed results and
@@ -90,79 +100,83 @@ Core. Concretely:
 
 ## Is there a reason to start by changing `find`'s layering?
 
-Not for the corpus-fetch mechanism — that part is already correctly designed
-in #4551's diff, even though the PR has not merged. #4551 puts
-`PackageProfileQuery` and `PackageDependencyGroupsQuery` in L1, and its diff
-makes the row-declaration call correctly: as its README addition states,
-"`-t` limits packages rather than flattened dependency rows." That is the
-same "declared row unit, not rendered row count" discipline
+Not for the corpus-fetch mechanism — that part is correctly designed and
+merged. #4551 puts `PackageProfileQuery` and `PackageDependencyGroupsQuery` in
+L1, and makes the row-declaration call correctly: as its README addition
+states, "`-t` limits packages rather than flattened dependency rows." That is
+the same "declared row unit, not rendered row count" discipline
 [output-shapes.md](output-shapes.md) requires of call-graph edges, applied
 correctly to package rows a version early.
 
-There is a real, narrower gap worth closing first, though:
-`find --package-prefix`'s *rendering* path — `PackageProfileFindOutputFormatter`
-and friends, as proposed in #4551's diff — is bespoke CLI-side code, not
-routed through the shared Sections registry the way `library`, `member`, and
-`package` already are (see [section-model.md](section-model.md), "first made
-coherent for the library command and then adopted by the package command").
-Concretely, this means `find --package-prefix` would not get `-S`, `--where`,
-`--count`, and `--rows` "for free" and consistently with those other
-commands — each would need its own bespoke implementation in the
-`find`-specific formatter if this gap isn't closed first.
+### Sections migration: already landed, ahead of this document's sequencing
 
-**Recommendation:** migrate `find --package-prefix` row rendering onto the
-shared Sections/shape-ladder registry as a preparatory slice, before adding
-facet predicates on top of it — mostly behavior-preserving except for the
-one deliberate flag change named just below. Doing the facet work first
-would mean either duplicating `--where`'s row-predicate semantics a second
-time inside the bespoke formatter, or building the facet feature on a
-foundation that has to be migrated out from under it immediately after.
-This migration is orthogonal to and does not require changing anything about
-where `PackageProfileQuery` itself lives (L1 is already right in #4551's
-diff); it only moves *rendering* onto the shared L2 path.
+This document originally identified a real, narrower gap and recommended
+closing it as a preparatory slice before adding facet predicates: routing
+`find --package-prefix`'s rendering path through the shared Sections registry
+the way `library`, `member`, and `package` already are (see
+[section-model.md](section-model.md), "first made coherent for the library
+command and then adopted by the package command"), rather than leaving it as
+bespoke CLI-side code.
 
-### `-t` is the wrong flag to build on; the corpus-limit spelling is an open issue
+**That migration already happened, inside #4551 itself, rather than as a
+follow-up slice.** `find --package-prefix` is built directly on
+`PackageProfileSections` and `SectionPipeline<PackageProfileView>` — there was
+no intermediate bespoke formatter to migrate away from. Concretely, on `main`
+today: `--count`, `--rows`, `-D`/`--discover` (with section cost annotations
+and category maps), and the JSON/TSV/JSONL/projected-JSON output formats all
+route through the shared pipeline, the same infrastructure `library`/`member`/
+`package` use.
 
-The `-t 100` #4551's diff uses for `find --package-prefix` reuses `find`'s
-own pre-existing `-t`, whose description that diff widens from "Limit type
-count (`-t 5`) or filter by glob (`-t *Json*`)" to "Limit result count... or
-filter API types by glob." That reuse is real in #4551's open diff, though
-not yet merged, and it is not a precedent this document should build a new
-predicate/limit flag on: `-t` already means a type name or glob filter
-everywhere else in the CLI (`library`, `type`, `member`,
-`package -S "SourceLink: Files"`) — a
+**What did not land alongside it:** the flag-numbering half of this
+recommendation. This document's own "one deliberate, called-out behavior
+change" for this migration step was retiring `-t`-as-package-limit in favor of
+the settled `-n` contract — but `find --package-prefix`'s corpus limit is
+still spelled `-t` on `main` (`FindOptions.Limit`, validated as "`-t` must be
+between 1 and..."). `-S` and `--where` are also not yet wired (there is
+currently exactly one section, `Packages`, so `-S` selection is moot until the
+facet layer adds more to select between).
+
+**Interaction concern for the next slice:** the Sections migration and the
+`-t`→`-n` flag rename were assumed to be one atomic step; in practice they
+decoupled, and the migration landed first. The next slice (wiring nuspec-tier
+`--where`, [Landing sequence](#landing-sequence) step 3) should not silently
+inherit `-t` as precedent — it should either retire `-t` for `-n` itself, or
+explicitly hand that retirement to whatever implements #4677 across the CLI,
+naming which PR owns it so it does not fall through the gap a second time.
+
+### `-t` is the wrong flag to build on; `-n` owns the corpus limit
+
+The `-t 100` `find --package-prefix` uses reuses `find`'s own pre-existing
+`-t`, whose description #4551 widens from "Limit type count (`-t 5`) or
+filter by glob (`-t *Json*`)" to "Limit result count... or filter API types
+by glob." That reuse is real and merged, and it is not a precedent this
+document should build a new predicate/limit flag on: `-t` already means a
+type name or glob filter everywhere else in the CLI (`library`, `type`,
+`member`, `package -S "SourceLink: Files"`) — a
 different noun than "how many rows" — and `find` only overloads it as
 count-or-glob because `find`'s own type search predates a dedicated
 row-count flag.
 
-What the corpus-match bound should actually be spelled as is not settled by
-this document. Working through it surfaced a repository-wide flag-numbering
-problem — `-n`'s already-shipped rendered-line meaning, `--rows`'s
-display-only window, and `row-query-order.md`'s draft `--top` are three
-different names for adjacent-but-not-identical "how many" concepts, and
-every command reaching for its own domain letter (`-t`, and by the same
-argument `-m`) instead of one shared gesture is the more general version of
-the same mistake. That question is tracked in
-[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) rather than
-answered here: its current direction is that `-n`/bare `-N` becomes the
-universal "first N items" flag, `--lines` becomes the explicit opt-in for
-the old rendered-line meaning, `-t`/`-m` retire as count-or-glob gestures
-everywhere (including `find`'s own overload), and `--top` is *not* retired
-but redefined — checked against Kusto's `top N by Expression` operator,
-which requires its ranking clause, `--top` survives as sugar for `-n N
---order-by <field>`, not as a second count flag. A corpus-match query that
-names a real ranking field (for example, "top 500 by download count") would
-use `--top`; a plain "first 500 that match" uses `-n`.
+Working through this surfaced a repository-wide flag-numbering problem:
+rendered-line `-n`, count-form `--rows`, ranked `--top`, and command-owned
+`-t`/`-m`/`--take` counts all answered adjacent "how many" questions.
+[Item and line limits](item-and-line-limits.md) settles them:
 
-The Sections-registry migration recommended above is still the right moment
-to fix this, whatever #4677 settles on: once `find --package-prefix` rows
-are declared sections, the resolved corpus-limit flag applies "for free,"
-the same way it will for `library`/`member`/`package`, and that migration
-should retire `-t`-as-package-limit rather than carry the overload forward.
-This document uses `-n` (per #4677's current direction) for the semantic
-corpus-match bound in the example below; if #4677 resolves differently,
-update this document's spelling to match rather than treating `-n` as
-independently settled here.
+- `-n`/bare `-N` is the universal first/last item count;
+- `--rows` carries only absolute row ranges;
+- explicit `--lines` owns rendered-line limits;
+- command-specific result counts and short `-t`/`-m` selectors retire; and
+- `--top N --order-by <field>` remains the ranked form.
+
+A corpus-match query that names a ranking field (for example, "top 500 by
+download count") uses `--top 500 --order-by "DownloadCount desc"`; a plain
+"first 500 that match" uses `-n 500`.
+
+The Sections-registry migration was the right moment to apply the settled
+contract, but it landed without that part: `find --package-prefix` rows are
+now declared sections, yet the corpus limit is still `-t`, not `-n`. See
+[Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing)
+for the resulting follow-up.
 
 ## Two-tier facets, reusing `--where`
 
@@ -170,8 +184,8 @@ The web design's nuspec/promoted split maps directly onto capability, not
 vocabulary:
 
 - **`nuspec` tier.** Free, always evaluated, over every streamed package —
-  backed entirely by fields `PackageProfileQuery` already surfaces in #4551's
-  open diff (target frameworks, declared dependencies, owners, metadata
+  backed entirely by fields `PackageProfileQuery` already surfaces (#4551,
+  merged; target frameworks, declared dependencies, owners, metadata
   fields). No new grammar:
   `RowPredicateSyntaxParser`'s existing `Field=value` / `!=` / `>=` / `<=`
   grammar, ANDed via repeated `--where` flags exactly as it works today for
@@ -212,7 +226,7 @@ A facet-matched package is not naturally one flat row: it may match zero or
 more facets, each with its own evidence, and evaluating a promoted-tier facet
 may add fields a nuspec-only row never had. Before this can be a Table,
 something has to decide the row grain — the same "declared row unit"
-decision #4551's diff already makes once for package/dependency pairs. This
+decision #4551 already makes once for package/dependency pairs. This
 document proposes:
 
 - **Default grain: one row per package.** Multiple matched facets collapse
@@ -227,7 +241,7 @@ document proposes:
   facet whose answer is inherently per-sub-item (for example, "which of this
   package's target frameworks are out of support" when a package targets
   several) may choose to emit one row per package × sub-item, the same
-  explicit choice #4551's diff already makes for package × dependency.
+  explicit choice #4551 already makes for package × dependency.
   Markout does not decide this cardinality — the producer does, same as a
   call-graph producer decides edges, not nodes, are the row.
 - **Relational questions are out of scope for this row model.** "Which
@@ -242,7 +256,7 @@ document proposes:
 
 ## Completion and bound honesty parity with the browser
 
-`find --package-prefix`'s #4551 diff already reports truncation
+`find --package-prefix` (#4551, merged) already reports truncation
 ("Package discovery reached the requested package limit" /
 "Package discovery was truncated by a pagination limit; narrow the prefix.")
 and visible per-source failures. That is the same completion vocabulary
@@ -253,15 +267,10 @@ the CLI should not reinvent that wording, and the browser experience should
 not need to translate a differently-shaped CLI completion signal.
 
 One ordering question is new once `--where` and `--deepen` exist: does the
-corpus bound apply before or after a nuspec-tier predicate runs? Per
-[the flag-numbering discussion above](#-t-is-the-wrong-flag-to-build-on-the-corpus-limit-spelling-is-an-open-issue),
-this document uses `-n` for that bound pending
-[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) — but
-whatever spelling it resolves to, [row-query-order.md](row-query-order.md)
-already frames the underlying question as a general goal ("keep `--top`
-meaningful by defining it as a post-filter, post-order semantic row cap").
-The same before/after question applies once a predicate can shrink what the
-bound counts:
+corpus bound apply before or after a nuspec-tier predicate runs?
+[Item and line limits](item-and-line-limits.md) settles `-n` as post-filter and
+post-order. The same before/after question matters because a predicate can
+shrink what the bound counts:
 
 - **Nuspec-tier `--where`** should filter before `-n` truncates: `-n 500`
   should mean "the first 500 packages that match," not "the first 500
@@ -275,10 +284,11 @@ bound counts:
   fewer matches than its candidate bound is a true, bounded-complete result
   over that candidate set, not a truncated one.
 
-Whichever ordering an implementation slice picks, it must say so explicitly
-in the command's help text and its rendered completion state, naming the gate
-the same way this project already requires assertions about behavior to
-name their enforcing test.
+The implementation must preserve both distinct orderings: nuspec predicates
+run before the semantic `-n` result limit, while `--deepen` bounds candidates
+before promoted IL evaluation. Help text and rendered completion state must
+name the candidate bound, and the asserted ordering must name its enforcing
+gate.
 
 ## Shared request/outcome shape with the browser
 
@@ -316,18 +326,20 @@ the CLI's named facets as canonical for the browser's facet rail.
 
 1. **This document** — layering and vocabulary, reviewable independently of
    any implementation.
-2. **Migrate `find --package-prefix` rendering onto the shared Sections
-   registry** — a mostly behavior-preserving prerequisite so `-S`/`--where`/
-   `--count`/`-n`/`--rows` work the same way they do for
-   `library`/`member`/`package`, without a second bespoke implementation
-   inside `PackageProfileFindOutputFormatter`. Its one deliberate, called-out
-   behavior change is retiring `-t`-as-package-limit, resolved by whatever
-   [#4677](https://github.com/richlander/dotnet-inspect/issues/4677) settles
-   on — see
-   [`-t` is the wrong flag to build on](#-t-is-the-wrong-flag-to-build-on-the-corpus-limit-spelling-is-an-open-issue).
-3. **Wire nuspec-tier `--where`** onto package-profile rows, deciding and
-   documenting the filter-before-bound ordering from
+2. **Sections migration — done, via #4551, but not as its own slice.**
+   `find --package-prefix` rendering already routes through the shared
+   Sections registry (`PackageProfileSections`,
+   `SectionPipeline<PackageProfileView>`), so `--count`/`--rows` work the
+   same way they do for `library`/`member`/`package`, without a second
+   bespoke implementation. What did not land alongside it: retiring
+   `-t`-as-package-limit for the settled `-n` contract, and `-S`/`--where`
+   remain unwired. See
+   [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing).
+3. **Retire `-t` for `-n` on `find --package-prefix`**, closing the gap step
+   2 left open, and **wire nuspec-tier `--where`** onto package-profile rows,
+   deciding and documenting the filter-before-bound ordering from
    [Completion and bound honesty parity](#completion-and-bound-honesty-parity-with-the-browser).
+   Neither sub-goal has landed yet.
 4. **Add the promoted-tier capability gate and `--deepen`-bounded IL
    evaluation**, including the L2 tier-gating error for an ungated
    promoted-tier field.

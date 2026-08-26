@@ -306,13 +306,19 @@ public sealed class PackageDependencyGroupsQueryTests
         InMemoryPackageContent content = Content(
             ("Example.Package.nuspec", Manifest("", "Different.Package")));
 
-        Exception error = Failed(
+        PackageDependencyGroupsResult.Failed failure = FailedResult(
             await ExecuteAsync(
                 content,
                 "Example.Package"));
 
-        Assert.IsType<InvalidDataException>(error);
-        Assert.DoesNotContain("Different.Package", error.Message, StringComparison.Ordinal);
+        Assert.IsType<InvalidDataException>(failure.Error);
+        Assert.Equal(
+            PackageManifestFailureReason.IdentityMismatch,
+            failure.ManifestFailure?.Reason);
+        Assert.DoesNotContain(
+            "Different.Package",
+            failure.Error.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -352,15 +358,18 @@ public sealed class PackageDependencyGroupsQueryTests
             </package>
             """;
 
-        Exception error = Failed(
+        PackageDependencyGroupsResult.Failed failure = FailedResult(
             await ExecuteAsync(
                 Content(("Example.Package.nuspec", manifest)),
                 "Example.Package"));
 
-        Assert.IsType<NuspecParseException>(error);
+        Assert.IsType<InvalidDataException>(failure.Error);
+        Assert.Equal(
+            PackageManifestFailureReason.MalformedXml,
+            failure.ManifestFailure?.Reason);
         Assert.DoesNotContain(
             "SHOULD-NOT-REACH-THE-DIAGNOSTIC",
-            error.Message,
+            failure.Error.Message,
             StringComparison.Ordinal);
     }
 
@@ -433,14 +442,17 @@ public sealed class PackageDependencyGroupsQueryTests
     {
         string manifest = PadToCharacterCount(
             Manifest(""),
-            PackageDependencyGroupsQuery.MaxManifestCharacters + 1);
+            PackageManifestFactsQuery.MaxManifestCharacters + 1);
 
-        Exception error = Failed(
+        PackageDependencyGroupsResult.Failed failure = FailedResult(
             await ExecuteAsync(
                 Content(("Example.Package.nuspec", manifest)),
                 "Example.Package"));
 
-        Assert.IsType<NuspecParseException>(error);
+        Assert.IsType<InvalidDataException>(failure.Error);
+        Assert.Equal(
+            PackageManifestFailureReason.MalformedXml,
+            failure.ManifestFailure?.Reason);
     }
 
     static PackageDependencyGroups Available(PackageDependencyGroupsResult result) =>
@@ -459,7 +471,11 @@ public sealed class PackageDependencyGroupsQueryTests
             TestContext.Current.CancellationToken);
 
     static Exception Failed(PackageDependencyGroupsResult result) =>
-        Assert.IsType<PackageDependencyGroupsResult.Failed>(result).Error;
+        FailedResult(result).Error;
+
+    static PackageDependencyGroupsResult.Failed FailedResult(
+        PackageDependencyGroupsResult result) =>
+        Assert.IsType<PackageDependencyGroupsResult.Failed>(result);
 
     static string Manifest(
         string dependencies,
@@ -480,7 +496,7 @@ public sealed class PackageDependencyGroupsQueryTests
     static string PadToManifestByteLimit(string manifest)
     {
         int bytes = Encoding.UTF8.GetByteCount(manifest);
-        int remaining = PackageDependencyGroupsQuery.MaxManifestBytes - bytes;
+        int remaining = PackageManifestFactsQuery.MaxManifestBytes - bytes;
         Assert.True(remaining >= 7);
         int multibyteCharacters = (remaining - 7) / 3;
         int singleBytePadding = remaining - 7 - (multibyteCharacters * 3);
@@ -490,7 +506,7 @@ public sealed class PackageDependencyGroupsQueryTests
             + new string(' ', singleBytePadding)
             + "-->";
         Assert.Equal(
-            PackageDependencyGroupsQuery.MaxManifestBytes,
+            PackageManifestFactsQuery.MaxManifestBytes,
             Encoding.UTF8.GetByteCount(padded));
         return padded;
     }

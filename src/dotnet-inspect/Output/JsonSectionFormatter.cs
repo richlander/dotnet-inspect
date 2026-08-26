@@ -18,11 +18,11 @@ namespace DotnetInspector.Output;
 /// shape and does not come through here.
 /// </para>
 /// <para>
-/// Because Markout's formatter seam carries display strings — <see cref="MarkoutField"/> is
-/// <c>(string Key, string Value)</c> and table rows are <c>string[]</c> — the JSON this emits has
-/// title-cased keys and stringized values (<c>"Is Static": "yes"</c>, not <c>"is_static": true</c>).
-/// That is the display view the caller asked for, not a fidelity regression in the machine
-/// contract; richlander/markout#173 and #175 would let this carry typed values and machine keys.
+/// Markout's formatter seam carries strings — <see cref="MarkoutField"/> is
+/// <c>(string Key, string Value)</c> and table rows are <c>string[]</c>. Inline value slots can
+/// contain Markout semantic markup, so this formatter applies the same plain-text rendering as
+/// JSONL before JSON encoding. Values remain strings (<c>"yes"</c>, not <c>true</c>); that is the
+/// lowered display contract, not a fidelity regression in the typed machine contract.
 /// </para>
 /// <para>
 /// Section and projection decisions arrive already applied: Markout honors
@@ -51,9 +51,18 @@ internal sealed class JsonSectionFormatter :
     {
         Fields,
         Table,
-        List,
+        UnlabeledList,
+        LabeledArrays,
         Tree,
     }
+
+    private sealed record LabeledArray(string Name, string[] Values);
+    private sealed record ProjectedTreeNode(
+        string Text,
+        string? Badge,
+        TreeNodeState State,
+        ProjectedTreeNode[] Children,
+        bool IncludeBadge);
 
     private sealed class Section(string name, SectionKind kind)
     {
@@ -66,7 +75,8 @@ internal sealed class JsonSectionFormatter :
         public List<string[]> Rows { get; } = [];
         public List<MarkoutField> Fields { get; } = [];
         public List<string> Items { get; } = [];
-        public List<TreeNode> Tree { get; } = [];
+        public List<LabeledArray> LabeledArrays { get; } = [];
+        public List<ProjectedTreeNode> Tree { get; } = [];
 
         /// <summary>
         /// Records that <paramref name="incoming"/> content is being added to this section.
@@ -137,7 +147,7 @@ internal sealed class JsonSectionFormatter :
                 ValidateRowWidth(row.Length);
 
             foreach (var row in rows)
-                Rows.Add(row);
+                Rows.Add(row.ToArray());
         }
 
         public void AddRow(ReadOnlySpan<string> values)
@@ -269,16 +279,22 @@ internal sealed class JsonSectionFormatter :
     {
         RequireNoActiveStreamingTable("format an array");
 
-        var section = RequireSection(SectionKind.List);
-        foreach (var value in values)
-            section.Items.Add(value);
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            throw new NotSupportedException(
+                "A labeled array reached the JSON formatter without a label. " +
+                "Use list-item formatting for an unlabeled array.");
+        }
+
+        var section = RequireSection(SectionKind.LabeledArrays);
+        section.LabeledArrays.Add(new LabeledArray(name, values.ToArray()));
     }
 
     public void FormatListItem(TextWriter writer, string item)
     {
         RequireNoActiveStreamingTable("format a list item");
 
-        var section = RequireSection(SectionKind.List);
+        var section = RequireSection(SectionKind.UnlabeledList);
         section.Items.Add(item);
     }
 
@@ -288,7 +304,7 @@ internal sealed class JsonSectionFormatter :
 
         var section = RequireSection(SectionKind.Tree);
         foreach (var node in nodes)
-            section.Tree.Add(node);
+            section.Tree.Add(SnapshotTreeNode(node, options.IncludeBadges));
     }
 
     public void FormatTreeNode(TextWriter writer, string text, string prefix)
@@ -324,7 +340,7 @@ internal sealed class JsonSectionFormatter :
             json.WriteStartObject();
 
             foreach (var field in _rootFields)
-                json.WriteString(RequireUniqueKey(emitted, field.Key), field.Value);
+                json.WriteString(RequireUniqueKey(emitted, field.Key), RenderInlineValue(field.Value));
 
             foreach (var section in _sections)
                 WriteSection(json, section, RequireUniqueKey(emitted, section.Name));
@@ -378,21 +394,34 @@ internal sealed class JsonSectionFormatter :
                 foreach (var row in section.Rows)
                 {
                     json.WriteStartObject();
-                    // A row shorter than the header set is a Markout padding artifact, not data;
-                    // stopping at the shorter of the two avoids inventing keys with null values.
-                    var count = Math.Min(section.Headers.Length, row.Length);
-                    for (var i = 0; i < count; i++)
-                        json.WriteString(section.Headers[i], row[i]);
+                    for (var i = 0; i < section.Headers.Length; i++)
+                    {
+                        var value = i < row.Length ? RenderInlineValue(row[i]) : "";
+                        json.WriteString(section.Headers[i], value);
+                    }
                     json.WriteEndObject();
                 }
                 json.WriteEndArray();
                 break;
 
-            case SectionKind.List:
+            case SectionKind.UnlabeledList:
                 json.WriteStartArray(key);
                 foreach (var item in section.Items)
-                    json.WriteStringValue(item);
+                    json.WriteStringValue(RenderInlineValue(item));
                 json.WriteEndArray();
+                break;
+
+            case SectionKind.LabeledArrays:
+                json.WriteStartObject(key);
+                var arrayKeys = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var array in section.LabeledArrays)
+                {
+                    json.WriteStartArray(RequireUniqueKey(arrayKeys, array.Name));
+                    foreach (var value in array.Values)
+                        json.WriteStringValue(RenderInlineValue(value));
+                    json.WriteEndArray();
+                }
+                json.WriteEndObject();
                 break;
 
             case SectionKind.Tree:
@@ -406,27 +435,49 @@ internal sealed class JsonSectionFormatter :
                 json.WriteStartObject(key);
                 var fieldKeys = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var field in section.Fields)
-                    json.WriteString(RequireUniqueKey(fieldKeys, field.Key), field.Value);
+                    json.WriteString(RequireUniqueKey(fieldKeys, field.Key), RenderInlineValue(field.Value));
                 json.WriteEndObject();
                 break;
         }
     }
 
-    private static void WriteTreeNode(Utf8JsonWriter json, TreeNode node)
+    private static ProjectedTreeNode SnapshotTreeNode(TreeNode node, bool includeBadge)
+    {
+        var children = node.Children is { Count: > 0 }
+            ? node.Children.Select(child => SnapshotTreeNode(child, includeBadge)).ToArray()
+            : [];
+        return new ProjectedTreeNode(node.Text, node.Badge, node.State, children, includeBadge);
+    }
+
+    private static void WriteTreeNode(Utf8JsonWriter json, ProjectedTreeNode node)
     {
         json.WriteStartObject();
-        json.WriteString("text", node.Text);
-        if (!string.IsNullOrEmpty(node.Badge))
-            json.WriteString("badge", node.Badge);
-        if (node.Children is { Count: > 0 } children)
+        json.WriteString("text", RenderInlineValue(node.Text));
+        if (node.IncludeBadge && !string.IsNullOrEmpty(node.Badge))
+            json.WriteString("badge", RenderInlineValue(node.Badge));
+        if (node.State != TreeNodeState.Normal)
+            json.WriteString("state", TreeStateMachineName(node.State));
+        if (node.Children.Length > 0)
         {
             json.WriteStartArray("children");
-            foreach (var child in children)
+            foreach (var child in node.Children)
                 WriteTreeNode(json, child);
             json.WriteEndArray();
         }
         json.WriteEndObject();
     }
+
+    private static string RenderInlineValue(string? value) =>
+        FormatHelper.RenderInlinePlainText(value);
+
+    private static string TreeStateMachineName(TreeNodeState state) =>
+        state switch
+        {
+            TreeNodeState.Normal => "normal",
+            TreeNodeState.Revisit => "revisit",
+            _ => throw new NotSupportedException(
+                $"Tree node state '{state}' has no stable projected JSON name."),
+        };
 
     private Section RequireSection(SectionKind kind)
     {

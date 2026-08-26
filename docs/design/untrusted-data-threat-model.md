@@ -703,6 +703,15 @@ TypeRef that resolves to a local non-`int32` enum, a TypeDef whose
 full name collides with an earlier row, an over-deep
 `value__` field signature, or a non-fixed-width `value__` primitive
 such as `string`, cannot desynchronize later count reads.
+A serialized enum name that is not a TypeDef in the current image
+stays `int32` unless a caller-supplied resolver found the defining
+image; local TypeDefs still win over that resolver. Guard and SRM
+invoke that resolver with the same normalized name (assembly suffix
+stripped), so a resolver keyed on the simple name cannot skip four
+bytes in the guard and eight in SRM. Absent a defining image, decode
+returns null rather than emitting values from a four-byte skip of an
+eight-byte argument. A defining image does not make a later hostile
+count legal.
 `CLASS`/`VALUETYPE` `System.Type` uses the same rendered-name oracle as
 SRM (`type == "System.Type"`), so a TypeRef whose namespace is empty
 and whose name is `System.Type`, or a nested `System`+`Type` TypeRef,
@@ -799,6 +808,15 @@ pre-decoding rejection.
 `CustomAttributeValueGuardTests.ExhaustedJaggedSzArray_IsSafe`,
 `CustomAttributeValueGuardTests.OverDeepEnumFieldModifiers_UseInt32WidthAndSeeFollowingArrayCount`,
 `CustomAttributeValueGuardTests.AssemblyQualifiedNamedEnum_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.CrossAssemblyInt64NamedEnum_WithoutDefiningImage_DoesNotDecode`,
+`CustomAttributeValueGuardTests.CrossAssemblyInt64NamedEnum_WithDefiningImage_Decodes`,
+`CustomAttributeValueGuardTests.CrossAssemblyInt64NamedEnum_WithDefiningImage_StillRefusesHostileCount`,
+`CustomAttributeValueGuardTests.CrossAssemblyInt64NamedEnum_ExactSimpleNameResolver_Decodes`,
+`CustomAttributeValueGuardTests.CrossAssemblyInt64NamedEnum_ExactSimpleNameResolver_SeesOverlappingHostileCount`,
+`CustomAttributeValueGuardTests.LocalInt64EnumFixedArgument_IgnoresConflictingExternalResolver`,
+`CustomAttributeValueGuardTests.DirectGuard_LocalInt64NamedEnum_IgnoresInt32Resolver_SeesOverlappingHostileCount`,
+`CustomAttributeValueGuardTests.DirectGuard_NormalizesNonFixedWidthResolver_SeesHostileCount`,
+`CustomAttributeValueGuardTests.DirectGuard_MalformedTypeDefIndex_DoesNotBypassHostileCount`,
 `CustomAttributeValueGuardTests.ClassSystemStringFixedArgument_SeesFollowingArrayCount`,
 `CustomAttributeValueGuardTests.DottedSystemTypeTypeRef_SeesFollowingArrayCount`,
 `CustomAttributeValueGuardTests.NestedSystemTypeTypeRef_SeesFollowingArrayCount`,
@@ -928,6 +946,18 @@ gates the lower bound on every runtime and
 Product-wide default
 aggregate expansion, entry-count, and retention budgets remain an open
 requirement below.
+
+RID companion verification has a narrower aggregate compressed-input bound:
+one operation reads at most 500 MB across all local sibling archives, in
+addition to the per-archive limit. Exhaustion leaves unexamined existing
+candidates indeterminate rather than reporting authoritative absence, while
+missing paths need no byte reservation. Reservation uses the length of the
+opened handle and the bounded reader consumes that same handle, preventing a
+path replacement from acquiring an uncharged allowance. The two cases of
+`RidPackageVerifierTests.VerifyAsync_LocalArchiveReadBudgetIsShared` gate
+exhaustion and positive evidence within the budget;
+`ProbeLocalPackageArchiveAsync_MissingThenCreatedArchiveConsumesBudgetWhenOpened`
+gates reservation ownership.
 
 ### Untrusted JSON rejects duplicate properties
 
@@ -2036,10 +2066,15 @@ only ordinary compiler output.
    rejected value; that same handler returns an empty result, which is the
    success-shaped failure this document forbids elsewhere.
    `ValidatePathComponent` does not reject control characters other than
-   `NUL`, so an `ESC` passes it outright. The nuspec boundary now rejects
-   malformed XML with a typed, content-free diagnostic and carries descriptions
-   as `InertString`; package-coordinate validation and the two graph-resolution
-   leaks remain the next application of the hardened-entrypoint pattern.
+   `NUL`, so an `ESC` passes it outright. The nuspec projection boundary now
+   rejects malformed XML, unsupported structure, identity mismatch, dependency
+   contract violations, and query-owned resource limits with typed,
+   content-free reasons, and carries descriptions as `InertString`.
+   `PackageManifestFactsQueryTests.FailureMessage_IsStableForEveryReason`,
+   `FailureMessage_IsSafeForUnknownFutureReason`, and the hostile-input
+   execution tests gate that diagnostic contract. Package-coordinate validation
+   and the two graph-resolution leaks remain the next application of the
+   hardened-entrypoint pattern.
 10. Establish fuzzing over the PE, metadata, PDB, nuspec, and archive entry
     points. The domain-matched precedent is `binutils`, whose parsers are
     continuously fuzzed and have repeatedly yielded CVEs that way. Most of

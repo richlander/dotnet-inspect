@@ -165,10 +165,11 @@ export interface BrowserHomeDemoRunActivation {
   focusVersion: string;
   focusFramework: string;
   typeId: string;
-  memberName: string;
-  memberKind: string;
-  memberAnchorDigest: string;
-  memberSection: string;
+  section: string;
+  memberName: string | null;
+  memberKind: string | null;
+  memberAnchorDigest: string | null;
+  memberSection: string | null;
 }
 
 export interface BrowserHomeDemoRunResult {
@@ -317,6 +318,13 @@ export interface BrowserPackageOpportunities {
   inspectionError: string | null;
 }
 
+export interface BrowserPackagePerformance {
+  members: BrowserPerformanceMember[];
+  inspectionError: string | null;
+  nonPublicOpportunities: number;
+  totalOpportunities: number;
+}
+
 export interface BrowserPackageSurface {
   package: string;
   version: string;
@@ -339,6 +347,18 @@ export interface BrowserParameterSurface {
   hasDefault: boolean;
   defaultValue: string | null;
   description: string | null;
+}
+
+export interface BrowserPerformanceMember {
+  assembly: string;
+  typeId: string;
+  memberName: string;
+  stableSelector: string;
+  bodyTokens: number[];
+  opportunityCount: number;
+  inLoopCount: number;
+  shapes: string[];
+  confidence: string;
 }
 
 export interface BrowserSource {
@@ -492,7 +512,7 @@ export declare function queryPackageIntegrations(packageId: string, version: str
 export declare function queryPackageMetadata(packageId: string, version: string, targetFramework: string): Promise<string>;
 export declare function queryPackageMetadataTable(packageId: string, version: string, targetFramework: string, assemblyFileName: string, tableIndex: number, startRowId: number, maxRows: number): Promise<string>;
 export declare function queryPackageOpportunities(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageOpportunities>;
-export declare function queryPackagePerformance(packageId: string, version: string, targetFramework: string): Promise<string>;
+export declare function queryPackagePerformance(packageId: string, version: string, targetFramework: string): Promise<BrowserPackagePerformance>;
 export declare function queryPackageVersions(packageId: string): Promise<string[]>;
 export declare function queryPlatformHeapEntries(targetFramework: string, assemblyFileName: string, pack: string, heap: string): Promise<string>;
 export declare function queryPlatformIntegrations(targetFramework: string, assemblyFileName: string, pack: string): Promise<BrowserPackageIntegrations>;
