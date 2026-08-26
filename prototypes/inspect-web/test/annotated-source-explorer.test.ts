@@ -227,6 +227,7 @@ test("drag selection does not activate an addressable source segment", () => {
     onFindingMemberCopy: () => {},
     onFindingMemberNavigate: () => {},
     onInvocationNavigate: () => {},
+    onInvocationSelect: () => {},
     onMediumToggle: () => {},
     onNodeKindSelect: () => {},
     onRegionSelect: () => {},
@@ -242,7 +243,7 @@ test("drag selection does not activate an addressable source segment", () => {
   assert.deepEqual(calls, [17, 17]);
 });
 
-test("resolved invocation expressions render as typed navigation affordances", () => {
+test("resolved invocation expressions select typed nodes with explicit destinations", () => {
   validateAnnotatedSourceDocument(invocationDocument);
   validateAnnotatedSourceInvocationTargets(
     invocationDocument,
@@ -259,13 +260,40 @@ test("resolved invocation expressions render as typed navigation affordances", (
   assert.match(
     html,
     /class="annotated-span addressable invocation[^"]*"[^>]*data-ase-invocation="0"/);
-  assert.match(html, /Open Example\.Targets\.Target/);
+  assert.match(html, /Inspect Example\.Targets\.Target/);
   assert.doesNotMatch(
     html,
     /data-ase-invocation="0"[^>]*data-ase-offset/);
+
+  const selected = reduceAnnotatedSourceExplorerState(
+    invocationDocument,
+    reduceAnnotatedSourceExplorerState(
+      invocationDocument,
+      createAnnotatedSourceExplorerState(invocationDocument),
+      { type: "select-node", nodeId: 0 },
+    ),
+    { type: "select-node", nodeId: invocationTarget.nodeId },
+  );
+  assert.deepEqual(selected.selectedNodeIds, [0, invocationTarget.nodeId]);
+  const selectedHtml = renderAnnotatedSourceExplorer({
+    result: invocationResult,
+    state: selected,
+    title: "Example",
+    subtitle: "Target",
+    escapeHtml,
+  });
+  assert.match(selectedHtml, /<span>Navigate to<\/span>/);
+  assert.match(
+    selectedHtml,
+    /data-ase-invocation-navigate="0" data-ase-invocation-destination="member"[^>]*>Member/);
+  assert.match(
+    selectedHtml,
+    /data-ase-invocation-navigate="0" data-ase-invocation-destination="source"[^>]*>Source/);
+  assert.match(selectedHtml, /Open member overview for Example\.Targets\.Target/);
+  assert.match(selectedHtml, /Open source for Example\.Targets\.Target/);
 });
 
-test("invocation navigation preserves drag selection and supports keyboard activation", () => {
+test("invocation selection preserves drag selection and destination chips navigate", () => {
   let selecting = true;
   const ownerDocument = {
     activeElement: null,
@@ -275,13 +303,24 @@ test("invocation navigation preserves drag selection and supports keyboard activ
     }),
   };
   const invocation = new FakeElement(
-    { aseInvocation: "3" },
+    { aseInvocation: "3", aseInvocationSegment: "41" },
     ownerDocument);
-  const calls: number[] = [];
+  const member = new FakeElement({
+    aseInvocationNavigate: "3",
+    aseInvocationDestination: "member",
+  });
+  const source = new FakeElement({
+    aseInvocationNavigate: "3",
+    aseInvocationDestination: "source",
+  });
+  const calls: string[] = [];
   const root = fakeDom.parentNode({
     querySelector: () => null,
-    querySelectorAll: (selector: string) =>
-      selector === "[data-ase-invocation]" ? [invocation] : [],
+    querySelectorAll: (selector: string) => {
+      if (selector === "[data-ase-invocation]") return [invocation];
+      if (selector === "[data-ase-invocation-navigate]") return [member, source];
+      return [];
+    },
   });
 
   bindAnnotatedSourceExplorer(root, {
@@ -295,7 +334,10 @@ test("invocation navigation preserves drag selection and supports keyboard activ
     onFactSelect: () => {},
     onFindingMemberCopy: () => {},
     onFindingMemberNavigate: () => {},
-    onInvocationNavigate: index => calls.push(index),
+    onInvocationNavigate: (index, destination) =>
+      calls.push(`navigate:${index}:${destination}`),
+    onInvocationSelect: (index, segmentStart) =>
+      calls.push(`select:${index}:${segmentStart}`),
     onMediumToggle: () => {},
     onNodeKindSelect: () => {},
     onRegionSelect: () => {},
@@ -309,7 +351,14 @@ test("invocation navigation preserves drag selection and supports keyboard activ
   invocation.dispatch("click", fakeDom.event({ detail: 1 }));
   selecting = true;
   invocation.dispatch("click", fakeDom.event({ detail: 0 }));
-  assert.deepEqual(calls, [3, 3]);
+  member.dispatch("click");
+  source.dispatch("click");
+  assert.deepEqual(calls, [
+    "select:3:41",
+    "select:3:41",
+    "navigate:3:member",
+    "navigate:3:source",
+  ]);
 });
 
 test("invocation targets reject missing, indirect, and duplicate nodes", () => {
@@ -334,6 +383,16 @@ test("invocation targets reject missing, indirect, and duplicate nodes", () => {
 });
 
 test("invocation affordances retain a typed focus selector across rerenders", () => {
+  assert.deepEqual(
+    annotatedSourceExplorerFocusDataset({
+      aseInvocation: "17",
+      aseInvocationSegment: "41",
+    }),
+    {
+      attribute: "ase-invocation-segment",
+      value: "41",
+    },
+  );
   assert.deepEqual(
     annotatedSourceExplorerFocusDataset({
       aseInvocation: "17",
@@ -380,6 +439,7 @@ test("CodeLens preview state survives rerenders until the six-second animation e
     onFindingMemberCopy: () => {},
     onFindingMemberNavigate: () => {},
     onInvocationNavigate: () => {},
+    onInvocationSelect: () => {},
     onMediumToggle: () => {},
     onNodeKindSelect: () => {},
     onRegionSelect: () => {},
@@ -476,6 +536,7 @@ test("Finding evidence actions copy and navigate without changing selection", ()
     onFindingMemberCopy: member => calls.push(`copy:${member}`),
     onFindingMemberNavigate: index => calls.push(`navigate:${index}`),
     onInvocationNavigate: () => {},
+    onInvocationSelect: () => {},
     onMediumToggle: () => {},
     onNodeKindSelect: () => {},
     onRegionSelect: () => {},
@@ -498,6 +559,29 @@ test("the app routes the member tab into the TypeScript explorer", () => {
   assert.match(
     appSource,
     /id: "annotated-source\.dismiss"[\s\S]*when: \(\) => Boolean\(state\.annotatedExplorer\)/,
+  );
+});
+
+test("the app routes invocation selection before explicit member or source navigation", () => {
+  assert.match(
+    appSource,
+    /onInvocationSelect: \(targetIndex, segmentStart\) => \{[\s\S]*type: "select-node", nodeId/,
+  );
+  assert.match(
+    appSource,
+    /onInvocationNavigate: \(targetIndex, destination\) => \{[\s\S]*callGraphTargetBinding\(target, destination\)/,
+  );
+  assert.match(
+    appSource,
+    /const loadedSection = destination === "source" \? "source" : "overview"/,
+  );
+  assert.match(
+    appSource,
+    /state\.memberSection = section;[\s\S]*if \(section === "source"\) \{[\s\S]*loadSelectedMemberSource\(\)[\s\S]*else \{[\s\S]*loadSelectedMemberDocumentation\(\)/,
+  );
+  assert.match(
+    appSource,
+    /state\.memberSection = "call-graph";[\s\S]*showPlatformTargetError\(target, reason\)/,
   );
   assert.match(appSource, /renderAnnotatedSourceExplorer\(\)/);
   assert.match(appSource, /memberAnnotatedActiveFactIds/);
@@ -1446,6 +1530,7 @@ test("roving focus removes the source container from reverse tab order", () => {
       onFindingMemberCopy: () => {},
       onFindingMemberNavigate: () => {},
       onInvocationNavigate: () => {},
+      onInvocationSelect: () => {},
       onMediumToggle: () => {},
       onNodeKindSelect: () => {},
       onRegionSelect: () => {},

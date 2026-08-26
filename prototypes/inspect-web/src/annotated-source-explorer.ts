@@ -85,7 +85,11 @@ export interface AnnotatedSourceExplorerBindingActions {
   onFactSelect: (factId: number) => void;
   onFindingMemberCopy: (member: string) => void;
   onFindingMemberNavigate: (evidenceIndex: number) => void;
-  onInvocationNavigate: (targetIndex: number) => void;
+  onInvocationNavigate: (
+    targetIndex: number,
+    destination: "member" | "source",
+  ) => void;
+  onInvocationSelect: (targetIndex: number, segmentStart: number) => void;
   onCodeLensPreview: (nodeId: number) => void;
   onCodeLensPreviewEnd: (nodeId: number) => void;
   onCodeLensToggle: () => void;
@@ -114,6 +118,7 @@ const FOCUS_DATASET_NAMES = [
   "aseFact",
   "aseNode",
   "aseOffset",
+  "aseInvocationSegment",
   "aseInvocation",
   "aseCodelensNode",
 ] as const;
@@ -253,8 +258,19 @@ export function bindAnnotatedSourceExplorer(
       "click",
       event => {
         if (pointerSelectionOwnsActivation(button, event)) return;
+        actions.onInvocationSelect(
+          Number(button.dataset.aseInvocation),
+          Number(button.dataset.aseInvocationSegment));
+      }));
+  root.querySelectorAll<HTMLElement>("[data-ase-invocation-navigate]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => {
+        const destination = button.dataset.aseInvocationDestination;
+        if (destination !== "member" && destination !== "source") return;
         actions.onInvocationNavigate(
-          Number(button.dataset.aseInvocation));
+          Number(button.dataset.aseInvocationNavigate),
+          destination);
       }));
   root.querySelectorAll<HTMLElement>("[data-ase-offset]").forEach(button =>
     button.addEventListener(
@@ -637,12 +653,14 @@ export function renderAnnotatedSourceExplorer(
     state.selectedCaptureIndex === null
       && state.selectedKind === ""
       && state.selectedRegionRole === ""
-      && persistentSelectedNodes.length === 1
-      ? persistentSelectedNodes[0] ?? null
+      ? persistentSelectedNodes.at(-1) ?? null
       : null;
   const directlySelectedNodeFacts = directlySelectedNode
     ? view.facts.filter(fact => fact.nodeIds.includes(directlySelectedNode.id))
     : [];
+  const directlySelectedInvocation = directlySelectedNode
+    ? invocationTargetByNodeId.get(directlySelectedNode.id) ?? null
+    : null;
   const codeLensAnnotations = state.codeLens
     ? sourceCodeLensAnnotations(state.prepared.codeLensCandidates, kindLabels)
     : new Map<number, readonly SourceCodeLensAnnotation[]>();
@@ -755,7 +773,7 @@ export function renderAnnotatedSourceExplorer(
           invocationTargetByNodeId,
           segment.start);
         const invocationLabel = invocation
-          ? `Open ${invocation.target.target.typeFullName}.${invocation.target.target.memberName}`
+          ? `Inspect ${invocation.target.target.typeFullName}.${invocation.target.target.memberName}`
           : "";
         const accessibleDescription = [
           descriptions,
@@ -768,7 +786,7 @@ export function renderAnnotatedSourceExplorer(
           ? ` data-ase-codelens-preview-node="${activeCodeLensPreview.nodeId}" style="animation-delay: -${codeLensPreviewElapsed}ms"`
           : "";
         const activation = invocation
-          ? ` data-ase-invocation="${invocation.index}"`
+          ? ` data-ase-invocation="${invocation.index}" data-ase-invocation-segment="${segment.start}"`
           : ` data-ase-offset="${segment.start}"`;
         const navigationTitle = [
           titleText,
@@ -838,7 +856,7 @@ export function renderAnnotatedSourceExplorer(
           <div class="ase-panel-heading">
             <div><span>Canonical text</span><strong>Interactive overlays</strong></div>
             <div class="ase-overlay-legend" role="group" aria-label="Overlay legend">
-              <span><i class="invocation"></i>opens callee</span>
+              <span><i class="invocation"></i>callee available</span>
               <span><i class="finding"></i>finding available</span>
               <span><i class="semantic"></i>active finding</span>
               <span><i class="capture"></i>captured variable</span>
@@ -876,6 +894,7 @@ export function renderAnnotatedSourceExplorer(
                   ? sourceNodeSelectionHtml(
                       directlySelectedNode,
                       directlySelectedNodeFacts,
+                      directlySelectedInvocation,
                       kindLabels,
                       activeFactIds,
                       escapeHtml)
@@ -1366,14 +1385,30 @@ function captureSelectionHtml(
 function sourceNodeSelectionHtml(
   node: AnnotatedSourceNode,
   facts: readonly AnnotatedViewFact[],
+  invocation: {
+    index: number;
+    target: BrowserAnnotatedSourceInvocationTarget;
+  } | null,
   labels: ReadonlyMap<string, string>,
   activeFactIds: ReadonlySet<number>,
   escapeHtml: EscapeHtml,
 ): string {
   const kindLabel = labels.get(node.kind) ?? node.kind;
+  const targetLabel = invocation
+    ? `${invocation.target.target.typeFullName}.${invocation.target.target.memberName}`
+    : "";
   return `<div class="ase-source-node-selection">
       <p><span>Exact source node</span><strong>#${node.id} ${escapeHtml(kindLabel)}</strong></p>
       ${selectionHtml([node], escapeHtml)}
+      ${invocation
+        ? `<div class="ase-node-navigation">
+            <span>Navigate to</span>
+            <div>
+              <button type="button" data-ase-invocation-navigate="${invocation.index}" data-ase-invocation-destination="member" aria-label="Open member overview for ${escapeHtml(targetLabel)}" title="Open member overview for ${escapeHtml(targetLabel)}">Member</button>
+              <button type="button" data-ase-invocation-navigate="${invocation.index}" data-ase-invocation-destination="source" aria-label="Open source for ${escapeHtml(targetLabel)}" title="Open source for ${escapeHtml(targetLabel)}">Source</button>
+            </div>
+          </div>`
+        : ""}
       ${facts.length === 0
         ? `<p class="ase-node-facts-empty">No Findings target this source node.</p>`
         : `<div class="ase-node-facts">

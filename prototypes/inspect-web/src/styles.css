@@ -2166,6 +2166,11 @@ kbd {
 .ase-capture-selection > p strong { color: #b89ac6; font: 10px var(--mono); font-weight: normal; text-transform: none; }
 .ase-source-node-selection > p { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; padding: 9px 12px; border-bottom: 1px solid var(--line); color: var(--dim); font: 9px var(--mono); text-transform: uppercase; }
 .ase-source-node-selection > p strong { color: var(--blue); font: 10px var(--mono); font-weight: normal; text-transform: none; }
+.ase-node-navigation { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 12px; border-top: 1px solid var(--line); color: var(--dim); font: 9px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+.ase-node-navigation > div { display: flex; gap: 5px; }
+.ase-node-navigation button { padding: 3px 8px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface); color: var(--muted); font: 9px var(--mono); cursor: pointer; }
+.ase-node-navigation button:hover,
+.ase-node-navigation button:focus-visible { border-color: var(--blue); color: var(--text); outline: 0; }
 .ase-node-facts { display: grid; border-top: 1px solid var(--line); }
 .ase-node-facts > span { padding: 8px 12px 6px; color: var(--dim); font: 9px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
 .ase-node-facts-empty { margin: 0; padding: 9px 12px; border-top: 1px solid var(--line); color: var(--dim); font: 10px/1.5 var(--mono); }

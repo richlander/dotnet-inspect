@@ -563,7 +563,8 @@ follows pointer or keyboard activation to the tightest structural node. Source
 activation toggles that node in a persistent set even when a Finding targets
 it: each active node has a blue exact caret until that node is activated again
 or selection is cleared. Activating another node preserves prior node carets.
-Resolved direct invocation expressions are the navigation exception: the L1
+Resolved direct invocation expressions add typed destinations to the normal
+source-selection model: the L1
 projection joins Analysis's typed call-site target and IL offset to the
 Decompiler-issued C# node provenance. A call becomes navigable only when an
 `InvocationExpression` is the unique structurally innermost node carrying that
@@ -571,12 +572,16 @@ offset, so property getters inside its arguments do not compete for the
 invocation. Incomparable or multiply resolved candidates remain inert. The
 browser carries the resulting relation as `nodeId` →
 `BrowserCallGraphTarget`.
-Activating the underlined expression opens that member through the same
-binding-aware navigation used by call graphs. The browser does not parse C# or
-match display text. Indirect invocations, non-invocation call shapes, ambiguous
-targets, and nodes without exact correspondence remain ordinary source
-affordances. Pointer drag selection still wins over navigation, and resolved
-invocations participate in the source panel's existing arrow-key roving order.
+Activating the underlined expression selects that exact source node like every
+other source affordance. It becomes the inspector's current node while prior
+source carets remain active. Its detail then exposes a **Navigate to** row with
+**Member** and **Source** chips. Member opens the target's Overview
+section; Source opens its Source section. Both use the same binding-aware typed
+navigation as call graphs. The browser does not parse C# or match display text.
+Indirect invocations, non-invocation call shapes, ambiguous targets, and nodes
+without exact correspondence remain ordinary source affordances. Pointer drag
+selection still wins over activation, and resolved invocations participate in
+the source panel's existing arrow-key roving order.
 All anchored Findings start active with orange target carets; Finding focus and
 caret visibility remain separate so focusing one Finding does not hide the
 others. Clear removes every source and Finding caret. Caret descriptions use
