@@ -2982,6 +2982,9 @@ test("moving between members keeps the active section sticky, falling back to Ov
   assert.match(
     openMemberGroupBody,
     /state\.memberSection !== "overview"[\s\S]*group\.overloads\.length > 1[\s\S]*state\.selectedOverloadIndex = 0;[\s\S]*retainMemberSectionIfSupported\(group\)/);
+  assert.match(
+    openMemberGroupBody,
+    /const retainedSection = state\.memberSection;[\s\S]*let selectedFirstOverload = false;[\s\S]*selectedFirstOverload = true;[\s\S]*if \(selectedFirstOverload && state\.memberSection !== retainedSection\) \{\s*state\.selectedOverloadIndex = null;\s*state\.selectedBodyTarget = null/);
   assert.match(openMemberGroupBody, /loadMemberSectionContent\(state\.memberSection\)/);
 
   const openOverloadBody =
@@ -3002,6 +3005,13 @@ test("moving between members keeps the active section sticky, falling back to Ov
     appSource.match(/function resetMemberSectionState\(\) \{[\s\S]*?\n}\n/)?.[0] ?? "";
   assert.match(resetBody, /state\.memberSection = "overview"/);
   assert.match(resetBody, /clearMemberContentCache\(\)/);
+
+  const selectEntryBody =
+    appSource.match(/function selectMemberNavEntry\([\s\S]*?\n}\n\nfunction stepMemberNav/)?.[0]
+    ?? "";
+  assert.match(
+    selectEntryBody,
+    /entry\.group\.key === state\.selectedMemberKey[\s\S]*entry\.group\.overloads\.length === 1[\s\S]*state\.selectedOverloadIndex = null;\s*clearMemberContentCache\(\);\s*render\(\)/);
 });
 
 // `memberSectionIdsFor` is the admission set for the member strip, for the URL `?section=`

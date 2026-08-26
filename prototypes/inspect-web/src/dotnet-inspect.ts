@@ -2051,14 +2051,21 @@ function openMemberGroup(key: string) {
   if (!preserveSection) {
     state.memberSection = "overview";
   } else {
+    const retainedSection = state.memberSection;
+    let selectedFirstOverload = false;
     if (state.memberSection !== "overview"
       && group
       && group.overloads.length > 1
       && state.selectedOverloadIndex == null) {
       state.selectedOverloadIndex = 0;
       state.selectedBodyTarget = graphOnlyBodyTarget(group.overloads[0]);
+      selectedFirstOverload = true;
     }
     retainMemberSectionIfSupported(group);
+    if (selectedFirstOverload && state.memberSection !== retainedSection) {
+      state.selectedOverloadIndex = null;
+      state.selectedBodyTarget = null;
+    }
   }
   loadMemberSectionContent(state.memberSection);
 }
@@ -2161,8 +2168,14 @@ function memberNavCursor(entries: readonly MemberNavEntry[]) {
 function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
   const preservedFocus = captureMemberFocus(document);
   if (entry.kind === "member") {
-    if (entry.group.key === state.selectedMemberKey && entry.group.overloads.length === 1) {
-      render();
+    if (entry.group.key === state.selectedMemberKey) {
+      if (entry.group.overloads.length === 1) {
+        render();
+      } else {
+        state.selectedOverloadIndex = null;
+        clearMemberContentCache();
+        render();
+      }
     } else {
       openMemberGroup(entry.group.key);
     }
