@@ -190,11 +190,12 @@ Formatters decide presentation, not content:
   tree or diagram, a table row) and have no verbosity dial — they either show a
   thing or they do not (see [rendering-model.md](rendering-model.md)).
 
-Cardinality is observed at the structured writer seam, after section, column,
-field, and row-window projection and before text formatting. A formatter can
-observe those selected rows without writing text; rendered Markdown is never
-parsed back into rows. Producers outside Markout, such as metadata tables, expose
-cardinality from the same typed row builders their renderer consumes.
+Cardinality is observed at the structured row seam after section production and
+command-owned filtering, but before ordering, row-window, column, field, or text
+projection. A formatter can observe those matched rows without writing text;
+rendered Markdown is never parsed back into rows. Producers outside Markout,
+such as metadata tables, expose cardinality from the same typed row builders
+their renderer consumes.
 
 An incomplete comparison is not narrowed into a clean result. Diff document
 formats include typed inspection-failure rows. Single-shape diff formats
@@ -219,8 +220,10 @@ modifier changes how a selected payload is rendered.
 
 ### Count projection
 
-`--count` reduces selected structured table rows after filtering, ordering, and
-`--rows` windowing:
+`--count` reduces selected structured table rows after filtering and before
+ordering or windows. It rejects `--row`, item or line `-n`, `--top`, `--rows`,
+`--head`, `--tail`, `--lines`, and `--tail-lines` rather than silently counting
+a selected window:
 
 - One selected section produces a culture-invariant decimal scalar. The scalar
   is the complete payload in every format: JSON emits a JSON number and JSONL
@@ -239,8 +242,8 @@ not reject this count-result table.
 
 For multiple package subjects, `Package Info` and package-file sections count
 their existing cross-package survey rows; other sections merge each package's
-structured section rows. `--rows` windows the table that owns each row unit
-before those per-section counts are combined.
+structured section rows. Every selected row set reports its full post-filter
+cardinality within the declared input extent.
 
 Trees and graphs do not acquire row semantics from whichever presentation a
 formatter happens to choose. A producer that supports counting such a shape
