@@ -1466,27 +1466,41 @@ function sourceWorkbenchIsVisible(state: SourceWorkbenchState): boolean {
 
 export type SourceOperationKind = "graph" | "type" | "member" | null;
 
-export function activeSourceOperationKind(state: SourceWorkbenchState): SourceOperationKind {
+export function activeSourceOperationKind(
+  state: SourceWorkbenchState,
+  memberSourceHasConcreteOverload = true,
+): SourceOperationKind {
   if (!sourceWorkbenchIsVisible(state)) return null;
   if (state.graphSourceOpen) return "graph";
   if (state.atPackageRoot) return null;
   if (state.lens === "source") return "type";
   if (state.lens === "api"
     && state.selectedMemberKey
-    && state.memberSection === "source") {
+    && state.memberSection === "source"
+    && memberSourceHasConcreteOverload) {
     return "member";
   }
   return null;
 }
 
-export function sourceSurfaceIsVisible(state: SourceWorkbenchState): boolean {
-  return activeSourceOperationKind(state) !== null;
+export function sourceSurfaceIsVisible(
+  state: SourceWorkbenchState,
+  memberSourceHasConcreteOverload = true,
+): boolean {
+  return activeSourceOperationKind(
+    state,
+    memberSourceHasConcreteOverload) !== null;
 }
 
 export type SourceReloadKind = "graph" | "type" | "member" | "annotated" | null;
 
-export function sourceReloadKind(state: SourceWorkbenchState): SourceReloadKind {
-  const active = activeSourceOperationKind(state);
+export function sourceReloadKind(
+  state: SourceWorkbenchState,
+  memberSourceHasConcreteOverload = true,
+): SourceReloadKind {
+  const active = activeSourceOperationKind(
+    state,
+    memberSourceHasConcreteOverload);
   if (active) return active;
   if (!sourceWorkbenchIsVisible(state)
     || state.atPackageRoot
@@ -1495,7 +1509,8 @@ export function sourceReloadKind(state: SourceWorkbenchState): SourceReloadKind 
   }
   if (state.lens === "api"
     && state.selectedMemberKey
-    && state.memberSection === "annotated") {
+    && state.memberSection === "annotated"
+    && memberSourceHasConcreteOverload) {
     return "annotated";
   }
   return null;

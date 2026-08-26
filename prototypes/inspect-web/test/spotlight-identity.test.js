@@ -2593,7 +2593,7 @@ test("Type Source completion settles behind workbench overlays", () => {
     /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\)\s*\|\| state\.tasteOpen;[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| state\.graphSourceOpen\s*\|\| state\.docViewerOpen;/);
   assert.match(
     appSource,
-    /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*activeSourceOperationKind\(state\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);
+    /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*currentSourceOperationKind\(\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);
   assert.match(
     typeSource,
     /const ownsRequest = \(\) =>[\s\S]*if \(ownsRequest\(\)\) \{\s*state\.typeSourceLoading = false;\s*if \(request\.isVisible\(\)\) \{\s*dependencies\.renderPreservingMemberFocus\(preservedFocus\)/);
@@ -2939,10 +2939,10 @@ test("source operations cancel when superseded or hidden", () => {
   assert.match(renderBody, /sourceInspection\.cancelHiddenRequest\(\)/);
   assert.match(
     appSource,
-    /createSourceInspectionCoordinator\(\{[\s\S]*cancelEngineSourceRequest: \(\) => cancelSourceInspection\?\.\(\)/);
+    /createSourceInspectionCoordinator\(\{[\s\S]*memberSourceHasConcreteOverload,[\s\S]*cancelEngineSourceRequest: \(\) => cancelSourceInspection\?\.\(\)/);
   assert.match(
     sourceInspectionSource,
-    /cancelHiddenRequest\(\)[\s\S]*sourceSurfaceIsVisible\(state\)[\s\S]*cancelSourceRequestState\(state\)/);
+    /cancelHiddenRequest\(\)[\s\S]*sourceSurfaceIsVisible\(\s*state,\s*dependencies\.memberSourceHasConcreteOverload\(\)\)[\s\S]*cancelSourceRequestState\(state\)/);
   assert.match(appSource, /sourceInspection\.loadMemberSource\(\{/);
   assert.match(appSource, /sourceInspection\.loadTypeSource\(\{/);
   assert.match(appSource, /sourceInspection\.openGraphSource\(request, title\)/);
@@ -2950,14 +2950,14 @@ test("source operations cancel when superseded or hidden", () => {
   const reloadBody =
     appSource.match(/function reloadVisibleSource\(\)[\s\S]*?\n}/)?.[0]
     ?? "";
-  assert.match(reloadBody, /switch \(sourceReloadKind\(state\)\)/);
+  assert.match(reloadBody, /switch \(currentSourceReloadKind\(\)\)/);
   const autoLoadBody =
     appSource.match(
       /function maybeAutoLoadVisibleSource\(\)[\s\S]*?\n}\n\nfunction maybeAutoLoadTypeMetadata/)?.[0]
     ?? "";
   assert.match(
     autoLoadBody,
-    /const kind = activeSourceOperationKind\(state\)/);
+    /const kind = currentSourceOperationKind\(\)/);
   assert.match(autoLoadBody, /kind === "type"/);
   assert.match(autoLoadBody, /kind === "member"/);
   assert.match(autoLoadBody, /kind === "graph"/);
@@ -3024,6 +3024,22 @@ test("source operations cancel when superseded or hidden", () => {
       memberSection: "annotated"
     }),
     "annotated");
+  assert.equal(
+    activeSourceOperationKind({
+      ...visible,
+      lens: "api",
+      selectedMemberKey: "M",
+      memberSection: "source"
+    }, false),
+    null);
+  assert.equal(
+    sourceReloadKind({
+      ...visible,
+      lens: "api",
+      selectedMemberKey: "M",
+      memberSection: "annotated"
+    }, false),
+    null);
   assert.equal(
     sourceReloadKind({
       ...visible,
@@ -3118,6 +3134,74 @@ test("MethodDef-only member sections are hidden for bodiless APIs", () => {
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }),
     ["overview", "call-graph", "facts", "source", "annotated"]);
+});
+
+// Arrowing between members keeps the active section (e.g. Source) sticky, the same way
+// arrowing between types never disturbs the type-level lens. openMemberGroup/openOverload
+// (the two entry points arrow-key nav uses) must clear cached per-member content without
+// resetting memberSection, and only fall back to Overview when the newly selected member
+// doesn't support the section that was showing.
+test("moving between members keeps the active section sticky, falling back to Overview only when unsupported", () => {
+  const openMemberGroupBody =
+    appSource.match(/function openMemberGroup\(key: string\) \{[\s\S]*?\n}\n/)?.[0] ?? "";
+  assert.match(openMemberGroupBody, /clearMemberContentCache\(\)/);
+  assert.doesNotMatch(openMemberGroupBody, /resetMemberSectionState\(\)/);
+  assert.match(
+    openMemberGroupBody,
+    /const preserveSection =\s*state\.memberBrowseTypeId === type\?\.id && Boolean\(state\.selectedMemberKey\)/);
+  assert.match(
+    openMemberGroupBody,
+    /state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*if \(!preserveSection\) \{\s*state\.memberSection = "overview"/);
+  assert.match(
+    openMemberGroupBody,
+    /state\.memberSection !== "overview"[\s\S]*group\.overloads\.length > 1[\s\S]*state\.selectedOverloadIndex = 0;[\s\S]*retainMemberSectionIfSupported\(group\)/);
+  assert.match(
+    openMemberGroupBody,
+    /const retainedSection = state\.memberSection;[\s\S]*let selectedFirstOverload = false;[\s\S]*selectedFirstOverload = true;[\s\S]*if \(selectedFirstOverload && state\.memberSection !== retainedSection\) \{\s*state\.selectedOverloadIndex = null;\s*state\.selectedBodyTarget = null/);
+  assert.match(openMemberGroupBody, /loadMemberSectionContent\(state\.memberSection\)/);
+
+  const openOverloadBody =
+    appSource.match(/function openOverload\(index: number\) \{[\s\S]*?\n}\n/)?.[0] ?? "";
+  assert.match(openOverloadBody, /clearMemberContentCache\(\)/);
+  assert.doesNotMatch(openOverloadBody, /resetMemberSectionState\(\)/);
+  assert.match(
+    openOverloadBody,
+    /state\.selectedBodyTarget = graphTarget;[\s\S]*retainMemberSectionIfSupported\(selectedMember\(selectedType\(\)\)\)/);
+  assert.match(openOverloadBody, /loadMemberSectionContent\(state\.memberSection\)/);
+
+  const retainBody =
+    appSource.match(/function retainMemberSectionIfSupported\([\s\S]*?\n}\n/)?.[0] ?? "";
+  assert.match(retainBody, /memberSectionsFor\(member\)/);
+  assert.match(retainBody, /state\.memberSection = "overview"/);
+
+  const resetBody =
+    appSource.match(/function resetMemberSectionState\(\) \{[\s\S]*?\n}\n/)?.[0] ?? "";
+  assert.match(resetBody, /state\.memberSection = "overview"/);
+  assert.match(resetBody, /clearMemberContentCache\(\)/);
+
+  const selectEntryBody =
+    appSource.match(/function selectMemberNavEntry\([\s\S]*?\n}\n\nfunction stepMemberNav/)?.[0]
+    ?? "";
+  assert.match(
+    selectEntryBody,
+    /entry\.group\.key === state\.selectedMemberKey[\s\S]*entry\.group\.overloads\.length === 1[\s\S]*state\.selectedOverloadIndex = null;\s*clearMemberContentCache\(\);\s*render\(\)/);
+});
+
+test("every overload-specific member loader leaves a multi-overload picker inert", () => {
+  for (const name of [
+    "loadSelectedMemberDocumentation",
+    "loadSelectedMemberSource",
+    "loadSelectedMemberAnnotatedSource",
+    "loadSelectedMemberCallGraph",
+    "loadSelectedMemberFacts",
+  ]) {
+    const body =
+      appSource.match(new RegExp(`async function ${name}\\(\\)[\\s\\S]*?\\n}`))?.[0]
+      ?? "";
+    assert.match(body, /selectedConcreteOverload\(member\.overloads, state\.selectedOverloadIndex\)/);
+    assert.match(body, /if \(!overload\) \{\s*render\(\);\s*return;\s*}/);
+    assert.doesNotMatch(body, /selectedOverloadIndex \?\? 0/);
+  }
 });
 
 // `memberSectionIdsFor` is the admission set for the member strip, for the URL `?section=`
@@ -3456,7 +3540,7 @@ test("graph-only members open through the typed member surface", () => {
   assert.doesNotMatch(binding, /openGraphSource\(/);
   assert.match(
     openMember,
-    /const graphOnlyTarget =[\s\S]*resetMemberSectionState\(\);[\s\S]*state\.selectedBodyTarget = graphOnlyTarget/);
+    /const graphOnlyTarget =[\s\S]*clearMemberContentCache\(\);[\s\S]*state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*retainMemberSectionIfSupported\(group\)/);
   assert.match(
     generatedEngineSource,
     /queryGraphMemberSurfaceExport = exports\.InspectionEngine\.QueryGraphMemberSurface/);
