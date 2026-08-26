@@ -534,9 +534,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             }
             else
             {
-                return CouldReferenceCurrentModule(declaringType!)
-                    ? null
-                    : fallback;
+                return fallback;
             }
 
             FieldDefinitionHandle[] matches =

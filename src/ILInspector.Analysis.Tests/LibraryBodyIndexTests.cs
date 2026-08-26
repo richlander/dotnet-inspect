@@ -2930,6 +2930,18 @@ public class LibraryBodyIndexTests
                 externalType,
                 metadata.GetOrAddString("Value"),
                 int32Field);
+        var localTypeSpecSignature = new BlobBuilder();
+        localTypeSpecSignature.WriteByte(0x12);
+        localTypeSpecSignature.WriteCompressedInteger(
+            MetadataTokens.GetRowNumber(owner) << 2);
+        TypeSpecificationHandle localTypeSpec =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(localTypeSpecSignature));
+        MemberReferenceHandle localTypeSpecAlias =
+            metadata.AddMemberReference(
+                localTypeSpec,
+                metadata.GetOrAddString("Value"),
+                int32Field);
         AssemblyReferenceHandle sameNameExternalAssembly =
             metadata.AddAssemblyReference(
                 metadata.GetOrAddString("FieldAlias"),
@@ -2979,6 +2991,7 @@ public class LibraryBodyIndexTests
                 selfAlias,
                 moduleAlias,
                 externalAlias,
+                localTypeSpecAlias,
                 sameNameExternalAlias,
                 wrongSignature,
                 wrongSelfSignature,
@@ -7031,7 +7044,7 @@ public class LibraryBodyIndexTests
             .. index.FieldStores.OrderBy(store => store.ILOffset),
         ];
 
-        Assert.Equal(8, stores.Length);
+        Assert.Equal(9, stores.Length);
         FieldIdentity canonical = Assert.IsType<FieldIdentity>(
             stores[0].Identity);
         Assert.All(
@@ -7044,8 +7057,12 @@ public class LibraryBodyIndexTests
             stores[4].Identity);
         Assert.NotEqual(canonical, external);
         Assert.Equal(0, external.LocalDefinitionToken);
+        FieldIdentity typeSpec = Assert.IsType<FieldIdentity>(
+            stores[5].Identity);
+        Assert.NotEqual(canonical, typeSpec);
+        Assert.Equal(0, typeSpec.LocalDefinitionToken);
         Assert.All(
-            stores[5..],
+            stores[6..],
             store => Assert.Null(store.Identity));
     }
 
