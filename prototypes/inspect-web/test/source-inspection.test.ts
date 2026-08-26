@@ -75,6 +75,7 @@ function inspectionDependencies(
     queryMemberSource: async () => source("member"),
     queryTypeSource: async () => source("type"),
     queryGraphSource: async () => source("graph"),
+    memberSourceHasConcreteOverload: () => true,
     cancelEngineSourceRequest: () => {},
     describeError: error =>
       error instanceof Error ? error.message : String(error),
@@ -137,6 +138,33 @@ test("canonical transitions cancel visible source work before snapshot", () => {
   assert.equal(state.memberSourceKey, "");
   assert.equal(coordinator.cancelCurrentRequest(), false);
   assert.equal(cancellations, 1);
+});
+
+test("member picker releases source ownership before taste invalidation", () => {
+  let cancellations = 0;
+  let hasConcreteOverload = true;
+  const state = inspectionState({
+    memberSourceLoading: true,
+    memberSourceKey: "member",
+  });
+  const coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      memberSourceHasConcreteOverload: () => hasConcreteOverload,
+      cancelEngineSourceRequest: () => cancellations++,
+    }));
+
+  hasConcreteOverload = false;
+  coordinator.cancelHiddenRequest();
+
+  assert.equal(cancellations, 1);
+  assert.equal(state.sourceRequestGeneration, 1);
+  assert.equal(state.memberSourceLoading, false);
+  assert.equal(state.memberSourceKey, "");
+
+  state.memberSourceKey = "";
+  coordinator.cancelHiddenRequest();
+  assert.equal(cancellations, 1);
+  assert.equal(state.memberSourceLoading, false);
 });
 
 test("canonical commit clears a settled graph source without rendering", () => {
