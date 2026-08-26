@@ -1096,9 +1096,16 @@ PhysicalCSharpBodyPreparationResult
 
 PhysicalCSharpBodyPreparation
   Address
+  Policy                 PhysicalProjectionPolicy
   RenderEquivalenceKeyResult
   Materialize()          Prepared(PhysicalCSharpBodyDocument)
                        | Failed(Diagnostics, DecompilationFidelity.Failed)
+
+PhysicalProjectionPolicy
+  Symbols                Disabled
+  SimulateNewRules       false
+  PrinterOptions         fixed physical comparison options
+  PolicyVersion          participates in RenderEquivalenceKey
 
 RenderEquivalenceKeyResult
   Available(RenderEquivalenceKey)
@@ -1110,11 +1117,20 @@ Only successful lazy materialization carries:
 ```text
 PhysicalCSharpBodyDocument
   Address
+  Policy                 PhysicalProjectionPolicy
   RenderEquivalenceKeyResult
   PhysicalBodyFingerprint
   Lines
   AnnotatedSourceDocument
   PhysicalProjectionProof
+
+ValidatedPhysicalSourceDocument
+  Document               AnnotatedSourceDocument
+  Proof                  non-serializable owner-issued validation receipt
+
+PhysicalSourceDocumentAdmissionResult
+  Validated(ValidatedPhysicalSourceDocument)
+  Unsupported(UnvalidatedPhysicalProvenance, Diagnostics)
 
 PhysicalProjectionProof
   Directive              PhysicalNoCompanion
@@ -1122,10 +1138,20 @@ PhysicalProjectionProof
   ClassicAsyncOutcome?   null for kickoff; exact local support acknowledgment only
 ```
 
-Its constructor is not public; only that factory can mint the wrapper after
-validating its exact address, render-equivalence result, physical fingerprint,
-local-origin document, fidelity, local classic outcome, and
-physical-projection provenance.
+`PhysicalCSharpBodyDocument` has no public constructor; only the `Decompile`
+materializer can mint it after validating its exact address,
+render-equivalence result, physical fingerprint, local-origin document,
+fidelity, local classic outcome, and physical-projection provenance. The
+separate `ValidatedPhysicalSourceDocument` wrapper is minted only by the
+physical projection owner or by the validation operation described below.
+`PhysicalProjectionPolicy` is an immutable value created per projection.
+Import receives it explicitly through a symbol-suppressing source view; it does
+not mutate, clone, dispose, or reopen the caller's `MetadataSource`. This is
+required for pathless or stream-backed sources and for concurrent callers. An
+already-open source may have symbols available and may have
+`SimulateNewRules = true`; neither ambient value is observed by physical key
+preparation or materialization. The same policy instance governs both phases,
+and the caller's source remains unchanged.
 `CSharpBodyDiff.CompareMembers`, `CSharpBodyDiff.CompareAssemblies` /
 `CSharpBodyDiff.CompareMethodIndexes`, and `CSharpBodyDiff.Canonicalize` (as
 called by `CSharpFindings.Inspect`) all consume that total result. Method
@@ -1141,14 +1167,22 @@ and are never substituted:
   and scope-qualified entity identities; exception regions; complete recursive
   method, local, and `InlineSig` encodings including signature headers, calling
   conventions, generic arity, ref kinds, custom modifiers, and function-pointer
-  conventions; effective module/type/method import policy including
-  `MemorySafetyRulesAttribute` and `SkipLocalsInit`; and the fixed physical
-  projection/printer policy version. Any dependency fact consulted by import
-  is represented by its scope-qualified identity and acquired provenance.
-- The physical path opens without symbols, fixes `SimulateNewRules = false`,
-  and fixes printer options. PDB content is therefore excluded by construction
-  rather than silently omitted. If a future caller makes any such input
-  configurable, it must enter the key before that caller may use the shortcut.
+  conventions; declaring-type and method generic-parameter names; every
+  method-parameter row name and every parameter fact consumed by import,
+  including `HasDefault`, top-level `DynamicAttribute`, and array-element
+  Dynamic state; effective module/type/method import policy including
+  `MemorySafetyRulesAttribute` and `SkipLocalsInit`; and the immutable physical
+  projection/printer policy version. Any dependency or metadata fact consulted
+  by import is either represented by its canonical value plus acquired
+  provenance or makes the key unavailable.
+- The physical policy suppresses symbols, forces
+  `SimulateNewRules = false`, and fixes printer options for both key preparation
+  and materialization. It does so even when a caller supplies a symbol-enabled
+  or pathless `MetadataSource` whose mutable simulation value is true. PDB
+  content is therefore excluded by the importer boundary rather than silently
+  omitted from the key, and the supplied source is not mutated or reopened. If
+  a future caller makes any such input configurable, it must enter the key
+  before that caller may use the shortcut.
 - `Unavailable(UnprovenRenderInput, Detail)` is a healthy preparation that
   cannot cheaply prove one of those inputs. Unsupported signature shapes,
   unresolved or externally acquired facts without stable provenance, and any
@@ -1192,24 +1226,46 @@ Implementation Diff therefore reaches every line or retained-Finding
 comparison only through this chokepoint without changing its Research-layer
 call shape.
 
-`IssueCorrespondence(AnnotatedSourceDocument, ...)` remains the existing
-same-physical-body review operation. It is not an old/new Implementation Diff
-correspondence: equal MVID, MethodDef token, and `PhysicalBodyFingerprint`
-remain mandatory. Admission additionally requires each document's
-evidence-method table to contain exactly one address/physical-fingerprint pair
-equal to its `Source`;
+`ValidatePhysicalSourceDocument(AnnotatedSourceDocument,
+IPhysicalBodyAcquisition)` returns
+`PhysicalSourceDocumentAdmissionResult`; it is the only raw-document path to
+trusted correspondence. `IssueCorrespondence` has one overload over two
+`ValidatedPhysicalSourceDocument` values and one raw-document convenience
+overload that requires the same explicit acquisition capability and maps
+either admission failure to the issue-result union.
+
+The physical projection owner wraps its freshly constructed document with a
+non-serializable validation receipt. Strict construction and deserialization
+validate only the portable graph; they cannot mint that receipt from a
+self-asserted `Source`, fingerprint, evidence-method entry, or instruction
+origin. A deserialized document must reacquire its addressed physical body
+through the supplied acquisition capability and validate its MVID, MethodDef,
+exact physical fingerprint, evidence-method table, and every instruction
+boundary before it can receive a fresh receipt. Validation performs no implicit
+network acquisition; the caller must explicitly supply already acquired bytes
+or an acquisition capability whose network policy was already authorized.
+Reacquisition failure or absence of the exact bytes returns
+`Unsupported(UnvalidatedPhysicalProvenance, Diagnostics)`.
+
+This is not an old/new Implementation Diff correspondence: equal MVID,
+MethodDef token, and `PhysicalBodyFingerprint` remain mandatory. Admission
+additionally requires each validated document's evidence-method table to
+contain exactly one address/physical-fingerprint pair equal to its `Source`;
 issuance returns
 `CSharpNodeCorrespondenceIssueResult.Issued(CSharpNodeCorrespondenceResult)`
 only after those checks, otherwise
 `Unsupported(DocumentContainsForeignEvidenceMethods | DifferentPhysicalBody |
-MissingPhysicalProvenance)`. `CSharpStructuralDiffDocument` construction
+MissingPhysicalProvenance | UnvalidatedPhysicalProvenance)`.
+`CSharpStructuralDiffDocument` construction
 accepts only `Issued`; the review harness reports the unsupported reason
 without manufacturing rows. This rejects every
 projector-prepared reconstructed document before node matching even when its
-kickoff `Source` is unchanged. There is no cross-version structural consumer in
-Implementation Diff today. A future one requires a separately designed,
-Research-owned cross-version correspondence operation with explicit admissible
-evidence and failure results; it must not reuse or weaken same-body
+kickoff `Source` is unchanged. It also rejects a publicly constructed or
+round-tripped document carrying a syntactically valid matching fingerprint and
+an origin in the middle of an instruction. There is no cross-version structural
+consumer in Implementation Diff today. A future one requires a separately
+designed, Research-owned cross-version correspondence operation with explicit
+admissible evidence and failure results; it must not reuse or weaken same-body
 `IssueCorrespondence`. That future operation is outside slice 0.
 Slice 0 updates [Implementation Diff](implementation-diff.md) and the
 [decompiler raise discipline](../decompiler-raise-discipline.md) to describe
@@ -1805,13 +1861,14 @@ gate ordinary reconstruction.
 | Method-qualified provenance transport | Decompiler node/annotation/anchor/`SourceLine`/`BoundSourceLine` + Research fact identity/row + `PrintedBodyMap` + existing `FactWithNothingToAnchorToSimplyHasNoTarget`, `MemberHeaderFactsCarryHeaderOriginAndTargetNothing`, and `AnnotatedSourceDocumentRejectsFalseTargetClaims` fixtures | Any cross-method node, annotation, anchor, IL line, bound line, fact identity, row, or serialized location loses its method address; Body versus MemberHeader origin or visible Anchor label collapses; compact `-1` becomes an instruction coordinate; a method-only fact is dropped or boundary-validated; product anchoring invents a method-only target/range; an explicit Body-fact target to an offset-free node is rejected or gains an instruction range; a MemberHeader fact becomes target-eligible; an instruction location avoids boundary validation; the evidence-method table is not the exact used-address set; a location references a missing/wrong-fingerprint entry; the offset-only compatibility projection is used for a cross-method value; or validation checks an offset against the wrong body |
 | Fact Row projection totality | FactRows-only bodyless/address/classification/import/stage/render/evidence fixtures plus body-bearing zero-fact and method-only-fact fixtures through `ProjectMember`, `CollectFactRows`, `MemberCodeProvider`, query, structured serialization, and CLI | A requested failure throws, becomes null, N/A, or empty `Complete`; a typed failure or diagnostic is lost; an unrequested projection is non-null; a legitimate empty census is not `Complete`; a method-only row acquires a C# line; or a consumer renders rows from `Failed` |
 | Reconstructed Research evidence | Research call/allocation and interleaved-IL fixtures whose user operations exist only in `MoveNext` + structured-output round trip | A reconstructed kickoff queries facts or IL only by its declaration token; loses the `MoveNextAddress`; reanchors companion offsets to the kickoff; `FactsByOffset` survives; equal instruction offsets with distinct methods/opcodes/facts cross-associate; product anchoring invents a method-only target; an unmatched evidence method falls back to a nearby/final line instead of typed failure; or the evidence-method table/qualified locations are lost in structured output |
-| Same-body structural admission | Strict document round trip + `IssueCorrespondence` physical-provenance fixtures + non-vacuity rejection test | Construction/deserialization accepts a missing or unused evidence-method entry; either valid document's table is not a singleton equal to `Source`; source address/physical fingerprint differs across documents; a reconstructed kickoff reaches node matching; or unsupported evidence is presented as trusted correspondence |
+| Same-body structural admission | Strict document round trip + `IssueCorrespondence` physical-provenance fixtures + non-vacuity rejection tests for synthetic matching fingerprints and mid-instruction origins | Construction/deserialization mints an owner validation receipt; a raw or deserialized document reaches node matching without reacquisition; reacquisition fails to validate MVID, MethodDef, exact physical fingerprint, evidence-method entries, or instruction boundaries; construction/deserialization accepts a missing or unused evidence-method entry; either validated document's table is not a singleton equal to `Source`; source address/physical fingerprint differs across documents; a reconstructed kickoff reaches node matching; or unsupported evidence is presented as trusted correspondence instead of `UnvalidatedPhysicalProvenance` |
 | Honesty marker and fidelity cause | Five CLI code views + public typed body + whole-type + Fidelity Causes | A declined classic body lacks its unsupported marker or DEC0004 |
 | Non-narrow preservation | CLI + typed/whole-type over extra call/store fixtures | Any original statement disappears |
 | Declaration modifier by stage-local state | CLI + typed/whole-member/type | Declined classic retains `async`, reconstructed classic omits it, runtime async loses it, or post-classic failure changes the retained decision's modifier |
 | Address/classification/body/import/stage/render union | Decompiler + CLI + Research + whole-type + Body Shape | Lifecycle states collapse, failures acquire success-shaped outcomes, or inspection accounting changes |
 | Exact legacy raise population | Existing accepted fixtures + close negatives | Slice 0 widens accepted reconstruction or a new eligibility path escapes set equality |
-| Render-equivalence proof | Existing `CompareAssemblies_TokenTargetChangeIsNotSkippedByFastPath` + token-renumbering equality + module-memory-policy-only + full-signature-header/custom-modifier/function-pointer-convention/ref-kind fixtures + physical-provenance fingerprint fixtures | A raw physical fingerprint drives a render-equivalence skip; an effective import/render input is omitted; a changed token target, policy, or signature semantic skips rendering; token renumbering alone forces rendering; unresolved/unsupported canonicalization hashes as equal instead of `Unavailable`; an available key is produced from symbols or non-production simulation/printer options; or a render-equivalence key enters `Source`, the evidence-method table, or same-body admission |
+| Render-equivalence proof | Existing `CompareAssemblies_TokenTargetChangeIsNotSkippedByFastPath` + token-renumbering equality + module-memory-policy-only + full-signature-header/custom-modifier/function-pointer-convention/ref-kind + six independent one-variable fixtures for parameter name, declaring-type generic-parameter name, method generic-parameter name, `HasDefault`, top-level Dynamic, and array-element Dynamic + physical-provenance fingerprint fixtures | A raw physical fingerprint drives a render-equivalence skip; an effective import/render input is omitted; a changed token target, policy, signature semantic, metadata name, or parameter fact skips rendering; token renumbering alone forces rendering; any name/fact fixture changes another render input; unresolved/unsupported canonicalization hashes as equal instead of `Unavailable`; an available key is produced from symbols or non-production simulation/printer options; or a render-equivalence key enters `Source`, the evidence-method table, or same-body admission |
+| Physical projection policy isolation | `CompareMembers`, assembly/method-index line diff, `CSharpFindings.Inspect`, and Findings comparison over symbol-enabled and pathless caller sources with `SimulateNewRules = true`, covering both available and unavailable keys | Key preparation and materialization observe different policies; either consults symbols or caller simulation state; physical output differs from the fixed symbol-free/non-simulated policy; the caller source is mutated, reopened, disposed, or requires a path; concurrent projections interfere; unavailable-key or Findings paths bypass the policy; or policy version is absent from an available key |
 | Findings census preservation | Equal-available-render-key `CSharpFindings.Compare` / assembly / method-index fixtures with non-empty bodies | Either successful side is not materialized and inspected; `OldAtoms`, `NewAtoms`, matches, or pairs are fabricated empty; either side's atoms differ from standalone `Inspect`; or the comparison is not complete |
 | Optional Implementation Diff boundary | `CSharpBodyDiff` + Findings + Implementation Diff async fixtures + source-architecture inventory + equal-available-render-key line-diff render-count spy | `CSharpBodyDiff.CompareMembers`, `CSharpBodyDiff.CompareAssemblies` / `CompareMethodIndexes`, or `CSharpBodyDiff.Canonicalize` via `CSharpFindings.Inspect` bypasses the total `Decompile` chokepoint; body detection, render-key construction, or physical fingerprinting happens outside it; an equal available-key line-diff pair computes the physical fingerprint or materializes either body; an unavailable key skips materialization; Findings suppresses required materialization; `Absent` or either `Failed` phase fabricates a document, loses its typed failure row, or changes its existing fidelity; physical proof loses fidelity or local acknowledgment; the physical projection imports companions, gives kickoff a classic outcome/marker, mutates support bodies, changes unrelated offsets, admits external `PhysicalCSharpBodyDocument` construction, or makes ordinary reconstruction depend on the comparison operation/result; or same-body `IssueCorrespondence` is presented as cross-version evidence |
 | `DecompilerResult` value semantics | Decompiler tests | Outcome, kickoff decline disposition, support-only disposition, or support acknowledgment is omitted from equality/hash/`with` behavior |
