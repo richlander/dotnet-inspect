@@ -7,7 +7,7 @@ export interface PackageDependencyBindingActions {
 }
 
 export interface PackagePerformanceTarget {
-  metadataToken: string;
+  stableSelector: string;
   assembly: string;
   typeId: string;
 }
@@ -70,9 +70,9 @@ export function bindPackageView(
     button.addEventListener(
       "click",
       () => actions.onGraphTypeSelect(button.dataset.graphType ?? "")));
-  root.querySelectorAll<HTMLElement>("[data-perf-token]").forEach(button =>
+  root.querySelectorAll<HTMLElement>("[data-perf-selector]").forEach(button =>
     button.addEventListener("click", () => actions.onPerformanceMemberSelect({
-      metadataToken: button.dataset.perfToken ?? "",
+      stableSelector: button.dataset.perfSelector ?? "",
       assembly: button.dataset.perfAssembly ?? "",
       typeId: button.dataset.perfType ?? "",
     })));

@@ -364,7 +364,8 @@ public class FindCommandTests
                     "1.0.0",
                     PackageSourceIdentity.NuGetOrg,
                     PackageProfileFailureKind.InvalidManifest,
-                    "The manifest was invalid.")),
+                    "The manifest was invalid.",
+                    PackageManifestFailureReason.IdentityMismatch)),
             new PackageProfileEvent.Completed(
                 new PackageProfileSummary(
                     "Contoso.",
@@ -379,7 +380,9 @@ public class FindCommandTests
             events);
 
         Assert.Equal(2, view.Results!.Count);
-        Assert.Equal("InvalidManifest", view.Results[0].Status);
+        Assert.Equal(
+            "InvalidManifest:IdentityMismatch",
+            view.Results[0].Status);
         Assert.Equal("The manifest was invalid.", view.Results[0].Error);
         Assert.Equal("truncated", view.Results[1].Status);
         Assert.Contains(
