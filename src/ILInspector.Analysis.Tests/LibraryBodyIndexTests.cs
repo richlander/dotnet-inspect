@@ -288,11 +288,8 @@ public class LibraryBodyIndexTests
             .GetMethods()
             .Count;
         int scanned = 0;
-        using var builder = new LibraryBodyAnalysisBuilder(
-            path,
-            reader,
-            peReader,
-            asyncSiblingMethodScanned: (definingReader, handle) =>
+        var index = new LibraryBodyAsyncSiblingMethodIndex(
+            (definingReader, handle) =>
             {
                 if (ReferenceEquals(definingReader, reader)
                     && definingReader.GetMethodDefinition(handle)
@@ -310,7 +307,7 @@ public class LibraryBodyIndexTests
                 .Select(_ => Task.Run(() =>
                 {
                     start.Wait(TestContext.Current.CancellationToken);
-                    return builder.AsyncSiblingMethodsByName(
+                    return index.MethodsByName(
                         reader,
                         fixtureType);
                 }, TestContext.Current.CancellationToken))
@@ -1893,7 +1890,7 @@ public class LibraryBodyIndexTests
             bool ambiguous = false;
             foreach (MemberRef candidate in candidates)
             {
-                LibraryBodyAnalysisBuilder
+                LibraryBodyAsyncSiblingCandidateResolver
                     .ConsiderAsyncSibling(
                         candidate,
                         ref best,

@@ -410,8 +410,15 @@ type resolution and the shared per-type method-name index.
 protected-receiver, friend-assembly identity, and directional nested-private
 access policy. It consumes the primary reader and assembly identity plus
 dispatch relationship proofs without owning metadata resolution or caches.
-Reader-relative candidate lookup, caches, orchestration, diagnostics, and
-result ordering remain assembly-builder policy.
+`LibraryBodyAsyncSiblingMethodIndex` publishes the synchronized per-type
+method-name cache shared by dispatch and candidate analysis.
+`LibraryBodyAsyncSiblingCandidateResolver` owns reader-relative synchronous
+definition and sibling-candidate resolution, exact-callee caching, inherited
+name traversal, ambiguity selection, and source-dependent accessibility and
+dispatch filtering. It consumes builder callbacks for synchronized external
+resolution and the shared local type-definition index without owning metadata
+lifetime. Orchestration, diagnostics, and result ordering remain
+assembly-builder policy.
 `CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn`,
 `OptimizationOpportunities_AsyncStateMachine_IsAmortized`, and
 `Allocations_ClassifiesCrossAndInAssemblyValueTypeNewobj_ByShape` gate
