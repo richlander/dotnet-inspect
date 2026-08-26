@@ -4,6 +4,9 @@ using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Views;
 using Markout;
+using System.Text;
+
+Console.OutputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
 // The .NET runtime is the one writer of this process's stderr that CommandError
 // cannot own: an escaping exception is printed by the runtime at column 0, raw,
