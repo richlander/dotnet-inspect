@@ -190,6 +190,54 @@ public sealed class AuthoredSourceOracleManifestTests
             failure.Contains("lack Printer body version", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData(false, null, false)]
+    [InlineData(false, 1, true)]
+    [InlineData(true, null, true)]
+    [InlineData(true, 2, true)]
+    [InlineData(true, 1, false)]
+    public void CorpusReader_ValidatesPrinterBodyAndVersionAsOneShape(
+        bool includeBody,
+        int? version,
+        bool malformed)
+    {
+        var record = Row(
+            "Oracle.cs",
+            1,
+            ReturnToSenderSourceOutcome.ValidMatch,
+            PrinterExactOutcome.Exact).Record with
+        {
+            PrinterBody = includeBody ? "return;" : null,
+            PrinterBodyVersion = version,
+        };
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"printer-body-schema-{Guid.NewGuid():N}.jsonl");
+        try
+        {
+            System.IO.File.WriteAllText(
+                path,
+                JsonSerializer.Serialize(
+                    record,
+                    new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                    })
+                    + "\n");
+
+            var records = AuthoredCorpusBenchmark.ReadCorpus(
+                path,
+                out int malformedRows);
+
+            Assert.Equal(malformed ? 1 : 0, malformedRows);
+            Assert.Equal(malformed ? 0 : 1, records.Count);
+        }
+        finally
+        {
+            System.IO.File.Delete(path);
+        }
+    }
+
     [Fact]
     public void Manifest_CorrectGateRejectsValidDifferentBeforePrinterJudgment()
     {

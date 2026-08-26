@@ -379,6 +379,27 @@ public sealed class AuthoredRebuildFidelityTests
     }
 
     [Theory]
+    [InlineData(0x0085)]
+    [InlineData(0x2028)]
+    [InlineData(0x2029)]
+    public void AuthoredMemberSource_DeclinesUnicodeMultilineToken(
+        int separator)
+    {
+        string source =
+            $"public string M() {{ return @\"first{(char)separator}second\"; }}";
+
+        Assert.True(AuthoredRebuildFidelity.TryExtractTargetBodies(
+            source,
+            "M",
+            expectedParameterCount: 0,
+            out string body,
+            out string? printerBody));
+
+        Assert.NotEmpty(body);
+        Assert.Null(printerBody);
+    }
+
+    [Theory]
     [InlineData(".ctor", "Value = 1;")]
     [InlineData(".cctor", "Value = 2;")]
     public void AuthoredMemberSource_DistinguishesConstructorKind(

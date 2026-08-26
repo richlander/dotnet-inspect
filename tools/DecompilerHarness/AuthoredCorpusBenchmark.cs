@@ -312,10 +312,7 @@ static class AuthoredCorpusBenchmark
             record.AuthoredBody,
             record.MetadataToken,
             record.ModuleVersionId,
-            PrinterBody: record.PrinterBodyVersion
-                == AuthoredSourceOracleManifest.PrinterComparisonVersion
-                    ? record.PrinterBody
-                    : null);
+            PrinterBody: record.PrinterBody);
 
     static ReturnToSender.RequestedTarget ToTarget(AuthoredSourceHarvest.CorpusRecord record)
         => new(record.Type, record.Method, record.Overload, record.Signature);
@@ -368,6 +365,12 @@ static class AuthoredCorpusBenchmark
                     malformed++;
                     Console.Error.WriteLine(
                         $"Skipping malformed corpus row: required field '{field}' is missing or empty.");
+                }
+                else if (PrinterBodySchemaError(record) is { } printerBodyError)
+                {
+                    malformed++;
+                    Console.Error.WriteLine(
+                        $"Skipping malformed corpus row: {printerBodyError}");
                 }
                 else if (!seen.Add((record.Assembly, record.AssemblyVersion, record.Tfm, record.MetadataToken)))
                 {
@@ -425,6 +428,26 @@ static class AuthoredCorpusBenchmark
             return nameof(record.Method);
         if (string.IsNullOrEmpty(record.AuthoredBody))
             return nameof(record.AuthoredBody);
+        return null;
+    }
+
+    internal static string? PrinterBodySchemaError(
+        AuthoredSourceHarvest.CorpusRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        if (record.PrinterBody is null && record.PrinterBodyVersion is null)
+            return null;
+        if (record.PrinterBody is null)
+            return "printerBodyVersion is present while printerBody is missing.";
+        if (record.PrinterBodyVersion is null)
+            return "printerBody is present while printerBodyVersion is missing.";
+        if (record.PrinterBodyVersion
+            != AuthoredSourceOracleManifest.PrinterComparisonVersion)
+        {
+            return $"printerBodyVersion {record.PrinterBodyVersion} is unsupported; "
+                + $"expected {AuthoredSourceOracleManifest.PrinterComparisonVersion}.";
+        }
+
         return null;
     }
 

@@ -590,10 +590,14 @@ static class AuthoredRebuildFidelity
     }
 
     static bool PrinterBodyIsMechanicallyComparable(BlockSyntax block)
-        => !block.DescendantTokens().Any(token =>
-                token.Text.Contains('\n') || token.Text.Contains('\r'))
+    {
+        var lines = block.SyntaxTree.GetText().Lines;
+        return !block.DescendantTokens().Any(token =>
+                lines.GetLinePositionSpan(token.Span) is var span
+                && span.Start.Line != span.End.Line)
             && !block.DescendantTrivia(descendIntoTrivia: true).Any(trivia =>
                 trivia.GetStructure() is DirectiveTriviaSyntax);
+    }
 
     static string PrinterBodyText(BlockSyntax block)
     {
