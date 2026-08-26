@@ -416,14 +416,16 @@ resolved scenario into its selected context, navigation focus, type/member
 selection, and section; CLI and browser encodings consume that plan rather than
 parsing the member selection independently. **Home demos now bind product
 section display names**
-through `ProductDemoSections` (today: `Methods` for STJ; `Call Graph` primary
-bind for the extensions member, expanded at run via `ExpandRunSections` /
-`DemoScenarioRunner` so the closed preset matches the multi-package
-`--caller-package` companion rule: Markdown keeps `Call Graph` + `Callers`;
-table/tsv/jsonl select `Callers` alone (MemberCommand re-adds Callers under
-caller scope, so Call Graph-only tabular silently fell back to a member
-inventory); standalone `--mermaid` keeps `Call Graph`; document `--json` fails
-closed for Call Graph demos until graph sections project into that payload.
+through `ProductDemoSections` (today: `Methods` for the STJ API tour; `Call
+Graph` primary bind for multi-package and package-local graph demos, expanded
+at run via `ExpandRunSections` / `DemoScenarioRunner`: Markdown keeps
+`Call Graph` + `Callers`; table/tsv/jsonl select `Callers` when the demo has
+caller scope — MemberCommand re-adds Callers under caller scope, so
+Call Graph-only tabular would silently fall back to a member inventory — and
+select `Call Graph` when it does not, so package-local entry points with empty
+Callers still emit rows; standalone `--mermaid` keeps `Call Graph`; document
+`--json` fails closed for Call Graph demos until graph sections project into
+that payload.
 `ResolveHomeScenario` fails when a home demo omits `View.Section` or names a
 section outside that allow list (`ProductHomeDemos_AllBindKnownProductSections`,
 `ProductDemoSections_AreProductSectionNames`). Methods demos reject standalone
@@ -671,6 +673,15 @@ scalar as raw UTF-8. The packet uses a purpose-built writer: none of
 `JavaScriptEncoder.Create(UnicodeRanges.All)` implements that complete rule.
 Packet identity below is semantic identity after decoding; canonical emission
 has one byte representation.
+
+The product codec also exposes the JSON boundary directly. `ParseJson` accepts
+the same bounded, duplicate-free semantic shape with insignificant whitespace,
+property reordering, and equivalent string escapes, while `SerializeJson`
+emits the exact compact text used by canonical packet encoding. This is a
+conversion boundary, not a second packet format: parsing JSON followed by
+`Encode` always restores the one canonical base64url representation, and
+decoding a packet followed by `SerializeJson` exposes the JSON that packet
+actually commits to.
 
 The packet separates navigation from binding:
 
@@ -973,6 +984,8 @@ Implementation must add, at minimum:
   proving rejection rather than U+FFFD substitution —
   `WorkspaceSharePacketCodecTests.Decode_CanonicalVector_RoundTripsExactly`,
   `Decode_UnicodeAndSignatureVector_RoundTripsExactly`,
+  `JsonConversion_AcceptsEquivalentInputAndRestoresCanonicalPacket`,
+  `JsonConversion_UsesTheSameTypedValidityAndCancellationGates`,
   `Encode_UsesPinnedCanonicalStringEscaping`, and the neighboring
   `Decode_Rejects*` tests cover the product-owned .NET codec, semantic
   validation, canonical writer, fixed vectors, and declared bounds; an
@@ -1046,8 +1059,9 @@ Definition records and product demos (this slice):
   `WorkspaceMemberCoordinate` for `WorkspaceContextLoader` (group `subscribe`
   expressions and filesystem coordinates are typed failures in this slice);
 - `ProductInspectionDemos` is a static id→factory registry (smooth-markdown-table
-  `RendererRegistry` style) of the two home scenarios; listing is metadata-only
-  and `ResolveHomeScenario` allocates only that demo's peer records and enforces
+  `RendererRegistry` style) of the product home scenarios (Methods tour plus
+  multiple Call Graph shapes); listing is metadata-only and
+  `ResolveHomeScenario` allocates only that demo's peer records and enforces
   `ProductDemoSections` binding; JSON remains the portable load path for external
   definitions;
 - `ProductDemoRunPlan` lowers the resolved context, focus, type/member
@@ -1055,14 +1069,14 @@ Definition records and product demos (this slice):
 - `ProductDemoSections` is the closed allow list of product section display names
   home demos may select until minted view-facet ids land; `ExpandRunSections`
   expands Call Graph binds format-aware (Markdown: Call Graph + Callers;
-  table/tsv/jsonl: Callers);
+  table/tsv/jsonl: Callers with caller scope, Call Graph without);
 - CLI `demo list` / `demo <id>` (`DemoCommand` + `DemoScenarioRunner`) lists
   metadata and **runs** the bound section through `TypeCommand` /
   `MemberCommand` (not a resolve-only plan dump), with orthogonal formats
   including `--mermaid` and fail-closed Call Graph `--json`;
 - `InspectionDefinitionTests` / `DemoCommandTests` gate round-trip, separation,
   demo-parity, section binding, CLI lowering, and real section output for the
-  two home demos; inspect-web's generated `RunHomeDemo` binding runs the
+  product home demos; inspect-web's generated `RunHomeDemo` binding runs the
   member-bound Call Graph preset from its product scenario id;
 - `WorkspaceSharePacketCodec` decodes and canonically re-emits the bounded v1
   base64url packet into an immutable product-owned semantic model. It rejects
@@ -1070,7 +1084,22 @@ Definition records and product demos (this slice):
   invalid coordinate and context topology, and partial state through typed
   outcomes. Its fixed .NET vectors cover composed package/platform contexts,
   independent focus and context indexes, Unicode metadata and canonical
-  signatures, and the pinned scalar-escaping rules;
+  signatures, and the pinned scalar-escaping rules. Its `ParseJson` and
+  `SerializeJson` boundary powers CLI `workspace-state encode` / `decode`;
+  those commands accept inline input or bounded strict UTF-8 stdin/file input
+  and emit BOM-free UTF-8 without acquisition or execution. Stream and file
+  input may carry one terminal LF or CRLF outside the declared payload bound.
+  `WorkspaceStateCommandTests.DecodeThenEncode_RoundTripsCanonicalPacket`,
+  `Dash_ReadsBoundedStandardInputInBothDirections`,
+  `MaximumPacket_DecodePipeEncode_RoundTrips`,
+  `RepeatedTerminalLineEndings_DoNotBypassLimits`,
+  `Encode_RejectsInvalidUtf8FromStandardInput`, and
+  `Encode_RejectsNonUtf8File` gate that CLI boundary.
+  `UnicodePacket_PipesAsUtf8UnderLegacyWindowsCodePage` gates process output
+  under a non-UTF-8 Windows console code page.
+  `Encode_RejectsEmptyFilePathWithoutStackTrace` and
+  `Encode_InvalidFilePathDoesNotPrintStackTrace` gate contained file-input
+  diagnostics across platform path rules;
 - `InspectionDefinitionJson` applies the 1 MiB/1024-coordinate portable record
   limits and iteratively rejects catalog-group trees over 30 levels or 1024
   nodes before recursively processing authored records;
