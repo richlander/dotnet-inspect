@@ -32,6 +32,7 @@ T:ILInspector.Analysis.LibraryBodyIndex;Analysis lifetimes belong to the query t
 T:ILInspector.Analysis.LibraryBodyAnalysisResult;Body analysis is reached through a query result, never built here.
 T:ILInspector.Analysis.LeakTriageAnalyzer;Path-based body analysis belongs to product queries, not the browser host.
 T:ILInspector.Analysis.ResourceLifecycleAnalysis;Path-based lifecycle analysis belongs to product queries, not the browser host.
+T:DotnetInspector.Queries.UnsafeEvidencePresenceQuery;Path-based unsafe-evidence inspection belongs behind a workspace-owned query entry point, not the browser host.
 T:ILInspector.Instructions.IlAssemblyDiff;Raw IL stream comparison belongs to product queries, not the browser host.
 T:ILInspector.Decompiler.CSharpBodyDiff;Path-based decompiler comparison belongs to product queries, not the browser host.
 T:ILInspector.Decompiler.CSharpFindings;Path-based decompiler Finding comparison belongs to product queries, not the browser host.

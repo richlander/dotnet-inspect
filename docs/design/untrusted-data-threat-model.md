@@ -2048,10 +2048,15 @@ only ordinary compiler output.
    rejected value; that same handler returns an empty result, which is the
    success-shaped failure this document forbids elsewhere.
    `ValidatePathComponent` does not reject control characters other than
-   `NUL`, so an `ESC` passes it outright. The nuspec boundary now rejects
-   malformed XML with a typed, content-free diagnostic and carries descriptions
-   as `InertString`; package-coordinate validation and the two graph-resolution
-   leaks remain the next application of the hardened-entrypoint pattern.
+   `NUL`, so an `ESC` passes it outright. The nuspec projection boundary now
+   rejects malformed XML, unsupported structure, identity mismatch, dependency
+   contract violations, and query-owned resource limits with typed,
+   content-free reasons, and carries descriptions as `InertString`.
+   `PackageManifestFactsQueryTests.FailureMessage_IsStableForEveryReason`,
+   `FailureMessage_IsSafeForUnknownFutureReason`, and the hostile-input
+   execution tests gate that diagnostic contract. Package-coordinate validation
+   and the two graph-resolution leaks remain the next application of the
+   hardened-entrypoint pattern.
 10. Establish fuzzing over the PE, metadata, PDB, nuspec, and archive entry
     points. The domain-matched precedent is `binutils`, whose parsers are
     continuously fuzzed and have repeatedly yielded CVEs that way. Most of

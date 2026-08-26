@@ -368,6 +368,16 @@ public static class MetadataProjectionRenderer
     }
 
     /// <summary>
+    /// Returns the number of rows <see cref="RenderImageFacts"/> emits, from the same fact-row
+    /// builder the renderer consumes.
+    /// </summary>
+    public static int CountImageFactRows(MetadataImageOverview overview)
+    {
+        ArgumentNullException.ThrowIfNull(overview);
+        return ImageFactRows(overview, UntrustedTextMode.Contain).Count + overview.Heaps.Length;
+    }
+
+    /// <summary>
     /// Renders the image-level facts as a single heading-free <c>Property</c>/<c>Value</c> table:
     /// the metadata root identity and PE/CLI header facts, followed by one row per heap giving its
     /// size and addressing.

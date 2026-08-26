@@ -164,6 +164,57 @@ public enum RowWindowKind
     Range,
 }
 
+internal static class TreeRowWindow
+{
+    public static List<T> Apply<T>(
+        IReadOnlyList<T> roots,
+        RowWindow? rows,
+        Func<T, IReadOnlyList<T>> getChildren,
+        Func<T, List<T>, T> withChildren)
+    {
+        if (rows is not { IsUnlimited: false } window)
+            return [.. roots];
+
+        var (start, end) = window.Resolve(Count(roots, getChildren));
+        int index = 0;
+        var result = new List<T>();
+        foreach (var root in roots)
+        {
+            if (TryFilter(root, getChildren, withChildren, start, end, ref index, out var filtered))
+                result.Add(filtered);
+        }
+        return result;
+    }
+
+    public static int Count<T>(
+        IReadOnlyList<T> nodes,
+        Func<T, IReadOnlyList<T>> getChildren)
+        => nodes.Count + nodes.Sum(node => Count(getChildren(node), getChildren));
+
+    private static bool TryFilter<T>(
+        T node,
+        Func<T, IReadOnlyList<T>> getChildren,
+        Func<T, List<T>, T> withChildren,
+        int start,
+        int end,
+        ref int index,
+        out T filtered)
+    {
+        bool selected = index >= start && index < end;
+        index++;
+
+        var children = new List<T>();
+        foreach (var child in getChildren(node))
+        {
+            if (TryFilter(child, getChildren, withChildren, start, end, ref index, out var filteredChild))
+                children.Add(filteredChild);
+        }
+
+        filtered = withChildren(node, children);
+        return selected || children.Count > 0;
+    }
+}
+
 /// <summary>
 /// Thrown when <c>--rows</c> is combined with an invalid head/tail window
 /// (both or neither). Surfaced as a one-line CLI error by the entry point.

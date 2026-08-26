@@ -79,10 +79,12 @@ public sealed class PackageManifestFactsQueryTests
                         "Example.Package",
                         "1.0.0")));
 
-        Assert.IsType<InvalidDataException>(failure.Error);
+        Assert.Equal(
+            PackageManifestFailureReason.IdentityMismatch,
+            failure.Failure.Reason);
         Assert.DoesNotContain(
             "SHOULD-NOT-REACH-THE-DIAGNOSTIC",
-            failure.Error.Message,
+            failure.Failure.Message,
             StringComparison.Ordinal);
     }
 
@@ -136,11 +138,9 @@ public sealed class PackageManifestFactsQueryTests
                         "Example.Package",
                         "1.0.0")));
 
-        Assert.IsType<InvalidDataException>(failure.Error);
-        Assert.Contains(
-            "invalid document root",
-            failure.Error.Message,
-            StringComparison.Ordinal);
+        Assert.Equal(
+            PackageManifestFailureReason.UnsupportedDocumentShape,
+            failure.Failure.Reason);
     }
 
     [Fact]
@@ -164,11 +164,9 @@ public sealed class PackageManifestFactsQueryTests
                         "Example.Package",
                         "1.0.0")));
 
-        Assert.IsType<InvalidDataException>(failure.Error);
-        Assert.Contains(
-            "identity does not match",
-            failure.Error.Message,
-            StringComparison.Ordinal);
+        Assert.Equal(
+            PackageManifestFailureReason.UnsupportedDocumentShape,
+            failure.Failure.Reason);
     }
 
     [Fact]
@@ -193,10 +191,71 @@ public sealed class PackageManifestFactsQueryTests
                         "Example.Package",
                         "1.0.0")));
 
-        Assert.IsType<InvalidDataException>(failure.Error);
+        Assert.Equal(
+            PackageManifestFailureReason.InvalidDependencyContract,
+            failure.Failure.Reason);
         Assert.DoesNotContain(
             "evil/../other",
-            failure.Error.Message,
+            failure.Failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Execute_RejectsInvalidDependencyRangeWithTypedReason()
+    {
+        PackageManifestFactsResult.Failed failure = Assert.IsType<
+            PackageManifestFactsResult.Failed>(
+                PackageManifestFactsQuery.Execute(
+                    Encoding.UTF8.GetBytes(
+                        """
+                        <package>
+                          <metadata>
+                            <id>Example.Package</id>
+                            <version>1.0.0</version>
+                            <dependencies>
+                              <dependency id="Example.Dependency" version="SHOULD-NOT-REACH-THE-DIAGNOSTIC" />
+                            </dependencies>
+                          </metadata>
+                        </package>
+                        """),
+                    PackageSourceCoordinate.Create(
+                        "Example.Package",
+                        "1.0.0")));
+
+        Assert.Equal(
+            PackageManifestFailureReason.InvalidDependencyContract,
+            failure.Failure.Reason);
+        Assert.DoesNotContain(
+            "SHOULD-NOT-REACH-THE-DIAGNOSTIC",
+            failure.Failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Execute_ReportsMalformedXmlWithSafeLocation()
+    {
+        PackageManifestFactsResult.Failed failure = Assert.IsType<
+            PackageManifestFactsResult.Failed>(
+                PackageManifestFactsQuery.Execute(
+                    Encoding.UTF8.GetBytes(
+                        """
+                        <package>
+                          <metadata>
+                            <id>SHOULD-NOT-REACH-THE-DIAGNOSTIC</id>
+                          </package>
+                        """),
+                    PackageSourceCoordinate.Create(
+                        "Example.Package",
+                        "1.0.0")));
+
+        Assert.Equal(
+            PackageManifestFailureReason.MalformedXml,
+            failure.Failure.Reason);
+        Assert.True(failure.Failure.LineNumber > 0);
+        Assert.True(failure.Failure.LinePosition > 0);
+        Assert.DoesNotContain(
+            "SHOULD-NOT-REACH-THE-DIAGNOSTIC",
+            failure.Failure.Message,
             StringComparison.Ordinal);
     }
 
@@ -212,7 +271,9 @@ public sealed class PackageManifestFactsQueryTests
                         "Example.Package",
                         "1.0.0")));
 
-        Assert.IsType<InvalidDataException>(failure.Error);
+        Assert.Equal(
+            PackageManifestFailureReason.ConfiguredLimitExceeded,
+            failure.Failure.Reason);
     }
 
     [Fact]
@@ -238,11 +299,9 @@ public sealed class PackageManifestFactsQueryTests
                         "Example.Package",
                         "1.0.0")));
 
-        Assert.IsType<InvalidDataException>(failure.Error);
-        Assert.Contains(
-            "scalar value",
-            failure.Error.Message,
-            StringComparison.Ordinal);
+        Assert.Equal(
+            PackageManifestFailureReason.ConfiguredLimitExceeded,
+            failure.Failure.Reason);
     }
 
     [Fact]
@@ -274,11 +333,9 @@ public sealed class PackageManifestFactsQueryTests
                         "Example.Package",
                         "1.0.0")));
 
-        Assert.IsType<InvalidDataException>(failure.Error);
-        Assert.Contains(
-            "too many dependencies",
-            failure.Error.Message,
-            StringComparison.Ordinal);
+        Assert.Equal(
+            PackageManifestFailureReason.ConfiguredLimitExceeded,
+            failure.Failure.Reason);
     }
 
     [Fact]
@@ -310,11 +367,9 @@ public sealed class PackageManifestFactsQueryTests
                         "Example.Package",
                         "1.0.0")));
 
-        Assert.IsType<InvalidDataException>(failure.Error);
-        Assert.Contains(
-            "too many dependency groups",
-            failure.Error.Message,
-            StringComparison.Ordinal);
+        Assert.Equal(
+            PackageManifestFailureReason.ConfiguredLimitExceeded,
+            failure.Failure.Reason);
     }
 
     [Fact]
@@ -346,11 +401,9 @@ public sealed class PackageManifestFactsQueryTests
                         "Example.Package",
                         "1.0.0")));
 
-        Assert.IsType<InvalidDataException>(failure.Error);
-        Assert.Contains(
-            "too many package types",
-            failure.Error.Message,
-            StringComparison.Ordinal);
+        Assert.Equal(
+            PackageManifestFailureReason.ConfiguredLimitExceeded,
+            failure.Failure.Reason);
     }
 
     [Fact]
@@ -420,6 +473,42 @@ public sealed class PackageManifestFactsQueryTests
             PackageManifestFactsQuery.MaxDependencies,
             facts.DependencyGroups.Sum(group =>
                 group.Dependencies.Length));
+    }
+
+    [Theory]
+    [InlineData(
+        PackageManifestFailureReason.MalformedXml,
+        "Package manifest is not well-formed XML.")]
+    [InlineData(
+        PackageManifestFailureReason.UnsupportedDocumentShape,
+        "The package manifest has an unsupported document shape or namespace.")]
+    [InlineData(
+        PackageManifestFailureReason.IdentityMismatch,
+        "The package manifest identity does not match the requested package.")]
+    [InlineData(
+        PackageManifestFailureReason.InvalidDependencyContract,
+        "The package manifest contains an invalid dependency declaration.")]
+    [InlineData(
+        PackageManifestFailureReason.ConfiguredLimitExceeded,
+        "The package manifest exceeds a configured resource limit.")]
+    public void FailureMessage_IsStableForEveryReason(
+        PackageManifestFailureReason reason,
+        string expectedMessage)
+    {
+        var failure = new PackageManifestFailure(reason);
+
+        Assert.Equal(expectedMessage, failure.Message);
+    }
+
+    [Fact]
+    public void FailureMessage_IsSafeForUnknownFutureReason()
+    {
+        var failure = new PackageManifestFailure(
+            (PackageManifestFailureReason)int.MaxValue);
+
+        Assert.Equal(
+            "The package manifest could not be projected.",
+            failure.Message);
     }
 
     private static PackageManifestFacts Available(
