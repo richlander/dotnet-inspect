@@ -14,6 +14,9 @@ setProductHomeDemoCatalog([
   { id: "stj-serialize-callgraph", title: "Serialize call graph", summary: "Dense package-local STJ graph" },
   { id: "config-bind-callgraph", title: "Configuration Bind", summary: "Recursive binder call graph" },
   { id: "options-add-callgraph", title: "Options hub", summary: "Inbound fan-in at AddOptions" },
+  { id: "di-tryadd-callgraph", title: "DI TryAdd hub", summary: "Keyed/scoped Try* fan-in" },
+  { id: "http-addhttpclient-callgraph", title: "AddHttpClient", summary: "HttpClient factory registration" },
+  { id: "stj-getdecimal-callgraph", title: "JsonElement.GetDecimal", summary: "STJ number parse path" },
 ]);
 
 class FakeElement {

@@ -248,6 +248,10 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// call site). Pinned is a local-only modifier, not a signature pointer, so
     /// it is deliberately excluded — matching Roslyn's signature check.
     /// </summary>
+    /// <remarks>
+    /// <c>TypeRef_ContainsPointer_TraversesCustomModifierPayload</c> gates
+    /// custom-modifier traversal.
+    /// </remarks>
     public bool ContainsPointer()
     {
         if (Kind == TypeRefKind.Pointer)
@@ -257,6 +261,11 @@ public sealed class TypeRef : IEquatable<TypeRef>
             return true;
         if (ElementType is not null && ElementType.ContainsPointer())
             return true;
+        if (UnmodifiedType is not null
+            && UnmodifiedType.ContainsPointer())
+        {
+            return true;
+        }
         return TypeArguments.Any(argument => argument.ContainsPointer());
     }
 
