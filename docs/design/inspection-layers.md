@@ -625,9 +625,9 @@ multiple role occurrences preserves the multiplicity and mints one binding id
 per occurrence; artifact identity remains provenance and correspondence, not
 role-binding or group identity.
 
-The result is one immutable `PackageRoleRealizationPlan`. It copies the
-submitted role occurrences and policy values, retains their exact typed
-owner-issued antecedents, and closes one topology:
+The result is one single-use `PackageRoleRealizationPlan`. Its semantic payload
+is immutable: it copies the submitted role occurrences and policy values,
+retains their exact typed owner-issued antecedents, and closes one topology:
 
 | Topology | Role meaning | Exact owned-group domain |
 | --- | --- | --- |
@@ -654,15 +654,41 @@ The plan is inert. It retains no stream, open callback, assembly image,
 `AssemblyContextGroup`, derived resource, cleanup delegate, acquisition lease,
 exception, or package-authored diagnostic text. Caller mutation after planning
 cannot alter role membership, group count, topology, correspondence, or policy.
+One private atomic consumption marker is capability state, not semantic plan
+data or a resource handle. A second realization attempt throws
+`InvalidOperationException` as a programmer error before allocating cleanup
+state or creating a group; it does not return a second open outcome or cleanup
+report.
 
 ### Realization and completion
 
-Realization consumes one plan exactly once. Before a planned group can transfer
-into Queries lifetime, L1 creates one fixed cleanup record slot keyed by that
-group's `PackageRoleGroupId`. The cleanup domain is therefore known and bounded
-at plan time: one record for `Absent` or `Shared`, two for `Separate`. This is a
-component-local fixed-domain table, not a shared cleanup authority or budget
-ledger.
+Realization atomically consumes the plan. Before a planned group can transfer
+into Queries lifetime, L1 creates one
+`PackageRoleGroupReleaseCompletion` cell keyed by that group's
+`PackageRoleGroupId`. The cells have exactly the plan's group-id domain: one for
+`Absent` or `Shared`, two for `Separate`. This is a component-local fixed-domain
+table, not a shared cleanup authority or budget ledger.
+
+Each cell has one monotonic lifecycle: not transferred, transferred, release
+requested, and completed with one immutable cleanup record. The first caller to
+request release initiates it; every other caller observes or awaits the same
+completion. No path can replace a completed record or invoke group release
+again.
+
+The package-role session and `InspectionWorkspace` retain the same cells for
+the groups they share. Failed-open rollback, explicit package-session close,
+and workspace disposal therefore converge on one release authority rather than
+disposing the group independently. Workspace-first disposal does not consume a
+failure that the session can no longer report, and session-first close removes
+the completed group from later workspace work.
+
+An `AssemblyContextGroup` may defer actual resource release while a callback is
+active. A release cell becomes complete only after that group reaches
+quiescence, releases its owned resources and snapshots, and records the
+resulting group-level disposition. The target session exposes an asynchronous
+idempotent close operation so Browser/Wasm and other consumers can await that
+completion without blocking a thread. Close accepts no cancellation token once
+release is requested. Repeated close returns the same report instance.
 
 Opening returns a discriminated `PackageRoleOpenOutcome`:
 
@@ -686,49 +712,62 @@ stable reason and fixed owner-authored summary; they retain no raw exception,
 exception message, stack trace, package entry name, or package-authored text.
 
 A successful open cannot truthfully contain its future cleanup result. The live
-session therefore exposes an explicit idempotent close operation that releases
-every transferred group and returns the final immutable
-`PackageRoleCleanupReport`. Repeated close returns the same report without
-releasing a group again. Expected cleanup failure is represented in that report
-and close does not throw it. The target session is not an `IDisposable` whose
-only failure channel is an exception; current throwing `Dispose` surfaces
+session's close operation requests release for every transferred group, awaits
+their shared release cells, and returns the final immutable
+`PackageRoleCleanupReport`. Expected cleanup failure is represented in that
+report and close does not throw it. The target session is not an `IDisposable`
+whose only failure channel is an exception; current throwing `Dispose` surfaces
 remain compatibility adapters until their callers migrate.
 
 Every cleanup report has exactly the plan's group-id domain. Each
 `PackageRoleGroupCleanupRecord` is one of:
 
-- `NotTransferred`, when ownership of that planned group never completed;
+- `NotTransferred`, when ownership of that planned group never completed in
+  the plan's one permitted realization;
 - `Released`, when the transferred group released successfully; or
 - `Failed`, with one bounded Queries-owned group-release diagnostic.
 
-`Realized` sessions close with no `NotTransferred` records. A failed open first
-attempts every group whose ownership transferred, even when an earlier release
-fails, then returns its primary diagnostic and complete report. Shared topology
-transfers and releases its one group exactly once even though both role views
-name it. Separate topology records implementation and surface cleanup under
-their distinct ids; cleanup order never becomes identity.
+`Realized` sessions close with no `NotTransferred` records. A failed open
+requests release for every group whose ownership transferred, even when an
+earlier release fails, awaits every resulting completion, then returns its
+primary diagnostic and complete report. Shared topology transfers and releases
+its one group exactly once even though both role views name it. Separate
+topology records implementation and surface cleanup under their distinct ids;
+request or completion order never becomes identity.
 
 L1 captures a group failure at that exact group's release site. It does not
 flatten, retain, count, reorder, or reinterpret the group's exception graph.
 One group-level `Failed` record says only that release of that planned group
-failed. The primary realization diagnostic remains primary and cleanup failure
-cannot replace it.
+failed. Cleanup failure never selects or replaces the terminal primary.
 
-Cancellation before any ownership transfer propagates as cancellation.
-Cancellation after transfer first attempts every transferred group's cleanup
-and then throws one dedicated
-`PackageRoleRealizationCanceledException : OperationCanceledException`. That
-exception preserves the original cancellation token and exposes the one
-immutable keyed cleanup report through a typed property. It is the only
-post-transfer cancellation channel; no open outcome or close failure is also
-returned. The report remains ancillary cleanup evidence, cancellation remains
-the primary result, and the exception does not wrap cleanup exceptions or turn
-cancellation into a failure outcome.
+Realization has one terminal-primary commitment. Explicit cancellation
+checkpoints and expected rejection/failure sites compete to select it; the
+first selected terminal primary wins. After commitment, mandatory cleanup does
+not observe the caller's cancellation token:
+
+- a selected `Rejected` or `Failed` primary remains authoritative even if the
+  token is canceled during cleanup, and the corresponding outcome is returned
+  with the final report;
+- cancellation selected before a non-cancellation primary remains
+  cancellation, requests and awaits cleanup for every transferred group, then
+  throws one dedicated
+  `PackageRoleRealizationCanceledException : OperationCanceledException`; and
+- cancellation before any ownership transfer propagates as an ordinary
+  `OperationCanceledException` because there is no group disposition to report.
+
+The dedicated exception preserves the original cancellation token and exposes
+the one immutable keyed cleanup report through a typed property. It is the only
+post-transfer cancellation channel; no open outcome is also returned. The
+report remains ancillary cleanup evidence, cancellation remains the primary
+result, and the exception does not wrap cleanup exceptions or turn cancellation
+into a failure outcome. Cancellation observed after an outcome has committed
+cannot retroactively replace that outcome.
 
 The report is inert. It may retain the operation id, topology, group ids,
 cleanup states, and stable Queries diagnostics. It retains no group, role
 participant, artifact or assembly descriptor, acquisition registration, lease,
-content accessor, callback, exception, or cleanup authority.
+content accessor, callback, exception, release-completion cell, or cleanup
+authority.
 
 ### Package-role migration and gates
 
@@ -736,13 +775,17 @@ Migration preserves dependency direction and current behavior:
 
 1. L1 adds the pure planning contract and purpose-built topology fixtures. No
    package entry or group is opened by this slice.
-2. L1 adds the typed open/session/close path beside the current throwing
-   `RealizePackageAssemblyContextRoles` compatibility API.
-3. The package composition adapter supplies its typed selected-role and
+2. L1 adds the shared quiescent group-release completion for plan-created
+   groups beneath `InspectionWorkspace` and package-role composition. Current
+   synchronous disposal remains a compatibility adapter over that one
+   completion path.
+3. L1 adds the typed open/session/asynchronous-close path beside the current
+   throwing `RealizePackageAssemblyContextRoles` compatibility API.
+4. The package composition adapter supplies its typed selected-role and
    Artifacts correspondence inputs after that adjacent migration exists. This
    document does not prescribe the adapter's type, factory, accessibility,
    acquisition, or package-selection implementation.
-4. Product callers migrate to the typed path. Only then may the compatibility
+5. Product callers migrate to the typed path. Only then may the compatibility
    `AggregateException` surfaces and direct package dependencies be retired
    under their owning migration plans.
 
@@ -752,13 +795,21 @@ land:
 - `PackageRolePlan_ClosesTopologyBeforeAnyGroupCreation`
 - `PackageRolePlan_PreservesEverySelectedOccurrenceAndExactAntecedent`
 - `PackageRolePlan_MintsFreshOperationLocalIdentities`
+- `PackageRolePlan_IsInertAndImmuneToCallerMutation`
 - `PackageRolePlan_RejectsInvalidShapeWithoutOwnershipTransfer`
+- `PackageRolePlan_SecondRealizationIsProgrammerErrorBeforeSideEffects`
 - `PackageRolePlan_PlannedGroupsEqualCleanupRecordDomain`
+- `PackageRoleRealization_ReservesEveryCleanupCellBeforeTransfer`
 - `PackageRoleOpen_CreatesOnlyPlannedGroups`
 - `PackageRoleOpenFailure_PreservesPrimaryAndCompleteCleanupReport`
 - `PackageRoleClose_AttemptsEveryTransferredGroupAndKeysEachOutcome`
+- `PackageRoleClose_IsIdempotentAcrossAllTopologies`
 - `PackageRoleSharedTopology_ReleasesOneGroupExactlyOnce`
+- `PackageRoleGroupRelease_WorkspaceAndSessionObserveSameCompletion`
+- `PackageRoleGroupRelease_AwaitsDeferredCleanupAfterActiveCallback`
 - `PackageRoleCleanupReport_RetainsNoBorrowedInputsOrExceptions`
+- `PackageRoleTerminalPrimary_FailureBeforeCancellationPreservesFailure`
+- `PackageRoleTerminalPrimary_CancellationBeforeFailurePreservesCancellation`
 - `PackageRoleCancellationException_AfterTransferCarriesCleanupReport`
 - `PackageRoleTargetPath_ReturnsKeyedFailuresWithoutAggregateException`
 
