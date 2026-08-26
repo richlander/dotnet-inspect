@@ -39,8 +39,12 @@ directions, and remain independent of rendering. Group-scoped optimization
 ranking also builds Analysis indexes from retained snapshots, resolves
 cross-assembly metadata only to selected siblings under each participant's
 binding policy, attributes bodies to public API owners, and returns one stable
-product-owned order across the group. Analysis index execution remains
-sequential, preserving the Browser/Wasm baseline. The `extensions`,
+product-owned order across the group. Seeded structural-clone retrieval binds
+one exact seed participant and one explicit candidate participant, keeps both
+retained snapshots alive for one same-image or cross-image Analysis call, and
+returns the product result unchanged beside both subjects' identity and
+provenance. Analysis execution remains sequential, preserving the Browser/Wasm
+baseline. The `extensions`,
 `implements`, and `find` commands also execute typed queries through ephemeral
 workspaces. Ordinary search fan-out creates and disposes one-participant groups
 sequentially; explicit extension reachability uses one binding-consistent group
@@ -661,8 +665,34 @@ introducing a parallel-only contract.
 attribution, group ordering, binding-policy use, visible rejection, and query
 cost.
 `AssemblyContextResearchProjectionQueryTests.Projection_DoesNotAcquireAPolicySelectionOutsideTheGroup`
-gates the shared resolver's group-containment boundary. Method-scoped Analysis
-evidence over a group participant remains a later query.
+gates the shared resolver's group-containment boundary.
+
+`AssemblyContextStructuralCloneRetrievalQuery` is the first query that joins
+two explicitly selected assembly participants while both immutable snapshots
+remain borrowed. Its input names the seed and candidate groups and
+participants, selects the seed by a MethodDef token or an exact structured type
+plus `MemberAnchor`, and declares either one exact candidate type or an explicit
+whole-assembly population. A-vs-A uses one reader only when both selections
+refer to the same participant in the same group. Every other request uses
+independent readers, including equal-MVID content acquired under separate
+registrations, so reader-local identity is never inferred from module identity.
+
+The query resolves only exact metadata identities, enumerates the full selected
+population without query-side truncation, and dispatches one mutually exclusive
+same-image or cross-image Analysis path. The exactly-once Analysis call count is
+unverified beyond direct inspection. The returned
+`StructuralCloneRetrievalResult` is not projected or reconstructed: ranks,
+score components, method outcomes, blockers, receipts, MVID-scoped method
+addresses, and the four product dispositions remain owned by Analysis.
+Acquisition rejection, missing or ambiguous exact targets, and pre-retrieval
+metadata failure are separate typed query outcomes. The query is `Unbounded`;
+whole-assembly scope is explicit, and Analysis method, result, and
+body-production limits remain the visible work controls. It introduces no
+network, source, Research, Finding, Decompiler, or presentation capability.
+`AssemblyContextStructuralCloneRetrievalQueryTests` gates A-vs-A and A-vs-B
+product-result preservation, type and whole-assembly population behavior,
+exact-member and token selection, ambiguity, limit separation, unsupported
+bodies, malformed acquisition, and same-MVID independent-reader handling.
 
 Other domain catalogs, query authorization, concurrent execution, and broader
 command migration remain later slices.

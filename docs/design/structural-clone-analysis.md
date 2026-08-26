@@ -285,6 +285,16 @@ errors, unsupported seeds, cross-image artifact-scoped identities, candidate
 metadata failure, same-MVID collision handling across separate readers, and the
 separation between ranking score and relationship.
 
+`AssemblyContextStructuralCloneRetrievalQuery` binds one exact seed and one
+explicit type or whole-assembly candidate population to workspace-retained
+content. Queries owns participant acquisition, exact metadata selection, and
+the lifetime of the same-image or independent cross-image readers. It calls
+one mutually exclusive `RetrieveSimilar` path and returns the complete product
+result unchanged beside the selected assembly subjects. The exactly-once call
+count is unverified beyond direct inspection. It does not add ranking,
+comparison, correspondence, semantic, provenance, or vulnerability
+conclusions.
+
 ## Correspondence and automorphisms
 
 Joint block/local refinement narrows possible correspondence classes until it
