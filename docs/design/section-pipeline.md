@@ -76,6 +76,25 @@ CLI-owned signal composition, then recomposes only model-derived rows after
 later source evidence lands. `Unsafe Members` binds the unbounded
 `UnsafeEvidenceQuery`, which consumes the command's shared Analysis body index
 and retains raw unsafe evidence through the Finding and presentation boundary.
+Bare library discovery instead uses the network-free
+`UnsafeEvidencePresenceQuery`, which reuses the same Analysis safety producer
+but stops at the first finding and does not materialize the body index or
+decoded instruction arrays. It uses a synchronous capability callback over
+the command-owned non-prefetched reader and visits methods sequentially in
+metadata order. Signature-marker prescans
+are no-copy, cached by blob, and charged to a 4 MiB assembly-wide budget;
+streaming instruction visits have a separate 4 MiB aggregate budget. A
+marker-bearing declaration, local, member-reference, method-definition, or
+method-specification signature that the structural guard rejects makes the
+presence result explicitly incomplete instead of becoming successful absence
+or affirmative evidence, even when a later method contains conclusive evidence.
+Decoded custom modifiers retain their unmodified type, so a wrapped pointer
+still counts as unsafe evidence. Name-only `Unsafe` candidates require trusted
+framework identity resolution before becoming evidence. The discovery gate
+also retains renderable metadata signature-decode diagnostics so a negative
+bounded probe cannot hide a known-incomplete scan.
+`UnsafeEvidencePresenceTests` gates these properties, including lookalike
+identity, signature-guard, aggregate-budget, and large-suffix cases.
 `Top Leverage` binds `TopLeverageQuery`, which retains ranked
 `MethodLeverage`, generated-framework evidence, and Analysis diagnostics until
 the presentation boundary. The CLI joins its API-surface drill map for legacy
@@ -173,7 +192,7 @@ For library discovery:
 
 | Gesture | Candidate scope | Producer behavior |
 | --- | --- | --- |
-| `-D` | Base sections and category doors | Metadata presence only |
+| `-D` | Base sections, category doors, effective standalone sections | Metadata and bounded presence queries |
 | `-D --effective` | Base-category union | Full base query closure |
 | `-D @Category` | Authored category members | Structural; no member queries |
 | `-D @Category --effective` | Authored category members | Full category query closure |
