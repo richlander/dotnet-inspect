@@ -97,7 +97,10 @@ including for distinct rows that share heap storage. Named-type correspondence
 storage reads are charged during signature decode, so repeated TypeRefs cannot
 amplify shared scope scans outside the operation budget. TypeDef
 generic-parameter rows are charged and projected once per reader and TypeDef,
-including malformed projections.
+including malformed projections, while charge failures remain uncached. The
+projection scans raw `GenericParam` rows with an integer count rather than
+SRM's `ushort`-backed handle collection, which hides exactly 65,536 rows for
+one owner; it rejects noncontiguous ownership and index sequences.
 Direct exported-root implementations are range-validated before their flags or
 target kind can classify them as ordinary rejected evidence.
 

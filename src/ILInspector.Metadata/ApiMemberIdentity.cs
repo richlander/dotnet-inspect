@@ -149,15 +149,58 @@ public static class ApiMemberIdentity
                 return cached.Success;
             }
 
+            // SRM's handle collection has a ushort count and hides an owner
+            // range of exactly 65,536 rows, so project the raw table instead.
+            int rowCount =
+                reader.GetTableRowCount(TableIndex.GenericParam);
+            charge(rowCount);
             bool success =
-                MetadataTypeDeclarationProbe
-                    .TryGetGenericParameterCount(
-                        reader,
-                        handle,
-                        charge,
-                        out count);
+                TryProjectTypeDefinitionGenericParameterCount(
+                    reader,
+                    rowCount,
+                    handle,
+                    out count);
             counts.Add(handle, (success, count));
             return success;
+        }
+
+        static bool TryProjectTypeDefinitionGenericParameterCount(
+            MetadataReader reader,
+            int rowCount,
+            TypeDefinitionHandle handle,
+            out int count)
+        {
+            count = 0;
+            int lastRow = 0;
+            try
+            {
+                for (int row = 1; row <= rowCount; row++)
+                {
+                    GenericParameter parameter =
+                        reader.GetGenericParameter(
+                            MetadataTokens.GenericParameterHandle(
+                                row));
+                    if (parameter.Parent != handle)
+                        continue;
+
+                    if ((lastRow != 0 && row != lastRow + 1)
+                        || parameter.Index != count)
+                    {
+                        count = -1;
+                        return false;
+                    }
+                    count++;
+                    lastRow = row;
+                }
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException
+                    or ArgumentOutOfRangeException)
+            {
+                count = -1;
+                return false;
+            }
+            return true;
         }
 
         internal AssemblyReferenceIdentity ProjectAssemblyReference(

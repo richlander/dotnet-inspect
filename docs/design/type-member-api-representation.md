@@ -120,8 +120,12 @@ is cached, including for distinct assembly-reference rows that share heap
 storage. Named-type correspondence storage is read while signatures are
 decoded, and each read is charged to the operation budget, so repeated TypeRefs
 cannot amplify shared scope scans. TypeDef generic-parameter rows are likewise
-charged before enumeration; successful and malformed arity projections are
-cached per reader and TypeDef for the operation.
+charged before projection; successful and malformed arity projections are
+cached per reader and TypeDef for the operation, while a charge failure is not
+cached. Correspondence scans the raw `GenericParam` table with an integer row
+count because SRM's `GenericParameterHandleCollection` has a `ushort`-backed
+count and hides an owner range of exactly 65,536 rows. The raw projection also
+rejects noncontiguous ownership and non-zero-based or noncontiguous indices.
 Facade-reference and forwarder normalization are reader-pair correspondence
 only; they do not entitle either reader or any definition to mint core-library
 identity.
@@ -154,6 +158,10 @@ identity.
 `ResolveApiMember_ReusedTypeDefinitionGenericParametersAreProjectedOnce`,
 `MethodCorrespondenceContext_TypeDefinitionGenericParametersAreChargedOnce`,
 `MethodCorrespondenceContext_MalformedTypeDefinitionGenericParametersAreChargedOnce`,
+`ResolveApiMember_HiddenMaximumTypeArityFails`,
+`ResolveApiMember_MaximumTypeArityMatchesItself`,
+`MethodCorrespondenceContext_MaximumTypeArityChargeFailureIsNotCached`,
+`MethodCorrespondenceContext_NoncontiguousTypeDefinitionGenericParametersFailOnce`,
 `ResolveApiMember_ReusedGenericAssemblyReferenceIsProjectedOnceBeforeBudgetFailure`,
 `ResolveApiMember_DistinctGenericAssemblyReferencesFailWithinOperationBudget`,
 `ResolveApiMember_InvalidCurrentModuleScopeFails`,

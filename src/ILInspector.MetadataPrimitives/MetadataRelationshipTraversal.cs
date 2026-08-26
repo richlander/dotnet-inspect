@@ -83,6 +83,10 @@ public static class MetadataSafetyPolicy
     /// <c>ResolveApiMember_ReusedTypeDefinitionGenericParametersAreProjectedOnce</c>,
     /// <c>MethodCorrespondenceContext_TypeDefinitionGenericParametersAreChargedOnce</c>,
     /// <c>MethodCorrespondenceContext_MalformedTypeDefinitionGenericParametersAreChargedOnce</c>,
+    /// <c>ResolveApiMember_HiddenMaximumTypeArityFails</c>,
+    /// <c>ResolveApiMember_MaximumTypeArityMatchesItself</c>,
+    /// <c>MethodCorrespondenceContext_MaximumTypeArityChargeFailureIsNotCached</c>,
+    /// <c>MethodCorrespondenceContext_NoncontiguousTypeDefinitionGenericParametersFailOnce</c>,
     /// and
     /// <c>ResolveApiMember_DistinctGenericAssemblyReferencesFailWithinOperationBudget</c>.
     /// </summary>
