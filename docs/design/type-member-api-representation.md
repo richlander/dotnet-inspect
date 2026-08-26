@@ -117,7 +117,9 @@ empty full-key blob whose SHA-1-derived token is non-empty. Deterministic
 projection failures are replayed without repeating completed charges. Storage
 successfully read before a later malformed field is charged before the failure
 is cached, including for distinct assembly-reference rows that share heap
-storage.
+storage. Named-type correspondence storage is read while signatures are
+decoded, and each read is charged to the operation budget, so repeated TypeRefs
+cannot amplify shared scope scans.
 Facade-reference and forwarder normalization are reader-pair correspondence
 only; they do not entitle either reader or any definition to mint core-library
 identity.
@@ -146,6 +148,7 @@ identity.
 `ResolveApiMember_RealNestedForwarderRowDoesNotConflictWithRootEvidence`,
 `ResolveApiMember_ReusedGenericAssemblyReferenceDoesNotRepeatPublicKeyInStructuralBudget`,
 `ResolveApiMember_EmptyFullAssemblyKeyCountsNormalizedTokenInStructuralBudget`,
+`ResolveApiMember_DistinctTypeReferencesSharingLargeAssemblyNameFailBeforeScanAmplification`,
 `ResolveApiMember_ReusedGenericAssemblyReferenceIsProjectedOnceBeforeBudgetFailure`,
 `ResolveApiMember_DistinctGenericAssemblyReferencesFailWithinOperationBudget`,
 `ResolveApiMember_InvalidCurrentModuleScopeFails`,

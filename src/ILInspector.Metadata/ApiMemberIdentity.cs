@@ -1711,12 +1711,14 @@ public static class ApiMemberIdentity
             var outer = reader.GetTypeDefinition(chain[0]);
             length = AddEncodedComponentEstimate(
                 length,
-                StructuralUtf8Length(reader, outer.Namespace));
+                ReadCorrespondenceUtf8Length(
+                    reader,
+                    outer.Namespace));
             for (int i = 0; i < consumed; i++)
             {
                 length = AddEncodedComponentEstimate(
                     length,
-                    StructuralUtf8Length(
+                    ReadCorrespondenceUtf8Length(
                         reader,
                         reader.GetTypeDefinition(chain[i]).Name));
             }
@@ -1753,10 +1755,14 @@ public static class ApiMemberIdentity
                         (AssemblyReferenceHandle)terminal);
                     length = AddEncodedComponentEstimate(
                         length,
-                        StructuralUtf8Length(reader, reference.Name));
+                        ReadCorrespondenceUtf8Length(
+                            reader,
+                            reference.Name));
                     length = AddEncodedComponentEstimate(
                         length,
-                        StructuralUtf8Length(reader, reference.Culture));
+                        ReadCorrespondenceUtf8Length(
+                            reader,
+                            reference.Culture));
                     length = AddEncodedComponentEstimate(
                         length,
                         reference.PublicKeyOrToken.IsNil ? 0 : 16);
@@ -1765,7 +1771,7 @@ public static class ApiMemberIdentity
                 case HandleKind.ModuleReference:
                     length = AddEncodedComponentEstimate(
                         length,
-                        StructuralUtf8Length(
+                        ReadCorrespondenceUtf8Length(
                             reader,
                             reader.GetModuleReference(
                                 (ModuleReferenceHandle)terminal).Name));
@@ -1785,15 +1791,26 @@ public static class ApiMemberIdentity
             var outer = reader.GetTypeReference(chain[0]);
             length = AddEncodedComponentEstimate(
                 length,
-                StructuralUtf8Length(reader, outer.Namespace));
+                ReadCorrespondenceUtf8Length(
+                    reader,
+                    outer.Namespace));
             for (int i = 0; i < consumed; i++)
             {
                 length = AddEncodedComponentEstimate(
                     length,
-                    StructuralUtf8Length(
+                    ReadCorrespondenceUtf8Length(
                         reader,
                         reader.GetTypeReference(chain[i]).Name));
             }
+            return length;
+        }
+
+        int ReadCorrespondenceUtf8Length(
+            MetadataReader reader,
+            StringHandle handle)
+        {
+            int length = StructuralUtf8Length(reader, handle);
+            _workBudget.Charge(length);
             return length;
         }
 

@@ -37,8 +37,9 @@ public static class MetadataSafetyPolicy
     /// <c>CreateMethodAnchor_NestedArrayModoptsFailBeforeLargeAllocation</c>,
     /// <c>CreateMethodAnchor_WideGenericModoptsFailBeforeLargeAllocation</c>,
     /// <c>CreateMethodAnchor_WideTypeRefGenericModoptsFailBeforeLargeAllocation</c>,
+    /// <c>CreateMethodAnchor_UniqueLongTypeRefModoptsFailBeforeLargeAllocation</c>,
     /// and
-    /// <c>CreateMethodAnchor_UniqueLongTypeRefModoptsFailBeforeLargeAllocation</c>.
+    /// <c>ResolveApiMember_DistinctTypeReferencesSharingLargeAssemblyNameFailBeforeScanAmplification</c>.
     /// </summary>
     public const int MaxAnchorSignatureWorkChars =
         MaxStructuralSignatureWorkChars;

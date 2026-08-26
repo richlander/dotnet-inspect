@@ -1042,6 +1042,35 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
+    public void ResolveApiMember_DistinctTypeReferencesSharingLargeAssemblyNameFailBeforeScanAmplification()
+    {
+        byte[] source =
+            BuildRepeatedGenericAssemblyScopeImage(
+                parameterCount: 65_000,
+                publicKeyBytes: 8,
+                typeNameLength: 4,
+                assemblyNameLength: 1_000_000,
+                genericInstantiation: false);
+        byte[] target =
+            BuildRepeatedGenericAssemblyScopeImage(
+                parameterCount: 1,
+                publicKeyBytes: 8,
+                typeNameLength: 4,
+                genericInstantiation: false);
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        MethodCorrespondenceResult result =
+            ResolveApiMember(source, target);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("budget", result.Failure);
+        Assert.InRange(allocated, 0, 4 * 1024 * 1024);
+    }
+
+    [Fact]
     public void ResolveApiMember_DistinctGenericAssemblyReferencesFailWithinOperationBudget()
     {
         byte[] source =
@@ -3252,7 +3281,9 @@ public sealed class MethodCorrespondenceResolverTests
         int typeNameLength,
         bool distinctAssemblyReferences = false,
         bool reuseTypeReference = false,
-        bool emptyNonNilPublicKey = false)
+        bool emptyNonNilPublicKey = false,
+        int assemblyNameLength = 0,
+        bool genericInstantiation = true)
     {
         if (reuseTypeReference && distinctAssemblyReferences)
         {
@@ -3274,7 +3305,9 @@ public sealed class MethodCorrespondenceResolverTests
             metadata.GetOrAddString("N");
         StringHandle typeName =
             metadata.GetOrAddString(
-                new string('a', typeNameLength - 3) + "G`1");
+                genericInstantiation
+                    ? new string('a', typeNameLength - 3) + "G`1"
+                    : new string('a', typeNameLength));
         var types =
             new TypeReferenceHandle[parameterCount];
         TypeReferenceHandle sharedType = default;
@@ -3307,12 +3340,21 @@ public sealed class MethodCorrespondenceResolverTests
         signature.WriteByte(0x01);
         foreach (TypeReferenceHandle type in types)
         {
-            signature.WriteByte(0x15);
-            signature.WriteByte(0x12);
-            signature.WriteCompressedInteger(
-                (MetadataTokens.GetRowNumber(type) << 2) | 1);
-            signature.WriteCompressedInteger(1);
-            signature.WriteByte(0x08);
+            if (genericInstantiation)
+            {
+                signature.WriteByte(0x15);
+                signature.WriteByte(0x12);
+                signature.WriteCompressedInteger(
+                    (MetadataTokens.GetRowNumber(type) << 2) | 1);
+                signature.WriteCompressedInteger(1);
+                signature.WriteByte(0x08);
+            }
+            else
+            {
+                signature.WriteByte(0x12);
+                signature.WriteCompressedInteger(
+                    (MetadataTokens.GetRowNumber(type) << 2) | 1);
+            }
         }
         metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static,
@@ -3349,7 +3391,10 @@ public sealed class MethodCorrespondenceResolverTests
                 publicKey[^1] = (byte)index;
             }
             return metadata.AddAssemblyReference(
-                metadata.GetOrAddString($"Dependency{index}"),
+                metadata.GetOrAddString(
+                    assemblyNameLength > 0
+                        ? new string('d', assemblyNameLength)
+                        : $"Dependency{index}"),
                 new Version(1, 0, 0, 0),
                 default,
                 metadata.GetOrAddBlob(publicKey),
