@@ -292,12 +292,14 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
-    public async Task PipelineIndependentMultiSectionSelection_ValidatesBeforeAcquisition()
+    public async Task PipelineIndependentMultiSectionCount_ReachesAcquisition()
     {
+        string missingAssembly =
+            Path.Combine(Path.GetTempPath(), "missing-member-selection.dll");
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
         {
             TypeName = "Missing.Type.Member",
-            AssemblyPath = Path.Combine(Path.GetTempPath(), "missing-member-selection.dll"),
+            AssemblyPath = missingAssembly,
             Select = [SectionNames.DecompiledSource, SectionNames.PdbSource],
             Count = true,
             TipLevel = TipLevel.Quiet,
@@ -305,8 +307,8 @@ public class MemberCallGraphSectionTests
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
-        Assert.Contains(CountOutput.SingleSectionRequiredMessage, result.Error);
-        Assert.DoesNotContain("not found", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains($"File not found: {missingAssembly}", result.Error);
+        Assert.DoesNotContain(CountOutput.SingleSectionRequiredMessage, result.Error);
     }
 
     [Fact]
