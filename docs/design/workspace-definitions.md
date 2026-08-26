@@ -446,14 +446,16 @@ the workspace, focus, section, and optional member anchor, opens one aggregate
 browser workspace, and returns its package surfaces plus exact activation
 identity. The focused `BrowserTypeSurface.Api` rows are the browser's ordinary
 Methods-section output; a member-bound run additionally returns the ordinary
-Call Graph projection. The engine rejects other product sections and
-library-scoped views until Browser has explicit execution support rather than
-silently dropping either binding. These properties are gated by
+Call Graph projection. The engine rejects other product sections,
+library-scoped views, and runtime-identifier-scoped package workspaces until
+Browser has explicit execution support rather than silently dropping those
+bindings. These properties are gated by
 `ToRunPlan_AllProductHomeDemosHaveSupportedBrowserShape`,
 `StjSerializer_RunPlanOwnsTypeOnlyMethodsSelection`,
 `ToRunPlan_DerivesNonFirstFocusForTypeOnlyMethodsView`,
 `ToRunPlan_RejectsUnsupportedBrowserSection`,
 `ToRunPlan_RejectsLibraryScopedView`,
+`ToRunPlan_RejectsRuntimeIdentifierScopes`,
 `ToRunPlan_RejectsFocusOutsideSelectedContext`,
 `HomeDemoRunCore_ProjectsTypeOnlyMethodsSurface`, and
 `HomeDemoRunCore_ProjectsTheAnchoredMemberAndItsGraph`.

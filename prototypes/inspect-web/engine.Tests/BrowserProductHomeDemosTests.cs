@@ -186,6 +186,31 @@ public sealed class BrowserProductHomeDemosTests
         Assert.Contains("does not support library-scoped views", error.Message);
     }
 
+    [Theory]
+    [InlineData("context")]
+    [InlineData("package")]
+    [InlineData("navigation")]
+    public void ToRunPlan_RejectsRuntimeIdentifierScopes(string source)
+    {
+        InspectionDefinitionException error = Assert.Throws<InspectionDefinitionException>(
+            () => BrowserProductHomeDemos.ToRunPlan(
+                ResolveSyntheticScenario(
+                    ProductDemoSections.Methods,
+                    contextRuntimeIdentifier: source == "context"
+                        ? "linux-x64"
+                        : null,
+                    packageRuntimeIdentifier: source == "package"
+                        ? "linux-x64"
+                        : null,
+                    navigationRuntimeIdentifier: source == "navigation"
+                        ? "linux-x64"
+                        : null)));
+
+        Assert.Contains(
+            "does not support runtime-identifier-scoped package workspaces",
+            error.Message);
+    }
+
     [Fact]
     public void ToRunPlan_RejectsFocusOutsideSelectedContext()
     {
@@ -219,6 +244,9 @@ public sealed class BrowserProductHomeDemosTests
     private static ResolvedScenario ResolveSyntheticScenario(
         string section,
         string? library = null,
+        string? contextRuntimeIdentifier = null,
+        string? packageRuntimeIdentifier = null,
+        string? navigationRuntimeIdentifier = null,
         bool includeFocusedPackageInContext = true)
     {
         const int version = InspectionDefinitionJson.CurrentSchemaVersion;
@@ -229,7 +257,8 @@ public sealed class BrowserProductHomeDemosTests
         var second = new DefinitionMemberCoordinate.PackageCoordinate(
             "Demo.Second",
             "2.0.0",
-            "net11.0");
+            "net11.0",
+            packageRuntimeIdentifier);
         DefinitionMemberCoordinate[] contextMembers =
             includeFocusedPackageInContext ? [first, second] : [first];
         var registry = new InspectionDefinitionRegistry();
@@ -240,6 +269,7 @@ public sealed class BrowserProductHomeDemosTests
                 new WorkspaceContextDefinition(
                     "context",
                     framework: "net11.0",
+                    runtimeIdentifier: contextRuntimeIdentifier,
                     members: contextMembers),
             ]));
         registry.Add(new ViewDefinition(
@@ -253,7 +283,10 @@ public sealed class BrowserProductHomeDemosTests
             "navigation",
             [
                 new NavigationTabDefinition("first", coordinate: first),
-                new NavigationTabDefinition("second", coordinate: second),
+                new NavigationTabDefinition(
+                    "second",
+                    coordinate: second,
+                    runtimeIdentifier: navigationRuntimeIdentifier),
             ],
             focus: "second"));
         registry.Add(new ScenarioDefinition(

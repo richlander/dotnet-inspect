@@ -2901,9 +2901,17 @@ public sealed class BrowserEngineBoundaryTests
 
             Assert.True(result.Found);
             Assert.Equal(2, result.Packages.Length);
-            Assert.Equal(ProductDemoSections.Methods, result.Activation?.Section);
-            Assert.Null(result.Activation?.MemberName);
-            Assert.Null(result.Activation?.MemberSection);
+            BrowserHomeDemoRunActivation activation =
+                Assert.IsType<BrowserHomeDemoRunActivation>(result.Activation);
+            Assert.Equal(packageId, activation.FocusPackage);
+            Assert.Equal("1.0.0", activation.FocusVersion);
+            Assert.Equal("net11.0", activation.FocusFramework);
+            Assert.Equal(
+                typeof(BrowserEngineBoundaryTests).FullName,
+                activation.TypeId);
+            Assert.Equal(ProductDemoSections.Methods, activation.Section);
+            Assert.Null(activation.MemberName);
+            Assert.Null(activation.MemberSection);
             Assert.Null(result.CallGraph);
             BrowserTypeSurface type = Assert.Single(
                 result.Packages[1].Types,
@@ -2986,9 +2994,15 @@ public sealed class BrowserEngineBoundaryTests
 
             Assert.True(result.Found);
             Assert.Equal(2, result.Packages.Length);
-            Assert.Equal(ProductDemoSections.CallGraph, result.Activation?.Section);
-            Assert.Equal(member.AnchorDigest, result.Activation?.MemberAnchorDigest);
-            Assert.Equal("call-graph", result.Activation?.MemberSection);
+            BrowserHomeDemoRunActivation activation =
+                Assert.IsType<BrowserHomeDemoRunActivation>(result.Activation);
+            Assert.Equal(packageId, activation.FocusPackage);
+            Assert.Equal("1.0.0", activation.FocusVersion);
+            Assert.Equal("net11.0", activation.FocusFramework);
+            Assert.Equal(type.Id, activation.TypeId);
+            Assert.Equal(ProductDemoSections.CallGraph, activation.Section);
+            Assert.Equal(member.AnchorDigest, activation.MemberAnchorDigest);
+            Assert.Equal("call-graph", activation.MemberSection);
             Assert.NotNull(result.CallGraph);
             Assert.False(result.CallGraph.NoBody);
             Assert.Equal(2, result.CallGraph.Scope.Packages);

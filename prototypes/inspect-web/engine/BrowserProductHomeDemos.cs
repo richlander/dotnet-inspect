@@ -56,6 +56,7 @@ internal static class BrowserProductHomeDemos
             throw new InspectionDefinitionException(
                 $"Home demo '{scenario.ScenarioId}' browser execution does not support library-scoped views.");
         }
+        EnsureNoRuntimeIdentifier(productPlan);
 
         BrowserHomeDemoRunMember? member = productPlan.Section switch
         {
@@ -101,6 +102,23 @@ internal static class BrowserProductHomeDemos
             productPlan.TypeName,
             productPlan.Section,
             member);
+    }
+
+    private static void EnsureNoRuntimeIdentifier(ProductDemoRunPlan plan)
+    {
+        bool hasRuntimeIdentifier =
+            plan.Context.RuntimeIdentifier is not null
+            || plan.Context.Members.Any(member =>
+                member is WorkspaceMemberCoordinate.PackageMember
+                {
+                    RuntimeIdentifier: not null,
+                })
+            || plan.Focus?.RuntimeIdentifier is not null;
+        if (hasRuntimeIdentifier)
+        {
+            throw new InspectionDefinitionException(
+                $"Home demo '{plan.Scenario.ScenarioId}' browser execution does not support runtime-identifier-scoped package workspaces.");
+        }
     }
 
     private static BrowserHomeDemoRunMember ToCallGraphMember(
