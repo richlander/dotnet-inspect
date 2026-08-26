@@ -330,6 +330,36 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PlatformWorkspace_CustomSourceAuthorizationFailsBeforeGalleryRequest()
+    {
+        var handler = new PlatformVersionHandler(
+            "microsoft.netcore.app.ref",
+            "11.0.0");
+        using var client = new HttpClient(handler);
+        var authorization = new UniformPackageSourceAuthorization(
+            [
+                new PackageSource(
+                    "Private",
+                    "https://private.example/v3/index.json"),
+            ]);
+
+        InvalidOperationException error =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => BrowserPlatformWorkspace.OpenRuntimeAsync(
+                    "net11.0-custom-source-guard",
+                    client,
+                    authorization,
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "does not match the configured package source client",
+            error.Message);
+        Assert.DoesNotContain("private.example", error.Message);
+        Assert.Equal(0, handler.Requests);
+    }
+
+    [Fact]
     public async Task PlatformWorkspace_ResolvesUnknownFamilyFromProductPacks()
     {
         const string version = "11.0.101";

@@ -856,6 +856,10 @@ and
 `BrowserEngineBoundaryTests.VersionPickerRetainsFlatListWhenRegistrationTimesOut`
 gate the deadline margin that preserves partial version-picker enumeration when
 optional registration stalls.
+The current Browser platform host lends one NuGet Gallery client only when its
+producer identity matches the authorized source selected by the package layer.
+`BrowserEngineBoundaryTests.PlatformWorkspace_CustomSourceAuthorizationFailsBeforeGalleryRequest`
+gates rejection of a mismatch before any request is dispatched.
 The existing `NuGetSearchSourcesTests` continue to gate the package-layer
 service-index search behavior and credential-scope canonicalization.
 

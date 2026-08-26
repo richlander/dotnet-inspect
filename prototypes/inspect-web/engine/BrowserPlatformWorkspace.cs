@@ -883,7 +883,7 @@ internal static class BrowserPlatformWorkspace
         {
             HttpClient = host.Client,
             SourceAuthorization = host.SourceAuthorization,
-            BorrowedSourceClientFactory = _ => host.SourceClient,
+            BorrowedSourceClientFactory = host.SourceClientFor,
             PackageStore = store,
             PackageTransferPolicy =
                 new BrowserPackageWorkspace.BrowserPackageOperationTransferPolicy(
@@ -1242,6 +1242,24 @@ internal static class BrowserPlatformWorkspace
         IPackageSourceAuthorization SourceAuthorization,
         IPackageSourceClient SourceClient)
     {
+        internal IPackageSourceClient SourceClientFor(PackageSource source)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+            string selectedProducer = NuGetCache.GetSourceKey(source.Url);
+            string clientProducer =
+                NuGetCache.GetSourceKey(SourceClient.Identity.Value);
+            if (!selectedProducer.Equals(
+                    clientProducer,
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "The selected Browser package source does not match "
+                    + "the configured package source client.");
+            }
+
+            return SourceClient;
+        }
+
         internal static Host Create(
             HttpClient client,
             IPackageSourceAuthorization sourceAuthorization) =>
