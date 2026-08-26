@@ -2155,7 +2155,6 @@ public class SectionPipelineTests
         {
             int exitCode = PackageCommand.WriteMultiPackageCount(
                 [Result("One"), Result("Two")],
-                rowSection: null,
                 new InspectionOptions
                 {
                     Count = true,
@@ -2219,7 +2218,6 @@ public class SectionPipelineTests
         {
             int exitCode = PackageCommand.WriteMultiPackageCount(
                 results,
-                rowSection: null,
                 options,
                 PackageSectionDescriptors.CreatePipeline());
             string output = File.ReadAllText(outputPath);
@@ -2253,7 +2251,6 @@ public class SectionPipelineTests
                         Version = "1.0.0",
                     },
                 ],
-                rowSection: null,
                 new InspectionOptions
                 {
                     Count = true,
@@ -2303,9 +2300,13 @@ public class SectionPipelineTests
         {
             int exitCode = PackageCommand.WriteMultiPackageCount(
                 [clean, mismatch],
-                PackageSections.Files,
-                new InspectionOptions { Count = true, OutputPath = outputPath },
-                PackageSectionDescriptors.CreatePipeline());
+                new InspectionOptions
+                {
+                    Count = true,
+                    IncludeSections = new HashSet<string> { PackageSections.Files },
+                    OutputPath = outputPath,
+                },
+                PackageSectionDescriptors.CreateCatalog().Pipeline);
 
             Assert.Equal(1, exitCode);
             Assert.Equal("2", File.ReadAllText(outputPath).Trim());
@@ -2356,7 +2357,6 @@ public class SectionPipelineTests
                         SignatureResult = signature,
                     },
                 ],
-                null,
                 options,
                 PackageSectionDescriptors.CreatePipeline());
 
@@ -2394,7 +2394,6 @@ public class SectionPipelineTests
                     new InspectionResult { PackageName = "First" },
                     new InspectionResult { PackageName = "Second" },
                 ],
-                null,
                 options,
                 PackageSectionDescriptors.CreatePipeline());
 
@@ -2433,7 +2432,6 @@ public class SectionPipelineTests
                     new InspectionResult { PackageName = "First" },
                     new InspectionResult { PackageName = "Second" },
                 ],
-                null,
                 options,
                 PackageSectionDescriptors.CreatePipeline());
 
@@ -2487,7 +2485,6 @@ public class SectionPipelineTests
                         SignatureResult = signature,
                     },
                 ],
-                null,
                 options,
                 PackageSectionDescriptors.CreatePipeline());
 

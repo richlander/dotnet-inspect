@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
 using DotnetInspector.Options;
+using DotnetInspector.Services;
 
 namespace DotnetInspector.Output;
 
@@ -141,7 +142,9 @@ public static class ProjectionAudit
     /// This reuses the audit's own view of the request — including its walk of the command chain —
     /// so a render path's dispatch and the audit cannot disagree about what the caller asked for.
     /// </remarks>
-    public static IProjectionOptions Requested(ParseResult parseResult)
+    public static IProjectionOptions Requested(
+        ParseResult parseResult,
+        SharedOptions options)
     {
         var flags = RequestedFlags(parseResult);
         return new ParsedProjection(
@@ -149,10 +152,21 @@ public static class ProjectionAudit
             flags.Contains(Print),
             flags.Contains(Value),
             flags.Contains(Urls),
-            flags.Contains(Paths));
+            flags.Contains(Paths),
+            options.ParseRows(parseResult),
+            options.ParseFields(parseResult),
+            options.ParseColumns(parseResult));
     }
 
-    private sealed record ParsedProjection(bool Count, bool Print, bool Value, bool Urls, bool Paths)
+    private sealed record ParsedProjection(
+        bool Count,
+        bool Print,
+        bool Value,
+        bool Urls,
+        bool Paths,
+        RowWindow? Rows,
+        string[]? Fields,
+        string[]? Columns)
         : IProjectionOptions;
 
     private static List<string> RequestedFlags(ParseResult parseResult)

@@ -316,7 +316,11 @@ public class LibraryCommand
         if (!ValidateMultiTfmOutput(options))
             return 1;
 
-        if (options.Tree && options.Discover == null)
+        if (!ValidateReferenceTreeCount(
+                options.Tree, options.Count, options.IncludeSections))
+            return 1;
+
+        if (options.Tree && options.Discover == null && !options.Count)
         {
             if (options.IncludeSections is not { Count: 1 }
                 || !options.IncludeSections.Contains(SectionNames.References))
@@ -326,10 +330,9 @@ public class LibraryCommand
             }
         }
 
-        if (options.Tree && options.Discover == null)
+        if (options.Tree && options.Discover == null && !options.Count)
         {
-            if (options.Count
-                || options.Print
+            if (options.Print
                 || options.Value
                 || options.Urls
                 || options.Paths
@@ -371,13 +374,29 @@ public class LibraryCommand
         // --il-offsets counts resolved coordinate rows, not section rows, so it does not need a
         // section filter to make --count meaningful.
         var ilOffsetsBatchMode = !string.IsNullOrWhiteSpace(options.ILOffsetsPath);
+        if (ilOffsetsBatchMode && options.SelectExplicitlySet)
+        {
+            CommandError.Write(
+                "-S/--select is not available with --il-offsets, which renders "
+                + "its own payload rather than sections.");
+            return 1;
+        }
+
         // Discovery renders its own rows, so a section requirement describes a filter it does
         // not use. -S still narrows effective discovery, so it stays permitted.
         var rendersOwnPayload = ilOffsetsBatchMode || options.Discover != null;
 
-        if (!rendersOwnPayload && options.Count
-            && !CountOutput.ValidateSectionsSelected(options.IncludeSections, options.FixedOverview))
-            return 1;
+        if (!rendersOwnPayload && options.Count)
+        {
+            if (!CountOutput.ValidateSectionsSelected(options.IncludeSections, options.FixedOverview))
+                return 1;
+
+            var ordered = OutputFormatter.ResolveCountMapSections(
+                pipeline, options.IncludeSections, options.FixedOverview);
+            if (!CountOutput.ValidateMapFormat(
+                    options.Format, ordered, options.Tree))
+                return 1;
+        }
 
         if (options.Count && options.Print)
         {
@@ -443,14 +462,28 @@ public class LibraryCommand
         if (requiredVerbosity > options.Verbosity)
             options = options with { Verbosity = requiredVerbosity };
 
-        // Pre-render validation: check --fields/--columns names against the section schema
-        if ((options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 }) && options.IncludeSections is { Count: > 0 })
+        // Pre-render validation: check --fields/--columns names against the section schema.
+        // Bare -S carries its selection through FixedOverview rather than IncludeSections.
+        IReadOnlyCollection<string>? projectionSections =
+            options.IncludeSections is { Count: > 0 } includeSections
+                ? includeSections
+                : options.FixedOverview
+                    ? pipeline.BareSelectSectionNames
+                    : null;
+        if ((options.Fields is { Length: > 0 }
+                || options.Columns is { Length: > 0 })
+            && projectionSections is { Count: > 0 }
+            && !ProjectionDiagnostics.ValidateProjection(
+                schemaMap,
+                projectionSections,
+                options.Fields,
+                options.Columns))
         {
-            if (!ProjectionDiagnostics.ValidateProjection(schemaMap, options.IncludeSections, options.Fields, options.Columns))
-                return 1;
+            return 1;
         }
 
         if (options.Discover == null
+            && !options.Count
             && !OutputFormatResolver.ValidateSingleSectionForTabular(
                 options.TabularExplicitlySet, options.IncludeSections))
             return 1;
@@ -687,11 +720,6 @@ public class LibraryCommand
                         fullEffectiveDiscovery, discoveryExecutionScope, sourceLinkAvailable,
                         cache: useEffectiveDiscoveryCache,
                         inspectedContentHash: inspectedContentHash);
-                if (TryWriteLibrarySingletonCount(inspection, options))
-                    return SelectedInspectionFailureExitCode(
-                        options,
-                        pipeline,
-                        inspection);
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
@@ -861,16 +889,6 @@ public class LibraryCommand
                                 inspectedContentHash,
                             reportIdentifierFailures:
                                 !identifierAuditIncomplete));
-                if (TryWriteLibrarySingletonCount(inspections[0], options))
-                    return Math.Max(
-                        IntegrityExitCode(
-                            identifierAuditExitCode,
-                            !identifierAuditIncomplete,
-                            inspections[0]),
-                        SelectedInspectionFailureExitCode(
-                            options,
-                            pipeline,
-                            inspections[0]));
                 if (options.Print)
                     return IntegrityExitCode(
                         Math.Max(
@@ -1020,11 +1038,6 @@ public class LibraryCommand
                         fullEffectiveDiscovery, discoveryExecutionScope, sourceLinkAvailable,
                         cache: useEffectiveDiscoveryCache,
                         inspectedContentHash: inspectedContentHash);
-                if (TryWriteLibrarySingletonCount(inspection, options))
-                    return SelectedInspectionFailureExitCode(
-                        options,
-                        pipeline,
-                        inspection);
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
@@ -1220,21 +1233,21 @@ public class LibraryCommand
         }
 
         var batchExitCode = rows.Any(row => row.Meaning == "error") ? 1 : 0;
-
-        // --rows narrows what the table renders, so it has to narrow the count by
-        // the same window; counting the unwindowed batch answers a question the
-        // user did not ask, and the audit cannot see the difference. The exit code
-        // still reports every coordinate that failed to resolve, windowed out of
-        // view or not, because that is a resolution result rather than a display
-        // concern.
         var visibleRows = RowWindow.Apply(options.Rows, rows);
 
         // A coordinate that failed to resolve is still a reported row, so it counts; the
         // non-zero exit remains the signal that some coordinate did not resolve.
-        if (LensProjection.TryProject(options, "--il-offsets", visibleRows.Count, out var projectionExitCode))
+        if (LensProjection.TryProject(
+                options,
+                "--il-offsets",
+                visibleRows.Count,
+                out var projectionExitCode,
+                ["Coordinate", "Label", "Member", "IL Offset", "Meaning", "Evidence"]))
             return projectionExitCode != 0 ? projectionExitCode : batchExitCode;
 
-        WriteILCoordinateBatchRows(rows, options);
+        WriteILCoordinateBatchRows(
+            [.. visibleRows],
+            options with { Rows = null });
         return batchExitCode;    }
 
     private static readonly string[] BatchCoordinateSections =
@@ -1570,18 +1583,6 @@ public class LibraryCommand
         SectionNames.CostContext
     ];
 
-    private static readonly string[] ILCoordinateSingletonSections =
-    [
-        SectionNames.ILOffset,
-        SectionNames.MemberContext,
-        SectionNames.InstructionContext,
-        SectionNames.CallsiteContext,
-        SectionNames.ReturnAddressContext,
-        SectionNames.AllocationContext,
-        SectionNames.SafetyContext,
-        SectionNames.CostContext
-    ];
-
     private static bool HasILOffsetCoordinate(LibraryOptions options)
         => !string.IsNullOrWhiteSpace(options.ILOffsetParameter);
 
@@ -1789,6 +1790,27 @@ public class LibraryCommand
         return false;
     }
 
+    internal static bool ValidateReferenceTreeCount(
+        bool tree,
+        bool count,
+        IReadOnlyCollection<string>? sections)
+    {
+        if (!tree
+            || !count
+            || sections is not { Count: 1 }
+            || !sections.Contains(
+                SectionNames.References,
+                StringComparer.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        CommandError.Write(
+            "--count is not available with -S References --tree because "
+            + "the reference tree does not declare countable row semantics.");
+        return false;
+    }
+
     private static bool ValidateMultiTfmOutput(LibraryOptions options)
     {
         if (!IsAllTfmPackageSelection(options)
@@ -1797,7 +1819,7 @@ public class LibraryCommand
             return true;
         }
 
-        string? incompatibleShape = options.Tree ? "--tree"
+        string? incompatibleShape = options.Tree && !options.Count ? "--tree"
             : options.Print ? "--print"
             : options.Value ? "--value"
             : options.Urls ? "--urls"
@@ -1858,32 +1880,6 @@ public class LibraryCommand
         => string.IsNullOrEmpty(options.PlatformAssembly)
             && !string.IsNullOrEmpty(options.PackagePath)
             && string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase);
-
-    private static bool TryWriteLibrarySingletonCount(LibraryInspection inspection, LibraryOptions options)
-    {
-        if (!options.Count
-            || options.IncludeSections is not { Count: 1 } sections
-            || !sections.Overlaps(ILCoordinateSingletonSections))
-        {
-            return false;
-        }
-
-        var section = sections.Single();
-        var hasRow = section switch
-        {
-            SectionNames.ILOffset => inspection.ILOffset != null,
-            SectionNames.MemberContext => inspection.ILOffset?.MemberContext != null,
-            SectionNames.InstructionContext => inspection.ILOffset?.InstructionContext != null,
-            SectionNames.CallsiteContext => inspection.ILOffset?.CallsiteContext != null,
-            SectionNames.ReturnAddressContext => inspection.ILOffset?.ReturnAddressContext != null,
-            SectionNames.AllocationContext => inspection.ILOffset?.AllocationContext is { Count: > 0 },
-            SectionNames.SafetyContext => inspection.ILOffset?.SafetyContext is { Count: > 0 },
-            SectionNames.CostContext => inspection.ILOffset?.CostContext is { Count: > 0 },
-            _ => false
-        };
-        CountOutput.WriteCount(hasRow ? 1 : 0);
-        return true;
-    }
 
     private static int WriteLibraryShapeProjection(LibraryInspection inspection, LibraryOptions options)
     {

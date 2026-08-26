@@ -34,6 +34,7 @@ public static class VocabularyCommandDefinitions
                 Tree = opts.ParseTree(parseResult),
                 Count = parseResult.GetValue(opts.Count),
                 Rows = opts.ParseRows(parseResult),
+                Format = format,
                 JsonOutput = format == OutputFormat.Json,
                 PlainText = format == OutputFormat.PlainText,
                 Tabular = opts.ResolveTabular(parseResult),
