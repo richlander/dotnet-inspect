@@ -69,7 +69,7 @@ public class ExtensionsCommand
             }
             else
             {
-                WriteMarkoutOutput(targetType, results, options.Verbosity, options.Rows);
+                WriteMarkoutOutput(targetType, results, options.Verbosity, options.Rows, options.HumanRowWindowNote);
             }
 
             return 0;
@@ -388,11 +388,12 @@ public class ExtensionsCommand
             options.Rows);
     }
 
-    private static void WriteMarkoutOutput(string targetType, List<ExtensionMethodResult> results, Verbosity verbosity, RowWindow? rows)
+    private static void WriteMarkoutOutput(string targetType, List<ExtensionMethodResult> results, Verbosity verbosity, RowWindow? rows, string? humanRowWindowNote = null)
     {
         var view = ExtensionsOutputFormatter.BuildView(targetType, results, verbosity);
         OutputFormatter.WriteWindowedMarkdown(Console.Out, rows,
-            opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts));
+            opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts),
+            humanRowWindowNote: humanRowWindowNote);
     }
 
     private static void WriteTableOutput(string targetType, List<ExtensionMethodResult> results, ExtensionsOptions options)
@@ -402,7 +403,7 @@ public class ExtensionsCommand
             options.Columns, options.Fields,
             (writer, formatter, writerOptions) =>
                 MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions),
-            options.Rows);
+            options.Rows, options.HumanRowWindowNote);
     }
 
     /// <summary>

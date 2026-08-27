@@ -97,7 +97,7 @@ public class ImplementsCommand
             }
             else
             {
-                WriteMarkoutOutput(targetType, results, options.Tabular, options.Tsv, options.Jsonl, options.NoHeader, options.Columns, options.Fields, options.Rows);
+                WriteMarkoutOutput(targetType, results, options.Tabular, options.Tsv, options.Jsonl, options.NoHeader, options.Columns, options.Fields, options.Rows, options.HumanRowWindowNote);
             }
 
             return 0;
@@ -172,7 +172,7 @@ public class ImplementsCommand
             options.Rows);
     }
 
-    private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results, bool tabular, bool tsv, bool jsonl, bool noHeader, string[]? columns, string[]? fields, RowWindow? rows)
+    private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results, bool tabular, bool tsv, bool jsonl, bool noHeader, string[]? columns, string[]? fields, RowWindow? rows, string? humanRowWindowNote = null)
     {
         var view = ImplementsOutputFormatter.BuildView(targetType, results);
 
@@ -187,12 +187,13 @@ public class ImplementsCommand
             OutputFormatter.WriteProjectedTable(Console.Out, !noHeader, tsv, jsonl, columns, fields,
                 (writer, formatter, writerOptions) =>
                     MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions),
-                rows);
+                rows, humanRowWindowNote);
         }
         else
         {
             OutputFormatter.WriteWindowedMarkdown(Console.Out, rows,
-                opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts));
+                opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts),
+                humanRowWindowNote: humanRowWindowNote);
         }
     }
 }

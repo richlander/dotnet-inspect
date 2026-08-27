@@ -436,12 +436,13 @@ public class FindCommand
                 options.Columns, options.Fields,
                 (writer, formatter, writerOptions) =>
                     MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions),
-                options.Rows);
+                options.Rows, options.HumanRowWindowNote);
         }
         else
         {
             OutputFormatter.WriteWindowedMarkdown(Console.Out, options.Rows,
-                opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts));
+                opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts),
+                humanRowWindowNote: options.HumanRowWindowNote);
         }
     }
 
@@ -473,12 +474,13 @@ public class FindCommand
                 options.Columns, options.Fields,
                 (writer, formatter, writerOptions) =>
                     MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions),
-                options.Rows);
+                options.Rows, options.HumanRowWindowNote);
         }
         else
         {
             OutputFormatter.WriteWindowedMarkdown(Console.Out, options.Rows,
-                opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts));
+                opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts),
+                humanRowWindowNote: options.HumanRowWindowNote);
         }
     }
 
