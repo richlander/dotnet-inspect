@@ -174,15 +174,22 @@ is the receiver itself or a repository-authored property, union constituent,
 tuple or array element, index result, callback result, generic constraint, or
 characterized standard wrapper output that is receiver-bearing. Every
 instantiated generic type argument is also compared, regardless of whether the
-generic declaration is product or platform owned. The comparison never
-discovers positions by walking members declared on a DOM platform type.
+generic declaration is product or platform owned.
+
+A pairwise conversion from a platform object to a repository-authored
+structural target also compares the corresponding platform members named by
+that target. It recurses through those members' parameter, return, property,
+index, and iterator positions. It does not globally enumerate the platform
+type's other members or classify them as aggregate contents.
 
 For example, converting `{ value: HTMLElement }` to
 `{ value: Reader }`, `HTMLElement[]` to `Reader[]`, or
 `() => HTMLElement` to `() => Reader` compares the nested receiver position
 and rejects the capability-shaped structural target. The same rule covers
 `NodeListOf<HTMLElement>` and `Map<string, Document>` through their instantiated
-type arguments. The comparison is cycle-safe and uses the same characterized
+type arguments. It covers non-generic `HTMLCollection` by comparing only the
+target's `item` member with the platform `item` member and finding the nested
+`Element` return. The comparison is cycle-safe and uses the same characterized
 standard wrappers as transfer-root classification.
 
 Call and construct parameters are compared contravariantly. When a callback or
@@ -360,6 +367,13 @@ literal or a builder result to ordinary `string` loses owner identity and is
 rejected at the selector call; an unresolved selector argument has no implied
 owner.
 
+The adapter owns the builder's grammar behavior. The semantic verifier proves
+exclusive construction and use of the protected result; it does not infer the
+builder's runtime string transformation. Each dynamic descriptor therefore
+requires behavioral and mutation tests for accepted inputs, close negatives,
+invalid inputs, selector escaping, and every grammar branch before its result
+is authorized.
+
 Product modules may query DOM that they own through those forms. A covered
 selector used from any other module is rejected whether the receiver is
 `document`, an element, or another `ParentNode`. Extracting a DOM selector
@@ -422,6 +436,8 @@ the verifier, initially:
 - enumerate constituents, constraints, repository-authored aggregate
   positions, instantiated type arguments, signatures, and characterized wrapper
   outputs for cycle-safe transfer-root classification;
+- resolve corresponding platform members named by a repository-authored
+  structural conversion target without enumerating unrelated platform members;
 - compare source and contextual types at every binding or production edge;
 - resolve a call to its exact declaration and instantiated parameter and return
   types; and
@@ -465,7 +481,8 @@ A numeric descriptor also names:
 A selector descriptor may name an exact dynamic-selector builder, its accepted
 input grammar, and its protected result type. The builder and result owner must
 be declared in the descriptor's module. A generic `string` return is not
-selector authority.
+selector authority. The descriptor also names the behavioral and mutation
+witnesses for every grammar branch.
 
 An entry-point reference must resolve to an exported callable declared in the
 same module as the descriptor. Its listed parameter must have a specific
@@ -549,7 +566,9 @@ The implementation adds an `inspect-web-boundaries` script and makes
 9. **Selector identity:** rejects catalog literals and protected builder results
    widened to `string`, cross-owner catalog use, unregistered dynamic selector
    arguments, and structurally similar builders. It accepts exact owner
-   constants and registered builder results.
+   constants and registered builder results. Every dynamic builder rejects
+   invalid grammar inputs, escapes interpolated values, covers every grammar
+   branch, and dies under a mutation that bypasses validation or escaping.
 
 The implementation gate is:
 
