@@ -649,25 +649,25 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.MethodAttributes>(HasSingleBodyBackedMember)
             .Add<ApiMemberSectionDescriptors.DecompiledSource>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.FidelityCauses>(HasSingleBodyBackedMember)
-            .Add<ApiMemberDetailSectionDescriptors.AppliedTaste>(HasSingleBodyBackedMember)
+            .Add<ApiMemberDetailSectionDescriptors.AppliedTaste>(HasSingleExecutableBodyMember)
             .Add<ApiMemberDetailSectionDescriptors.AnnotatedSource>(HasSingleBodyBackedMember)
-            .Add<ApiMemberDetailSectionDescriptors.AnnotatedSourceDocument>(HasSingleBodyBackedMember)
+            .Add<ApiMemberDetailSectionDescriptors.AnnotatedSourceDocument>(HasSingleExecutableBodyMember)
             .Add<ApiMemberSectionDescriptors.PdbSource>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.SourceDiff>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.Calls>()
             .Add<ApiMemberDetailSectionDescriptors.ExceptionRegions>()
-            .Add<ApiMemberSectionDescriptors.AllocationFacts>(HasSingleBodyBackedMember)
+            .Add<ApiMemberSectionDescriptors.AllocationFacts>(HasSingleExecutableBodyMember)
             .Add<ApiMemberSectionDescriptors.SafetyFacts>(HasSingleBodyBackedMember)
-            .Add<ApiMemberSectionDescriptors.CostFacts>(HasSingleBodyBackedMember)
+            .Add<ApiMemberSectionDescriptors.CostFacts>(HasSingleExecutableBodyMember)
             .Add<ApiMemberDetailSectionDescriptors.Callers>()
             .Add<ApiMemberDetailSectionDescriptors.CallGraph>()
             .Add<ApiMemberDetailSectionDescriptors.UnsafeOperations>()
-            .Add<ApiMemberDetailSectionDescriptors.BodyShapes>(HasSingleBodyBackedMember)
-            .Add<ApiMemberSectionDescriptors.TopLeverage>(HasSingleBodyBackedMember)
-            .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>(HasSingleBodyBackedMember)
-            .Add<ApiMemberSectionDescriptors.CostOverlay>(HasSingleBodyBackedMember)
-            .Add<ApiMemberSectionDescriptors.SemanticsOverlay>(HasSingleBodyBackedMember)
-            .Add<ApiMemberSectionDescriptors.ILBody>(HasSingleBodyBackedMember)
+            .Add<ApiMemberDetailSectionDescriptors.BodyShapes>(HasSingleExecutableBodyMember)
+            .Add<ApiMemberSectionDescriptors.TopLeverage>(HasSingleExecutableBodyMember)
+            .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>(HasSingleExecutableBodyMember)
+            .Add<ApiMemberSectionDescriptors.CostOverlay>(HasSingleExecutableBodyMember)
+            .Add<ApiMemberSectionDescriptors.SemanticsOverlay>(HasSingleExecutableBodyMember)
+            .Add<ApiMemberSectionDescriptors.ILBody>(HasSingleExecutableBodyMember)
             .Add<ApiMemberSectionDescriptors.Facts>()
             .AddCategory(SectionCategoryNames.Source,
                 SectionNames.DecompiledSource,
@@ -679,6 +679,10 @@ public static class ApiMemberOverloadSectionDescriptors
 
     private static bool HasSingleBodyBackedMember(ApiType model)
         => model.Members.Count == 1 && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+
+    private static bool HasSingleExecutableBodyMember(ApiType model)
+        => model.Members.Count == 1
+           && model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
 
     public sealed class Methods : ISectionDescriptor<ApiType>
     {

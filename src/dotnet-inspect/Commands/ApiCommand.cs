@@ -2677,14 +2677,8 @@ public class ApiCommand
         if (options.JsonOutput && !options.Count && !IsProjectionRequested(options) && !sourceDocumentJson)
         {
             var requestedMemberSections = GetRequestedMemberSections(type, options);
-            if (options.ExactIncludeSections?.Contains(
-                    SectionNames.Callers) == true)
-            {
-                CommandError.Write(
-                    "Document --json cannot represent Callers analysis. "
-                    + "Use Markdown/plaintext, --jsonl, --tsv, --table, or --count.");
+            if (RejectExactCallerAnalysisDocumentJson(options))
                 return 1;
-            }
             if (requestedMemberSections.Contains(SectionNames.PerformanceTriage)
                 && HasExplicitPerformanceTriageSelector(options))
             {
@@ -3118,6 +3112,25 @@ public class ApiCommand
         ApiOutputFormatter.WriteSignatureDecodeWarning(view);
         ApiOutputFormatter.WriteCallGraphWarning(view);
         return 0;
+    }
+
+    internal static bool RejectExactCallerAnalysisDocumentJson(
+        ApiOptions options)
+    {
+        string? section = options.ExactIncludeSections?.Contains(
+            SectionNames.Callers) == true
+            ? SectionNames.Callers
+            : options.ExactIncludeSections?.Contains(
+                SectionNames.CallGraph) == true
+                ? SectionNames.CallGraph
+                : null;
+        if (section is null)
+            return false;
+
+        CommandError.Write(
+            $"Document --json cannot represent {section} analysis. "
+            + "Use Markdown/plaintext, --jsonl, --tsv, --table, or --count.");
+        return true;
     }
 
     private static async Task<int> PrintApiProjectionAsync(TypeView view, ApiOptions options)

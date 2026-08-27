@@ -14877,8 +14877,37 @@ public partial class CommandExecutionTests
         Assert.Contains("--count", result.Error);
     }
 
-    [Fact]
-    public async Task Member_InapplicableExactCallersDocumentJsonFailsClosed()
+    [Theory]
+    [InlineData(SectionNames.Callers)]
+    [InlineData(SectionNames.CallGraph)]
+    public async Task Member_ExactCallerAnalysisDocumentJsonFailsBeforeCallerScopeAcquisition(
+        string section)
+    {
+        string missingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-caller-scope-{Guid.NewGuid():N}");
+        var result = await RunAppAsync(
+            "member", typeof(MemberBodylessEvidenceFixture).FullName!,
+            "--library", typeof(MemberBodylessEvidenceFixture).Assembly.Location,
+            nameof(MemberBodylessEvidenceFixture.Native),
+            "-S", section,
+            "--json",
+            "--bin", missingDirectory,
+            "--tips", "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"Document --json cannot represent {section} analysis.",
+            result.Error);
+        Assert.DoesNotContain("Directory not found", result.Error);
+    }
+
+    [Theory]
+    [InlineData(SectionNames.Callers)]
+    [InlineData(SectionNames.CallGraph)]
+    public async Task Member_InapplicableExactCallerAnalysisDocumentJsonFailsClosed(
+        string section)
     {
         var type = new ApiType
         {
@@ -14890,8 +14919,8 @@ public partial class CommandExecutionTests
         var options = new MemberOptions
         {
             JsonOutput = true,
-            IncludeSections = [SectionNames.Callers],
-            ExactIncludeSectionsOverride = [SectionNames.Callers],
+            IncludeSections = [section],
+            ExactIncludeSectionsOverride = [section],
             MemberSectionsPreResolved = true,
         };
 
@@ -14908,7 +14937,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            $"Document --json cannot represent {SectionNames.Callers} analysis.",
+            $"Document --json cannot represent {section} analysis.",
             error);
     }
 
@@ -15084,6 +15113,63 @@ public partial class CommandExecutionTests
         Assert.Contains("Unsafe signature", result.Output);
         Assert.Contains(signatureEvidence, result.Output);
         Assert.Empty(result.Error);
+    }
+
+    [Theory]
+    [InlineData(nameof(MemberBodylessEvidenceFixture.Native), false)]
+    [InlineData(nameof(MemberBodylessEvidenceFixture.Abstract), false)]
+    [InlineData(nameof(MemberBodylessEvidenceFixture.Executable), true)]
+    public async Task Member_BodylessDiscoveryExcludesExecutableOnlySections(
+        string memberName,
+        bool expected)
+    {
+        var result = await RunAppAsync(
+            "member", typeof(MemberBodylessEvidenceFixture).FullName!,
+            "--library", typeof(MemberBodylessEvidenceFixture).Assembly.Location,
+            memberName,
+            "-D", "--json", "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        using var document = JsonDocument.Parse(result.Output);
+        var discoveredSections = document.RootElement
+            .EnumerateArray()
+            .Select(item => item.GetProperty("name").GetString())
+            .OfType<string>()
+            .ToHashSet(StringComparer.Ordinal);
+        string[] executableOnlySections =
+        [
+            SectionNames.AllocationFacts,
+            SectionNames.AnnotatedSourceDocument,
+            SectionNames.AppliedTaste,
+            SectionNames.CostFacts,
+            SectionNames.CostOverlay,
+            SectionNames.IL,
+            SectionNames.PerformanceTriage,
+            SectionNames.SemanticsOverlay,
+            SectionNames.TopLeverage,
+        ];
+        foreach (string section in executableOnlySections)
+            Assert.Equal(expected, discoveredSections.Contains(section));
+    }
+
+    [Theory]
+    [InlineData(SectionNames.SafetyFacts)]
+    [InlineData(SectionNames.UnsafeOperations)]
+    public async Task Member_BodylessMixedEvidenceReportsUnavailableExecutableSection(
+        string bodylessSection)
+    {
+        var result = await RunAppAsync(
+            "member", typeof(MemberBodylessEvidenceFixture).FullName!,
+            "--library", typeof(MemberBodylessEvidenceFixture).Assembly.Location,
+            nameof(MemberBodylessEvidenceFixture.Native),
+            "-S", $"{SectionNames.IL},{bodylessSection}",
+            "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains($"## {bodylessSection}", result.Output);
+        Assert.DoesNotContain($"## {SectionNames.IL}", result.Output);
+        Assert.Contains("section 'IL' has no data", result.Error);
     }
 
     [Theory]

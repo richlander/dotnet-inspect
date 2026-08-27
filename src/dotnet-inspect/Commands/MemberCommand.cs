@@ -588,6 +588,13 @@ public static class MemberCommand
                         foundIn, packageName, packageVersion, apiSource, selectedTfm));
             }
 
+            if (IsWholeDocumentJson(effectiveOptions)
+                && ApiCommand.RejectExactCallerAnalysisDocumentJson(
+                    effectiveOptions))
+            {
+                return 1;
+            }
+
             // Aggregated caller queries always inspect the member's own assembly, with any
             // explicit caller scope contributing additional assemblies below.
             var callerTargetAssembly = apiType.SourceAssemblyPath ?? apiDllPath;
@@ -1014,19 +1021,27 @@ public static class MemberCommand
         if (options.ExactIncludeSections is not { } exactSections)
             return false;
 
-        var requestedBodySections = exactSections
-            .Where(BodyEvidenceSectionNames.Contains)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (requestedBodySections.Count == 0)
-            return false;
-
         var filteredType = ApiCommand.BuildFilteredTypeForSections(
             type,
             options);
-        return ApiOutputFormatter.ResolveBodyMethods(
-            filteredType,
-            requestedBodySections,
-            options).Count == 0;
+        foreach (var section in exactSections.Where(
+                     BodyEvidenceSectionNames.Contains))
+        {
+            IReadOnlySet<string> requestedSection =
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    section
+                };
+            if (ApiOutputFormatter.ResolveBodyMethods(
+                    filteredType,
+                    requestedSection,
+                    options).Count == 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static readonly HashSet<string> BodyEvidenceSectionNames =
