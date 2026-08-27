@@ -160,10 +160,11 @@ export function createMetadataInspectionCoordinator(
               startRowId,
               maxRows);
         if (!ownsRequest()) return;
+        const error = result.error || "";
         explorer.windows[index] = {
           loading: false,
-          error: result.error || "",
-          data: result,
+          error,
+          data: error ? null : result,
           startRowId,
           maxRows,
         };

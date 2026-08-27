@@ -308,7 +308,8 @@ test("explorer windows route package coordinates and publish errors", async () =
   assert.deepEqual(events, ["render", "render", "scroll"]);
   assert.equal(explorer.windows[2]?.loading, false);
   assert.equal(explorer.windows[2]?.error, "malformed row");
-  assert.equal(explorer.windows[2]?.data?.startRowId, 51);
+  assert.equal(explorer.windows[2]?.data, null);
+  assert.equal(explorer.windows[2]?.startRowId, 51);
 });
 
 test("explorer window failures remain visible for the current explorer", async () => {
@@ -332,6 +333,31 @@ test("explorer window failures remain visible for the current explorer", async (
   assert.equal(explorer.windows[2]?.data, null);
   assert.equal(renders, 2);
   assert.equal(scrolls, 1);
+});
+
+test("explorer typed table failures remain visible and can retry", async () => {
+  const explorer = explorerState({ focusIndex: 2 });
+  const state = inspectionState({ explorer });
+  let queries = 0;
+  const coordinator = createMetadataInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPackageTable: async (_requestExplorer, index) => {
+        queries++;
+        return tableResult(
+          index,
+          1,
+          "Assembly unavailable: InvalidImage.");
+      },
+    }));
+
+  await coordinator.loadExplorerWindow(2, 101, 50);
+  await coordinator.loadExplorerWindow(2, 101, 50);
+
+  assert.equal(queries, 2);
+  assert.equal(
+    explorer.windows[2]?.error,
+    "Assembly unavailable: InvalidImage.");
+  assert.equal(explorer.windows[2]?.data, null);
 });
 
 test("explorer window completion cannot publish after explorer replacement", async () => {

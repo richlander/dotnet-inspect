@@ -2,6 +2,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Runtime.Versioning;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
+using InertText;
 
 namespace InspectWeb.Engine.Tests;
 
@@ -25,12 +26,46 @@ public sealed class BrowserMetadataOperationsTests
                 available.Value);
 
         Assert.StartsWith("v", result.MetadataVersion);
+        Assert.False(result.MetadataVersionTruncated);
         Assert.Contains(
             result.Tables,
             table => table.Index == (int)TableIndex.TypeDef);
         Assert.Contains(
             result.Heaps,
             heap => heap.Name == nameof(HeapKind.String));
+    }
+
+    [Fact]
+    public void MetadataOverview_PreservesVersionTruncation()
+    {
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace);
+        MetadataImageOverview overview = Assert.IsType<
+            AssemblyContextEntry<MetadataImageOverview>.Available>(
+                Assert.Single(
+                    AssemblyContextMetadataImageQuery.Execute(group)
+                        .Assemblies))
+            .Value;
+        var truncated = new MetadataImageOverview(
+            new InertString(
+                TextPolicy.Field,
+                "v4.0.30319-extra",
+                maxLength: 10),
+            overview.Kind,
+            overview.IsAssembly,
+            overview.MetadataOffset,
+            overview.MetadataSize,
+            overview.Heaps,
+            overview.Tables,
+            overview.Headers);
+
+        BrowserAssemblyMetadata result =
+            InspectionEngine.ProjectMetadataAssembly(
+                "InspectWeb.Engine.Tests.dll",
+                truncated);
+
+        Assert.Equal("v4.0.30319", result.MetadataVersion);
+        Assert.True(result.MetadataVersionTruncated);
     }
 
     [Fact]

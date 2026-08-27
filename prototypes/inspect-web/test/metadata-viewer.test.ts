@@ -363,6 +363,7 @@ function assembly(overrides = {}) {
     isAssembly: true,
     metadataSize: 4096,
     metadataVersion: "v4.0.30319",
+    metadataVersionTruncated: false,
     projectedTableTotal: 2,
     heaps: [
       { name: "String", sizeInBytes: 1024, maxAddress: 900, addressing: "Offset" },
@@ -458,6 +459,21 @@ test("the metadata lens surfaces a partial-read warning alongside the image", ()
   assert.match(html, /Some assemblies could not be read/);
   assert.match(html, /Native\.dll unreadable/);
   assert.match(html, /1 assembly · net10\.0/);
+});
+
+test("the metadata lens distinguishes a truncated metadata version", () => {
+  const truncated = renderPackageMetadata(lensOptions({
+    metadata: {
+      assemblies: [assembly({
+        metadataVersion: "v4.0.30319",
+        metadataVersionTruncated: true,
+      })],
+    },
+  }));
+  const complete = renderPackageMetadata(lensOptions());
+
+  assert.match(truncated, /v4\.0\.30319…/);
+  assert.doesNotMatch(complete, /v4\.0\.30319…/);
 });
 
 test("the metadata lens reports an image with no ECMA-335 metadata", () => {
