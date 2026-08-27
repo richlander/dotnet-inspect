@@ -1256,7 +1256,8 @@ public sealed class LibraryBodyIndex
                 bodyTypeScope);
 
         if (!plan.IsScoped
-            || resolver is not null
+            || assembly.IsAssembly
+                && resolver is not null
                 && UsesReferenceResolution(plan))
         {
             LibraryBodyRootSnapshot rootSnapshot =

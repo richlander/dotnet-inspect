@@ -4,6 +4,10 @@ using DotnetInspector.Options;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
 using System.IO.Compression;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 
 namespace DotnetInspector.Tests;
 
@@ -302,5 +306,91 @@ public sealed class ApiSourceProvenanceTests
         {
             File.Delete(path);
         }
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task RejectedNetmodule_IsReportedAsAcquisitionFailure(
+        bool blankName,
+        bool nilMvid)
+    {
+        string path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllBytes(
+                path,
+                BuildRejectedNetmodule(
+                    blankName,
+                    nilMvid));
+
+            ApiSourceResult? result = null;
+            var captured = await ConsoleCapture.RunAsync(
+                async () =>
+                {
+                    (result, int? error) =
+                        await ApiSourceResolver.ResolveAsync(
+                            new ApiOptions
+                            {
+                                AssemblyPath = path,
+                            });
+                    return error ?? 0;
+                });
+
+            Assert.Null(result);
+            Assert.Equal(1, captured.ExitCode);
+            Assert.Contains(
+                $"Could not acquire library '{path}'",
+                captured.Error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    static byte[] BuildRejectedNetmodule(
+        bool blankName,
+        bool nilMvid)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: blankName
+                ? default
+                : metadata.GetOrAddString(
+                    "Rejected.netmodule"),
+            mvid: nilMvid
+                ? default
+                : metadata.GetOrAddGuid(
+                    Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("PublicType"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var output = new BlobBuilder();
+        new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly)
+            .Serialize(output);
+        return output.ToArray();
     }
 }

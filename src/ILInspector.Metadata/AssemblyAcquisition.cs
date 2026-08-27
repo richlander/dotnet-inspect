@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Metadata;
+using System.Runtime.InteropServices;
 
 namespace ILInspector.Metadata;
 
@@ -728,13 +729,15 @@ public sealed class ResolvedAssemblyReference
 
         MetadataReader metadata = peReader.GetMetadataReader();
         ValidateOpenedMetadata(metadata);
+        byte[] bytes =
+            ImmutableCollectionsMarshal.AsArray(image)!;
 
         return new ResolvedAssemblyReference(
             Registration,
             Identity,
             ModuleVersionId,
             Path,
-            () => new MemoryStream(image.ToArray(), writable: false),
+            () => new MemoryStream(bytes, writable: false),
             Provenance,
             LastWriteTimeUtc,
             _acquisitionFailureDetail);

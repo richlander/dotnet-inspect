@@ -390,10 +390,9 @@ internal static class ApiSourceResolver
                     provenance);
             if (assemblyReference is null)
             {
-                using var inspection = AssemblyInspectionSession.Open(searchPath);
-                if (!inspection.HasMetadata)
-                    throw new BadImageFormatException(
-                        "The selected image has no managed metadata.");
+                throw new BadImageFormatException(
+                    "The selected image could not establish a managed "
+                    + "assembly or netmodule acquisition.");
             }
             if (runtimeAssemblyPath is not null)
             {

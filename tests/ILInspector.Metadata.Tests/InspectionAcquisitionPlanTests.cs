@@ -373,6 +373,36 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
+    public void WithContentSnapshot_ReusesRetainedImageAcrossOpens()
+    {
+        byte[] original = SelfBytes();
+        var image = new byte[16 * 1024 * 1024];
+        original.CopyTo(image, 0);
+        ResolvedAssemblyReference descriptor =
+            ResolvedAssemblyReference.CreateFromPath(
+                SelfPath,
+                AssemblyResolutionProvenance.Local(
+                    "snapshot reuse gate"));
+        ResolvedAssemblyReference snapshot =
+            descriptor.WithContentSnapshot(
+                image.ToImmutableArray());
+
+        long before =
+            GC.GetAllocatedBytesForCurrentThread();
+        using (Stream first = snapshot.OpenRead())
+            Assert.NotEqual(-1, first.ReadByte());
+        using (Stream second = snapshot.OpenRead())
+            Assert.NotEqual(-1, second.ReadByte());
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(
+            allocated < image.Length,
+            $"Opening one retained snapshot twice allocated {allocated:N0} bytes "
+                + $"for a {image.Length:N0}-byte image.");
+    }
+
+    [Fact]
     public void WithContentSnapshot_RejectsDifferentAssemblyIdentity()
     {
         byte[] image = SelfBytes();

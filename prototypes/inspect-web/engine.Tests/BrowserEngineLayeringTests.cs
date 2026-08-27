@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json;
@@ -317,30 +318,10 @@ public sealed class BrowserEngineLayeringTests
     public void EveryPublicDescriptorFactoryIsCompilerBanned()
     {
         IReadOnlyList<string> banned = BannedSymbols();
-        INamedTypeSymbol descriptor =
-            RequiredType(
-                "ILInspector.Metadata.ResolvedAssemblyReference");
         IMethodSymbol[] factories =
-        [
-            .. descriptor
-                .GetMembers()
-                .OfType<IMethodSymbol>()
-                .Where(method =>
-                    method.DeclaredAccessibility
-                        == Accessibility.Public
-                    && method.IsStatic
-                    && (SymbolEqualityComparer.Default.Equals(
-                            method.ReturnType,
-                            descriptor)
-                        || method.Parameters.Any(parameter =>
-                            parameter.RefKind == RefKind.Out
-                            && SymbolEqualityComparer.Default.Equals(
-                                parameter.Type,
-                                descriptor))))
-                .OrderBy(
-                    method => method.GetDocumentationCommentId(),
-                    StringComparer.Ordinal),
-        ];
+            PublicDescriptorFactories(
+                ProductCompilation,
+                ProductAssemblyNames);
 
         Assert.NotEmpty(factories);
         Assert.All(
@@ -348,6 +329,48 @@ public sealed class BrowserEngineLayeringTests
             factory => Assert.Contains(
                 factory.GetDocumentationCommentId()!,
                 banned));
+    }
+
+    [Fact]
+    public void DescriptorFactoryInventory_IncludesOtherProductTypes()
+    {
+        const string AssemblyName = "DescriptorFactoryInventoryProbe";
+        SyntaxTree source = CSharpSyntaxTree.ParseText(
+            """
+            using ILInspector.Metadata;
+
+            public static class AlternateDescriptorFactory
+            {
+                public static ResolvedAssemblyReference? Create() =>
+                    null;
+
+                public static bool TryCreate(
+                    out ResolvedAssemblyReference? descriptor)
+                {
+                    descriptor = null;
+                    return false;
+                }
+            }
+            """,
+            cancellationToken:
+                TestContext.Current.CancellationToken);
+        CSharpCompilation compilation =
+            CSharpCompilation.Create(
+                AssemblyName,
+                [source],
+                ProductCompilation.References,
+                new CSharpCompilationOptions(
+                    OutputKind.DynamicallyLinkedLibrary));
+
+        Assert.Equal(
+            ["Create", "TryCreate"],
+            PublicDescriptorFactories(
+                    compilation,
+                    new HashSet<string>(
+                        [AssemblyName],
+                        StringComparer.Ordinal))
+                .Select(method => method.Name)
+                .Order(StringComparer.Ordinal));
     }
 
     [Fact]
@@ -362,7 +385,7 @@ public sealed class BrowserEngineLayeringTests
                     "msbuild",
                     EngineProjectPath,
                     "-getItem:AdditionalFiles,PackageReference",
-                    "-getProperty:WarningsAsErrors,NoWarn,OwnsItsOwnStderr",
+                    "-getProperty:WarningsAsErrors,WarningsNotAsErrors,NoWarn,OwnsItsOwnStderr,RunAnalyzers,RunAnalyzersDuringBuild",
                     "-p:Configuration=Release",
                 },
                 RedirectStandardOutput = true,
@@ -404,17 +427,132 @@ public sealed class BrowserEngineLayeringTests
             items.GetProperty("PackageReference")
                 .EnumerateArray(),
             item => item.GetProperty("Identity").GetString()
-                == "Microsoft.CodeAnalysis.BannedApiAnalyzers");
+                    == "Microsoft.CodeAnalysis.BannedApiAnalyzers"
+                && SplitItemProperty(
+                        item,
+                        "IncludeAssets")
+                    .Contains(
+                        "analyzers",
+                        StringComparer.OrdinalIgnoreCase)
+                && !SplitItemProperty(
+                        item,
+                        "ExcludeAssets")
+                    .Contains(
+                        "analyzers",
+                        StringComparer.OrdinalIgnoreCase)
+                && !SplitItemProperty(
+                        item,
+                        "ExcludeAssets")
+                    .Contains(
+                        "all",
+                        StringComparer.OrdinalIgnoreCase));
         Assert.Contains(
             "RS0030",
             SplitProperty(properties, "WarningsAsErrors"));
         Assert.DoesNotContain(
             "RS0030",
             SplitProperty(properties, "NoWarn"));
+        Assert.DoesNotContain(
+            "RS0030",
+            SplitProperty(properties, "WarningsNotAsErrors"));
         Assert.NotEqual(
             "true",
             properties.GetProperty("OwnsItsOwnStderr")
                 .GetString());
+        Assert.False(
+            properties.GetProperty("RunAnalyzers")
+                .GetString()
+                ?.Equals(
+                    "false",
+                    StringComparison.OrdinalIgnoreCase)
+                == true);
+        Assert.False(
+            properties.GetProperty("RunAnalyzersDuringBuild")
+                .GetString()
+                ?.Equals(
+                    "false",
+                    StringComparison.OrdinalIgnoreCase)
+                == true);
+
+        string temporaryDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"inspect-web-ban-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        try
+        {
+            string canaryPath = Path.Combine(
+                temporaryDirectory,
+                "BrowserBanCanary.cs");
+            await File.WriteAllTextAsync(
+                canaryPath,
+                """
+            using ILInspector.Metadata;
+            static class BrowserBanCanary
+            {
+                static object? Invoke() =>
+                    ResolvedAssemblyReference.CreateFromPathIfManaged(
+                        "canary.dll",
+                        null!);
+            }
+            """,
+                cancellationToken);
+            string targetsPath = Path.Combine(
+                temporaryDirectory,
+                "BrowserBanCanary.targets");
+            new XDocument(
+                new XElement(
+                    "Project",
+                    new XElement(
+                        "ItemGroup",
+                        new XElement(
+                            "Compile",
+                            new XAttribute(
+                                "Include",
+                                canaryPath)))))
+                .Save(targetsPath);
+
+            using var canaryProcess = new Process
+            {
+                StartInfo = new ProcessStartInfo("dotnet")
+                {
+                    ArgumentList =
+                    {
+                        "msbuild",
+                        EngineProjectPath,
+                        "-target:Compile",
+                        "-p:Configuration=Release",
+                        "-p:BuildProjectReferences=false",
+                        $"-p:CustomAfterMicrosoftCommonTargets={targetsPath}",
+                    },
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                },
+            };
+            canaryProcess.Start();
+            Task<string> canaryStandardOutput =
+                canaryProcess.StandardOutput.ReadToEndAsync(
+                    cancellationToken);
+            Task<string> canaryStandardError =
+                canaryProcess.StandardError.ReadToEndAsync(
+                    cancellationToken);
+            await canaryProcess.WaitForExitAsync(cancellationToken);
+            string canaryOutput = await canaryStandardOutput;
+            string canaryError = await canaryStandardError;
+
+            Assert.True(
+                canaryProcess.ExitCode != 0,
+                "The browser analyzer canary compiled successfully.");
+            Assert.Contains(
+                "error RS0030",
+                canaryOutput + canaryError,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(
+                temporaryDirectory,
+                recursive: true);
+        }
     }
 
     [Fact]
@@ -726,6 +864,54 @@ public sealed class BrowserEngineLayeringTests
                 StringSplitOptions.RemoveEmptyEntries
                     | StringSplitOptions.TrimEntries);
 
+    static string[] SplitItemProperty(
+        JsonElement item,
+        string name) =>
+        item.TryGetProperty(
+                name,
+                out JsonElement value)
+            ? value.GetString()!
+                .Split(
+                    ';',
+                    StringSplitOptions.RemoveEmptyEntries
+                        | StringSplitOptions.TrimEntries)
+            : [];
+
+    static IMethodSymbol[] PublicDescriptorFactories(
+        CSharpCompilation compilation,
+        IReadOnlySet<string> productAssemblyNames)
+    {
+        INamedTypeSymbol descriptor =
+            compilation.GetTypeByMetadataName(
+                "ILInspector.Metadata.ResolvedAssemblyReference")
+            ?? throw new InvalidOperationException(
+                "The descriptor type is unavailable.");
+        return
+        [
+            .. DescendantTypes(
+                    compilation.GlobalNamespace)
+                .Where(type => productAssemblyNames.Contains(
+                    type.ContainingAssembly.Name))
+                .SelectMany(type => type.GetMembers())
+                .OfType<IMethodSymbol>()
+                .Where(method =>
+                    method.DeclaredAccessibility
+                        == Accessibility.Public
+                    && method.IsStatic
+                    && (SymbolEqualityComparer.Default.Equals(
+                            method.ReturnType,
+                            descriptor)
+                        || method.Parameters.Any(parameter =>
+                            parameter.RefKind == RefKind.Out
+                            && SymbolEqualityComparer.Default.Equals(
+                                parameter.Type,
+                                descriptor))))
+                .OrderBy(
+                    method => method.GetDocumentationCommentId(),
+                    StringComparer.Ordinal),
+        ];
+    }
+
     static bool IsBanned(ISymbol symbol, IReadOnlyList<string> banned) =>
         symbol.GetDocumentationCommentId() is { } symbolId
             && banned.Contains(symbolId)
@@ -734,6 +920,11 @@ public sealed class BrowserEngineLayeringTests
 
     static IReadOnlyList<Assembly> ProductAssemblies { get; } =
         ProductReferenceClosure();
+
+    static IReadOnlySet<string> ProductAssemblyNames { get; } =
+        ProductAssemblies
+            .Select(assembly => assembly.GetName().Name!)
+            .ToHashSet(StringComparer.Ordinal);
 
     static CSharpCompilation ProductCompilation { get; } = CSharpCompilation.Create(
         "BrowserEngineBannedSymbols",

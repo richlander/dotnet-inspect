@@ -6763,6 +6763,94 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void DescriptorOpen_ScopedNetmoduleWithResolverDoesNotPrefetchImage()
+    {
+        byte[] module = BuildSimpleNetmodule();
+        string sourcePath = Path.Combine(
+            Path.GetTempPath(),
+            $"DescriptorScoped-{Guid.NewGuid():N}.netmodule");
+        string paddedPath = Path.Combine(
+            Path.GetTempPath(),
+            $"DescriptorScopedPadded-{Guid.NewGuid():N}.netmodule");
+        const int OverlaySize = 32 * 1024 * 1024;
+        var resolver = new CountingResolver();
+        var bodyScope = new HashSet<int>
+        {
+            MetadataTokens.GetToken(
+                MetadataTokens.MethodDefinitionHandle(1)),
+        };
+
+        try
+        {
+            File.WriteAllBytes(sourcePath, module);
+            File.WriteAllBytes(paddedPath, module);
+            using (var stream = new FileStream(
+                paddedPath,
+                FileMode.Open,
+                FileAccess.Write,
+                FileShare.Read))
+            {
+                stream.SetLength(
+                    stream.Length + OverlaySize);
+            }
+
+            ResolvedAssemblyReference source =
+                ResolvedAssemblyReference
+                    .CreateFromModulePathIfManaged(
+                        sourcePath,
+                        AssemblyResolutionProvenance.Local(
+                            "LibraryBodyIndex scoped netmodule gate"))!;
+            ResolvedAssemblyReference padded =
+                ResolvedAssemblyReference
+                    .CreateFromModulePathIfManaged(
+                        paddedPath,
+                        AssemblyResolutionProvenance.Local(
+                            "LibraryBodyIndex scoped netmodule gate"))!;
+
+            long baseline = AllocatedFor(source);
+            long withOverlay = AllocatedFor(padded);
+            long overlayAllocation =
+                withOverlay - baseline;
+
+            Assert.True(
+                overlayAllocation > -(OverlaySize / 2)
+                    && overlayAllocation < OverlaySize / 2,
+                $"Descriptor-scoped netmodule allocation delta "
+                    + $"{overlayAllocation:N0} fell outside the stable range "
+                    + $"for the file overlay (baseline {baseline:N0}; "
+                    + $"padded {withOverlay:N0}).");
+            Assert.Equal(0, resolver.ResolveCalls);
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(paddedPath);
+        }
+
+        long AllocatedFor(
+            ResolvedAssemblyReference assembly)
+        {
+            long before =
+                GC.GetAllocatedBytesForCurrentThread();
+            LibraryBodyIndex index = LibraryBodyIndex.Open(
+                assembly,
+                LibraryBodyAnalysisFeatures.MethodEvidence
+                    | LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities,
+                resolver,
+                bodyScope);
+            Assert.Contains(
+                index.Methods,
+                method => method.MetadataToken
+                    == MetadataTokens.GetToken(
+                        MetadataTokens
+                            .MethodDefinitionHandle(1)));
+            return GC.GetAllocatedBytesForCurrentThread()
+                - before;
+        }
+    }
+
+    [Fact]
     public void OptimizationOpportunities_RootImageIsRetainedOnce()
     {
         string sourcePath = typeof(OptimizationOpportunityFixtures)
@@ -7302,6 +7390,68 @@ public class LibraryBodyIndexTests
             int offset,
             int count) =>
             throw new NotSupportedException();
+    }
+
+    static byte[] BuildSimpleNetmodule()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName:
+                metadata.GetOrAddString(
+                    "Scoped.netmodule"),
+            mvid: metadata.GetOrAddGuid(
+                Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature()
+            .Parameters(
+                parameterCount: 0,
+                returnType => returnType.Void(),
+                _ => { });
+        var il = new BlobBuilder();
+        var encoder = new InstructionEncoder(il);
+        encoder.OpCode(ILOpCode.Ret);
+        var methodBodyStream = new BlobBuilder();
+        var methodBodies =
+            new MethodBodyStreamEncoder(
+                methodBodyStream);
+        int bodyOffset =
+            methodBodies.AddMethodBody(encoder);
+        MethodDefinitionHandle method =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.HideBySig,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                metadata.GetOrAddBlob(signature),
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            method);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("ModuleType"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            method);
+        var output = new BlobBuilder();
+        new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            methodBodyStream,
+            flags: CorFlags.ILOnly)
+            .Serialize(output);
+        return output.ToArray();
     }
 
     [Fact]
