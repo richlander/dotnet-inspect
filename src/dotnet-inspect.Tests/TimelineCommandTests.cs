@@ -419,6 +419,30 @@ public sealed class TimelineCommandTests
     }
 
     [Fact]
+    public void AnalysisTimeline_NoApplicableInputRetainsLegacySubjectAbsentPresentation()
+    {
+        var vector = Vector("1.0.0");
+
+        var view = TimelineCommand.BuildView(
+            vector,
+            "Sample.Widget",
+            "analysis.unsafety",
+            [
+                new TimelineCommand.TimelineEvaluation(
+                    vector.Addresses[0],
+                    Surface: null,
+                    Error: null,
+                    Endpoint: null),
+            ],
+            Sections(),
+            memberName: "Run");
+
+        var evaluation = Assert.Single(view.Evaluations!);
+        Assert.Equal("SubjectAbsent", evaluation.State);
+        Assert.Contains("no acquired assembly set", evaluation.Detail);
+    }
+
+    [Fact]
     public void AttributeTimeline_ReportsExactAppliedOccurrenceTransitions()
     {
         var vector = Vector("1.0.0", "1.0.1");

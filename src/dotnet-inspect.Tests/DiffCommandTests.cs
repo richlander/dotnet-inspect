@@ -985,7 +985,9 @@ public class DiffCommandTests
             "Sample.Widget.Empty");
         var comparison = FindingComparison.Compare<CSharpCanonicalLine>(
             new FindingInspection<CSharpCanonicalLine>.Complete([]),
-            new FindingInspection<CSharpCanonicalLine>.Absent("no body"));
+            new FindingInspection<CSharpCanonicalLine>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput,
+                "no body"));
         var retained = new RetainedFindingComparison<CSharpCanonicalLine>(
             subject,
             CSharpFindings.LineDescriptor,
@@ -1839,8 +1841,12 @@ public class DiffCommandTests
             [
                 new PdbSourceComparisonInput(
                     subject,
-                    new FindingInspection<string>.Absent("old PDB unavailable"),
-                    new FindingInspection<string>.Absent("new PDB unavailable"))
+                    new FindingInspection<string>.Absent(
+                        FindingInspectionAbsenceKind.NoApplicableInput,
+                        "old PDB unavailable"),
+                    new FindingInspection<string>.Absent(
+                        FindingInspectionAbsenceKind.NoApplicableInput,
+                        "new PDB unavailable"))
             ]);
 
         var view = DiffOutputFormatter.BuildImplementationDiffView(
@@ -1875,7 +1881,9 @@ public class DiffCommandTests
                 new PdbSourceComparisonInput(
                     subject,
                     failure,
-                    new FindingInspection<string>.Absent("new source unavailable"))
+                    new FindingInspection<string>.Absent(
+                        FindingInspectionAbsenceKind.NoApplicableInput,
+                        "new source unavailable"))
             ]);
 
         var view = DiffOutputFormatter.BuildImplementationDiffView(

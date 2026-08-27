@@ -1050,6 +1050,7 @@ public static class ResearchDiff
                 {
                     var oldInspection = oldMethod is null
                         ? new FindingInspection<CanonicalIlOperation>.Absent(
+                            FindingInspectionAbsenceKind.SubjectAbsent,
                             "Member is absent.")
                         : IlFindings.Inspect(
                             oldBodies!.PeReader,
@@ -1058,6 +1059,7 @@ public static class ResearchDiff
                             findingSubject);
                     var newInspection = newMethod is null
                         ? new FindingInspection<CanonicalIlOperation>.Absent(
+                            FindingInspectionAbsenceKind.SubjectAbsent,
                             "Member is absent.")
                         : IlFindings.Inspect(
                             newBodies!.PeReader,

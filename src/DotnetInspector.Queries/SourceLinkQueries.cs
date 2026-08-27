@@ -153,7 +153,9 @@ public static class SourceLinkDocumentsQuery
                     : "A matching portable PDB is unavailable.";
                 return new SourceLinkDocumentsResult(
                     new FindingInspection<SourceDocumentObservation>(
-                        new FindingInspection<SourceDocumentObservation>.Absent(detail)));
+                        new FindingInspection<SourceDocumentObservation>.Absent(
+                            FindingInspectionAbsenceKind.NoApplicableInput,
+                            detail)));
             }
 
             if (!context.Source.HasSourceLink)
@@ -161,6 +163,7 @@ public static class SourceLinkDocumentsQuery
                 return new SourceLinkDocumentsResult(
                     new FindingInspection<SourceDocumentObservation>(
                         new FindingInspection<SourceDocumentObservation>.Absent(
+                            FindingInspectionAbsenceKind.NoApplicableInput,
                             "The portable PDB carries no SourceLink map.")));
             }
 

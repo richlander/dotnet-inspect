@@ -1157,9 +1157,11 @@ public class DiffCommand
                 subject,
                 from.GetValueOrDefault(subject.Id)
                     ?? new FindingInspection<string>.Absent(
+                        FindingInspectionAbsenceKind.SubjectAbsent,
                         "The member is unavailable in the old endpoint."),
                 to.GetValueOrDefault(subject.Id)
                     ?? new FindingInspection<string>.Absent(
+                        FindingInspectionAbsenceKind.SubjectAbsent,
                         "The member is unavailable in the new endpoint.")));
         return ImplementationDiff.WithPdbSourceComparisons(
             result,

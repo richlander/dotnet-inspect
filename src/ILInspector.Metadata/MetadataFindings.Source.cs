@@ -19,6 +19,7 @@ public static partial class MetadataFindings
         if (!context.HasPdb)
         {
             return new FindingInspection<CompilationOptionInfo>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput,
                 "A portable PDB is unavailable.");
         }
 
@@ -72,6 +73,7 @@ public static partial class MetadataFindings
         if (!context.HasPdb)
         {
             return new FindingInspection<CompilationReferenceInfo>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput,
                 "A portable PDB is unavailable.");
         }
 

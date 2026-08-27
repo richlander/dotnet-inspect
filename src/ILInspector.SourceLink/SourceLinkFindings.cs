@@ -85,6 +85,7 @@ public static class SourceLinkFindings
         if (!source.HasPdb)
         {
             return new FindingInspection<SourceDocumentObservation>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput,
                 "A portable PDB is unavailable.");
         }
 
@@ -142,6 +143,7 @@ public static class SourceLinkFindings
         if (!source.HasPdb)
         {
             return new FindingInspection<MemberSourceObservation>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput,
                 "A portable PDB is unavailable.");
         }
 

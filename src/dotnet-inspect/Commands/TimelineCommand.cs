@@ -455,7 +455,9 @@ public static class TimelineCommand
         where T : notnull
     {
         if (evaluation.Endpoint is null)
-            return new FindingInspection<T>.Absent("The package cell has no acquired assembly set.");
+            return new FindingInspection<T>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput,
+                "The package cell has no acquired assembly set.");
 
         return InspectAnalysisAssemblies<T>(
             evaluation.Endpoint.Paths,
@@ -534,7 +536,9 @@ public static class TimelineCommand
             string detail = typeFound
                 ? $"Member '{memberName}' is absent."
                 : $"Type '{typeFullName}' is absent.";
-            return new FindingInspection<T>.Absent(detail);
+            return new FindingInspection<T>.Absent(
+                FindingInspectionAbsenceKind.SubjectAbsent,
+                detail);
         }
         if (targets.Count > 1)
         {
@@ -563,6 +567,7 @@ public static class TimelineCommand
         if (target.Body?.MetadataToken is not { } token)
         {
             return new FindingInspection<T>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput,
                 $"Member '{memberName}' has no method-body target.");
         }
 
@@ -697,6 +702,12 @@ public static class TimelineCommand
                 "SubjectAbsent",
                 0,
                 absent.Detail),
+            FindingCorrelationPoint<T>.NoApplicableInput absent => new TimelineEvaluationRow(
+                absent.Version.Key,
+                absent.Version.Display,
+                "SubjectAbsent",
+                0,
+                absent.Detail),
             FindingCorrelationPoint<T>.Failed failed => new TimelineEvaluationRow(
                 failed.Version.Key,
                 failed.Version.Display,
@@ -714,6 +725,7 @@ public static class TimelineCommand
             FindingCorrelationPoint<T>.Present present => present.Version,
             FindingCorrelationPoint<T>.Missing missing => missing.Version,
             FindingCorrelationPoint<T>.SubjectAbsent absent => absent.Version,
+            FindingCorrelationPoint<T>.NoApplicableInput absent => absent.Version,
             FindingCorrelationPoint<T>.Failed failed => failed.Version,
             _ => throw new InvalidOperationException(
                 "Finding correlation returned an unknown point."),

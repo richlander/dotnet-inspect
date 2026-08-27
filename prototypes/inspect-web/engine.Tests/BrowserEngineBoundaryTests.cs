@@ -1498,7 +1498,9 @@ public sealed class BrowserEngineBoundaryTests
 
         const string MemberLimitation = "member PDB source unavailable";
         var memberAttempt = new PdbMemberSourceInspection(
-            new FindingInspection<string>.Absent(MemberLimitation),
+            new FindingInspection<string>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput,
+                MemberLimitation),
             Text: null,
             Mapping: null,
             Document: null,
@@ -1520,7 +1522,9 @@ public sealed class BrowserEngineBoundaryTests
 
         const string TypeLimitation = "type PDB source unavailable";
         var typeAttempt = new PdbTypeSourceInspection(
-            new FindingInspection<string>.Absent(TypeLimitation),
+            new FindingInspection<string>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput,
+                TypeLimitation),
             Text: null,
             Mapping: null,
             Document: null,

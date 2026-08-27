@@ -54,7 +54,9 @@ public static class CSharpFindings
                 new FindingInspection<CSharpCanonicalLine>.Complete(
                     ProjectAtoms(body.Lines, subject)),
             CSharpCanonicalization.Absent absent =>
-                new FindingInspection<CSharpCanonicalLine>.Absent(absent.Detail),
+                new FindingInspection<CSharpCanonicalLine>.Absent(
+                    FindingInspectionAbsenceKind.NoApplicableInput,
+                    absent.Detail),
             CSharpCanonicalization.Failed failed =>
                 new FindingInspection<CSharpCanonicalLine>.Failed(
                     CreateInspectionError(subject, failed.Reason)),
@@ -160,10 +162,14 @@ public static class CSharpFindings
                 representative.Anchor.StableSelector,
                 representative.Display);
             var oldInspection = oldMethod is null
-                ? new FindingInspection<CSharpCanonicalLine>.Absent("Member is absent.")
+                ? new FindingInspection<CSharpCanonicalLine>.Absent(
+                    FindingInspectionAbsenceKind.SubjectAbsent,
+                    "Member is absent.")
                 : Inspect(sources.Open(oldMethod), oldMethod.MethodHandle, subject);
             var newInspection = newMethod is null
-                ? new FindingInspection<CSharpCanonicalLine>.Absent("Member is absent.")
+                ? new FindingInspection<CSharpCanonicalLine>.Absent(
+                    FindingInspectionAbsenceKind.SubjectAbsent,
+                    "Member is absent.")
                 : Inspect(sources.Open(newMethod), newMethod.MethodHandle, subject);
             comparisons.Add(new CSharpMemberFindingComparison(
                 key,

@@ -70,7 +70,8 @@ public static partial class MetadataFindings
         ArgumentNullException.ThrowIfNull(subject);
         ArgumentException.ThrowIfNullOrEmpty(typeFullName);
         if (surface is null)
-            return new FindingInspection<ApiTypeHandle>.Absent();
+            return new FindingInspection<ApiTypeHandle>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput);
 
         var type = FindType(surface, typeFullName);
         return type is null
@@ -93,11 +94,13 @@ public static partial class MetadataFindings
         ArgumentNullException.ThrowIfNull(subject);
         ArgumentException.ThrowIfNullOrEmpty(typeFullName);
         if (surface is null)
-            return new FindingInspection<ApiMemberHandle>.Absent();
+            return new FindingInspection<ApiMemberHandle>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput);
 
         var type = FindType(surface, typeFullName);
         return type is null
-            ? new FindingInspection<ApiMemberHandle>.Absent()
+            ? new FindingInspection<ApiMemberHandle>.Absent(
+                FindingInspectionAbsenceKind.SubjectAbsent)
             : new FindingInspection<ApiMemberHandle>.Complete(
             [
                 .. EnumerateMembers(type).Select(item =>
@@ -120,11 +123,13 @@ public static partial class MetadataFindings
         ArgumentNullException.ThrowIfNull(subject);
         ArgumentException.ThrowIfNullOrEmpty(typeFullName);
         if (surface is null)
-            return new FindingInspection<ApiAttributeHandle>.Absent();
+            return new FindingInspection<ApiAttributeHandle>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput);
 
         var type = FindType(surface, typeFullName);
         if (type is null)
-            return new FindingInspection<ApiAttributeHandle>.Absent();
+            return new FindingInspection<ApiAttributeHandle>.Absent(
+                FindingInspectionAbsenceKind.SubjectAbsent);
 
         var occurrences = new Dictionary<string, int>(StringComparer.Ordinal);
         return new FindingInspection<ApiAttributeHandle>.Complete(

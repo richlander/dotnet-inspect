@@ -1972,8 +1972,12 @@ public class ResearchDiffTests
             [
                 new PdbSourceComparisonInput(
                     subject,
-                    new FindingInspection<string>.Absent("old source unavailable"),
-                    new FindingInspection<string>.Absent("new source unavailable"))
+                    new FindingInspection<string>.Absent(
+                        FindingInspectionAbsenceKind.NoApplicableInput,
+                        "old source unavailable"),
+                    new FindingInspection<string>.Absent(
+                        FindingInspectionAbsenceKind.NoApplicableInput,
+                        "new source unavailable"))
             ]);
 
         var member = Assert.Single(result.Members);
