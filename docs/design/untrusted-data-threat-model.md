@@ -134,6 +134,33 @@ than a missing line in a hand-maintained list. It is the primitive this section
 argues for; prefer it over a new `HardenedJson`-shaped static entry point when
 the thing being contained is text bound for a sink.
 
+### URL path-component redaction
+
+`InertText.UrlRedaction` owns both complete-URL diagnostic redaction and the
+narrower redaction of an already-parsed URL path component. The two inputs have
+different trust boundaries:
+
+- `ForDiagnostics` accepts URL-like text, classifies its locator and authority
+  shape, and fails closed when safe components cannot be located.
+- `ForPathComponent` accepts only a path already separated from scheme,
+  authority, query, and fragment. It does not parse or classify that value as a
+  locator. It applies the same owner-issued `auth` credential-slot rule and
+  returns an `InertString`, preserving every other path distinction and
+  encoding non-graphic scalars.
+
+Consumers may retain or frame the path-only result without copying the
+credential-slot rule or depending on complete-URL parser branch order. They
+must not pass an unseparated URL or reconstruct removed components from the
+safe result. Producer identity, endpoint validation, cache authority, and
+presentation policy remain outside this owner.
+
+This contract is gated by
+`ForPathComponent_PreservesNonCredentialPathText`,
+`ForPathComponent_RedactsCredentialSlots`, and
+`ForPathComponent_EncodesNonGraphicScalars` in the Release
+`InertText.Tests` suite. The authority-shaped and credential-bearing cases
+make the path-only wiring non-vacuous.
+
 One thing this rule does **not** forbid is escaping and encoding. Escaping a
 value on the way into a sink — JSON string escapes, `vis(3)`-style visual
 encoding of control characters — is a property of the *encoding*, applied
