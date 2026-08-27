@@ -2531,7 +2531,7 @@ test("malformed package routes use the contained restore failure path", () => {
     ?? "";
   assert.match(
     restore,
-    /canonicalSnapshot = loc\.hasWorkspaceState\s*\? captureCanonicalWorkspaceRestoreSnapshot\(\)[\s\S]*if \(loc\.routeFailure\) \{\s*failWorkspaceRoute\(loc\.routeFailure\.message\);\s*return;\s*\}\s*clearWorkspaceRouteFailure\(\);/);
+    /canonicalSnapshot = loc\.hasWorkspaceState\s*\? captureCanonicalWorkspaceRestoreSnapshot\(\)[\s\S]*if \(loc\.routeFailure\) \{\s*failWorkspaceRoute\(loc\.routeFailure\.message\);\s*return;\s*\}\s*if \(!clearWorkspaceRouteFailure\(\)\) \{\s*render\(\);\s*return;\s*\}/);
 
   const initial = appSource.match(
     /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction isStyleTier/)?.[0]
@@ -2545,7 +2545,7 @@ test("malformed package routes use the contained restore failure path", () => {
     ?? "";
   assert.match(
     popstate,
-    /if \(loc\.routeFailure\) \{\s*failWorkspaceRoute\(loc\.routeFailure\.message\);\s*return;\s*\}\s*clearWorkspaceRouteFailure\(\);\s*const canonicalSnapshot = loc\.hasWorkspaceState[\s\S]*state\.queryNotice = loc\.workspaceNotice \|\| "";[\s\S]*const bareHome/);
+    /if \(loc\.routeFailure\) \{\s*failWorkspaceRoute\(loc\.routeFailure\.message\);\s*return;\s*\}\s*if \(!clearWorkspaceRouteFailure\(\)\) \{\s*render\(\);\s*return;\s*\}\s*const canonicalSnapshot = loc\.hasWorkspaceState[\s\S]*state\.queryNotice = loc\.workspaceNotice \|\| "";[\s\S]*const bareHome/);
 
   const failure = appSource.match(
     /function failWorkspaceRoute\([\s\S]*?\n}\n\nfunction failCanonicalWorkspaceRestore/)?.[0]

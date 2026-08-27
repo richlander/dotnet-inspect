@@ -9105,7 +9105,10 @@ async function restoreWorkspaceFromLocation(
     failWorkspaceRoute(loc.routeFailure.message);
     return;
   }
-  clearWorkspaceRouteFailure();
+  if (!clearWorkspaceRouteFailure()) {
+    render();
+    return;
+  }
   if (loc.hasWorkspaceState && !loc.shareState) {
     failCanonicalWorkspaceRestore(
       loc,
@@ -9972,7 +9975,10 @@ window.addEventListener("popstate", () => {
   const loc = parseLocation();
   if (isCreditsPath(location.pathname)) {
     clearNavigationError();
-    clearWorkspaceRouteFailure();
+    if (!clearWorkspaceRouteFailure()) {
+      render();
+      return;
+    }
     state.queryNotice = "";
     state.queryNoticeRetryAction = null;
     state.credits = true;
@@ -9985,7 +9991,10 @@ window.addEventListener("popstate", () => {
     failWorkspaceRoute(loc.routeFailure.message);
     return;
   }
-  clearWorkspaceRouteFailure();
+  if (!clearWorkspaceRouteFailure()) {
+    render();
+    return;
+  }
   const canonicalSnapshot = loc.hasWorkspaceState
     ? captureCanonicalWorkspaceRestoreSnapshot()
     : null;

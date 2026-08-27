@@ -358,11 +358,11 @@ export function retainWorkspaceUrlPreservation<
 
 export function bindWorkspaceRetryToUrl<TResult>(
   failedUrl: string,
-  replace: (url: string) => void,
+  replace: (url: string) => boolean,
   retry: () => TResult,
-): () => TResult {
+): () => TResult | undefined {
   return () => {
-    replace(failedUrl);
+    if (!replace(failedUrl)) return undefined;
     return retry();
   };
 }

@@ -845,16 +845,31 @@ test("failed URL state is retained and retired atomically", () => {
 
 test("workspace retry restores its owned URL before running", () => {
   let currentUrl = "https://inspect.example/packages/%E0%A4%A/1.0.0";
+  let retryCount = 0;
   const failedUrl = "https://inspect.example/?w=canonical";
   const retry = bindWorkspaceRetryToUrl(
     failedUrl,
     url => {
       currentUrl = url;
+      return true;
     },
-    () => currentUrl);
+    () => {
+      retryCount++;
+      return currentUrl;
+    });
 
   assert.equal(retry(), failedUrl);
   assert.equal(currentUrl, failedUrl);
+  assert.equal(retryCount, 1);
+
+  const blockedRetry = bindWorkspaceRetryToUrl(
+    failedUrl,
+    () => false,
+    () => {
+      retryCount++;
+    });
+  assert.equal(blockedRetry(), undefined);
+  assert.equal(retryCount, 1);
 });
 
 test("route failure recovery owns malformed URL replacement", () => {
