@@ -1,8 +1,9 @@
 using System.Collections.Immutable;
 
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 
-namespace DotnetInspector.Queries;
+namespace DotnetInspector.PackageQueries;
 
 /// <summary>
 /// Package and asset identity for one library in an Integration roll-up.

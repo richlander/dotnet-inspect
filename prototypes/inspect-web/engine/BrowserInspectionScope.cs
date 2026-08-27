@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Runtime.ExceptionServices;
 using System.Runtime.Versioning;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;

@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Reflection;
 using System.Reflection.Emit;
 
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
 

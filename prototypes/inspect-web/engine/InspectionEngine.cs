@@ -4,6 +4,7 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
@@ -615,8 +616,11 @@ public static partial class InspectionEngine
 
     /// <summary>
     /// Ecosystem integration evidence for one package/version/framework workspace, produced by
-    /// <see cref="AssemblyContextIntegrationsQuery"/> over the workspace's own group. The query
-    /// owns every session; this method groups its signals for display and composes no evidence.
+    /// <see cref="PackageWorkspaceIntegrationsQuery"/> over the product-selected package roles.
+    /// Its group query owns every session; this method groups signals for display and composes no
+    /// evidence. Role selection is gated by
+    /// <c>PackageWorkspaceIntegrationsQuery_UsesImplementationRoleAndReferenceFallback</c> and
+    /// <c>PackageWorkspaceIntegrationsQuery_SharedRoleDoesNotDuplicateLibraries</c>.
     /// </summary>
     [JSExport]
     public static async Task<string> QueryPackageIntegrations(
