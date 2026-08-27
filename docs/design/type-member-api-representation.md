@@ -120,17 +120,16 @@ methods cannot amplify a shared deep signature chain outside the budget either.
 Raw public-key material contributes only to that one-time operation charge; each
 signature occurrence accounts for the normalized token that correspondence
 actually retains, including a non-nil empty full-key blob whose SHA-1-derived
-token is non-empty.
-Deterministic
-projection failures are replayed without repeating completed charges. Storage
-successfully read before a later malformed field is charged before the failure
-is cached, including for distinct assembly-reference rows that share heap
-storage. Named-type correspondence storage is read while signatures are
-decoded, and each read is charged to the operation budget, so repeated TypeRefs
-cannot amplify shared scope scans. TypeDef generic-parameter rows are likewise
-charged before projection; successful and malformed arity projections are
-cached per reader and TypeDef for the operation, while a charge failure is not
-cached. Correspondence scans the raw `GenericParam` table with integer row
+token is non-empty. Deterministic projection failures are replayed without
+repeating completed charges. Storage successfully read before a later malformed
+field is charged before the failure is cached, including for distinct
+assembly-reference rows that share heap storage. Named-type correspondence
+storage is read while signatures are decoded, and each read is charged to the
+operation budget, so repeated TypeRefs cannot amplify shared scope scans.
+TypeDef generic-parameter rows are likewise charged before projection;
+successful and malformed arity projections are cached per reader and TypeDef
+for the operation, while a charge failure is not cached. Correspondence scans
+the raw `GenericParam` table with integer row
 numbers because SRM's `GenericParameterHandleCollection` has a `ushort`-backed
 count and hides an owner range of exactly 65,536 rows. The first owner
 projection validates the table's nondecreasing `TypeOrMethodDef` coded-index
