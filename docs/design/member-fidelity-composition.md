@@ -5,8 +5,8 @@
 This is an explicitly approved broad **composition map** for the member-fidelity
 path exercised by PRs #4142, #4146, and #4143. It connects the existing
 acquisition, MetadataPrimitives, Metadata, Analysis, Decompiler, CSharp,
-Research, ReturnToSender, round-trip harness, and CLI owners. It does not create
-an umbrella owner or transfer their responsibilities.
+Research, ReturnToSender planner/harness, and CLI owners. It does not create an
+umbrella owner or transfer their responsibilities.
 
 The map covers four questions:
 
@@ -26,10 +26,10 @@ for the repository currency map,
 for the upstream artifact, resolved-assembly, and PE-session owners,
 [Member inspection planning and Metadata projection](member-inspection-planning-and-metadata-projection.md)
 for Metadata declaration facts and the CSharp representability boundary,
-[C# assembly round-trip testing](csharp-member-recompilation.md) for artifact
-and comparison ownership, and
+[C# assembly round-trip testing](csharp-member-recompilation.md) for the
+proposed reusable engine and its unresolved request/result owner, and
 [ReturnToSender: fact-planned compile-back harness](fact-planned-compile-back-harness.md)
-for the tools-only planner boundary.
+for the current tools-only request, proof, and reporting boundary.
 
 ## Problem
 
@@ -65,9 +65,8 @@ policy to this document.
 | `ILInspector.Analysis` | Whole-assembly IL, body, call-site, `MethodIdentity`, and `MemberRef` evidence | Preserve definition-versus-reference provenance and explicit unknown evidence in body/call-site facts | Does not own API identity, C# representability, or compile-back fidelity |
 | `ILInspector.Decompiler` | Method-body import, typed IR, C# body production, spellability, and body fidelity | Consume owner-issued metadata facts and report unsupported or unspellable projections without inferring identity from text | Does not own API extraction or artifact closure |
 | `ILInspector.CSharp` | Model-bound C# representability, declaration spelling, and typed type/member request rendering | Decide representability from Metadata-issued facts, then render accepted requests or return typed refusal | Does not discover metadata relationships or repair a plan |
-| `ILInspector.Research` | Cross-representation correspondence and composed evidence | Preserve Analysis- and Metadata-issued identities and the provenance of correspondence | Does not establish body identity or turn a display match into identity |
-| ReturnToSender planner | Tools-only closure, reconstruction obligations, and body policy | Emit typed donor obligations and their planning state for harness proof | Does not construct C#, compare artifacts, or issue the final fidelity verdict |
-| Round-trip harness | Compilation, fixtures, independent oracles, comparison, reporting, and the versioned fidelity verdict | Keep artifact, compilation, correspondence, obligation, and diff outcomes separate when classifying `Exact` | Does not compensate for missing product facts or redefine producer results |
+| `ILInspector.Research` | Body-identity canonicalization, cross-representation correspondence, and composed evidence | Preserve Analysis- and Metadata-issued identities, including body/call-site evidence, and the provenance of correspondence | Does not establish Analysis facts or turn a display match into identity |
+| ReturnToSender | Tools-only artifact requests, closure and obligation planning, compilation, product-diff invocation, and current versioned fidelity reporting | Keep planner obligation output distinct from harness proof while preserving one owner-local result contract | Does not construct product C# or redefine producer diff semantics |
 | CLI/output | Command and presentation policy | Render typed classifications and diagnostics at the terminal boundary | Does not classify `op_*` names or recover identity from display |
 
 The product dependency direction remains the one in
@@ -147,12 +146,12 @@ obligations for:
 - correspondence from the requested original member to the donor member.
 
 The exact owner-local shape of that obligation ledger belongs in a focused
-ReturnToSender planner design. This composition map requires its output to
+ReturnToSender design. This composition map requires the planner output to
 distinguish proved, disproved, unavailable, and failed planning states. The
-round-trip harness consumes those states with compilation, correspondence, and
-product diff evidence; only the harness's versioned fidelity contract issues
-the final verdict. Those state words are shared vocabulary here, not a proposed
-repository-wide enum.
+ReturnToSender harness consumes those states with compilation, correspondence,
+and product diff evidence; only ReturnToSender's versioned fidelity contract
+issues the final verdict. Those state words are shared vocabulary here, not a
+proposed repository-wide enum.
 
 This is a target invariant and is currently unverified.
 
@@ -160,8 +159,8 @@ This is a target invariant and is currently unverified.
 
 CSharp renders accepted typed declaration requests. Decompiler supplies
 product-owned method bodies. ReturnToSender does not add source patches. The
-harness compiles the artifact, invokes product-owned comparison capabilities,
-and owns the final versioned fidelity verdict.
+ReturnToSender harness compiles the artifact, invokes product-owned comparison
+capabilities, and owns the current versioned fidelity verdict.
 
 The final classification composes, but does not collapse:
 
@@ -220,16 +219,18 @@ No owner may answer one by parsing another owner's display. This property is
 partially enforced by existing owner tests but is unverified across this
 composition.
 
-### Work is charged before materialization
+### Bounded metadata failures remain visible
 
-Selection and budget admission happen before expensive name, signature, base
-chain, or relationship materialization whenever those facts are not needed for
-the selected operation. Shared walks remain bounded; indexes are operation
-scoped and reused instead of rebuilt per member.
+[Bounded metadata traversal](bounded-metadata-traversal.md) owns graph, text,
+collection, and materialization budgets.
+[Member inspection planning and Metadata projection](member-inspection-planning-and-metadata-projection.md)
+owns projection admission and safety accounting. This map does not prescribe
+filter order, index lifetime, cache reuse, or lookup strategy.
 
-A filter that omits a private type from public `typesOnly` extraction must do so
-before decoding that type's long name. A finalizer lookup must not rescan every
-TypeDef for every method. This property is unverified on `main`.
+The composition obligation begins at their typed result: budget exhaustion or
+rejection remains visible to every consumer and cannot become an ordinary empty
+inventory, negative relationship, or successful artifact. This handoff property
+is unverified.
 
 ### Harnesses observe; product owners construct
 
@@ -252,8 +253,8 @@ repository harness rules.
 | How a classified member is displayed in CLI output | CLI/output |
 | Whether a MethodImpl body and declaration belong to the same canonical relationship | Metadata |
 | Which interface-edge and MethodImpl obligations the requested donor must retain | ReturnToSender planner, consuming Metadata facts |
-| Whether original and donor members correspond | The comparison owner named by the requested proof |
-| Whether all requested evidence permits `Exact` | Round-trip harness's versioned fidelity contract |
+| Whether original and donor members correspond | Proposed C# assembly round-trip capability, through its typed cross-reader resolver |
+| Whether all requested evidence permits current compile-back `Exact` | ReturnToSender's versioned harness fidelity contract |
 
 If implementation needs a decision not present in this table, the next step is
 to identify its focused owner, not add the decision to the nearest consumer.
@@ -272,11 +273,25 @@ dependencies; independent documentation and prototypes may proceed in parallel.
 
 **Claim:** extend the existing shared-declaration-fact contract with the
 owner-issued operator, MethodImpl, interface-edge, scope, and completeness facts
-required by declared consumers, including operation budgets and typed refusal.
+required by declared consumers, including typed semantic refusal.
 
 **Non-claims:** body spellability, donor planning, C# rendering, and `Exact`.
 
-### 2. Analysis body and call-site operator evidence
+### 2. Bounded Metadata traversal receipt
+
+**Owner:** bounded Metadata traversal.
+
+**Owning document:**
+[Bounded metadata traversal](bounded-metadata-traversal.md).
+
+**Claim:** define the owner-issued typed budget/rejection result consumed by
+Metadata projections and the receipt gate proving that filtered or bounded
+operations cannot turn it into ordinary absence.
+
+**Non-claims:** projection filtering strategy, index implementation, semantic
+classification, and consumer presentation.
+
+### 3. Analysis body and call-site operator evidence
 
 **Owner:** `ILInspector.Analysis`.
 
@@ -291,7 +306,21 @@ changing `MethodIdentity` or `MemberRef` equality accidentally.
 **Non-claims:** API classification, C# representability, decompiler
 spellability, and compile-back fidelity.
 
-### 3. CSharp declaration representability
+### 4. Research body-identity receipt
+
+**Owner:** `ILInspector.Research`.
+
+**Owning document:**
+[Member target resolution](member-target-resolution.md).
+
+**Claim:** define how Research body identity and projections receive
+Analysis-issued `MethodIdentity` and `MemberRef` operator evidence without
+reconstructing, strengthening, or dropping its unknown state.
+
+**Non-claims:** Analysis fact construction, API identity, and compile-back
+fidelity.
+
+### 5. CSharp declaration representability
 
 **Owner:** `ILInspector.CSharp`.
 
@@ -305,7 +334,7 @@ forms.
 
 **Non-claims:** Metadata fact construction, body projection, and donor closure.
 
-### 4. Decompiler operator consumption
+### 6. Decompiler operator consumption
 
 **Owner:** `ILInspector.Decompiler`.
 
@@ -319,7 +348,7 @@ document remains supporting mechanics, not a second owner.
 **Non-claims:** Metadata or Analysis classification, declaration
 representability, API display, and artifact closure.
 
-### 5. CLI classified-member projection
+### 7. CLI classified-member projection
 
 **Owner:** CLI/output.
 
@@ -332,44 +361,52 @@ display spelling without parsing `op_*` names.
 **Non-claims:** member classification, C# declaration representability, and
 body fidelity.
 
-### 6. ReturnToSender obligation ledger
+### 8. Cross-reader member correspondence
 
-**Owner:** ReturnToSender planner.
-
-**Owning document:**
-[ReturnToSender: fact-planned compile-back harness](fact-planned-compile-back-harness.md).
-
-**Claim:** define versioned donor obligations and typed planning states emitted
-to the harness.
-
-**Non-claims:** product C# construction, Metadata relationship construction,
-diff semantics, correspondence, and the final fidelity verdict.
-
-### 7. Round-trip fidelity verdict
-
-**Owner:** round-trip harness.
+**Owner:** proposed C# assembly round-trip capability.
 
 **Owning document:**
 [C# assembly round-trip testing](csharp-member-recompilation.md).
 
-**Claim:** define the total, versioned composition of planner obligations,
-artifact production, compilation, correspondence, and product diffs that permits
-`Exact`.
+**Claim:** close the existing planned-capability decision by assigning and
+defining a product-owned typed resolver from normalized owner identities to
+exact endpoint handles with total absent, ambiguous, and failed outcomes.
 
-**Non-claims:** constructing planner obligations, product artifacts, producer
-facts, correspondence, or diff results.
+**Non-claims:** changing API or body identity construction, using display text
+as a resolver, diff semantics, and final fidelity classification.
+
+### 9. ReturnToSender obligations and verdict
+
+**Owner:** ReturnToSender.
+
+**Owning document:**
+[ReturnToSender: fact-planned compile-back harness](fact-planned-compile-back-harness.md).
+
+**Claim:** define versioned donor obligations and typed planner states, then
+compose them with typed correspondence, compilation, and product-diff outcomes
+under the existing ReturnToSender status contract.
+
+**Non-claims:** product C# construction, Metadata relationship construction,
+correspondence construction, and product diff semantics.
+
+The proposed reusable round-trip engine remains a separate design. Its owning
+document still has an open decision for request/result ownership. This map does
+not resolve that decision or transfer ReturnToSender's current verdict to the
+future engine.
 
 There is no ownerless integration successor. Each immediate consumer owns the
 receipt test for its incoming handoff:
 
 - Analysis gates Metadata-to-Analysis fact adaptation;
+- Research gates Analysis-to-Research body-identity and evidence receipt;
 - CSharp gates Metadata-to-CSharp representability input;
 - Decompiler gates its Metadata/owner-fact consumption;
 - CLI gates Metadata/API classification projection;
 - ReturnToSender gates Metadata/CSharp/Decompiler inputs to its obligation
   ledger;
-- the round-trip harness gates planner obligations and product results into the
-  final verdict.
+- the proposed round-trip capability gates typed cross-reader correspondence;
+- ReturnToSender gates planner obligations, correspondence, compilation, and
+  product results into its current verdict.
 
 ## Enforcement plan
 
@@ -385,7 +422,7 @@ not to approve their implementation.
 | Receiver lowering preserves valid lambda shape | `UncheckedInstanceAssignment_MaterializedReceiverVoidLambdaStaysBlockBodied` | Candidate only; unverified on `main` |
 | C# 14 instance assignment modifiers retain operator identity | `CSharpOperatorDeclaration_AcceptsVirtualInstanceAssignmentOperators`, `ApiSurface_ReportsVirtualInstanceAssignmentOperatorsAsDeclarations` | Candidate only; unverified on `main` |
 | MethodImpl identity preserves recursive assembly scope | `Extract_PreservesExternAliasMethodImplDeclarationsWithDistinctScopes` | Candidate only; unverified on `main` |
-| Metadata work is bounded before materialization | `FinalizerOwnerClassification_DoesNotRematerializeBaseNamesPerMethod`, `PdbFinalizerClassifier_UsesIndexedModuleScopedLookup`, `TypesOnlyExtraction_DoesNotBuildMemberOrLocalTypeIndexes` | Candidate only; unverified on `main` |
+| Bounded Metadata rejection remains visible at the projection boundary | `FinalizerOwnerClassification_DoesNotRematerializeBaseNamesPerMethod`, `PdbFinalizerClassifier_UsesIndexedModuleScopedLookup`, `TypesOnlyExtraction_DoesNotBuildMemberOrLocalTypeIndexes` | Candidate only; unverified on `main` |
 | `Exact` requires exact interface and MethodImpl obligations | `CompileBackTargets_FullRoundTripsInheritedSameAssemblyInterfacePath`, `CompileBackTargets_ValueTypeImplicitInterfaceMethodsAndAccessorsDeclineWhenOmitted`, `CompileBackTargets_FullRoundTripsImplicitStaticAbstractInterfaceMethod` | Candidate only; unverified on `main` |
 
 Each focused successor must:
@@ -405,8 +442,7 @@ specimen for each of these paths:
 - Metadata/API classification to CLI display;
 - scoped MethodImpl relationship to reconstructed donor metadata;
 - unavailable interface relationship to an honest non-`Exact` result;
-- bounded filtered extraction that proves omitted inputs do not spend the
-  excluded decode budget.
+- bounded extraction rejection to a visible non-success result.
 
 ## Implementation-stack disposition
 
