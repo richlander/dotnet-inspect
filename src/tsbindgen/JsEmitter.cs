@@ -34,6 +34,8 @@ static class JsEmitter
         ApiType[] declarationTypes = DtsEmitter.DeclarationTypes(surface);
         TypeScriptFunctionSignature[] functions =
             DtsEmitter.MapFunctionSignatures(surface);
+        string managedExportsTypeName =
+            AllocateManagedExportsTypeName(declarationTypes);
 
         foreach (ApiType declarationType in declarationTypes
             .OrderBy(type => type.Name, StringComparer.Ordinal))
@@ -45,10 +47,12 @@ static class JsEmitter
         if (declarationTypes.Length > 0)
             sb.Append('\n');
 
-        EmitManagedExportsType(sb, functions);
-        sb.Append("/** @type {$ManagedExports | undefined} */\n");
+        EmitManagedExportsType(sb, functions, managedExportsTypeName);
+        sb.Append("/** @type {").Append(managedExportsTypeName)
+          .Append(" | undefined} */\n");
         sb.Append("let $managedExports;\n\n");
-        sb.Append("/** @returns {$ManagedExports} */\n");
+        sb.Append("/** @returns {").Append(managedExportsTypeName)
+          .Append("} */\n");
         sb.Append("function $requireManagedExports() {\n");
         sb.Append("  if (!$managedExports) throw new Error(\"The browser inspection engine is not initialized.\");\n");
         sb.Append("  return $managedExports;\n");
@@ -69,10 +73,12 @@ static class JsEmitter
         sb.Append("export async function initializeEngine(onStatus = () => {}) {\n");
         sb.Append("  onStatus(\"Loading .NET WebAssembly…\");\n");
         sb.Append("  const runtime = await dotnet.create();\n");
-        sb.Append("  // This assertion is the one untyped .NET runtime boundary. $ManagedExports is\n");
+        sb.Append("  // This assertion is the one untyped .NET runtime boundary. ")
+          .Append(managedExportsTypeName).Append(" is\n");
         sb.Append("  // generated from the same authenticated surface as the wrappers below.\n");
         sb.Append("  // oxlint-disable-next-line typescript/no-unsafe-type-assertion\n");
-        sb.Append("  const exports = /** @type {$ManagedExports} */ (await runtime.getAssemblyExports(\"")
+        sb.Append("  const exports = /** @type {").Append(managedExportsTypeName)
+          .Append("} */ (await runtime.getAssemblyExports(\"")
           .Append(JavaScriptEncoder.Default.Encode(assemblyName))
           .Append("\"));\n");
 
@@ -103,7 +109,8 @@ static class JsEmitter
 
     static void EmitManagedExportsType(
         StringBuilder sb,
-        IReadOnlyList<TypeScriptFunctionSignature> functions)
+        IReadOnlyList<TypeScriptFunctionSignature> functions,
+        string managedExportsTypeName)
     {
         var root = new ExportTypeNode();
         foreach (TypeScriptFunctionSignature function in functions)
@@ -124,8 +131,20 @@ static class JsEmitter
         sb.Append("/**\n");
         sb.Append(" * @typedef {{\n");
         EmitManagedExportsProperties(sb, root, indent: 2);
-        sb.Append(" * }} $ManagedExports\n");
+        sb.Append(" * }} ").Append(managedExportsTypeName).Append('\n');
         sb.Append(" */\n");
+    }
+
+    static string AllocateManagedExportsTypeName(
+        IReadOnlyList<ApiType> declarationTypes)
+    {
+        var declarationNames = new HashSet<string>(
+            declarationTypes.Select(type => type.Name),
+            StringComparer.Ordinal);
+        string name = "$ManagedExports";
+        while (declarationNames.Contains(name))
+            name += '$';
+        return name;
     }
 
     static void EmitManagedExportsProperties(

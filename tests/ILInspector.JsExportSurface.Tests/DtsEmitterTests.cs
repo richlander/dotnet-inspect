@@ -200,7 +200,9 @@ public sealed class DtsEmitterTests
         string js = JsEmitter.Emit(BuildFixtureSurfaceWithWireContracts());
 
         Assert.Contains(
-            "const $parsed = $parseJson($result);\n"
+            "const $result = $exports.ILInspector.JsExportSurface.Fixtures."
+                + "PrimitiveRootFixtureExports.GetRegisteredDecimal();\n"
+                + "  const $parsed = $parseJson($result);\n"
                 + "  // The authenticated serializer contract fixes this "
                 + "function's exact wire type.\n"
                 + "  // oxlint-disable-next-line "
@@ -209,7 +211,14 @@ public sealed class DtsEmitterTests
             js,
             StringComparison.Ordinal);
         Assert.Contains(
-            "return /** @type {ReadonlyArray<number>} */ ($parsed);",
+            "const $result = $exports.ILInspector.JsExportSurface.Fixtures."
+                + "PrimitiveRootFixtureExports.GetRegisteredDecimalArray();\n"
+                + "  const $parsed = $parseJson($result);\n"
+                + "  // The authenticated serializer contract fixes this "
+                + "function's exact wire type.\n"
+                + "  // oxlint-disable-next-line "
+                + "typescript/no-unsafe-type-assertion\n"
+                + "  return /** @type {ReadonlyArray<number>} */ ($parsed);",
             js,
             StringComparison.Ordinal);
     }
@@ -561,6 +570,57 @@ public sealed class DtsEmitterTests
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             "let getWidgetExport",
+            js,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void JsEmitter_AllocatesManagedExportsTypeNameAroundProducerDeclarations()
+    {
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            AssemblyIdentity = new ApiAssemblyIdentity(
+                "Fixture",
+                new Version(1, 0, 0, 0),
+                culture: null,
+                publicKeyToken: null),
+            Records =
+            [
+                new ApiType
+                {
+                    Name = "$ManagedExports",
+                },
+                new ApiType
+                {
+                    Name = "$ManagedExports$",
+                },
+            ],
+        };
+
+        string js = JsEmitter.Emit(surface);
+
+        Assert.Contains(
+            "import(\"/inspect-web-engine.js\").$ManagedExports} "
+                + "$ManagedExports */",
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "import(\"/inspect-web-engine.js\").$ManagedExports$} "
+                + "$ManagedExports$ */",
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            " * }} $ManagedExports$$\n */\n"
+                + "/** @type {$ManagedExports$$ | undefined} */",
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "/** @returns {$ManagedExports$$} */",
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "const exports = /** @type {$ManagedExports$$} */ "
+                + "(await runtime.getAssemblyExports(\"Fixture\"));",
             js,
             StringComparison.Ordinal);
     }
@@ -2123,6 +2183,9 @@ public sealed class DtsEmitterTests
     [InlineData("$exports", false)]
     [InlineData("$exports", true)]
     [InlineData("$parsed", true)]
+    [InlineData("$parseJson", true)]
+    [InlineData("$requireManagedExports", false)]
+    [InlineData("$requireManagedExports", true)]
     [InlineData("$result", true)]
     public void Emit_RefusesGeneratedWrapperLocalParameterCollisions(
         string parameterName,
@@ -2189,6 +2252,11 @@ public sealed class DtsEmitterTests
                             Name = "Parsed",
                             Type = "string",
                         },
+                        new ApiParameter
+                        {
+                            Name = "$managedExports",
+                            Type = "string",
+                        },
                     ],
                 },
             ],
@@ -2198,8 +2266,50 @@ public sealed class DtsEmitterTests
 
         Assert.Contains(
             "foo(fooExport: string, exports: string, result: string, "
-                + "parsed: string): unknown;",
+                + "parsed: string, $managedExports: string): unknown;",
             dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void JsEmitter_AcceptsJsonHelperNameForNonParsingWrapperParameter()
+    {
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            AssemblyIdentity = new ApiAssemblyIdentity(
+                "Fixture",
+                new Version(1, 0, 0, 0),
+                culture: null,
+                publicKeyToken: null),
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Ns.Exports",
+                    Name = "Get",
+                    ReturnType = "string",
+                    Parameters =
+                    [
+                        new ApiParameter
+                        {
+                            Name = "$parseJson",
+                            Type = "string",
+                        },
+                    ],
+                },
+            ],
+        };
+
+        string js = JsEmitter.Emit(surface);
+
+        Assert.Contains(
+            """
+            export function get($parseJson) {
+              const $exports = $requireManagedExports();
+              return $exports.Ns.Exports.Get($parseJson);
+            }
+            """,
+            js,
             StringComparison.Ordinal);
     }
 

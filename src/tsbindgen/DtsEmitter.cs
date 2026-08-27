@@ -486,10 +486,16 @@ static class DtsEmitter
             bool parsesJson =
                 function.ReturnWireType is not null
                 && TsTypeMapper.IsJsonEnvelopeReturnType(function.ReturnType);
-            var generatedLocals = new HashSet<string>(
+            var generatedBindings = new HashSet<string>(
                 parsesJson
-                    ? ["$exports", "$parsed", "$result"]
-                    : ["$exports"],
+                    ? [
+                        "$exports",
+                        "$parsed",
+                        "$parseJson",
+                        "$requireManagedExports",
+                        "$result",
+                    ]
+                    : ["$exports", "$requireManagedExports"],
                 StringComparer.Ordinal);
             foreach (ApiParameter parameter in function.Parameters)
             {
@@ -503,7 +509,7 @@ static class DtsEmitter
                 }
 
                 if (!parameterNames.Add(parameterName)
-                    || generatedLocals.Contains(parameterName))
+                    || generatedBindings.Contains(parameterName))
                 {
                     throw new UnsupportedWireContractException(
                         "JS-export parameter",

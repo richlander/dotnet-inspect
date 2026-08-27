@@ -86,10 +86,13 @@ nested `$ManagedExports` structural type describes the raw
 parameter and return annotations. Record and enum names are type-only imports
 from the generated sibling declaration module, so direct arrays retain their
 interop shape and JSON envelopes use their authenticated wire shape.
+If a producer declaration already owns `$ManagedExports`, the internal name
+deterministically gains trailing `$` characters until it is unique; producer
+names remain unchanged.
 
-`getAssemblyExports` returns `unknown`; the generated conversion to
-`$ManagedExports` is the single explicit runtime-host trust assertion.
-Initialization state remains `$ManagedExports | undefined` until
+`getAssemblyExports` returns `unknown`; the conversion to the allocated
+managed-export structural type is the single explicit runtime-host trust
+assertion. Initialization state remains that type or `undefined` until
 `runMain()` succeeds, and every wrapper narrows it through one throwing helper.
 JSON parsing is annotated with the exact producer-selected wire type rather
 than exposing a caller-selected generic. These annotations do not claim to
@@ -100,7 +103,10 @@ result use visible to the TypeScript compiler.
 `DtsEmitterTests.JsEmitter_EmitsCheckedInteropAndWireSignaturesFromOneSurface`
 gates sync, `Task`, `Task<T>`, nullable, array, record, enum, and JSON-envelope
 projection; `JsEmitter_ModelsInitializationAsOptionalUntilRuntimeStartupCompletes`
-gates the honest initialization state and single host conversion. Inspect-web's
+gates the honest initialization state and single host conversion.
+`Emit_RefusesGeneratedWrapperLocalParameterCollisions` and
+`JsEmitter_AllocatesManagedExportsTypeNameAroundProducerDeclarations` gate
+generated value- and type-binding collisions. Inspect-web's
 `npm run typecheck` compiles the committed generated wrapper through
 `tsconfig.runtime-wrapper.json` with `checkJs`; the dedicated
 `runtime-wrapper-toolchain.test.ts` mutation canary proves that a qualified
