@@ -264,7 +264,22 @@ to identify its focused owner, not add the decision to the nearest consumer.
 Implementation resumes through owner-sized contracts. The order reflects data
 dependencies; independent documentation and prototypes may proceed in parallel.
 
-### 1. Metadata relationship evidence
+### 1. Assembly inspection content receipt
+
+**Owner:** `AssemblyInspectionSession`.
+
+**Owning document:**
+[Artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md).
+
+**Claim:** define how a session receives a `ResolvedAssemblyReference` and
+retains or verifies the binding among selected assembly identity, owner-issued
+provenance, and the exact opened content, with a non-vacuity gate that rejects
+content substitution.
+
+**Non-claims:** artifact storage, source selection, acquisition authorization,
+or Metadata fact construction.
+
+### 2. Metadata relationship evidence
 
 **Owner:** `ILInspector.Metadata`.
 
@@ -277,7 +292,7 @@ required by declared consumers, including typed semantic refusal.
 
 **Non-claims:** body spellability, donor planning, C# rendering, and `Exact`.
 
-### 2. MetadataPrimitives bounded rejection
+### 3. MetadataPrimitives bounded rejection
 
 **Owner:** `ILInspector.MetadataPrimitives`.
 
@@ -290,7 +305,7 @@ Metadata consumers.
 **Non-claims:** Metadata projection receipt, semantic classification, and
 consumer presentation.
 
-### 3. Metadata bounded-rejection receipt
+### 4. Metadata bounded-rejection receipt
 
 **Owner:** `ILInspector.Metadata`.
 
@@ -303,7 +318,7 @@ MetadataPrimitives rejection without turning exhaustion into ordinary absence.
 **Non-claims:** traversal mechanics, budget construction, filtering strategy,
 index implementation, and higher-consumer presentation.
 
-### 4. Analysis body and call-site operator evidence
+### 5. Analysis body and call-site operator evidence
 
 **Owner:** `ILInspector.Analysis`.
 
@@ -318,7 +333,7 @@ changing `MethodIdentity` or `MemberRef` equality accidentally.
 **Non-claims:** API classification, C# representability, decompiler
 spellability, and compile-back fidelity.
 
-### 5. Research body-identity receipt
+### 6. Research body-identity receipt
 
 **Owner:** `ILInspector.Research`.
 
@@ -332,7 +347,7 @@ reconstructing, strengthening, or dropping its unknown state.
 **Non-claims:** Analysis fact construction, API identity, and compile-back
 fidelity.
 
-### 6. CSharp declaration representability
+### 7. CSharp declaration representability
 
 **Owner:** `ILInspector.CSharp`.
 
@@ -346,7 +361,7 @@ forms.
 
 **Non-claims:** Metadata fact construction, body projection, and donor closure.
 
-### 7. Decompiler operator consumption
+### 8. Decompiler operator consumption
 
 **Owner:** `ILInspector.Decompiler`.
 
@@ -360,7 +375,7 @@ document remains supporting mechanics, not a second owner.
 **Non-claims:** Metadata or Analysis classification, declaration
 representability, API display, and artifact closure.
 
-### 8. CLI classified-member projection
+### 9. CLI classified-member projection
 
 **Owner:** CLI/output.
 
@@ -373,7 +388,7 @@ display spelling without parsing `op_*` names.
 **Non-claims:** member classification, C# declaration representability, and
 body fidelity.
 
-### 9. Cross-reader method correspondence
+### 10. Cross-reader method correspondence
 
 **Owner:** `ILInspector.Metadata`.
 
@@ -387,7 +402,7 @@ address or `Absent`, `Ambiguous`, or `Failed`.
 **Non-claims:** changing API or body identity construction, round-trip receipt,
 diff semantics, and final fidelity classification.
 
-### 10. Round-trip correspondence receipt
+### 11. Round-trip correspondence receipt
 
 **Owner:** current `DotnetInspector.RoundTripCompilation` consumer.
 
@@ -401,7 +416,7 @@ preserving every non-exact state.
 **Non-claims:** Metadata correspondence semantics, long-term request/result
 ownership, product diff semantics, and ReturnToSender's final verdict.
 
-### 11. ReturnToSender obligations and verdict
+### 12. ReturnToSender obligations and verdict
 
 **Owner:** ReturnToSender.
 
@@ -424,6 +439,8 @@ verdict to the engine.
 There is no ownerless integration successor. Each immediate consumer owns the
 receipt test for its incoming handoff:
 
+- AssemblyInspectionSession gates the binding from resolved assembly identity
+  and provenance to opened content;
 - Metadata gates MetadataPrimitives/bounded-traversal rejection into its
   projection and degraded-fact results;
 - Analysis gates Metadata-to-Analysis fact adaptation;
@@ -440,12 +457,13 @@ receipt test for its incoming handoff:
 
 ## Enforcement plan
 
-The current implementation branches contain useful candidate tests. Candidate
-rows below preserve measured evidence without approving their implementation;
-the correspondence row records gates already present on `main`.
+The table distinguishes candidate evidence on the frozen implementation
+branches, gates already present on `main`, and planned gaps with no gate. The
+per-row status is authoritative.
 
-| Target invariant | Candidate gates in the frozen stack | Status |
+| Target invariant | Evidence or required gate | Status |
 | --- | --- | --- |
+| Resolved assembly identity and provenance stay bound to session-opened content | None; the AssemblyInspectionSession receipt successor must add a content-substitution non-vacuity gate | Planned and unverified |
 | Analysis operator evidence preserves unknown MemberRefs | `MetadataOperatorFactTests.CrossAssemblyMemberReferences_StayUnknown` | Candidate only; unverified on `main` |
 | Body operator identity and spelling stay separate | `UnresolvedKnownFrameworkOperatorDelegateTarget_DegradesToPartial`, `UnresolvedKnownFrameworkOperatorCall_StaysFull` | Candidate only; unverified on `main` |
 | CLI operator display consumes typed classification | `PopulateMemberSections_FormatsOnlyTypedOperatorsAsOperators` | Candidate only; unverified on `main` |
@@ -471,6 +489,7 @@ Each focused successor must:
 The named immediate consumers must collectively include at least one seam
 specimen for each of these paths:
 
+- resolved assembly identity/provenance to exact session-opened content;
 - Metadata operator fact to CSharp declaration representability;
 - Analysis operator fact to Research/body projection;
 - owner-issued operator fact to Decompiler body fidelity;
