@@ -344,7 +344,9 @@ the containing declaration shape. `CSharpFieldInitializer`, aggregate
 `CSharpPropertyBody`/`CSharpEventBody` replacements, and complete member or type
 declarations are outside the first contract. Initializers require a later typed
 lowering-correspondence design because their effects may span multiple instance
-constructors or the type initializer.
+constructors or the type initializer; issue
+[#4882](https://github.com/richlander/dotnet-inspect/issues/4882) owns that
+prerequisite for Decompiler-produced fragments.
 
 That replacement boundary does not exempt initializer text already emitted by
 the existing artifact pipeline from compile closure. Such generated fragments
@@ -461,6 +463,30 @@ The owner consumes, but does not redefine:
 - compiler diagnostics and rebuilt PE bytes from the tools compiler adapter;
 - C# and IL comparison results from their existing owners.
 
+Four adjacent-owner prerequisites are now explicit:
+
+- [#4881](https://github.com/richlander/dotnet-inspect/issues/4881) is the
+  `ILInspector.CSharp` design for an artifact-digest-bound participant manifest.
+  Until that owner-issued manifest exists, tools can compare its expected plan
+  only with itself and cannot issue a complete artifact-coverage receipt.
+- [#4882](https://github.com/richlander/dotnet-inspect/issues/4882) is the
+  `MemberBodyProducer` design for typed dependency and receiving-member evidence
+  for generated fragments. Current source-string initializers are not that
+  evidence.
+- [#4883](https://github.com/richlander/dotnet-inspect/issues/4883) is the
+  `ILInspector.ILDiff` design for typed cross-reader correspondence of supported
+  compiler-generated definitions. Current per-side ordinal-normalized names do
+  not identify counterpart definitions.
+- [#4885](https://github.com/richlander/dotnet-inspect/issues/4885) implements
+  the landed `ILInspector.Metadata` signature-spellability aggregate. Current
+  `SignatureSpellabilityResult` collapses the result to `CanSpell` plus decode
+  status and cannot supply the closed evidence consumed here.
+
+These prerequisites do not transfer their owners' construction, validation,
+identity, or failure semantics into tools. The compile-back implementation may
+land refusal paths before they do, but it cannot issue the corresponding
+positive receipt until it consumes the owner-issued result.
+
 The closed tools-owned question is:
 
 > Does this exact generated artifact have one complete, unambiguous compile
@@ -548,14 +574,21 @@ Equal namespace-qualified text is insufficient.
 The compiler-synthesized arm retains the original module, token, and Metadata
 evidence that the definition is generated, plus the emitted member whose C#
 artifact can cause regeneration. It is a deferred binding obligation, not a
-local declaration receipt. It completes only when the existing owner-issued
-correspondence for that generated construct uniquely relates it to a rebuilt
-definition. Different construct kinds may consume different owner-issued
+local declaration receipt. It completes only when an owner-issued typed
+cross-reader correspondence for that generated construct uniquely returns the
+original and rebuilt definitions. The current
+`CompilerGeneratedOrdinalCorrespondence` exposes per-side normalized names, not
+counterpart definition handles, and does not satisfy this obligation.
+[#4883](https://github.com/richlander/dotnet-inspect/issues/4883) owns the
+missing result. Different construct kinds may consume different owner-issued
 correspondence results; tools select by typed construct evidence, not generated
 name text. Tools accept or refuse correspondence exactly within the issuing
 owner's documented threat boundary and make no stronger provenance-
-authentication claim. An absent, unsupported, or ambiguous correspondence
-makes the compile-context receipt unavailable.
+authentication claim. Until #4883 supplies the capability, a candidate carrying
+one of these obligations is declined before `ProductAttemptCommit`. Once the
+capability exists, an absent, unsupported, or ambiguous per-attempt result makes
+the compile-context receipt unavailable and the attempted product result
+`Failed`.
 
 The external arm is local to the frozen compile context. It uses the selected
 descriptor ID and terminal type-definition token, not an opaque catalog key
@@ -587,17 +620,34 @@ Duplicates retain every occurrence. They may share one resolved definition but
 cannot erase a stronger requirement or a failure.
 
 The tools-owned effective artifact plan also produces an immutable
-`ArtifactParticipantPlan`. It assigns stable participant IDs to every included
-declaration, effective real body, and generated fragment. Each census result is
-keyed by one expected participant ID. `CompileClosureCoverageReceipt` requires
-exact equality between expected and observed participant sets; missing,
-duplicate, stale, or unexpected participants make closure `Incomplete` with
-their IDs. A primary-only scan cannot issue a complete receipt for an artifact
-that also emits companions or `full`-policy members.
+`ArtifactParticipantPlan`. It assigns stable expected participant IDs to every
+requested declaration, effective real body, and generated fragment. Each
+planned census result is keyed by one expected participant ID.
+
+Expected-plan coverage is not self-proving. After rendering, tools consume the
+producer-issued, artifact-digest-bound participant manifest from
+[#4881](https://github.com/richlander/dotnet-inspect/issues/4881).
+`CompileArtifactCoverageReceipt` requires exact equality between the expected
+plan and that owner-issued rendered-participant set, and then requires one
+census for every matched participant. Missing, duplicate, stale, or unexpected
+manifest entries or censuses retain their IDs and cannot produce a receipt. A
+primary-only scan cannot cover an artifact that also renders companions or
+`full`-policy members. Before #4881 lands, absence of the required producer
+capability is a pre-commit policy refusal; after `ProductAttemptCommit`, a
+missing or mismatched manifest is an artifact-production failure.
 
 Signature requirements come from the Metadata-owned immutable
-signature-spellability aggregate. External definitions become exact selected
-reference requirements. Every `LocalRequirement` needs a
+signature-spellability aggregate. Until
+[#4885](https://github.com/richlander/dotnet-inspect/issues/4885) implements
+that owner-issued surface, tools retain
+`SignatureSpellabilityAggregateUnavailable` and decline before
+`ProductAttemptCommit`; they do not infer a typed reason from the current
+`CanSpell` boolean. Once available, an accessible external definition becomes
+an exact selected-reference requirement. Metadata's authoritative
+`Inaccessible` outcome becomes `Unspellable` with the original
+terminal-definition and accessibility evidence; it cannot become an exact
+reference requirement. Unresolved or rejected aggregate outcomes retain their
+exact Metadata failure as `Incomplete`. Every `LocalRequirement` needs a
 `LocalDeclarationReceipt` proving that the exact source `TypeDef`, including its
 containing declaration chain, is present and nameable in the generated
 artifact. A same-named external definition cannot satisfy it.
@@ -605,6 +655,8 @@ artifact. A same-named external definition cannot satisfy it.
 Metadata's compatibility `CanSpell` projection may authorize this artifact only
 after tools have discharged all local requirements. Metadata retains the
 artifact-independent aggregate; tools own the artifact-specific receipt.
+Planning consumes the aggregate's closed evidence entries rather than treating
+`CanSpell: false` as one undifferentiated failure.
 
 ### Declaration-reference census
 
@@ -648,12 +700,20 @@ participant, including:
   `CSharpMemberBody`;
 - later non-body expression fragments explicitly included by the artifact plan.
 
-Each fragment consumes owner-issued typed dependency evidence tied to its source
-member and artifact participant. Source text alone is not dependency evidence,
-and tools do not parse or repair the fragment to reconstruct it. A text-only
-fragment therefore makes the census `Incomplete`; the initial implementation
-may omit that fragment through its existing typed artifact policy or decline
-the artifact, but cannot admit it with an empty requirement set.
+Each Decompiler-produced fragment consumes the owner-issued typed dependency and
+receiving-member evidence from
+[#4882](https://github.com/richlander/dotnet-inspect/issues/4882), tied to the
+owner-issued artifact occurrence from
+[#4881](https://github.com/richlander/dotnet-inspect/issues/4881). Source text
+alone is not dependency evidence, and tools do not parse or repair the fragment
+to reconstruct it. Current `CSharpFieldInitializer` and constructor-initializer
+strings therefore make the census `Incomplete`; the initial implementation may
+omit that fragment through its existing typed artifact policy or decline the
+artifact, but cannot admit it with an empty requirement set.
+
+Any fragment introduced by another product owner likewise needs that owner's
+typed dependency and receiving-member result. Until one exists, the fragment is
+`Incomplete`; #4882 does not claim other owners' fragment semantics.
 
 Resolved fragment occurrences become the same local, external, intrinsic,
 compiler-synthesized, or unresolved requirements as declaration and body
@@ -697,29 +757,31 @@ a reusable interpretation of method behavior.
 
 ### Closure outcome
 
-Evaluating the plan against the frozen reference set produces one closed
-`CompileClosureOutcome`:
+Evaluating the candidate plan against the frozen reference set, before product
+artifact production, produces one closed `CompileClosureOutcome`:
 
 - `Complete` maps every requirement to an intrinsic,
   `LocalDeclarationReceipt`, exact `CompileReferenceDescriptor`, or retained
   compiler-synthesized binding obligation;
+- `Unspellable` retains every authoritative Metadata accessibility rejection;
 - `Missing` retains every requirement for which no provider exists;
 - `Ambiguous` retains every requirement with multiple non-corresponding
   providers;
-- `Incomplete` retains decode, resolution, safety-bound, and unsupported-scope
-  failures plus participant-coverage mismatches.
+- `Incomplete` retains decode, resolution, safety-bound, unsupported-scope, and
+  missing adjacent-owner evidence.
 
-`Complete` means the artifact is ready for compilation under its mapped
-providers. It is not final binding success: every retained
-compiler-synthesized obligation must still be discharged by the rebuilt binding
-receipt before `CompileContextOutcome.Complete`.
+`Complete` means the candidate is statically ready to cross
+`ProductAttemptCommit` under its mapped providers. It is not rendered-artifact
+coverage or final binding success: the producer manifest must still match the
+expected participant plan, and every retained compiler-synthesized obligation
+must still be discharged before `CompileContextOutcome.Complete`.
 
 Closure is artifact-scoped because Roslyn compiles one artifact. A
 `MemberClosureProjection` separately retains the requirements and local
 coverage contributed by each target, companion, and generated-fragment
 participant, plus every artifact-wide blocker and its originating participant.
-The projection never converts an artifact `Missing`, `Ambiguous`, or
-`Incomplete` outcome into member success.
+The projection never converts an artifact `Unspellable`, `Missing`,
+`Ambiguous`, or `Incomplete` outcome into member success.
 
 Targeted and batch runs may therefore have different artifact closure and
 admission outcomes when batch includes another broken participant. For the same
@@ -744,23 +806,34 @@ Each iteration follows one ordered transition:
 1. Build an immutable typed candidate plan without treating it as product
    evidence.
 2. Recompute signature requirements, declaration-reference censuses, local
-   receipts, and every effective real-body census against the frozen reference
-   set.
+   receipts, generated-fragment censuses, and every effective real-body census
+   against the frozen reference set.
 3. Add any supported source-local declaration roots and repeat planning. A
-   final missing, ambiguous, or incomplete provider is a policy refusal and
-   produces `Declined`; it cannot add a reference from a compiler search path.
-4. After static closure is `Complete`, cross `ProductAttemptCommit` for that
-   exact plan and invoke product artifact production and the compiler.
-5. A supported compiler diagnostic may contribute one typed declaration root.
+   final unspellable, missing, ambiguous, or incomplete provider is a policy
+   refusal and produces `Declined`; it cannot add a reference from a compiler
+   search path.
+4. Check the pre-attempt owner capabilities required by this exact plan: the
+   artifact manifest, and generated-definition correspondence when the plan
+   carries those obligations. If one is unavailable, produce pre-commit
+   `Declined` with that exact capability reason; this is distinct from static
+   closure `Incomplete`. Otherwise, after static closure is `Complete`, cross
+   `ProductAttemptCommit` for that exact plan and invoke product artifact
+   production.
+5. Bind the returned participant manifest to the exact source-artifact digest
+   and compare it with `ArtifactParticipantPlan`. A missing or mismatched
+   manifest produces `Failed`. Exact coverage issues
+   `CompileArtifactCoverageReceipt`; only then may the compiler run.
+6. A supported compiler diagnostic may contribute one typed declaration root.
    When root and iteration budgets permit growth, that explicitly supersedes
    the in-flight attempt without producing a terminal admission arm. Discard
-   its artifact, closure, compilation, and binding evidence, then begin a
-   replacement iteration.
-6. A terminal product, compiler, rebuilt-resolution, or binding failure after
-   `ProductAttemptCommit` produces `Failed`. A stalled diagnostic, root-budget
-   exhaustion, or iteration-budget exhaustion is terminal at this boundary,
-   retains its exact bail reason, and cannot select legacy replacement evidence.
-7. A successful compile plus complete rebuilt binding produces `Admitted`.
+   its artifact, coverage, closure, compilation, and binding evidence, then
+   begin a replacement iteration.
+7. A terminal product, coverage, compiler, rebuilt-resolution, or binding
+   failure after `ProductAttemptCommit` produces `Failed`. A stalled diagnostic,
+   root-budget exhaustion, or iteration-budget exhaustion is terminal at this
+   boundary, retains its exact bail reason, and cannot select legacy replacement
+   evidence.
+8. A successful compile plus complete rebuilt binding produces `Admitted`.
 
 `ProductAttemptCommit` is the only boundary that permits product evidence to
 become authoritative. `Provisional` describes in-flight planning state only; it
@@ -780,11 +853,23 @@ correspondence and compares:
   identities;
 - original and rebuilt declaration-reference censuses;
 - original and rebuilt body-reference censuses for every effective real body;
+- each generated-fragment dependency with the compiler binding at its
+  owner-issued source occurrence and the corresponding rebuilt receiving member;
 - each rebuilt local definition projected through the typed declaration plan;
 - each rebuilt external definition through the exact frozen reference
   descriptor that supplied it;
 - each deferred compiler-synthesized definition through the applicable
   owner-issued cross-reader correspondence.
+
+Generated-fragment evidence names the original receiving member and its
+lowering destination. That original member must be an effective real body in
+the artifact, and its rebuilt counterpart must be exact; otherwise the fragment
+returns `BindingReceiptUnavailable`. While the compiler workspace is alive,
+tools resolve the owner-issued source occurrence and compare its bound
+definition with the planned identity. This is binding of a typed coordinate,
+not tools-side parsing or dependency discovery. An external fragment occurrence
+that binds to a same-FQN source-local declaration is therefore a mismatch even
+when the receiving method later compares equal.
 
 For an `Exact` claim, the rebuilt census cannot replace an external definition
 with a source-local definition, replace one external definition with another,
@@ -802,9 +887,10 @@ or lifetime-bound Metadata object escapes into durable results.
 Every generated artifact policy, including the existing legacy shell and the
 product-whole-member path, produces one closed `CompileContextOutcome`.
 `Complete` carries a `CompileContextReceipt` binding the exact artifact digest
-to its frozen reference set, converged closure, compilation, correspondence,
-and rebuilt binding evidence. `Unavailable` retains the exact failed or
-incomplete stage and cannot expose a receipt.
+to its frozen reference set, converged closure, producer-issued artifact
+coverage, compilation, correspondence, and rebuilt binding evidence.
+`Unavailable` retains the exact failed or incomplete stage and cannot expose a
+receipt.
 
 Any `CompileBackStatus.Exact` requires a complete receipt for the exact artifact
 whose fidelity is being reported. This rule is independent of artifact policy.
@@ -836,18 +922,22 @@ when opcode and C# comparers independently return equality.
 planning transition:
 
 - `Declined` is the pre-`ProductAttemptCommit` policy refusal from reference
-  selection, declaration planning, closure, or local requirements. It carries
-  the typed reasons and selected legacy policy, when permitted.
+  selection, declaration planning, closure, local requirements, Metadata
+  aggregate capability, artifact-manifest capability, or required
+  generated-correspondence capability. It carries the typed reasons and
+  selected legacy policy, when permitted.
 - `Failed` when artifact production, compilation, rebuilt resolution, or
-  binding fails after `ProductAttemptCommit`, including a stalled post-commit
-  diagnostic and root/iteration budget exhaustion. It retains every product
-  artifact, bail reason, and partial receipt that exists.
+  binding fails after `ProductAttemptCommit`, including participant-manifest
+  mismatch, a stalled post-commit diagnostic, and root/iteration budget
+  exhaustion. It retains every product artifact, bail reason, and partial
+  receipt that exists.
 - `Admitted` only after the exact artifact and typed declaration plan exist, the
-  frozen reference set is unambiguous, signature/declaration/body closure is
-  `Complete`, every Metadata `LocalRequirement` has a declaration receipt, and
-  the exact artifact-specific `CompileContextReceipt` is complete. It carries
-  artifact, compile-context digest, closure, compilation, and rebuilt-binding
-  receipts.
+  frozen reference set is unambiguous, signature/declaration/generated-fragment/
+  body closure is `Complete`, every Metadata `LocalRequirement` has a
+  declaration receipt, artifact coverage exactly matches the producer manifest,
+  and the exact artifact-specific `CompileContextReceipt` is complete. It
+  carries artifact, compile-context digest, closure, coverage, compilation, and
+  rebuilt-binding receipts.
 
 The current `UsedProductWholeMember` boolean cannot represent these states. It
 may remain as a compatibility projection only if it means `Admission is
@@ -876,13 +966,13 @@ not a separate policy:
 2. tools build the current explicit member's typed candidate plan without
    treating it as product evidence;
 3. its declaration signatures, declaration-shape references, local
-   requirements, and every effective real body contribute to the
-   artifact-specific closure plan;
+   requirements, generated fragments, and every effective real body contribute
+   to the artifact-specific closure plan;
 4. a policy refusal before `ProductAttemptCommit` selects the existing legacy
    policy with visible `Declined` reasons;
-5. after the commit, product rendering and compiler probes run; a supported
-   declaration-root diagnostic supersedes that iteration without producing an
-   admission arm;
+5. after the commit, product rendering, participant-manifest validation, and
+   compiler probes run; a supported declaration-root diagnostic supersedes that
+   iteration without producing an admission arm;
 6. a terminal attempted-product failure remains `Failed`;
 7. only `Admitted` product evidence or a separately complete legacy context may
    contribute a receipt-bearing fidelity verdict.
@@ -897,13 +987,13 @@ signature-only shortcut.
 | Layer | Example outcomes |
 | --- | --- |
 | Selection | target missing, ambiguous overload, unsupported member kind |
-| Artifact production | unsupported declaration, partial body, missing typed fact |
+| Artifact production | unsupported declaration, partial body, missing manifest, participant mismatch |
 | Reference selection | exact set, missing identity, ambiguous candidates, changed bytes |
-| Closure | complete, missing requirement, ambiguous provider, incomplete census or participant coverage |
+| Closure | complete, unspellable, missing requirement, ambiguous provider, incomplete census |
 | Post-commit convergence | expandable diagnostic, stalled closure, root budget, iteration budget |
 | Compilation | parse failure, bind failure, emit failure |
-| Correspondence | rebuilt member missing, ambiguous, or wrong module |
-| Binding | corresponding, rebound definition, incomplete receipt |
+| Correspondence | rebuilt member missing, ambiguous, wrong module, unsupported generated construct |
+| Binding | corresponding, rebound definition or fragment occurrence, incomplete receipt |
 | C# diff | exact, changed, unavailable |
 | IL diff | exact, operand diff, opcode diff, unavailable |
 | Scope A/B | same, different, unavailable |
@@ -912,13 +1002,29 @@ No layer converts failure or unavailability into an empty successful result.
 
 ## Proposed milestones
 
+### Adjacent prerequisites
+
+- [#4881](https://github.com/richlander/dotnet-inspect/issues/4881) defines the
+  CSharp artifact participant manifest.
+- [#4882](https://github.com/richlander/dotnet-inspect/issues/4882) defines
+  typed generated-fragment dependency and receiver evidence.
+- [#4883](https://github.com/richlander/dotnet-inspect/issues/4883) defines
+  compiler-generated cross-reader definition correspondence.
+- [#4885](https://github.com/richlander/dotnet-inspect/issues/4885) implements
+  the Metadata signature-spellability aggregate designed by #4809 and PR #4821.
+
+Milestone 1 may add explicit `Declined`/unavailable arms before these issues
+land. Its positive artifact-coverage, generated-fragment, and
+compiler-synthesized receipts and differentiated signature outcomes remain
+blocked on their respective owner results.
+
 ### Milestone 1: extract round-trip compilation
 
 - Define tools-only request and layered result contracts.
 - Replace simple-name/first-wins reference selection with the frozen exact
   inventory, canonical selected set, and typed ambiguity outcomes.
-- Add artifact-specific signature, declaration-shape, local-declaration, and
-  generated-fragment, and effective-body closure plus participant-coverage,
+- Add artifact-specific signature, declaration-shape, local-declaration,
+  generated-fragment, and effective-body closure plus participant coverage,
   deferred compiler-generated correspondence, and the rebuilt binding and
   compile-context receipts required by every `Exact`.
 - Centralize primary, companion, accessor, and nested fidelity verdicts through
@@ -1061,23 +1167,28 @@ Issue #4810 adds these named gates:
 12. `RebuiltBodyBindingRejectsSameFqnRebind` proves the same product/legacy
     boundary for a type used only by the body.
 13. `RebuiltSynthesizedBindingUsesOwnerCorrespondence` uses compiler-produced
-    async, iterator, and supported closure/local-function shapes to prove unique
-    correspondence can complete the receipt; an absent, unsupported, or
-    ambiguous owner result remains unavailable. The gate makes no provenance
-    authentication claim beyond the issuing correspondence contract.
+    async, iterator, and supported closure/local-function shapes. Until #4883
+    lands, every candidate carrying a generated-definition obligation is
+    pre-commit `Declined`. After the prerequisite lands, its unique result can
+    complete the receipt while an absent, unsupported, or ambiguous
+    per-attempt owner result produces post-commit `Failed`. The gate makes no
+    provenance authentication claim beyond the issuing correspondence
+    contract.
 14. `ExactRequiresNonVacuousCompileContextReceipts` uses the same product and
-    legacy fixtures for both arms. With complete closure, local-declaration, and
-    rebuilt-binding receipts each fixture reports `Exact`; withholding or
-    mismatching each required component in turn changes that result away from
-    `Exact`. Deleting the corresponding gating condition is mutation-verified
-    to make its negative arm fail by incorrectly reporting `Exact`.
+    legacy fixtures for both arms. With complete closure, artifact-coverage,
+    local-declaration, and rebuilt-binding receipts each fixture reports
+    `Exact`; withholding or mismatching each required component in turn changes
+    that result away from `Exact`. Deleting the corresponding gating condition
+    is mutation-verified to make its negative arm fail by incorrectly reporting
+    `Exact`.
 15. `ClusterConvergenceDiscardsSupersededReceipts` uses a compiled fixture whose
     first iteration contributes a typed declaration root and whose replacement
-    plan converges. Its first-iteration artifact, closure, and failed-compilation
-    evidence is discarded; only receipts carrying the converged artifact digest
-    may survive. A typed seam separately injects a binding receipt carrying the
-    earlier digest. Reusing any earlier evidence produces a context mismatch and
-    cannot report `Exact`; the converged replacement reaches `Admitted`.
+    plan converges. Its first-iteration artifact, coverage, closure, and
+    failed-compilation evidence is discarded; only receipts carrying the
+    converged artifact digest may survive. A typed seam separately injects a
+    binding receipt carrying the earlier digest. Reusing any earlier evidence
+    produces a context mismatch and cannot report `Exact`; the converged
+    replacement reaches `Admitted`.
     Bypassing invalidation or terminating on the expandable diagnostic is
     mutation-verified to fail the gate.
 16. `CompleteNeighboringArtifactRemainsProductAdmitted` compiles an unambiguous
@@ -1090,8 +1201,8 @@ Issue #4810 adds these named gates:
     sibling as the cause; the target's local projection remains equal and is
     never promoted over the artifact failure.
 18. `CompileBackResultRetainsReceiptsAfterOwnerDisposal` proves all reference,
-    closure, admission, diagnostic, and binding evidence remains readable after
-    disposable owners are gone.
+    closure, artifact-coverage, admission, diagnostic, and binding evidence
+    remains readable after disposable owners are gone.
 19. `CompileReferenceSelectionPreservesDistinctIdenticalRegistrations` creates
     two fresh owner-issued registrations over identical bytes, digest, MVID, and
     assembly identity. Repeated occurrences of either registration may
@@ -1110,23 +1221,35 @@ Issue #4810 adds these named gates:
 21. `ProductAdmissionSeparatesDeclineAndFailure` proves both terminal arms and
     their fallback boundary. A pre-commit reference or closure refusal produces
     `Declined` and may select the labelled legacy policy. A terminal product or
-    compiler failure, stalled diagnostic, root/iteration budget exhaustion,
-    rebuilt-resolution failure, correspondence failure, or binding failure
-    after `ProductAttemptCommit` produces `Failed`, retains available product
-    evidence and exact bail provenance, and cannot be replaced by the legacy
-    control.
-22. `CompileClosureCoverageMatchesEffectiveParticipantPlan` derives the expected
+    participant-manifest, compiler, stalled diagnostic, root/iteration budget,
+    rebuilt-resolution, correspondence, or binding failure after
+    `ProductAttemptCommit` produces `Failed`, retains available product evidence
+    and exact bail provenance, and cannot be replaced by the legacy control.
+22. `CompileArtifactCoverageMatchesEffectiveParticipantPlan` derives the expected
     census keys from an artifact containing a primary target, a companion, and
     multiple `full`-policy members with distinct body-only and same-FQN
-    dependencies. Exact coverage can become `Complete`; removing any
-    declaration, body, or fragment census or injecting a stale participant
-    makes closure `Incomplete`. A primary-only implementation fails the
-    positive arm.
+    dependencies. Before #4881, missing manifest capability produces
+    pre-commit `Declined`. With the owner-issued manifest, exact
+    digest-bound coverage can complete; removing any declaration, body, or
+    fragment census, injecting a stale manifest participant, or returning a
+    primary-only manifest produces post-commit `Failed`. A tools-owned observed
+    set substituted for the producer manifest fails the architecture arm.
 23. `CompileClosureRequiresGeneratedFragmentEvidence` uses a reconstructed
-    initializer with an owner-issued typed external requirement. The exact
-    reference produces `Complete`; removing it produces `Missing`; retaining
-    only initializer source text produces `Incomplete`. No arm parses the
+    initializer. Until #4882 and #4881 land, retaining only initializer source
+    text produces `Incomplete`. With the owner-issued typed external requirement
+    and occurrence coordinate, the exact reference produces `Complete`, removing
+    it produces `Missing`, and binding the occurrence to a same-FQN local
+    definition produces `BindingReceiptUnavailable`. A receiving constructor
+    that is not an effective real body is also unavailable. No arm parses the
     generated expression.
+24. `CompileClosureConsumesMetadataSpellabilityOutcome` uses forwarded
+    signatures. Until #4885 lands, the missing aggregate capability produces
+    pre-commit `Declined`; the current `CanSpell` boolean cannot substitute.
+    With the owner-issued aggregate, an accessible terminal definition
+    contributes the exact external requirement. An inaccessible terminal
+    retains Metadata's definition and accessibility evidence as `Unspellable`,
+    produces pre-commit `Declined`, and cannot be converted into `Complete` by
+    direct-name lookup or permissive compiler binding.
 
 Documentation-only changes validate Markdown. Implementation milestones add the
 smallest focused product and harness checks that prove their claims.
