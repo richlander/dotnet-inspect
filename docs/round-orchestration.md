@@ -256,9 +256,9 @@ decision question and answer labels. Do not repeat the report or its evidence
 inside the prompt.
 
 Before emitting the report or opening its approval prompt, synchronize the PR's
-`ready-to-merge` and `carry-forward` labels with
-[Keep PR readiness labels current](../AGENTS.md#keep-pr-readiness-labels-current).
-The labels describe the state the report records; they must not lag behind it.
+`review-clean` label with
+[Keep the review-clean label current](../AGENTS.md#keep-the-review-clean-label-current).
+The label describes the state the report records; it must not lag behind it.
 
 The same report may also be posted on the PR; the public reconciliation may
 include more detail when the findings or fixes warrant it.
@@ -272,8 +272,7 @@ the procedure once it does.
 
 1. **Detect movement.** Compare the candidate's recorded base tip with the live
    tip in `baseRef.target.oid`. `baseRefOid` is the base commit recorded for the
-   PR, not the live branch tip. Replace `ready-to-merge` with `carry-forward`
-   before beginning the analysis.
+   PR, not the live branch tip.
 2. **Inspect without integrating.** A non-mutating fetch is permitted solely to
    read the exact landed range.
 3. **Classify and report.** As normal session output, report which commits
@@ -282,14 +281,15 @@ the procedure once it does.
    classification plainly: no interaction, significant interaction, or
    conflict.
 4. **Act on the classification — no approval prompt.**
-   - *No interaction:* remove `carry-forward`, integrate the exact analyzed tip
-     by SHA (not a moving branch ref), and carry the clean reviews forward.
-     Skip re-running validation, CI, and review. Merging itself still needs the
-     standing merge authorization; base movement alone does not grant it.
-   - *Significant interaction, no conflict:* remove `carry-forward`, integrate
+   - *No interaction:* keep `review-clean`, integrate the exact analyzed tip by
+     SHA (not a moving branch ref), and update the recorded head SHA. Skip
+     re-running validation, CI, and review. Merging itself still needs a live
+     readiness check and explicit user authorization; base movement alone does
+     not grant either.
+   - *Significant interaction, no conflict:* remove `review-clean`, integrate
      the tip, re-run the claimed validation and current-head CI, and
      re-dispatch the required reviewers at the new head as a normal round.
-   - *Conflict:* remove `carry-forward`, resolve it as an author change under
+   - *Conflict:* remove `review-clean`, resolve it as an author change under
      [conflict recovery](../AGENTS.md#recovery-transitions), and re-dispatch the
      required reviewers at the new head.
 
