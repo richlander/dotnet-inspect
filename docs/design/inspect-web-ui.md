@@ -457,8 +457,8 @@ availability, reasons, and the outcome of a requested transition.
 The hierarchy menu exposes every applicable subject level. An unavailable
 Library, Type, or Member item remains discoverable with `aria-disabled="true"`
 and an owner-issued reason. Activating an available item submits its opaque
-identity; the UI renders the returned active subject or typed failure without
-choosing a replacement.
+action ID together with the snapshot generation; the UI renders the returned
+active subject or typed failure without choosing a replacement.
 
 The inspection command, Workspace, lens strip, and content region all render
 the same returned active-subject identity. The UI does not infer initial,
@@ -493,9 +493,10 @@ The Library view lists every library admitted from the active coordinate and an
 inspection for that coordinate.
 
 The control consumes Inspection Subject Navigation's ordered Library subject
-descriptors and active identity. It renders and submits those opaque identities
-without inferring a selection from package kind, endpoint shape, assembly
-count, or lens capability.
+descriptors and active identity. It renders the returned identity and submits
+the selected descriptor's opaque action ID together with the snapshot
+generation, without inferring a selection from package kind, endpoint shape,
+assembly count, or lens capability.
 
 The Library subject control is single-select. A compact population may use a
 native `select`; a visible library list uses `role="listbox"` with

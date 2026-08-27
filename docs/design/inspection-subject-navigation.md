@@ -58,6 +58,7 @@ The owner consumes:
 - product-owned accessibility descriptors;
 - exact type-definition identities and member anchors;
 - subject-scoped lens descriptors and availability;
+- an optional committed owner-issued lens identity;
 - an optional prior navigation snapshot; and
 - an optional explicit subject request or typed resolution outcome.
 
@@ -72,7 +73,7 @@ The owner returns:
 - the active structured subject identity;
 - ordered applicable hierarchy descriptors;
 - ordered Library subject descriptors;
-- a recommended lens or a typed lens-unavailable outcome;
+- an effective owner-issued lens identity or a typed lens-unavailable outcome;
 - scoped diagnostics and partial-result evidence; and
 - a typed transition or reconciliation outcome.
 
@@ -190,11 +191,13 @@ InspectionSubjectNavigationSnapshot
   activeSubject
   hierarchyDescriptors
   libraryDescriptors
-  recommendedLens
+  lensOutcome
   diagnostics
 ```
 
-The active subject is exactly one available structured identity.
+The active subject is exactly one available structured identity. The lens
+outcome is either an effective available identity, marked as preserved or
+recommended, or a typed lens-unavailable result.
 
 ### Hierarchy descriptors
 
@@ -204,18 +207,27 @@ Root, Library, Type, Member order. A descriptor carries:
 - kind and producer-owned order;
 - display and accessible labels;
 - whether it is active;
-- availability;
-- an opaque action ID when it is activatable;
-- the target structured identity held inside the owner boundary;
 - an optional recommended lens; and
-- scoped diagnostics.
+- one discriminated availability arm:
+
+  ```text
+  Available(target, actionId, diagnostics)
+  Unavailable(reason)
+  Failed(diagnostic)
+  ```
+
+Only `Available` carries a target structured identity and opaque action ID.
+Unavailable and failed descriptors never fabricate placeholder identities or
+action tokens.
 
 The Library descriptor is the active Type or Member's defining Library when
-one exists. At Root, it targets the recommended Library subject. At Library,
-it is the active Library identity.
+one exists. At Root, its available arm targets the recommended Library subject;
+when no such target exists, the descriptor is unavailable or failed. At
+Library, its available arm targets the active Library identity.
 
 The Type descriptor is the active Type, the containing Type of an active
-Member, or the owner-recommended Type when no Type is active.
+Member, or the owner-recommended Type when no Type is active. When none can be
+established, the descriptor is unavailable or failed and carries no target.
 
 Member has no arbitrary default. It is available only when an exact Member is
 active, retained, or explicitly requested. Otherwise it remains discoverable
@@ -229,9 +241,10 @@ The Library selector consumes a separate ordered descriptor list:
 2. the coordinate's primary library, when one is supplied; and
 3. remaining admitted libraries in workspace declaration order.
 
-Each entry is a complete Library subject identity and has its own availability,
-action ID, labels, capabilities, and diagnostics. A consumer does not treat
-assembly count, package kind, filename, or list position as selection policy.
+Each entry uses the same discriminated descriptor shape. An available entry
+carries a complete Library subject identity and action ID; unavailable and
+failed entries carry no target. A consumer does not treat assembly count,
+package kind, filename, or list position as selection policy.
 
 Library selection is single-select. Arbitrary subsets are result filters, not
 Library subject identities.
@@ -242,13 +255,7 @@ Applicability answers whether a subject kind belongs to the coordinate's
 structural grammar. Availability answers whether the owner can provide a
 trustworthy target now.
 
-Availability has three semantic arms:
-
-```text
-Available(target, diagnostics)
-Unavailable(reason)
-Failed(diagnostic)
-```
+Availability has the three semantic arms defined by the descriptor shape.
 
 - **Available** means an exact subject can be activated. Diagnostics may still
   disclose partial upstream evidence.
@@ -307,8 +314,10 @@ consumer's result filters; a consumer must not substitute a different Type
 because its current filters would hide the returned identity.
 
 If at least one participant supplied a trustworthy candidate and another
-participant failed, the owner may still recommend the candidate but retains the
-failure as partial-result evidence.
+participant failed, the owner recommends the highest-ranked trustworthy
+candidate among the successful participants and retains every failure as
+partial-result evidence. A producer that cannot vouch for any candidate returns
+failed Type availability instead of delegating the choice to a consumer.
 
 The initial Type lens is API.
 
@@ -349,9 +358,10 @@ Failed(snapshot, diagnostic)
 
 - **Applied** activates exactly the requested subject and returns a complete
   replacement snapshot.
-- **Unavailable** retains the current snapshot because an exact structured
-  target is valid but currently unavailable, or because availability changed
-  while an otherwise valid action was being resolved.
+- **Unavailable** preserves the active subject and returns a complete snapshot
+  reflecting the resolved current availability. When availability changed
+  while an otherwise valid action was being resolved, this is a fresh
+  generation and the unavailable descriptor carries no obsolete action ID.
 - **Rejected** retains the current snapshot because the request is stale,
   foreign, malformed, or otherwise invalid for this generation.
 - **Failed** retains the current snapshot because subject resolution or
@@ -377,40 +387,49 @@ assembly name, type display text, member signature text, token, or ordinal.
 
 ### Same coordinate
 
-When the coordinate identity is unchanged:
+When the coordinate identity is unchanged and the required availability facts
+resolve successfully, the active subject follows this ordered table:
 
-1. Retain the exact active subject when it remains available.
-2. If an active Member no longer resolves but its containing Type does, activate
-   that Type.
-3. If an active Type no longer resolves, recommend another Type in its defining
-   Library; if none exists, activate that Library.
-4. If a one-Library subject no longer resolves, activate `All libraries` when
-   available, otherwise Root.
-5. Retain `All libraries` while aggregate inspection remains available;
-   otherwise activate Root.
-6. Retain Root as Root. Inventory refresh does not auto-promote an explicitly
-   selected Root or Library to Type.
+| Current subject | Reconciled result |
+| --- | --- |
+| Root | Retain Root. |
+| `All libraries` | Retain it when aggregate inspection remains available; otherwise Root. |
+| One Library | Retain it when available; otherwise `All libraries` when available, then Root. |
+| Type | Retain it when available. If it is missing and its defining Library remains available, activate the highest-ranked trustworthy Type in that Library, then that Library when none exists. If the defining Library is unavailable, use `All libraries` when available, then Root. |
+| Member | Retain it when available. If it is missing and its containing Type remains available, activate that Type. Otherwise apply the Type row using its containing Type and defining Library. |
 
 No arbitrary Member replaces a missing Member.
+Inventory refresh does not auto-promote an explicitly selected Root or Library
+to Type.
 
 ### Coordinate variation
 
 A version, framework, RID, or equivalent coordinate variation may reconcile a
 committed subject only through typed owner-issued resolution:
 
-- a resolved exact Member remains Member;
-- a missing Member with a resolved containing Type becomes Type;
-- a missing Type may use the Type recommendation within a resolved defining
-  Library;
-- an unresolved one-Library subject may use `All libraries`; and
-- Root maps to the new coordinate's Root.
+| Current subject and resolution | New-coordinate result |
+| --- | --- |
+| Root | The new coordinate's Root. |
+| `All libraries` | The new coordinate's `All libraries` when available, otherwise Root. |
+| One Library resolves exactly and is available | The resolved one-Library subject. |
+| One Library is definitively missing | `All libraries` when available, otherwise Root. |
+| Type resolves exactly and is available | The resolved Type. |
+| Type is missing but its defining Library resolves and is available | The highest-ranked trustworthy Type in that Library, then that Library when none exists. |
+| Type and its defining Library are definitively missing | `All libraries` when available, otherwise Root. |
+| Member resolves exactly and is available | The resolved Member. |
+| Member is missing but its containing Type resolves and is available | The resolved Type. |
+| Member and Type are missing but the defining Library resolves and is available | The highest-ranked trustworthy Type in that Library, then that Library when none exists. |
+| Member, Type, and defining Library are definitively missing | `All libraries` when available, otherwise Root. |
 
-Ambiguous, refused, or failed correspondence remains visible. It is never
-promoted to an exact match.
+A resolved identity whose subject availability is `Unavailable` follows the
+same row as a definitively missing subject. Failed availability follows the
+non-success rule below.
 
-When the new coordinate has no owner-issued correspondence to the old one, the
-old subject is not carried by resemblance. The new coordinate uses the initial
-Type -> Library -> Root recommendation.
+For a one-Library, Type, or Member subject, when no correspondence is available,
+or correspondence is ambiguous, refused, or failed, no old subject is carried.
+The new coordinate uses the initial Type -> Library -> Root policy and retains
+the non-success outcome as a diagnostic. An independently recommended subject
+is not evidence that the ambiguous or failed correspondence matched it.
 
 ### Library inventory change
 
@@ -425,18 +444,24 @@ resolution outcome.
 For an unchanged coordinate, a reconciliation failure retains the prior
 subject snapshot and surfaces the failure.
 
-For a newly realized coordinate with no prior valid snapshot, Root remains the
-minimum active subject and failed lower levels stay failed. Returning Root does
-not convert those failures into valid empty inventories.
+For a newly realized coordinate with no prior valid snapshot, Root is the
+required fallback when no trustworthy lower recommendation can be produced,
+and failed lower levels stay failed. Returning Root does not convert those
+failures into valid empty inventories.
 
 ## Lens reconciliation
 
 Subject and lens are separate axes, but subject navigation owns the lens
-recommendation attached to its outcome.
+outcome attached to its subject transition. It consumes owner-issued lens
+identities, order, and availability without defining them.
 
-- Preserve the current lens when the active subject identity is retained and
-  that lens remains available.
-- Use the new subject's recommendation when the subject changes.
+- Preserve the committed current lens when the active subject identity is
+  retained and that exact owner-issued lens identity remains available.
+- When the subject changes, select its recommended available lens.
+- When a retained subject's committed lens becomes unavailable, select the
+  first available lens in the subject owner's order.
+- When no lens is available, return a typed lens-unavailable outcome while
+  keeping the subject active.
 - Never carry a same-labelled lens across subject kinds by display text.
 - A failed or unavailable lens remains visible through its owner-issued
   outcome; the consumer does not choose another lens.
@@ -526,7 +551,7 @@ does not construct that acquisition result.
 ### Partial Type inventory
 
 1. Supply one successful Library Type inventory and one failed participant.
-2. Confirm that the trustworthy Type may be recommended.
+2. Confirm that the highest-ranked trustworthy Type is recommended.
 3. Confirm that the participant failure remains visible as partial-result
    evidence.
 
@@ -536,7 +561,9 @@ does not construct that acquisition result.
    Member becomes unavailable.
 2. Confirm that the current subject remains active and the outcome is
    `Unavailable`.
-3. Confirm that no ancestor or recommended Type is activated automatically.
+3. Confirm that the returned snapshot reflects current availability and carries
+   no action ID for the unavailable Member.
+4. Confirm that no ancestor or recommended Type is activated automatically.
 
 ### Reconciliation scenarios
 
@@ -546,10 +573,22 @@ does not construct that acquisition result.
 3. Remove that Type while retaining its defining Library and confirm a
    recommended Type in that Library or fallback to the Library.
 4. Remove the Library and confirm fallback to `All libraries` or Root.
-5. Repeat with ambiguous correspondence and confirm that ambiguity is visible
+5. Repeat with ambiguous correspondence and confirm that the new coordinate
+   uses its independent initial recommendation while ambiguity remains visible
    rather than accepted as identity.
 6. Keep Root active across an inventory refresh and confirm that new Types do
    not auto-promote it.
+
+### Lens continuity scenarios
+
+1. Retain a Type and its available committed Metadata lens and confirm that the
+   exact Type Metadata lens remains effective.
+2. Change the subject to Library and confirm that the same `Metadata` display
+   label does not carry the Type lens identity across subject kinds.
+3. Make the retained subject's committed lens unavailable and confirm selection
+   of the first available owner-ordered lens.
+4. Remove every lens and confirm a typed lens-unavailable outcome with the
+   subject still active.
 
 ### Stale action
 
@@ -567,14 +606,19 @@ covering at least:
 - `TypeRecommendation_UsesPrimaryLibraryAndAccessibilityTiers`
 - `TypeRecommendation_IgnoresConsumerFiltersAndArrivalOrder`
 - `LibraryDescriptors_PlaceAggregateThenPrimaryThenDeclarationOrder`
+- `UnavailableDescriptor_HasNoTargetOrActionId`
 - `ToolsV2WithoutLibraries_RecommendsPackageRoot`
 - `ValidEmptyTypes_DiffersFromTypeInspectionFailure`
-- `PartialTypeInventory_RetainsCandidateAndFailure`
-- `ExplicitUnavailableTransition_RetainsCurrentSubject`
+- `PartialTypeInventory_DeterministicallyRetainsCandidateAndFailure`
+- `ExplicitUnavailableTransition_RefreshesAvailabilityWithoutFallback`
 - `ForeignOrStaleActionId_IsRejected`
 - `MissingMember_FallsBackToContainingTypeNotAnotherMember`
+- `MissingTypeWithMissingLibrary_FallsBackToAggregateThenRoot`
+- `CoordinateVariation_RetainsExactTypeAndLibrary`
+- `CoordinateVariation_NonSuccessUsesIndependentInitialRecommendation`
 - `CoordinateVariation_UsesTypedResolutionNotDisplayText`
 - `ExplicitRoot_RemainsRootAcrossInventoryRefresh`
+- `LensReconciliation_PreservesExactCommittedIdentity`
 - `LensRecommendation_DoesNotCrossSubjectKindsByLabel`
 - `InspectWeb_ConsumesSubjectOutcomeWithoutHostFallback`
 
