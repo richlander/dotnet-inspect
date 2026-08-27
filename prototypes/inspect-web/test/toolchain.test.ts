@@ -494,8 +494,26 @@ const inertAttributes: ReadonlySet<string> = new Set([
 
 const inertAttributePrefixes = ["aria-", "data-"] as const;
 
-// A relative URL has no scheme and is fine. Everything else has to be named, which is
-// what rejects `javascript:`, `data:` and `vbscript:` without listing any of them.
+// Round 3 (Sol) reported a false positive: every allowed attribute was read as a URL, so
+// `title="Status: ready"` was rejected for carrying a `status:` scheme. The scheme rule
+// belongs on values a browser dereferences, but enumerating *those* would fail open the
+// moment one was forgotten -- the failure this file has now made four times. So the
+// exemption is enumerated instead: an attribute is read as a URL unless it is named here
+// as text. A new entry in `inertAttributes` is scheme-checked until someone says why not.
+//
+// `content` is here because the only form that redirects is `http-equiv="refresh"`, and
+// `http-equiv` is absent from `inertAttributes`, so that element is rejected before its
+// `content` matters. The test named "a text attribute cannot become a URL the browser
+// follows" pins that reasoning.
+const textAttributes: ReadonlySet<string> = new Set([
+  "alt", "charset", "class", "content", "download", "for", "height", "id", "lang",
+  "media", "name", "role", "sizes", "target", "title", "type", "width",
+]);
+
+// A relative URL has no scheme, and is fine because the document base is required to be
+// local -- see the `base` check in the gate below, without which "relative" would not
+// mean "local" at all. Everything else has to be named, which is what rejects
+// `javascript:`, `data:` and `vbscript:` without listing any of them.
 const inertSchemes: ReadonlySet<string> = new Set(["http", "https", "mailto"]);
 
 const namedEntities: ReadonlyMap<string, string> = new Map([
@@ -540,7 +558,13 @@ function urlScheme(value: string): string | undefined {
 // so those bytes come from a third party. "Remote" is the property that matters, and a
 // scheme-relative URL has it.
 function isRemoteReference(value: string): boolean {
-  return urlScheme(value) !== undefined || resolvedValue(value).startsWith("//");
+  // Round 3 (Gemini and Sol, independently) found that `//` is not the only spelling of an
+  // authority. The URL parser treats a backslash as a slash for special schemes, so
+  // `/\host/x.js`, `\\host/x.js` and `\/host/x.js` all resolve to `https://host/x.js` --
+  // verified against the WHATWG parser, which is the one browsers run. Normalizing first
+  // is what makes one comparison cover every spelling.
+  const resolved = resolvedValue(value).replaceAll("\\", "/");
+  return urlScheme(value) !== undefined || resolved.startsWith("//");
 }
 
 // Presence is not pinning. `integrity=""` satisfies a check for the attribute and disables
@@ -773,6 +797,128 @@ test("the build fails on a document its own parser cannot parse", async () => {
   }, /Unable to parse HTML/u, "the configured logger does not refuse a parse failure");
 });
 
+// The gate below runs this over every document in the project. It is a function rather
+// than a loop body so that other tests can hold a specimen against the same rules -- a
+// test that restated these checks would keep passing after the real ones were weakened,
+// which is the whole failure it would exist to catch.
+function markupFindings(name: string, html: string): string[] {
+  const findings: string[] = [];
+  const tags = scanMarkup(html, problem => findings.push(`${name}: ${problem}`));
+  for (const tag of tags) {
+    if (!inertElements.has(tag.element)) {
+      findings.push(`${name}: <${tag.element}> is not a known inert element. If it `
+        + "cannot run script, add it to `inertElements` and say why here");
+    }
+    // A `script` with an absolute `src` is the one construct the allow list permits that
+    // no gate here reads: it is remote code, not a module under a lint target. Round 1
+    // (Opus) found the prose claiming otherwise. `integrity` is what makes those bytes
+    // pinned to a hash, so require it rather than overstate what the gate buys.
+    // `index.html` already pins all three of its CDN scripts.
+    if (tag.element === "script") {
+      const source = tag.attributes.find(candidate =>
+        candidate.name.toLowerCase() === "src");
+      if (source !== undefined && isRemoteReference(source.value)) {
+        const pinned = tag.attributes.find(candidate =>
+          candidate.name.toLowerCase() === "integrity");
+        if (pinned === undefined || !pinsItsBytes(pinned.value)) {
+          findings.push(`${name}: <script src="${source.value}"> loads remote code `
+            + "that no compiler or lint here reads, and pins it to no hash. Add an "
+            + "`integrity` digest");
+        }
+      }
+    }
+    // Round 3 (Sol) found that every "relative, therefore local" judgement in this gate
+    // rests on the document base, and nothing checked it. `<base href="https://host/">`
+    // leaves each `src` textually relative while making the bytes -- including the
+    // bundle Vite emits at `/assets/` -- come from somewhere else entirely. A browser
+    // honours the first `base`, so requiring every one of them to be local is what makes
+    // the rest of this reasoning true rather than merely plausible.
+    if (tag.element === "base") {
+      const target = tag.attributes.find(candidate =>
+        candidate.name.toLowerCase() === "href");
+      if (target !== undefined && isRemoteReference(target.value)) {
+        findings.push(`${name}: <base href="${target.value}"> makes every relative URL `
+          + "in this document remote, including the bundle. The rest of this gate reads "
+          + "a relative `src` as a local module, which that would silently stop being");
+      }
+    }
+    for (const attribute of tag.attributes) {
+      const spelled = attribute.name.toLowerCase();
+      if (!inertAttributes.has(spelled)
+        && !inertAttributePrefixes.some(prefix => spelled.startsWith(prefix))) {
+        findings.push(`${name}: <${tag.element} ${spelled}> is not a known inert `
+          + "attribute. Event handlers are spelled this way, and so are `srcdoc` and "
+          + "`http-equiv`");
+        continue;
+      }
+      if (textAttributes.has(spelled)
+        || inertAttributePrefixes.some(prefix => spelled.startsWith(prefix))) {
+        continue;
+      }
+      const scheme = urlScheme(attribute.value);
+      if (scheme !== undefined && !inertSchemes.has(scheme)) {
+        findings.push(`${name}: <${tag.element} ${spelled}> carries a \`${scheme}:\` `
+          + "URL, and that scheme is not one this project treats as inert");
+      }
+    }
+  }
+  return findings;
+}
+
+test("a text attribute cannot become a URL the browser follows", () => {
+  // The scheme rule exempts `textAttributes`, so each entry is a claim that a browser
+  // never dereferences that value. Two of those claims are load-bearing enough to pin.
+
+  // `content` only redirects as `http-equiv="refresh"`, and that attribute is denied, so
+  // the element carrying such a `content` never survives to have its value read. If
+  // `http-equiv` were ever allowed, exempting `content` would open a redirect to any
+  // scheme -- so this assertion is the reason the exemption above is safe, not a nit.
+  assert.ok(!inertAttributes.has("http-equiv"),
+    "`content` is exempt from the scheme rule because `http-equiv` is denied. Allowing "
+      + "`http-equiv` makes `content` a redirect target, so remove `content` from "
+      + "`textAttributes` in the same change");
+
+  // A stale exemption is a hole that no other test can see: it would keep exempting an
+  // attribute long after the allow list stopped mentioning it.
+  const stale = [...textAttributes].filter(entry => !inertAttributes.has(entry)).sort();
+  assert.deepEqual(stale, [],
+    "these attributes are exempt from the scheme rule but are not allowed at all, so the "
+      + "exemption describes markup this project cannot contain");
+});
+
+test("the parse errors Vite discards are caught by the markup scan", () => {
+  // Round 3 (Gemini) found the prose in `scripts/html-parse-gate.ts` claiming Vite reports
+  // every parse5 rejection. It does not: five codes return before reaching the logger, so
+  // the build gate never sees them. The claim that this file covers them was asserted in a
+  // comment and enforced by nothing. Here it is enforced.
+  //
+  // Three of the five cannot carry code and are left to the comment. `missing-doctype` and
+  // `abandoned-head-element-child` are placement, not content. The third is worth stating
+  // because it looks dangerous and is not: in `<?script>x</script>`, `<?` opens a bogus
+  // comment that runs to the first `>` in a browser and in `scanMarkup` alike, so `x` is
+  // text and the trailing end tag is stray. Nothing runs, and the two agree.
+  //
+  // These two remain. If `scanMarkup` stops reporting either, this fails rather than the
+  // coverage quietly moving to Vite, which discards it.
+  const discarded = [
+    // A `script` is not void, so the solidus does not close it. The scan keeps looking for
+    // the end tag, and reports the body it finds or that there is no end tag at all.
+    ["non-void-html-element-start-tag-with-trailing-solidus",
+      "<script src=\"/src/bootstrap.ts\" />globalThis.MY_MARKER = 1;"],
+    // A browser keeps the first `src` and drops the second. The scan reads both, so the
+    // dropped one is still held to the scheme rule -- stricter than the browser, which is
+    // the safe direction when the two disagree about which value survives.
+    ["duplicate-attribute",
+      "<script src=\"/src/bootstrap.ts\" src=\"javascript:void 0\"></script>"],
+  ] as const;
+
+  for (const [code, markup] of discarded) {
+    assert.ok(markupFindings(code, markup).length > 0,
+      `Vite discards \`${code}\` before its logger sees it, so this document reaches the `
+        + "build unexamined unless the markup scan rejects it. It did not");
+  }
+});
+
 test("no HTML document carries script the gates cannot read", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const documents = projectFiles([".html", ".htm", ".xhtml", ".svg"]);
@@ -784,52 +930,8 @@ test("no HTML document carries script the gates cannot read", () => {
     `the walk found no entry document, so this gate proved nothing; it saw ${
       names.length > 0 ? names.join(", ") : "no markup at all"}`);
 
-  const findings: string[] = [];
-  for (const file of documents) {
-    const name = projectRelative(root, file);
-    const html = readFileSync(file, "utf8");
-    const tags = scanMarkup(html, problem => findings.push(`${name}: ${problem}`));
-
-    for (const tag of tags) {
-      if (!inertElements.has(tag.element)) {
-        findings.push(`${name}: <${tag.element}> is not a known inert element. If it `
-          + "cannot run script, add it to `inertElements` and say why here");
-      }
-      // A `script` with an absolute `src` is the one construct the allow list permits that
-      // no gate here reads: it is remote code, not a module under a lint target. Round 1
-      // (Opus) found the prose claiming otherwise. `integrity` is what makes those bytes
-      // pinned to a hash, so require it rather than overstate what the gate buys.
-      // `index.html` already pins all three of its CDN scripts.
-      if (tag.element === "script") {
-        const source = tag.attributes.find(candidate =>
-          candidate.name.toLowerCase() === "src");
-        if (source !== undefined && isRemoteReference(source.value)) {
-          const pinned = tag.attributes.find(candidate =>
-            candidate.name.toLowerCase() === "integrity");
-          if (pinned === undefined || !pinsItsBytes(pinned.value)) {
-            findings.push(`${name}: <script src="${source.value}"> loads remote code `
-              + "that no compiler or lint here reads, and pins it to no hash. Add an "
-              + "`integrity` digest");
-          }
-        }
-      }
-      for (const attribute of tag.attributes) {
-        const spelled = attribute.name.toLowerCase();
-        if (!inertAttributes.has(spelled)
-          && !inertAttributePrefixes.some(prefix => spelled.startsWith(prefix))) {
-          findings.push(`${name}: <${tag.element} ${spelled}> is not a known inert `
-            + "attribute. Event handlers are spelled this way, and so are `srcdoc` and "
-            + "`http-equiv`");
-          continue;
-        }
-        const scheme = urlScheme(attribute.value);
-        if (scheme !== undefined && !inertSchemes.has(scheme)) {
-          findings.push(`${name}: <${tag.element} ${spelled}> carries a \`${scheme}:\` `
-            + "URL, and that scheme is not one this project treats as inert");
-        }
-      }
-    }
-  }
+  const findings = documents.flatMap(file =>
+    markupFindings(projectRelative(root, file), readFileSync(file, "utf8")));
 
   assert.deepEqual(findings, [],
     "this markup can run script that neither the compiler nor the lint reads, because "

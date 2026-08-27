@@ -1,7 +1,7 @@
 import { createLogger, type Logger, type LogOptions } from "vite";
 
-// Vite parses `index.html` with parse5 on every build, and when parse5 rejects the
-// document Vite logs the failure and carries on. `vite build` prints
+// Vite parses `index.html` with parse5 on every build, and for most rejections it logs
+// the failure and carries on. `vite build` prints
 //
 //   Unable to parse HTML; parse5 error code end-tag-with-trailing-solidus
 //
@@ -17,6 +17,16 @@ import { createLogger, type Logger, type LogOptions } from "vite";
 //
 // Making the warning fatal is the whole change. Vite offers `customLogger` for exactly
 // this, so no plugin, no dependency and no second parse are involved.
+//
+// Round 3 (Gemini) found the claim above overstated, and it is worth being exact about
+// the seam. Vite returns early for five parse5 codes before its logger is called at all:
+// `missing-doctype`, `abandoned-head-element-child`, `duplicate-attribute`,
+// `non-void-html-element-start-tag-with-trailing-solidus` and
+// `unexpected-question-mark-instead-of-tag-name`. Nothing here can make those fatal,
+// because nothing here is told. Three cannot carry code; the other two can, and
+// `test/toolchain.test.ts` rejects each of them on its own -- pinned by the test named
+// "the parse errors Vite discards are caught by the markup scan", so that coverage cannot
+// drift back to a channel that discards it.
 export function isHtmlParseFailure(message: string): boolean {
   return message.includes("Unable to parse HTML; parse5 error code");
 }
