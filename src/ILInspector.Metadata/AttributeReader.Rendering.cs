@@ -304,16 +304,25 @@ public static partial class AttributeReader
     internal static string RenderAttributeName(
         string typeName,
         bool qualifyName)
-        => RenderAttributeIdentifier(
-            qualifyName
-                ? GetQualifiedAttributeName(typeName)
-                : TypeMatcher.GetShortAttributeName(typeName));
+    {
+        string name = qualifyName
+            ? GetQualifiedAttributeName(typeName)
+            : TypeMatcher.GetShortAttributeName(typeName);
+        return string.Join(
+            ".",
+            name.Split('.').Select(part => string.Join(
+                "+",
+                part.Split('+').Select(RenderAttributeIdentifier))));
+    }
 
     internal static string RenderAttributeIdentifier(string name)
-        => CSharpIdentifierCore.ContainRawComposedName(name);
+        => CSharpIdentifierCore.ContainRawComposedName(
+            CSharpKeywords.RequiresDeclarationEscape(name)
+                ? $"@{name}"
+                : name);
 
     /// <summary>Renders one attribute-argument value, or null when its shape is not faithfully spellable (arrays, unknown).</summary>
-    static string? RenderArgument(string type, object? value) => value switch
+    internal static string? RenderArgument(string type, object? value) => value switch
     {
         null => "null",
         // A Type argument decodes to its name string; spell only simple source
@@ -330,7 +339,7 @@ public static partial class AttributeReader
         // Anything else with an integral value is an enum constant; a cast is
         // always valid. Naming the member is a later refinement.
         _ when value is byte or sbyte or short or ushort or int or uint or long or ulong
-            => $"({MetadataDeclarationQuery.EscapeCompatibilityTypeKeywords(type)}){value}",
+            => $"({MetadataDeclarationQuery.ContainCompatibilityType(type)}){value}",
         _ => null,
     };
 
@@ -343,7 +352,7 @@ public static partial class AttributeReader
     {
         if (typeName.AsSpan().ContainsAny(s_typeArgumentDelimiters))
             return null;
-        string escapedType = MetadataDeclarationQuery.EscapeCompatibilityTypeKeywords(
+        string escapedType = MetadataDeclarationQuery.ContainCompatibilityType(
             typeName.Replace('+', '.'));
         return $"typeof({escapedType})";
     }

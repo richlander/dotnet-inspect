@@ -108,26 +108,24 @@ escapes remain presentation syntax and are not doubled. Generic method syntax
 is composed only after the base name and each type-parameter name cross their
 own boundaries, so containment cannot collapse `<...>` into one identifier.
 Raw attribute and named-argument identifiers likewise cross the raw-name
-boundary before composition with already-rendered argument values. All member
-kinds with an `ApiSignature` use that structured provenance rather than
-reinterpreting their mixed-provenance compatibility text. The model retains an
-untreated compatibility-signature source for ordinary persistence while keeping
-the in-memory `Signature` safe for direct rendering. Artifact JSON excludes
-that provenance field and reconstructs presentation from it only after ordinary
-persistence loses the non-persisted `ApiSignature`, so no second containment
-layer is added.
+boundary before composition with already-rendered argument values; enum-cast
+and `typeof` type slots cross the raw-type boundary. All member kinds with an
+`ApiSignature` use that structured provenance rather than reinterpreting their
+mixed-provenance compatibility text. Ordinary persistence retains the
+`ApiSignature`, while artifact JSON excludes that implementation model and
+preserves its established schema. The in-memory compatibility `Signature`
+contains every raw type and identifier slot before direct rendering.
 
 Legacy or degraded model-free text uses conservative compatibility containment.
-Only a quote where a default value may begin opens a rendered C# literal;
-balanced quote characters inside metadata names do not hide the remaining
-signature from containment. When compatibility containment changes the
-spelling, document JSON reports `signature_decode_status: Degraded`. When a
-literal backslash in a structured raw slot requires disambiguation, document
-JSON prepares that declaration without mutating `ApiMember`; benign signatures
-stay byte-neutral, while a degraded compatibility signature remains visibly
-accompanied by its decode status. Generic-constraint JSON uses the metadata
-type-versus-keyword classification, so type-name entries cross the raw boundary
-without changing `class`, `struct`, `default`, or `new()` syntax.
+Only a quote after `=` inside the terminal parameter list opens a rendered C#
+literal, and its interior is still checked for raw rendering hazards. Artifact
+JSON always marks a model-free signature `Degraded`: arbitrary metadata can
+mimic rendered syntax, so text alone cannot prove raw identity. When a literal
+backslash in a structured raw slot requires disambiguation, document JSON
+prepares that declaration without mutating `ApiMember`; benign signatures stay
+byte-neutral. Generic-constraint JSON uses the metadata type-versus-keyword
+classification, so type-name entries cross the raw boundary without changing
+`class`, `struct`, `default`, or `new()` syntax.
 Adding trusted inline-code markup preserves the original containment evidence
 rather than re-importing its visible spelling as clean text.
 `SemanticTypeOutputContainmentTests.CSharpField_PreservesEscapesAndContainsResidualScalars`,
@@ -137,16 +135,21 @@ rather than re-importing its visible spelling as clean text.
 `SemanticTypeOutputContainmentTests.PreparedJsonSignature_ModelFreeHazardsRemainDistinctAndVisible`,
 `SemanticTypeOutputContainmentTests.PreparedJsonSignature_DegradedFallbackRemainsVisible`,
 `SemanticTypeOutputContainmentTests.CompatibilitySignature_PersistenceRoundTripIsPresentationIdempotent`,
-`SemanticTypeOutputContainmentTests.PreparedJsonSignature_BalancedMetadataQuotesRemainContainedAndDegraded`,
+`SemanticTypeOutputContainmentTests.PreparedJsonSignature_MetadataEqualsQuoteRemainsContainedAndDegraded`,
 `SemanticTypeOutputContainmentTests.TypeParameterJson_PreservesSyntaxAndContainsRawTypes`,
 `SemanticTypeOutputContainmentTests.CSharpCodeText_PreservesContainmentEvidence`,
+`UntrustedMemberSignatureTests.FieldPropertyAndEventSignatures_ContainHostileNames`,
 `UntrustedLibraryViewContainmentTests.TypeJson_WithLiteralEscapeMetadataName_PreservesIdentity`,
 `CSharpDeclarationWriterTests.CompatibilitySignature_ContainsCodeButPreservesLiteralEscapes`,
 `CSharpDeclarationWriterTests.StructuredOperator_DoesNotRecontainCompatibilityNames`,
 `CSharpDeclarationWriterTests.UnterminatedMetadataQuote_DoesNotDisableCompatibilityContainment`,
 `CSharpDeclarationWriterTests.BalancedMetadataQuotes_DoNotDisableCompatibilityContainment`,
+`CSharpDeclarationWriterTests.MetadataEqualsQuote_CannotForgeCompatibilityLiteral`,
 `CSharpDeclarationWriterTests.GenericMethodDeclaration_ContainsTypeParameterWithoutCollapsingSyntax`,
 `AttributeReaderTests.AttributeIdentifiers_DistinguishLiteralEscapesFromScalars`,
+`AttributeReaderTests.AttributeNamedArgument_EscapesKeyword`,
+`AttributeReaderTests.AttributeEnumArgument_ContainsRawType`,
+`AttributeReaderTests.AttributeTypeOfArgument_ContainsRawType`,
 `CSharpFormatterTests.FormatTypeParameterConstraints_PreservesConstraintSyntax`,
 `CSharpFormatterTests.FormatTypeName_ExactSegmentDisambiguatesLiteralBackslashOnce`,
 and the `ContainIdentifier_*`, `ContainRawComposedName_*`, and

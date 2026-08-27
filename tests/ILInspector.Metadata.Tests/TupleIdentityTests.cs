@@ -179,9 +179,8 @@ public sealed class TupleIdentityTests
     [Fact]
     public void RoundTrip_TupleParam_CanonicalIdentityMatchesLive()
     {
-        // SignatureModel is [JsonIgnore]; a persisted CanonicalSignature is what lets a
-        // tuple member's identity survive serialization. Without it, the fallback would
-        // parse tuple DISPLAY syntax and diverge from the live digest.
+        // CanonicalSignature is the artifact-compatible identity currency even
+        // when ordinary persistence also retains SignatureModel.
         var member = Method(nameof(TupleSampleClass.NamedParam));
         Assert.False(string.IsNullOrEmpty(member.CanonicalSignature));
 
@@ -193,7 +192,7 @@ public sealed class TupleIdentityTests
         var rtMember = rtType.Members.First(m =>
             m.Name == nameof(TupleSampleClass.NamedParam) && m.Kind == "method");
 
-        Assert.Null(rtMember.SignatureModel);
+        Assert.NotNull(rtMember.SignatureModel);
         Assert.Equal(live, ApiMemberIdentity.GetCanonicalSignature(rtType, rtMember));
         Assert.Contains("System.ValueTuple<int,int>", ApiMemberIdentity.GetCanonicalSignature(rtType, rtMember));
     }
@@ -223,7 +222,7 @@ public sealed class TupleIdentityTests
         var rtType = roundTripped.Types.First(t => t.Name == nameof(TupleSampleClass));
         var rtOp = rtType.Members.First(m => m.Name == "op_Implicit");
 
-        Assert.Null(rtOp.SignatureModel);
+        Assert.NotNull(rtOp.SignatureModel);
         Assert.Equal(live, ApiMemberIdentity.GetCanonicalSignature(rtType, rtOp));
     }
 
@@ -252,7 +251,7 @@ public sealed class TupleIdentityTests
         var rtType = roundTripped.Types.First(t => t.Name == nameof(TupleSampleClass));
         var rtMember = rtType.Members.First(m => m.Name == name && m.Kind == "method");
 
-        Assert.Null(rtMember.SignatureModel);
+        Assert.NotNull(rtMember.SignatureModel);
         Assert.Equal(live, ApiMemberIdentity.GetCanonicalSignature(rtType, rtMember));
     }
 

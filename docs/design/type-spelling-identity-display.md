@@ -50,7 +50,8 @@ and laundering presentation back out:
 - Primary path: `signature.ParameterTypesSummary` →
   `ApiParameter.TypeWithModifier` (a `Render()` string), then
   `NormalizeCanonicalParameters` → `NormalizeDynamicToObject`.
-- Fallback path (JSON-round-tripped surface; `SignatureModel` is `[JsonIgnore]`):
+- Fallback path (legacy persistence or a hand-composed surface without
+  `SignatureModel`):
   re-parse `member.Signature` via `LegacyCanonicalMemberName`,
   `ExtractCanonicalParameterList`, `ExtractCanonicalIndexerParameterList`,
   `AbbreviateSignature`, each also passed through `NormalizeDynamicToObject`.

@@ -44,23 +44,22 @@ internal static class ApiArtifactJson
         foreach (ApiMember member in type.Members)
         {
             PreparedMembers.Remove(member);
-            if (member.Signature is null
-                || !RequiresStructuredPreparation(type, member))
-            {
+            if (member.Signature is null)
                 continue;
-            }
 
-            if (member.SignatureModel is null
-                && member.UntreatedSignature is { } untreatedSignature)
+            if (member.SignatureModel is null)
             {
                 PreparedMembers.Add(
                     member,
                     new PreparedMember(
                         CSharpFormatter.ContainCompatibilitySignature(
-                            untreatedSignature),
-                        member.SignatureDecodeStatus));
+                            member.Signature),
+                        SignatureDecodeStatus.Degraded));
                 continue;
             }
+
+            if (!RequiresStructuredPreparation(type, member))
+                continue;
 
             var formatter = new CSharpFormatter();
             string signature = formatter.FormatCompatibilityMemberSignature(
@@ -81,10 +80,6 @@ internal static class ApiArtifactJson
         ApiType type,
         ApiMember member)
     {
-        if (member.SignatureModel is null
-            && member.UntreatedSignature is not null)
-            return true;
-
         // Whole signatures already contain C# literal escapes, so re-importing
         // them as raw text would double valid syntax. Recompose only when a raw
         // metadata slot carries a literal backslash that must be distinguished
@@ -101,13 +96,7 @@ internal static class ApiArtifactJson
         }
 
         if (member.SignatureModel is not { } signature)
-        {
-            return !string.Equals(
-                member.Signature,
-                CSharpFormatter.ContainCompatibilitySignature(
-                    member.Signature!),
-                StringComparison.Ordinal);
-        }
+            return false;
 
         return ContainsLiteralBackslash(signature.ReturnType)
             || signature.Parameters.Any(
@@ -171,7 +160,7 @@ internal static class ApiArtifactJson
         }
         else if (typeInfo.Type == typeof(ApiMember))
         {
-            RemoveProperty(typeInfo, "untreated_signature");
+            RemoveProperty(typeInfo, "signature_model");
             SetRawTypeStrings(
                 typeInfo,
                 "return_type",

@@ -420,13 +420,13 @@ public sealed class CSharpDeclarationWriterTests
         var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
         var member = new ApiMember
         {
-            Name = "Map",
+            Name = "class",
             Kind = "method",
-            Signature = $"void Map<{parameterName}>()",
+            Signature = $"void @class<{parameterName}>()",
             SignatureModel = new ApiSignature
             {
                 ReturnType = "void",
-                MemberName = $"Map<{parameterName}>",
+                MemberName = $"class<{parameterName}>",
                 TypeParameters = [new TypeParameter { Name = parameterName }],
             },
         };
@@ -437,10 +437,10 @@ public sealed class CSharpDeclarationWriterTests
             new CSharpFormatter()
                 .FormatCompatibilityMemberSignature(type, member);
 
-        Assert.Contains(@"Map<T\u202E>()", declaration);
-        Assert.Contains(@"Map<T\u202E>()", compatibility);
-        Assert.DoesNotContain("Map_T", declaration);
-        Assert.DoesNotContain("Map_T", compatibility);
+        Assert.Contains(@"@class<T\u202E>()", declaration);
+        Assert.Contains(@"@class<T\u202E>()", compatibility);
+        Assert.DoesNotContain("class_T", declaration);
+        Assert.DoesNotContain("class_T", compatibility);
     }
 
     [Fact]
@@ -1572,6 +1572,29 @@ public sealed class CSharpDeclarationWriterTests
         Assert.Contains("Bad\"Balanced\"Name", contained);
         Assert.Contains("= \"line\\n\"", contained);
         Assert.DoesNotContain(@"line\\n", contained);
+    }
+
+    [Fact]
+    public void MetadataEqualsQuote_CannotForgeCompatibilityLiteral()
+    {
+        const string literal =
+            "N.Bad= \"A\\u202EB\"Type Run()";
+        const string scalar =
+            "N.Bad= \"A\u202EB\"Type Run()";
+        const string scalarParameterName =
+            "void Run(string bad= \"A\u202EB\"Name)";
+
+        string containedLiteral =
+            CSharpFormatter.ContainCompatibilitySignature(literal);
+        string containedScalar =
+            CSharpFormatter.ContainCompatibilitySignature(scalar);
+        string containedParameter =
+            CSharpFormatter.ContainCompatibilitySignature(
+                scalarParameterName);
+
+        Assert.DoesNotContain('\u202E', containedScalar);
+        Assert.DoesNotContain('\u202E', containedParameter);
+        Assert.NotEqual(containedLiteral, containedScalar);
     }
 
     [Theory]

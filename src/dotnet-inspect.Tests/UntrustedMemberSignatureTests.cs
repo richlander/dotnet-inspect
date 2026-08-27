@@ -46,22 +46,60 @@ public class UntrustedMemberSignatureTests
             var assemblyName = new AssemblyName("HostileSignature");
             var ab = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
             var mb = ab.DefineDynamicModule(assemblyName.Name!);
+            var hostileType = mb.DefineType(
+                $"Hostile.Type{hazard}INJECTED",
+                TypeAttributes.Public | TypeAttributes.Class);
+            var hostileDelegate = mb.DefineType(
+                $"Hostile.Handler{hazard}INJECTED",
+                TypeAttributes.Public
+                    | TypeAttributes.Sealed
+                    | TypeAttributes.Class,
+                typeof(MulticastDelegate));
+            var delegateConstructor = hostileDelegate.DefineConstructor(
+                MethodAttributes.Public
+                    | MethodAttributes.HideBySig
+                    | MethodAttributes.RTSpecialName,
+                CallingConventions.Standard,
+                [typeof(object), typeof(IntPtr)]);
+            delegateConstructor.SetImplementationFlags(
+                MethodImplAttributes.Runtime
+                    | MethodImplAttributes.Managed);
+            var delegateInvoke = hostileDelegate.DefineMethod(
+                "Invoke",
+                MethodAttributes.Public
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot
+                    | MethodAttributes.HideBySig,
+                typeof(void),
+                [typeof(object), typeof(EventArgs)]);
+            delegateInvoke.SetImplementationFlags(
+                MethodImplAttributes.Runtime
+                    | MethodImplAttributes.Managed);
             var tb = mb.DefineType("Hostile.Bag", TypeAttributes.Public | TypeAttributes.Class);
 
             tb.DefineField(hostile, typeof(int), FieldAttributes.Public);
 
-            var backing = tb.DefineField("_p", typeof(int), FieldAttributes.Private);
+            var backing = tb.DefineField(
+                "_p",
+                hostileType,
+                FieldAttributes.Private);
             var method = tb.DefineMethod(
                 hostile,
                 MethodAttributes.Public | MethodAttributes.Static,
-                typeof(int),
-                [typeof(int)]);
-            method.GetILGenerator().Emit(OpCodes.Ret);
-            var property = tb.DefineProperty(hostile, PropertyAttributes.None, typeof(int), null);
+                hostileType,
+                [hostileType]);
+            var methodIl = method.GetILGenerator();
+            methodIl.Emit(OpCodes.Ldnull);
+            methodIl.Emit(OpCodes.Ret);
+            var property = tb.DefineProperty(
+                hostile,
+                PropertyAttributes.None,
+                hostileType,
+                null);
             var getter = tb.DefineMethod(
                 "get_" + hostile,
                 MethodAttributes.Public | MethodAttributes.SpecialName,
-                typeof(int),
+                hostileType,
                 Type.EmptyTypes);
             var il = getter.GetILGenerator();
             il.Emit(OpCodes.Ldarg_0);
@@ -69,15 +107,20 @@ public class UntrustedMemberSignatureTests
             il.Emit(OpCodes.Ret);
             property.SetGetMethod(getter);
 
-            var @event = tb.DefineEvent(hostile, EventAttributes.None, typeof(EventHandler));
+            var @event = tb.DefineEvent(
+                hostile,
+                EventAttributes.None,
+                hostileDelegate);
             var adder = tb.DefineMethod(
                 "add_" + hostile,
                 MethodAttributes.Public | MethodAttributes.SpecialName,
                 typeof(void),
-                [typeof(EventHandler)]);
+                [hostileDelegate]);
             adder.GetILGenerator().Emit(OpCodes.Ret);
             @event.SetAddOnMethod(adder);
 
+            hostileType.CreateType();
+            hostileDelegate.CreateType();
             tb.CreateType();
 
             string dllPath = Path.Combine(dir, "HostileSignature.dll");
@@ -103,13 +146,7 @@ public class UntrustedMemberSignatureTests
                 // The signature the extractor itself produces, which the type
                 // tree renders directly without going through the formatter.
                 if (member.Signature is { Length: > 0 } extracted)
-                {
                     AssertContained(extracted);
-                    Assert.Contains(
-                        hazard,
-                        Assert.IsType<string>(
-                            member.UntreatedSignature));
-                }
 
                 // The signature cell, which is also what the decompiled and
                 // annotated source blocks render.
@@ -118,6 +155,21 @@ public class UntrustedMemberSignatureTests
                 // The Name column and the "# Type.Member" heading.
                 AssertContained(OperatorNames.FormatDisplayName(member.Name));
             }
+
+            foreach (ApiMember typedMember in kinds.Where(
+                member => member.Kind is "method" or "property" or "event"))
+            {
+                Assert.Contains(
+                    hazard,
+                    typedMember.SignatureModel!.ReturnType);
+            }
+            ApiMember hostileMethod = Assert.Single(
+                kinds,
+                member => member.Kind == "method");
+            Assert.Contains(
+                hazard,
+                Assert.Single(
+                    hostileMethod.SignatureModel!.Parameters).Type);
         }
         finally
         {

@@ -92,7 +92,7 @@ public sealed class HostileNameIdentityTests
         Assert.Contains("<T>", live, StringComparison.Ordinal);
 
         var (rtType, rtMember) = RoundTrip(surface, name);
-        Assert.Null(rtMember.SignatureModel);
+        Assert.NotNull(rtMember.SignatureModel);
 
         Assert.Equal(live, ApiMemberIdentity.GetCanonicalSignature(rtType, rtMember));
     }

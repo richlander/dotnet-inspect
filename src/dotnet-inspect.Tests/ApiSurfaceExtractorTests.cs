@@ -78,6 +78,11 @@ public class ApiSurfaceExtractorTests
         var staticMethod = testType.Members.FirstOrDefault(m => m.Name == nameof(SampleKeywordParameterHost.Static));
         Assert.NotNull(staticMethod);
         Assert.Equal("int Static(int @params, int @void)", staticMethod.Signature);
+
+        var genericMethod = testType.Members.FirstOrDefault(
+            member => member.Name == "class");
+        Assert.NotNull(genericMethod);
+        Assert.Equal("void @class<T>()", genericMethod.Signature);
     }
 
     [Fact]
@@ -1625,6 +1630,8 @@ public class SampleKeywordParameterHost
     public int Instance(int @object, string @class) => @object + @class.Length;
 
     public static int Static(int @params, int @void) => @params + @void;
+
+    public void @class<T>() { }
 }
 
 [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]

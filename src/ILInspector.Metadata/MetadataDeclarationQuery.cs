@@ -1103,6 +1103,10 @@ public static class MetadataDeclarationQuery
         return builder.ToString();
     }
 
+    internal static string ContainCompatibilityType(string type)
+        => CSharpIdentifierCore.ContainRawComposedName(
+            EscapeCompatibilityTypeKeywords(type));
+
     static bool IsTypeSyntaxKeyword(string type, string identifier, int start, int end)
     {
         if (identifier is "bool" or "byte" or "sbyte" or "char" or "decimal" or "double"
@@ -1119,6 +1123,19 @@ public static class MetadataDeclarationQuery
             && identifier is "ref" or "in" or "out" or "readonly" or "unmanaged")
         {
             return true;
+        }
+
+        if (identifier == "readonly"
+            && end < type.Length
+            && char.IsWhiteSpace(type[end]))
+        {
+            ReadOnlySpan<char> prefix = type.AsSpan(0, start).TrimEnd();
+            if (prefix.EndsWith("ref", StringComparison.Ordinal)
+                && (prefix.Length == 3
+                    || char.IsWhiteSpace(prefix[^4])))
+            {
+                return true;
+            }
         }
 
         return start == 0

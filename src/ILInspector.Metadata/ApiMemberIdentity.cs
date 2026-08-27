@@ -1563,11 +1563,10 @@ public static class ApiMemberIdentity
         var memberName = member.Kind == "constructor"
             ? "#ctor"
             : ExtractMemberNameWithGeneric(signature, member.Name);
-        // Raw-signature fallback (used when SignatureModel is absent, e.g. after a JSON
-        // round-trip where SignatureModel is [JsonIgnore]). member.Signature is the
-        // display string and carries `dynamic`, so scrub it back to `object` for identity
-        // exactly as the SignatureModel path does — otherwise a round-tripped member's
-        // fingerprint diverges from the same member read live.
+        // Raw-signature fallback for legacy or hand-composed models without
+        // SignatureModel. member.Signature is the display string and carries
+        // `dynamic`, so scrub it back to `object` for identity exactly as the
+        // SignatureModel path does.
         var parameters = XmlDocumentationNotation.NormalizeDynamicToObject(
             ExtractCanonicalParameterList(signature));
         var canonical = $"{kindCode}:{declaringType}.{memberName}{parameters}";
@@ -1580,8 +1579,8 @@ public static class ApiMemberIdentity
 
     public static bool TryGetCanonicalSignature(ApiType type, ApiMember member, out string canonicalSignature)
     {
-        // See GetCanonicalSignature: a persisted canonical identity is authoritative and
-        // survives the JSON round-trip that discards SignatureModel.
+        // See GetCanonicalSignature: a persisted canonical identity remains
+        // authoritative, including for legacy JSON without SignatureModel.
         if (!string.IsNullOrEmpty(member.CanonicalSignature))
         {
             canonicalSignature = member.CanonicalSignature!;
@@ -1612,14 +1611,10 @@ public static class ApiMemberIdentity
             // parameter signature. Ordinary (parameterless) properties are unaffected: their
             // canonical signature format is unchanged from before this check existed.
             //
-            // ApiSurface.SignatureModel is [JsonIgnore], so a JSON-round-tripped surface
-            // (a supported, tested scenario -- see FallbackCanonicalSignature_* tests) has
-            // no SignatureModel. Falling back to "" here would make a JSON-persisted
-            // baseline's indexer canonical signature diverge from the same indexer read
-            // live from the assembly, breaking pairing between the two. So when
-            // SignatureModel is absent, parse the parameter list out of the raw
-            // "this[...]" signature text instead, which IS preserved across JSON
-            // round-trips.
+            // Legacy persisted and hand-composed surfaces can have no
+            // SignatureModel. Falling back to "" would make such an indexer's
+            // canonical signature diverge from the same indexer read live, so
+            // parse the parameter list from the compatibility text in that case.
             var indexerParameters = member.SignatureModel is { Parameters.Count: > 0 } propertySignature
                 ? NormalizeCanonicalParameters(propertySignature.CanonicalParameterTypesSummary)
                 : XmlDocumentationNotation.NormalizeDynamicToObject(

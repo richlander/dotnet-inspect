@@ -81,6 +81,7 @@ public class AttributeReaderTests
     [Theory]
     [InlineData(@"Samples.Lit\u202EAttribute", @"Samples.Lit\\u202E")]
     [InlineData("Samples.Lit\u202EAttribute", @"Samples.Lit\u202E")]
+    [InlineData("Samples.classAttribute", "Samples.@class")]
     public void AttributeIdentifiers_DistinguishLiteralEscapesFromScalars(
         string fullName,
         string expected)
@@ -93,5 +94,35 @@ public class AttributeReaderTests
         Assert.Equal(
             expected["Samples.".Length..],
             AttributeReader.RenderAttributeIdentifier(identifier));
+    }
+
+    [Fact]
+    public void AttributeNamedArgument_EscapesKeyword()
+    {
+        Assert.Equal(
+            "@event",
+            AttributeReader.RenderAttributeIdentifier("event"));
+    }
+
+    [Theory]
+    [InlineData(@"Samples.Lit\u202EEnum", @"(Samples.Lit\\u202EEnum)1")]
+    [InlineData("Samples.Lit\u202EEnum", @"(Samples.Lit\u202EEnum)1")]
+    public void AttributeEnumArgument_ContainsRawType(
+        string type,
+        string expected)
+    {
+        Assert.Equal(expected, AttributeReader.RenderArgument(type, 1));
+    }
+
+    [Theory]
+    [InlineData(@"Samples.Lit\u202EType", @"typeof(Samples.Lit\\u202EType)")]
+    [InlineData("Samples.Lit\u202EType", @"typeof(Samples.Lit\u202EType)")]
+    public void AttributeTypeOfArgument_ContainsRawType(
+        string type,
+        string expected)
+    {
+        Assert.Equal(
+            expected,
+            AttributeReader.RenderArgument("System.Type", type));
     }
 }

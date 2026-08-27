@@ -539,8 +539,8 @@ public sealed class SemanticTypeOutputContainmentTests
     [Fact]
     public void CompatibilitySignature_PersistenceRoundTripIsPresentationIdempotent()
     {
-        const string rawName = @"Run\u202E";
-        const string rawParameterName = @"arg\u202E";
+        const string literalType = "N.Bad= \"A\\u202EB\"Type";
+        const string scalarType = "N.Bad= \"A\u202EB\"Type";
         var type = new ApiType
         {
             Name = "Probe",
@@ -549,24 +549,26 @@ public sealed class SemanticTypeOutputContainmentTests
             [
                 new ApiMember
                 {
-                    Name = rawName,
+                    Name = "Literal",
                     Kind = "method",
                     Signature =
-                        @"void Run\\u202E(string arg\\u202E)",
-                    UntreatedSignature =
-                        $"void {rawName}(string {rawParameterName})",
+                        $"{ApiPresentationText.RawTypeField(literalType)} Literal()",
                     SignatureModel = new ApiSignature
                     {
-                        ReturnType = "void",
-                        MemberName = rawName,
-                        Parameters =
-                        [
-                            new ApiParameter
-                            {
-                                Type = "string",
-                                Name = rawParameterName,
-                            },
-                        ],
+                        ReturnType = literalType,
+                        MemberName = "Literal",
+                    },
+                },
+                new ApiMember
+                {
+                    Name = "Scalar",
+                    Kind = "method",
+                    Signature =
+                        $"{ApiPresentationText.RawTypeField(scalarType)} Scalar()",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = scalarType,
+                        MemberName = "Scalar",
                     },
                 },
             ],
@@ -575,41 +577,65 @@ public sealed class SemanticTypeOutputContainmentTests
         string persistenceJson = JsonSerializer.Serialize(
             type,
             ApiTypeJsonContext.Default.ApiType);
+        Assert.Contains(
+            "\"signature_model\"",
+            persistenceJson,
+            StringComparison.Ordinal);
         ApiType restored = JsonSerializer.Deserialize(
             persistenceJson,
             ApiTypeJsonContext.Default.ApiType)!;
 
-        Assert.Equal(type.Members[0].Signature, restored.Members[0].Signature);
-        Assert.Equal(
-            type.Members[0].UntreatedSignature,
-            restored.Members[0].UntreatedSignature);
-        Assert.Equal(
-            PreparedSignature(type),
-            PreparedSignature(restored));
+        Assert.All(restored.Members, member =>
+            Assert.NotNull(member.SignatureModel));
+        string[] original = PreparedSignatures(type);
+        string[] roundTripped = PreparedSignatures(restored);
+        Assert.Equal(original, roundTripped);
+        Assert.NotEqual(original[0], original[1]);
+        AssertArtifactOmitsSignatureModel(
+            JsonSerializer.Serialize(
+                restored,
+                ApiArtifactJson.CompactType));
+        var surface = new ApiSurface { Types = [restored] };
+        ApiArtifactJson.Prepare(surface);
+        AssertArtifactOmitsSignatureModel(
+            JsonSerializer.Serialize(
+                surface,
+                ApiArtifactJson.Surface));
 
-        static string PreparedSignature(ApiType value)
+        static string[] PreparedSignatures(ApiType value)
         {
             ApiArtifactJson.Prepare(value);
             using JsonDocument document = JsonDocument.Parse(
                 JsonSerializer.Serialize(value, ApiArtifactJson.Type));
             Assert.False(
-                document.RootElement
-                    .GetProperty("members")[0]
+                document.RootElement.GetProperty("members")[0]
                     .TryGetProperty(
-                        "untreated_signature",
+                        "signature_model",
                         out _));
             return document.RootElement
-                .GetProperty("members")[0]
-                .GetProperty("signature")
-                .GetString()!;
+                .GetProperty("members")
+                .EnumerateArray()
+                .Select(member =>
+                    member.GetProperty("signature").GetString()!)
+                .ToArray();
+        }
+
+        static void AssertArtifactOmitsSignatureModel(string json)
+        {
+            Assert.DoesNotContain(
+                "\"signature_model\"",
+                json,
+                StringComparison.Ordinal);
         }
     }
 
     [Fact]
-    public void PreparedJsonSignature_BalancedMetadataQuotesRemainContainedAndDegraded()
+    public void PreparedJsonSignature_MetadataEqualsQuoteRemainsContainedAndDegraded()
     {
-        const string signature =
-            "N.Bad\"Balanced\"Name\\Path Run()";
+        const string literal =
+            "N.Bad= \"A\\u202EB\"Type Literal()";
+        const string scalar =
+            "N.Bad= \"A\u202EB\"Type Scalar()";
         var type = new ApiType
         {
             Name = "Probe",
@@ -618,9 +644,15 @@ public sealed class SemanticTypeOutputContainmentTests
             [
                 new ApiMember
                 {
-                    Name = "Run",
+                    Name = "Literal",
                     Kind = "method",
-                    Signature = signature,
+                    Signature = literal,
+                },
+                new ApiMember
+                {
+                    Name = "Scalar",
+                    Kind = "method",
+                    Signature = scalar,
                 },
             ],
         };
@@ -628,15 +660,19 @@ public sealed class SemanticTypeOutputContainmentTests
         ApiArtifactJson.Prepare(type);
         using JsonDocument document = JsonDocument.Parse(
             JsonSerializer.Serialize(type, ApiArtifactJson.Type));
-        JsonElement member = document.RootElement
-            .GetProperty("members")[0];
+        JsonElement members = document.RootElement.GetProperty("members");
+        string literalSignature =
+            members[0].GetProperty("signature").GetString()!;
+        string scalarSignature =
+            members[1].GetProperty("signature").GetString()!;
 
-        Assert.Contains(
-            @"Name\\Path",
-            member.GetProperty("signature").GetString()!);
-        Assert.Equal(
-            "Degraded",
-            member.GetProperty("signature_decode_status").GetString());
+        Assert.DoesNotContain('\u202E', scalarSignature);
+        Assert.NotEqual(literalSignature, scalarSignature);
+        Assert.All(
+            members.EnumerateArray(),
+            member => Assert.Equal(
+                "Degraded",
+                member.GetProperty("signature_decode_status").GetString()));
     }
 
     [Fact]

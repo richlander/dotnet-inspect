@@ -1018,10 +1018,10 @@ public class ApiMember
     public List<string> Attributes { get; set; } = [];
 
     /// <summary>
-    /// Raw metadata spelling of the member's type. After a JSON round-trip
-    /// <see cref="SignatureModel"/> is absent, and
+    /// Raw metadata spelling of the member's type. Legacy or hand-composed
+    /// models may omit <see cref="SignatureModel"/>, so
     /// <c>ApiMemberIdentity.GetCanonicalSignature</c> may use this value to
-    /// rebuild identity, so containment belongs at rendering sites.
+    /// rebuild identity and containment belongs at rendering sites.
     /// </summary>
     public string? ReturnType { get; set; }
 
@@ -1029,24 +1029,11 @@ public class ApiMember
     /// Legacy compatibility spelling of the member signature.
     /// </summary>
     /// <remarks>
-    /// This string combines raw metadata type slots, contained identifier
-    /// spellings, and rendered C# default literals. Consumers must not infer a
-    /// single provenance for the whole value: use <see cref="SignatureModel"/>
-    /// when present and <see cref="UntreatedSignature"/> after ordinary
-    /// persistence.
+    /// This string combines contained metadata type/identifier spellings and
+    /// rendered C# default literals. Consumers must not infer raw identity from
+    /// the whole value: use <see cref="SignatureModel"/> when present.
     /// </remarks>
     public string? Signature { get; set; }
-
-    /// <summary>
-    /// Untreated compatibility-signature text retained for ordinary model
-    /// persistence when <see cref="SignatureModel"/> is not serialized.
-    /// </summary>
-    /// <remarks>
-    /// This is provenance for reconstructing <see cref="Signature"/> at an
-    /// output boundary, not presentation text. Artifact JSON excludes it.
-    /// </remarks>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? UntreatedSignature { get; set; }
 
     /// <summary>
     /// Durable 10-char digest for this overload — the same value shown in the Markdown
@@ -1063,15 +1050,19 @@ public class ApiMember
     /// at extraction when it diverges from what parsing the display
     /// <see cref="Signature"/> would yield — i.e. for members whose signature contains C#
     /// tuple syntax, whose element names and <c>(...)</c> spelling must not leak into
-    /// identity and cannot be recovered from the display text after a JSON round-trip
-    /// (<see cref="SignatureModel"/> is <see cref="JsonIgnoreAttribute"/>) — and also filled
-    /// in for the type/member JSON output so consumers get durable identity without a side
-    /// call. Omitted when null.
+    /// identity and cannot be recovered from legacy display-only persistence —
+    /// and also filled in for type/member JSON output so consumers get durable
+    /// identity without a side call. Omitted when null.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? CanonicalSignature { get; set; }
 
-    [JsonIgnore]
+    /// <summary>
+    /// Structured raw-slot provenance retained by ordinary model persistence.
+    /// Artifact JSON excludes this implementation model and emits the existing
+    /// compatibility schema.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ApiSignature? SignatureModel { get; set; }
 
     /// <summary>

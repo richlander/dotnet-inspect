@@ -377,6 +377,14 @@ public sealed class CSharpFormatter
     /// Contains raw metadata spans in compatibility signature text while
     /// preserving rendered C# string and character literals.
     /// </summary>
+    /// <remarks>
+    /// Model-free text can mimic rendered syntax, so this is a conservative
+    /// safety boundary rather than proof of raw identity. Literal recognition
+    /// is limited to the terminal parameter list and literal interiors still
+    /// receive rendering-hazard containment.
+    /// <c>CSharpDeclarationWriterTests.MetadataEqualsQuote_CannotForgeCompatibilityLiteral</c>
+    /// gates that boundary.
+    /// </remarks>
     public static string ContainCompatibilitySignature(string signature)
     {
         ArgumentNullException.ThrowIfNull(signature);

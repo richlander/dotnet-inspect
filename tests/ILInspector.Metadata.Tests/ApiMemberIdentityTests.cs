@@ -123,8 +123,8 @@ public class ApiMemberIdentityTests
             .ToList();
         Assert.Equal(2, liveIndexers.Count);
 
-        // Round-trip through JSON. SignatureModel is [JsonIgnore], so the deserialized
-        // members have no SignatureModel and exercise the raw-signature fallback path.
+        // Clear the model after round-trip to represent legacy display-only JSON
+        // and exercise the raw-signature fallback path.
         var json = JsonSerializer.Serialize(surface);
         var roundTripped = JsonSerializer.Deserialize<ApiSurface>(json)!;
         var roundTrippedType = roundTripped.Types.Single(t => t.Name.EndsWith(nameof(IndexerFixture), StringComparison.Ordinal));
@@ -132,6 +132,7 @@ public class ApiMemberIdentityTests
             .Where(member => member.Kind == "property" && member.Signature != null && member.Signature.Contains("this[", StringComparison.Ordinal))
             .ToList();
         Assert.Equal(2, roundTrippedIndexers.Count);
+        roundTrippedIndexers.ForEach(member => member.SignatureModel = null);
         Assert.All(roundTrippedIndexers, member => Assert.Null(member.SignatureModel));
 
         // The fallback must still disambiguate by parameter type on the round-tripped
@@ -274,8 +275,8 @@ public class ApiMemberIdentityTests
         using var peReader = new PEReader(stream);
         var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
 
-        // Round-trip through JSON. SignatureModel is [JsonIgnore], so the deserialized
-        // members have no SignatureModel and exercise the GetCanonicalSignature fallback.
+        // Clear the model after round-trip to represent legacy display-only JSON
+        // and exercise the GetCanonicalSignature fallback.
         var json = JsonSerializer.Serialize(surface);
         var roundTripped = JsonSerializer.Deserialize<ApiSurface>(json)!;
 
@@ -284,6 +285,7 @@ public class ApiMemberIdentityTests
             .Where(member => member.Kind == "operator" && member.Name == "op_Explicit")
             .ToList();
         Assert.Equal(2, conversions.Count);
+        conversions.ForEach(member => member.SignatureModel = null);
         Assert.All(conversions, member => Assert.Null(member.SignatureModel));
 
         // The fallback must still disambiguate by return type on the round-tripped surface,
@@ -316,6 +318,7 @@ public class ApiMemberIdentityTests
             type => type.Name.EndsWith(nameof(AttributedParameterFixture), StringComparison.Ordinal));
         var persistedMember = persistedType.Members.Single(
             member => member.Name == nameof(AttributedParameterFixture.M));
+        persistedMember.SignatureModel = null;
         Assert.Null(persistedMember.SignatureModel);
 
         var liveCanonical = ApiMemberIdentity.GetCanonicalSignature(liveType, liveMember);
@@ -347,6 +350,7 @@ public class ApiMemberIdentityTests
             type => type.Name.EndsWith(nameof(AttributedParameterFixture), StringComparison.Ordinal));
         var persistedIndexer = persistedType.Members.Single(
             member => member.Kind == "property" && member.Name == "Item");
+        persistedIndexer.SignatureModel = null;
         Assert.Null(persistedIndexer.SignatureModel);
 
         var liveCanonical = ApiMemberIdentity.GetCanonicalSignature(liveType, liveIndexer);

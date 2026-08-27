@@ -1799,15 +1799,25 @@ internal static class CSharpDeclarationWriter
     internal static string ContainCompatibilitySignature(string signature)
     {
         var builder = new StringBuilder(signature.Length);
+        (int parameterStart, int parameterEnd) =
+            FindCompatibilityParameterList(signature);
         int chunkStart = 0;
         for (int index = 0; index < signature.Length;)
         {
             int literalEnd;
-            if (IsDefaultValueLiteralStart(signature, index)
+            if (IsDefaultValueLiteralStart(
+                    signature,
+                    index,
+                    parameterStart,
+                    parameterEnd)
                 && IsStringLiteralStart(signature, index))
                 literalEnd = SkipStringLiteral(signature, index);
             else if (signature[index] == '\''
-                && IsDefaultValueLiteralStart(signature, index))
+                && IsDefaultValueLiteralStart(
+                    signature,
+                    index,
+                    parameterStart,
+                    parameterEnd))
                 literalEnd = SkipCharLiteral(signature, index);
             else
             {
@@ -1825,7 +1835,9 @@ internal static class CSharpDeclarationWriter
             builder.Append(
                 CSharpIdentifierCore.ContainRawComposedName(
                     signature[chunkStart..index]));
-            builder.Append(signature.AsSpan(index, literalEnd - index));
+            builder.Append(
+                CSharpIdentifierCore.ContainComposedName(
+                    signature[index..literalEnd]));
             index = literalEnd;
             chunkStart = literalEnd;
         }
@@ -1836,8 +1848,38 @@ internal static class CSharpDeclarationWriter
         return builder.ToString();
     }
 
-    static bool IsDefaultValueLiteralStart(string signature, int index)
+    static (int Start, int End) FindCompatibilityParameterList(
+        string signature)
     {
+        for (int open = signature.LastIndexOf('(');
+            open >= 0;)
+        {
+            int close = Matching(signature, open, '(', ')');
+            if (close >= 0
+                && (signature.AsSpan(close + 1).TrimStart().IsEmpty
+                    || StartsWithConstraintClause(
+                        signature.AsSpan(close + 1).TrimStart())))
+            {
+                return (open, close);
+            }
+
+            if (open == 0)
+                break;
+            open = signature.LastIndexOf('(', open - 1);
+        }
+
+        return (-1, -1);
+    }
+
+    static bool IsDefaultValueLiteralStart(
+        string signature,
+        int index,
+        int parameterStart,
+        int parameterEnd)
+    {
+        if (index <= parameterStart || index >= parameterEnd)
+            return false;
+
         int previous = index - 1;
         while (previous >= 0 && char.IsWhiteSpace(signature[previous]))
             previous--;
