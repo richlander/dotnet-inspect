@@ -616,7 +616,7 @@ land:
 - `ResearchTargetKeyAbsence_RequiresPositiveSelectorCoverage`
 - `ResearchTargetDomainAbsence_RequiresCompleteHealthyEmptySide`
 - `ResearchTargetFailure_NeverBecomesAbsenceEvidence`
-- `ResearchTargetOccurrences_RemainDistinctAcrossScopes`
+- `ResearchTargetScopes_DeriveBijectivelyFromSelectionOccurrences`
 - `ResearchTargetAttempt_AddressEvidenceMismatchBlocksBeforeCensus`
 - `ResearchProducerHandoff_CompleteOutcomesRetainExactEndpointOrAbsenceEvidence`
 - `ResearchProducerHandoff_BlockedOutcomesExposeNoCompletedEndpointSet`
@@ -626,10 +626,13 @@ land:
 - `ResearchTargetCancellation_RetryPreservesAdmissionAndMintsFreshTargets`
 - `ResearchImplementationTargetPath_HasNoStringKeyedIdentityBag`
 
-The expected admission, domain, request, attempt, and correspondence sets must
-be derived from their declarations. The totality gates fail for both missing
-and extra entries. The Metadata-diagnostic gate derives its expected set from
-`MemberTargetDiagnosticKind` and fixes the mapping:
+The expected admission, scope, domain, request, attempt, and correspondence sets
+must be derived from their declarations. The totality gates fail for both
+missing and extra entries. The scope gate derives its expected set from the
+immutable member-selection occurrences and proves an exact bijection even when
+a scope has no admitted input on either side. The Metadata-diagnostic gate
+derives its expected set from `MemberTargetDiagnosticKind` and fixes the
+mapping:
 `MissingMember`/`DigestNotFound` to `NotFound`,
 `AmbiguousMember`/`DigestAmbiguous` to `Ambiguous`, and
 `ConflictingSelectors`/`OverloadOutOfRange` to `Rejected`.
