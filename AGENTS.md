@@ -803,26 +803,19 @@ feedback; the settled PR still requires its full round.
 | Tier | Requirement |
 | --- | --- |
 | Trivial | No review. State why the change is trivial. |
-| Everything else | **GPT-5.6 Sol**, always, plus one other roster reviewer. |
+| Everything else | **GPT-5.6 Sol**, always, plus one other roster reviewer (Claude Opus or Gemini Pro). |
 
-When uncertain, use the standard round. The roster is:
+When uncertain, use the standard round. Pick the second seat from the prior
+round's clean count: no prior round or 0/2 clean → prefer GPT-5.6 Sol again;
+1/2 clean → keep GPT-5.6 Sol fixed, rule out last round's second seat, then
+prefer a different family than the author (the author's family only as a
+fallback) at that model's highest available quality. Record the choice and its
+reasoning on the PR.
 
-- **GPT-5.6 Sol** — the fixed seat, in every round
-- Claude Opus
-- Gemini Pro
-
-Prefer a second seat from a different family than the author, using that
-model's highest available quality. Reuse the author's family only as a fallback
-and record it on the PR. If a roster model is unavailable to fill a seat,
-select another model for that seat, report the substitution on the PR, and
-proceed without waiting for approval; a substituted seat still counts as
-filled. One round evaluates one settled head with all required reviewers.
-
-When the prior round's result was 0/2 clean, prefer filling both seats with
-**GPT-5.6 Sol** for the next round. When the prior round's result was 1/2
-clean, do not repeat the same seat pairing for the next round — keep the fixed
-seat as GPT-5.6 Sol, but pick a second seat different from the second seat used
-last round.
+If a roster model is unavailable, substitute another model for that seat,
+report the substitution on the PR, and proceed without approval — a
+substituted seat still counts as filled. One round evaluates one settled head
+with all required reviewers.
 
 ### Running the round
 
