@@ -45,7 +45,7 @@ land.
 This boundary is owned by `ILInspector.Research` and this document. For the
 implementation-comparison profile, it consumes one already-admitted comparison
 population, resolves exact member-selection intent into side-local attempts,
-establishes correspondence only from complete scope-local evidence, and
+establishes correspondence only from complete domain-local evidence, and
 determines body-presence dispositions before any producer runs. Its admission
 identity contract also supplies the concrete Research identities required by
 both rank-1 profiles.
@@ -128,26 +128,29 @@ resolved. A type filter or member selector is intent inside the scope, never
 the scope identity.
 
 Within that scope Research establishes one opaque `ResearchTargetDomainId` per
-logical assembly/module comparison domain. Its owner-issued domain key retains
-the Metadata-owned `AssemblyReferenceIdentity` with only `Version` erased,
-compares those values through Metadata's exact equivalence semantics, and
-retains the logical module slot while erasing MVID. Research does not
-renormalize name, culture, or public-key-token fields itself. This allows two
-versions of one logical module to share a domain without letting a same-named
-assembly with different signing identity, another module, or another scope
-correspond. Domain evidence comes from admitted `ResolvedAssemblyReference`
-values, not formatted assembly names or body-index paths.
+logical assembly comparison domain. Its owner-issued domain key retains the
+Metadata-owned `AssemblyReferenceIdentity` with only `Version` erased and
+compares those values through Metadata's exact equivalence semantics. Research
+does not renormalize name, culture, or public-key-token fields itself. An
+admitted `ResolvedAssemblyReference` identifies one assembly definition and
+therefore one physical module; this boundary does not invent a second logical
+module coordinate that acquisition does not supply. The key allows two
+versions of one assembly to share a domain without letting a same-named
+assembly with different signing identity or another scope correspond. Domain
+evidence comes from admitted `ResolvedAssemblyReference` values, not formatted
+assembly names or body-index paths.
 
 The admitted question is the authority that asks its Before and After input
 sets to correspond. Within that question, one domain key may contain at most
 one admitted input occurrence per side. Multiple same-side candidates,
 including candidates from different acquisition registrations or provenance,
 produce a blocking `DomainAmbiguous` outcome for every affected request rather
-than an arbitrary pairing. Acquisition registration and provenance distinguish
-the strict admitted inputs during validation but are intentionally not domain
-equality: Before and After versions normally come from distinct acquisitions.
-The inert result retains the Research input identity and domain, not those
-borrowed acquisition values.
+than an arbitrary pairing. The outcome blocks only that domain; it cannot taint
+another domain in the same scope. Acquisition registration and provenance
+distinguish the strict admitted inputs during validation but are intentionally
+not domain equality: Before and After versions normally come from distinct
+acquisitions. The inert result retains the Research input identity and domain,
+not those borrowed acquisition values.
 
 Research then mints one `ResearchTargetRequestId` and one
 `ResearchTargetAttemptId` for each required side-local input evaluation. The
@@ -166,9 +169,11 @@ input. A carried selector is resolved only through the Metadata surface and
 body participant admitted for that request. No request, selector, address, or
 successful target fans across sides, inputs, questions, operations, or scopes.
 When only one side resolves, that target's derived role participates in its
-correspondence key; the opposite key-local absence proof tests the same role
-against the complete side census without assigning a role to the missing
-request.
+correspondence key. The opposite key-local absence proof requires positive
+absence-safe evidence that covers that exact target and role without assigning
+a role to a missing request. A request that instead resolves another role or
+another body identity proves presence of that different target, not absence of
+the requested counterpart.
 
 Exactly one terminal attempt outcome exists for every request in a completed
 resolution:
@@ -213,13 +218,18 @@ can leave the same stable target at another position.
 ### Complete census and correspondence
 
 After every attempt in a scope is terminal, Research performs one complete
-side-local census. A side census is **healthy** only when every required attempt
-is `Resolved` or `NotFound`. A scope is **blocked** when either side contains a
-Metadata-level `Ambiguous`, `Rejected`, `Unavailable`, or `Failed` attempt.
-Because those outcomes may conceal a target under any correspondence key, a
-blocked scope establishes no semantic pair, absence, addition, or removal.
+census per domain and side. A domain-side census is complete when the admitted
+question's exact input association accounts for every candidate occurrence. In
+a non-ambiguous domain it proves either that the sole input attempt is terminal
+or that no input occupies that domain and side. It is **healthy** only when
+every required attempt is `Resolved` or `NotFound`. A domain is **blocked**
+when either side contains an `Ambiguous`, `Rejected`, `Unavailable`, or
+`Failed` attempt outcome. Those outcomes may conceal a target only inside their
+own domain because domain participates in every target key. A blocked domain
+establishes no semantic pair, absence, addition, or removal, but does not
+suppress a healthy domain in the same scope.
 
-Only a healthy scope reaches key construction. Research derives typed
+Only a healthy domain reaches key construction. Research derives typed
 `ResearchStrictTargetKey` and `ResearchTargetCorrespondenceKey` values from
 owner-issued target evidence:
 
@@ -236,14 +246,15 @@ owner-issued target evidence:
 The Research body identity preserves physical declaring type, member name,
 generic arity, open parameter types, conversion return shape, and projected
 extension body target. Nested-type spelling flows through the existing
-API-to-body bridge. Distinct assembly/module domains, overload shapes,
-relationship roles, extension bodies, and nested types therefore remain
-distinct even when a display name matches.
+API-to-body bridge. Distinct assembly domains, overload shapes, relationship
+roles, extension bodies, and nested types therefore remain distinct even when
+a display name matches.
 
-The key grammar and constructors are Research-owned. Metadata does not bucket
-scope collisions, and callers do not author or parse either key. Rendered
-assembly identities, list position, normalized display text, selector strings,
-and `ResearchSubjectKey.Id` are not correspondence keys.
+The key grammar and constructors are Research-owned. Metadata does not group
+targets into Research correspondence domains, and callers do not author or
+parse either key. Rendered assembly identities, list position, normalized
+display text, selector strings, and `ResearchSubjectKey.Id` are not
+correspondence keys.
 
 Correspondence is scope-local and has these closed outcomes:
 
@@ -253,57 +264,48 @@ Correspondence is scope-local and has these closed outcomes:
   `ResearchTargetKeyAbsenceProof` for that key and role;
 - `AfterOnly` names one After target plus a complete Before-side key absence
   proof;
-- `Absent` retains one complete `ResearchTargetScopeAbsenceProof` for each side
-  when neither side resolves any target;
-- `Ambiguous` retains every colliding strict target and attempt when more than
-  one distinct strict target on one side has the same correspondence key and
-  role; or
+- `Absent` retains one complete `ResearchTargetDomainAbsenceProof` for each
+  side when neither side resolves any target in that domain;
 - `CounterpartUnavailable` retains one otherwise-resolved target plus complete
   `ResearchTargetTaintEvidence`; or
-- `ScopeUnavailable` retains every blocking attempt when a blocked scope has no
-  resolved target on either side.
+- `DomainUnavailable` retains every blocking attempt when a blocked domain has
+  no resolved target on either side.
 
 A `ResearchTargetKeyAbsenceProof` is keyed by scope, side, correspondence key,
-and relationship role. It is minted only from a complete healthy side census
-with no resolved target for that exact key and role. Other healthy targets with
-different keys do not prevent this proof. A
-`ResearchTargetScopeAbsenceProof` is minted only when a complete healthy side
-census has no resolved target at all.
+and relationship role. It is minted only from a complete healthy domain-side
+census plus positive absence-safe evidence that covers the exact opposite
+target and role. That evidence is either the question's exact association
+proving no admitted input occupies that domain and side, or a `NotFound`
+attempt whose typed selector and declaring-type scope cover the opposite
+target. Merely having no resolved target with that key is insufficient. A
+resolved target with another key or relationship role cannot prove absence. A
+`ResearchTargetDomainAbsenceProof` is minted only when a complete healthy
+domain-side census has no admitted input or its complete attempt set is
+`NotFound`.
 
-A missing type or member in one input is insufficient while another admitted
+A missing type or member in one input is insufficient while that domain-side
 input remains unevaluated. A Metadata-level ambiguous or rejected selector,
 reference-only input, failed resolution, or incomplete attempt blocks both
-proof kinds. Cancellation aborts the whole invocation before any census or
-resolution result is exposed.
+proof kinds in its domain. Cancellation aborts the whole invocation before any
+census or resolution result is exposed.
 
-Blocked-scope handling has precedence over all key construction and collision
-bucketing. When a scope is blocked, no `Paired`, `BeforeOnly`, `AfterOnly`,
-`Absent`, or `Ambiguous` outcome forms. Every resolved target on either side
-becomes exactly one `CounterpartUnavailable` outcome whose taint evidence
-retains the complete blocking-attempt set. If no target resolved, one
-`ScopeUnavailable` outcome keeps the failure visible instead of producing an
-empty disposition set.
+Blocked-domain handling has precedence over key construction in that domain.
+When a domain is blocked, no `Paired`, `BeforeOnly`, `AfterOnly`, or `Absent`
+outcome forms there. Every resolved target in that domain becomes exactly one
+`CounterpartUnavailable` outcome whose taint evidence retains the complete
+domain-local blocking-attempt set. If no target resolved, one
+`DomainUnavailable` outcome keeps the failure visible instead of producing an
+empty disposition set. Other domains proceed from their own census.
 
-An ambiguity bucket is keyed by scope, side, correspondence key, and role. It
-retains every colliding attempt and strict key plus one bounded Research-owned
-`CorrespondenceCollision` diagnostic. It does not claim that Metadata emitted a
-diagnostic for successfully resolved targets.
-
-Collision precedence is evaluated once per scope, correspondence key, and role.
-Targets on each colliding side appear only in that side's `Ambiguous` bucket.
-If exactly one target exists on the opposite non-colliding side, it becomes one
-`CounterpartUnavailable` outcome whose taint evidence retains the opposite
-bucket identity, colliding attempts, strict keys, and collision diagnostic. If
-both sides collide, each side has one `Ambiguous` bucket and no target also
-appears in `CounterpartUnavailable`. Collisions never collapse into a pair, and
-counterpart failure never becomes a healthy one-sided addition or removal.
-Unlike an unkeyed blocking attempt, a collision bucket taints only that exact
-key and role; unrelated keys in the otherwise healthy scope remain eligible
-for correspondence.
-
-Distinct correspondence keys in an otherwise complete, failure-free scope
-remain distinct `BeforeOnly` and `AfterOnly` outcomes. Research does not guess
-signature drift correspondence from similar names or display text.
+In a healthy domain, two resolved targets with different correspondence keys
+or roles do not become `BeforeOnly` and `AfterOnly`. Each becomes exactly one
+`CounterpartUnavailable` outcome with bounded Research-owned `SelectionDrift`
+taint that retains both attempts and strict keys. The same outcome is used for
+a resolved target whose opposite `NotFound` attempt does not positively cover
+that exact target and role; its taint retains the resolved attempt and strict
+key plus the opposite attempt and typed diagnostic. Research does not guess
+signature or accessor-role correspondence from similar names, position, or
+display text.
 
 ### Body presence and pre-producer disposition
 
@@ -338,7 +340,7 @@ disposition:
 | proven `AfterOnly(Bodyful)` | `BodyAdded` |
 | proven one-sided `Bodyless or NotMethodLike` | `NoBody` |
 | `Absent` | `TargetAbsent` |
-| ambiguity, unavailable counterpart, or unavailable scope | `Unavailable` |
+| unavailable counterpart or unavailable domain | `Unavailable` |
 
 `BodyAdded` and `BodyRemoved` are typed `Different` conclusions whose authority
 is `ResearchBodyPresence`; they do not require a native C#, IL, or Source row.
@@ -362,7 +364,7 @@ domains are derived from the admitted population and target scopes, so both
 missing and stale entries reject construction.
 
 Every request has exactly one attempt and every attempt has exactly one
-terminal outcome. Every resolved attempt appears in exactly one scope-local
+terminal outcome. Every resolved attempt appears in exactly one domain-local
 correspondence outcome. Every correspondence outcome has exactly one
 pre-producer disposition. Repeated or distinct selection occurrences that
 resolve to the same physical target retain distinct scope, request, and attempt
@@ -380,10 +382,13 @@ authority, raw exception, display row, or rendered diagnostic text.
 Cancellation remains cancellation and is not an attempt outcome. If it is
 observed after internal identities or partial attempt evidence have been
 created, the invocation exposes none of them and returns no
-`ResearchTargetResolution`; a later invocation mints a fresh operation.
-There is no resource cleanup or competing terminal-primary policy in this
-boundary because all readers, snapshots, and body indexes are borrowed for the
-resolution call and remain owned by their admitting component.
+`ResearchTargetResolution`. Retrying the same admitted population preserves
+its already-exposed operation, question, and input identities while minting
+fresh scope, domain, request, and attempt identities. Only a new admission
+mints a fresh operation. There is no resource cleanup or competing
+terminal-primary policy in this boundary because all readers, snapshots, and
+body indexes are borrowed for the resolution call and remain owned by their
+admitting component.
 
 ### Target-resolution migration and gates
 
@@ -397,7 +402,7 @@ Migration preserves owner and dependency direction:
    roles, durable target keys, body-presence coordinates, and typed
    expected-failure outcomes. Metadata's resolver and diagnostics remain
    unchanged.
-3. Research adds complete scope-local census, correspondence, absence proof,
+3. Research adds complete domain-local census, correspondence, absence proof,
    and pre-producer disposition. No producer is invoked.
 4. The ResearchQueries companion consumes the admission API and constructs its
    Queries-owned receipt for both profiles. Body-signal target resolution
@@ -421,20 +426,20 @@ land:
 - `ResearchTargetAttempts_MapEveryMetadataDiagnosticKind`
 - `ResearchTargetResolution_PreservesMetadataDiagnosticsAndAccessorRoles`
 - `ResearchTargetRejectedSelector_PreservesDiagnosticAndBlocksAbsence`
-- `ResearchTargetDomains_EraseOnlyAssemblyVersionAndMvid`
+- `ResearchTargetDomains_EraseOnlyAssemblyVersion`
 - `ResearchTargetDomains_RejectDuplicateSameSideCandidates`
+- `ResearchTargetDomains_BlockOnlyTheirOwnCensus`
 - `ResearchTargetKeys_AreOwnerIssuedAndNotDisplayDerived`
 - `ResearchTargetKeys_EraseOnlyAddressAndSideLocalIdentity`
 - `ResearchTargetKeys_PreserveDomainSignatureExtensionAndRelationshipRole`
 - `ResearchTargetCensus_DerivesCompleteAttemptAndCorrespondenceDomains`
-- `ResearchTargetCensus_IsolatesAmbiguityAndTaintsCounterparts`
-- `ResearchTargetCensus_BlockedScopeTaintsResolvedTargetsOnBothSides`
-- `ResearchTargetCensus_BlockedScopeWithoutResolvedTargetsIsVisible`
-- `ResearchTargetCensus_BlockedScopePrecedesCollisionBucketing`
-- `ResearchTargetCensus_BilateralCollisionAccountsEachTargetOnce`
-- `ResearchTargetCensus_CollisionTaintRetainsBucketEvidence`
+- `ResearchTargetCensus_BlockedDomainTaintsResolvedTargetsOnBothSides`
+- `ResearchTargetCensus_BlockedDomainWithoutResolvedTargetsIsVisible`
+- `ResearchTargetCensus_BlockedDomainPrecedesKeyConstruction`
+- `ResearchTargetCensus_DivergentResolvedKeysAreUnavailable`
 - `ResearchTargetKeyAbsence_RequiresCompleteHealthyKeyLocalCensus`
-- `ResearchTargetScopeAbsence_RequiresCompleteHealthyEmptySide`
+- `ResearchTargetKeyAbsence_RequiresPositiveSelectorCoverage`
+- `ResearchTargetDomainAbsence_RequiresCompleteHealthyEmptySide`
 - `ResearchTargetFailure_NeverBecomesSemanticAdditionOrRemoval`
 - `ResearchTargetOccurrences_RemainDistinctAcrossScopes`
 - `ResearchBodyPresence_TreatsBodylessAsResolved`
@@ -444,6 +449,7 @@ land:
 - `ResearchBodyPresence_BothBodyfulOnlyEstablishesProducerEligibility`
 - `ResearchTargetResolution_RetainsNoBorrowedResourcesOrPresentation`
 - `ResearchTargetCancellation_ExposesNoPartialPopulationOrResult`
+- `ResearchTargetCancellation_RetryPreservesAdmissionAndMintsFreshTargets`
 - `ResearchImplementationTargetPath_HasNoStringKeyedIdentityBag`
 
 The expected admission, domain, request, attempt, correspondence, and
@@ -455,10 +461,12 @@ its expected set from `MemberTargetDiagnosticKind` and fixes the mapping:
 `ConflictingSelectors`/`OverloadOutOfRange` to `Rejected`.
 
 The key gates pair one body across changed MVID/token/version evidence and keep
-distinct assembly or module domains, overloads, accessor roles, projected
-extension bodies, and nested types separate. Census fixtures include bilateral
-collisions and a collision beside an unkeyed blocker, so precedence and
-exact-once accounting cannot pass independently.
+distinct assembly domains, overloads, accessor roles, projected extension
+bodies, and nested types separate. Census fixtures put a blocked domain beside
+a healthy domain and pair positional-selector drift across overload and
+accessor-role changes. They prove that local failure does not suppress the
+healthy domain and that an unevaluated target never becomes a semantic
+addition or removal.
 
 The body-presence precedence gate derives every disposition from purpose-built
 fixtures and asserts that only a paired bodyful/bodyful case becomes
