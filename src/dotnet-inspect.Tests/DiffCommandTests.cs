@@ -1899,6 +1899,49 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public async Task PdbSourceIndexingFailure_RemainsFailedInsteadOfSubjectAbsent()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"pdb-source-unreadable-{Guid.NewGuid():N}.dll");
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "M~1234567890",
+            "Sample.M()",
+            "Sample",
+            "M");
+        try
+        {
+            File.WriteAllText(path, "not a managed assembly");
+            using var httpClient = new HttpClient();
+
+            DiffCommand.PdbSourceInspectionBatch batch =
+                await DiffCommand.AcquirePdbSourceInspectionsAsync(
+                    [path],
+                    new Dictionary<string, ResearchSubjectKey>(StringComparer.Ordinal)
+                    {
+                        [subject.Id] = subject,
+                    },
+                    new DiffOptions(),
+                    oldSide: true,
+                    httpClient,
+                    new VerboseLogger(enabled: false));
+
+            var failed = Assert.IsType<FindingInspection<string>.Failed>(
+                DiffCommand.PdbSourceInspectionFor(
+                    batch,
+                    subject,
+                    oldSide: true).Value);
+            Assert.Contains("indexing failed for the old endpoint", failed.Error.Reason);
+            Assert.Contains(path, failed.Error.Reason);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void BuildImplementationDiffView_RendersCSharpFailure()
     {
         var subject = new ResearchSubjectKey(

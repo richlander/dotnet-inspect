@@ -1155,14 +1155,8 @@ public class DiffCommand
         var comparisons = subjects.Values.Select(subject =>
             new PdbSourceComparisonInput(
                 subject,
-                from.GetValueOrDefault(subject.Id)
-                    ?? new FindingInspection<string>.Absent(
-                        FindingInspectionAbsenceKind.SubjectAbsent,
-                        "The member is unavailable in the old endpoint."),
-                to.GetValueOrDefault(subject.Id)
-                    ?? new FindingInspection<string>.Absent(
-                        FindingInspectionAbsenceKind.SubjectAbsent,
-                        "The member is unavailable in the new endpoint.")));
+                PdbSourceInspectionFor(from, subject, oldSide: true),
+                PdbSourceInspectionFor(to, subject, oldSide: false)));
         return ImplementationDiff.WithPdbSourceComparisons(
             result,
             comparisons,
@@ -1171,7 +1165,35 @@ public class DiffCommand
                 MemberTargetIdentities: subjects.Keys.ToHashSet(StringComparer.Ordinal)));
     }
 
-    static async Task<Dictionary<string, FindingInspection<string>>> AcquirePdbSourceInspectionsAsync(
+    internal sealed record PdbSourceInspectionBatch(
+        ImmutableDictionary<string, FindingInspection<string>> Inspections,
+        ImmutableArray<string> IndexingFailures);
+
+    internal static FindingInspection<string> PdbSourceInspectionFor(
+        PdbSourceInspectionBatch batch,
+        ResearchSubjectKey subject,
+        bool oldSide)
+    {
+        if (batch.Inspections.TryGetValue(subject.Id, out var inspection))
+            return inspection;
+
+        string side = oldSide ? "old" : "new";
+        if (!batch.IndexingFailures.IsEmpty)
+        {
+            return new FindingInspection<string>.Failed(
+                new InspectionError(
+                    new FindingSubject(subject.Id, subject.Display),
+                    ILInspector.Text.TextFindings.LineDescriptor,
+                    $"PDB-source target indexing failed for the {side} endpoint: "
+                    + string.Join("; ", batch.IndexingFailures)));
+        }
+
+        return new FindingInspection<string>.Absent(
+            FindingInspectionAbsenceKind.SubjectAbsent,
+            $"The member is unavailable in the {side} endpoint.");
+    }
+
+    internal static async Task<PdbSourceInspectionBatch> AcquirePdbSourceInspectionsAsync(
         IReadOnlyList<string> paths,
         IReadOnlyDictionary<string, ResearchSubjectKey> subjects,
         DiffOptions options,
@@ -1180,6 +1202,7 @@ public class DiffCommand
         VerboseLogger logger)
     {
         var results = new Dictionary<string, FindingInspection<string>>(StringComparer.Ordinal);
+        var indexingFailures = ImmutableArray.CreateBuilder<string>();
         var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
         var (packageName, packageVersion) = DiffPackageIdentity(options, oldSide);
 
@@ -1199,7 +1222,11 @@ public class DiffCommand
                 or BadImageFormatException
                 or InvalidOperationException)
             {
-                logger.Log($"Could not index PDB-source targets in '{path}': {ex.Message}");
+                string failure =
+                    $"Could not index PDB-source targets in '{path}' "
+                    + $"({ex.GetType().Name}): {ex.Message}";
+                logger.Log(failure);
+                indexingFailures.Add(failure);
                 continue;
             }
 
@@ -1259,7 +1286,9 @@ public class DiffCommand
             }
         }
 
-        return results;
+        return new PdbSourceInspectionBatch(
+            results.ToImmutableDictionary(StringComparer.Ordinal),
+            indexingFailures.ToImmutable());
     }
 
     static (string? PackageName, string? PackageVersion) DiffPackageIdentity(

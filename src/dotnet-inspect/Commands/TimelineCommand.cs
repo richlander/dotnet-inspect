@@ -509,6 +509,15 @@ public static class TimelineCommand
         foreach (string path in assemblyPaths)
         {
             var surface = AssemblyReader.ExtractApiSurface(path, includeAll);
+            if (surface is null)
+            {
+                return new FindingInspection<T>.Failed(
+                    new InspectionError(
+                        subject,
+                        descriptor,
+                        $"The API surface in '{path}' could not be inspected."));
+            }
+
             var type = surface?.Types.FirstOrDefault(type =>
                 string.Equals(type.FullName, typeFullName, StringComparison.OrdinalIgnoreCase));
             if (type is null)

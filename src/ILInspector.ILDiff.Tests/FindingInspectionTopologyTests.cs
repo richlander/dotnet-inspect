@@ -54,6 +54,7 @@ public class FindingInspectionTopologyTests
                 Assert.Equal(oldState, comparison.Transition.Old);
                 Assert.Equal(newState, comparison.Transition.New);
                 Assert.Equal(oldState == newState, comparison.Transition.IsSameTopology);
+                Assert.Equal(oldState == newState, comparison.IsExact);
                 transitions.Add(comparison.Transition);
             }
         }

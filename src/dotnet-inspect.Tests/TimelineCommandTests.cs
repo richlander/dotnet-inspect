@@ -394,6 +394,32 @@ public sealed class TimelineCommandTests
     }
 
     [Fact]
+    public void AnalysisTimeline_UnreadableAssemblyFailsWithoutClaimingAbsence()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"timeline-unreadable-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllText(path, "not a managed assembly");
+
+            var inspection = TimelineCommand.InspectUnsafetyAssemblies(
+                [path],
+                "Sample.Widget",
+                "Run");
+
+            var failed = Assert.IsType<FindingInspection<UnsafetyOccurrence>.Failed>(
+                inspection.Value);
+            Assert.Contains(path, failed.Error.Reason);
+            Assert.Contains("could not be inspected", failed.Error.Reason);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void AnalysisTimeline_DisposesEndpointAfterCellInspection()
     {
         var vector = Vector("1.0.0");

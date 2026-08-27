@@ -70,8 +70,7 @@ public static partial class MetadataFindings
         ArgumentNullException.ThrowIfNull(subject);
         ArgumentException.ThrowIfNullOrEmpty(typeFullName);
         if (surface is null)
-            return new FindingInspection<ApiTypeHandle>.Absent(
-                FindingInspectionAbsenceKind.NoApplicableInput);
+            return SurfaceUnavailable<ApiTypeHandle>(subject, TypeDescriptor);
 
         var type = FindType(surface, typeFullName);
         return type is null
@@ -94,8 +93,7 @@ public static partial class MetadataFindings
         ArgumentNullException.ThrowIfNull(subject);
         ArgumentException.ThrowIfNullOrEmpty(typeFullName);
         if (surface is null)
-            return new FindingInspection<ApiMemberHandle>.Absent(
-                FindingInspectionAbsenceKind.NoApplicableInput);
+            return SurfaceUnavailable<ApiMemberHandle>(subject, MemberDescriptor);
 
         var type = FindType(surface, typeFullName);
         return type is null
@@ -123,8 +121,7 @@ public static partial class MetadataFindings
         ArgumentNullException.ThrowIfNull(subject);
         ArgumentException.ThrowIfNullOrEmpty(typeFullName);
         if (surface is null)
-            return new FindingInspection<ApiAttributeHandle>.Absent(
-                FindingInspectionAbsenceKind.NoApplicableInput);
+            return SurfaceUnavailable<ApiAttributeHandle>(subject, AttributeDescriptor);
 
         var type = FindType(surface, typeFullName);
         if (type is null)
@@ -152,6 +149,16 @@ public static partial class MetadataFindings
             }),
         ]);
     }
+
+    static FindingInspection<T> SurfaceUnavailable<T>(
+        FindingSubject subject,
+        FindingDescriptor descriptor)
+        where T : notnull
+        => new FindingInspection<T>.Failed(
+            new InspectionError(
+                subject,
+                descriptor,
+                "The API surface is unavailable."));
 
     public static FindingComparison<ApiTypeHandle> CompareApiTypes(
         ApiSurface oldSurface,

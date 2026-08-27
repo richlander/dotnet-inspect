@@ -572,6 +572,30 @@ public class MetadataFindingsTests
     }
 
     [Fact]
+    public void TypeScopedCensuses_NullSurfaceFailsWithoutClaimingAbsence()
+    {
+        var type = Assert.IsType<FindingInspection<ApiTypeHandle>.Failed>(
+            MetadataFindings.InspectApiType(
+                null,
+                Subject,
+                "TestNamespace.Widget").Value);
+        var members = Assert.IsType<FindingInspection<ApiMemberHandle>.Failed>(
+            MetadataFindings.InspectApiMembers(
+                null,
+                Subject,
+                "TestNamespace.Widget").Value);
+        var attributes = Assert.IsType<FindingInspection<ApiAttributeHandle>.Failed>(
+            MetadataFindings.InspectApiAttributes(
+                null,
+                Subject,
+                "TestNamespace.Widget").Value);
+
+        Assert.Contains("surface is unavailable", type.Error.Reason);
+        Assert.Contains("surface is unavailable", members.Error.Reason);
+        Assert.Contains("surface is unavailable", attributes.Error.Reason);
+    }
+
+    [Fact]
     public void TypeSelfPresence_RepresentsMissingTypeAsCompleteEmptyCensus()
     {
         var inspection = MetadataFindings.InspectApiType(
