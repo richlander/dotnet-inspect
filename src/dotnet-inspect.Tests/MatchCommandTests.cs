@@ -1,5 +1,7 @@
+using System.Text.Json;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
+using DotnetInspector.Output;
 
 namespace DotnetInspector.Tests;
 
@@ -205,6 +207,44 @@ public sealed class MatchCommandTests
         Assert.Contains("\"match\": {", output);
         Assert.Contains("\"implementation\": {", output);
         Assert.Contains("\"disposition\": \"Completed\"", output);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ImplementationJsonWithRows_WindowsImplementationRows()
+    {
+        // Round 8 finding: match --implementation --json ignored -n/--top item windows
+        // entirely, serializing every implementation-diff row while markdown correctly
+        // windowed to the declared count.
+        var unwindowed = new MatchOptions
+        {
+            LeftSelector = $"{typeof(MatchSampleA).FullName}.Greet",
+            RightSelector = $"{typeof(MatchSampleA).FullName}.GreetFormal",
+            AssemblyPath = typeof(MatchCommandTests).Assembly.Location,
+            IncludeAll = true,
+            IncludeImplementation = true,
+            JsonOutput = true,
+        };
+        var windowed = unwindowed with { Rows = RowWindow.Head(1) };
+
+        var (unwindowedExitCode, unwindowedOutput, unwindowedError) =
+            await ConsoleCapture.RunAsync(() => MatchCommand.ExecuteAsync(unwindowed));
+        var (windowedExitCode, windowedOutput, windowedError) =
+            await ConsoleCapture.RunAsync(() => MatchCommand.ExecuteAsync(windowed));
+
+        Assert.Equal(0, unwindowedExitCode);
+        Assert.Empty(unwindowedError);
+        Assert.Equal(0, windowedExitCode);
+        Assert.Empty(windowedError);
+
+        using var unwindowedDocument = JsonDocument.Parse(unwindowedOutput);
+        using var windowedDocument = JsonDocument.Parse(windowedOutput);
+        var unwindowedRows = unwindowedDocument.RootElement
+            .GetProperty("implementation").GetProperty("rows").GetArrayLength();
+        var windowedRows = windowedDocument.RootElement
+            .GetProperty("implementation").GetProperty("rows").GetArrayLength();
+
+        Assert.True(unwindowedRows > 1, "fixture must produce more than one row to prove windowing");
+        Assert.Equal(1, windowedRows);
     }
 
     [Fact]

@@ -473,6 +473,62 @@ public class DiffCommandTests
             StringComparison.Ordinal);
     }
 
+    private static TypeDiff BreakingAndAdditiveTypeDiff(string typeFullName, string breakingMessage, string additiveMessage)
+        => new(
+            typeFullName,
+            [
+                new ApiChange(ChangeKind.MemberRemoved, ChangeClassification.Breaking, breakingMessage, null, null),
+                new ApiChange(ChangeKind.MemberAdded, ChangeClassification.Additive, additiveMessage, null, null),
+            ]);
+
+    [Fact]
+    public void RenderDiff_MarkdownWithRows_WindowsEachClassificationIndependently()
+    {
+        // Round 8 finding: the default (non-tabular) full-markdown path annotated its output
+        // with a "first N" note but rendered every change under every classification heading,
+        // because Markout's GroupBy-sectioned properties do not honor RowWindow. Each of
+        // Breaking/PotentiallyBreaking/Additive must window independently, at construction time.
+        var typeDiffs = new[]
+        {
+            BreakingAndAdditiveTypeDiff("Sample.Alpha", "Alpha breaking change", "Alpha additive change"),
+            BreakingAndAdditiveTypeDiff("Sample.Beta", "Beta breaking change", "Beta additive change"),
+        };
+        var diff = new ApiDiff { TypeDiffs = typeDiffs };
+
+        string markdown = DiffCommand.RenderDiff(
+            "Sample",
+            diff,
+            "1.0.0",
+            "2.0.0",
+            new DiffOptions { Rows = RowWindow.Head(1) });
+
+        Assert.Contains("Alpha breaking change", markdown, StringComparison.Ordinal);
+        Assert.DoesNotContain("Beta breaking change", markdown, StringComparison.Ordinal);
+        Assert.Contains("Alpha additive change", markdown, StringComparison.Ordinal);
+        Assert.DoesNotContain("Beta additive change", markdown, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RenderDiff_EmptyFilteredResult_DoesNotLeakRowWindowNote()
+    {
+        // Round 8 finding: a type filter that matched no changed types still rendered the
+        // "first N" note even though the resulting document had zero changes to window.
+        var diff = new ApiDiff
+        {
+            TypeDiffs = [BreakingAndAdditiveTypeDiff("Sample.Alpha", "Alpha breaking change", "Alpha additive change")],
+        };
+
+        string markdown = DiffCommand.RenderDiff(
+            "Sample",
+            diff,
+            "1.0.0",
+            "2.0.0",
+            new DiffOptions { Rows = RowWindow.Head(1), TypeFilter = ["NoSuchType"] });
+
+        Assert.DoesNotContain("first 1", markdown, StringComparison.Ordinal);
+        Assert.Contains("No API changes detected.", markdown, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void FilterApiDiffByMemberTargets_PreservesInspectionFailures()
     {
@@ -2117,6 +2173,47 @@ public class DiffCommandTests
             row.GetProperty("member").GetString()!.Contains("List<object>", StringComparison.Ordinal));
         Assert.True(analysis.GetArrayLength() > 0);
         Assert.True(implementation.GetArrayLength() > 0);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ChangesJsonWithRows_WindowsChanges()
+    {
+        // Round 8 finding: diff --json -S Changes -n N ignored the item window entirely,
+        // serializing every change while --tabular (same underlying flat list) windowed
+        // correctly.
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (unwindowedExitCode, unwindowedOutput, unwindowedError) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                Select = ["Changes"],
+                JsonOutput = true,
+                TypeFilter = ["DiffSample"],
+            }));
+        var (windowedExitCode, windowedOutput, windowedError) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                Select = ["Changes"],
+                JsonOutput = true,
+                TypeFilter = ["DiffSample"],
+                Rows = RowWindow.Head(1),
+            }));
+
+        Assert.Equal(0, unwindowedExitCode);
+        Assert.Empty(unwindowedError);
+        Assert.Equal(0, windowedExitCode);
+        Assert.Empty(windowedError);
+
+        using var unwindowedDocument = System.Text.Json.JsonDocument.Parse(unwindowedOutput);
+        using var windowedDocument = System.Text.Json.JsonDocument.Parse(windowedOutput);
+        var unwindowedCount = unwindowedDocument.RootElement.GetProperty("changes").GetArrayLength();
+        var windowedCount = windowedDocument.RootElement.GetProperty("changes").GetArrayLength();
+
+        Assert.True(unwindowedCount > 1, "fixture must produce more than one change to prove windowing");
+        Assert.Equal(1, windowedCount);
     }
 
     [Fact]

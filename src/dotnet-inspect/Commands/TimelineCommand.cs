@@ -1287,9 +1287,11 @@ public static class TimelineCommand
 
         var writer = new MarkoutWriter(new MarkdownFormatter(), OutputFormatter.CreateWindowedOptions(options.Rows));
         TimelineViewContext.Default.Serialize(view, writer);
-        Console.WriteLine(OutputFormatter.AddHumanRowWindowNote(
-            writer.ToString().TrimEnd(),
-            options.HumanRowWindowNote));
+        var hasContent = (view.Evaluations?.Count > 0) || (view.Transitions?.Count > 0);
+        var rendered = writer.ToString().TrimEnd();
+        Console.WriteLine(hasContent
+            ? OutputFormatter.AddHumanRowWindowNote(rendered, options.HumanRowWindowNote)
+            : rendered);
         return 0;
     }
 

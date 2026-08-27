@@ -152,7 +152,10 @@ public class ImplementsCommand
 
     private static void WriteJsonOutput(List<ImplementerResult> results, RowWindow? rows, bool compact)
     {
-        var jsonResults = RowWindow.Apply(rows, results).Select(ImplementerJsonResult.From).ToList();
+        // Sort to match the markdown/table view's row order (TypeName) before windowing, so
+        // -n/--top picks the same "first/last/top N" implementers in JSON as in markdown/table.
+        var sorted = results.OrderBy(r => r.TypeName).ToList();
+        var jsonResults = RowWindow.Apply(rows, sorted).Select(ImplementerJsonResult.From).ToList();
         JsonOutputHelper.Write(jsonResults, ImplementsJsonContext.Default.ListImplementerJsonResult,
             ImplementsCompactJsonContext.Default.ListImplementerJsonResult, compact);
     }

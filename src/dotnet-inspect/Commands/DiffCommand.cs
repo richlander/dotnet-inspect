@@ -413,8 +413,10 @@ public class DiffCommand
                 }
                 else
                 {
-                    var output = RenderDiff(inputs.Name, diff, inputs.FromVersion, inputs.ToVersion, options);
-                    Console.WriteLine(OutputFormatter.AddHumanRowWindowNote(output, options.HumanRowWindowNote));
+                    var output = RenderDiff(inputs.Name, diff, inputs.FromVersion, inputs.ToVersion, options, out var hasContent);
+                    Console.WriteLine(hasContent
+                        ? OutputFormatter.AddHumanRowWindowNote(output, options.HumanRowWindowNote)
+                        : output);
                     if (options.NameOnly)
                     {
                         WriteIncompleteComparisonDiagnostic(
@@ -874,7 +876,8 @@ public class DiffCommand
                 inputs.Name,
                 ApplyFilters(changesDiff, options),
                 inputs.FromVersion,
-                inputs.ToVersion);
+                inputs.ToVersion,
+                options.Rows);
         }
 
         AnalysisDiffView? analysisView = null;
@@ -1410,8 +1413,12 @@ public class DiffCommand
     }
 
     internal static string RenderDiff(string name, ApiDiff diff, string fromVersion, string toVersion, DiffOptions options)
+        => RenderDiff(name, diff, fromVersion, toVersion, options, out _);
+
+    internal static string RenderDiff(string name, ApiDiff diff, string fromVersion, string toVersion, DiffOptions options, out bool hasContent)
     {
         var typeDiffs = ApplyFilters(diff, options);
+        hasContent = options.NameOnly ? typeDiffs.Count > 0 : typeDiffs.Any(td => td.Changes.Any());
 
         if (options.NameOnly)
         {
@@ -1429,8 +1436,10 @@ public class DiffCommand
             diff.InspectionFailures,
             fromVersion,
             toVersion,
-            OutputFormatter.CreateWindowedOptions(options.Rows));
+            OutputFormatter.CreateWindowedOptions(options.Rows),
+            options.Rows);
     }
+
 
     internal static ApiDiff BuildApiDiff(ApiSurface fromSurface, ApiSurface toSurface, DiffOptions options)
         => BuildApiDiff(

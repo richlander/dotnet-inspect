@@ -116,6 +116,34 @@ public sealed class TimelineCommandTests
     }
 
     [Fact]
+    public async Task Write_MarkdownWithEmptyTransitions_DoesNotLeakRowWindowNote()
+    {
+        // Round 8 finding: the non-tabular multi-section markdown path unconditionally wrapped
+        // its rendered output with the human row-window note, even when the only selected
+        // section (Transitions) had zero rows to window.
+        var view = new TimelineDocumentView
+        {
+            Title = "Timeline",
+            Transitions = [],
+        };
+        var sections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Transitions" };
+
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            TimelineCommand.Write(
+                view,
+                new TimelineOptions
+                {
+                    Rows = RowWindow.Head(1),
+                    HumanRowWindowNote = "first 1",
+                },
+                sections)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.DoesNotContain("first 1", result.Output);
+    }
+
+    [Fact]
     public void ZeroEvaluationVector_RemainsUnevaluatedAndRecommendsProbe()
     {
         var vector = Vector("1.0.0", "1.0.1", "1.0.2");

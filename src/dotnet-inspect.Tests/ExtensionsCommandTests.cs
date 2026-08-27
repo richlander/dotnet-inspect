@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
@@ -207,6 +208,44 @@ public class ExtensionsCommandTests
 
         Assert.Same(MetadataFindings.ExtensionMemberDescriptor, failure.Error.Descriptor);
         Assert.Contains("Finding inspection failed", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_JsonWithRows_WindowsSortedOrderMatchingMarkdown()
+    {
+        // Round 8 finding: extensions --json windowed the raw/unsorted discovery-order list,
+        // while markdown/table sort by ReachablePath, ExtensionClass, MethodName first -- so
+        // -n N --json could return a different item set than -n N markdown/table for the same
+        // invocation. SampleExtensions declares ToUpperCase before Repeat, so raw discovery
+        // order differs from the sorted (alphabetical by method name) order.
+        var unwindowedOptions = new ExtensionsOptions
+        {
+            TargetType = typeof(string).FullName!,
+            Assemblies = [typeof(ExtensionsCommandTests).Assembly.Location],
+            IncludeAll = true,
+            JsonOutput = true,
+        };
+        var windowedOptions = unwindowedOptions with { Rows = RowWindow.Head(1) };
+
+        var (unwindowedExitCode, unwindowedOutput, unwindowedError) =
+            await ConsoleCapture.RunAsync(() => ExtensionsCommand.ExecuteAsync(unwindowedOptions));
+        var (windowedExitCode, windowedOutput, windowedError) =
+            await ConsoleCapture.RunAsync(() => ExtensionsCommand.ExecuteAsync(windowedOptions));
+
+        Assert.Equal(0, unwindowedExitCode);
+        Assert.Empty(unwindowedError);
+        Assert.Equal(0, windowedExitCode);
+        Assert.Empty(windowedError);
+
+        using var unwindowedDocument = System.Text.Json.JsonDocument.Parse(unwindowedOutput);
+        using var windowedDocument = System.Text.Json.JsonDocument.Parse(windowedOutput);
+        var unwindowedRows = unwindowedDocument.RootElement.EnumerateArray().ToList();
+        var windowedRows = windowedDocument.RootElement.EnumerateArray().ToList();
+
+        Assert.True(unwindowedRows.Count > 1, "fixture must produce more than one row to prove windowing");
+        Assert.Equal("Repeat", unwindowedRows[0].GetProperty("method").GetString());
+        Assert.Single(windowedRows);
+        Assert.Equal("Repeat", windowedRows[0].GetProperty("method").GetString());
     }
 
     [Fact]

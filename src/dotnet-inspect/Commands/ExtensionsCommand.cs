@@ -366,7 +366,15 @@ public class ExtensionsCommand
 
     private static void WriteJsonOutput(List<ExtensionMethodResult> results, RowWindow? rows, bool compact)
     {
-        var jsonResults = RowWindow.Apply(rows, results).Select(ExtensionMethodJsonResult.From).ToList();
+        // Sort to match the markdown/table view's row order (ReachablePath, then
+        // ExtensionClass, then MethodName) before windowing, so -n/--top picks the same
+        // "first/last/top N" extension methods in JSON as in markdown/table.
+        var sorted = results
+            .OrderBy(r => r.ReachablePath ?? "")
+            .ThenBy(r => r.ExtensionClass)
+            .ThenBy(r => r.MethodName)
+            .ToList();
+        var jsonResults = RowWindow.Apply(rows, sorted).Select(ExtensionMethodJsonResult.From).ToList();
         JsonOutputHelper.Write(jsonResults, ExtensionsJsonContext.Default.ListExtensionMethodJsonResult,
             ExtensionsCompactJsonContext.Default.ListExtensionMethodJsonResult, compact);
     }
