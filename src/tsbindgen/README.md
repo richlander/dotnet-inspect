@@ -539,9 +539,9 @@ strict-mode names and collisions with the wrapper's generated `dotnet`,
 identifiers remain supported, including TypeScript's measured continuation-only
 edge points. Identifier acceptance is pinned to the TypeScript 7.0.2 scanner
 rather than the runtime's newer Unicode tables. The target architecture
-replaces current public operation and DTO spelling collisions with deterministic
-allocation from complete managed identities while keeping genuinely illegal
-identifier input visible.
+replaces current public operation, enum, and DTO spelling collisions with
+deterministic allocation from complete managed identities while keeping
+genuinely illegal identifier input visible.
 
 Qualified CLR type identities must match a discovered local identity by
 complete ECMA assembly identity and structured metadata definition name; the

@@ -219,6 +219,9 @@ they are runtime values, not serialized snapshots.
 The exported TypeScript wrapper presents the application-level result:
 
 ```ts
+const queryPackageRuntimeKey =
+  /* generated owner-issued exact key */ "QueryPackage.123456789";
+
 export async function queryPackage(
   packageId: string,
   version: string,
@@ -226,11 +229,15 @@ export async function queryPackage(
 ): Promise<BrowserPackage> {
   const json = await requireManagedExports()
     .InspectionEngine
-    .QueryPackage(packageId, version, targetFramework);
+    [queryPackageRuntimeKey](packageId, version, targetFramework);
   const parsed: unknown = JSON.parse(json);
   return parsed as BrowserPackage;
 }
 ```
+
+The private generated key is opaque runtime identity from the input surface.
+It is not inferred from `QueryPackage`, its public TypeScript spelling, or the
+illustrative numeric value.
 
 The raw signature, parsed wire type, and public signature must remain explicit
 in the generator model. Display text or a public return annotation must never
@@ -386,24 +393,26 @@ generated TypeScript source. Those facade declarations are distinct from the
 SDK's declaration for the runtime module.
 
 Generated identifiers must be valid, collision-free TypeScript bindings.
-Reserved module bindings, helper names, wrapper-local names, DTO names,
-function names, and nested managed-export paths are validated as one composed
-module before any output is published. One deterministic allocator handles
-operation-to-operation, DTO-to-DTO, operation-to-DTO,
-operation-to-infrastructure, helper, and reserved-name collisions. Module
-infrastructure, runtime imports, helpers, and wrapper-local bindings are
-allocated first and are never renamed or displaced by a public declaration.
-A preferred public name is retained only when it is unique and unreserved.
+Reserved module bindings, helper names, wrapper-local names, wire declaration
+names, function names, and nested managed-export paths are validated as one
+composed module before any output is published. One deterministic allocator
+handles operation-to-operation, wire-declaration-to-wire-declaration,
+operation-to-wire-declaration, operation-to-infrastructure, helper, and
+reserved-name collisions. Module infrastructure, runtime imports, helpers, and
+wrapper-local bindings are allocated first and are never renamed or displaced
+by a public declaration. A preferred public name is retained only when it is
+unique and unreserved.
 
 On collision, an operation fallback derives from its complete managed operation
-identity: fully qualified declaring type, method name, and parameter types. A
-DTO fallback derives from its complete owner-issued managed type identity.
-If distinct identities still produce the same legal TypeScript spelling, a
-stable digest of the corresponding canonical identity disambiguates them. All
-signatures and reached-property types refer to DTOs through typed identity and
-the allocated-name map, never through a simple display name. A spelling
-collision never drops a supported operation or DTO, replaces module
-infrastructure, or makes the otherwise supported surface ungeneratable.
+identity: fully qualified declaring type, method name, and parameter types. An
+enum or DTO declaration fallback derives from its complete owner-issued managed
+type identity. If distinct identities still produce the same legal TypeScript
+spelling, a stable digest of the corresponding canonical identity
+disambiguates them. All signatures and reached-property types refer to enums
+and DTOs through typed identity and the allocated-name map, never through a
+simple display name. A spelling collision never drops a supported operation,
+enum, or DTO, replaces module infrastructure, or makes the otherwise supported
+surface ungeneratable.
 
 The current exact `ConfigureHost(string)` browser bootstrap is consumer policy,
 not a general implication of `[JSExport]`. `ts-jsexport` emits it as an ordinary
@@ -581,8 +590,8 @@ The current implementation predates this decision:
   signature hash but omits that exact dispatch identity from
   `JsExportFunction`; and
 - the current emitter invokes a bare runtime method name, rejects same-spelling
-  managed operations, and rejects distinct DTO identities with the same simple
-  name instead of allocating distinct public names.
+  managed operations, and rejects distinct enum or DTO identities with the
+  same simple name instead of allocating distinct public names.
 
 Those are migration inputs, not compatibility requirements.
 
@@ -615,9 +624,9 @@ The implementation effort should:
    [#4791](https://github.com/richlander/dotnet-inspect/issues/4791) lands;
 10. remove `ValueTask` mapping branches, reject such a hand-composed input
     visibly, and retain the SDK compile-time negative;
-11. allocate deterministic operation and DTO names from complete managed
-    identities, and route every typed reference through that allocation,
-    instead of rejecting collisions; and
+11. allocate deterministic operation, enum, and DTO names from complete
+    managed identities, and route every typed reference through that
+    allocation, instead of rejecting collisions; and
 12. preserve deterministic output and failure-before-publication behavior.
 
 Steps 9 and 11 are atomic for methods sharing one declaring-type path and
@@ -682,11 +691,12 @@ The target remains unverified until all of these gates exist:
 - a compiler test proves the generated TypeScript emits executable JavaScript
   without changing runtime import or public facade semantics;
 - collision fixtures cover operation-to-operation, overload,
-  DTO-to-DTO, operation-to-infrastructure, operation-to-DTO, helper,
-  reserved-name, and post-normalization collisions; every supported operation
-  and DTO retains one deterministic public declaration without renaming or
-  replacing module infrastructure, and every DTO reference resolves to the
-  allocated declaration for its exact typed identity;
+  DTO-to-DTO, enum-to-enum, enum-to-DTO, operation-to-infrastructure,
+  operation-to-wire-declaration, helper, reserved-name, and post-normalization
+  collisions; every supported operation, enum, and DTO retains one
+  deterministic public declaration without renaming or replacing module
+  infrastructure, and every wire-type reference resolves to the allocated
+  declaration for its exact typed identity;
 - after #4791, an overloaded compiled fixture with distinct results proves each
   generated facade function indexes the owner-issued exact runtime key rather
   than the ambiguous bare method name;
