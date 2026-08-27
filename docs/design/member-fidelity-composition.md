@@ -44,7 +44,9 @@ The three-PR stack repeatedly lost evidence at owner boundaries:
 - unavailable or incomplete evidence became a successful `Full` or `Exact`
   result;
 - filtered metadata rows spent decode work before selection, so a bounded
-  operation was bounded only after expensive work had happened.
+  operation was bounded only after expensive work had happened; that
+  owner-internal optimization evidence is dispositioned below, while this map
+  owns only propagation of the owner's typed rejection.
 
 Each defect was locally plausible because its input still looked like the
 answer. The missing design was not another universal identity type. It was an
@@ -60,7 +62,7 @@ policy to this document.
 | --- | --- | --- | --- |
 | Resolved assembly reference | Selected managed-assembly identity, current unguarded opener and optional path, source-specific provenance, and opaque acquisition registration | Supply selected-entry identity and content to Metadata's candidate-open validation before session construction | Does not own artifact acquisition, adapter provenance policy, or PE lifetime |
 | Assembly inspection session | One opened PE lifetime and session-scoped operations | Keep the reader/image coherent and live while Metadata materializes escaping facts | Does not own artifact identity, assembly selection, or Metadata facts |
-| `ILInspector.MetadataPrimitives` | Bounded SRM mechanics, neutral structural identity, raw MethodSemantics rows, and work budgets | Return typed rejection or exhaustion without display or fallback policy | Does not own API identity, fidelity, or reconstruction |
+| `ILInspector.MetadataPrimitives` | Bounded SRM mechanics, neutral structural identity, active guards, and work-budget contracts | Return typed rejection or exhaustion without display or fallback policy; own the registered future lossless MethodSemantics row boundary | Does not own API identity, fidelity, or reconstruction |
 | `ILInspector.Metadata` | Metadata facts, API models, declaration identity, operator classification, MethodImpl relationships, cross-reader method correspondence, and PDB correlations | Materialize reader-local evidence into owner-issued facts carrying every discriminator required by declared consumers | Does not decide body fidelity or render C# |
 | `ILInspector.Analysis` | Whole-assembly IL, body, call-site, `MethodIdentity`, and `MemberRef` evidence | Preserve definition-versus-reference provenance and explicit unknown evidence in body/call-site facts | Does not own API identity, C# representability, or compile-back fidelity |
 | `ILInspector.Decompiler` | Method-body import, typed IR, C# body production, spellability, and body fidelity | Consume owner-issued metadata facts and report unsupported or unspellable projections without inferring identity from text | Does not own API extraction or artifact closure |
@@ -286,15 +288,17 @@ required by declared consumers, including typed semantic refusal.
 
 **Non-claims:** body spellability, donor planning, C# rendering, and `Exact`.
 
-### 2. MetadataPrimitives bounded rejection
+### 2. MetadataPrimitives row and rejection boundary
 
 **Owner:** `ILInspector.MetadataPrimitives`.
 
-**Owning document:**
-[Bounded metadata traversal](bounded-metadata-traversal.md).
+**Owning document:** [Metadata primitives](../metadata-primitives.md).
 
-**Claim:** define the neutral budget and typed rejection result issued to
-Metadata consumers.
+**Supporting contract:**
+[Bounded metadata traversal](bounded-metadata-traversal.md) owns budget policy.
+
+**Claim:** define the registered lossless MethodSemantics row boundary, neutral
+budget, and typed rejection result issued to Metadata consumers.
 
 **Non-claims:** Metadata projection receipt, semantic classification, and
 consumer presentation.
@@ -518,8 +522,8 @@ composition-level target invariants:
   `FinalizerOwnerClassification_DoesNotRematerializeBaseNamesPerMethod`,
   `PdbFinalizerClassifier_UsesIndexedModuleScopedLookup`, and
   `TypesOnlyExtraction_DoesNotBuildMemberOrLocalTypeIndexes` belong to the
-  bounded-traversal and projection owners, which may adopt or supersede their
-  indexing and materialization mechanisms;
+  Metadata projection owner, which may adopt or supersede their indexing and
+  materialization mechanisms;
 - the Decompiler fixture
   `UncheckedInstanceAssignment_MaterializedReceiverVoidLambdaStaysBlockBodied`
   belongs to the Decompiler owner, which may adopt or supersede its receiver
