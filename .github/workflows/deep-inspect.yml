@@ -168,6 +168,7 @@ jobs:
     # round-trip, and packaging remain with their owning daily or release jobs.
     if: >-
       (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') ||
+      inputs.lane == 'test' ||
       inputs.lane == 'platform-test' ||
       inputs.lane == 'all'
     strategy:
