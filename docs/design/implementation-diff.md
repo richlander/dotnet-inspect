@@ -42,11 +42,13 @@ named gates in
 [Target-resolution migration and gates](#target-resolution-migration-and-gates)
 land.
 
-This boundary is owned by `ILInspector.Research` and this document. It consumes
-one already-admitted comparison population, resolves exact member-selection
-intent into side-local attempts, establishes correspondence only from complete
-scope-local evidence, and determines body-presence dispositions before any
-producer runs.
+This boundary is owned by `ILInspector.Research` and this document. For the
+implementation-comparison profile, it consumes one already-admitted comparison
+population, resolves exact member-selection intent into side-local attempts,
+establishes correspondence only from complete scope-local evidence, and
+determines body-presence dispositions before any producer runs. Its admission
+identity contract also supplies the concrete Research identities required by
+both rank-1 profiles.
 
 The adjacent
 [Queries-to-Research population boundary](inspection-layers.md#queries-to-research-population-boundary)
@@ -107,6 +109,16 @@ intent while target resolution is active, but those values are evidence rather
 than identity. Invalid profile input produces a typed Research admission
 rejection before target requests are minted.
 
+The identity and atomic-association contract applies to both rank-1 profiles.
+The target-resolution path in this design initially applies only to the
+implementation-comparison profile, whose admitted assembly content can supply
+Metadata-owned target evidence. The body-signal profile admits only
+`LibraryBodyIndex` today. Research does not open `LibraryBodyIndex.Path`,
+manufacture an `ApiType`, or reimplement Metadata selection over Analysis
+identity. Queries prerequisite #4777 must add exact typed Metadata target
+evidence to that profile before body-signal target requests migrate from the
+string-keyed compatibility path.
+
 ### Side-local requests and attempts
 
 Each immutable member-selection occurrence within one admitted question mints
@@ -123,14 +135,16 @@ request retains:
 - the exact typed `MemberTargetSelector` and declaring-type intent;
 - whether the target is exact or carried from API selection to a physical body
   coordinate; and
-- one `ResearchTargetRelationshipRole`: `Method`, `Getter`, `Setter`, `Adder`,
-  or `Remover`.
+- one `ResearchTargetRelationshipRole`: `None`, `Method`, `Getter`, `Setter`,
+  `Adder`, or `Remover`.
 
 Side and relationship role participate in request identity. An exact address
 is evaluated only in its designated side-local input. A carried selector is
 resolved only through the Metadata surface and body participant admitted for
 that request. No request, selector, address, or successful target fans across
 sides, inputs, questions, operations, or scopes.
+`None` is valid only for a successfully selected non-method-like member with no
+physical body relationship.
 
 Exactly one terminal attempt outcome exists for every request in a completed
 resolution:
@@ -144,6 +158,8 @@ resolution:
   input;
 - `Ambiguous` retains the exact Metadata-owned ambiguity diagnostic and
   candidate evidence;
+- `Rejected` retains the exact Metadata-owned `ConflictingSelectors`
+  diagnostic for an invalid selector combination;
 - `Unavailable` retains one bounded Research diagnostic when the admitted
   input cannot supply an implementation target, including a reference-only
   role; or
@@ -157,7 +173,13 @@ for one of these typed arms. Expected resolution outcomes do not throw.
 ### Complete census and correspondence
 
 After every attempt in a scope is terminal, Research performs one complete
-side-local census. It derives typed `ResearchStrictTargetKey` and
+side-local census. A side census is **healthy** only when every required attempt
+is `Resolved` or `NotFound`. A scope is **blocked** when either side contains a
+Metadata-level `Ambiguous`, `Rejected`, `Unavailable`, or `Failed` attempt.
+Because those outcomes may conceal a target under any correspondence key, a
+blocked scope establishes no semantic pair, absence, addition, or removal.
+
+For healthy attempts Research derives typed `ResearchStrictTargetKey` and
 `ResearchTargetCorrespondenceKey` values from owner-issued target evidence.
 The strict key identifies one resolved physical target in one admitted input.
 The correspondence key deliberately erases only the version-local
@@ -174,28 +196,46 @@ Correspondence is scope-local and has these closed outcomes:
 - `Paired` names exactly one Before and one After strict target with the same
   correspondence key and relationship role;
 - `BeforeOnly` names one Before target plus a complete After-side
-  `ResearchTargetAbsenceProof`;
-- `AfterOnly` names one After target plus a complete Before-side absence proof;
-- `Absent` retains complete side-local absence proof when neither side resolves
-  a target;
+  `ResearchTargetKeyAbsenceProof` for that key and role;
+- `AfterOnly` names one After target plus a complete Before-side key absence
+  proof;
+- `Absent` retains one complete `ResearchTargetScopeAbsenceProof` for each side
+  when neither side resolves any target;
 - `Ambiguous` retains every colliding strict target and attempt when more than
   one distinct strict target on one side has the same correspondence key and
   role; or
-- `CounterpartUnavailable` retains each otherwise-resolved target whose
-  opposite census is failed, ambiguous, unavailable, or incomplete.
+- `CounterpartUnavailable` retains one otherwise-resolved target plus every
+  blocking attempt from either side of its scope; or
+- `ScopeUnavailable` retains every blocking attempt when a blocked scope has no
+  resolved target on either side.
 
-Absence proof is minted only from the complete admitted side population when
-every required attempt is terminal and no target resolves. A missing type or
-member in one input is insufficient while another admitted input remains
-unevaluated. A failed, ambiguous, reference-only, or incomplete attempt is not
-absence. Cancellation aborts the whole invocation before any census or
+A `ResearchTargetKeyAbsenceProof` is keyed by scope, side, correspondence key,
+and relationship role. It is minted only from a complete healthy side census
+with no resolved target for that exact key and role. Other healthy targets with
+different keys do not prevent this proof. A
+`ResearchTargetScopeAbsenceProof` is minted only when a complete healthy side
+census has no resolved target at all.
+
+A missing type or member in one input is insufficient while another admitted
+input remains unevaluated. A Metadata-level ambiguous or rejected selector,
+reference-only input, failed resolution, or incomplete attempt blocks both
+proof kinds. Cancellation aborts the whole invocation before any census or
 resolution result is exposed.
+
+When a scope is blocked, every resolved target on either side becomes its own
+`CounterpartUnavailable` outcome. The same complete blocking-attempt set is
+retained with each outcome so a healthy-looking opposite census cannot hide
+the failed side. If no target resolved, one `ScopeUnavailable` outcome keeps
+the failure visible instead of producing an empty disposition set.
 
 An ambiguity bucket is keyed by scope, side, correspondence key, and role. It
 retains every colliding attempt, strict key, and exact imported diagnostic.
 Every opposite-side target that depended on that key becomes an individual
 `CounterpartUnavailable` outcome. Collisions never collapse into a pair, and
 counterpart failure never becomes a healthy one-sided addition or removal.
+Unlike an unkeyed blocking attempt, a collision bucket taints only that exact
+key and role; unrelated keys in the otherwise healthy scope remain eligible
+for correspondence.
 
 Distinct correspondence keys in an otherwise complete, failure-free scope
 remain distinct `BeforeOnly` and `AfterOnly` outcomes. Research does not guess
@@ -225,14 +265,14 @@ disposition:
 | Correspondence and body presence | Disposition |
 | --- | --- |
 | `Paired(Bodyful, Bodyful)` | `ProducerEligible` with the exact two coordinates |
-| `Paired(Bodyful, Bodyless)` | `BodyRemoved` |
-| `Paired(Bodyless, Bodyful)` | `BodyAdded` |
-| `Paired(Bodyless, Bodyless)` | `NoBody` |
+| `Paired(Bodyful, Bodyless or NotMethodLike)` | `BodyRemoved` |
+| `Paired(Bodyless or NotMethodLike, Bodyful)` | `BodyAdded` |
+| `Paired` with neither side bodyful | `NoBody` |
 | proven `BeforeOnly(Bodyful)` | `BodyRemoved` |
 | proven `AfterOnly(Bodyful)` | `BodyAdded` |
-| proven one-sided `Bodyless` | `NoBody` |
+| proven one-sided `Bodyless or NotMethodLike` | `NoBody` |
 | `Absent` | `TargetAbsent` |
-| ambiguity or unavailable counterpart | `Unavailable` |
+| ambiguity, unavailable counterpart, or unavailable scope | `Unavailable` |
 
 `BodyAdded` and `BodyRemoved` are typed `Different` conclusions whose authority
 is `ResearchBodyPresence`; they do not require a native C#, IL, or Source row.
@@ -258,10 +298,11 @@ stale entries reject construction.
 Every request has exactly one attempt and every attempt has exactly one
 terminal outcome. Every resolved attempt appears in exactly one scope-local
 correspondence outcome. Every correspondence outcome has exactly one
-pre-producer disposition. Aliasing two selection occurrences to the same
-physical target may share immutable resolved evidence within one scope, but it
-does not erase either request or attempt identity and never aliases across
-scopes.
+pre-producer disposition. Repeated or distinct selection occurrences that
+resolve to the same physical target retain distinct scope, request, and attempt
+identities. An implementation may share immutable payload storage, but that
+sharing is unobservable and cannot merge correspondence domains or erase an
+occurrence.
 
 The result is inert. It may retain opaque Research identities, side,
 relationship role, exact owner-issued Metadata target and diagnostic values,
@@ -283,19 +324,25 @@ resolution call and remain owned by their admitting component.
 Migration preserves owner and dependency direction:
 
 1. Research adds the opaque admission identities, atomic
-   `ResearchAdmittedPopulation`, side-local target scopes, requests, attempts,
-   and purpose-built fixtures.
-2. Research adds the Metadata-target adapter, exact relationship roles, durable
-   target keys, body-presence coordinates, and typed expected-failure outcomes.
-   Metadata's resolver and diagnostics remain unchanged.
+   `ResearchAdmittedPopulation`, and purpose-built fixtures for both rank-1
+   profiles. It adds side-local target scopes, requests, and attempts for the
+   implementation-comparison profile.
+2. Research adds that profile's Metadata-target adapter, exact relationship
+   roles, durable target keys, body-presence coordinates, and typed
+   expected-failure outcomes. Metadata's resolver and diagnostics remain
+   unchanged.
 3. Research adds complete scope-local census, correspondence, absence proof,
    and pre-producer disposition. No producer is invoked.
 4. The ResearchQueries companion consumes the admission API and constructs its
-   Queries-owned receipt. The current query and CLI paths remain compatibility
-   adapters until the dependent session and publication efforts land.
+   Queries-owned receipt for both profiles. Body-signal target resolution
+   remains on its compatibility path until Queries prerequisite #4777 supplies
+   exact Metadata target evidence; Research does not compensate for that
+   missing input.
 5. Rank 4 consumes `ProducerEligible` dispositions to create work items and run
-   cataloged local producers. Rank 6 later replaces the string-keyed public
-   target path and publishes the outer result.
+   cataloged local producers.
+6. Rank 6 later migrates the implementation-comparison public path from string
+   target identities and publishes the outer result. Body-signal migration
+   follows #4777 independently.
 
 The target contract remains unimplemented until these named non-vacuity gates
 land:
@@ -305,18 +352,24 @@ land:
 - `ResearchTargetRequests_AreStrictlySideInputAndScopeLocal`
 - `ResearchTargetAttempts_AccountForEveryRequestExactlyOnce`
 - `ResearchTargetResolution_PreservesMetadataDiagnosticsAndAccessorRoles`
+- `ResearchTargetRejectedSelector_PreservesDiagnosticAndBlocksAbsence`
 - `ResearchTargetKeys_AreOwnerIssuedAndNotDisplayDerived`
 - `ResearchTargetCensus_DerivesCompleteAttemptAndCorrespondenceDomains`
 - `ResearchTargetCensus_IsolatesAmbiguityAndTaintsCounterparts`
-- `ResearchTargetAbsence_RequiresCompleteFailureFreeSideCensus`
+- `ResearchTargetCensus_BlockedScopeTaintsResolvedTargetsOnBothSides`
+- `ResearchTargetCensus_BlockedScopeWithoutResolvedTargetsIsVisible`
+- `ResearchTargetKeyAbsence_RequiresCompleteHealthyKeyLocalCensus`
+- `ResearchTargetScopeAbsence_RequiresCompleteHealthyEmptySide`
 - `ResearchTargetFailure_NeverBecomesSemanticAdditionOrRemoval`
+- `ResearchTargetOccurrences_RemainDistinctAcrossScopes`
 - `ResearchBodyPresence_TreatsBodylessAsResolved`
+- `ResearchBodyPresence_AccountsForNotMethodLikeTargets`
 - `ResearchBodyPresence_RejectsCrossModuleBodyEvidence`
 - `ResearchBodyPresence_DecidesMixedAndOneSidedTransitionsBeforeProducers`
 - `ResearchBodyPresence_BothBodyfulOnlyEstablishesProducerEligibility`
 - `ResearchTargetResolution_RetainsNoBorrowedResourcesOrPresentation`
 - `ResearchTargetCancellation_ExposesNoPartialPopulationOrResult`
-- `ResearchTargetPath_HasNoStringKeyedIdentityBag`
+- `ResearchImplementationTargetPath_HasNoStringKeyedIdentityBag`
 
 The expected admission, request, attempt, correspondence, and disposition sets
 must be derived from their declarations. The totality gates fail for both
@@ -326,7 +379,8 @@ bodyful/bodyful case becomes `ProducerEligible`; no producer seam exists or is
 invoked in this slice. The string-key gate inspects the new target-path public
 and internal signatures rather than only exercising a successful fixture;
 explicit compatibility adapters remain until the dependent migration removes
-them.
+them. Purpose-built profile fixtures also prove that a body-signal admission
+cannot enter the target path without the typed prerequisite from #4777.
 
 ### Target-resolution non-goals
 
@@ -336,6 +390,7 @@ This boundary does not define:
   shape;
 - Metadata selector parsing, single-surface resolution, anchor/address
   construction, or diagnostic semantics;
+- the Queries-owned body-signal target-evidence prerequisite tracked by #4777;
 - package acquisition, role planning, workspace composition, resource cleanup,
   or budgets;
 - work-item construction, producer cataloging or execution, native C#/IL
