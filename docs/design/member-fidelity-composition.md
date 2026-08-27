@@ -13,7 +13,7 @@ The map covers four questions:
 1. Which owner establishes each fact?
 2. Which typed distinctions must cross each handoff?
 3. Which evidence permits a fidelity or `Exact` claim?
-4. Which focused owner contracts must land before implementation resumes?
+4. Which focused owner changes must land before implementation resumes?
 
 The target invariants below are **unverified** until the focused owner changes
 and named gates in [Enforcement plan](#enforcement-plan) land. The three
@@ -62,7 +62,7 @@ policy to this document.
 | --- | --- | --- | --- |
 | Resolved assembly reference | Selected managed-assembly identity, current unguarded opener and optional path, source-specific provenance, and opaque acquisition registration | Supply selected-entry identity and content to Metadata's candidate-open validation before session construction | Does not own artifact acquisition, adapter provenance policy, or PE lifetime |
 | Assembly inspection session | One opened PE lifetime and session-scoped operations | Keep the reader/image coherent and live while Metadata materializes escaping facts | Does not own artifact identity, assembly selection, or Metadata facts |
-| `ILInspector.MetadataPrimitives` | Bounded SRM mechanics, neutral structural identity, active guards, and work-budget contracts | Return typed rejection or exhaustion without display or fallback policy; own the registered future lossless MethodSemantics row boundary | Does not own API identity, fidelity, or reconstruction |
+| `ILInspector.MetadataPrimitives` | Bounded SRM mechanics, neutral structural identity, active guards, and work-budget contracts | Return typed mechanical evidence, rejection, or exhaustion without display or fallback policy | Does not own API identity, fidelity, or reconstruction |
 | `ILInspector.Metadata` | Metadata facts, API models, declaration identity, operator classification, MethodImpl relationships, cross-reader method correspondence, and PDB correlations | Materialize reader-local evidence into owner-issued facts carrying every discriminator required by declared consumers | Does not decide body fidelity or render C# |
 | `ILInspector.Analysis` | Whole-assembly IL, body, call-site, `MethodIdentity`, and `MemberRef` evidence | Preserve definition-versus-reference provenance and explicit unknown evidence in body/call-site facts | Does not own API identity, C# representability, or compile-back fidelity |
 | `ILInspector.Decompiler` | Method-body import, typed IR, C# body production, spellability, and body fidelity | Consume owner-issued metadata facts and report unsupported or unspellable projections without inferring identity from text | Does not own API extraction or artifact closure |
@@ -288,17 +288,20 @@ required by declared consumers, including typed semantic refusal.
 
 **Non-claims:** body spellability, donor planning, C# rendering, and `Exact`.
 
-### 2. MetadataPrimitives row and rejection boundary
+### 2. MetadataPrimitives MethodSemantics activation
 
 **Owner:** `ILInspector.MetadataPrimitives`.
 
 **Owning document:** [Metadata primitives](../metadata-primitives.md).
 
 **Supporting contract:**
-[Bounded metadata traversal](bounded-metadata-traversal.md) owns budget policy.
+[Bounded metadata traversal](bounded-metadata-traversal.md) owns budget policy;
+[Member inspection planning and Metadata projection](member-inspection-planning-and-metadata-projection.md)
+owns the `MDP016` integration and closure gate.
 
-**Claim:** define the registered lossless MethodSemantics row boundary, neutral
-budget, and typed rejection result issued to Metadata consumers.
+**Claim:** activate and gate the already-registered lossless MethodSemantics
+row boundary and neutral budget, issuing typed rows or rejection to Metadata
+consumers without defining another row contract here.
 
 **Non-claims:** Metadata projection receipt, semantic classification, and
 consumer presentation.
@@ -468,6 +471,7 @@ per-row status is authoritative.
 | Selected-entry assembly identity matches candidate content before registration or session-backed use | `InspectionAcquisitionPlanTests.Register_DescriptorIdentityMismatch_IsTypedInvalidImage`, `InspectionAcquisitionPlanTests.Session_WhenSourceChangesAfterInventory_RejectsImage`, and `AssemblyContextSearchQueryTests.TypeInventory_CarriesRejectedParticipantBesideAvailableResult` | Enforced on `main` for Metadata's candidate-open/plan-owned session paths and the snapshot-backed workspace query path; the direct reference-to-session compatibility overload is ungated |
 | Artifact descriptors expose no unguarded content route | `ArtifactDescriptor_ExposesNoUnguardedContentRoute` | Enforced on `main` |
 | Target artifact identity, acquisition registration, and authorized access stay bound to admitted snapshot content | `ArtifactAdmission_ProjectsAssembliesThroughAuthorizedLease` and `ArtifactOpen_RejectsContentSubstitutionAfterAdmission` | Planned and unverified by [Artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md) |
+| Lossless MethodSemantics rows cross the primitive-to-Metadata boundary mechanically and within the neutral budget | None; `MDP016` must land its raw-oracle, malformed-row, budget, platform, and architecture-closure gates | Planned and unverified |
 | Analysis operator evidence preserves unknown MemberRefs | `MetadataOperatorFactTests.CrossAssemblyMemberReferences_StayUnknown` | Candidate only; unverified on `main` |
 | Body operator identity and spelling stay separate | `UnresolvedKnownFrameworkOperatorDelegateTarget_DegradesToPartial`, `UnresolvedKnownFrameworkOperatorCall_StaysFull` | Candidate only; unverified on `main` |
 | CLI operator display consumes typed classification | `PopulateMemberSections_FormatsOnlyTypedOperatorsAsOperators` | Candidate only; unverified on `main` |
@@ -492,6 +496,8 @@ The named immediate consumers must collectively include at least one seam
 specimen for each of these paths:
 
 - selected-entry assembly identity to immutable content before session opening;
+- lossless MethodSemantics rows and typed rejection from MetadataPrimitives to
+  Metadata;
 - Metadata operator fact to CSharp declaration representability;
 - Analysis operator fact to Research/body projection;
 - owner-issued operator fact to Decompiler body fidelity;
