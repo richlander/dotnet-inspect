@@ -96,19 +96,19 @@ confirmed.
   never cite it as validation. If a change should have triggered a job that
   skipped, the path filter is the bug.
 
-### Resolving `UNKNOWN`
+### Resolving unknown mergeability
 
-`UNKNOWN` means GitHub has not finished computing the merge, and it does not
-satisfy the zero-conflict gate. It is a GraphQL answer; the REST PR endpoint
-triggers the computation, so reaching for the REST pair often returns a definite
-result while GraphQL still says `UNKNOWN`.
+GraphQL `UNKNOWN` and REST `mergeable: null` mean GitHub has not finished
+computing the merge; neither satisfies the zero-conflict gate. The REST PR
+endpoint triggers the computation, so a later REST snapshot often returns a
+definite result.
 
-Accept it only when `head.sha` is the expected head. `mergeable: true` satisfies
-the mergeability half of the gate; `mergeable: false` blocks. A null result is
-still computing: schedule one run for five minutes later with small random
-jitter, then end the current run. Continue that one-shot self-recovery until
-GitHub returns a definite result. Do not ask the user to report CI or
-mergeability.
+Accept a snapshot only when its returned head is the expected head.
+`mergeable: true` satisfies the mergeability half of the gate;
+`mergeable: false` blocks. A null result is still computing: schedule one run
+for five minutes later with small random jitter, then end the current run.
+Continue that one-shot self-recovery until GitHub returns a definite result. Do
+not ask the user to report CI or mergeability.
 
 ### Cadence
 
@@ -122,31 +122,40 @@ unresolved. Run immediately if that target time has already passed. The future
 turn is intentional; do not reject scheduling because it consumes one, and do
 not wait for the user to volunteer status.
 
+Retain the active schedule ID beside its expected head and waiting predicate.
+Cancel it immediately when the predicate clears, the head is superseded, or
+the workflow otherwise leaves that wait — including when the user supplies a
+trusted "CI is ready" result. A replacement head never inherits the old
+schedule.
+
 The run must be one-shot. If the scheduler only creates recurring schedules,
-the scheduled prompt must stop its own schedule before its first API call. It
-then performs one REST snapshot, acts on a terminal result, or creates exactly
-one replacement schedule at the next cadence below. Never leave a fixed-rate
-schedule active, hold a synchronous shell or agent turn open with `sleep`, or
-make extra status calls in the same run.
+its prompt first compares its own ID, expected head, and waiting predicate with
+the retained state. A stale run stops its schedule and exits without an API
+call. A current run stops its schedule and clears the retained ID before its
+first API call. It then performs one REST snapshot, acts on a terminal result,
+or creates exactly one replacement schedule at the next cadence below. Never
+leave a fixed-rate schedule active, hold a synchronous shell or agent turn open
+with `sleep`, or make extra status calls in the same run.
 
 | Status run says | Do this |
 | --- | --- |
 | `ci-required` failed or was cancelled | Classify it and apply the applicable [recovery transition](../AGENTS.md#recovery-transitions). A settled red result is an answer, not something to wait out. |
-| `CONFLICTING` | Apply the conflict transition in [Canonical round flow](../AGENTS.md#canonical-round-flow), then schedule one new five-minute check when status gates progress again. |
-| `MERGEABLE`, `ci-required` green at this head | **Done.** Clear the waiting state and proceed to whatever waited on the answer. |
-| `UNKNOWN` or null mergeability, CI green | Schedule one REST snapshot for five minutes later; see [resolving `UNKNOWN`](#resolving-unknown). |
-| `UNKNOWN`, CI pending or missing | Follow up at 10 minutes plus jitter for documentation-only, or at the 35-minute mark otherwise. |
-| `MERGEABLE`, documentation-only | Treat it as the expected CI completion check. If CI is unexpectedly pending, wait 10 minutes plus jitter. |
-| `MERGEABLE`, not documentation-only | Expect CI at about 35 minutes from the push; schedule the next check about 30 minutes out. |
+| `mergeable: false` | Apply the conflict transition in [Canonical round flow](../AGENTS.md#canonical-round-flow), then schedule one new five-minute check when status gates progress again. |
+| `mergeable: true`, `ci-required` green at this head | **Done.** Clear the waiting state and proceed to whatever waited on the answer. |
+| `mergeable: null`, CI green | Schedule one REST snapshot for five minutes later; see [resolving unknown mergeability](#resolving-unknown-mergeability). |
+| `mergeable: null`, CI pending or missing | Schedule one successor 10 minutes plus jitter after this snapshot for documentation-only changes, or 30 minutes after this snapshot otherwise. |
+| `mergeable: true`, documentation-only | Treat it as the expected CI completion check. If CI is unexpectedly pending, schedule one successor 10 minutes plus jitter after this snapshot. |
+| `mergeable: true`, not documentation-only | Schedule one successor about 30 minutes after this snapshot. |
 
 Read the table top-down: the first matching row wins. A failed or cancelled
-check outranks every mergeability value, because `MERGEABLE` describes the merge
-path and never means green. The green row is the exit; every pending row creates
-one later run, not a polling loop.
+check outranks every mergeability value, because `mergeable: true` describes
+the merge path and never means green. The green row is the exit; every pending
+row creates one later run, not a polling loop.
 
-If both mergeability and CI remain unresolved, keep at least 10 minutes plus
-small random jitter between status checks. Switch to the five-minute cadence
-once CI is green and mergeability is the only unknown.
+Every successor delay is relative to the snapshot that just completed, never
+to the original push. If both mergeability and CI remain unresolved, keep at
+least 10 minutes plus small random jitter between status checks. Switch to the
+five-minute cadence once CI is green and mergeability is the only unknown.
 
 These intervals are minimums, not targets: wait longer when no decision depends
 on an immediate result. A pending result always ends the current run after its

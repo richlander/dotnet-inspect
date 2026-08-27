@@ -134,6 +134,12 @@ Always target `"${TMUX_PANE:?}"`. The state must include
 is `continue`, `wait`, `merge`, `approve`, or `stop`. Clear both options when the
 window no longer owns the work.
 
+Add `schedule=<id>` whenever a delayed status run is armed. Remove it when the
+schedule is cancelled or fires; it is valid only for the recorded `head` and
+`waiting` predicate. Follow
+[Status discovery](docs/round-orchestration.md#status-discovery) for the
+one-shot scheduling protocol.
+
 `blocked` and `waiting` are both things you are waiting on, split by **who can
 act on them**:
 
