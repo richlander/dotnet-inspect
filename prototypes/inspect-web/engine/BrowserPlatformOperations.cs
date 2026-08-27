@@ -15,37 +15,57 @@ public static partial class InspectionEngine
 
     [JSExport]
     public static async Task<string> LoadRuntimePack(
-        string targetFramework)
+        string targetFramework,
+        string platformVersion)
     {
         using BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenRuntimeAsync(
-                targetFramework);
+                targetFramework,
+                platformVersion);
         return ProjectPlatformSurface(resolution);
     }
+
+    public static Task<string> LoadRuntimePack(
+        string targetFramework) =>
+        LoadRuntimePack(targetFramework, "");
 
     [JSExport]
     public static async Task<string> LoadRuntimePackAssembly(
         string targetFramework,
+        string platformVersion,
         string assemblyFileName,
         string pack)
     {
         using BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
+                platformVersion,
                 assemblyFileName,
                 pack);
         return ProjectPlatformSurface(resolution);
     }
 
+    public static Task<string> LoadRuntimePackAssembly(
+        string targetFramework,
+        string assemblyFileName,
+        string pack) =>
+        LoadRuntimePackAssembly(
+            targetFramework,
+            "",
+            assemblyFileName,
+            pack);
+
     [JSExport]
     public static async Task<string> QueryPlatformIntegrations(
         string targetFramework,
+        string platformVersion,
         string assemblyFileName,
         string pack)
     {
         using BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
+                platformVersion,
                 assemblyFileName,
                 pack);
         AssemblyIntegrationsEntry result =
@@ -61,15 +81,27 @@ public static partial class InspectionEngine
             BrowserJsonContext.Default.BrowserPackageIntegrations);
     }
 
+    public static Task<string> QueryPlatformIntegrations(
+        string targetFramework,
+        string assemblyFileName,
+        string pack) =>
+        QueryPlatformIntegrations(
+            targetFramework,
+            "",
+            assemblyFileName,
+            pack);
+
     [JSExport]
     public static async Task<string> QueryPlatformOpportunities(
         string targetFramework,
+        string platformVersion,
         string assemblyFileName,
         string pack)
     {
         using BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
+                platformVersion,
                 assemblyFileName,
                 pack);
         AssemblyIntegrationOpportunitiesEntry result =
@@ -86,9 +118,20 @@ public static partial class InspectionEngine
             BrowserJsonContext.Default.BrowserPackageOpportunities);
     }
 
+    public static Task<string> QueryPlatformOpportunities(
+        string targetFramework,
+        string assemblyFileName,
+        string pack) =>
+        QueryPlatformOpportunities(
+            targetFramework,
+            "",
+            assemblyFileName,
+            pack);
+
     [JSExport]
     public static async Task<string> ExpandPlatformCallGraph(
         string targetFramework,
+        string platformVersion,
         string assembly,
         string pack,
         string assemblyVersion,
@@ -103,6 +146,7 @@ public static partial class InspectionEngine
         using PlatformGraphBuild build =
             await BuildPlatformGraphAsync(
                 targetFramework,
+                platformVersion,
                 assembly,
                 pack,
                 assemblyVersion,
@@ -146,8 +190,33 @@ public static partial class InspectionEngine
             BrowserJsonContext.Default.BrowserCallGraph);
     }
 
+    public static Task<string> ExpandPlatformCallGraph(
+        string targetFramework,
+        string assembly,
+        string pack,
+        string assemblyVersion,
+        string? assemblyCulture,
+        string? assemblyPublicKeyToken,
+        string typeFullName,
+        string memberName,
+        string selectorKey,
+        int metadataToken) =>
+        ExpandPlatformCallGraph(
+            targetFramework,
+            "",
+            assembly,
+            pack,
+            assemblyVersion,
+            assemblyCulture,
+            assemblyPublicKeyToken,
+            typeFullName,
+            memberName,
+            selectorKey,
+            metadataToken);
+
     static async Task<PlatformGraphBuild> BuildPlatformGraphAsync(
         string targetFramework,
+        string platformVersion,
         string assembly,
         string pack,
         string assemblyVersion,
@@ -174,6 +243,7 @@ public static partial class InspectionEngine
         using var owner = new PlatformScopeOwner(
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
+                platformVersion,
                 assemblyFileName,
                 pack));
         string rootFamily = owner.Current.Coordinate.Family;
@@ -201,6 +271,7 @@ public static partial class InspectionEngine
                 await ResolvePlatformMemberAsync(
                     owner,
                     targetFramework,
+                    platformVersion,
                     rootFamily,
                     rootAssembly,
                     typeFullName,
@@ -253,6 +324,7 @@ public static partial class InspectionEngine
             owner.Replace(
                 await BrowserPlatformWorkspace.OpenAssembliesAsync(
                     targetFramework,
+                    platformVersion,
                     requests));
         }
 
@@ -264,6 +336,7 @@ public static partial class InspectionEngine
     static async Task<PlatformMemberFocus> ResolvePlatformMemberAsync(
         PlatformScopeOwner owner,
         string targetFramework,
+        string platformVersion,
         string rootFamily,
         string rootAssembly,
         string typeFullName,
@@ -402,6 +475,7 @@ public static partial class InspectionEngine
             owner.Replace(
                 await BrowserPlatformWorkspace.OpenAssemblyAsync(
                     targetFramework,
+                    platformVersion,
                     $"{target.Name}.dll",
                     targetPack));
         }
