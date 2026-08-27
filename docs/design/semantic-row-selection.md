@@ -167,7 +167,7 @@ public sealed class RowSelectionPlan<TOrder>
 }
 
 public sealed class NamedRowSequence<TKey, T>
-    where TKey : notnull
+    where TKey : unmanaged, IEquatable<TKey>
 {
     public TKey Key { get; }
     public IReadOnlyList<T> Values { get; }
@@ -185,7 +185,7 @@ public sealed class RowRangeFailure
 }
 
 public sealed class NamedRowRangeFailure<TKey>
-    where TKey : notnull
+    where TKey : unmanaged, IEquatable<TKey>
 {
     public TKey Key { get; }
     public RowRangeFailure Failure { get; }
@@ -199,7 +199,7 @@ public sealed class RowSelectionResult<T>
 }
 
 public sealed class NamedRowSelectionResult<TKey, T>
-    where TKey : notnull
+    where TKey : unmanaged, IEquatable<TKey>
 {
     public bool IsSuccess { get; }
     public IReadOnlyList<NamedRowSequence<TKey, T>> Sequences { get; }
@@ -218,7 +218,7 @@ public static class RowSelectionExecutor
         IReadOnlyList<NamedRowSequence<TKey, T>> sequences,
         RowSelectionPlan<TOrder> plan,
         Func<TOrder, IComparer<T>?>? comparerResolver = null)
-        where TKey : notnull
+        where TKey : unmanaged, IEquatable<TKey>
         where TOrder : notnull;
 }
 ```
@@ -244,7 +244,10 @@ and `Append` returns a new plan without changing the prior value. Stage values
 copy their opaque `TOrder`; callers must supply an immutable order value whose
 equality and meaning do not change after plan construction.
 
-`NamedRowSequence.Create` snapshots value membership and order.
+`NamedRowSequence.Create` copies its unmanaged key by value and snapshots value
+membership and order. Named execution compares the stored key copies with
+`EqualityComparer<TKey>.Default`; duplicate stored keys reject before any
+sequence is evaluated.
 `RowSelectionExecutor` returns component-owned snapshots on every success path,
 including empty plans and lenient stages that retain every value. Success
 results have a null `Failure`; failure results have an empty immutable value or
@@ -256,8 +259,10 @@ The component snapshots collections, not row objects. Every selected `T` is the
 same caller-owned value or reference supplied at the boundary. Mutating a
 mutable `T` remains visible by design; mutating a source collection after
 `Create` or `Apply` does not change plan, named-input, or result membership and
-order. Callers must not mutate a source collection concurrently with the
-synchronous boundary call.
+order. Mutating the caller's original key struct after named-input creation
+does not change stored duplicate comparison or failure identity. Callers must
+not mutate a source collection concurrently with the synchronous boundary
+call.
 
 A fixture project outside the component compiles against every signature above
 and executes every entry point. The same manifest gate rejects extra public
@@ -344,7 +349,8 @@ unresolved field name.
 
 The keyed overload applies the same plan independently to every input sequence.
 L2 uses those keys for declared row-set identity, but the component treats them
-as opaque values. Duplicate keys reject at the boundary so a failure never
+as opaque copied values. `EqualityComparer<TKey>.Default` compares the stored
+key snapshots. Duplicate keys reject at the boundary so a failure never
 identifies an ambiguous input.
 
 Strict validation is atomic across those sequences. If any applicable sequence
@@ -440,7 +446,8 @@ The implementation must add these named Release gates:
 | `RowSelectionRejectsNullBoundaryInputs` | Every required reference argument rejects null; a null resolver is accepted only without `Top`; nullable row values remain ordinary selected values. |
 | `StageAccessorsRejectWrongKind` | Each kind exposes only its documented values; every wrong-kind `Count`, `Start`, `End`, or `Order` access throws rather than returning a plausible default. |
 | `StrictRangesValidateNamedSequencesAtomically` | A strict-range miss in any one of several keyed sequences identifies the key and stage and returns no selected sequence collection. |
-| `SelectionFailuresAreDeterministic` | Multiple failing named sequences return the first failure by input sequence order and stage order; duplicate keys reject before execution. |
+| `SelectionFailuresAreDeterministic` | Multiple failing named sequences return the first failure by input sequence order and stage order; duplicate stored keys reject before execution under `EqualityComparer<TKey>.Default`. |
+| `NamedSequenceKeysAreStableSnapshots` | A mutable unmanaged equatable key is copied at named-input creation; mutating the caller's original struct cannot change duplicate detection, named result keys, or failure identity. |
 | `RowRangeFailureShapeIsExact` | Unkeyed failures contain exactly stage number, required position, and available count; named failures add only the opaque key. Closed ranges report their end and open ranges report their start against the post-predecessor count. |
 | `TopRetainsCurrentOrderForEqualRanks` | Equal comparer results preserve current sequence order, including after an earlier stage changed the current sequence. |
 | `SelectionReturnsOriginalValuesInOrder` | The executor preserves each original caller-owned `T` value or reference without cloning, relabeling, or deriving identity from stage positions. |

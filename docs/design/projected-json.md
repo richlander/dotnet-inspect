@@ -101,14 +101,14 @@ display columns from JSON property names.
 | Lowered JSON plus `-S` | Lowered | Select sections before applying per-section projection. |
 | Lowered JSON plus released row/line gestures | Lowered | Preserve current routing; future item selection must consume the shared component before serialization. |
 | Lowered JSON plus `--compact` | Lowered | Change whitespace only. |
-| Printable JSON plus `-n N --lines` | Payload contract | Clip each selected content value before serialization; never truncate encoded JSON. |
+| Printable JSON plus future line selection | Payload contract | The pending payload/line design must preserve complete encoded values and owns the exact syntax and clipping behavior. |
 
-`-S`, `-n`, `--rows`, and `--compact` do not opt into lowering. They modify
-whichever dialect the request already selected. Every adopted lowered path must
-honor or reject these modifiers rather than ignore them. Typed modifier
-conformance is separate work: this routing decision neither promises that every
-command accepts those combinations nor legitimizes an existing silently
-dropped modifier.
+Released section, row, line, and compact modifiers do not opt into lowering.
+They modify whichever dialect the request already selected. Every adopted
+lowered path must honor or reject supported modifiers rather than ignore them.
+Typed modifier conformance and future selection syntax are separate work: this
+routing decision neither promises that every command accepts those
+combinations nor legitimizes an existing silently dropped modifier.
 
 Payload projections such as `--count`, `--value`, `--print`, `--urls`, and
 `--paths` keep the contracts in [Output shapes](output-shapes.md). An accepted
