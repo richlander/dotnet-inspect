@@ -198,6 +198,18 @@ malformed-XML outcome. L1 preserves that classification rather than inferring a
 resource-limit reason from exception text; distinguishing it requires an
 explicit parser-owned contract.
 
+Real-package compatibility evidence is pinned by coordinate and exact manifest
+hash in [`eng/package-manifest-corpus.json`](../../eng/package-manifest-corpus.json).
+The ordinary `PackageManifestCorpusTests` gate is deterministic and offline; it
+validates the catalog's complete structural coverage and the verifier's visible,
+content-free hash and oracle failures. The explicit
+[`eng/verify-package-manifest-corpus.cs`](../../eng/verify-package-manifest-corpus.cs)
+gate fetches bounded exact bytes, runs the L1 query, and compares its facts with
+a test-only NuGet.Packaging oracle. Neither downloaded third-party content nor
+the oracle dependency enters a product, NativeAOT, or Browser path. The pinned
+coordinates, hashes, baseline, and maintenance procedure are recorded in
+[`eng/package-manifest-corpus.md`](../../eng/package-manifest-corpus.md).
+
 L1 does not reference Markout.
 
 ### L2 — `DotnetInspector.Sections`
