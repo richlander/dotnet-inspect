@@ -927,9 +927,11 @@ Put it under `## Demo` above validation in the PR body.
   this way.
 - Treat CI as confirmation: run the focused local gate, then push promptly.
   Run eligible local suites, CI, and review concurrently.
-- Use [status discovery](docs/round-orchestration.md#status-discovery): REST by
-  default, GraphQL only when breadth is worth its shared quota, and scheduled
-  checks rather than polling.
+- Treat GitHub API capacity as shared and scarce. Follow
+  [status discovery](docs/round-orchestration.md#status-discovery): use REST
+  only when the result gates the next action, never probe quota or use GraphQL
+  for routine status, and schedule exactly one cancellable run instead of
+  polling or waiting for the user to report CI.
 - A settled candidate should spend wall-clock time in parallel. If an hour
   passes without an authored change while an independent gate has not started,
   fix the sequencing or record the blocker.

@@ -21,51 +21,23 @@ eligibility table in [Canonical round flow](../AGENTS.md#canonical-round-flow).
 
 ### Which API to spend
 
-Default to REST. Reach for GraphQL when its capability is worth a point.
+Treat the shared GitHub API budget as scarce and normally contended. A status
+read is justified only when its answer unlocks an eligibility, recovery,
+completion, or merge decision. Do not check merely because a push happened or
+because time passed; run independent local gates and eligible review work
+first.
 
-The two draw on separate hourly limits, so spending one does not touch the
-other. Checking is cheap: `rate_limit` does not consume the `core` or `graphql`
-quota it reports, verified by three consecutive calls leaving both counters
-unchanged. It is not unlimited — GitHub's secondary rate limits still apply — so
-read it when you need it, not in a loop.
+Use REST for every routine status snapshot. Do not call `rate_limit` before a
+snapshot, use GraphQL as a fallback for exhausted REST, or spend one bucket to
+discover whether the other has room. Those calls consume shared capacity
+without advancing the PR. If REST is rate-limited, publish the gating predicate
+as `waiting`, schedule one retry after the reported reset, and yield. If the
+reset is unavailable, wait at least one hour.
 
-```bash
-gh api rate_limit --jq '.resources|to_entries[]
-  |select(.key=="core" or .key=="graphql")
-  |"\(.key)\tused=\(.value.used)/\(.value.limit)\treset=\(.value.reset|todate)"'
-```
-
-```text
-core     used=10/5000     reset=2026-08-21T22:55:53Z
-graphql  used=335/5000    reset=2026-08-21T23:12:28Z
-```
-
-Read the reset, not just the remaining count. That sample looks like GraphQL has
-plenty left, but it was taken three minutes into a fresh window. Concurrent
-agents were burning roughly 77 points per minute, which projects to about 4,600
-of the 5,000 before it resets — consistent with two earlier readings that caught
-the same window late, at 4,077 and 4,287 consumed. REST core stayed at single
-digits throughout.
-
-So GraphQL is reliably contended and REST reliably is not, but a spot check
-early in a window will tell you the opposite.
-
-The cost models differ in the way that decides the rule. A REST call costs one
-request whatever it returns, so a wide question costs a call per object. A
-GraphQL query is priced by node count, but the floor dominates in practice: the
-routine status query at 101 nodes and a deliberately wide one at 701 nodes — PR
-fields, live base tip, 50 review threads with their comments, 50 reviews, 100
-check contexts — both cost **1 point**.
-
-GraphQL's value per point therefore rises with breadth, while REST's cost rises
-with it. Spend a point when you are buying breadth:
-
-- **Quick checks — REST.** Is this head mergeable, did `ci-required` pass. Two
-  calls, from a bucket with thousands to spare.
-- **Wide or graph-shaped reads — GraphQL.** The whole PR at one instant, review
-  threads with their comments, anything needing the live base tip beside other
-  fields. One point buys what would be five or ten REST calls.
-- **Either bucket near exhaustion — use the other**, whatever the question.
+Use GraphQL only when the task genuinely requires graph-shaped data that the
+REST pair cannot provide economically, such as review threads with their
+comments or a single consistent snapshot of several related objects. Never use
+GraphQL for ordinary CI or mergeability monitoring.
 
 ### The REST pair
 
@@ -86,9 +58,10 @@ endpoint also triggers mergeability computation, which is why it resolves
 
 ### The GraphQL query
 
-One request, one point, and one consistent snapshot. Prefer it when you need
-breadth — the live base tip that carry-forward reads, review threads, or the
-whole PR at a single instant — or when REST is the contended bucket.
+One request can provide one consistent, graph-shaped snapshot. Reserve it for
+work that needs that shape — the live base tip that carry-forward reads, review
+threads, or the whole PR at a single instant — never as the routine status path
+or a substitute when REST is rate-limited.
 
 Return `headRefOid`, `baseRefOid`, `baseRef { target { oid } }`, `isDraft`,
 `mergeable`, `mergeStateStatus`, `statusCheckRollup` state and contexts with
@@ -132,43 +105,53 @@ result while GraphQL still says `UNKNOWN`.
 
 Accept it only when `head.sha` is the expected head. `mergeable: true` satisfies
 the mergeability half of the gate; `mergeable: false` blocks. A null result is
-still computing: yield five minutes with small random jitter, then ask again.
-Continue that self-recovery until GitHub returns a definite result. Do not ask
-the user to report CI or mergeability.
+still computing: schedule one run for five minutes later with small random
+jitter, then end the current run. Continue that one-shot self-recovery until
+GitHub returns a definite result. Do not ask the user to report CI or
+mergeability.
 
 ### Cadence
 
-Status discovery must conserve the shared GitHub API budget. After every push,
-schedule one status check for five minutes later; do not hold a synchronous shell
-or agent turn open with `sleep`. That first check verifies the expected head and
-detects conflicts early.
+Status discovery must conserve the shared GitHub API budget. Do not arm a check
+while independent work can continue. Once CI or mergeability actually gates the
+next action, publish `waiting=checks` or `waiting=merge` with `rec=wait`, then
+schedule exactly one status run for the next useful time: 10 minutes after the
+push for documentation-only changes, 35 minutes after the push otherwise, or
+five minutes later when CI is already green and mergeability alone is
+unresolved. Run immediately if that target time has already passed. The future
+turn is intentional; do not reject scheduling because it consumes one, and do
+not wait for the user to volunteer status.
 
-| First check says | Do this |
+The run must be one-shot. If the scheduler only creates recurring schedules,
+the scheduled prompt must stop its own schedule before its first API call. It
+then performs one REST snapshot, acts on a terminal result, or creates exactly
+one replacement schedule at the next cadence below. Never leave a fixed-rate
+schedule active, hold a synchronous shell or agent turn open with `sleep`, or
+make extra status calls in the same run.
+
+| Status run says | Do this |
 | --- | --- |
-| `ci-required` failed or was cancelled | Stop polling. Classify it and apply the applicable [recovery transition](../AGENTS.md#recovery-transitions). A settled red result is an answer, not something to wait out. |
-| `CONFLICTING` | Apply the conflict transition in [Canonical round flow](../AGENTS.md#canonical-round-flow), then schedule a new five-minute check. |
-| `MERGEABLE`, `ci-required` green at this head | **Done. Stop polling** and proceed to whatever waited on the answer. |
-| `UNKNOWN`, CI green | Ask REST, which triggers the computation; see [resolving `UNKNOWN`](#resolving-unknown). |
+| `ci-required` failed or was cancelled | Classify it and apply the applicable [recovery transition](../AGENTS.md#recovery-transitions). A settled red result is an answer, not something to wait out. |
+| `CONFLICTING` | Apply the conflict transition in [Canonical round flow](../AGENTS.md#canonical-round-flow), then schedule one new five-minute check when status gates progress again. |
+| `MERGEABLE`, `ci-required` green at this head | **Done.** Clear the waiting state and proceed to whatever waited on the answer. |
+| `UNKNOWN` or null mergeability, CI green | Schedule one REST snapshot for five minutes later; see [resolving `UNKNOWN`](#resolving-unknown). |
 | `UNKNOWN`, CI pending or missing | Follow up at 10 minutes plus jitter for documentation-only, or at the 35-minute mark otherwise. |
 | `MERGEABLE`, documentation-only | Treat it as the expected CI completion check. If CI is unexpectedly pending, wait 10 minutes plus jitter. |
 | `MERGEABLE`, not documentation-only | Expect CI at about 35 minutes from the push; schedule the next check about 30 minutes out. |
 
 Read the table top-down: the first matching row wins. A failed or cancelled
 check outranks every mergeability value, because `MERGEABLE` describes the merge
-path and never means green. The green row is the exit: every other row schedules
-another check, so polling stops only by reaching it or by leaving for a recovery
-transition.
+path and never means green. The green row is the exit; every pending row creates
+one later run, not a polling loop.
 
 If both mergeability and CI remain unresolved, keep at least 10 minutes plus
 small random jitter between status checks. Switch to the five-minute cadence
 once CI is green and mergeability is the only unknown.
 
-If the bucket you are spending is near exhaustion, switch to the other one; if
-both are low, yield until the earlier reset rather than sleeping or continuing
-to query. These intervals are minimums, not targets: wait longer when no
-decision depends on an immediate result. Yield the session or schedule a delayed
-wake-up between checks. Do not use `gh run watch`, `gh pr checks --watch`, or a
-polling loop.
+These intervals are minimums, not targets: wait longer when no decision depends
+on an immediate result. A pending result always ends the current run after its
+single replacement has been scheduled. Do not use `gh run watch`,
+`gh pr checks --watch`, repeated ad hoc turns, or any polling loop.
 
 ## Running a round
 
