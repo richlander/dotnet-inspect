@@ -383,7 +383,12 @@ public class ProjectCommand
                     ? RenderSkillTable(visibleRows, options)
                     : RenderSkillMarkdown(visibleRows);
 
-        WriteOutput(output, options.OutputPath);
+        bool suppressNote = options.JsonOutput || options.Jsonl || options.Tsv;
+        WriteOutput(
+            suppressNote
+                ? output
+                : OutputFormatter.AddHumanRowWindowNote(output, options.HumanRowWindowNote),
+            options.OutputPath);
         return 0;
     }
 

@@ -167,7 +167,8 @@ public static class VocabularyCommand
                     WriteTable(markout, section);
                     markout.Flush();
                 },
-                options.Rows);
+                options.Rows,
+                options.HumanRowWindowNote);
             return 0;
         }
 
@@ -175,14 +176,17 @@ public static class VocabularyCommand
             projectedColumns,
             fields: null,
             options.Rows);
+        var buffer = new StringWriter { NewLine = "\n" };
         var markdown = new MarkoutWriter(
-            Console.Out,
+            buffer,
             options.PlainText
                 ? new PlainTextFormatter()
                 : new MarkdownFormatter(),
             markdownOptions);
         WriteSections(markdown, renderedSections, includeDocumentHeading: true);
         markdown.Flush();
+        Console.Out.Write(
+            OutputFormatter.AddHumanRowWindowNote(buffer.ToString(), options.HumanRowWindowNote));
         return 0;
     }
 

@@ -391,9 +391,12 @@ public class ExtensionsCommand
     private static void WriteMarkoutOutput(string targetType, List<ExtensionMethodResult> results, Verbosity verbosity, RowWindow? rows, string? humanRowWindowNote = null)
     {
         var view = ExtensionsOutputFormatter.BuildView(targetType, results, verbosity);
+        // The "No extension methods found." document is non-whitespace even with zero
+        // results, so the AddHumanRowWindowNote emptiness guard can't catch it here.
+        // Gate on the actual result count instead.
         OutputFormatter.WriteWindowedMarkdown(Console.Out, rows,
             opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts),
-            humanRowWindowNote: humanRowWindowNote);
+            humanRowWindowNote: results.Count == 0 ? null : humanRowWindowNote);
     }
 
     private static void WriteTableOutput(string targetType, List<ExtensionMethodResult> results, ExtensionsOptions options)

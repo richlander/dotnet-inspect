@@ -1051,11 +1051,12 @@ public class PackageCommand
                         options.Fields ?? options.Columns,
                         rendered,
                         diagnosticCandidates!);
-                    OutputFormatter.WriteHumanRowWindowNote(
-                        Console.Out,
-                        options.Verbosity != Verbosity.Quiet && !options.Tsv && !options.Jsonl
-                            ? options.HumanRowWindowNote
-                            : null);
+                    if (!string.IsNullOrWhiteSpace(rendered))
+                        OutputFormatter.WriteHumanRowWindowNote(
+                            Console.Out,
+                            options.Verbosity != Verbosity.Quiet && !options.Tsv && !options.Jsonl
+                                ? options.HumanRowWindowNote
+                                : null);
                     Console.Out.Write(rendered);
                 }
                 else
@@ -4623,6 +4624,7 @@ public class PackageCommand
             JsonArray = options.JsonArray,
             ProjectionRow = options.PrintRow,
             Rows = options.Rows,
+            HumanRowWindowNote = options.HumanRowWindowNote,
             SourceOptions = options.SourceOptions,
             NoHeader = options.NoHeader,
             UserVerbosityOverride = options.Verbosity

@@ -68,6 +68,8 @@ public record ProjectOptions : IProjectionOptions
 
     public RowWindow? Rows { get; init; }
 
+    public string? HumanRowWindowNote { get; init; }
+
     public bool Verbose { get; init; }
 
     public NuGetSourceOptions? SourceOptions { get; init; }

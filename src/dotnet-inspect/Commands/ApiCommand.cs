@@ -1573,12 +1573,14 @@ public class ApiCommand
                 ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, factRows);
                 if (!TryReportEmptyProjection(factRows, options))
                     return 1;
-                OutputFormatter.WriteHumanRowWindowNote(
-                    Console.Out,
-                    options.Verbosity != Verbosity.Quiet && !options.Tsv && !options.Jsonl
-                        ? options.HumanRowWindowNote
-                        : null);
-                Console.Out.Write(OutputFormatter.LimitRenderedTableRows(factRows, options.Rows, !options.NoHeader));
+                var limitedFactRows = OutputFormatter.LimitRenderedTableRows(factRows, options.Rows, !options.NoHeader);
+                if (!string.IsNullOrWhiteSpace(limitedFactRows))
+                    OutputFormatter.WriteHumanRowWindowNote(
+                        Console.Out,
+                        options.Verbosity != Verbosity.Quiet && !options.Tsv && !options.Jsonl
+                            ? options.HumanRowWindowNote
+                            : null);
+                Console.Out.Write(limitedFactRows);
                 return successExitCode;
             }
 
@@ -1590,12 +1592,14 @@ public class ApiCommand
             ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, rendered);
             if (!TryReportEmptyProjection(rendered, options))
                 return 1;
-            OutputFormatter.WriteHumanRowWindowNote(
-                Console.Out,
-                options.Verbosity != Verbosity.Quiet && !options.Tsv && !options.Jsonl
-                    ? options.HumanRowWindowNote
-                    : null);
-            Console.Out.Write(OutputFormatter.LimitRenderedTableRows(rendered, options.Rows, !options.NoHeader));
+            var limitedRendered = OutputFormatter.LimitRenderedTableRows(rendered, options.Rows, !options.NoHeader);
+            if (!string.IsNullOrWhiteSpace(limitedRendered))
+                OutputFormatter.WriteHumanRowWindowNote(
+                    Console.Out,
+                    options.Verbosity != Verbosity.Quiet && !options.Tsv && !options.Jsonl
+                        ? options.HumanRowWindowNote
+                        : null);
+            Console.Out.Write(limitedRendered);
         }
         else
         {
