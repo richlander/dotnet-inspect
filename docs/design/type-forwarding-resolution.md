@@ -18,6 +18,16 @@ by `InertString` in
 [#3636](https://github.com/richlander/dotnet-inspect/pull/3636): establish each
 value, its invariants, and its gates before asking consumers to depend on it.
 
+Issue [#4809](https://github.com/richlander/dotnet-inspect/issues/4809) defines
+a focused consumer extension for signature spellability. That extension is
+design-only and unverified until the named gates in this document land. The
+current implementation scans selected assemblies into a non-public type-name
+set; the candidate in
+[#4276](https://github.com/richlander/dotnet-inspect/pull/4276) expands that
+approach to definition and forwarder name sets. Neither satisfies the contract
+because neither resolves a forwarding chain to its terminal definition or
+retains typed non-success evidence.
+
 Browser platform call graphs resolve exact graph-target type identities through
 `AssemblyContextTypeResolutionQuery`. The query retains the cumulative
 workspace's immutable participant snapshots, applies its participant-only
@@ -1868,6 +1878,180 @@ fabricate one or present the omission as an authoritative empty result.
 
 ## Consumer model
 
+### Signature spellability
+
+Signature spellability asks one Metadata-owned question:
+
+> Under this frozen assembly catalog and binding policy, what typed evidence
+> supplies every named type occurrence required by this metadata signature, and
+> does each external definition that participates in C# spelling have external
+> accessibility?
+
+It does not ask whether the tools-side artifact planner included every local
+declaration or body dependency, whether Roslyn will compile the complete
+artifact, or whether the generated spelling binds to the intended symbol.
+Those are compile-back closure and C# binding questions owned by the
+tools-side round-trip engine. Issue
+[#4810](https://github.com/richlander/dotnet-inspect/issues/4810) owns that
+adjacent design and may consume this operation's typed result without
+reconstructing Metadata resolution.
+
+#### Source-bound subject and plan
+
+The catalog creates a closed signature subject through the source candidate's
+owned inspection session. Its field, property, and method arms each retain:
+
+- the verified source MVID and acquisition registration;
+- the declaring `TypeDef` token;
+- the expected member-table token and member kind.
+
+The session validates the token table, row bounds, declaring-type ownership,
+and module identity before decoding. Callers do not pair an arbitrary
+`MetadataReader` with a reader-bound `FieldDefinition`, `PropertyDefinition`,
+or `MethodDefinition` value. A cross-reader row, wrong member table, stale
+module address, or declaring-type mismatch produces a typed subject rejection.
+No rejected subject can construct a plan.
+
+One guarded, bounded decode produces an immutable reader-independent
+signature-spellability plan. It retains the source subject, the source
+candidate's authorized baseline `AssemblyResolutionScope`, and every named type
+occurrence in stable signature order. A rejected signature produces a typed
+plan rejection and no success-shaped partial occurrence or request set.
+Evaluation consumes this exact plan; it does not decode the signature again.
+
+Each occurrence retains:
+
+- its complete `MetadataNamedTypeReference`, including the closed scope arm;
+- its signature role: ordinary type, required custom modifier, or optional
+  custom modifier;
+- whether external accessibility participates in `CanSpell`;
+- the exact `TypeResolutionRequest`, when the occurrence requires resolution.
+
+Resolution is required for every non-primitive named occurrence. External
+accessibility participates for ordinary types and required modifiers, but not
+for an optional-only modifier. When several occurrences produce one equal
+request, the plan keeps one resolution request and merges accessibility
+participation with logical OR. An optional-only occurrence can therefore
+resolve to an inaccessible definition without making the signature unspellable;
+the same definition used by an ordinary type or required modifier must be
+externally accessible. Any non-success resolution remains fail-closed for every
+role.
+
+Primitive type codes are direct C# spellings and retain an
+`IntrinsicCoreLibrary` occurrence for provenance without adding a definition
+request. Generic parameters add no named occurrence. Arrays, pointers,
+function pointers, generic arguments, and modified types contribute their named
+children rather than replacing them with one outer leaf.
+
+#### Closed origin and scope mapping
+
+The plan exhaustively maps `MetadataTypeReferenceScope`:
+
+- `AssemblyReference` creates `FromReference` with the exact
+  `AssemblyReferenceIdentity` and the source candidate as binding origin.
+- `CurrentAssembly` creates `FromAssembly` for the source candidate. Evaluation
+  can then distinguish a local requirement in that candidate from an external
+  definition reached through a forwarder.
+- `IntrinsicCoreLibrary` is the direct primitive occurrence described above.
+- `ModuleReference` creates `FromModule`; the current engine therefore retains
+  `UnsupportedModuleReference` instead of defaulting the occurrence to
+  spellable.
+
+Metadata owns one scope-tightening operation used for both initial references
+and forwarding hops. Each `AssemblyReference` occurrence derives its own scope
+by applying that operation to the source candidate's authorized baseline scope
+and the occurrence's exact identity. A platform-token reference therefore
+tightens to `Platform` without constraining an unrelated package reference in
+the same signature. `CurrentAssembly` begins with the source baseline scope,
+and every later forwarding hop may tighten but never loosen it.
+
+The operation never performs its own exact-then-versionless retry. Version
+unification, candidate selection, and other compatibility choices belong to the
+catalog's explicit binding policy. Signature spellability supplies the exact
+per-occurrence target, origin, and scope, then consumes the policy-selected
+candidate. It does not reconstruct policy from assembly names, file names, or
+the compiler reference directory.
+
+#### Terminal accessibility
+
+`TypeResolutionContext` owns a terminal-definition accessibility operation.
+Consumers pass a `ResolvedTypeDefinitionKey` back to the issuing context and
+receive one closed outcome:
+
+- **Accessible** means the terminal `TypeDef` is public, or is nested public
+  through an entirely externally accessible declaring chain.
+- **Inaccessible** means the complete chain is readable but any required
+  visibility is not externally accessible.
+- **Rejected** retains a cross-catalog, stale-generation, or catalog-lifetime
+  key failure, or the exact bounded declaring-chain rejection.
+
+The operation uses the catalog-owned inspection session and the existing
+iterative `TypeDef` declaring-chain traversal. It exposes no reader or handle.
+Resolution cannot issue a `ResolvedTypeDefinition` until that candidate's
+durable session has opened successfully, and the catalog caches that session by
+candidate. Accessibility reuses the exact retained session that produced the
+definition; it never calls the acquisition opener or demand-opens a second
+session after freeze. Candidate-open failure therefore remains a resolution
+outcome that prevents a resolved key from existing, not an accessibility
+outcome.
+
+The issuing context caches the closed outcome by its internal
+`(AssemblyCandidateId, TypeDefinitionToken)` coordinate within one catalog
+generation. Consumers neither hash nor compare the opaque public key. Distinct
+reference requests that resolve to the same terminal definition therefore
+share one accessibility read, while a replacement generation cannot reuse a
+stale classification.
+
+An `ExportedType` row is forwarding evidence, not visibility proof. A nested
+exported-type chain is spellable when the declaration probe resolves it to a
+terminal definition and the accessibility operation accepts that definition.
+A top-level forwarding row whose target assembly is unavailable remains
+`UnboundBinding`; a target assembly that binds but lacks the type remains
+`NotFound`; forwarding cycles, malformed chains, ambiguity, open failure, and
+relationship or hop-budget exhaustion retain their exact typed outcomes.
+
+#### Aggregate result
+
+The aggregate retains one evidence entry per distinct request plus direct
+primitive evidence and the source-bound local requirements:
+
+- **LocalRequirement** carries a resolved definition in the source candidate.
+  It proves exact identity but makes no claim that a generated artifact included
+  the declaration or that the declaration is accessible from the reconstructed
+  member's C# context.
+- **ExternalDefinition** carries the resolved definition, merged participation,
+  and terminal accessibility outcome.
+- **Unresolved** carries the exact non-success `TypeResolutionOutcome`,
+  including hop evidence and merged participation.
+- **Rejected** carries subject, signature, or evaluation failure before a
+  complete evidence set exists.
+
+The Metadata aggregate exposes whether external references are spellable; it
+does not turn `LocalRequirement` into a success verdict. A compatibility
+`CanSpell` projection may be true only when the plan completed, every required
+resolution succeeded, every participating external definition is
+`Accessible`, and the caller supplies typed proof that every local requirement
+is available and nameable in the generated artifact. Issue #4810 owns that
+proof. Without it, the compatibility projection fails closed. `Inaccessible`
+is an authoritative negative when accessibility participates. `NotFound`,
+`UnboundBinding`, `Unavailable`, `Ambiguous`, and `Rejected` resolution arms
+are incomplete and can never produce `CanSpell: true`.
+
+`PlanExpansionRequired` is an orchestration result, not an inaccessible type.
+The coordinator contributes every request from the immutable plan and freezes
+a replacement context before producing a final verdict. If an evaluation
+surface cannot perform that expansion, it returns a rejected aggregate and may
+not admit the signature.
+
+Resolution outcomes, including typed non-success arms, reuse the context's
+generation-scoped resolution cache. Terminal accessibility uses the separate
+definition-scoped cache above. There is no parallel cache of defined,
+forwarded, or non-public type-name strings. The resolution and accessibility
+result caches do not outlive their catalog generation; catalog-owned candidate
+sessions, declaration results, and frozen recipes retain the catalog lifetime
+defined earlier. No result exposes a `MetadataReader`, handle, or borrowed
+session.
+
 ### Analysis type provenance
 
 Analysis keeps its own `TypeRef`; this design does not unify it with the
@@ -2899,6 +3083,68 @@ generation-scoping gates named in
 
 ### Consumer gates
 
+- `SignatureSpellability_BindsSubjectToSourceModule` creates a subject through
+  the catalog session and rejects cross-reader rows, wrong-table tokens,
+  declaring-type mismatches, and stale MVIDs before signature decode.
+- `SignatureSpellability_CollectsEveryNamedChildOnce` covers arrays, pointers,
+  function pointers, generic arguments, and modified types, and proves that a
+  rejected decode exposes no partial request set.
+- `SignatureSpellability_MapsClosedReferenceScopes` produces
+  `FromReference`, `FromAssembly`, direct primitive, and `FromModule` evidence
+  for the four `MetadataTypeReferenceScope` arms.
+- `SignatureSpellability_ResolvesCurrentAssemblyForwarder` proves that a
+  current-assembly occurrence can resolve through an exported-type chain and
+  does not default to a local spellable result.
+- `SignatureSpellability_RequiresLocalArtifactProof` proves that a
+  source-candidate definition remains `LocalRequirement` and that the
+  compatibility projection fails closed without the adjacent owner's typed
+  inclusion/nameability proof.
+- `SignatureSpellability_RetainsUnsupportedModuleReference` proves that a
+  module-scoped occurrence retains `UnsupportedModuleReference` and cannot
+  produce `CanSpell: true`.
+- `SignatureSpellability_DerivesInitialScopePerReference` combines a platform
+  reference and an ordinary package reference in one signature; the first is
+  `Platform`, the second remains `Any`, and a confusable local platform copy is
+  never selected.
+- `SignatureSpellability_MergesModifierParticipation` covers optional-only,
+  required-only, ordinary, and mixed duplicate occurrences. Resolution is
+  required for all; external accessibility is ignored only for an
+  optional-only modifier.
+- `SignatureSpellability_ResolvesNestedForwarderToAccessibleDefinition`
+  uses an external-only signature and proves that a nested exported-type
+  implementation chain reaches an accessible terminal nested `TypeDef` and
+  produces `CanSpell: true`; removing the bounded chain walk or returning a
+  constant false verdict makes the gate fail.
+- `SignatureSpellability_RejectsMissingForwarderTarget` proves that a
+  forwarding row without a bindable terminal assembly retains
+  `UnboundBinding` and cannot produce `CanSpell: true`.
+- `SignatureSpellability_RejectsForwarderTargetMissingType` distinguishes a
+  bound target whose declaration probe returns `NotFound` from a valid
+  forwarded definition.
+- `SignatureSpellability_RejectsInaccessibleTerminalDefinition` proves that
+  terminal top-level and nested visibility, rather than the forwarding row,
+  controls external accessibility.
+- `SignatureSpellability_RejectsInvalidAccessibilityKey` proves that a
+  cross-catalog or stale-generation definition key cannot borrow an
+  accessibility result.
+- `SignatureSpellability_AccessibilityReusesResolvedSession` configures the
+  terminal candidate opener to fail after resolution records its completed
+  inventory and durable-session open count, then proves that accessibility
+  succeeds without increasing that count.
+- `SignatureSpellability_RetainsResolutionFailureKinds` covers ambiguous
+  binding/declaration, malformed nested chains, forwarding cycles, candidate
+  open failure, and relationship/hop-budget exhaustion without collapsing
+  them into one empty or successful result.
+- `SignatureSpellability_UsesCatalogBindingPolicy` proves that exact and
+  version-unified results follow the supplied policy and that removing the
+  legacy local version retry does not change policy-owned outcomes.
+- `SignatureSpellability_ExpandsPlanBeforeVerdict` is the non-vacuity gate for
+  manifest wiring: removing signature-request discovery produces
+  `PlanExpansionRequired`, never a spellable verdict.
+- `SignatureSpellability_CachesResolutionPerRequestAndAccessibilityPerDefinition`
+  proves one resolution per distinct request, one accessibility walk when
+  aliasing requests reach one terminal candidate/token, and no stale reuse by a
+  replacement generation.
 - The `System.Xml.ReaderWriter` to `System.Private.Xml` real-artifact caller
   resolves through the real platform adapter as `SameDefinition`, not merely
   as an indeterminate caller retained by a conservative prefilter.
@@ -3092,6 +3338,10 @@ The open issues found during #3476 become model requirements:
 - Reimplementing CLR binding policy in Metadata.
 - Treating a directory as an ordered deployment.
 - Solving general physical-file identity.
+- Selecting compiler references, proving body-reference closure, or deciding
+  whether a tools-side compile-back artifact is complete.
+- Proving that current-assembly declarations required by a signature were
+  included in, or nameable from, a generated artifact.
 - Changing user-visible command defaults or output sections in the primitive
   slices.
 - Retaining compatibility with internal nullable helper APIs after their final
