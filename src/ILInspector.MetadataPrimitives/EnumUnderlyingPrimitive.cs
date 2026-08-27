@@ -55,6 +55,78 @@ static class EnumUnderlyingPrimitive
         return PrimitiveTypeCode.Int32;
     }
 
+    public static bool TryFromEnumDefinition(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        out PrimitiveTypeCode code)
+    {
+        code = default;
+        try
+        {
+            var definition = reader.GetTypeDefinition(handle);
+            if ((definition.Attributes & TypeAttributes.Sealed) == 0
+                || TypeResolver.GetTypeName(reader, definition.BaseType)
+                    != "System.Enum")
+            {
+                return false;
+            }
+
+            bool found = false;
+            foreach (FieldDefinitionHandle fieldHandle in definition.GetFields())
+            {
+                var field = reader.GetFieldDefinition(fieldHandle);
+                if ((field.Attributes & FieldAttributes.Static) != 0)
+                    continue;
+                const FieldAttributes RequiredAttributes =
+                    FieldAttributes.SpecialName
+                    | FieldAttributes.RTSpecialName;
+                if (found
+                    || (field.Attributes & RequiredAttributes)
+                        != RequiredAttributes
+                    || reader.GetString(field.Name) != "value__")
+                {
+                    return false;
+                }
+
+                PrimitiveTypeCode? candidate =
+                    SignatureBlobGuard.IsSafeToDecode(
+                        reader,
+                        field.Signature,
+                        SignatureBlobGuard.Kind.Field)
+                        ? field.DecodeSignature(
+                            Provider.Instance,
+                            genericContext: null)
+                        : null;
+                if (candidate is not { } underlyingType
+                    || !IsEnumUnderlyingType(underlyingType))
+                {
+                    return false;
+                }
+
+                code = underlyingType;
+                found = true;
+            }
+
+            return found;
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException or ArgumentOutOfRangeException)
+        {
+            code = default;
+            return false;
+        }
+    }
+
+    static bool IsEnumUnderlyingType(PrimitiveTypeCode code) => code is
+        PrimitiveTypeCode.SByte
+        or PrimitiveTypeCode.Byte
+        or PrimitiveTypeCode.Int16
+        or PrimitiveTypeCode.UInt16
+        or PrimitiveTypeCode.Int32
+        or PrimitiveTypeCode.UInt32
+        or PrimitiveTypeCode.Int64
+        or PrimitiveTypeCode.UInt64;
+
     /// <summary>
     /// SRM casts the provider result to <c>SerializationTypeCode</c> and
     /// consumes a SerString for <see cref="PrimitiveTypeCode.String"/>.

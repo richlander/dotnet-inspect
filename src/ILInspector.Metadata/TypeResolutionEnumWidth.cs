@@ -61,7 +61,8 @@ public static class TypeResolutionEnumWidth
     /// Resolves each planned request against the frozen generation and
     /// returns a decoder callback keyed by
     /// <see cref="MetadataTypeDefinitionName.ToMetadataFullName"/>. Names the
-    /// generation did not resolve stay
+    /// generation did not resolve, and names shared by distinct structured
+    /// requests that the callback cannot distinguish, stay
     /// <see cref="PrimitiveTypeCode.Int32"/>.
     /// </summary>
     public static Func<string, PrimitiveTypeCode> CreateResolver(
@@ -73,9 +74,33 @@ public static class TypeResolutionEnumWidth
 
         var widths = new Dictionary<string, PrimitiveTypeCode>(
             StringComparer.Ordinal);
+        var requestsByName = new Dictionary<string, TypeResolutionRequest>(
+            StringComparer.Ordinal);
+        var ambiguousNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (TypeResolutionRequest request in planned)
         {
             ArgumentNullException.ThrowIfNull(request);
+            string name = request.Type.ToMetadataFullName();
+            if (requestsByName.TryGetValue(
+                    name,
+                    out TypeResolutionRequest? existing))
+            {
+                if (!TypeResolutionRequestComparer.Instance.Equals(
+                        existing,
+                        request))
+                {
+                    ambiguousNames.Add(name);
+                    widths.Remove(name);
+                }
+            }
+            else
+            {
+                requestsByName.Add(name, request);
+            }
+
+            if (ambiguousNames.Contains(name))
+                continue;
+
             if (context.Resolve(request)
                     is not TypeResolutionOutcome.Resolved resolved
                 || !context.TryGetEnumUnderlyingType(
@@ -85,7 +110,7 @@ public static class TypeResolutionEnumWidth
                 continue;
             }
 
-            widths.TryAdd(request.Type.ToMetadataFullName(), code);
+            widths.TryAdd(name, code);
         }
 
         return name =>
@@ -114,24 +139,27 @@ public static class TypeResolutionEnumWidth
 
         if (parsed.AssemblyName is { } assemblyName)
         {
-            if (string.IsNullOrEmpty(assemblyName.Name))
+            if (string.IsNullOrEmpty(assemblyName.Name)
+                || !TryGetPublicKeyToken(
+                    assemblyName,
+                    out string? publicKeyToken))
+            {
                 return false;
+            }
+
             assembly = new AssemblyReferenceIdentity(
                 assemblyName.Name,
                 assemblyName.Version,
                 assemblyName.CultureName,
-                PublicKeyToken(assemblyName));
+                publicKeyToken);
         }
 
         var segments = ImmutableArray.CreateBuilder<string>();
         TypeName current = parsed;
         while (true)
         {
-            if ((current != parsed && current.AssemblyName is not null)
-                || !current.IsSimple)
-            {
+            if (!current.IsSimple)
                 return false;
-            }
 
             segments.Add(current.Name);
             if (!current.IsNested)
@@ -155,11 +183,33 @@ public static class TypeResolutionEnumWidth
         return true;
     }
 
-    static string? PublicKeyToken(AssemblyNameInfo assemblyName)
+    static bool TryGetPublicKeyToken(
+        AssemblyNameInfo assemblyName,
+        out string? publicKeyToken)
     {
         ImmutableArray<byte> token = assemblyName.PublicKeyOrToken;
-        return token.IsDefaultOrEmpty
-            ? null
-            : Convert.ToHexString(token.AsSpan()).ToLowerInvariant();
+        if (token.IsDefaultOrEmpty)
+        {
+            publicKeyToken = null;
+            return true;
+        }
+
+        if ((assemblyName.Flags & AssemblyNameFlags.PublicKey) != 0)
+        {
+            publicKeyToken =
+                AssemblyReferenceIdentity.ComputePublicKeyToken(
+                    token.ToArray());
+            return true;
+        }
+
+        if (token.Length != 8)
+        {
+            publicKeyToken = null;
+            return false;
+        }
+
+        publicKeyToken =
+            Convert.ToHexString(token.AsSpan()).ToLowerInvariant();
+        return true;
     }
 }

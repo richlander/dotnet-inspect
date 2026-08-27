@@ -34,6 +34,85 @@ public sealed class TypeResolutionEnumWidthTests
     }
 
     [Fact]
+    public void QualifiedNestedName_DecodesInt64()
+    {
+        byte[] definingImage = BuildDefiningNestedInt64EnumImage();
+        byte[] userImage = BuildCrossAssemblyInt64NamedEnumImage(
+            enumName: "Samples.Outer+E, Other");
+        ResolvedAssemblyReference defining = Descriptor(definingImage);
+        ResolvedAssemblyReference user = Descriptor(userImage);
+        Assert.True(
+            TypeResolutionEnumWidth.TryCreateRequest(
+                "Samples.Outer+E, Other",
+                user,
+                AssemblyResolutionScope.Any,
+                out TypeResolutionRequest? request));
+        Assert.Equal(["Outer", "E"], request.Type.Segments);
+        using TypeResolutionContext context = TypeResolutionContext.Create(
+            new RecordingPolicy(
+                current => current.Target
+                        is AssemblyBindingTarget.AssemblyReference reference
+                    && reference.Identity.Name == "Other"
+                        ? AssemblyBindingSelection.Found(defining)
+                        : AssemblyBindingSelection.NotFound()),
+            [user],
+            [request]);
+        using var userPe = new PEReader(
+            new MemoryStream(userImage, writable: false));
+        Func<string, PrimitiveTypeCode> resolver =
+            TypeResolutionEnumWidth.CreateResolver(context, [request]);
+
+        var decoded = AttributeDecoder.TryDecode(
+            userPe.GetMetadataReader(),
+            FirstAttribute(userPe.GetMetadataReader()),
+            beforeMaterialize: null,
+            resolver);
+
+        Assert.NotNull(decoded);
+        Assert.Equal(7L, decoded.Value.NamedArguments[0].Value);
+    }
+
+    [Fact]
+    public void TryCreateRequest_FullPublicKey_DerivesToken()
+    {
+        byte[] publicKey =
+        [
+            0x00, 0x24, 0x00, 0x00, 0x04, 0x80, 0x00, 0x00,
+            0x94, 0x00, 0x00, 0x00, 0x06, 0x02, 0x00, 0x00,
+            0x00, 0x24, 0x00, 0x00, 0x52, 0x53, 0x41, 0x31,
+            0x00, 0x04, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
+        ];
+        ResolvedAssemblyReference requesting = Descriptor(
+            BuildCrossAssemblyInt64NamedEnumImage());
+
+        Assert.True(
+            TypeResolutionEnumWidth.TryCreateRequest(
+                $"Samples.E, Other, PublicKey={Convert.ToHexString(publicKey)}",
+                requesting,
+                AssemblyResolutionScope.Any,
+                out TypeResolutionRequest? request));
+
+        var start = Assert.IsType<TypeResolutionStart.Reference>(request.Start);
+        Assert.Equal(
+            AssemblyReferenceIdentity.ComputePublicKeyToken(publicKey),
+            start.Value.PublicKeyToken);
+    }
+
+    [Fact]
+    public void TryCreateRequest_InvalidPublicKeyToken_IsRejected()
+    {
+        ResolvedAssemblyReference requesting = Descriptor(
+            BuildCrossAssemblyInt64NamedEnumImage());
+
+        Assert.False(
+            TypeResolutionEnumWidth.TryCreateRequest(
+                "Samples.E, Other, PublicKeyToken=0011",
+                requesting,
+                AssemblyResolutionScope.Any,
+                out _));
+    }
+
+    [Fact]
     public void TryCreateRequest_SimpleName_IsFromAssembly()
     {
         ResolvedAssemblyReference requesting = Descriptor(
@@ -113,6 +192,76 @@ public sealed class TypeResolutionEnumWidthTests
                 attribute,
                 beforeMaterialize: null,
                 resolver));
+    }
+
+    [Fact]
+    public void DistinctRequestsWithSameCallbackName_StayInt32InEitherOrder()
+    {
+        byte[] userImage = BuildCrossAssemblyInt64NamedEnumImage();
+        ResolvedAssemblyReference user = Descriptor(userImage);
+        ResolvedAssemblyReference first = Descriptor(
+            BuildDefiningTypeImage(
+                "First",
+                PrimitiveTypeCode.Byte,
+                DefinitionShape.Enum));
+        ResolvedAssemblyReference second = Descriptor(
+            BuildDefiningTypeImage(
+                "Second",
+                PrimitiveTypeCode.Int64,
+                DefinitionShape.Enum));
+        TypeResolutionRequest firstRequest =
+            Request("Samples.E, First", user);
+        TypeResolutionRequest secondRequest =
+            Request("Samples.E, Second", user);
+        using TypeResolutionContext context = TypeResolutionContext.Create(
+            new RecordingPolicy(
+                current => current.Target
+                        is AssemblyBindingTarget.AssemblyReference reference
+                    ? reference.Identity.Name switch
+                    {
+                        "First" => AssemblyBindingSelection.Found(first),
+                        "Second" => AssemblyBindingSelection.Found(second),
+                        _ => AssemblyBindingSelection.NotFound(),
+                    }
+                    : AssemblyBindingSelection.NotFound()),
+            [user],
+            [firstRequest, secondRequest]);
+
+        Func<string, PrimitiveTypeCode> forward =
+            TypeResolutionEnumWidth.CreateResolver(
+                context,
+                [firstRequest, secondRequest]);
+        Func<string, PrimitiveTypeCode> reverse =
+            TypeResolutionEnumWidth.CreateResolver(
+                context,
+                [secondRequest, firstRequest]);
+
+        Assert.Equal(PrimitiveTypeCode.Int32, forward("Samples.E"));
+        Assert.Equal(PrimitiveTypeCode.Int32, reverse("Samples.E"));
+    }
+
+    [Fact]
+    public void NonEnumDefinition_StaysInt32()
+    {
+        Assert.Equal(
+            PrimitiveTypeCode.Int32,
+            ResolveWidth(
+                BuildDefiningTypeImage(
+                    "Other",
+                    PrimitiveTypeCode.Int64,
+                    DefinitionShape.NonEnum)));
+    }
+
+    [Fact]
+    public void MalformedEnumDefinition_StaysInt32()
+    {
+        Assert.Equal(
+            PrimitiveTypeCode.Int32,
+            ResolveWidth(
+                BuildDefiningTypeImage(
+                    "Other",
+                    PrimitiveTypeCode.Int64,
+                    DefinitionShape.MalformedEnum)));
     }
 
     [Fact]
@@ -208,7 +357,96 @@ public sealed class TypeResolutionEnumWidthTests
             openRead: () => new MemoryStream(image, writable: false),
             provenance: AssemblyResolutionProvenance.Local("test"));
 
-    static byte[] BuildDefiningInt64EnumImage()
+    static TypeResolutionRequest Request(
+        string name,
+        ResolvedAssemblyReference requesting)
+    {
+        Assert.True(
+            TypeResolutionEnumWidth.TryCreateRequest(
+                name,
+                requesting,
+                AssemblyResolutionScope.Any,
+                out TypeResolutionRequest? request));
+        return request;
+    }
+
+    static PrimitiveTypeCode ResolveWidth(byte[] definingImage)
+    {
+        byte[] userImage = BuildCrossAssemblyInt64NamedEnumImage();
+        ResolvedAssemblyReference defining = Descriptor(definingImage);
+        ResolvedAssemblyReference user = Descriptor(userImage);
+        TypeResolutionRequest request = Request("Samples.E, Other", user);
+        using TypeResolutionContext context = TypeResolutionContext.Create(
+            new RecordingPolicy(
+                current => current.Target
+                        is AssemblyBindingTarget.AssemblyReference reference
+                    && reference.Identity.Name == "Other"
+                        ? AssemblyBindingSelection.Found(defining)
+                        : AssemblyBindingSelection.NotFound()),
+            [user],
+            [request]);
+        return TypeResolutionEnumWidth.CreateResolver(context, [request])(
+            "Samples.E");
+    }
+
+    static byte[] BuildDefiningInt64EnumImage() =>
+        BuildDefiningTypeImage(
+            "Other",
+            PrimitiveTypeCode.Int64,
+            DefinitionShape.Enum);
+
+    static byte[] BuildDefiningTypeImage(
+        string assemblyName,
+        PrimitiveTypeCode underlyingType,
+        DefinitionShape shape)
+    {
+        var metadata = CreateMetadata(assemblyName);
+        AssemblyReferenceHandle runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle systemEnum = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString(
+                shape == DefinitionShape.NonEnum ? "Object" : "Enum"));
+        AddPrimitiveField(
+            metadata,
+            shape == DefinitionShape.MalformedEnum ? "payload" : "value__",
+            underlyingType,
+            special: shape != DefinitionShape.NonEnum);
+        if (shape == DefinitionShape.MalformedEnum)
+        {
+            AddPrimitiveField(
+                metadata,
+                "value__",
+                underlyingType,
+                special: true);
+        }
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | (shape == DefinitionShape.NonEnum
+                    ? default
+                    : TypeAttributes.Sealed),
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("E"),
+            systemEnum,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildDefiningNestedInt64EnumImage()
     {
         var metadata = CreateMetadata("Other");
         AssemblyReferenceHandle runtime = metadata.AddAssemblyReference(
@@ -222,12 +460,11 @@ public sealed class TypeResolutionEnumWidthTests
             runtime,
             metadata.GetOrAddString("System"),
             metadata.GetOrAddString("Enum"));
-        var fieldSignature = new BlobBuilder();
-        new BlobEncoder(fieldSignature).FieldSignature().Int64();
-        metadata.AddFieldDefinition(
-            FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName,
-            metadata.GetOrAddString("value__"),
-            metadata.GetOrAddBlob(fieldSignature));
+        AddPrimitiveField(
+            metadata,
+            "value__",
+            PrimitiveTypeCode.Int64,
+            special: true);
         metadata.AddTypeDefinition(
             default,
             default,
@@ -235,17 +472,57 @@ public sealed class TypeResolutionEnumWidthTests
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
-        metadata.AddTypeDefinition(
-            TypeAttributes.Public | TypeAttributes.Sealed,
+        TypeDefinitionHandle outer = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
             metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Outer"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle nested = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic | TypeAttributes.Sealed,
+            default,
             metadata.GetOrAddString("E"),
             systemEnum,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddNestedType(nested, outer);
         return Serialize(metadata);
     }
 
-    static byte[] BuildCrossAssemblyInt64NamedEnumImage(int? elementCount = null)
+    static void AddPrimitiveField(
+        MetadataBuilder metadata,
+        string name,
+        PrimitiveTypeCode code,
+        bool special)
+    {
+        var signature = new BlobBuilder();
+        SignatureTypeEncoder encoder =
+            new BlobEncoder(signature).FieldSignature();
+        switch (code)
+        {
+            case PrimitiveTypeCode.Byte:
+                encoder.Byte();
+                break;
+            case PrimitiveTypeCode.Int64:
+                encoder.Int64();
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(code));
+        }
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public
+                | (special
+                    ? FieldAttributes.SpecialName
+                        | FieldAttributes.RTSpecialName
+                    : default),
+            metadata.GetOrAddString(name),
+            metadata.GetOrAddBlob(signature));
+    }
+
+    static byte[] BuildCrossAssemblyInt64NamedEnumImage(
+        int? elementCount = null,
+        string enumName = "Samples.E, Other")
     {
         var metadata = CreateMetadata("User");
         AssemblyReferenceHandle other = metadata.AddAssemblyReference(
@@ -276,7 +553,7 @@ public sealed class TypeResolutionEnumWidthTests
         value.WriteUInt16(2);
         value.WriteByte(0x53);
         value.WriteByte(0x55);
-        value.WriteSerializedString("Samples.E, Other");
+        value.WriteSerializedString(enumName);
         value.WriteSerializedString("Kind");
         value.WriteInt64(7);
         if (elementCount is int count)
@@ -314,6 +591,13 @@ public sealed class TypeResolutionEnumWidthTests
             constructor,
             metadata.GetOrAddBlob(value));
         return Serialize(metadata);
+    }
+
+    enum DefinitionShape
+    {
+        Enum,
+        NonEnum,
+        MalformedEnum,
     }
 
     static byte[] BuildFacadeForwardingSamplesE(AssemblyReferenceIdentity target)

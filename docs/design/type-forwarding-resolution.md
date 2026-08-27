@@ -31,10 +31,12 @@ this consumer boundary.
 Custom-attribute enum width can consume the same frozen generation through
 `TypeResolutionEnumWidth`: planned serialized names become structured
 requests, `Resolve` locates an already-retained defining image, and
-`TypeResolutionContext.TryGetEnumUnderlyingType` reads `value__` without
-exposing a reader. Unplanned or unbound names stay `Int32`. Product extract
-does not yet collect CA enum names into a generation; that remains residual
-on [#4741](https://github.com/richlander/dotnet-inspect/issues/4741).
+`TypeResolutionContext.TryGetEnumUnderlyingType` authenticates a sealed
+`System.Enum` definition and reads its single valid `value__` field without
+exposing a reader. Unplanned, unbound, malformed, or callback-ambiguous names
+stay `Int32`. Product extract does not yet collect CA enum names into a
+generation; that remains residual on
+[#4741](https://github.com/richlander/dotnet-inspect/issues/4741).
 `TypeResolutionEnumWidthTests` gates the adapter.
 
 ## The problem

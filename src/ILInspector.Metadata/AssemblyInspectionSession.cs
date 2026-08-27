@@ -153,8 +153,10 @@ public sealed class AssemblyInspectionSession : IDisposable
             return false;
         }
 
-        code = EnumUnderlyingPrimitive.FromDefinition(reader, handle);
-        return true;
+        return EnumUnderlyingPrimitive.TryFromEnumDefinition(
+            reader,
+            handle,
+            out code);
     }
 
     /// <summary>The API surface at one explicit extraction scope.</summary>
