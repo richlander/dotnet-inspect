@@ -2926,10 +2926,11 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal($"first {cap}", lines[0]);
         var headerCount = lines.Count(l => l.StartsWith("Kind", StringComparison.Ordinal) && l.Contains("Member", StringComparison.Ordinal));
         Assert.Equal(1, headerCount);
-        // One header + cap data rows.
-        Assert.Equal(cap + 1, lines.Length);
+        // One note + one header + cap data rows.
+        Assert.Equal(cap + 2, lines.Length);
     }
 
     [Fact]

@@ -82,15 +82,52 @@ public partial class CommandExecutionTests
             "library", TestAssemblyPath,
             "-S", "Top Leverage",
             "--top", "1",
-            "--tsv",
+            "--table",
+            "--tips", "q");
+        var rankingWildcard = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "Top Lever*",
+            "--top", "1",
+            "--table",
             "--tips", "q");
         var explicitOrder = await RunAppAsync(
-            "library", TestAssemblyPath,
-            "-S", "Performance Triage",
-            "--where", "Shape=box-value-type",
+            "library", "System.Text.Json",
+            "-S", "Performance: Boxing",
             "--order-by", "RootReach desc",
             "--top", "1",
             "--json",
+            "--tips", "q");
+        var explicitOrderMarkdown = await RunAppAsync(
+            "library", "System.Text.Json",
+            "-S", "Performance: Boxing",
+            "--order-by", "RootReach desc",
+            "--top", "1",
+            "--markdown",
+            "--tips", "q");
+        var head = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "Top Leverage",
+            "-n", "1",
+            "--table",
+            "--tips", "q");
+        var tail = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "Top Leverage",
+            "-n", "1",
+            "--tail",
+            "--table",
+            "--tips", "q");
+        var tsv = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "Top Leverage",
+            "--top", "1",
+            "--tsv",
+            "--tips", "q");
+        var jsonl = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "Top Leverage",
+            "--top", "1",
+            "--jsonl",
             "--tips", "q");
 
         Assert.Equal(1, sequence.Exit);
@@ -101,9 +138,28 @@ public partial class CommandExecutionTests
             StringComparison.Ordinal);
 
         Assert.Equal(0, rankingDefault.Exit);
-        Assert.Single(SplitOutputLines(rankingDefault.Output).Skip(1));
+        Assert.Contains(
+            "top 1 by Callers desc, RootReach desc, Fanout desc, LoopCalls desc",
+            rankingDefault.Output,
+            StringComparison.Ordinal);
+        Assert.Equal(0, rankingWildcard.Exit);
+        Assert.Contains(
+            "top 1 by Callers desc, RootReach desc, Fanout desc, LoopCalls desc",
+            rankingWildcard.Output,
+            StringComparison.Ordinal);
         Assert.Equal(0, explicitOrder.Exit);
         Assert.NotEmpty(PerformanceRows(explicitOrder.Output));
+        Assert.DoesNotContain("top 1 by", explicitOrder.Output, StringComparison.Ordinal);
+        Assert.Equal(0, explicitOrderMarkdown.Exit);
+        Assert.Contains("top 1 by RootReach desc", explicitOrderMarkdown.Output, StringComparison.Ordinal);
+        Assert.Equal(0, head.Exit);
+        Assert.Contains("first 1", head.Output, StringComparison.Ordinal);
+        Assert.Equal(0, tail.Exit);
+        Assert.Contains("last 1", tail.Output, StringComparison.Ordinal);
+        Assert.Equal(0, tsv.Exit);
+        Assert.DoesNotContain("top 1 by", tsv.Output, StringComparison.Ordinal);
+        Assert.Equal(0, jsonl.Exit);
+        Assert.DoesNotContain("top 1 by", jsonl.Output, StringComparison.Ordinal);
 
         var root = CommandLineBuilder.CreateRootCommand();
         Assert.Contains(
@@ -119,6 +175,44 @@ public partial class CommandExecutionTests
         Assert.Contains(
             root.Parse(["library", TestAssemblyPath, "-S", "Top Leverage", "--top", "999999999999999999999"]).Errors,
             error => error.Message.Contains("Cannot parse argument", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task HumanRowWindowNotes_AreSuppressedForPrint()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.WindowNotes.Print",
+            "README.md",
+            "readme",
+            null,
+            null,
+            ("skills/alpha/SKILL.md", "# Alpha skill"),
+            ("skills/beta/SKILL.md", "# Beta skill"));
+        try
+        {
+            var markdown = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Package skill files",
+                "-n", "1",
+                "--tips", "q");
+            var printed = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Package skill files",
+                "--print",
+                "--row", "1",
+                "--bare",
+                "--tips", "q");
+
+            Assert.Equal(0, markdown.Exit);
+            Assert.Contains("first 1", markdown.Output, StringComparison.Ordinal);
+            Assert.Equal(0, printed.Exit);
+            Assert.Equal("# Alpha skill", printed.Output);
+            Assert.DoesNotContain("first 1", printed.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]

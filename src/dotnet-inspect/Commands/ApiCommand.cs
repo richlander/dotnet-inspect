@@ -1572,6 +1572,11 @@ public class ApiCommand
                 ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, factRows);
                 if (!TryReportEmptyProjection(factRows, options))
                     return 1;
+                OutputFormatter.WriteHumanRowWindowNote(
+                    Console.Out,
+                    options.Verbosity != Verbosity.Quiet && !options.Tsv && !options.Jsonl
+                        ? options.HumanRowWindowNote
+                        : null);
                 Console.Out.Write(OutputFormatter.LimitRenderedTableRows(factRows, options.Rows, !options.NoHeader));
                 return successExitCode;
             }
@@ -1584,6 +1589,11 @@ public class ApiCommand
             ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, rendered);
             if (!TryReportEmptyProjection(rendered, options))
                 return 1;
+            OutputFormatter.WriteHumanRowWindowNote(
+                Console.Out,
+                options.Verbosity != Verbosity.Quiet && !options.Tsv && !options.Jsonl
+                    ? options.HumanRowWindowNote
+                    : null);
             Console.Out.Write(OutputFormatter.LimitRenderedTableRows(rendered, options.Rows, !options.NoHeader));
         }
         else
@@ -1600,6 +1610,8 @@ public class ApiCommand
                 var plainText = plain.ToString();
                 if (!TryReportEmptyProjection(plainText, options))
                     return 1;
+                if (options.Verbosity != Verbosity.Quiet && writerOptions.IncludeSections is { Count: 1 })
+                    plainText = OutputFormatter.AddHumanRowWindowNote(plainText, options.HumanRowWindowNote);
                 Console.Out.Write(plainText);
             }
             else
@@ -1610,6 +1622,8 @@ public class ApiCommand
                 var markdown = markdownWriter.ToString().TrimEnd();
                 if (!TryReportEmptyProjection(markdown, options))
                     return 1;
+                if (options.Verbosity != Verbosity.Quiet && writerOptions.IncludeSections is { Count: 1 })
+                    markdown = OutputFormatter.AddHumanRowWindowNote(markdown, options.HumanRowWindowNote);
                 OutputFormatter.WriteLfLine(Console.Out, markdown);
             }
         }
@@ -2644,7 +2658,10 @@ public class ApiCommand
                     options.Columns, options.Fields,
                     (writer, formatter, writerOptions) =>
                         MarkoutSerializer.Serialize(tableView, writer, formatter, ApiViewContext.Default, writerOptions),
-                    options.Rows);
+                    options.Rows,
+                    options.Verbosity != Verbosity.Quiet
+                        ? options.HumanRowWindowNote
+                        : null);
             }
         }
         else
@@ -2653,11 +2670,16 @@ public class ApiCommand
             writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             if (options.PlainText)
             {
-                var writer = new Markout.MarkoutWriter(sink, options.CreateFormatter(), writerOptions);
+                var plain = new StringWriter();
+                var writer = new Markout.MarkoutWriter(plain, options.CreateFormatter(), writerOptions);
                 ApiOutputFormatter.SerializeTypeDocument(
                     view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                     explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
                 writer.Flush();
+                var plainText = plain.ToString().TrimEnd();
+                if (options.Verbosity != Verbosity.Quiet && writerOptions.IncludeSections is { Count: 1 })
+                    plainText = OutputFormatter.AddHumanRowWindowNote(plainText, options.HumanRowWindowNote);
+                OutputFormatter.WriteLfLine(sink, plainText);
             }
             else
             {
@@ -2685,6 +2707,8 @@ public class ApiCommand
                     explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
                 writer.Flush();
                 var markdown = sw.ToString().TrimEnd();
+                if (options.Verbosity != Verbosity.Quiet && writerOptions.IncludeSections is { Count: 1 })
+                    markdown = OutputFormatter.AddHumanRowWindowNote(markdown, options.HumanRowWindowNote);
                 OutputFormatter.WriteLfLine(sink, markdown);
             }
         }

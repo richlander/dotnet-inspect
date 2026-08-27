@@ -193,10 +193,15 @@ public static class TypeOptionsParser
         // silently gain a second section and break single-section formats (--table/--tsv/--jsonl).
         if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult) && !hasExplicitSelect)
             select = [.. select ?? [], SectionNames.PerformanceTriage];
+        var sectionPipeline = ApiMemberSectionPipelines.Create(new TypeOptions());
         if (!opts.TryValidateTopRanking(
                 parseResult,
                 select,
                 autoSelectsRankingSection: performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult) && !hasExplicitSelect,
+                sectionPipeline.SelectableSectionNames,
+                sectionPipeline.InfoSectionNames,
+                sectionPipeline.GetCategoryMap(),
+                selectDefault,
                 out var topRankingError))
         {
             return new VersionError(topRankingError!);
@@ -253,6 +258,13 @@ public static class TypeOptionsParser
             Fields = opts.ParseFields(parseResult),
             Count = parseResult.GetValue(opts.Count),
             Rows = opts.ParseRows(parseResult),
+            HumanRowWindowNote = opts.BuildHumanRowWindowNote(
+                parseResult,
+                select,
+                sectionPipeline.SelectableSectionNames,
+                sectionPipeline.InfoSectionNames,
+                sectionPipeline.GetCategoryMap(),
+                selectDefault),
             PerformanceTriage = performanceTriage,
             BodyKindQuery = bodyKindQuery,
             Schema = opts.ParseSchema(parseResult),

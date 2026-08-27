@@ -27,8 +27,15 @@ public static class OutputFormatter
         return sw.ToString();
     }
 
-    public static void WriteTable(TextWriter output, bool showHeader, Action<TextWriter, IMarkoutFormatter> serialize, RowWindow? maxRows = null)
+    public static void WriteTable(
+        TextWriter output,
+        bool showHeader,
+        Action<TextWriter, IMarkoutFormatter> serialize,
+        RowWindow? maxRows = null,
+        string? humanRowWindowNote = null)
     {
+        WriteHumanRowWindowNote(output, humanRowWindowNote);
+
         // Row-limiting operates on the rendered text, so the capped path must materialize
         // the table first. Without a cap, serialize straight to the destination writer and
         // skip the StringWriter + whole-table string allocation.
@@ -135,8 +142,12 @@ public static class OutputFormatter
         string[]? columns,
         string[]? fields,
         Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize,
-        RowWindow? maxRows = null) =>
+        RowWindow? maxRows = null,
+        string? humanRowWindowNote = null)
+    {
+        WriteHumanRowWindowNote(output, tsv || jsonl ? null : humanRowWindowNote);
         output.Write(RenderProjectedTable(showHeader, tsv, jsonl, columns, fields, serialize, maxRows));
+    }
 
     /// <summary>
     /// Renders a view as the lowered JSON view: the same section and projection decisions the
@@ -213,8 +224,11 @@ public static class OutputFormatter
         RowWindow? rows,
         Func<MarkoutWriterOptions, string> serialize,
         string[]? columns = null,
-        string[]? fields = null) =>
-        output.WriteLine(serialize(CreateWindowedOptions(rows, columns, fields)).TrimEnd());
+        string[]? fields = null,
+        string? humanRowWindowNote = null) =>
+        output.WriteLine(AddHumanRowWindowNote(
+            serialize(CreateWindowedOptions(rows, columns, fields)).TrimEnd(),
+            humanRowWindowNote));
 
     /// <summary>
     /// Creates writer options carrying a <c>--rows</c> window and optional projection, for callers
@@ -248,6 +262,39 @@ public static class OutputFormatter
     {
         output.Write(payload);
         output.Write('\n');
+    }
+
+    internal static string AddHumanRowWindowNote(string rendered, string? humanRowWindowNote)
+    {
+        if (string.IsNullOrWhiteSpace(humanRowWindowNote))
+            return rendered;
+
+        const string SectionHeadingPrefix = "\n## ";
+        var normalized = rendered.ReplaceLineEndings("\n").TrimEnd();
+        int headingStart = normalized.StartsWith("## ", StringComparison.Ordinal)
+            ? 0
+            : normalized.IndexOf(SectionHeadingPrefix, StringComparison.Ordinal);
+        if (headingStart < 0)
+            return $"{humanRowWindowNote}\n\n{normalized}";
+
+        if (headingStart > 0)
+            headingStart += 1;
+
+        int headingEnd = normalized.IndexOf('\n', headingStart);
+        if (headingEnd < 0)
+            return $"{normalized}\n\n{humanRowWindowNote}";
+
+        string before = normalized[..headingEnd];
+        string after = normalized[(headingEnd + 1)..].TrimStart('\n');
+        return after.Length == 0
+            ? $"{before}\n\n{humanRowWindowNote}"
+            : $"{before}\n\n{humanRowWindowNote}\n\n{after}";
+    }
+
+    internal static void WriteHumanRowWindowNote(TextWriter output, string? humanRowWindowNote)
+    {
+        if (!string.IsNullOrWhiteSpace(humanRowWindowNote))
+            WriteLfLine(output, humanRowWindowNote);
     }
 
     /// <summary>
@@ -379,8 +426,12 @@ public static class OutputFormatter
                 projection, ordered, options.Format, options.NoHeader);
         }
 
-        return MarkoutSerializer.Serialize(
+        var markdown = MarkoutSerializer.Serialize(
             view, InspectionContext.Default, writerOptions).TrimEnd();
+        return options.Verbosity != Verbosity.Quiet
+               && writerOptions.IncludeSections is { Count: 1 }
+            ? AddHumanRowWindowNote(markdown, options.HumanRowWindowNote)
+            : markdown;
     }
 
     internal static CountProjection CapturePackageCountProjection(
@@ -423,7 +474,10 @@ public static class OutputFormatter
         var view = new InspectionResultView(result);
         WriteTable(Console.Out, showHeader,
             (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, InspectionContext.Default, writerOpts),
-            options.Rows);
+            options.Rows,
+            options.Verbosity != Verbosity.Quiet && !options.Tsv && !options.Jsonl
+                ? options.HumanRowWindowNote
+                : null);
     }
 
     /// <summary>
@@ -499,13 +553,18 @@ public static class OutputFormatter
 
         if (options.Format == OutputFormat.PlainText)
         {
-            WriteLfLine(Console.Out, SerializeLibraryPlainText(
-                auditView, inspection, writerOpts, options.Rows));
+            var plain = SerializeLibraryPlainText(
+                auditView, inspection, writerOpts, options.Rows);
+            if (options.Verbosity != Verbosity.Quiet && writerOpts.IncludeSections is { Count: 1 })
+                plain = AddHumanRowWindowNote(plain, options.HumanRowWindowNote);
+            WriteLfLine(Console.Out, plain);
         }
         else if (options.VerbosityEnabled)
         {
             var markdown = SerializeLibraryMarkdown(
                 auditView, inspection, writerOpts, pipeline, options.Rows);
+            if (options.Verbosity != Verbosity.Quiet && writerOpts.IncludeSections is { Count: 1 })
+                markdown = AddHumanRowWindowNote(markdown, options.HumanRowWindowNote);
             WriteLfLine(Console.Out, markdown);
         }
         else if (writerOpts.IncludeSections is { Count: > 1 } && !options.TabularExplicitlySet)
@@ -513,6 +572,8 @@ public static class OutputFormatter
             // Auto-promote to markdown when multiple sections and tabular output wasn't explicitly requested
             var markdown = SerializeLibraryMarkdown(
                 auditView, inspection, writerOpts, pipeline, options.Rows);
+            if (options.Verbosity != Verbosity.Quiet && writerOpts.IncludeSections is { Count: 1 })
+                markdown = AddHumanRowWindowNote(markdown, options.HumanRowWindowNote);
             WriteLfLine(Console.Out, markdown);
         }
         else
@@ -665,13 +726,19 @@ public static class OutputFormatter
                 new MarkoutWriterOptions { Projection = writerOpts.Projection }, options.Tsv, options.Jsonl);
             WriteTable(Console.Out, !options.NoHeader,
                 (writer, formatter) => MarkoutSerializer.Serialize(groupView, writer, formatter, InspectionContext.Default, groupOpts),
-                options.Rows);
+                options.Rows,
+                options.Verbosity != Verbosity.Quiet && !options.Tsv && !options.Jsonl
+                    ? options.HumanRowWindowNote
+                    : null);
         }
         else
         {
             WriteTable(Console.Out, !options.NoHeader,
                 (writer, formatter) => MarkoutSerializer.Serialize(auditView, writer, formatter, InspectionContext.Default, writerOpts),
-                options.Rows);
+                options.Rows,
+                options.Verbosity != Verbosity.Quiet && !options.Tsv && !options.Jsonl
+                    ? options.HumanRowWindowNote
+                    : null);
         }
     }
 
