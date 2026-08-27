@@ -87,9 +87,12 @@ reader core-library entitlement. Every distinct target method name and
 target type-name comparison, extension classification, forwarder projection,
 and identity materialization draws from one operation-wide work budget;
 repeated target-name and assembly-reference projections reuse their charged
-result. Raw assembly public-key material is charged once per reader; repeated
-signature occurrences account only for the normalized token they retain,
-including the token derived from a non-nil empty full key. Deterministic
+result. Declaring-type traversal charges each cycle-detection comparison before
+performing it, so deep nonmatching target chains cannot amplify relationship
+work outside the operation budget. Raw assembly public-key material is charged
+once per reader; repeated signature occurrences account only for the normalized
+token they retain, including the token derived from a non-nil empty full key.
+Deterministic
 assembly-reference projection failures are cached as well, so repeated malformed
 rows cannot multiply work already charged to the operation. Storage successfully
 read before a later malformed field is charged before the failure is cached,

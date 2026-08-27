@@ -558,7 +558,8 @@ internal static class MetadataTypeDefinitionNameReader
         TypeDefinitionHandle handle,
         MetadataTypeDefinitionName name,
         out MetadataTypeNameFailure? failure,
-        Func<StringHandle, string, bool>? compare = null)
+        Func<StringHandle, string, bool>? compare = null,
+        Action<int>? beforeCycleComparisons = null)
     {
         if (!LeafMatches<TypeDefinitionHandle, TypeDefinitionNameRow>(
                 reader,
@@ -577,6 +578,7 @@ internal static class MetadataTypeDefinitionNameReader
                 reader,
                 handle,
                 rootToLeaf,
+                beforeCycleComparisons,
                 out int consumedNodes,
                 out _,
                 out RelationshipTraversalRejection? rejection))

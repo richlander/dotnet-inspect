@@ -111,10 +111,13 @@ names, and public-key material draw from the operation budget; budget exhaustion
 fails the operation. One assembly reference is charged and projected at most
 once per reader across signature and forwarder projection, each target method
 name is compared at most once, and each target type name is compared at most
-once per expected source segment. Raw public-key material contributes only to
-that one-time operation charge; each signature occurrence accounts for the
-normalized token that correspondence actually retains, including a non-nil
-empty full-key blob whose SHA-1-derived token is non-empty. Deterministic
+once per expected source segment. Declaring-type cycle checks charge every
+handle comparison before performing it, so many deep nonmatching chains cannot
+multiply relationship traversal outside that budget. Raw public-key material
+contributes only to that one-time operation charge; each signature occurrence
+accounts for the normalized token that correspondence actually retains,
+including a non-nil empty full-key blob whose SHA-1-derived token is non-empty.
+Deterministic
 projection failures are replayed without repeating completed charges. Storage
 successfully read before a later malformed field is charged before the failure
 is cached, including for distinct assembly-reference rows that share heap
@@ -177,6 +180,7 @@ identity.
 `MethodCorrespondenceContext_UnsortedGenericParameterOwnersFailOnce`,
 `MethodCorrespondenceContext_InterleavedOwnersUseCodedIndexOrder`,
 `MethodCorrespondenceContext_LaterOwnerChargeFailureIsNotCached`,
+`ResolveApiMember_DeepDeclaringTypeCycleChecksRespectOperationBudget`,
 `ResolveApiMember_ReusedGenericAssemblyReferenceIsProjectedOnceBeforeBudgetFailure`,
 `ResolveApiMember_DistinctGenericAssemblyReferencesFailWithinOperationBudget`,
 `ResolveApiMember_InvalidCurrentModuleScopeFails`,

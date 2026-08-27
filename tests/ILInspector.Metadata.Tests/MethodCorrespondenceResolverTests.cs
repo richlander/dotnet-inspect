@@ -2009,6 +2009,29 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
+    public void ResolveApiMember_DeepDeclaringTypeCycleChecksRespectOperationBudget()
+    {
+        byte[] source =
+            BuildTypeComparisonNameImage(
+                typeCount: 1,
+                leafName: "C",
+                nestingDepth: 1);
+        byte[] target =
+            BuildTypeComparisonNameImage(
+                typeCount: 256,
+                leafName: "C",
+                nestingDepth: MetadataSafetyPolicy.MaxRelationshipNodes);
+
+        MethodCorrespondenceResult result =
+            ResolveApiMember(source, target);
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains(
+            "correspondence anchor work budget",
+            result.Failure);
+    }
+
+    [Fact]
     public void ResolveApiMember_MethodExtensionAttributesRespectOperationBudget()
     {
         byte[] sourceImage =
@@ -4255,7 +4278,8 @@ public sealed class MethodCorrespondenceResolverTests
 
     static byte[] BuildTypeComparisonNameImage(
         int typeCount,
-        string leafName)
+        string leafName,
+        int nestingDepth = 2)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -4280,27 +4304,33 @@ public sealed class MethodCorrespondenceResolverTests
             MetadataTokens.MethodDefinitionHandle(1));
         StringHandle nestedName =
             metadata.GetOrAddString(leafName);
+        StringHandle intermediateName =
+            metadata.GetOrAddString("N");
         for (int i = 0; i < typeCount; i++)
         {
             MethodDefinitionHandle firstMethod =
                 MetadataTokens.MethodDefinitionHandle(i + 1);
-            TypeDefinitionHandle parent =
-                metadata.AddTypeDefinition(
-                    TypeAttributes.Public,
-                    default,
-                    metadata.GetOrAddString($"P{i}"),
-                    default,
-                    MetadataTokens.FieldDefinitionHandle(1),
-                    firstMethod);
-            TypeDefinitionHandle nested =
-                metadata.AddTypeDefinition(
-                    TypeAttributes.NestedPublic,
-                    default,
-                    nestedName,
-                    default,
-                    MetadataTokens.FieldDefinitionHandle(1),
-                    firstMethod);
-            metadata.AddNestedType(nested, parent);
+            TypeDefinitionHandle parent = default;
+            for (int depth = 0; depth < nestingDepth; depth++)
+            {
+                TypeDefinitionHandle type =
+                    metadata.AddTypeDefinition(
+                        depth == 0
+                            ? TypeAttributes.Public
+                            : TypeAttributes.NestedPublic,
+                        default,
+                        depth == nestingDepth - 1
+                            ? nestedName
+                            : depth == 0
+                                ? metadata.GetOrAddString($"P{i}")
+                                : intermediateName,
+                        default,
+                        MetadataTokens.FieldDefinitionHandle(1),
+                        firstMethod);
+                if (!parent.IsNil)
+                    metadata.AddNestedType(type, parent);
+                parent = type;
+            }
         }
         var signature = new BlobBuilder();
         signature.WriteByte(0x00);

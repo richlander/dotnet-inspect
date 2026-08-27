@@ -176,7 +176,8 @@ public static class MethodCorrespondenceResolver
                             targetTypeHandle,
                             sourceTypeName,
                             out MetadataTypeNameFailure? typeFailure,
-                            CompareTargetTypeName);
+                            CompareTargetTypeName,
+                            ChargeTargetTypeCycleComparisons);
                     if (previousTypeMatch
                         == MetadataTypeDefinitionNameMatch.Rejected)
                     {
@@ -313,6 +314,18 @@ public static class MethodCorrespondenceResolver
                     targetReader.StringComparer.Equals(handle, expected);
                 targetTypeNameComparisons.Add(key, matches);
                 return matches;
+            }
+
+            void ChargeTargetTypeCycleComparisons(int work)
+            {
+                if (!TryCharge(
+                        ref correspondenceWorkRemaining,
+                        work))
+                {
+                    throw new BadImageFormatException(
+                        "Target declaring-type traversal exceeds "
+                        + "the correspondence anchor work budget.");
+                }
             }
 
             bool TryCompareTargetMethodName(

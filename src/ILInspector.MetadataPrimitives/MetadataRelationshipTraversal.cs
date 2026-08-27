@@ -95,6 +95,7 @@ public static class MetadataSafetyPolicy
     /// <c>MethodCorrespondenceContext_UnsortedGenericParameterOwnersFailOnce</c>,
     /// <c>MethodCorrespondenceContext_InterleavedOwnersUseCodedIndexOrder</c>,
     /// <c>MethodCorrespondenceContext_LaterOwnerChargeFailureIsNotCached</c>,
+    /// <c>ResolveApiMember_DeepDeclaringTypeCycleChecksRespectOperationBudget</c>,
     /// and
     /// <c>ResolveApiMember_DistinctGenericAssemblyReferencesFailWithinOperationBudget</c>.
     /// </summary>
@@ -236,6 +237,24 @@ public static class MetadataRelationshipTraversal
             reader,
             handle,
             rootToLeaf,
+            beforeCycleComparisons: null,
+            out consumedNodes,
+            out terminal,
+            out rejection);
+
+    internal static bool TryWalkTypeDefinitionDeclaringChain(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        Span<TypeDefinitionHandle> rootToLeaf,
+        Action<int>? beforeCycleComparisons,
+        out int consumedNodes,
+        out EntityHandle terminal,
+        out RelationshipTraversalRejection? rejection)
+        => TryWalk<TypeDefinitionHandle, TypeDefinitionRelationship>(
+            reader,
+            handle,
+            rootToLeaf,
+            beforeCycleComparisons,
             out consumedNodes,
             out terminal,
             out rejection);
@@ -264,6 +283,7 @@ public static class MetadataRelationshipTraversal
             reader,
             handle,
             rootToLeaf,
+            beforeCycleComparisons: null,
             out consumedNodes,
             out terminal,
             out rejection);
@@ -292,6 +312,7 @@ public static class MetadataRelationshipTraversal
             reader,
             handle,
             rootToLeaf,
+            beforeCycleComparisons: null,
             out consumedNodes,
             out terminal,
             out rejection);
@@ -308,6 +329,7 @@ public static class MetadataRelationshipTraversal
                 reader,
                 start,
                 rootToLeaf,
+                beforeCycleComparisons: null,
                 out int consumedNodes,
                 out EntityHandle terminal,
                 out var rejection))
@@ -327,6 +349,7 @@ public static class MetadataRelationshipTraversal
         MetadataReader reader,
         EntityHandle start,
         Span<THandle> rootToLeaf,
+        Action<int>? beforeCycleComparisons,
         out int consumedNodes,
         out EntityHandle terminal,
         out RelationshipTraversalRejection? rejection)
@@ -356,6 +379,7 @@ public static class MetadataRelationshipTraversal
         int count = 0;
         while (!current.IsNil && current.Kind == TRelationship.RelationshipKind)
         {
+            beforeCycleComparisons?.Invoke(count);
             for (int i = 0; i < count; i++)
             {
                 if (TRelationship.ToEntity(rootToLeaf[i]) == current)
