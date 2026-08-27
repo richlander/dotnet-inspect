@@ -2882,7 +2882,7 @@ test("all dependency navigation paths use one product-owned coordinate matcher",
     6);
   assert.match(
     generatedEngineSource,
-    /matchPackageDependencyCoordinateExport = exports\.InspectionEngine\.MatchPackageDependencyCoordinate/);
+    /exports\.InspectionEngine\.MatchPackageDependencyCoordinate\(packageId, declaredRange, candidatesJson\)/);
   assert.match(
     appSource,
     /matchPackageDependencyCoordinate\([\s\S]*?JSON\.stringify\(dependencyCoordinateCandidates\(packages\)\)/);
@@ -3121,10 +3121,7 @@ test("type source identity includes decompiler taste", () => {
 test("source operations cancel when superseded or hidden", () => {
   assert.match(
     generatedEngineSource,
-    /cancelSourceQueryExport = exports\.InspectionEngine\.CancelSourceQuery/);
-  assert.match(
-    generatedEngineSource,
-    /export function cancelSourceQuery\(\)[\s\S]*?return cancelSourceQueryExport\(\)/);
+    /export function cancelSourceQuery\(\)[\s\S]*?return exports\.InspectionEngine\.CancelSourceQuery\(\)/);
   assert.match(
     appSource,
     /cancelSourceQuery: cancelSourceInspection/);
@@ -3291,7 +3288,7 @@ test("source operations cancel when superseded or hidden", () => {
 test("browser engine configures the same-origin managed MSDL API", () => {
   assert.match(
     generatedEngineSource,
-    /configureHostExport = exports\.InspectionEngine\.ConfigureHost[\s\S]*?configureHostExport\(window\.location\.origin\)/);
+    /exports\.InspectionEngine\.ConfigureHost\(window\.location\.origin\);[\s\S]*?await runtime\.runMain\(\)/);
 });
 
 test("generated browser engine module is syntactically valid", () => {
@@ -3319,7 +3316,9 @@ test("generated source wrappers parse their JSON envelopes", () => {
     "queryMemberSource",
     "queryTypeMemberSource",
   ]) {
-    assert.match(wrapper(name), /return JSON\.parse\(result\);/);
+    assert.match(
+      wrapper(name),
+      /const parsed = \$parseJson\(result\);[\s\S]*?return \/\*\* @type \{[^}]+} \*\/ \(parsed\);/);
   }
   assert.doesNotMatch(wrapper("queryMemberFacts"), /JSON\.parse\(result\)/);
 });
@@ -3737,7 +3736,7 @@ test("graph-only members open through the typed member surface", () => {
     /const graphOnlyTarget =[\s\S]*clearMemberContentCache\(\);[\s\S]*state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*retainMemberSectionIfSupported\(group\)/);
   assert.match(
     generatedEngineSource,
-    /queryGraphMemberSurfaceExport = exports\.InspectionEngine\.QueryGraphMemberSurface/);
+    /exports\.InspectionEngine\.QueryGraphMemberSurface\(packageId, version, targetFramework/);
   assert.match(
     generatedEngineSource,
     /export async function queryGraphMemberSurface\(packageId, version, targetFramework/);

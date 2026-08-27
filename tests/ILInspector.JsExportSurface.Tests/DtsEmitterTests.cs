@@ -200,13 +200,16 @@ public sealed class DtsEmitterTests
         string js = JsEmitter.Emit(BuildFixtureSurfaceWithWireContracts());
 
         Assert.Contains(
-            "const result = getRegisteredDecimalExport();\n"
-                + "  return JSON.parse(result);",
+            "const parsed = $parseJson(result);\n"
+                + "  // The authenticated serializer contract fixes this "
+                + "function's exact wire type.\n"
+                + "  // oxlint-disable-next-line "
+                + "typescript/no-unsafe-type-assertion\n"
+                + "  return /** @type {number} */ (parsed);",
             js,
             StringComparison.Ordinal);
         Assert.Contains(
-            "const result = getRegisteredDecimalArrayExport();\n"
-                + "  return JSON.parse(result);",
+            "return /** @type {ReadonlyArray<number>} */ (parsed);",
             js,
             StringComparison.Ordinal);
     }
@@ -429,7 +432,7 @@ public sealed class DtsEmitterTests
             js,
             StringComparison.Ordinal);
         Assert.Contains(
-            "return pingExport();",
+            "return exports.FixtureExports.Ping();",
             js,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -437,7 +440,127 @@ public sealed class DtsEmitterTests
             js,
             StringComparison.Ordinal);
         Assert.Contains(
-            "const result = await queryWidgetExport();\n  return JSON.parse(result);",
+            "const result = await exports.FixtureExports.QueryWidget();\n"
+                + "  const parsed = $parseJson(result);\n"
+                + "  // The authenticated serializer contract fixes this "
+                + "function's exact wire type.\n"
+                + "  // oxlint-disable-next-line "
+                + "typescript/no-unsafe-type-assertion\n"
+                + "  return /** @type {unknown} */ (parsed);",
+            js,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void JsEmitter_EmitsCheckedInteropAndWireSignaturesFromOneSurface()
+    {
+        string js = JsEmitter.Emit(BuildFixtureSurfaceWithWireContracts());
+
+        Assert.Contains(
+            """
+            /**
+             * @typedef {{
+             *   ILInspector: {
+             *     JsExportSurface: {
+             *       Fixtures: {
+            """,
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            " *         FixtureExports: {",
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            " *           EchoBytes: (value: number[]) => number[],",
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            " *           GetWidget: (name: string, count: number) => string,",
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            " *           GetWidgetAsync: (name: string) => Promise<string>,",
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            " *           Ping: () => Promise<void>,",
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            " *           GetWidgetOrCached: (cached: string | null) => string,",
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            /**
+             * @param {string} name
+             * @param {number} count
+             * @returns {WidgetDto}
+             */
+            export function getWidget(name, count) {
+            """,
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            /**
+             * @param {string} name
+             * @returns {Promise<WidgetDto>}
+             */
+            export async function getWidgetAsync(name) {
+            """,
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "return /** @type {WidgetDto} */ (parsed);",
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            " * @returns {ReadonlyArray<WidgetDto>}\n"
+                + " */\n"
+                + "export function getWidgetArray()",
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "/** @typedef {import(\"/inspect-web-engine.js\").WidgetDto} WidgetDto */",
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "/** @typedef {import(\"/inspect-web-engine.js\").WidgetStatus} WidgetStatus */",
+            js,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void JsEmitter_ModelsInitializationAsOptionalUntilRuntimeStartupCompletes()
+    {
+        string js = JsEmitter.Emit(BuildFixtureSurfaceWithWireContracts());
+
+        Assert.Contains(
+            "/** @type {$ManagedExports | undefined} */\nlet $managedExports;",
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "const exports = /** @type {$ManagedExports} */ "
+                + "(await runtime.getAssemblyExports(",
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "await runtime.runMain();\n"
+                + "  $managedExports = exports;\n"
+                + "  return exports;",
+            js,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "const exports = $requireManagedExports();",
+            js,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "@ts-",
+            js,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "let getWidgetExport",
             js,
             StringComparison.Ordinal);
     }
@@ -515,7 +638,7 @@ public sealed class DtsEmitterTests
         Assert.Equal(
             expectedBootstrap,
             js.Contains(
-                "configureHostExport(window.location.origin);",
+                "exports.Exports.ConfigureHost(window.location.origin);",
                 StringComparison.Ordinal));
         Assert.Contains(
             "function configureHost(value)",

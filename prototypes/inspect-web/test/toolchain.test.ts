@@ -111,7 +111,8 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
   assert.deepEqual(testTsconfig.include, ["./**/*.ts"]);
   assert.equal(
     packageJson.scripts.typecheck,
-    "tsc --noEmit && tsc --noEmit -p test/tsconfig.json",
+    "tsc --noEmit && tsc --noEmit -p test/tsconfig.json "
+      + "&& tsc --noEmit -p tsconfig.runtime-wrapper.json",
   );
 });
 

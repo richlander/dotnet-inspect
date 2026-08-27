@@ -41,12 +41,7 @@ static class DtsEmitter
         ILInspector.JsExportSurface.JsExportSurface surface,
         TsBindGenDiagnostics? diagnostics = null)
     {
-        ApiType[] declarationTypes =
-        [
-            .. surface.Records
-                .Concat(surface.Enums)
-                .Where(type => ShouldEmit(surface, type)),
-        ];
+        ApiType[] declarationTypes = DeclarationTypes(surface);
         ValidateTypeNames(declarationTypes);
         ValidateWireNames(declarationTypes);
         ValidateFunctionNames(surface.Functions);
@@ -91,16 +86,25 @@ static class DtsEmitter
         sb.Append(
             "export declare function initializeEngine(onStatus?: (status: string) => void): Promise<unknown>;\n");
 
-        foreach (JsExportFunction function in surface.Functions.OrderBy(f => f.Name, StringComparer.Ordinal))
-            EmitFunction(
-                sb,
-                function,
-                knownTypeNames,
-                knownTypeIdentities,
-                diagnostics);
+        foreach (TypeScriptFunctionSignature function in MapFunctionSignatures(
+            surface,
+            knownTypeNames,
+            knownTypeIdentities,
+            diagnostics))
+        {
+            EmitFunction(sb, function);
+        }
 
         return sb.ToString();
     }
+
+    internal static ApiType[] DeclarationTypes(
+        ILInspector.JsExportSurface.JsExportSurface surface) =>
+        [
+            .. surface.Records
+                .Concat(surface.Enums)
+                .Where(type => ShouldEmit(surface, type)),
+        ];
 
     static bool ShouldEmit(
         ILInspector.JsExportSurface.JsExportSurface surface,
@@ -647,54 +651,119 @@ static class DtsEmitter
     static void EmitBlockedType(StringBuilder sb, ApiType type) =>
         sb.Append("export type ").Append(type.Name).Append(" = unknown;\n\n");
 
-    static void EmitFunction(
-        StringBuilder sb,
-        JsExportFunction function,
+    internal static TypeScriptFunctionSignature[] MapFunctionSignatures(
+        ILInspector.JsExportSurface.JsExportSurface surface,
         IReadOnlySet<string> knownTypeNames,
         IReadOnlySet<ApiTypeReferenceIdentity> knownTypeIdentities,
         TsBindGenDiagnostics? diagnostics)
     {
-        string returnType = function.ReturnWireType is { } returnWireType
-            ? TsTypeMapper.MapReturnEnvelope(
-                function.ReturnType,
-                returnWireType,
-                knownTypeNames,
-                diagnostics,
-                $"{function.Name} return",
-                BlockedAliases(
-                    function.ReturnWireTypeReferences
-                        .Concat(function.ReturnTypeReferences)
-                        .ToArray(),
-                    knownTypeNames,
-                    knownTypeIdentities))
-            : TsTypeMapper.MapReturnType(
-                function.ReturnType,
-                knownTypeNames,
-                diagnostics,
-                $"{function.Name} return",
-                BlockedAliases(
-                    function.ReturnTypeReferences,
-                    knownTypeNames,
-                    knownTypeIdentities));
+        return
+        [
+            .. surface.Functions
+                .OrderBy(function => function.Name, StringComparer.Ordinal)
+                .Select(function =>
+                {
+                    IReadOnlySet<string>? interopReturnBlockedAliases =
+                        BlockedAliases(
+                            function.ReturnTypeReferences,
+                            knownTypeNames,
+                            knownTypeIdentities);
+                    string interopReturnType = TsTypeMapper.MapReturnType(
+                        function.ReturnType,
+                        knownTypeNames,
+                        function.ReturnWireType is null ? diagnostics : null,
+                        $"{function.Name} return",
+                        interopReturnBlockedAliases);
+                    IReadOnlySet<string>? wireReturnBlockedAliases =
+                        function.ReturnWireType is null
+                            ? null
+                            : BlockedAliases(
+                                function.ReturnWireTypeReferences
+                                    .Concat(function.ReturnTypeReferences)
+                                    .ToArray(),
+                                knownTypeNames,
+                                knownTypeIdentities);
+                    string returnType = function.ReturnWireType is { } returnWireType
+                        ? TsTypeMapper.MapReturnEnvelope(
+                            function.ReturnType,
+                            returnWireType,
+                            knownTypeNames,
+                            diagnostics,
+                            $"{function.Name} return",
+                            wireReturnBlockedAliases)
+                        : interopReturnType;
+                    string? wireType = function.ReturnWireType is { } wireTypeName
+                        ? TsTypeMapper.MapJsonWireType(
+                            wireTypeName,
+                            knownTypeNames,
+                            blockedAliases: wireReturnBlockedAliases)
+                        : null;
+                    TypeScriptParameterSignature[] parameters =
+                    [
+                        .. function.Parameters.Select(parameter =>
+                            new TypeScriptParameterSignature(
+                                CamelCase.FromPascalCase(parameter.Name),
+                                TsTypeMapper.MapParameterType(
+                                    parameter.Type,
+                                    knownTypeNames,
+                                    diagnostics,
+                                    $"{function.Name}.{parameter.Name}",
+                                    BlockedAliases(
+                                        parameter.TypeReferences,
+                                        knownTypeNames,
+                                        knownTypeIdentities)))),
+                    ];
+                    return new TypeScriptFunctionSignature(
+                        function,
+                        CamelCase.FromPascalCase(function.Name),
+                        interopReturnType,
+                        returnType,
+                        wireType,
+                        parameters);
+                }),
+        ];
+    }
 
-        var parameters = function.Parameters.Select(p =>
-            $"{CamelCase.FromPascalCase(p.Name)}: {TsTypeMapper.MapParameterType(
-                p.Type,
-                knownTypeNames,
-                diagnostics,
-                $"{function.Name}.{p.Name}",
-                BlockedAliases(
-                    p.TypeReferences,
-                    knownTypeNames,
-                    knownTypeIdentities))}");
+    static void EmitFunction(
+        StringBuilder sb,
+        TypeScriptFunctionSignature function)
+    {
+        var parameters = function.Parameters.Select(parameter =>
+            $"{parameter.Name}: {parameter.Type}");
 
         sb.Append("export declare function ")
-          .Append(CamelCase.FromPascalCase(function.Name))
+          .Append(function.Name)
           .Append('(')
           .Append(string.Join(", ", parameters))
           .Append("): ")
-          .Append(returnType)
+          .Append(function.ReturnType)
           .Append(";\n");
+    }
+
+    internal static TypeScriptFunctionSignature[] MapFunctionSignatures(
+        ILInspector.JsExportSurface.JsExportSurface surface,
+        TsBindGenDiagnostics? diagnostics = null)
+    {
+        ApiType[] declarationTypes = DeclarationTypes(surface);
+        var knownTypeNames = new HashSet<string>(
+            declarationTypes.SelectMany(
+                type => new[] { type.Name, type.FullName, type.MetadataName }
+                    .Where(identity => !string.IsNullOrEmpty(identity))
+                    .Select(identity => identity!)),
+            StringComparer.Ordinal);
+        var knownTypeIdentities = surface.AssemblyIdentity is { } assembly
+            ? new HashSet<ApiTypeReferenceIdentity>(
+                declarationTypes.Select(type =>
+                    new ApiTypeReferenceIdentity(
+                        assembly,
+                        type.FullName,
+                        type.DefinitionName)))
+            : [];
+        return MapFunctionSignatures(
+            surface,
+            knownTypeNames,
+            knownTypeIdentities,
+            diagnostics);
     }
 
     static IReadOnlySet<string>? BlockedAliases(

@@ -6,327 +6,749 @@
 
 import { dotnet } from "./_framework/dotnet.js";
 
-let buildIdentityExport;
-let cancelSourceQueryExport;
-let configureHostExport;
-let decodeWorkspaceShareStateExport;
-let encodeWorkspaceShareStateExport;
-let expandPlatformCallGraphExport;
-let getPackageDocumentExport;
-let listHomeDemosExport;
-let listVocabularyExport;
-let loadRuntimePackExport;
-let loadRuntimePackAssemblyExport;
-let matchPackageDependencyCoordinateExport;
-let packageCacheStatsExport;
-let queryGraphMemberSurfaceExport;
-let queryMemberAnnotatedSourceExport;
-let queryMemberCallGraphExport;
-let queryMemberDocumentationExport;
-let queryMemberFactsExport;
-let queryMemberSourceExport;
-let queryPackageExport;
-let queryPackageDependenciesExport;
-let queryPackageHeapEntriesExport;
-let queryPackageIntegrationsExport;
-let queryPackageMetadataExport;
-let queryPackageMetadataTableExport;
-let queryPackageOpportunitiesExport;
-let queryPackagePerformanceExport;
-let queryPackageVersionsExport;
-let queryPlatformHeapEntriesExport;
-let queryPlatformIntegrationsExport;
-let queryPlatformMetadataExport;
-let queryPlatformMetadataTableExport;
-let queryPlatformOpportunitiesExport;
-let queryPlatformPerformanceExport;
-let queryTypeMemberSourceExport;
-let queryTypeProjectionExport;
-let queryTypeSourceExport;
-let resolveHomeDemoExport;
-let resolvePackageDependencyVersionExport;
-let runHomeDemoExport;
-let searchTypesExport;
+/** @typedef {import("/inspect-web-engine.js").BrowserAccessibilityDescriptor} BrowserAccessibilityDescriptor */
+/** @typedef {import("/inspect-web-engine.js").BrowserAnnotatedSource} BrowserAnnotatedSource */
+/** @typedef {import("/inspect-web-engine.js").BrowserAssemblyReference} BrowserAssemblyReference */
+/** @typedef {import("/inspect-web-engine.js").BrowserAssemblySurface} BrowserAssemblySurface */
+/** @typedef {import("/inspect-web-engine.js").BrowserBuildIdentity} BrowserBuildIdentity */
+/** @typedef {import("/inspect-web-engine.js").BrowserCallGraph} BrowserCallGraph */
+/** @typedef {import("/inspect-web-engine.js").BrowserCallGraphDiagnostics} BrowserCallGraphDiagnostics */
+/** @typedef {import("/inspect-web-engine.js").BrowserCallGraphNode} BrowserCallGraphNode */
+/** @typedef {import("/inspect-web-engine.js").BrowserCallGraphScope} BrowserCallGraphScope */
+/** @typedef {import("/inspect-web-engine.js").BrowserCallGraphTarget} BrowserCallGraphTarget */
+/** @typedef {import("/inspect-web-engine.js").BrowserDependencyCoordinateCandidate} BrowserDependencyCoordinateCandidate */
+/** @typedef {import("/inspect-web-engine.js").BrowserDependencyCoordinateMatch} BrowserDependencyCoordinateMatch */
+/** @typedef {import("/inspect-web-engine.js").BrowserDependencyCoordinateMatchOutcome} BrowserDependencyCoordinateMatchOutcome */
+/** @typedef {import("/inspect-web-engine.js").BrowserDependencyCoordinateProvenance} BrowserDependencyCoordinateProvenance */
+/** @typedef {import("/inspect-web-engine.js").BrowserExceptionSurface} BrowserExceptionSurface */
+/** @typedef {import("/inspect-web-engine.js").BrowserHomeDemoCatalog} BrowserHomeDemoCatalog */
+/** @typedef {import("/inspect-web-engine.js").BrowserHomeDemoCatalogEntry} BrowserHomeDemoCatalogEntry */
+/** @typedef {import("/inspect-web-engine.js").BrowserHomeDemoMember} BrowserHomeDemoMember */
+/** @typedef {import("/inspect-web-engine.js").BrowserHomeDemoNavigationTab} BrowserHomeDemoNavigationTab */
+/** @typedef {import("/inspect-web-engine.js").BrowserHomeDemoResolveResult} BrowserHomeDemoResolveResult */
+/** @typedef {import("/inspect-web-engine.js").BrowserHomeDemoResolved} BrowserHomeDemoResolved */
+/** @typedef {import("/inspect-web-engine.js").BrowserHomeDemoRunActivation} BrowserHomeDemoRunActivation */
+/** @typedef {import("/inspect-web-engine.js").BrowserHomeDemoRunResult} BrowserHomeDemoRunResult */
+/** @typedef {import("/inspect-web-engine.js").BrowserHomeDemoView} BrowserHomeDemoView */
+/** @typedef {import("/inspect-web-engine.js").BrowserIntegrationCategory} BrowserIntegrationCategory */
+/** @typedef {import("/inspect-web-engine.js").BrowserIntegrationSignal} BrowserIntegrationSignal */
+/** @typedef {import("/inspect-web-engine.js").BrowserMemberBodySelector} BrowserMemberBodySelector */
+/** @typedef {import("/inspect-web-engine.js").BrowserMemberDocumentation} BrowserMemberDocumentation */
+/** @typedef {import("/inspect-web-engine.js").BrowserMemberSurface} BrowserMemberSurface */
+/** @typedef {import("/inspect-web-engine.js").BrowserOpportunityCategory} BrowserOpportunityCategory */
+/** @typedef {import("/inspect-web-engine.js").BrowserOpportunityItem} BrowserOpportunityItem */
+/** @typedef {import("/inspect-web-engine.js").BrowserPackageCacheStats} BrowserPackageCacheStats */
+/** @typedef {import("/inspect-web-engine.js").BrowserPackageDependencies} BrowserPackageDependencies */
+/** @typedef {import("/inspect-web-engine.js").BrowserPackageDependency} BrowserPackageDependency */
+/** @typedef {import("/inspect-web-engine.js").BrowserPackageDependencyGroup} BrowserPackageDependencyGroup */
+/** @typedef {import("/inspect-web-engine.js").BrowserPackageDocument} BrowserPackageDocument */
+/** @typedef {import("/inspect-web-engine.js").BrowserPackageDocumentContent} BrowserPackageDocumentContent */
+/** @typedef {import("/inspect-web-engine.js").BrowserPackageIntegrations} BrowserPackageIntegrations */
+/** @typedef {import("/inspect-web-engine.js").BrowserPackageOpportunities} BrowserPackageOpportunities */
+/** @typedef {import("/inspect-web-engine.js").BrowserPackagePerformance} BrowserPackagePerformance */
+/** @typedef {import("/inspect-web-engine.js").BrowserPackageSurface} BrowserPackageSurface */
+/** @typedef {import("/inspect-web-engine.js").BrowserParameterSurface} BrowserParameterSurface */
+/** @typedef {import("/inspect-web-engine.js").BrowserPerformanceMember} BrowserPerformanceMember */
+/** @typedef {import("/inspect-web-engine.js").BrowserSource} BrowserSource */
+/** @typedef {import("/inspect-web-engine.js").BrowserTypeCandidate} BrowserTypeCandidate */
+/** @typedef {import("/inspect-web-engine.js").BrowserTypeComposition} BrowserTypeComposition */
+/** @typedef {import("/inspect-web-engine.js").BrowserTypeGraphEdge} BrowserTypeGraphEdge */
+/** @typedef {import("/inspect-web-engine.js").BrowserTypeGraphNode} BrowserTypeGraphNode */
+/** @typedef {import("/inspect-web-engine.js").BrowserTypeMetadata} BrowserTypeMetadata */
+/** @typedef {import("/inspect-web-engine.js").BrowserTypeParameter} BrowserTypeParameter */
+/** @typedef {import("/inspect-web-engine.js").BrowserTypeSearchHit} BrowserTypeSearchHit */
+/** @typedef {import("/inspect-web-engine.js").BrowserTypeSurface} BrowserTypeSurface */
+/** @typedef {import("/inspect-web-engine.js").BrowserVocabularyDocument} BrowserVocabularyDocument */
+/** @typedef {import("/inspect-web-engine.js").BrowserVocabularyField} BrowserVocabularyField */
+/** @typedef {import("/inspect-web-engine.js").BrowserVocabularySection} BrowserVocabularySection */
+/** @typedef {import("/inspect-web-engine.js").BrowserWorkspaceShareContext} BrowserWorkspaceShareContext */
+/** @typedef {import("/inspect-web-engine.js").BrowserWorkspaceShareDecodeResult} BrowserWorkspaceShareDecodeResult */
+/** @typedef {import("/inspect-web-engine.js").BrowserWorkspaceShareEncodeResult} BrowserWorkspaceShareEncodeResult */
+/** @typedef {import("/inspect-web-engine.js").BrowserWorkspaceShareFailure} BrowserWorkspaceShareFailure */
+/** @typedef {import("/inspect-web-engine.js").BrowserWorkspaceShareState} BrowserWorkspaceShareState */
+/** @typedef {import("/inspect-web-engine.js").BrowserWorkspaceShareTab} BrowserWorkspaceShareTab */
+/** @typedef {import("/inspect-web-engine.js").BrowserWorkspaceShareView} BrowserWorkspaceShareView */
 
+/**
+ * @typedef {{
+ *   InspectionEngine: {
+ *     BuildIdentity: () => string,
+ *     CancelSourceQuery: () => void,
+ *     ConfigureHost: (origin: string) => void,
+ *     DecodeWorkspaceShareState: (encoded: string) => string,
+ *     EncodeWorkspaceShareState: (stateJson: string) => string,
+ *     ExpandPlatformCallGraph: (targetFramework: string, platformVersion: string, assembly: string, pack: string, assemblyVersion: string, assemblyCulture: string | null, assemblyPublicKeyToken: string | null, typeFullName: string, memberName: string, selectorKey: string, metadataToken: number) => Promise<string>,
+ *     GetPackageDocument: (packageId: string, version: string, path: string) => Promise<string>,
+ *     ListHomeDemos: () => string,
+ *     ListVocabulary: () => string,
+ *     LoadRuntimePack: (targetFramework: string, platformVersion: string) => Promise<string>,
+ *     LoadRuntimePackAssembly: (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>,
+ *     MatchPackageDependencyCoordinate: (packageId: string, declaredRange: string | null, candidatesJson: string) => string,
+ *     PackageCacheStats: () => string,
+ *     QueryGraphMemberSurface: (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number) => Promise<string>,
+ *     QueryMemberAnnotatedSource: (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>,
+ *     QueryMemberCallGraph: (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, workspaceJson: string) => Promise<string>,
+ *     QueryMemberDocumentation: (packageId: string, version: string, framework: string, assemblyName: string, documentationId: string) => Promise<string>,
+ *     QueryMemberFacts: (packageId: string, version: string, targetFramework: string, assemblyName: string, typeId: string, memberName: string, memberSignature: string) => Promise<string>,
+ *     QueryMemberSource: (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>,
+ *     QueryPackage: (packageId: string, version: string, targetFramework: string) => Promise<string>,
+ *     QueryPackageDependencies: (packageId: string, version: string, targetFramework: string, assemblyId: string) => Promise<string>,
+ *     QueryPackageHeapEntries: (packageId: string, version: string, targetFramework: string, assemblyFileName: string, heap: string) => Promise<string>,
+ *     QueryPackageIntegrations: (packageId: string, version: string, targetFramework: string) => Promise<string>,
+ *     QueryPackageMetadata: (packageId: string, version: string, targetFramework: string) => Promise<string>,
+ *     QueryPackageMetadataTable: (packageId: string, version: string, targetFramework: string, assemblyFileName: string, tableIndex: number, startRowId: number, maxRows: number) => Promise<string>,
+ *     QueryPackageOpportunities: (packageId: string, version: string, targetFramework: string) => Promise<string>,
+ *     QueryPackagePerformance: (packageId: string, version: string, targetFramework: string) => Promise<string>,
+ *     QueryPackageVersions: (packageId: string) => Promise<string>,
+ *     QueryPlatformHeapEntries: (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, heap: string) => Promise<string>,
+ *     QueryPlatformIntegrations: (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>,
+ *     QueryPlatformMetadata: (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>,
+ *     QueryPlatformMetadataTable: (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, tableIndex: number, startRowId: number, maxRows: number) => Promise<string>,
+ *     QueryPlatformOpportunities: (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>,
+ *     QueryPlatformPerformance: (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>,
+ *     QueryTypeMemberSource: (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>,
+ *     QueryTypeProjection: (packageId: string, version: string, targetFramework: string, assemblyName: string, typeId: string) => Promise<string>,
+ *     QueryTypeSource: (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string) => Promise<string>,
+ *     ResolveHomeDemo: (scenarioId: string) => string,
+ *     ResolvePackageDependencyVersion: (packageId: string, declaredRange: string | null) => Promise<string>,
+ *     RunHomeDemo: (scenarioId: string) => Promise<string>,
+ *     SearchTypes: (query: string, candidatesJson: string) => string,
+ *   },
+ * }} $ManagedExports
+ */
+/** @type {$ManagedExports | undefined} */
+let $managedExports;
+
+/** @returns {$ManagedExports} */
+function $requireManagedExports() {
+  if (!$managedExports) throw new Error("The browser inspection engine is not initialized.");
+  return $managedExports;
+}
+
+/**
+ * @param {string} value
+ * @returns {unknown}
+ */
+function $parseJson(value) {
+  return JSON.parse(value);
+}
+
+/**
+ * @param {(status: string) => void} [onStatus]
+ * @returns {Promise<unknown>}
+ */
 export async function initializeEngine(onStatus = () => {}) {
   onStatus("Loading .NET WebAssembly…");
   const runtime = await dotnet.create();
-  const exports = await runtime.getAssemblyExports("InspectWeb.Engine");
-  buildIdentityExport = exports.InspectionEngine.BuildIdentity;
-  cancelSourceQueryExport = exports.InspectionEngine.CancelSourceQuery;
-  configureHostExport = exports.InspectionEngine.ConfigureHost;
-  decodeWorkspaceShareStateExport = exports.InspectionEngine.DecodeWorkspaceShareState;
-  encodeWorkspaceShareStateExport = exports.InspectionEngine.EncodeWorkspaceShareState;
-  expandPlatformCallGraphExport = exports.InspectionEngine.ExpandPlatformCallGraph;
-  getPackageDocumentExport = exports.InspectionEngine.GetPackageDocument;
-  listHomeDemosExport = exports.InspectionEngine.ListHomeDemos;
-  listVocabularyExport = exports.InspectionEngine.ListVocabulary;
-  loadRuntimePackExport = exports.InspectionEngine.LoadRuntimePack;
-  loadRuntimePackAssemblyExport = exports.InspectionEngine.LoadRuntimePackAssembly;
-  matchPackageDependencyCoordinateExport = exports.InspectionEngine.MatchPackageDependencyCoordinate;
-  packageCacheStatsExport = exports.InspectionEngine.PackageCacheStats;
-  queryGraphMemberSurfaceExport = exports.InspectionEngine.QueryGraphMemberSurface;
-  queryMemberAnnotatedSourceExport = exports.InspectionEngine.QueryMemberAnnotatedSource;
-  queryMemberCallGraphExport = exports.InspectionEngine.QueryMemberCallGraph;
-  queryMemberDocumentationExport = exports.InspectionEngine.QueryMemberDocumentation;
-  queryMemberFactsExport = exports.InspectionEngine.QueryMemberFacts;
-  queryMemberSourceExport = exports.InspectionEngine.QueryMemberSource;
-  queryPackageExport = exports.InspectionEngine.QueryPackage;
-  queryPackageDependenciesExport = exports.InspectionEngine.QueryPackageDependencies;
-  queryPackageHeapEntriesExport = exports.InspectionEngine.QueryPackageHeapEntries;
-  queryPackageIntegrationsExport = exports.InspectionEngine.QueryPackageIntegrations;
-  queryPackageMetadataExport = exports.InspectionEngine.QueryPackageMetadata;
-  queryPackageMetadataTableExport = exports.InspectionEngine.QueryPackageMetadataTable;
-  queryPackageOpportunitiesExport = exports.InspectionEngine.QueryPackageOpportunities;
-  queryPackagePerformanceExport = exports.InspectionEngine.QueryPackagePerformance;
-  queryPackageVersionsExport = exports.InspectionEngine.QueryPackageVersions;
-  queryPlatformHeapEntriesExport = exports.InspectionEngine.QueryPlatformHeapEntries;
-  queryPlatformIntegrationsExport = exports.InspectionEngine.QueryPlatformIntegrations;
-  queryPlatformMetadataExport = exports.InspectionEngine.QueryPlatformMetadata;
-  queryPlatformMetadataTableExport = exports.InspectionEngine.QueryPlatformMetadataTable;
-  queryPlatformOpportunitiesExport = exports.InspectionEngine.QueryPlatformOpportunities;
-  queryPlatformPerformanceExport = exports.InspectionEngine.QueryPlatformPerformance;
-  queryTypeMemberSourceExport = exports.InspectionEngine.QueryTypeMemberSource;
-  queryTypeProjectionExport = exports.InspectionEngine.QueryTypeProjection;
-  queryTypeSourceExport = exports.InspectionEngine.QueryTypeSource;
-  resolveHomeDemoExport = exports.InspectionEngine.ResolveHomeDemo;
-  resolvePackageDependencyVersionExport = exports.InspectionEngine.ResolvePackageDependencyVersion;
-  runHomeDemoExport = exports.InspectionEngine.RunHomeDemo;
-  searchTypesExport = exports.InspectionEngine.SearchTypes;
-  configureHostExport(window.location.origin);
+  // This assertion is the one untyped .NET runtime boundary. $ManagedExports is
+  // generated from the same authenticated surface as the wrappers below.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  const exports = /** @type {$ManagedExports} */ (await runtime.getAssemblyExports("InspectWeb.Engine"));
+  exports.InspectionEngine.ConfigureHost(window.location.origin);
   await runtime.runMain();
+  $managedExports = exports;
   return exports;
 }
 
+/**
+ * @returns {BrowserBuildIdentity}
+ */
 export function buildIdentity() {
-  if (!buildIdentityExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = buildIdentityExport();
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = exports.InspectionEngine.BuildIdentity();
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {BrowserBuildIdentity} */ (parsed);
 }
 
+/**
+ * @returns {void}
+ */
 export function cancelSourceQuery() {
-  if (!cancelSourceQueryExport) throw new Error("The browser inspection engine is not initialized.");
-  return cancelSourceQueryExport();
+  const exports = $requireManagedExports();
+  return exports.InspectionEngine.CancelSourceQuery();
 }
 
+/**
+ * @param {string} origin
+ * @returns {void}
+ */
 export function configureHost(origin) {
-  if (!configureHostExport) throw new Error("The browser inspection engine is not initialized.");
-  return configureHostExport(origin);
+  const exports = $requireManagedExports();
+  return exports.InspectionEngine.ConfigureHost(origin);
 }
 
+/**
+ * @param {string} encoded
+ * @returns {BrowserWorkspaceShareDecodeResult}
+ */
 export function decodeWorkspaceShareState(encoded) {
-  if (!decodeWorkspaceShareStateExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = decodeWorkspaceShareStateExport(encoded);
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = exports.InspectionEngine.DecodeWorkspaceShareState(encoded);
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {BrowserWorkspaceShareDecodeResult} */ (parsed);
 }
 
+/**
+ * @param {string} stateJson
+ * @returns {BrowserWorkspaceShareEncodeResult}
+ */
 export function encodeWorkspaceShareState(stateJson) {
-  if (!encodeWorkspaceShareStateExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = encodeWorkspaceShareStateExport(stateJson);
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = exports.InspectionEngine.EncodeWorkspaceShareState(stateJson);
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {BrowserWorkspaceShareEncodeResult} */ (parsed);
 }
 
+/**
+ * @param {string} targetFramework
+ * @param {string} platformVersion
+ * @param {string} assembly
+ * @param {string} pack
+ * @param {string} assemblyVersion
+ * @param {string | null} assemblyCulture
+ * @param {string | null} assemblyPublicKeyToken
+ * @param {string} typeFullName
+ * @param {string} memberName
+ * @param {string} selectorKey
+ * @param {number} metadataToken
+ * @returns {Promise<BrowserCallGraph>}
+ */
 export async function expandPlatformCallGraph(targetFramework, platformVersion, assembly, pack, assemblyVersion, assemblyCulture, assemblyPublicKeyToken, typeFullName, memberName, selectorKey, metadataToken) {
-  if (!expandPlatformCallGraphExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = await expandPlatformCallGraphExport(targetFramework, platformVersion, assembly, pack, assemblyVersion, assemblyCulture, assemblyPublicKeyToken, typeFullName, memberName, selectorKey, metadataToken);
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = await exports.InspectionEngine.ExpandPlatformCallGraph(targetFramework, platformVersion, assembly, pack, assemblyVersion, assemblyCulture, assemblyPublicKeyToken, typeFullName, memberName, selectorKey, metadataToken);
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {BrowserCallGraph} */ (parsed);
 }
 
+/**
+ * @param {string} packageId
+ * @param {string} version
+ * @param {string} path
+ * @returns {Promise<BrowserPackageDocumentContent>}
+ */
 export async function getPackageDocument(packageId, version, path) {
-  if (!getPackageDocumentExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = await getPackageDocumentExport(packageId, version, path);
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = await exports.InspectionEngine.GetPackageDocument(packageId, version, path);
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {BrowserPackageDocumentContent} */ (parsed);
 }
 
+/**
+ * @returns {BrowserHomeDemoCatalog}
+ */
 export function listHomeDemos() {
-  if (!listHomeDemosExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = listHomeDemosExport();
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = exports.InspectionEngine.ListHomeDemos();
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {BrowserHomeDemoCatalog} */ (parsed);
 }
 
+/**
+ * @returns {BrowserVocabularyDocument}
+ */
 export function listVocabulary() {
-  if (!listVocabularyExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = listVocabularyExport();
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = exports.InspectionEngine.ListVocabulary();
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {BrowserVocabularyDocument} */ (parsed);
 }
 
+/**
+ * @param {string} targetFramework
+ * @param {string} platformVersion
+ * @returns {Promise<string>}
+ */
 export async function loadRuntimePack(targetFramework, platformVersion) {
-  if (!loadRuntimePackExport) throw new Error("The browser inspection engine is not initialized.");
-  return await loadRuntimePackExport(targetFramework, platformVersion);
+  const exports = $requireManagedExports();
+  return await exports.InspectionEngine.LoadRuntimePack(targetFramework, platformVersion);
 }
 
+/**
+ * @param {string} targetFramework
+ * @param {string} platformVersion
+ * @param {string} assemblyFileName
+ * @param {string} pack
+ * @returns {Promise<string>}
+ */
 export async function loadRuntimePackAssembly(targetFramework, platformVersion, assemblyFileName, pack) {
-  if (!loadRuntimePackAssemblyExport) throw new Error("The browser inspection engine is not initialized.");
-  return await loadRuntimePackAssemblyExport(targetFramework, platformVersion, assemblyFileName, pack);
+  const exports = $requireManagedExports();
+  return await exports.InspectionEngine.LoadRuntimePackAssembly(targetFramework, platformVersion, assemblyFileName, pack);
 }
 
+/**
+ * @param {string} packageId
+ * @param {string | null} declaredRange
+ * @param {string} candidatesJson
+ * @returns {BrowserDependencyCoordinateMatch}
+ */
 export function matchPackageDependencyCoordinate(packageId, declaredRange, candidatesJson) {
-  if (!matchPackageDependencyCoordinateExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = matchPackageDependencyCoordinateExport(packageId, declaredRange, candidatesJson);
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = exports.InspectionEngine.MatchPackageDependencyCoordinate(packageId, declaredRange, candidatesJson);
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {BrowserDependencyCoordinateMatch} */ (parsed);
 }
 
+/**
+ * @returns {BrowserPackageCacheStats}
+ */
 export function packageCacheStats() {
-  if (!packageCacheStatsExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = packageCacheStatsExport();
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = exports.InspectionEngine.PackageCacheStats();
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {BrowserPackageCacheStats} */ (parsed);
 }
 
+/**
+ * @param {string} packageId
+ * @param {string} version
+ * @param {string} targetFramework
+ * @param {string} assemblyName
+ * @param {string} typeIdentity
+ * @param {string} memberName
+ * @param {string} selectorKey
+ * @param {number} metadataToken
+ * @returns {Promise<BrowserMemberSurface>}
+ */
 export async function queryGraphMemberSurface(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken) {
-  if (!queryGraphMemberSurfaceExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = await queryGraphMemberSurfaceExport(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken);
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = await exports.InspectionEngine.QueryGraphMemberSurface(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken);
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {BrowserMemberSurface} */ (parsed);
 }
 
+/**
+ * @param {string} packageId
+ * @param {string} version
+ * @param {string} targetFramework
+ * @param {string} assemblyName
+ * @param {string} typeIdentity
+ * @param {string} typeQueryId
+ * @param {string} memberName
+ * @param {string} memberSignature
+ * @param {string} selectorKey
+ * @param {number} metadataToken
+ * @param {string} styleOptionsJson
+ * @returns {Promise<BrowserAnnotatedSource>}
+ */
 export async function queryMemberAnnotatedSource(packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson) {
-  if (!queryMemberAnnotatedSourceExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = await queryMemberAnnotatedSourceExport(packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson);
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = await exports.InspectionEngine.QueryMemberAnnotatedSource(packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson);
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {BrowserAnnotatedSource} */ (parsed);
 }
 
+/**
+ * @param {string} packageId
+ * @param {string} version
+ * @param {string} targetFramework
+ * @param {string} assemblyName
+ * @param {string} typeIdentity
+ * @param {string} typeQueryId
+ * @param {string} memberName
+ * @param {string} memberSignature
+ * @param {string} selectorKey
+ * @param {number} metadataToken
+ * @param {string} workspaceJson
+ * @returns {Promise<BrowserCallGraph>}
+ */
 export async function queryMemberCallGraph(packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, workspaceJson) {
-  if (!queryMemberCallGraphExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = await queryMemberCallGraphExport(packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, workspaceJson);
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = await exports.InspectionEngine.QueryMemberCallGraph(packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, workspaceJson);
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {BrowserCallGraph} */ (parsed);
 }
 
+/**
+ * @param {string} packageId
+ * @param {string} version
+ * @param {string} framework
+ * @param {string} assemblyName
+ * @param {string} documentationId
+ * @returns {Promise<BrowserMemberDocumentation>}
+ */
 export async function queryMemberDocumentation(packageId, version, framework, assemblyName, documentationId) {
-  if (!queryMemberDocumentationExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = await queryMemberDocumentationExport(packageId, version, framework, assemblyName, documentationId);
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = await exports.InspectionEngine.QueryMemberDocumentation(packageId, version, framework, assemblyName, documentationId);
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {BrowserMemberDocumentation} */ (parsed);
 }
 
+/**
+ * @param {string} packageId
+ * @param {string} version
+ * @param {string} targetFramework
+ * @param {string} assemblyName
+ * @param {string} typeId
+ * @param {string} memberName
+ * @param {string} memberSignature
+ * @returns {Promise<string>}
+ */
 export async function queryMemberFacts(packageId, version, targetFramework, assemblyName, typeId, memberName, memberSignature) {
-  if (!queryMemberFactsExport) throw new Error("The browser inspection engine is not initialized.");
-  return await queryMemberFactsExport(packageId, version, targetFramework, assemblyName, typeId, memberName, memberSignature);
+  const exports = $requireManagedExports();
+  return await exports.InspectionEngine.QueryMemberFacts(packageId, version, targetFramework, assemblyName, typeId, memberName, memberSignature);
 }
 
+/**
+ * @param {string} packageId
+ * @param {string} version
+ * @param {string} targetFramework
+ * @param {string} assemblyName
+ * @param {string} typeIdentity
+ * @param {string} memberName
+ * @param {string} selectorKey
+ * @param {number} metadataToken
+ * @param {string} styleOptionsJson
+ * @returns {Promise<BrowserSource>}
+ */
 export async function queryMemberSource(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson) {
-  if (!queryMemberSourceExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = await queryMemberSourceExport(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson);
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = await exports.InspectionEngine.QueryMemberSource(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson);
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {BrowserSource} */ (parsed);
 }
 
+/**
+ * @param {string} packageId
+ * @param {string} version
+ * @param {string} targetFramework
+ * @returns {Promise<BrowserPackageSurface>}
+ */
 export async function queryPackage(packageId, version, targetFramework) {
-  if (!queryPackageExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = await queryPackageExport(packageId, version, targetFramework);
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = await exports.InspectionEngine.QueryPackage(packageId, version, targetFramework);
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {BrowserPackageSurface} */ (parsed);
 }
 
+/**
+ * @param {string} packageId
+ * @param {string} version
+ * @param {string} targetFramework
+ * @param {string} assemblyId
+ * @returns {Promise<BrowserPackageDependencies>}
+ */
 export async function queryPackageDependencies(packageId, version, targetFramework, assemblyId) {
-  if (!queryPackageDependenciesExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = await queryPackageDependenciesExport(packageId, version, targetFramework, assemblyId);
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = await exports.InspectionEngine.QueryPackageDependencies(packageId, version, targetFramework, assemblyId);
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {BrowserPackageDependencies} */ (parsed);
 }
 
+/**
+ * @param {string} packageId
+ * @param {string} version
+ * @param {string} targetFramework
+ * @param {string} assemblyFileName
+ * @param {string} heap
+ * @returns {Promise<string>}
+ */
 export async function queryPackageHeapEntries(packageId, version, targetFramework, assemblyFileName, heap) {
-  if (!queryPackageHeapEntriesExport) throw new Error("The browser inspection engine is not initialized.");
-  return await queryPackageHeapEntriesExport(packageId, version, targetFramework, assemblyFileName, heap);
+  const exports = $requireManagedExports();
+  return await exports.InspectionEngine.QueryPackageHeapEntries(packageId, version, targetFramework, assemblyFileName, heap);
 }
 
+/**
+ * @param {string} packageId
+ * @param {string} version
+ * @param {string} targetFramework
+ * @returns {Promise<BrowserPackageIntegrations>}
+ */
 export async function queryPackageIntegrations(packageId, version, targetFramework) {
-  if (!queryPackageIntegrationsExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = await queryPackageIntegrationsExport(packageId, version, targetFramework);
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = await exports.InspectionEngine.QueryPackageIntegrations(packageId, version, targetFramework);
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {BrowserPackageIntegrations} */ (parsed);
 }
 
+/**
+ * @param {string} packageId
+ * @param {string} version
+ * @param {string} targetFramework
+ * @returns {Promise<string>}
+ */
 export async function queryPackageMetadata(packageId, version, targetFramework) {
-  if (!queryPackageMetadataExport) throw new Error("The browser inspection engine is not initialized.");
-  return await queryPackageMetadataExport(packageId, version, targetFramework);
+  const exports = $requireManagedExports();
+  return await exports.InspectionEngine.QueryPackageMetadata(packageId, version, targetFramework);
 }
 
+/**
+ * @param {string} packageId
+ * @param {string} version
+ * @param {string} targetFramework
+ * @param {string} assemblyFileName
+ * @param {number} tableIndex
+ * @param {number} startRowId
+ * @param {number} maxRows
+ * @returns {Promise<string>}
+ */
 export async function queryPackageMetadataTable(packageId, version, targetFramework, assemblyFileName, tableIndex, startRowId, maxRows) {
-  if (!queryPackageMetadataTableExport) throw new Error("The browser inspection engine is not initialized.");
-  return await queryPackageMetadataTableExport(packageId, version, targetFramework, assemblyFileName, tableIndex, startRowId, maxRows);
+  const exports = $requireManagedExports();
+  return await exports.InspectionEngine.QueryPackageMetadataTable(packageId, version, targetFramework, assemblyFileName, tableIndex, startRowId, maxRows);
 }
 
+/**
+ * @param {string} packageId
+ * @param {string} version
+ * @param {string} targetFramework
+ * @returns {Promise<BrowserPackageOpportunities>}
+ */
 export async function queryPackageOpportunities(packageId, version, targetFramework) {
-  if (!queryPackageOpportunitiesExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = await queryPackageOpportunitiesExport(packageId, version, targetFramework);
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = await exports.InspectionEngine.QueryPackageOpportunities(packageId, version, targetFramework);
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {BrowserPackageOpportunities} */ (parsed);
 }
 
+/**
+ * @param {string} packageId
+ * @param {string} version
+ * @param {string} targetFramework
+ * @returns {Promise<BrowserPackagePerformance>}
+ */
 export async function queryPackagePerformance(packageId, version, targetFramework) {
-  if (!queryPackagePerformanceExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = await queryPackagePerformanceExport(packageId, version, targetFramework);
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = await exports.InspectionEngine.QueryPackagePerformance(packageId, version, targetFramework);
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {BrowserPackagePerformance} */ (parsed);
 }
 
+/**
+ * @param {string} packageId
+ * @returns {Promise<ReadonlyArray<string>>}
+ */
 export async function queryPackageVersions(packageId) {
-  if (!queryPackageVersionsExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = await queryPackageVersionsExport(packageId);
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = await exports.InspectionEngine.QueryPackageVersions(packageId);
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {ReadonlyArray<string>} */ (parsed);
 }
 
+/**
+ * @param {string} targetFramework
+ * @param {string} platformVersion
+ * @param {string} assemblyFileName
+ * @param {string} pack
+ * @param {string} heap
+ * @returns {Promise<string>}
+ */
 export async function queryPlatformHeapEntries(targetFramework, platformVersion, assemblyFileName, pack, heap) {
-  if (!queryPlatformHeapEntriesExport) throw new Error("The browser inspection engine is not initialized.");
-  return await queryPlatformHeapEntriesExport(targetFramework, platformVersion, assemblyFileName, pack, heap);
+  const exports = $requireManagedExports();
+  return await exports.InspectionEngine.QueryPlatformHeapEntries(targetFramework, platformVersion, assemblyFileName, pack, heap);
 }
 
+/**
+ * @param {string} targetFramework
+ * @param {string} platformVersion
+ * @param {string} assemblyFileName
+ * @param {string} pack
+ * @returns {Promise<BrowserPackageIntegrations>}
+ */
 export async function queryPlatformIntegrations(targetFramework, platformVersion, assemblyFileName, pack) {
-  if (!queryPlatformIntegrationsExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = await queryPlatformIntegrationsExport(targetFramework, platformVersion, assemblyFileName, pack);
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = await exports.InspectionEngine.QueryPlatformIntegrations(targetFramework, platformVersion, assemblyFileName, pack);
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {BrowserPackageIntegrations} */ (parsed);
 }
 
+/**
+ * @param {string} targetFramework
+ * @param {string} platformVersion
+ * @param {string} assemblyFileName
+ * @param {string} pack
+ * @returns {Promise<string>}
+ */
 export async function queryPlatformMetadata(targetFramework, platformVersion, assemblyFileName, pack) {
-  if (!queryPlatformMetadataExport) throw new Error("The browser inspection engine is not initialized.");
-  return await queryPlatformMetadataExport(targetFramework, platformVersion, assemblyFileName, pack);
+  const exports = $requireManagedExports();
+  return await exports.InspectionEngine.QueryPlatformMetadata(targetFramework, platformVersion, assemblyFileName, pack);
 }
 
+/**
+ * @param {string} targetFramework
+ * @param {string} platformVersion
+ * @param {string} assemblyFileName
+ * @param {string} pack
+ * @param {number} tableIndex
+ * @param {number} startRowId
+ * @param {number} maxRows
+ * @returns {Promise<string>}
+ */
 export async function queryPlatformMetadataTable(targetFramework, platformVersion, assemblyFileName, pack, tableIndex, startRowId, maxRows) {
-  if (!queryPlatformMetadataTableExport) throw new Error("The browser inspection engine is not initialized.");
-  return await queryPlatformMetadataTableExport(targetFramework, platformVersion, assemblyFileName, pack, tableIndex, startRowId, maxRows);
+  const exports = $requireManagedExports();
+  return await exports.InspectionEngine.QueryPlatformMetadataTable(targetFramework, platformVersion, assemblyFileName, pack, tableIndex, startRowId, maxRows);
 }
 
+/**
+ * @param {string} targetFramework
+ * @param {string} platformVersion
+ * @param {string} assemblyFileName
+ * @param {string} pack
+ * @returns {Promise<BrowserPackageOpportunities>}
+ */
 export async function queryPlatformOpportunities(targetFramework, platformVersion, assemblyFileName, pack) {
-  if (!queryPlatformOpportunitiesExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = await queryPlatformOpportunitiesExport(targetFramework, platformVersion, assemblyFileName, pack);
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = await exports.InspectionEngine.QueryPlatformOpportunities(targetFramework, platformVersion, assemblyFileName, pack);
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {BrowserPackageOpportunities} */ (parsed);
 }
 
+/**
+ * @param {string} targetFramework
+ * @param {string} platformVersion
+ * @param {string} assemblyFileName
+ * @param {string} pack
+ * @returns {Promise<string>}
+ */
 export async function queryPlatformPerformance(targetFramework, platformVersion, assemblyFileName, pack) {
-  if (!queryPlatformPerformanceExport) throw new Error("The browser inspection engine is not initialized.");
-  return await queryPlatformPerformanceExport(targetFramework, platformVersion, assemblyFileName, pack);
+  const exports = $requireManagedExports();
+  return await exports.InspectionEngine.QueryPlatformPerformance(targetFramework, platformVersion, assemblyFileName, pack);
 }
 
+/**
+ * @param {string} packageId
+ * @param {string} version
+ * @param {string} targetFramework
+ * @param {string} assemblyName
+ * @param {string} typeIdentity
+ * @param {string} memberName
+ * @param {string} selectorKey
+ * @param {number} metadataToken
+ * @param {string} styleOptionsJson
+ * @returns {Promise<BrowserSource>}
+ */
 export async function queryTypeMemberSource(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson) {
-  if (!queryTypeMemberSourceExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = await queryTypeMemberSourceExport(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson);
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = await exports.InspectionEngine.QueryTypeMemberSource(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson);
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {BrowserSource} */ (parsed);
 }
 
+/**
+ * @param {string} packageId
+ * @param {string} version
+ * @param {string} targetFramework
+ * @param {string} assemblyName
+ * @param {string} typeId
+ * @returns {Promise<BrowserTypeMetadata>}
+ */
 export async function queryTypeProjection(packageId, version, targetFramework, assemblyName, typeId) {
-  if (!queryTypeProjectionExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = await queryTypeProjectionExport(packageId, version, targetFramework, assemblyName, typeId);
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = await exports.InspectionEngine.QueryTypeProjection(packageId, version, targetFramework, assemblyName, typeId);
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {BrowserTypeMetadata} */ (parsed);
 }
 
+/**
+ * @param {string} packageId
+ * @param {string} version
+ * @param {string} targetFramework
+ * @param {string} assemblyName
+ * @param {string} typeIdentity
+ * @param {string} styleOptionsJson
+ * @returns {Promise<BrowserSource>}
+ */
 export async function queryTypeSource(packageId, version, targetFramework, assemblyName, typeIdentity, styleOptionsJson) {
-  if (!queryTypeSourceExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = await queryTypeSourceExport(packageId, version, targetFramework, assemblyName, typeIdentity, styleOptionsJson);
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = await exports.InspectionEngine.QueryTypeSource(packageId, version, targetFramework, assemblyName, typeIdentity, styleOptionsJson);
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {BrowserSource} */ (parsed);
 }
 
+/**
+ * @param {string} scenarioId
+ * @returns {BrowserHomeDemoResolveResult}
+ */
 export function resolveHomeDemo(scenarioId) {
-  if (!resolveHomeDemoExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = resolveHomeDemoExport(scenarioId);
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = exports.InspectionEngine.ResolveHomeDemo(scenarioId);
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {BrowserHomeDemoResolveResult} */ (parsed);
 }
 
+/**
+ * @param {string} packageId
+ * @param {string | null} declaredRange
+ * @returns {Promise<string>}
+ */
 export async function resolvePackageDependencyVersion(packageId, declaredRange) {
-  if (!resolvePackageDependencyVersionExport) throw new Error("The browser inspection engine is not initialized.");
-  return await resolvePackageDependencyVersionExport(packageId, declaredRange);
+  const exports = $requireManagedExports();
+  return await exports.InspectionEngine.ResolvePackageDependencyVersion(packageId, declaredRange);
 }
 
+/**
+ * @param {string} scenarioId
+ * @returns {Promise<BrowserHomeDemoRunResult>}
+ */
 export async function runHomeDemo(scenarioId) {
-  if (!runHomeDemoExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = await runHomeDemoExport(scenarioId);
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = await exports.InspectionEngine.RunHomeDemo(scenarioId);
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {BrowserHomeDemoRunResult} */ (parsed);
 }
 
+/**
+ * @param {string} query
+ * @param {string} candidatesJson
+ * @returns {ReadonlyArray<BrowserTypeSearchHit>}
+ */
 export function searchTypes(query, candidatesJson) {
-  if (!searchTypesExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = searchTypesExport(query, candidatesJson);
-  return JSON.parse(result);
+  const exports = $requireManagedExports();
+  const result = exports.InspectionEngine.SearchTypes(query, candidatesJson);
+  const parsed = $parseJson(result);
+  // The authenticated serializer contract fixes this function's exact wire type.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return /** @type {ReadonlyArray<BrowserTypeSearchHit>} */ (parsed);
 }

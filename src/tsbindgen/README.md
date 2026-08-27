@@ -77,6 +77,38 @@ and `Build_ProjectsNestedRuntimeDeclaringTypePath` gate the compiled namespaced
 top-level and nested paths, while the inspect-web generated-artifact check
 remains the global-namespace consumer canary.
 
+The declaration and JavaScript emitters share one mapped function-signature
+model. It keeps three views distinct: the raw JS-interop delegate signature,
+the public wire-aware wrapper signature, and the exact type of a parsed JSON
+result. The generated JavaScript expresses those views as checked JSDoc. A
+nested `$ManagedExports` structural type describes the raw
+`getAssemblyExports` object, while each exported wrapper carries its exact
+parameter and return annotations. Record and enum names are type-only imports
+from the generated sibling declaration module, so direct arrays retain their
+interop shape and JSON envelopes use their authenticated wire shape.
+
+`getAssemblyExports` returns `unknown`; the generated conversion to
+`$ManagedExports` is the single explicit runtime-host trust assertion.
+Initialization state remains `$ManagedExports | undefined` until
+`runMain()` succeeds, and every wrapper narrows it through one throwing helper.
+JSON parsing is annotated with the exact producer-selected wire type rather
+than exposing a caller-selected generic. These annotations do not claim to
+runtime-validate the host object or JSON payload. They make generator mistakes
+in export paths, arguments, async returns, initialization state, and parsed
+result use visible to the TypeScript compiler.
+
+`DtsEmitterTests.JsEmitter_EmitsCheckedInteropAndWireSignaturesFromOneSurface`
+gates sync, `Task`, `Task<T>`, nullable, array, record, enum, and JSON-envelope
+projection; `JsEmitter_ModelsInitializationAsOptionalUntilRuntimeStartupCompletes`
+gates the honest initialization state and single host conversion. Inspect-web's
+`npm run typecheck` compiles the committed generated wrapper through
+`tsconfig.runtime-wrapper.json` with `checkJs`; the dedicated
+`runtime-wrapper-toolchain.test.ts` mutation canary proves that a qualified
+managed-export path drift fails that project. Its runtime behavior probe proves
+the committed module throws before initialization and serves wrappers from the
+single runtime created during initialization. The generation script's `--check`
+mode remains the producer/consumer drift gate.
+
 The inspect-web bootstrap convention automatically invokes only an exact
 `static void ConfigureHost(string)` export with `window.location.origin`.
 Same-name overloads with a different parameter or return type remain ordinary

@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "checkJs": true,
+    "rootDirs": [
+      "./engine/wwwroot",
+      "./runtime-types"
+    ]
+  },
+  "include": [
+    "./engine/wwwroot/inspect-web-engine.js",
+    "./runtime-types/**/*.d.ts",
+    "./src/inspect-web-engine.d.ts"
+  ]
+}
