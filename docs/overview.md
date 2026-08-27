@@ -115,7 +115,7 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Signals](assembly-audit.md): package/library signal semantics and network scope.
 - [PDB acquisition](pdb-acquisition.md): symbols and SourceLink acquisition.
 - [Untrusted data threat model](design/untrusted-data-threat-model.md): trust boundaries and security rules for inspected artifacts, network input, caches, output paths, and rendering.
-- [Inspect-web boundary verification](design/inspect-web-boundary-verification.md): semantic enforcement of browser-carrier access through product-owned adapters.
+- [Inspect-web boundary verification](design/inspect-web-boundary-verification.md): semantic enforcement of configured browser-carrier capabilities through product-owned adapters.
 - [Bounded metadata traversal](design/bounded-metadata-traversal.md): cycle, depth, count, text-budget, failure, and verification rules for artifact-derived metadata graphs.
 - [Rendering model](design/rendering-model.md): output mode and verbosity design.
 - [Progressive disclosure](design/progressive-disclosure.md): base/domain scope,

@@ -11,10 +11,11 @@ implemented and required by `npm run analyze`.
 ## Decision
 
 `inspect-web boundary verification` is the single owner for proving that
-inspect-web product source accesses raw browser carriers only through their
-owning adapters. It consumes the product TypeScript program and owner-issued
-boundary catalogs, resolves access by TypeScript symbol and type identity, and
-emits deterministic diagnostics that fail the frontend analysis gate.
+inspect-web product source exercises configured raw browser-carrier
+capabilities only through their owning adapters. It consumes the product
+TypeScript program and owner-issued boundary catalogs, resolves access and
+carrier conversions by TypeScript symbol and type identity, and emits
+deterministic diagnostics that fail the frontend analysis gate.
 
 The first implementation will use the pinned TypeScript 7
 `typescript/unstable/sync` and `typescript/unstable/ast` APIs behind a
@@ -64,7 +65,8 @@ The verifier owns:
 
 The verifier consumes, but does not own:
 
-- `numericDomAttributes` and the associated decoders from `src/dom-data.ts`;
+- the numeric DOM attribute catalog and associated adapter introduced during
+  migration;
 - adapter module identities declared next to the owning product component;
 - TypeScript's DOM library declarations and semantic program; and
 - the source files selected by the product `tsconfig.json`.
@@ -82,8 +84,8 @@ TypeScript assigns to an operation. The initial capability set is:
 
 | Capability | Semantic evidence | Owning adapter |
 | --- | --- | --- |
-| Numeric DOM payload read | A property read from `DOMStringMap` whose key is in `numericDomAttributes` | `src/dom-data.ts` |
-| Owned DOM selector lookup | A call to the DOM `ParentNode` selector capability with a constant selector from an owner-issued catalog | The product module that declares that selector catalog |
+| Numeric DOM payload acquisition | A cataloged key read from `DOMStringMap`, or its corresponding `data-*` attribute read through `Element` or `NamedNodeMap` APIs | The planned numeric DOM adapter |
+| Owned DOM selector lookup | A call to `ParentNode.querySelector`, `ParentNode.querySelectorAll`, or `NonElementParentNode.getElementById` with a constant selector or identifier from an owner-issued catalog | The product module that declares that selector catalog |
 
 Catalogs may add capabilities, but every row needs all three parts: semantic
 evidence, an owning adapter, and mutation coverage. Broad bans on types such as
@@ -93,9 +95,9 @@ corresponding boundary contract.
 Reflection is an access form for a configured capability, not a separate
 capability or allow-list entry. For example, a numeric payload rule also
 recognizes `Reflect.get` or `Object.getOwnPropertyDescriptor` when the resolved
-intrinsic operates on a `DOMStringMap`; selector rules recognize reflective
-extraction of a covered `ParentNode` method. The exercised capability still
-determines the adapter.
+intrinsic operates on a `DOMStringMap`, `Element`, or `NamedNodeMap`; selector
+rules recognize reflective extraction of a covered selector method. The
+exercised capability still determines the adapter.
 
 The verifier asks TypeScript for the symbol, declaration, resolved signature,
 and type at the operation. It follows TypeScript aliases to their declarations.
@@ -112,6 +114,10 @@ including:
 - object destructuring;
 - local, imported, and destructured aliases;
 - bound, called, and extracted methods;
+- `Element.getAttribute`, `Element.getAttributeNS`,
+  `Element.getAttributeNode`, and `Element.getAttributeNodeNS`;
+- `Element.attributes` and the indexed, `getNamedItem`, and `getNamedItemNS`
+  paths through its `NamedNodeMap`;
 - `Reflect.get`, `Reflect.apply`, and corresponding covered `Object`
   operations; and
 - parenthesized, asserted, or otherwise transparent wrapper expressions.
@@ -125,12 +131,42 @@ Lexically shadowed locals remain valid close negatives. A local named
 `document`, `Reflect`, `Object`, `window`, or `self` is not a browser capability
 unless TypeScript resolves it to the corresponding platform declaration.
 
-Selector ownership is based on cataloged selector constants, not every call to
-`querySelector` or `querySelectorAll`. Product modules may query DOM that they
-own. A covered selector used from any other module is rejected whether the
-receiver is `document`, an element, or another `ParentNode`. Extracting a DOM
-selector method outside a declared selector adapter is rejected because the
-later call can no longer be attributed safely to a selector owner.
+### Carrier escape and type erasure
+
+TypeScript permits a platform carrier to be assigned to a structurally
+compatible type that no longer retains its platform declaration. The verifier
+does not assume semantic identity survives that conversion.
+
+Outside the owning adapter, a configured carrier must not cross a conversion
+that erases the identity needed by its rule. The verifier compares the source
+type with the contextual or target type at:
+
+- variable declarations and assignments;
+- arguments and parameters;
+- returns;
+- type assertions and `satisfies` expressions;
+- object spread and destructuring rest; and
+- calls to copy or reflection intrinsics that receive the carrier.
+
+Passing `DOMStringMap` as `Record<string, string | undefined>`, passing
+`Document` as a local structural selector interface, or copying either carrier
+therefore produces a carrier-escape diagnostic at the conversion. Aliases that
+retain the configured platform type remain classifiable by that type. A
+structurally similar value whose source type is not a configured platform
+carrier remains a close negative.
+
+This is local semantic conversion inspection, not value-provenance inference.
+If a carrier reaches a use without either retained semantic identity or a
+visible checked conversion, the claimed boundary is not proven and the old
+enforcement cannot be retired.
+
+Selector ownership is based on cataloged selector and identifier constants, not
+every call to `querySelector`, `querySelectorAll`, or `getElementById`. Product
+modules may query DOM that they own. A covered selector used from any other
+module is rejected whether the receiver is `document`, an element, or another
+`ParentNode`. Extracting a DOM selector method outside a declared selector
+adapter is rejected because the later call can no longer be attributed safely
+to a selector owner.
 
 ### Source scope and adapter identity
 
@@ -141,9 +177,9 @@ file search.
 
 Adapter authority is module-based and exact. It is not inferred from a file
 name substring, directory prefix, comment, exported function name, or local
-identifier. A catalog names the repository-relative module that may exercise
-its capability. Re-exporting or aliasing an adapter does not transfer authority
-to the consumer.
+identifier. The module that declares a boundary descriptor may exercise its
+capability. Re-exporting or aliasing an adapter does not transfer authority to
+the consumer.
 
 An allow list is appropriate only for an architectural adapter, never for an
 individual call site. Adding or widening an adapter is a product-boundary
@@ -184,7 +220,8 @@ the verifier, initially:
 - resolve a node to its symbol and original declaration;
 - resolve the type at an expression;
 - resolve the signature and declaration selected for a call;
-- reduce a property expression to a TypeScript constant when available; and
+- reduce a property expression to a TypeScript constant when available;
+- compare source and contextual types at a conversion; and
 - compare declarations with configured DOM library and product declarations.
 
 Rules receive these facts rather than TypeScript API objects. This limits churn
@@ -216,7 +253,11 @@ It contains:
 - property keys or methods covered by the boundary.
 
 The declaring module is the exact owner; an independently stated path is not
-needed. Numeric DOM keys are derived from the `numericDomAttributes` declaration.
+needed. Migration introduces the numeric adapter and its
+`numericDomAttributes` declaration by porting the prototype from paused
+[PR #4581](https://github.com/richlander/dotnet-inspect/pull/4581). That
+artifact is not present on `main` today. The catalog derives each
+serialized `data-*` attribute name from its dataset key and tests the mapping.
 Selector adapters declare their selector constants in their descriptors and
 use those constants for runtime lookup, replacing test-owned regular
 expressions and duplicated string lists.
@@ -235,8 +276,8 @@ The implementation adds an `inspect-web-boundaries` script and makes
    product `tsconfig.json` and DOM library. It asserts stable declaration
    identity for every configured platform capability.
 2. **Positive mutation corpus:** rejects direct, computed, destructured,
-   aliased, extracted, reflective, bound, and wrapped access for each
-   capability outside its adapter.
+   aliased, extracted, reflective, bound, wrapped, attribute-based, and
+   type-erased access for each capability outside its adapter.
 3. **Close-negative corpus:** accepts lexical shadows, same-named properties on
    unrelated types, unrelated intrinsic-like objects, and authorized adapter
    access.
@@ -267,13 +308,14 @@ Migration is replacement, not indefinite layering:
 
 1. Introduce the semantic adapter and characterize the pinned TypeScript API
    before adding policy.
-2. Move the numeric mutation corpus from
-   `test/dom-payload-boundary.test.ts` into verifier fixtures, preserving every
-   direct, alias, computed, destructuring, reflection, wrapper, dynamic-key,
-   decoder-shadow, and lexical-shadow case.
-3. Issue the numeric descriptor from `src/dom-data.ts`, establish parity and
-   non-vacuity for that capability, then remove only the superseded numeric
-   OXC reconstruction.
+2. Port the numeric adapter, catalog, and
+   `test/dom-payload-boundary.test.ts` mutation corpus prototyped on paused
+   [PR #4581](https://github.com/richlander/dotnet-inspect/pull/4581). Preserve
+   every direct, alias, computed, destructuring, reflection, wrapper,
+   dynamic-key, attribute-method, `NamedNodeMap`, type-erasure, decoder-shadow,
+   and lexical-shadow case.
+3. Establish parity and non-vacuity for numeric payload acquisition, then
+   remove only the superseded numeric OXC reconstruction.
 4. Extract product-owned selector descriptors from the modules whose ownership
    is currently asserted in `test/spotlight-identity.test.ts`. Move the
    selector alias, computed-key, destructuring, method-extraction, reflection,
@@ -300,6 +342,13 @@ gates. No OXC enforcement is removed merely because the semantic runner exists.
 
 Rejected. It duplicates binding and partial data-flow semantics and has not
 converged as new equivalent spellings are tested.
+
+### Rely on retained TypeScript type identity
+
+Rejected. Structural assignment and assertion can erase `Document` or
+`DOMStringMap` identity without a TypeScript diagnostic. The verifier must
+reject the erasing conversion or leave the boundary unproven; it cannot recover
+the original value later from the widened type.
 
 ### Custom Oxlint JavaScript rule
 
