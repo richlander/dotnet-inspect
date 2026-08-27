@@ -131,8 +131,8 @@ to whichever window is *current*, which is somebody else's.
 Always target `"${TMUX_PANE:?}"`. The state must include
 `head` and either `pr` or, before a PR exists, `issue`; add `round`, `reviews`,
 `blocked`, `waiting`, and `rec` when applicable. Values contain no spaces. `rec`
-is `continue`, `wait`, `merge`, `approve`, or `stop`. Clear both options when the
-window no longer owns the work.
+is `continue`, `wait`, `merge`, `split`, `approve`, or `stop`. Clear both
+options when the window no longer owns the work.
 
 Add `schedule=<id>` and `goal=advance|merge` whenever a delayed status run is
 armed. `advance` means status gates round completion or reviewer dispatch;
@@ -154,8 +154,9 @@ act on them**:
   prioritise, and that the next agent hitting the same wall can find instead of
   re-investigating it. If a flake blocks you and no issue exists, file one and
   cite it.
-- **`waiting`** takes a predicate a tool can evaluate against your `head`:
-  `check:<name>`, `checks`, `merge`, or `review`. Use it when nothing is wrong
+- **`waiting`** takes one or more comma-separated predicates a tool can evaluate
+  against your `head`: `check:<name>`, `checks`, `merge`, or `review`. The wait
+  ends only when every listed predicate clears. Use it when nothing is wrong
   and nothing is openable — a check that has not reported yet is not a defect
   and does not deserve an issue.
 
@@ -363,8 +364,8 @@ reference owner contracts rather than restating participating components'
 internal inventories or policies. When another component needs prerequisite
 work, file or record that residual and handle it as an independently reviewable
 effort or stack slice. Do not expand the current design merely to make the whole
-end-to-end system appear closed. The preference for fewer coherent PRs does not
-justify combining independently owned component designs.
+end-to-end system appear closed. PR coherence does not justify combining
+independently owned component designs.
 
 A **broad design** sweeps an end-to-end lifecycle such as acquisition,
 analysis, publication, and presentation or, outside the bounded one-donor
@@ -646,7 +647,8 @@ rather than duplicating their evolving commands and gates here.
 
 ### Markdown
 
-All changed Markdown must pass `markdownlint`. Run the fixer first when needed:
+All changed Markdown must pass `markdownlint` before commit. Run the fixer first
+when needed:
 
 ```bash
 npx markdownlint-cli --fix <file>
@@ -678,9 +680,11 @@ driving the loop is
    even when `review-clean` is present.
 6. **A round closes only when reconciled and green.** Both: the feedback is
    publicly reconciled, and every required current-head check and post-push gate
-   has succeeded. Until then the round number does not advance — a check that
-   goes red first makes the next push a failed-gate restart at the *same*
-   number, not the next round.
+   has succeeded. For a documentation-only PR, the pre-commit `markdownlint`
+   result is the per-round green gate; `ci-required` may remain pending until
+   final merge readiness. Until the applicable gate is green the round number
+   does not advance — a check that goes red first makes the next push a
+   failed-gate restart at the *same* number, not the next round.
 7. **Six rounds, then stop** and ask for another block.
 8. **Never merge without explicit user authorization** for that specific PR.
    Auto-merge armed at the user's direction is that authorization; see
@@ -719,10 +723,15 @@ reopen the locked candidate.
 | Conflict-recovery attempt | Resolution head pushed, round number authorized | Post-push local gates, CI, mergeability |
 | Failed-gate restart | Required fix pushed, zero conflicts, green current-head `ci-required` | Nothing required |
 
-Markdown lint is the focused gate for documentation-only changes. A
-documentation conflict-recovery attempt may review before lint finishes, but
-cannot reconcile or close without it. The user may authorize review in parallel
-with CI.
+Documentation-only candidates do not wait for CI before review. Read the
+applicable attempt row with only two substitutions: `markdownlint` must pass
+before commit and replaces any requirement for green current-head
+`ci-required`, and `ci-required` may remain pending. Every other requirement
+still applies, including the settled push, recorded effective base, zero
+conflicts where required, and round authorization. A documentation-only round
+may close after reconciliation and the local lint gate; `ci-required` remains
+mandatory for final merge readiness. The user may authorize review in parallel
+with CI for other changes.
 
 #### Review-clean, and what it gates
 
@@ -753,6 +762,13 @@ least one reviewer returned a finding.
 - **Cancelled or evidenced transient failure:** keep the lock and retry the
   unchanged head. Repeat only with concrete transient evidence; otherwise treat
   it as requiring an author change.
+
+If final-gate `ci-required` reports any conclusion other than success after a
+documentation-only round closes, it does not reopen or renumber that completed
+round. Retry at the unchanged head only with concrete evidence that the result
+is transient and requires no author change. Otherwise remove `review-clean`,
+make the required fix, and form a candidate at the next round number,
+respecting the next six-round authorization boundary.
 
 Never close with a required check red. A superseded attempt spends no round and
 gets no completion report. Let its reviewers finish or have cancellation
@@ -884,7 +900,7 @@ candidate cycle; do not ask for approval, set `HELP`, or wait for user input.
 Approval is required only before rounds 7, 13, 19, and so on. Each approval
 allows at most six more rounds; stop sooner when review converges. At a block
 boundary, conflict recovery may resolve and push immediately, but reviewers
-still wait for approval.
+still wait for approval, unless an immutable split decision hold is active.
 
 Before requesting another block, answer:
 
@@ -902,6 +918,28 @@ Before requesting another block, answer:
    decision is not standing authorization; identify the new evidence that makes
    implementation rounds the better investment.
 
+When a PR reaches round 12, split the remaining work into focused successors
+unless the checkpoint establishes a strong reason to keep the PR intact and
+the user explicitly approves that exception. The strong reason must explain
+why the remaining claims cannot become independently reviewable successors,
+why the reviews are still converging, and why continuing the same PR is safer
+than splitting it. Reviewer familiarity, sunk cost, or the inconvenience of
+restacking are not strong reasons. Sprawling changes accumulated across review
+comments are themselves a sign that the remaining work should be split into
+focused successors. The same presumption and burden apply at every 6-round
+boundary after round 12.
+
+After round 12 or a later six-round boundary closes, the split recommendation
+puts the completed head in an immutable decision hold while the user decides.
+This is not a round lock; do not mutate the head or dispatch another round
+during the hold, including for conflict recovery. If approved, publicly assign
+every current change, claim, and finding — including resolved or dismissed
+findings and their resulting changes or rationale — to a focused successor, or
+explicitly record why an item is being dropped. Close the current PR as
+superseded without merging it, and open the successors from their effective
+base. Each successor starts at round 1; reviews, round counts, and authorization
+blocks do not carry forward.
+
 At round 12 and every 6-round boundary after (18, 24, and so on), also answer:
 
 1. **Would a design doc better define the design space?** Foundational APIs
@@ -910,11 +948,11 @@ At round 12 and every 6-round boundary after (18, 24, and so on), also answer:
    hardening to followup work would unlock this PR's value for other agent
    work sooner.
 
-State the proposed remedy and end with one recommendation: approve the next
-implementation block, switch to a docs-only design PR, or stop. If consecutive
-rounds only strengthen the harness while the product goes unchallenged, report
-that count and recommend a final round or a stop waiver rather than continuing
-by reflex.
+State the proposed remedy and end with one recommendation: split into focused
+successors, approve the next implementation block under the strong-reason
+exception, switch to a docs-only design PR, or stop. If consecutive rounds only
+strengthen the harness while the product goes unchallenged, report that count
+and recommend splitting or stopping rather than continuing by reflex.
 
 Publish the complete checkpoint as normal session output before opening the
 approval prompt. The prompt asks only which recommended action to authorize; it
@@ -941,8 +979,6 @@ Put it under `## Demo` above validation in the PR body.
 
 ## PR and CI discipline
 
-- Prefer fewer coherent PRs over mechanical splits; use a stack for genuinely
-  independent slices.
 - Keep concurrent agents modest and avoid unnecessary churn in central files.
 - Label a documentation-only PR (no product code, test, or build changes)
   `documentation` when opening it.
@@ -952,6 +988,17 @@ Put it under `## Demo` above validation in the PR body.
   flag distinction, not platform-specific. Verify with
   `gh pr view <n> --json body -q .body` after creating or editing a PR body
   this way.
+- Avoid high-level `gh` commands when they fail by querying deprecated GraphQL
+  fields. In particular, `gh pr edit` may hit the removed Projects (classic)
+  fields even when changing unrelated metadata. Do not retry it; use the
+  operation-specific REST endpoint through `gh api` instead. Use
+  `PATCH repos/{owner}/{repo}/pulls/<number>` for PR title, body, or base
+  changes; the issue labels POST and per-label DELETE endpoints for label
+  additions and removals; the issue assignees POST and DELETE endpoints for
+  assignee additions and removals; and
+  `PATCH repos/{owner}/{repo}/issues/<number>` for milestone changes. Do not
+  replace complete label or assignee arrays to perform an add or remove.
+  Verify the resulting metadata after the REST update.
 - Treat CI as confirmation: run the focused local gate, then push promptly.
   Run eligible local suites, CI, and review concurrently.
 - Treat GitHub API capacity as shared and scarce. Follow
