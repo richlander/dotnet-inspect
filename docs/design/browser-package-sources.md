@@ -428,19 +428,29 @@ while allowing the consumer to retain both typed identities.
 
 This handoff is consumed by the focused package composition effort
 [#4797](https://github.com/richlander/dotnet-inspect/issues/4797). Its
-non-vacuity gate must invoke two client handles with the same NuGetFetch
-producer identity and different consumer authorities, then prove that the
-returned candidate and payload associations remain distinct.
+non-vacuity gate must derive the producer-bearing operation set from the typed
+source-client surface, invoke two client handles with the same NuGetFetch
+producer identity and different consumer authorities for each operation, and
+prove that candidate, manifest, payload, and failure associations remain
+distinct. A new or omitted producer-bearing operation fails the gate.
 
 The current internal `Value` property is also consumed as a raw display value
 and as input to query-sensitive package credential and cache canonicalization.
 Replacing it with `Key` and `Display` is therefore a coordinated internal API
 migration, not a compatible representation change. The NuGetFetch
-implementation must not land until #4797 preserves the package owner's
-query-sensitive configured-endpoint authority, stops feeding either new
-identity field to `NuGetCache.GetSourceKey`, selects `Display` explicitly for
-diagnostics, and records any cache migration consequence. Those are consumer
-obligations owned and gated by #4797, not behaviors redefined here.
+implementation must not land until these consumer-owner prerequisites close:
+
+- #4797 preserves the package owner's query-sensitive configured-endpoint
+  authority, stops package acquisition from feeding either new identity field
+  to `NuGetCache.GetSourceKey`, and records its cache migration consequence;
+- [#4805](https://github.com/richlander/dotnet-inspect/issues/4805) migrates
+  browser workspace acquisition association without parsing either field as a
+  URL or local path; and
+- [#4806](https://github.com/richlander/dotnet-inspect/issues/4806) projects
+  safe display and stable producer ID into the package-profile output shape.
+
+Those are consumer obligations owned and gated by their focused efforts, not
+behaviors redefined here.
 
 ### Identity gates
 
