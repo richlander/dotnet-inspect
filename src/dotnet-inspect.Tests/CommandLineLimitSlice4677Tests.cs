@@ -68,6 +68,33 @@ public class CommandLineLimitSlice4677Tests
 
         string[] versionRequiredValueOnLibrary = ["library", "System.Text.Json", "--version", "-5"];
         Assert.Same(versionRequiredValueOnLibrary, CommandLineBuilder.PreprocessArgs(versionRequiredValueOnLibrary));
+
+        // The implicit-router form (no explicit `package` keyword) resolves to `package` at
+        // runtime too -- RouterCommandDefinition.RewriteAsync routes a bare, non-file-path
+        // target with --library or a version query to `package` by default. A bare -N must
+        // expand there as well. PreprocessArgs also always prepends "router" and moves the
+        // bare target immediately after it for these implicit invocations.
+        Assert.Equal(
+            ["router", "System.Text.Json", "--library", "-n", "2", "--tips", "q"],
+            CommandLineBuilder.PreprocessArgs(["System.Text.Json", "--library", "-2", "--tips", "q"]));
+        Assert.Equal(
+            ["router", "System.Text.Json", "--version", "-n", "2", "--tips", "q"],
+            CommandLineBuilder.PreprocessArgs(["System.Text.Json", "--version", "-2", "--tips", "q"]));
+
+        // But an implicit .dll-path target routes straight to `library` (not through
+        // "router"), where --version is required-value; a bare -N following it must still be
+        // treated as that value, not expanded.
+        Assert.Equal(
+            ["library", "Foo.dll", "--version", "-5"],
+            CommandLineBuilder.PreprocessArgs(["Foo.dll", "--version", "-5"]));
+
+        // ...and an implicit form combined with a more specific source selector (--package,
+        // --platform, --project, or a type/member selector) is conservatively left alone (the
+        // -5 stays unexpanded) too, since the full router decision for those shapes is not
+        // safely predictable here -- it still gets the "router" prefix, though.
+        Assert.Equal(
+            ["router", "System.Text.Json", "--platform", "--version", "-5"],
+            CommandLineBuilder.PreprocessArgs(["System.Text.Json", "--platform", "--version", "-5"]));
     }
 
     [Fact]

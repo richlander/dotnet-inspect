@@ -168,6 +168,26 @@ public static class ArgumentPreprocessor
         bool isPackageCommand = commandToken != null
             && string.Equals(commandToken, PackageCommand.Name, StringComparison.OrdinalIgnoreCase);
 
+        // The implicit-router form (`dotnet-inspect System.Text.Json --version -2`, no
+        // explicit `package` keyword) also resolves to the `package` command at runtime --
+        // RouterCommandDefinition.RewriteAsync routes any bare, non-file-path target with
+        // `--library` or a version query (`--version`/`--versions`/`--versions-with-feed`/
+        // `--latest-version`) to `package`, unless a more specific source (`--package`,
+        // `--platform`, `--project`) or type/member selector is also present. Mirror only
+        // that narrow, deterministic default-fallback shape here; anything with a more
+        // specific selector keeps the conservative (required-value) classification, since
+        // the full router decision (generic notation, library-file resolution, etc.) is not
+        // safely predictable from this synchronous preprocessing step.
+        if (!isPackageCommand && commandToken != null
+            && commandTokenIndex == 0
+            && !KnownCommands.Contains(commandToken)
+            && !CommandLineHelpers.TryClassifyAsFilePath(commandToken, out _, out _)
+            && !ContainsAnyOption(args, "--package", "--platform", "--project", "-t", "--type", "-m", "--member")
+            && ContainsAnyOption(args, "--library", "--version", "--versions", "--versions-with-feed", "--latest-version"))
+        {
+            isPackageCommand = true;
+        }
+
         var valuelessOverrides = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (platformIsValueless)
             valuelessOverrides.Add("--platform");
@@ -284,6 +304,21 @@ public static class ArgumentPreprocessor
             return false;
         return !precedingToken.Contains('=', StringComparison.Ordinal)
             && RequiredValueOptions.Contains(optionName);
+    }
+
+    private static bool ContainsAnyOption(string[] args, params string[] optionNames)
+    {
+        foreach (var arg in args)
+        {
+            var optionName = arg.Split('=', 2)[0];
+            foreach (var candidate in optionNames)
+            {
+                if (string.Equals(optionName, candidate, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     private static readonly string[] SelectAliases = ["-S", "-s", "--select", "--section"];
