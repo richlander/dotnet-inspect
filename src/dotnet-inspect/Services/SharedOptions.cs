@@ -246,6 +246,17 @@ public class SharedOptions
         command.Options.Add(Head);
         command.Options.Add(Tail);
 
+        AddRowWindowValidators(command, supportsRowWindows);
+    }
+
+    /// <summary>
+    /// Adds the validators for shared row-window options already available to a command,
+    /// including options inherited from an ancestor command.
+    /// </summary>
+    public void AddRowWindowValidators(
+        Command command,
+        bool supportsRowWindows = true)
+    {
         // --head and --tail name a direction, so asking for both is not a narrower
         // window but a contradiction. This applies with or without --rows.
         command.Validators.Add(result =>

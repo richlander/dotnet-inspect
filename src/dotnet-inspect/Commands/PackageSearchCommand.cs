@@ -35,9 +35,6 @@ public class PackageSearchCommand
                 return preflightExitCode;
             }
 
-            if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
-                return 1;
-
             if (!options.Count
                 && (options.Fields is { Length: > 0 }
                     || options.Columns is { Length: > 0 }))
@@ -89,6 +86,16 @@ public class PackageSearchCommand
                     ResultColumns))
                 return Math.Max(exitCode, projectionExitCode);
 
+            if (!options.JsonOutput && results.Count == 0)
+            {
+                if (outcome.Results.Count == 0)
+                    CommandError.WriteLine($"No packages found for \"{options.Query}\".");
+                else
+                    CommandError.WriteLine(
+                        $"No packages are in the requested row window for \"{options.Query}\".");
+                return exitCode;
+            }
+
             if (options.JsonOutput)
             {
                 foreach (var result in results)
@@ -96,16 +103,6 @@ public class PackageSearchCommand
                     Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(
                         result, PackageSearchJsonlContext.Default.NuGetSearchResult));
                 }
-                return exitCode;
-            }
-
-            if (results.Count == 0)
-            {
-                if (outcome.Results.Count == 0)
-                    CommandError.WriteLine($"No packages found for \"{options.Query}\".");
-                else
-                    CommandError.WriteLine(
-                        $"No packages are in the requested row window for \"{options.Query}\".");
                 return exitCode;
             }
 

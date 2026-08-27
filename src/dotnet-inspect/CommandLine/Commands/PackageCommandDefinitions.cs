@@ -190,6 +190,38 @@ public static class PackageCommandDefinitions
         searchCommand.Options.Add(opts.Limit);
         searchCommand.Options.Add(opts.Count);
         opts.AddNuGetOptionsTo(searchCommand);
+        opts.AddRowWindowValidators(searchCommand);
+        searchCommand.Validators.Add(result =>
+        {
+            bool hasDirection =
+                result.GetValue(opts.Head) || result.GetValue(opts.Tail);
+            bool hasRows =
+                result.GetResult(opts.Rows) is { Implicit: false };
+            int? lineLimit = result.GetValue(opts.Limit);
+            if (hasDirection && !hasRows && lineLimit is null)
+            {
+                result.AddError(
+                    "--head/--tail requires a carrier: use -n for result rows "
+                    + "or --rows for data rows.");
+            }
+
+            if (result.GetValue(opts.Count) && lineLimit is not null)
+                result.AddError("--count cannot be combined with -n.");
+
+            if (result.GetValue(opts.Tail) && lineLimit is not null)
+            {
+                result.AddError(
+                    "--tail cannot be combined with -n for package search "
+                    + "because bounded remote pages do not establish a suffix.");
+            }
+
+            if (result.GetResult(takeOption) is { Implicit: false }
+                && lineLimit is not null)
+            {
+                result.AddError(
+                    "--take and -n both limit package search results; choose one.");
+            }
+        });
 
         searchCommand.SetAction(async (parseResult, ct) =>
         {
@@ -243,7 +275,8 @@ public static class PackageCommandDefinitions
             var options = new PackageSearchOptions
             {
                 Query = query,
-                Take = parseResult.GetValue(takeOption),
+                Take = parseResult.GetValue(opts.Limit)
+                    ?? parseResult.GetValue(takeOption),
                 Prerelease = parseResult.GetValue(prereleaseOption),
                 JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                 CompactJson = parseResult.GetValue(compactOption),

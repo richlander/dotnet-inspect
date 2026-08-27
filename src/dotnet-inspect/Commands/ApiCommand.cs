@@ -2218,8 +2218,16 @@ public class ApiCommand
                 return projectionExitCode;
             }
 
-            if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+            if (options.JsonOutput
+                && (options.Fields is { Length: > 0 }
+                    || options.Columns is { Length: > 0 }))
+            {
+                CommandError.Write(
+                    "--fields/--columns are not available with --shape, which "
+                    + "renders a tree rather than projected rows. Omit --shape "
+                    + "to use a projected table format.");
                 return 1;
+            }
 
             ApiOutputFormatter.WriteShapeOutput(
                 type,

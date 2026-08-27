@@ -11216,7 +11216,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("requires lowered JSON", error);
+        Assert.Contains(
+            "--fields/--columns are not available with package search",
+            error);
     }
 
     [Theory]
@@ -11309,7 +11311,7 @@ public partial class CommandExecutionTests
     public async Task ProjectedJsonRoutingAudit_PackageSearchEmptyWindowIsNotAnEmptySearch()
     {
         var (exit, output, error) = await RunPackageSearchFixtureAsync(
-            "package", "--rows", "3..4",
+            "package", "--rows", "5..6",
             "search", "Fixture", "--take", "2");
 
         Assert.Equal(0, exit);
@@ -11341,6 +11343,159 @@ public partial class CommandExecutionTests
         {
             File.Delete(outputPath);
         }
+    }
+
+    [Theory]
+    [InlineData("-n", "2")]
+    [InlineData("-n=2", null)]
+    [InlineData("-n2", null)]
+    [InlineData("-2", null)]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchItemLimitSpellingsAreEquivalent(
+        string option,
+        string? value)
+    {
+        var args = new List<string> { "package", option };
+        if (value is not null)
+            args.Add(value);
+        args.AddRange(["search", "Fixture", "--json"]);
+
+        var (exit, output, error) =
+            await RunPackageSearchFixtureAsync([.. args]);
+
+        Assert.Equal(0, exit);
+        Assert.Equal(2, output.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries).Length);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public void ProjectedJsonRoutingAudit_PackageSearchItemLimitBypassesHostLineWindow()
+    {
+        var searchArgs = CommandLineBuilder.PreprocessArgs(
+            ["package", "-n", "2", "search", "Fixture", "--json"]);
+        var searchResult =
+            CommandLineBuilder.CreateRootCommand().Parse(searchArgs);
+        var packageArgs = CommandLineBuilder.PreprocessArgs(
+            ["package", "Fixture", "-n", "2", "--json"]);
+        var packageResult =
+            CommandLineBuilder.CreateRootCommand().Parse(packageArgs);
+
+        Assert.True(CommandLineBuilder.UsesTypedItemLimit(searchResult));
+        Assert.False(CommandLineBuilder.UsesTypedItemLimit(packageResult));
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchItemLimitWorksAfterSubcommand()
+    {
+        var (exit, output, error) = await RunPackageSearchFixtureAsync(
+            "package", "search", "Fixture", "-n=2", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(2, output.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries).Length);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchTailItemLimitFailsBeforeNetwork()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "-n=2", "--tail",
+            "search", "ThisQueryMustNotReachTheNetwork",
+            "--source", "http://127.0.0.1:9/index.json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("bounded remote pages do not establish a suffix", error);
+        Assert.DoesNotContain("NuGet source", error);
+    }
+
+    [Theory]
+    [InlineData("--count", "--count cannot be combined with -n")]
+    [InlineData("--take=3", "--take and -n both limit package search results")]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchItemLimitConflictsFailBeforeNetwork(
+        string conflict,
+        string expected)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "-n2",
+            "search", "ThisQueryMustNotReachTheNetwork", conflict,
+            "--source", "http://127.0.0.1:9/index.json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(expected, error);
+        Assert.DoesNotContain("NuGet source", error);
+    }
+
+    [Theory]
+    [InlineData("--head")]
+    [InlineData("--tail")]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchDirectionRequiresCarrier(
+        string direction)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", direction,
+            "search", "ThisQueryMustNotReachTheNetwork",
+            "--source", "http://127.0.0.1:9/index.json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--head/--tail requires a carrier", error);
+        Assert.DoesNotContain("NuGet source", error);
+    }
+
+    [Theory]
+    [InlineData("--rows", "2", "--head", "--tail",
+        "--head and --tail select opposite ends")]
+    [InlineData("--rows", "2", "-n", "3",
+        "already carries the count")]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchWindowConflictsFailBeforeNetwork(
+        string firstOption,
+        string firstValue,
+        string secondOption,
+        string? thirdOption,
+        string expected)
+    {
+        var args = new List<string>
+        {
+            "package",
+            firstOption,
+            firstValue,
+            secondOption,
+        };
+        if (thirdOption is not null)
+            args.Add(thirdOption);
+        args.AddRange(
+        [
+            "search",
+            "ThisQueryMustNotReachTheNetwork",
+            "--source",
+            "http://127.0.0.1:9/index.json",
+        ]);
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(expected, error);
+        Assert.DoesNotContain("NuGet source", error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchInvalidWindowFailsBeforeNetwork()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "--rows", "not-a-window",
+            "search", "ThisQueryMustNotReachTheNetwork",
+            "--source", "http://127.0.0.1:9/index.json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--rows 'not-a-window' is not a row selection", error);
+        Assert.DoesNotContain("NuGet source", error);
     }
 
     [Theory]
@@ -11449,9 +11604,11 @@ public partial class CommandExecutionTests
         await ServePackageSearchResponseAsync(
             listener,
             """
-            {"totalHits":2,"data":[
+            {"totalHits":4,"data":[
               {"id":"Fixture.One","version":"1.0.0","description":"one","totalDownloads":1,"verified":false},
-              {"id":"Fixture.Two","version":"2.0.0","description":"two","totalDownloads":2,"verified":false}
+              {"id":"Fixture.Two","version":"2.0.0","description":"two","totalDownloads":2,"verified":false},
+              {"id":"Fixture.Three","version":"3.0.0","description":"three","totalDownloads":3,"verified":false},
+              {"id":"Fixture.Four","version":"4.0.0","description":"four","totalDownloads":4,"verified":false}
             ]}
             """,
             cancellationToken);
@@ -11698,7 +11855,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("requires lowered JSON", error);
+        Assert.Contains(
+            "--fields/--columns are not available with --shape",
+            error);
         Assert.DoesNotContain("selection was ignored", error);
     }
 
