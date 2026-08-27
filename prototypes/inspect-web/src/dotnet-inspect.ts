@@ -3311,8 +3311,7 @@ async function loadPackageMetadata() {
 function maybeAutoLoadPackageMetadata() {
   if (!state.atPackageRoot || state.packageLens !== "metadata") return;
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
-  if (state.packageMetadataKey === packageScopeSignature()
-    && !state.packageMetadataError) return;
+  if (state.packageMetadataKey === packageScopeSignature()) return;
   observeAsync(loadPackageMetadata(), "Loading package metadata");
 }
 
@@ -3572,6 +3571,8 @@ function bindMetadataViewerEvents() {
       observeAsync(
         loadExplorerWindow(index, startRowId),
         "Loading metadata table rows"),
+    onRetryPackageMetadata: () =>
+      observeAsync(loadPackageMetadata(), "Retrying package metadata"),
     onRowFocus: (index, rowId) => {
       if (!ex) return;
       const already =
