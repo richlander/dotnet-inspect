@@ -104,7 +104,7 @@ public static class PackageCommandDefinitions
         opts.AddNuGetOptionsTo(packageCommand);
 
         // Search subcommand
-        var searchCommand = CreatePackageSearchCommand(opts);
+        var searchCommand = CreatePackageSearchCommand(opts, outOption);
         packageCommand.Subcommands.Add(searchCommand);
 
         var commandArgs = new PackageOptionsParser.PackageCommandArgs(
@@ -156,7 +156,9 @@ public static class PackageCommandDefinitions
     /// <summary>
     /// Creates the package search subcommand for searching NuGet packages.
     /// </summary>
-    public static Command CreatePackageSearchCommand(SharedOptions opts)
+    public static Command CreatePackageSearchCommand(
+        SharedOptions opts,
+        Option<string?> inheritedOutOption)
     {
         var searchCommand = new Command(PackageSearchCommand.Name, "Search NuGet for packages by keyword");
 
@@ -201,6 +203,7 @@ public static class PackageCommandDefinitions
                 return 0;
             }
 
+            var projection = ProjectionAudit.Requested(parseResult, opts);
             var options = new PackageSearchOptions
             {
                 Query = query,
@@ -209,9 +212,15 @@ public static class PackageCommandDefinitions
                 JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                 CompactJson = parseResult.GetValue(compactOption),
                 Verbose = parseResult.GetValue(opts.Verbose),
-                Count = parseResult.GetValue(opts.Count),
-                Fields = opts.ParseFields(parseResult),
-                Columns = opts.ParseColumns(parseResult),
+                Count = projection.Count,
+                Print = projection.Print,
+                Value = projection.Value,
+                Urls = projection.Urls,
+                Paths = projection.Paths,
+                OutputPath = parseResult.GetValue(inheritedOutOption),
+                Rows = projection.Rows,
+                Fields = projection.Fields,
+                Columns = projection.Columns,
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };
 

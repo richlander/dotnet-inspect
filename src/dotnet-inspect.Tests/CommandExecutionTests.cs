@@ -4,6 +4,8 @@ using System.CommandLine;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO.Compression;
+using System.Net;
+using System.Net.Sockets;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -11215,6 +11217,132 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("requires lowered JSON", error);
+    }
+
+    [Theory]
+    [InlineData("--print")]
+    [InlineData("--value")]
+    [InlineData("--urls")]
+    [InlineData("--paths")]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchInheritedPayloadFailsBeforeNetwork(
+        string projection)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", projection,
+            "search", "ThisQueryMustNotReachTheNetwork", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"{projection} is not available with package search",
+            error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchInheritedWindowAndDestinationAreApplied()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var sourceUrl = $"http://127.0.0.1:{port}/index.json";
+        var searchUrl = $"http://127.0.0.1:{port}/query";
+        var outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"package-search-count-{Guid.NewGuid():N}.txt");
+        var server = ServePackageSearchFixtureAsync(
+            listener,
+            searchUrl,
+            TestContext.Current.CancellationToken);
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", "--rows", "1", "--out", outputPath,
+                "search", "Fixture", "--count", "--take", "2",
+                "--source", sourceUrl);
+            await server;
+
+            Assert.Equal(0, exit);
+            Assert.Empty(output);
+            Assert.Equal("1\n", await File.ReadAllTextAsync(
+                outputPath,
+                TestContext.Current.CancellationToken));
+            Assert.Empty(error);
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Theory]
+    [InlineData("--versions", "--print")]
+    [InlineData("--versions-with-feed", "--value")]
+    [InlineData("--latest-version", "--urls")]
+    [InlineData("--tfms", "--paths")]
+    [InlineData("--layout", "--print")]
+    [InlineData("--content", "--value")]
+    public async Task ProjectedJsonRoutingAudit_PackageLensPayloadFailsBeforeAcquisition(
+        string lens,
+        string projection)
+    {
+        var target = lens is "--versions" or "--versions-with-feed" or "--latest-version"
+            ? "ThisQueryMustNotReachTheNetwork"
+            : Path.Combine(
+                Path.GetTempPath(),
+                "ThisPackageMustNotBeAcquired.nupkg");
+        var args = new List<string> { "package", target, lens, projection };
+        if (lens == "--content")
+            args.Insert(2, "--path=README.md");
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains($"{projection} is not available with {lens}", error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task ServePackageSearchFixtureAsync(
+        TcpListener listener,
+        string searchUrl,
+        CancellationToken cancellationToken)
+    {
+        await ServePackageSearchResponseAsync(
+            listener,
+            $$"""
+            {"version":"3.0.0","resources":[{"@id":"{{searchUrl}}","@type":"SearchQueryService/3.5.0"}]}
+            """,
+            cancellationToken);
+        await ServePackageSearchResponseAsync(
+            listener,
+            """
+            {"totalHits":2,"data":[
+              {"id":"Fixture.One","version":"1.0.0","description":"one","totalDownloads":1,"verified":false},
+              {"id":"Fixture.Two","version":"2.0.0","description":"two","totalDownloads":2,"verified":false}
+            ]}
+            """,
+            cancellationToken);
+    }
+
+    private static async Task ServePackageSearchResponseAsync(
+        TcpListener listener,
+        string body,
+        CancellationToken cancellationToken)
+    {
+        using var connection =
+            await listener.AcceptTcpClientAsync(cancellationToken);
+        await using var stream = connection.GetStream();
+        var request = new byte[4096];
+        _ = await stream.ReadAsync(request, cancellationToken);
+        var content = Encoding.UTF8.GetBytes(body);
+        var headers = Encoding.ASCII.GetBytes(
+            "HTTP/1.1 200 OK\r\n"
+            + "Content-Type: application/json\r\n"
+            + $"Content-Length: {content.Length}\r\n"
+            + "Connection: close\r\n\r\n");
+        await stream.WriteAsync(headers, cancellationToken);
+        await stream.WriteAsync(content, cancellationToken);
     }
 
     [Fact]

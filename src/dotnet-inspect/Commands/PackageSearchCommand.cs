@@ -14,6 +14,8 @@ namespace DotnetInspector.Commands;
 public class PackageSearchCommand
 {
     public const string Name = "search";
+    private static readonly string[] ResultColumns =
+        ["Package", "Version", "Downloads", "Description"];
 
     public static async Task<int> ExecuteAsync(PackageSearchOptions options)
     {
@@ -22,6 +24,17 @@ public class PackageSearchCommand
 
         try
         {
+            if (!options.Count
+                && LensProjection.TryProject(
+                    options,
+                    "package search",
+                    rowCount: 0,
+                    out var preflightExitCode,
+                    ResultColumns))
+            {
+                return preflightExitCode;
+            }
+
             if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
                 return 1;
 
@@ -35,7 +48,7 @@ public class PackageSearchCommand
                 NuGetFetchOptions.FromRequestTimeout(
                     context.HttpClient.Timeout));
 
-            var results = outcome.Results;
+            var results = RowWindow.Apply(options.Rows, outcome.Results);
 
             // Sources that could not be searched are reported even when other sources
             // succeeded: a partial answer must not read like a complete one.
@@ -55,7 +68,7 @@ public class PackageSearchCommand
                     "package search",
                     results.Count,
                     out var projectionExitCode,
-                    ["Package", "Version", "Downloads", "Description"]))
+                    ResultColumns))
                 return Math.Max(exitCode, projectionExitCode);
 
             if (options.JsonOutput)
@@ -120,6 +133,24 @@ public record PackageSearchOptions : IProjectionOptions
 
     /// <summary>Reduce the result table to a single row count.</summary>
     public bool Count { get; init; }
+
+    /// <summary>Inherited printable-payload projection.</summary>
+    public bool Print { get; init; }
+
+    /// <summary>Inherited scalar-value projection.</summary>
+    public bool Value { get; init; }
+
+    /// <summary>Inherited URL projection.</summary>
+    public bool Urls { get; init; }
+
+    /// <summary>Inherited path projection.</summary>
+    public bool Paths { get; init; }
+
+    /// <summary>Inherited output destination.</summary>
+    public string? OutputPath { get; init; }
+
+    /// <summary>Inherited result-row window.</summary>
+    public RowWindow? Rows { get; init; }
 
     /// <summary>Field projection inherited from the package command.</summary>
     public string[]? Fields { get; init; }

@@ -175,8 +175,35 @@ public class PackageCommand
                 return 1;
             }
 
+            string? packageLens = options.ListVersions
+                ? options.ForceLatest
+                    ? "--latest-version"
+                    : options.ListVersionsWithFeed
+                        ? "--versions-with-feed"
+                        : "--versions"
+                : options.ListLayout
+                    ? "--layout"
+                    : options.ListTfms
+                        ? "--tfms"
+                        : options.ShowContent
+                            ? "--content"
+                            : null;
+
+            // Opaque lens payload projections are target-independent failures. Reject them
+            // before version lookup, package resolution, or extraction; --count needs the rows.
+            if (packageLens is not null
+                && !options.Count
+                && LensProjection.TryProject(
+                    options,
+                    packageLens,
+                    rowCount: 0,
+                    out var lensProjectionExit))
+            {
+                return lensProjectionExit;
+            }
+
             // These lenses return before the typed-document guard and may acquire package data.
-            if ((options.ListVersions || options.ListLayout || options.ListTfms)
+            if (packageLens is not null
                 && ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
             {
                 return 1;
