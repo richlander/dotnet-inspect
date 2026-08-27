@@ -72,6 +72,9 @@ public sealed class ArtifactContractTests
                 () => StreamFor([4])));
 
         using Stream opened = contribution.OpenRead(lease);
+        owner.CreateRetainedContent(
+            contribution.Registration,
+            () => StreamFor([1, 2, 3]));
         owner.CompleteAdmission(authorization);
 
         Assert.Equal(1, opened.ReadByte());
@@ -92,6 +95,35 @@ public sealed class ArtifactContractTests
 
         Assert.Throws<InvalidOperationException>(
             () => owner.CompleteAdmission(authorization));
+    }
+
+    [Fact]
+    public void AdmissionRequiresExactlyOneRetainedContentPerRegistration()
+    {
+        var owner = new ArtifactGenerationAuthority();
+        ArtifactAdmissionAuthorization authorization =
+            owner.CreateAdmissionAuthorization();
+        ArtifactContribution contribution;
+        using (ArtifactContributionScope scope =
+            owner.BeginContribution(authorization))
+        {
+            contribution = scope.Register(
+                new Provenance("local"),
+                () => StreamFor([1]));
+        }
+
+        Assert.Throws<InvalidOperationException>(
+            () => owner.CompleteAdmission(authorization));
+
+        owner.CreateRetainedContent(
+            contribution.Registration,
+            () => StreamFor([1]));
+        Assert.Throws<InvalidOperationException>(
+            () => owner.CreateRetainedContent(
+                contribution.Registration,
+                () => StreamFor([2])));
+
+        owner.CompleteAdmission(authorization);
     }
 
     [Fact]
@@ -127,6 +159,12 @@ public sealed class ArtifactContractTests
                 .Distinct(ReferenceEqualityComparer.Instance)
                 .Count());
 
+        foreach (ArtifactContribution contribution in contributions)
+        {
+            owner.CreateRetainedContent(
+                contribution.Registration,
+                () => StreamFor([1]));
+        }
         owner.CompleteAdmission(authorization);
     }
 

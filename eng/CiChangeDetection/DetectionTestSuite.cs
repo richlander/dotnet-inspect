@@ -680,6 +680,28 @@ internal static class DetectionTestSuite
             selected: "code",
             notSelected: "packaging");
 
+        Dictionary<string, string> packageManifestCorpus = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/package-manifest-corpus.json",
+            outputs);
+        AssertRouting(
+            packageManifestCorpus,
+            selected: "code",
+            notSelected: "docs");
+
+        Dictionary<string, string> packageManifestCorpusVerifier = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/verify-package-manifest-corpus.cs",
+            outputs);
+        AssertRouting(
+            packageManifestCorpusVerifier,
+            selected: "code",
+            notSelected: "docs");
+
         Dictionary<string, string> workflow = RunDetection(
             repository,
             body,

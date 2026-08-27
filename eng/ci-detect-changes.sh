@@ -293,6 +293,9 @@ while IFS= read -r -d '' file; do
     # Package fixture inputs are executable test evidence. The fast CLI test
     # lane packs and inspects them; the product pack job does not consume them.
     eng/package-fixtures/*) CODE=true ;;
+    # The manifest catalog and its live verifier are executable compatibility
+    # evidence consumed by PackageManifestCorpusTests.
+    eng/package-manifest-corpus.json|eng/verify-package-manifest-corpus.cs) CODE=true ;;
     eng/prepare-decompiler-assertion-corpus.sh) CODE=true ;;
     eng/prepare-decompiler-corpus.sh) CODE=true ;;
     eng/prepare-decompiler-opt-in-corpus.sh) CODE=true ;;
