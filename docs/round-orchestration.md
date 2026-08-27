@@ -35,9 +35,10 @@ HTTP 429 as rate-limited. Treat HTTP 403 as rate-limited only when
 `Retry-After` is present, `x-ratelimit-remaining` is zero, or the response body
 explicitly identifies a secondary rate limit; an unclassified 403 is terminal.
 Publish the gating predicate as `waiting`, then schedule one successor after
-`Retry-After`, the `x-ratelimit-reset` time, or at least one minute with
-increasing delays of 1, 5, and 15 minutes for an identified secondary limit
-that reports neither.
+`Retry-After` when present. Use `x-ratelimit-reset` only when
+`x-ratelimit-remaining` is zero. An identified secondary limit with remaining
+quota and no `Retry-After` uses increasing delays of 1, 5, and 15 minutes
+instead of the routine reset header.
 
 For a transport failure or GitHub 5xx response, schedule successors after 10
 minutes plus jitter, then 30 minutes, then one hour. Every remaining non-success
@@ -78,7 +79,10 @@ If that tool call fails, apply the rate-limit, transient, or terminal rule
 above before doing anything else. If it succeeds, apply the lifecycle, head,
 and `mergeable: false` transitions below. Only when those permit the second
 request and the retained predicate is `waiting=checks`, copy the validated
-40-character head SHA into this separate tool call:
+40-character head SHA into this separate tool call. A `waiting=merge` run skips
+the second request while mergeability remains null, but uses it once
+mergeability becomes definite and the resulting transition depends on green
+CI:
 
 ```bash
 head_sha="replace-with-validated-head-sha"
@@ -95,8 +99,10 @@ before arming any transient or rate-limit successor; retain the existing
 `waiting=merge` records that `ci-required` was already confirmed green for the
 expected head, whether by the preceding snapshot or a trusted user statement.
 After the PR request validates that same head, retain that evidence and do not
-repeat the check-runs request. Read only lifecycle and mergeability until the
-predicate resolves; any returned-head mismatch invalidates the evidence.
+repeat the check-runs request while mergeability remains null. Once
+mergeability becomes definite, re-read `ci-required` before round progress,
+readiness, or merge because a workflow rerun can change check state without
+changing the head. A returned-head mismatch invalidates the evidence.
 
 `--include` exposes the HTTP status and the `Retry-After`,
 `x-ratelimit-remaining`, and `x-ratelimit-reset` headers without another API
@@ -197,7 +203,8 @@ alone is unresolved. Run immediately if that target time has already passed.
 The future turn is intentional; do not reject scheduling because it consumes
 one, and do not wait for the user to volunteer status. Publish `waiting=merge`
 only when current-head CI is already green; its successor spends only the PR
-request.
+request while mergeability remains null, then revalidates CI once before a
+green-dependent exit.
 
 Retain the active schedule ID beside its expected head, waiting predicate, goal,
 and attempt when present. Cancel it immediately when the predicate clears, the

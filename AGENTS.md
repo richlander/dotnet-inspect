@@ -160,8 +160,11 @@ act on them**:
   and does not deserve an issue.
 
 `waiting=merge` is valid only after current-head `ci-required` is confirmed
-green. It retains that fixed-head evidence, so a scheduled successor reads only
-PR lifecycle and mergeability; a head change invalidates the evidence.
+green. It retains that fixed-head evidence while mergeability remains
+unresolved, so a scheduled successor initially reads only PR lifecycle and
+mergeability. Once mergeability becomes definite, re-read `ci-required` before
+advancing, claiming readiness, or merging because a same-head rerun can change
+check state. A head change invalidates the evidence.
 
 `rec=wait` is coherent when either is populated. `blocked=ci` is the specific
 error this split exists to remove: it names nothing a person can open and
