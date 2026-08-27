@@ -1522,10 +1522,7 @@ test("typed scope bar owns its rendered control bindings", () => {
   const packageLens = callbackProperty(actions, "onPackageLensSelect");
   assert.deepEqual(
     statementSignatures(packageLens.body.body),
-    [
-      "assign:state.packageLens = lens",
-      "call:render()",
-    ]);
+    ["call:selectPackageLens(lens)"]);
 
   const scope = callbackProperty(actions, "onScopeSelect");
   assert.deepEqual(
@@ -2692,13 +2689,19 @@ test("lens-scoped Platform library changes reset type-specific member state", ()
     /function normalizeLibrarySelection\(\) \{[\s\S]*state\.selectedTypeId = first\?\.id \|\| "";[\s\S]*state\.selectedMemberKey = "";[\s\S]*state\.selectedOverloadIndex = null;[\s\S]*resetMemberFilters\(\)[\s\S]*function afterLibraryScopeChange\(\) \{\s*normalizeLibrarySelection\(\);\s*render\(\)/);
 });
 
-test("package Metadata auto-loading retries the current failed scope", () => {
+test("package Metadata retries failed scopes only on explicit lens selection", () => {
   const autoLoad =
     appSource.match(/function maybeAutoLoadPackageMetadata\(\) \{[\s\S]*?\n}/)?.[0]
     ?? "";
   assert.match(
     autoLoad,
-    /state\.packageMetadataKey === packageScopeSignature\(\)[\s\S]*&& !state\.packageMetadataError\) return;[\s\S]*observeAsync\(loadPackageMetadata\(\)/);
+    /if \(state\.packageMetadataKey === packageScopeSignature\(\)\) return;[\s\S]*observeAsync\(loadPackageMetadata\(\)/);
+  const selectLens =
+    appSource.match(/function selectPackageLens\(lens: PackageLens\) \{[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    selectLens,
+    /lens === "metadata"[\s\S]*state\.packageMetadataKey === packageScopeSignature\(\)[\s\S]*state\.packageMetadataError[\s\S]*!state\.packageMetadataLoading[\s\S]*observeAsync\(loadPackageMetadata\(\)/);
 });
 
 test("Platform Spotlight distinguishes resident content from core readiness", () => {

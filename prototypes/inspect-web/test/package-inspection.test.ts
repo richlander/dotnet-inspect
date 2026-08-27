@@ -222,6 +222,13 @@ function metadataResult(): PackageMetadata {
   return { assemblies: [] };
 }
 
+function metadataFailureResult(): PackageMetadata {
+  return {
+    assemblies: [],
+    inspectionError: "all metadata reads failed",
+  };
+}
+
 function inspectionDependencies(
   state: PackageInspectionState,
   overrides: Partial<Omit<PackageInspectionDependencies, "state">> = {},
@@ -687,6 +694,67 @@ test("every package lens preserves its complete request lifecycle", async () => 
     setKey: (state, key) => { state.packageMetadataKey = key; },
     setError: (state, error) => { state.packageMetadataError = error; },
   });
+});
+
+test("metadata requests suppress duplicates and preserve unique ownership", async () => {
+  const packageItem = packageModel();
+  const firstA = deferred<PackageMetadata>();
+  const b = deferred<PackageMetadata>();
+  const newestA = deferred<PackageMetadata>();
+  const requests = [firstA, b, newestA];
+  let queries = 0;
+  const state = inspectionState();
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPackageMetadata: async () => requests[queries++]!.promise,
+    }));
+
+  const firstALoad = coordinator.loadMetadata(packageItem, "A", null);
+  const duplicateALoad = coordinator.loadMetadata(packageItem, "A", null);
+  assert.equal(queries, 1);
+  await duplicateALoad;
+
+  const bLoad = coordinator.loadMetadata(packageItem, "B", null);
+  const newestALoad = coordinator.loadMetadata(packageItem, "A", null);
+  assert.equal(queries, 3);
+
+  const newest = metadataResult();
+  newestA.resolve(newest);
+  await newestALoad;
+  firstA.reject(new Error("stale A failure"));
+  await firstALoad;
+
+  assert.strictEqual(state.packageMetadata, newest);
+  assert.equal(state.packageMetadataError, "");
+  assert.equal(state.packageMetadataLoading, false);
+
+  b.resolve(metadataResult());
+  await bLoad;
+  assert.strictEqual(state.packageMetadata, newest);
+});
+
+test("all-failed metadata results remain visible and retryable", async () => {
+  const packageItem = packageModel();
+  let queries = 0;
+  const state = inspectionState();
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPackageMetadata: async () => {
+        queries++;
+        return metadataFailureResult();
+      },
+    }));
+
+  await coordinator.loadMetadata(packageItem, "metadata", null);
+
+  assert.equal(state.packageMetadata, null);
+  assert.equal(state.packageMetadataError, "all metadata reads failed");
+  assert.equal(state.packageMetadataLoading, false);
+
+  await coordinator.loadMetadata(packageItem, "metadata", null);
+
+  assert.equal(queries, 2);
+  assert.equal(state.packageMetadataError, "all metadata reads failed");
 });
 
 test("stale package lens rejection cannot overwrite newer state", async () => {

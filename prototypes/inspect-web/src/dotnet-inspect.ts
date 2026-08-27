@@ -2047,10 +2047,7 @@ function scope(): WorkspaceScope {
 function selectScopeLensByIndex(index: number, workspaceScope: WorkspaceScope): void {
   if (workspaceScope === "package") {
     const selected = packageLensesFor(state.package)[index];
-    if (selected) {
-      state.packageLens = selected[0];
-      render();
-    }
+    if (selected) selectPackageLens(selected[0]);
   } else if (workspaceScope === "type") {
     const selected = typeLensesFor(state.package)[index];
     if (selected) {
@@ -2074,6 +2071,19 @@ function packageLensesFor(pkg: AppPackage | null) {
   if (!pkg?.isRuntimePack) return packageLenses;
   return packageLenses.filter(([id]) =>
     id === "overview" || id === "integrations" || id === "opportunities" || id === "analysis" || id === "metadata");
+}
+
+function selectPackageLens(lens: PackageLens) {
+  const retryMetadata = lens === "metadata"
+    && state.packageMetadataKey === packageScopeSignature()
+    && Boolean(state.packageMetadataError)
+    && !state.packageMetadataLoading;
+  state.packageLens = lens;
+  if (retryMetadata) {
+    observeAsync(loadPackageMetadata(), "Loading package metadata");
+  } else {
+    render();
+  }
 }
 
 // The single platform library the Integrations/Opportunities/Analysis lenses scan: whatever
@@ -2339,8 +2349,7 @@ function stepHorizontal(delta: number) {
     const index = strip.findIndex(([id]) => id === state.packageLens);
     const next = strip[(index + delta + strip.length) % strip.length];
     if (!next) return;
-    state.packageLens = next[0];
-    render();
+    selectPackageLens(next[0]);
     return;
   }
   const type = selectedType();
@@ -3311,8 +3320,7 @@ async function loadPackageMetadata() {
 function maybeAutoLoadPackageMetadata() {
   if (!state.atPackageRoot || state.packageLens !== "metadata") return;
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
-  if (state.packageMetadataKey === packageScopeSignature()
-    && !state.packageMetadataError) return;
+  if (state.packageMetadataKey === packageScopeSignature()) return;
   observeAsync(loadPackageMetadata(), "Loading package metadata");
 }
 
@@ -4695,8 +4703,7 @@ function bindScopeBarEvents() {
       applyMemberSection(section);
     },
     onPackageLensSelect: lens => {
-      state.packageLens = lens;
-      render();
+      selectPackageLens(lens);
     },
     onScopeSelect: target => {
       if (target === "package") {
