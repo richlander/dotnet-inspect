@@ -2262,6 +2262,63 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_MultiSectionMarkdownWithRangeRows_DoesNotDoubleWindow()
+    {
+        // Round 10 finding (Sol): the multi-section (non-JSON) document markdown path built
+        // Analysis/Implementation/FindingTransitions views with options.Rows applied at
+        // construction (Round 9's fix), then RenderDocumentView applied the same window a
+        // second time via the Markout writer. Head(N)/Tail(N) are idempotent under double
+        // application, but an absolute range like "rows 2..3" is not: re-applying it to the
+        // already-windowed (shorter) list silently drops rows. Fixed by only windowing at
+        // construction time when producing JSON (which bypasses the writer's own windowing
+        // entirely); non-JSON output now windows exactly once, via the writer.
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        // First confirm the JSON path (single window, at construction) sees >= 2 analysis rows
+        // so that a 2-row range window is meaningful and not itself clipped by a small fixture.
+        var (jsonExitCode, jsonOutput, jsonError) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                Select = ["Analysis Diff"],
+                JsonOutput = true,
+                TypeFilter = ["DiffSample"],
+            }));
+        Assert.Equal(0, jsonExitCode);
+        Assert.Empty(jsonError);
+        using var jsonDocument = System.Text.Json.JsonDocument.Parse(jsonOutput);
+        var totalAnalysisRows = jsonDocument.RootElement.GetProperty("analysis_diff").GetArrayLength();
+        Assert.True(totalAnalysisRows >= 3, "fixture must produce at least 3 analysis-diff rows to prove a 2..3 range window is not double-applied");
+
+        var (markdownExitCode, markdownOutput, markdownError) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                Select = ["Analysis Diff", "Implementation Diff"],
+                TypeFilter = ["DiffSample"],
+                Rows = RowWindow.Range(2, 3),
+            }));
+
+        Assert.Equal(0, markdownExitCode);
+        Assert.Empty(markdownError);
+
+        var analysisTableStart = markdownOutput.IndexOf("## Analysis Diff", StringComparison.Ordinal);
+        var implementationTableStart = markdownOutput.IndexOf("## Implementation Diff", StringComparison.Ordinal);
+        Assert.True(analysisTableStart >= 0);
+        Assert.True(implementationTableStart > analysisTableStart);
+        var analysisSection = markdownOutput[analysisTableStart..implementationTableStart];
+
+        // A double-applied "rows 2..3" window on an already-2-row list would collapse to 0 or 1
+        // rows; confirm both rows in the range survive (row 2 and row 3 of the full list).
+        var analysisRowLines = analysisSection
+            .Split('\n')
+            .Where(line => line.StartsWith('|') && !line.Contains("---", StringComparison.Ordinal) && !line.Contains("Member", StringComparison.Ordinal))
+            .ToList();
+        Assert.Equal(2, analysisRowLines.Count);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_AnalysisDiffMarkdownEmptyWithRows_DoesNotLeakRowWindowNote()
     {
         // Round 9 finding: standalone `diff -S "Analysis Diff" -n N` leaked "first N" above

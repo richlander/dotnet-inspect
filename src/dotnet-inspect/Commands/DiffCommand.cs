@@ -869,6 +869,15 @@ public class DiffCommand
                     : DiffSections.Changes.Name
             };
 
+        // JSON serializes the view's Rows directly, bypassing the Markout writer's own
+        // render-time windowing (RenderDocumentView's CreateWindowedOptions), so the window
+        // must be applied here instead. For non-JSON (markdown) output, RenderDocumentView
+        // already applies options.Rows once via the writer; windowing here too would apply it
+        // *twice*, which is only safe for idempotent Head/Tail windows and corrupts an
+        // absolute --rows range (e.g. "2..3" re-interpreted against the already-windowed,
+        // shorter list). So only window at construction time when producing JSON.
+        RowWindow? windowForConstruction = options.JsonOutput ? options.Rows : null;
+
         ApiDiff? changesDiff = null;
         DiffDetailedChangesView? changesView = null;
         if (selected.Contains(DiffSections.Changes.Name))
@@ -883,7 +892,7 @@ public class DiffCommand
                 ApplyFilters(changesDiff, options),
                 inputs.FromVersion,
                 inputs.ToVersion,
-                options.Rows);
+                windowForConstruction);
         }
 
         AnalysisDiffView? analysisView = null;
@@ -899,7 +908,7 @@ public class DiffCommand
                 inputs.FromVersion,
                 inputs.ToVersion,
                 decorateMember: false,
-                window: options.Rows);
+                window: windowForConstruction);
         }
 
         ImplementationDiffView? implementationView = null;
@@ -917,7 +926,7 @@ public class DiffCommand
                 implementation,
                 inputs.FromVersion,
                 inputs.ToVersion,
-                options.Rows);
+                windowForConstruction);
         }
 
         FindingTransitionsView? findingTransitionsView = null;
@@ -929,7 +938,7 @@ public class DiffCommand
                 rows,
                 inputs.FromVersion,
                 inputs.ToVersion,
-                options.Rows);
+                windowForConstruction);
         }
 
         var view = DiffOutputFormatter.BuildDocumentView(
