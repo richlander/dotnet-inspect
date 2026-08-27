@@ -349,7 +349,7 @@ jobs:
             nuget-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build
-        run: dotnet build dotnet-inspect.slnx -c Release
+        run: dotnet build dotnet-inspect.slnx -c Release --warnaserror
 
       - name: Build package-manifest corpus verifier
         run: dotnet build eng/verify-package-manifest-corpus.cs -c Release
@@ -570,7 +570,7 @@ jobs:
 
       - name: Build
         id: build
-        run: dotnet build dotnet-inspect.slnx -c Release
+        run: dotnet build dotnet-inspect.slnx -c Release --warnaserror
 
       # GitHub's Windows image supplies Git Bash to `shell: bash`, but does not
       # put that executable on the PATH inherited by .NET test processes.
@@ -774,7 +774,7 @@ jobs:
       # Deliberately not continue-on-error: the two --no-build steps below
       # depend on this having succeeded.
       - name: Build
-        run: dotnet build dotnet-inspect.slnx -c Release
+        run: dotnet build dotnet-inspect.slnx -c Release --warnaserror
 
       # Enumerate what the preset selects, without running it. This is the
       # reference the completeness check compares the results against; the
