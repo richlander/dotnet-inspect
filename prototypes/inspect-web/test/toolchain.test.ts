@@ -45,6 +45,7 @@ interface OxlintOverride {
 interface OxlintConfig {
   readonly ignorePatterns?: readonly string[];
   readonly overrides?: readonly OxlintOverride[];
+  readonly rules?: Readonly<Record<string, unknown>>;
 }
 
 interface TsconfigFile {
@@ -123,6 +124,10 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
   assert.equal(nodeTsconfig.extends, "./tsconfig.json");
   assert.deepEqual(nodeTsconfig.compilerOptions.types, ["node"]);
   assert.deepEqual(nodeTsconfig.include, ["scripts/**/*.ts", "vite.config.ts"]);
+  // Adversarial review (GPT-5.6 Sol and Gemini 3.1 Pro, independently) found that
+  // inheriting the browser `lib` let `document.title` compile in a Node script, which
+  // then failed only when the build or lint gate actually ran it.
+  assert.deepEqual(nodeTsconfig.compilerOptions.lib, ["ES2022"]);
   assert.equal(
     packageJson.scripts.typecheck,
     "tsc --noEmit && tsc --noEmit -p test/tsconfig.json"
@@ -221,39 +226,42 @@ for (const [name, project] of [
 // ban, the set of suppression directives is closed and owned by the compiler rather than
 // by us, so listing them here is not a restatement that can drift out of date.
 //
-// Converting this file from JavaScript put it inside its own scan. The directives are
-// therefore assembled from parts rather than spelled out: a literal would make this gate
-// report itself, and excluding this file would leave a hole in the one test that closes
-// the per-file vector. Assembling keeps this file in scope and the scan exactly as
-// strict, which is why the prose above names the directives only in the abstract.
-function checkedSourceFiles(extensions: readonly string[]): string[] {
-  const root = new URL("../", import.meta.url);
+// The scan prunes dependency and build output rather than listing the directories to
+// cover, so a newly created authored directory is included by default. Adversarial review
+// (GPT-5.6 Sol) defeated the previous list-based version by putting an unchecked
+// JavaScript file in `public/`, which Vite copies verbatim into `dist/`: it shipped while
+// `npm test`, `npm run analyze`, and `npm run build` all stayed green.
+const generatedDirectories = new Set(["node_modules", "dist", "bin", "obj"]);
+
+// Converting this file from JavaScript put it inside its own scan. The suppression
+// directives below are therefore assembled from parts rather than spelled out: a literal
+// would make that gate report itself, and excluding this file would leave a hole in the
+// one test that closes the per-file vector. Assembling keeps this file in scope and the
+// scan exactly as strict, which is why the prose names the directives only in the
+// abstract.
+function projectFiles(extensions: readonly string[]): string[] {
+  const root = fileURLToPath(new URL("../", import.meta.url));
   const files: string[] = [];
-  // The project root is scanned without recursion so that a root-level module such as the
-  // Vite config is covered without walking `node_modules`, `dist`, or the generated
-  // `engine` output. Every other authored directory is walked in full.
-  for (const [directory, recursive] of [
-    [".", false],
-    ["src", true],
-    ["test", true],
-    ["scripts", true],
-  ] as const) {
-    for (const entry of readdirSync(new URL(directory, root), {
-      recursive,
-      withFileTypes: true,
-    })) {
-      if (entry.isFile()
-          && extensions.some(extension => entry.name.endsWith(extension))) {
-        files.push(join(entry.parentPath, entry.name));
+  const walk = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const full = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        if (!generatedDirectories.has(entry.name)) {
+          walk(full);
+        }
+      } else if (entry.isFile()
+        && extensions.some(extension => entry.name.endsWith(extension))) {
+        files.push(full);
       }
     }
-  }
+  };
+  walk(root);
   return files;
 }
 
 test("no source file suppresses type checking", () => {
   const root = new URL("../", import.meta.url);
-  const files = checkedSourceFiles([".ts"]);
+  const files = projectFiles([".ts"]);
 
   assert.ok(files.length > 50, `expected the TypeScript sources, found ${files.length}`);
   const suppressionPattern = new RegExp(
@@ -274,27 +282,48 @@ test("no source file suppresses type checking", () => {
 
 // The third way out of type checking is to not write TypeScript at all. The oxlint config
 // used to turn the `no-unsafe-*` family off for `**/*.js`, because the toolchain scripts
-// and the Vite config were JavaScript; a new JavaScript file dropped anywhere in the
-// project inherited that exemption for free. Those files are TypeScript now, so the
-// override names the one file that still needs it -- the generated engine wrapper, which
-// is Wasm build output rather than authored source -- and this asserts that the authored
-// tree has no JavaScript left for a `**/*.js` override to come back for.
-test("the project is authored wholly in TypeScript", () => {
-  const root = new URL("../", import.meta.url);
-  const unchecked = checkedSourceFiles([".js", ".jsx", ".mjs", ".cjs"]);
+// and the Vite config were JavaScript; a new JavaScript file anywhere inherited that
+// exemption for free. Those files are TypeScript now, and the one remaining exemption is
+// the generated engine wrapper, which is Wasm build output rather than authored source.
+//
+// Rather than restate that file name twice, the two sets are asserted against each other:
+// the JavaScript actually present must be exactly the JavaScript actually exempted. A new
+// authored file fails, a widened exemption fails, and an exemption left behind by a
+// deleted file fails too.
+test("the only JavaScript is the file the lint exemption names", () => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const present = projectFiles([".js", ".jsx", ".mjs", ".cjs"])
+    .map(file => file.slice(root.length))
+    .sort();
+  const exempted = (oxlintConfig.overrides ?? [])
+    .filter(override => override.rules !== undefined)
+    .flatMap(override => override.files)
+    .sort();
 
-  assert.deepEqual(
-    unchecked.map(file => file.slice(fileURLToPath(root).length)),
-    [],
-    "the authored project is TypeScript-only; JavaScript here would be checked by "
-      + "neither the compiler nor the type-aware lint rules the rest of it is held to");
-  // The exemption that remains must stay pinned to the generated file, since widening it
-  // back to a pattern would re-open the hole above without changing any file this scans.
-  assert.deepEqual(
-    (oxlintConfig.overrides ?? [])
-      .filter(override => override.rules !== undefined)
-      .flatMap(override => override.files),
-    ["engine/wwwroot/inspect-web-engine.js"]);
+  assert.deepEqual(present, ["engine/wwwroot/inspect-web-engine.js"],
+    "authored JavaScript here would be checked by neither the compiler nor the "
+      + "type-aware lint rules the rest of the project is held to");
+  assert.deepEqual(exempted, present,
+    "the lint exemption and the JavaScript it covers must name the same files");
+});
+
+// Sol also walked past the assertion above entirely by turning a rule off at the top
+// level, where no override is involved and the exemption sets still matched. The rules
+// the conversion exists to apply are therefore pinned where they are declared.
+test("the unsafe-operation rules stay enabled for authored source", () => {
+  for (const rule of [
+    "typescript/no-unsafe-argument",
+    "typescript/no-unsafe-assignment",
+    "typescript/no-unsafe-call",
+    "typescript/no-unsafe-member-access",
+    "typescript/no-unsafe-return",
+  ]) {
+    assert.equal(oxlintConfig.rules?.[rule], "error", `${rule} must stay enabled`);
+  }
+  // The other way to reach every file at once. `ignorePatterns` drops files from the lint
+  // run entirely, which would leave the rules above enabled and enforced against nothing.
+  assert.deepEqual(oxlintConfig.ignorePatterns ?? [], [],
+    "an ignore pattern removes files from the lint run rather than from these rules");
 });
 
 test("static hosting serves credits links through the application entry point", () => {
