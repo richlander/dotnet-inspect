@@ -120,6 +120,26 @@ test("hidden source work is cancelled through the shared engine boundary", () =>
   assert.equal(state.memberSourceLoading, true);
 });
 
+test("canonical transitions cancel visible source work before snapshot", () => {
+  let cancellations = 0;
+  const state = inspectionState({
+    memberSourceLoading: true,
+    memberSourceKey: "member",
+  });
+  const coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      cancelEngineSourceRequest: () => cancellations++,
+    }));
+
+  assert.equal(coordinator.cancelCurrentRequest(), true);
+  assert.equal(cancellations, 1);
+  assert.equal(state.sourceRequestGeneration, 1);
+  assert.equal(state.memberSourceLoading, false);
+  assert.equal(state.memberSourceKey, "");
+  assert.equal(coordinator.cancelCurrentRequest(), false);
+  assert.equal(cancellations, 1);
+});
+
 test("member picker releases source ownership before taste invalidation", () => {
   let cancellations = 0;
   let hasConcreteOverload = true;
@@ -145,6 +165,39 @@ test("member picker releases source ownership before taste invalidation", () => 
   coordinator.cancelHiddenRequest();
   assert.equal(cancellations, 1);
   assert.equal(state.memberSourceLoading, false);
+});
+
+test("canonical commit clears a settled graph source without rendering", () => {
+  let renders = 0;
+  const request = {
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    type: "Example.Widget",
+    member: "Build",
+    selectorKey: "method",
+    metadataToken: 42,
+  };
+  const state = inspectionState({
+    graphSourceOpen: true,
+    graphSource: source("old workspace"),
+    graphSourceTitle: "Old workspace",
+    graphSourceRequest: { request, title: "Old workspace" },
+    graphSourceSeq: 4,
+  });
+  const coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      render: () => renders++,
+    }));
+
+  coordinator.clearGraphSource();
+
+  assert.equal(state.graphSourceOpen, false);
+  assert.equal(state.graphSource, null);
+  assert.equal(state.graphSourceRequest, null);
+  assert.equal(state.graphSourceSeq, 5);
+  assert.equal(renders, 0);
 });
 
 test("member source publishes only for the current member selection", async () => {
