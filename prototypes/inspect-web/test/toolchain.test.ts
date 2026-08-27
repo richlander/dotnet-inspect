@@ -507,7 +507,7 @@ const inertAttributePrefixes = ["aria-", "data-"] as const;
 // follows" pins that reasoning.
 const textAttributes: ReadonlySet<string> = new Set([
   "alt", "charset", "class", "content", "download", "for", "height", "id", "lang",
-  "media", "name", "role", "sizes", "target", "title", "type", "width",
+  "media", "name", "rel", "role", "sizes", "target", "title", "type", "width",
 ]);
 
 // A relative URL has no scheme, and is fine because the document base is required to be
@@ -517,7 +517,8 @@ const textAttributes: ReadonlySet<string> = new Set([
 const inertSchemes: ReadonlySet<string> = new Set(["http", "https", "mailto"]);
 
 const namedEntities: ReadonlyMap<string, string> = new Map([
-  ["amp", "&"], ["apos", "'"], ["colon", ":"], ["gt", ">"], ["lt", "<"],
+  ["amp", "&"], ["apos", "'"], ["bsol", "\\"], ["colon", ":"], ["gt", ">"],
+  ["lt", "<"],
   ["newline", "\n"], ["quot", '"'], ["sol", "/"], ["tab", "\t"],
 ]);
 
@@ -548,6 +549,23 @@ function resolvedValue(value: string): string {
   return decoded.replaceAll(/[\0-\u0020\u007F]/g, "");
 }
 
+// Round 4 (Sol) found `&bsol;` missing from the table above, so `/&bsol;host/` stayed
+// literal, failed the `//` test and was read as a local path while a browser resolved it
+// to `https://host/`. Round 3 is what made a backslash significant, and the table was not
+// revisited. That is this file's recurring failure -- an enumeration with one more hole --
+// so the table's incompleteness has to stop being silent. A named reference ending in a
+// semicolon is always expanded by a browser, so one this file cannot decode means it
+// cannot know what URL the browser resolves, and it now says so instead of guessing.
+//
+// Only semicolon-terminated references are reported. Without the semicolon a browser
+// expands a name only in narrow legacy cases, and `?a=1&c=2` is an ordinary query string
+// that has to keep working.
+function undecodedReferences(value: string): readonly string[] {
+  return [...value.matchAll(/&(?:#(\d+)|#x([\da-f]+)|([\da-z]+));/gi)]
+    .filter(match => entityText(match[1], match[2], match[3]) === undefined)
+    .map(match => match[0]);
+}
+
 function urlScheme(value: string): string | undefined {
   return /^([a-z][\d+.a-z-]*):/i.exec(resolvedValue(value))?.[1]?.toLowerCase();
 }
@@ -571,9 +589,17 @@ function isRemoteReference(value: string): boolean {
 // subresource integrity in every browser, so require a value the browser will honor: one
 // or more whitespace-separated `sha256`/`sha384`/`sha512` digests.
 function pinsItsBytes(value: string): boolean {
-  const digests = value.trim().split(/\s+/u).filter(entry => entry.length > 0);
-  return digests.length > 0
-    && digests.every(entry => /^sha(?:256|384|512)-[\d+/A-Za-z]+={0,2}$/.test(entry));
+  // Round 4 (Sol) found this narrower than the grammar it claims to check. Algorithm
+  // tokens are matched ASCII case-insensitively, and a hash expression may carry a
+  // `?option` suffix, reserved for forward compatibility, that user agents ignore. Both
+  // spellings pin the bytes, and both were rejected.
+  //
+  // A browser keeps the expressions whose algorithm it supports and enforces the
+  // strongest of those, ignoring the rest, so one well-formed supported digest is what
+  // makes the bytes pinned. An unrecognized entry beside it does not weaken that, which
+  // is why this asks for one rather than for all.
+  return value.trim().split(/\s+/u).some(entry =>
+    /^sha(?:256|384|512)-[\d+/A-Za-z]+={0,2}(?:\?[!-~]*)?$/i.test(entry));
 }
 
 // Reading markup with a regular expression is how the previous two versions of this gate
@@ -753,6 +779,15 @@ function scanMarkup(source: string, report: (problem: string) => void): MarkupTa
         // means this scan just swallowed markup it never checked. Report rather than
         // discard. `<title>` and `<style>` are on the allow list, so without this the
         // swallowed region would vanish in silence.
+        //
+        // Round 4 (Opus) observed that within HTML the `</` half does all the detecting,
+        // since a raw-text element can only end early via `</name`, and offered the
+        // `<[a-z]` half as removable over-strictness. It is kept deliberately: in foreign
+        // content a browser does not use raw text at all, so `<svg><title><script>` runs
+        // that script while this scan swallows it, and the start-tag half is what sees
+        // it. `svg` is absent from `inertElements` today, which is why that is not a live
+        // hole -- but adding an inline icon would make this the only rule catching it,
+        // and the cost is a literal `<` in a title needing to be written `&lt;`.
         report(`<${element}> contains markup. Raw text cannot hold a tag, so either the `
           + "content is wrong or this element does not end where it appears to");
       }
@@ -855,6 +890,13 @@ function markupFindings(name: string, html: string): string[] {
         || inertAttributePrefixes.some(prefix => spelled.startsWith(prefix))) {
         continue;
       }
+      const unreadable = undecodedReferences(attribute.value);
+      if (unreadable.length > 0) {
+        findings.push(`${name}: <${tag.element} ${spelled}> contains `
+          + `${unreadable.join(", ")}, which this file cannot decode, so it cannot tell `
+          + "what URL a browser resolves here. Add the reference to `namedEntities`");
+        continue;
+      }
       const scheme = urlScheme(attribute.value);
       if (scheme !== undefined && !inertSchemes.has(scheme)) {
         findings.push(`${name}: <${tag.element} ${spelled}> carries a \`${scheme}:\` `
@@ -886,20 +928,109 @@ test("a text attribute cannot become a URL the browser follows", () => {
       + "exemption describes markup this project cannot contain");
 });
 
+// The set of parse5 verdicts Vite drops before `scripts/html-parse-gate.ts` can make them
+// fatal, read out of the Vite build this project runs rather than copied into a list here.
+// `handleParseError` opens with a switch whose arms return for exactly those codes, so the
+// answer is in the shipped source and does not have to be remembered.
+//
+// Every step fails closed. If the resolution, the function, the switch, or the shape of
+// its arms is not what this expects, it fails rather than returning the smaller set it
+// managed to find -- because a short answer here reads as "Vite discards less than it
+// does", which is the direction that silently drops coverage.
+function viteDiscardedParseErrorCodes(): ReadonlySet<string> {
+  const entry = fileURLToPath(import.meta.resolve("vite"));
+  let root = dirname(entry);
+  while (!existsSync(join(root, "package.json"))) {
+    const parent = dirname(root);
+    assert.notEqual(parent, root, `no \`package.json\` above \`${entry}\`, so the Vite `
+      + "build this project runs could not be located to read its discarded parse codes");
+    root = parent;
+  }
+
+  const sources: string[] = [];
+  const walk = (directory: string): void => {
+    for (const item of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, item.name);
+      if (item.isDirectory()) { walk(path); }
+      else if (item.name.endsWith(".js")) { sources.push(path); }
+    }
+  };
+  walk(join(root, "dist", "node"));
+
+  const marker = "function handleParseError";
+  const carriers = sources.filter(path => readFileSync(path, "utf8").includes(marker));
+  assert.equal(carriers.length, 1,
+    `expected exactly one Vite source to define \`${marker}\`, the switch that decides `
+      + `which parse5 verdicts are dropped, and found ${carriers.length}. Vite has been `
+      + "restructured, so this can no longer tell which verdicts reach the build gate");
+
+  const source = readFileSync(carriers[0] ?? "", "utf8");
+  const start = source.indexOf(marker);
+  assert.equal(source.indexOf(marker, start + 1), -1,
+    `\`${marker}\` is defined more than once, so which switch decides is ambiguous`);
+
+  const switchAt = source.indexOf("switch", start);
+  assert.ok(switchAt > start && switchAt - start < 200,
+    "`handleParseError` no longer opens with the switch that drops parse codes");
+
+  const open = source.indexOf("{", switchAt);
+  const close = source.indexOf("}", open);
+  assert.ok(open > switchAt && close > open, "the discard switch has no readable body");
+  const body = source.slice(open + 1, close);
+
+  // A nested block would put arms outside `body`, and an arm doing anything but returning
+  // is not a discard. Either shape means this is reading the wrong thing.
+  const codes = [...body.matchAll(/case\s*"([^"]+)"\s*:\s*return;/g)].map(match => match[1] ?? "");
+  assert.equal((body.match(/\bcase\b/g) ?? []).length, codes.length,
+    `the discard switch has arms this cannot read, so the codes it drops are not all `
+      + `accounted for. Read: ${codes.join(", ")}`);
+  assert.ok(codes.length > 0, "the discard switch dropped no codes, which has never been "
+    + "true; this is reading the wrong code rather than reporting a change in Vite");
+
+  return new Set(codes);
+}
+
 test("the parse errors Vite discards are caught by the markup scan", () => {
   // Round 3 (Gemini) found the prose in `scripts/html-parse-gate.ts` claiming Vite reports
-  // every parse5 rejection. It does not: five codes return before reaching the logger, so
+  // every parse5 rejection. It does not: some codes return before reaching the logger, so
   // the build gate never sees them. The claim that this file covers them was asserted in a
   // comment and enforced by nothing. Here it is enforced.
   //
-  // Three of the five cannot carry code and are left to the comment. `missing-doctype` and
-  // `abandoned-head-element-child` are placement, not content. The third is worth stating
-  // because it looks dangerous and is not: in `<?script>x</script>`, `<?` opens a bogus
-  // comment that runs to the first `>` in a browser and in `scanMarkup` alike, so `x` is
-  // text and the trailing end tag is stray. Nothing runs, and the two agree.
+  // Round 4 (Opus) found this list short and the reason for its length wrong. It said
+  // `abandoned-head-element-child` was "placement, not content", but parse5 raises that
+  // code from a switch keyed on the tag, and `script` is one of its cases: a `<script>`
+  // between `</head>` and `<body>` produces that code and no other, so Vite discards the
+  // only parse verdict on it. That the gate rejects it anyway is true and was unrecorded,
+  // which is the same defect in a different place -- a real property resting on a stated
+  // reason that does not hold. It is pinned below rather than argued.
   //
-  // These two remain. If `scanMarkup` stops reporting either, this fails rather than the
-  // coverage quietly moving to Vite, which discards it.
+  // A non-vacuity check then found the fix itself only half-enforced: the codes below were
+  // labels used in a failure message and nothing else, so a misspelled or stale one still
+  // passed, and a code Vite started discarding tomorrow would be covered by nobody. That
+  // is this file's recurring defect once more -- an enumeration that cannot report its own
+  // holes -- so the set is no longer enumerated here. `viteDiscardedParseErrorCodes` reads
+  // it out of the Vite build that this project actually runs, and the assertion below is a
+  // set equality: every code Vite discards is either given a specimen that `scanMarkup`
+  // rejects, or named inert with a reason. A new discarded code fails this test until
+  // somebody decides which it is, and a specimen for a code Vite no longer discards fails
+  // it too.
+  const discardedByVite = viteDiscardedParseErrorCodes();
+
+  // Codes genuinely out of reach of code. `missing-doctype` says nothing about content.
+  // The other is worth stating because it looks dangerous and is not: in
+  // `<?script>x</script>`, `<?` opens a bogus comment that runs to the first `>` in a
+  // browser and in `scanMarkup` alike, so `x` is text and the trailing end tag is stray.
+  // Nothing runs, and the two agree.
+  const cannotCarryCode: ReadonlySet<string> = new Set([
+    "missing-doctype",
+    "unexpected-question-mark-instead-of-tag-name",
+  ]);
+
+  // The general reason the rest are covered is that `scanMarkup` reads elements wherever
+  // they sit. None of these codes is about what an element contains, so none of them
+  // changes what the scan sees -- but "the scan does not care where" is a property, so it
+  // is asserted here rather than trusted. If `scanMarkup` stops reporting any of them,
+  // this fails rather than the coverage quietly moving to Vite, which discards it.
   const discarded = [
     // A `script` is not void, so the solidus does not close it. The scan keeps looking for
     // the end tag, and reports the body it finds or that there is no end tag at all.
@@ -910,6 +1041,11 @@ test("the parse errors Vite discards are caught by the markup scan", () => {
     // the safe direction when the two disagree about which value survives.
     ["duplicate-attribute",
       "<script src=\"/src/bootstrap.ts\" src=\"javascript:void 0\"></script>"],
+    // parse5 raises this for a `script` placed after the head, and raises nothing else,
+    // so the build gate never hears about the body it carries. The scan does not track
+    // placement, so it reads the body exactly as it would anywhere else.
+    ["abandoned-head-element-child",
+      "<head><title>t</title></head><script>globalThis.MY_MARKER = 1;</script>"],
   ] as const;
 
   for (const [code, markup] of discarded) {
@@ -917,6 +1053,13 @@ test("the parse errors Vite discards are caught by the markup scan", () => {
       `Vite discards \`${code}\` before its logger sees it, so this document reaches the `
         + "build unexamined unless the markup scan rejects it. It did not");
   }
+
+  const accounted = [...discarded.map(([code]) => code), ...cannotCarryCode].sort();
+  assert.deepEqual(accounted, [...discardedByVite].sort(),
+    "Vite discards these parse verdicts before `scripts/html-parse-gate.ts` can make them "
+      + "fatal, so a document carrying one is examined by the markup scan or by nothing. "
+      + "Each code needs a specimen above that the scan rejects, or a place in "
+      + "`cannotCarryCode` with the reason it cannot carry script");
 });
 
 test("no HTML document carries script the gates cannot read", () => {

@@ -19,14 +19,15 @@ import { createLogger, type Logger, type LogOptions } from "vite";
 // this, so no plugin, no dependency and no second parse are involved.
 //
 // Round 3 (Gemini) found the claim above overstated, and it is worth being exact about
-// the seam. Vite returns early for five parse5 codes before its logger is called at all:
-// `missing-doctype`, `abandoned-head-element-child`, `duplicate-attribute`,
-// `non-void-html-element-start-tag-with-trailing-solidus` and
-// `unexpected-question-mark-instead-of-tag-name`. Nothing here can make those fatal,
-// because nothing here is told. Three cannot carry code; the other two can, and
-// `test/toolchain.test.ts` rejects each of them on its own -- pinned by the test named
-// "the parse errors Vite discards are caught by the markup scan", so that coverage cannot
-// drift back to a channel that discards it.
+// the seam. Vite returns early for a handful of parse5 codes before its logger is called
+// at all. Nothing here can make those fatal, because nothing here is told. Which codes
+// those are is not restated here, because a copy of a list is a copy that goes stale:
+// `test/toolchain.test.ts` reads the set out of the Vite build this project runs and
+// asserts that every code in it is either rejected by its markup scan on its own or named
+// as unable to carry script. That coverage cannot drift back to this channel, which
+// discards it, and a code Vite starts dropping tomorrow fails that test until somebody
+// decides which it is. The test is named "the parse errors Vite discards are caught by
+// the markup scan".
 export function isHtmlParseFailure(message: string): boolean {
   return message.includes("Unable to parse HTML; parse5 error code");
 }
