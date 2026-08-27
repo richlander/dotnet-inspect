@@ -449,8 +449,9 @@ Lens tablists use one tab stop and manual activation:
 - Arrow navigation includes `aria-disabled` lens tabs so unavailable lenses
   remain discoverable.
 - Enter or Space activates a focused available tab by submitting its
-  owner-issued lens identity through the lens owner's typed transition seam;
-  it does not submit a subject action ID.
+  owner-issued lens identity plus the current snapshot generation, coordinate,
+  and active subject through the lens owner's typed transition seam; it does
+  not submit a subject action ID.
 - Activating an `aria-disabled` tab has no effect.
 
 Roving `tabindex` keeps only the focused tab at `tabindex="0"`. Moving focus
@@ -459,9 +460,12 @@ does not change `aria-selected` or start lens work until activation.
 An applied lens transition flows its committed lens identity into a complete
 replacement navigation snapshot. The UI installs that snapshot atomically and
 derives selected tab, panel, and diagnostics from it; it does not update local
-lens state ahead of the product result. An unavailable, rejected, or failed
-transition retains the prior snapshot and active subject while surfacing the
-typed outcome.
+lens state ahead of the product result. An unavailable transition installs the
+returned fresh snapshot, which preserves the subject and prior effective lens
+when still valid while updating availability. A rejected or failed transition
+retains the prior snapshot and active subject while surfacing the typed outcome.
+A result whose generation, coordinate, or active subject no longer matches the
+installed snapshot cannot replace newer state.
 
 An unavailable lens remains in its owning strip with `aria-disabled="true"`
 and an accessible description of the owner-issued reason. A failed lens is
@@ -708,8 +712,9 @@ tabbing away preserves the new focus destination instead.
 Activating an available item for a non-modal transition closes the menu. A
 successful inspection transition focuses the returned active-subject
 level-one heading; a successful routed transition focuses that surface's
-level-one heading. A typed failure preserves the current surface, returns focus
-to the stable menu-button invoker, and makes the failure visible.
+level-one heading. An `Unavailable`, `Rejected`, or `Failed` subject outcome
+preserves or installs the product-returned current surface, returns focus to the
+stable subject-menu invoker, and makes the outcome visible.
 
 When a menu item opens a modal, the menu closes without returning focus to its
 invoker and the modal applies its initial-focus rule. The stable menu-button
@@ -1041,6 +1046,9 @@ outcomes:
 10. Supply `SelectionRequired` Member context with available Member rows and
     confirm that the UI exposes the guidance and actions without presenting a
     valid-empty unavailable state or selecting a default Member.
+11. Return `Unavailable` and `Rejected` from subject-menu activation and confirm
+    that focus returns to the stable menu-button invoker with the outcome
+    visible.
 
 ### No effective lens
 
@@ -1063,8 +1071,13 @@ outcomes:
 7. Return an applied result and confirm that the committed identity is supplied
    to navigation and the complete replacement snapshot is installed before tab
    or panel selection changes.
-8. Return unavailable, rejected, and failed results and confirm that the prior
-   snapshot and active subject remain installed while each outcome is visible.
+8. Return an unavailable result and confirm that its fresh snapshot is
+   installed, the requested descriptor becomes unavailable, and the active
+   subject plus prior effective lens remain when still valid.
+9. Return rejected and failed results and confirm that the prior snapshot and
+   active subject remain installed while each outcome is visible.
+10. Change the subject while lens work is in flight and confirm that the delayed
+    result cannot replace the newer subject snapshot.
 
 ### Library option availability
 

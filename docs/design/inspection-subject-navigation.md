@@ -568,11 +568,19 @@ identities, order, and availability without defining them.
 
 Explicit lens activation is not a subject action-ID transition. A consumer
 submits the returned owner-issued lens identity through the lens owner's typed
-transition seam. A successful result becomes the committed lens identity input
-to a complete replacement navigation snapshot, which the consumer installs
-atomically. The consumer never mutates effective lens state locally. An
-unavailable, rejected, or failed lens transition retains the prior navigation
-snapshot and active subject while surfacing the typed outcome.
+transition seam together with the issuing snapshot generation, coordinate, and
+active subject identity. A result is current only while that complete basis
+still matches the installed snapshot; otherwise it is rejected or discarded
+without replacing newer state.
+
+An applied result becomes the committed lens identity input to a complete
+replacement navigation snapshot, which the consumer installs atomically. An
+unavailable result also returns a fresh generation: it preserves the active
+subject and prior effective lens while they remain valid, updates the requested
+lens descriptor to unavailable, and applies ordinary lens reconciliation if
+independent facts invalidated the prior effective lens. Rejected and failed
+results retain the prior snapshot. The consumer never mutates effective lens
+state locally.
 
 - Preserve the committed current lens when the active subject identity is
   retained and that exact owner-issued lens identity remains available.
@@ -819,7 +827,10 @@ covering at least:
 - `InspectWeb_LibraryListboxCommitsOnlyAvailableAction`
 - `InspectWeb_LensActivationUsesOwnerIssuedLensIdentity`
 - `InspectWeb_AppliedLensActivationInstallsReplacementSnapshot`
-- `InspectWeb_NonAppliedLensActivationRetainsPriorSnapshot`
+- `InspectWeb_UnavailableLensActivationInstallsRefreshedSnapshot`
+- `InspectWeb_RejectedOrFailedLensActivationRetainsPriorSnapshot`
+- `InspectWeb_StaleLensActivationCannotReplaceNewerSubjectSnapshot`
+- `InspectWeb_SubjectNonAppliedOutcomeReturnsFocusToInvoker`
 - `InspectWeb_ConsumesSubjectOutcomeWithoutHostFallback`
 
 Product-side gates should live with the eventual subject-navigation query.
