@@ -78,7 +78,6 @@ export function isWorkspaceScope(
 }
 
 export const MAX_WORKSPACE_PACKAGES = 12;
-export const MAX_SHARE_STATE_CHARACTERS = 65536;
 
 /** The identity coordinate shared by every workspace/package-graph helper below. */
 export interface PackageIdentity {
@@ -416,82 +415,10 @@ export interface WorkspaceTab {
   id: string;
   version: string;
   framework: string;
-}
-
-export interface NormalizedShareTabs {
-  tabs: WorkspaceTab[];
-  sourceIndexes: number[];
-  error: string;
-}
-
-export function normalizeShareTabs(list: unknown): NormalizedShareTabs {
-  if (!Array.isArray(list)) {
-    return {
-      tabs: [],
-      sourceIndexes: [],
-      error: "The shared workspace state is invalid and was ignored."
-    };
-  }
-  if (list.length > MAX_WORKSPACE_PACKAGES) {
-    return {
-      tabs: [],
-      sourceIndexes: [],
-      error: `The shared workspace exceeds the ${MAX_WORKSPACE_PACKAGES}-package limit and was ignored.`
-    };
-  }
-
-  const tabs: WorkspaceTab[] = [];
-  const sourceIndexes: number[] = [];
-  const identityIndexes = new Map<string, number>();
-  const entries: unknown[] = list;
-  for (let sourceIndex = 0; sourceIndex < entries.length; sourceIndex++) {
-    const tuple: unknown = entries[sourceIndex];
-    if (!Array.isArray(tuple) || tuple.length < 1 || tuple.length > 3) {
-      return {
-        tabs: [],
-        sourceIndexes: [],
-        error: "The shared workspace state is invalid and was ignored."
-      };
-    }
-    const values: unknown[] = tuple;
-    const [idValue, versionValue, frameworkValue] = values;
-    if (typeof idValue !== "string"
-      || !idValue.trim()
-      || (versionValue !== undefined && typeof versionValue !== "string")
-      || (frameworkValue !== undefined && typeof frameworkValue !== "string")) {
-      return {
-        tabs: [],
-        sourceIndexes: [],
-        error: "The shared workspace state is invalid and was ignored."
-      };
-    }
-    const tab: WorkspaceTab = {
-      id: idValue,
-      version: versionValue || "latest",
-      framework: frameworkValue || ""
-    };
-    const identity = packageIdentityKey({
-      id: tab.id,
-      version: tab.version,
-      activeFramework: tab.framework
-    });
-    const existingIndex = identityIndexes.get(identity);
-    if (existingIndex === undefined) {
-      const newIndex = tabs.length;
-      identityIndexes.set(identity, newIndex);
-      tabs.push(tab);
-      sourceIndexes[sourceIndex] = newIndex;
-    } else {
-      sourceIndexes[sourceIndex] = existingIndex;
-    }
-  }
-  return { tabs, sourceIndexes, error: "" };
-}
-
-export function shareStateLengthError(value: string): string {
-  return value.length > MAX_SHARE_STATE_CHARACTERS
-    ? `The shared workspace state exceeds the ${MAX_SHARE_STATE_CHARACTERS}-character limit and was ignored.`
-    : "";
+  shareId?: string;
+  shareKind?: "package" | "group";
+  shareSource?: string;
+  runtimeIdentifier?: string | null;
 }
 
 export interface RetainWorkspacePackageResult<T> {
@@ -1466,27 +1393,41 @@ function sourceWorkbenchIsVisible(state: SourceWorkbenchState): boolean {
 
 export type SourceOperationKind = "graph" | "type" | "member" | null;
 
-export function activeSourceOperationKind(state: SourceWorkbenchState): SourceOperationKind {
+export function activeSourceOperationKind(
+  state: SourceWorkbenchState,
+  memberSourceHasConcreteOverload = true,
+): SourceOperationKind {
   if (!sourceWorkbenchIsVisible(state)) return null;
   if (state.graphSourceOpen) return "graph";
   if (state.atPackageRoot) return null;
   if (state.lens === "source") return "type";
   if (state.lens === "api"
     && state.selectedMemberKey
-    && state.memberSection === "source") {
+    && state.memberSection === "source"
+    && memberSourceHasConcreteOverload) {
     return "member";
   }
   return null;
 }
 
-export function sourceSurfaceIsVisible(state: SourceWorkbenchState): boolean {
-  return activeSourceOperationKind(state) !== null;
+export function sourceSurfaceIsVisible(
+  state: SourceWorkbenchState,
+  memberSourceHasConcreteOverload = true,
+): boolean {
+  return activeSourceOperationKind(
+    state,
+    memberSourceHasConcreteOverload) !== null;
 }
 
 export type SourceReloadKind = "graph" | "type" | "member" | "annotated" | null;
 
-export function sourceReloadKind(state: SourceWorkbenchState): SourceReloadKind {
-  const active = activeSourceOperationKind(state);
+export function sourceReloadKind(
+  state: SourceWorkbenchState,
+  memberSourceHasConcreteOverload = true,
+): SourceReloadKind {
+  const active = activeSourceOperationKind(
+    state,
+    memberSourceHasConcreteOverload);
   if (active) return active;
   if (!sourceWorkbenchIsVisible(state)
     || state.atPackageRoot
@@ -1495,7 +1436,8 @@ export function sourceReloadKind(state: SourceWorkbenchState): SourceReloadKind 
   }
   if (state.lens === "api"
     && state.selectedMemberKey
-    && state.memberSection === "annotated") {
+    && state.memberSection === "annotated"
+    && memberSourceHasConcreteOverload) {
     return "annotated";
   }
   return null;
