@@ -498,7 +498,9 @@ projection. Selected graph-only accessor bodies use their body selector and
 token, and ref/lib MethodDef row numbers are validated rather than treated as
 cross-image identities. Surface selections use structural correspondence
 without offering their reference-image token as an implementation fallback;
-only targets carrying validated graph-member identity authorize token fallback.
+only a graph-only member surface returned by the product authorizes fallback,
+using that surface's member name, selector, and implementation MethodDef token
+rather than fields restored from a shared target.
 `BrowserEngineBoundaryTests.MemberFacts_DistinguishesSurfaceAndBodyTokenResolution`
 gates token provenance, heap classification, and unsafe-operation
 deduplication.

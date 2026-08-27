@@ -52,7 +52,6 @@ import {
   graphMemberTargetFromPacket,
   graphMemberTargetFromShare,
   graphOnlyBodyTarget,
-  isImplementationBodyTarget,
   retainGraphOnlyBodyTarget,
   MARKDOWN_SANITIZE_OPTIONS,
   MAX_WORKSPACE_PACKAGES,
@@ -3112,7 +3111,7 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /const signature = memberRequestSignature\(type, overload, true\)/);
   assert.match(
     factsLoader,
-    /const implementationBodySelected =\s*isImplementationBodyTarget\(state\.selectedBodyTarget\);\s*return memberDetailInspection\.loadFacts\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*type: type\.queryId \?\? type\.id,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name,\s*memberSignature: overload\.signature,\s*selectorKey:[\s\S]*metadataToken: implementationBodySelected[\s\S]*implementationBodySelected,\s*isCurrent: \(\) => memberRequestIsCurrent\(signature, true\)/);
+    /const implementationMetadataToken =\s*overload\.graphOnly \? overload\.metadataToken \?\? 0 : 0;\s*const implementationBodySelected = implementationMetadataToken !== 0;\s*return memberDetailInspection\.loadFacts\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*type: type\.queryId \?\? type\.id,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*member: implementationBodySelected\s*\? overload\.name\s*: state\.selectedBodyTarget\?\.memberName \?\? overload\.name,\s*memberSignature: overload\.signature,\s*selectorKey: implementationBodySelected\s*\? overload\.graphSelectorKey\s*: state\.selectedBodyTarget\?\.selectorKey \?\? overload\.graphSelectorKey,\s*metadataToken: implementationMetadataToken,\s*implementationBodySelected,\s*isCurrent: \(\) => memberRequestIsCurrent\(signature, true\)/);
   assert.match(
     factsRenderer,
     /const heapAllocations = facts\.allocations\.filter\(a => a\.countedAsHeap\);\s*const allocOffsets = heapAllocations\.map\(a => a\.offset\)/);
@@ -3646,12 +3645,6 @@ test("graph-only member targets round-trip through shared URLs", () => {
   const encoded = graphMemberShareTarget(target);
   assert.ok(encoded, "the fixture target must encode to a share tuple");
 
-  assert.equal(isImplementationBodyTarget(target), true);
-  assert.equal(isImplementationBodyTarget({
-    memberName: target.memberName,
-    selectorKey: target.selectorKey,
-    metadataToken: target.metadataToken,
-  }), false);
   assert.deepEqual(graphMemberTargetFromShare(encoded), target);
   assert.equal(graphMemberShareTarget({
     ...target,

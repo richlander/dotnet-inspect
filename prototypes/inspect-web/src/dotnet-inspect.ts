@@ -16,7 +16,6 @@ import {
   graphMemberDeepLinkDisposition,
   graphMemberPendingMatchesView,
   graphMemberShareTarget,
-  isImplementationBodyTarget,
   graphMemberSelection,
   graphMemberTargetFromShare,
   graphOnlyBodyTarget,
@@ -8534,8 +8533,9 @@ async function loadSelectedMemberFacts() {
   }
   const signature = memberRequestSignature(type, overload, true);
   const pkg = currentPackage();
-  const implementationBodySelected =
-    isImplementationBodyTarget(state.selectedBodyTarget);
+  const implementationMetadataToken =
+    overload.graphOnly ? overload.metadataToken ?? 0 : 0;
+  const implementationBodySelected = implementationMetadataToken !== 0;
   return memberDetailInspection.loadFacts({
     signature,
     packageId: pkg.id,
@@ -8544,13 +8544,14 @@ async function loadSelectedMemberFacts() {
     assembly: type.assembly,
     type: type.queryId ?? type.id,
     typeIdentity: type.definitionId ?? type.id,
-    member: state.selectedBodyTarget?.memberName ?? overload.name,
+    member: implementationBodySelected
+      ? overload.name
+      : state.selectedBodyTarget?.memberName ?? overload.name,
     memberSignature: overload.signature,
-    selectorKey:
-      state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
-    metadataToken: implementationBodySelected
-      ? state.selectedBodyTarget?.metadataToken ?? 0
-      : 0,
+    selectorKey: implementationBodySelected
+      ? overload.graphSelectorKey
+      : state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
+    metadataToken: implementationMetadataToken,
     implementationBodySelected,
     isCurrent: () => memberRequestIsCurrent(signature, true),
   });
