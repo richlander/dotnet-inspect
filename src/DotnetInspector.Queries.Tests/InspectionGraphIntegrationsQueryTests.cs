@@ -2565,8 +2565,10 @@ public sealed class InspectionGraphIntegrationsQueryTests
             ];
             if (omitBedrockRuntime)
             {
-                builders.RemoveAt(2);
-                packageIds.RemoveAt(2);
+                int index = packageIds.IndexOf(
+                    "awssdk.bedrockruntime");
+                builders.RemoveAt(index);
+                packageIds.RemoveAt(index);
             }
             if (duplicateHubAssembly)
             {
