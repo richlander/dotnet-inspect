@@ -670,9 +670,11 @@ test("handle and range cells render as ref->def jumps naming the target table", 
   assert.match(handle, /TypeDef #7/);
 
   const range = renderExplorerCell(
-    { kind: "range", targetTable: 2, startRowId: 3, endRowId: 5, count: 3 }, null, ctx);
+    { kind: "range", targetTable: 2, startRowId: 3, endRowId: 5, count: 2 }, null, ctx);
   assert.match(range, /data-mde-jump="2:3"/);
-  assert.match(range, /TypeDef #3‥5/);
+  assert.match(range, /title="→ TypeDef rows 3‥4"/);
+  assert.match(range, /TypeDef #3‥4/);
+  assert.doesNotMatch(range, /3‥5/);
 });
 
 test("empty handle and range cells are nil rather than dead jumps", () => {

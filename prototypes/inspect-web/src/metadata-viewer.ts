@@ -774,7 +774,8 @@ export function renderExplorerCell(
     }
     case "range": {
       if (!cell.count) return `<span class="mde-nil">empty</span>`;
-      return `<button type="button" class="mde-ref mde-ref-range" data-mde-jump="${cell.targetTable}:${cell.startRowId}" title="→ ${escapeHtml(tableName(cell.targetTable))} rows ${cell.startRowId}‥${cell.endRowId}">${escapeHtml(tableName(cell.targetTable))} #${cell.startRowId}‥${cell.endRowId} <span class="mde-ref-count">${cell.count}</span></button>`;
+      const lastRowId = Number(cell.endRowId) - 1;
+      return `<button type="button" class="mde-ref mde-ref-range" data-mde-jump="${cell.targetTable}:${cell.startRowId}" title="→ ${escapeHtml(tableName(cell.targetTable))} rows ${cell.startRowId}‥${lastRowId}">${escapeHtml(tableName(cell.targetTable))} #${cell.startRowId}‥${lastRowId} <span class="mde-ref-count">${cell.count}</span></button>`;
     }
     case "malformed":
       return `<span class="mde-cell-malformed" title="${escapeHtml(cell.detail || "")}">malformed</span>`;
