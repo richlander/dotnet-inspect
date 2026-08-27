@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Text.Json.Serialization;
@@ -892,6 +893,20 @@ public class ApiType
     public bool IsReadOnly { get; set; }
 
     public string? BaseType { get; set; }
+
+    /// <summary>
+    /// Resolution evidence for an external base type. This is transient
+    /// inspection currency: serialized API surfaces retain the display spelling
+    /// but do not claim that its defining assembly was resolved.
+    /// </summary>
+    /// <remarks>
+    /// <c>DirectDefinition_CarriesAccessibilityAndConstructorFacts</c> gates the
+    /// resolved facts; compile-back consumption is gated by the cross-assembly
+    /// cases in <c>SkeletonEmitTests</c>.
+    /// </remarks>
+    [JsonIgnore]
+    public ApiBaseTypeResolution? BaseTypeResolution { get; set; }
+
     [JsonIgnore]
     public ApiTypeReferenceIdentity? BaseTypeReference { get; set; }
     public List<string> Interfaces { get; set; } = [];
@@ -959,6 +974,209 @@ public class ApiType
     public DocComment Documentation { get; set; } = new();
 }
 
+/// <summary>
+/// Durable identity and facts collected from the exact resolved definition of
+/// an external base type.
+/// </summary>
+/// <remarks>
+/// <c>SkeletonDoesNotFlattenUnspellableExternalBaseIdentity</c> and
+/// <c>SkeletonDoesNotBindCfExternalBaseToLookalike</c> gate that the structured
+/// definition identity remains authoritative when compile-back decides whether
+/// the base has an exact C# spelling.
+/// </remarks>
+public sealed record ApiBaseTypeResolution(
+    AssemblyReferenceIdentity Assembly,
+    MetadataTypeDefinitionName DefinitionName,
+    bool IsPubliclyAccessible,
+    bool HasAccessibleParameterlessConstructor,
+    bool IsAbstract);
+
+public enum ApiExplicitInterfaceDeclarationKind
+{
+    SameImage,
+    External,
+    Unavailable,
+}
+
+public enum ApiExplicitInterfaceProvenanceKind
+{
+    SameImage,
+    External,
+    Unavailable,
+    Ambiguous,
+}
+
+/// <summary>
+/// One explicit-interface declaration context projected from one MethodImpl row.
+/// </summary>
+/// <remarks>
+/// The context records whether the declaration lives in the same image, in an
+/// external assembly, or could not be authenticated. Multiple MethodImpl rows
+/// for one MethodDef are preserved independently and summarized by
+/// <see cref="ApiExplicitInterfaceProvenance"/>.
+/// </remarks>
+public sealed record ApiExplicitInterfaceDeclarationContext
+{
+    public ApiExplicitInterfaceDeclarationContext(
+        ApiExplicitInterfaceDeclarationKind kind,
+        MetadataTypeDefinitionName? definitionName = null,
+        AssemblyReferenceIdentity? assembly = null,
+        string? interfaceTypeName = null,
+        string? declarationMemberName = null,
+        string? interfaceTypeIdentity = null,
+        string? platformNormalizedInterfaceTypeIdentity = null,
+        MethodSignatureIdentity? declarationSignatureIdentity = null,
+        MethodSignatureIdentity?
+            platformNormalizedDeclarationSignatureIdentity = null)
+    {
+        if (kind == ApiExplicitInterfaceDeclarationKind.External
+            && assembly is null)
+        {
+            throw new ArgumentException(
+                "External explicit-interface declarations require an assembly identity.",
+                nameof(assembly));
+        }
+        if (kind != ApiExplicitInterfaceDeclarationKind.External
+            && assembly is not null)
+        {
+            throw new ArgumentException(
+                "Only external explicit-interface declarations carry an assembly identity.",
+                nameof(assembly));
+        }
+
+        Kind = kind;
+        DefinitionName = definitionName;
+        Assembly = assembly;
+        InterfaceTypeName = interfaceTypeName;
+        DeclarationMemberName = declarationMemberName;
+        InterfaceTypeIdentity = interfaceTypeIdentity;
+        PlatformNormalizedInterfaceTypeIdentity =
+            platformNormalizedInterfaceTypeIdentity;
+        DeclarationSignatureIdentity =
+            declarationSignatureIdentity;
+        PlatformNormalizedDeclarationSignatureIdentity =
+            platformNormalizedDeclarationSignatureIdentity;
+    }
+
+    public ApiExplicitInterfaceDeclarationKind Kind { get; }
+
+    public MetadataTypeDefinitionName? DefinitionName { get; }
+
+    public AssemblyReferenceIdentity? Assembly { get; }
+
+    /// <summary>
+    /// Constructed interface type display spelling when the MethodImpl
+    /// declaration parent is a TypeSpec. Presentation only; definition and
+    /// assembly provenance remain authoritative for identity.
+    /// </summary>
+    public string? InterfaceTypeName { get; }
+
+    /// <summary>
+    /// Exact MethodImpl declaration method name. Property and event renderers
+    /// derive their source member leaf from this identity rather than from the
+    /// implementing member's unrelated metadata name.
+    /// </summary>
+    public string? DeclarationMemberName { get; }
+
+    /// <summary>
+    /// Canonical structural identity of a constructed TypeSpec interface.
+    /// Unlike <see cref="InterfaceTypeName"/>, this participates in
+    /// MethodImpl authentication.
+    /// </summary>
+    public string? InterfaceTypeIdentity { get; }
+
+    /// <summary>
+    /// Complete structural identity with only trusted platform assembly scopes
+    /// normalized. Used solely for facade-to-definition correspondence after
+    /// both root assemblies have independently authenticated as platform.
+    /// </summary>
+    public string? PlatformNormalizedInterfaceTypeIdentity { get; }
+
+    /// <summary>
+    /// Bounded structural identity of the MethodImpl declaration signature.
+    /// It keeps same-named overload rows distinct in provenance and must match
+    /// the body signature before the declaration authenticates.
+    /// </summary>
+    public MethodSignatureIdentity? DeclarationSignatureIdentity { get; }
+
+    /// <summary>
+    /// Declaration signature identity with only trusted platform named-type
+    /// scopes normalized. Consumers may use it only after independently
+    /// authenticating both declaration-root assemblies as platform.
+    /// </summary>
+    public MethodSignatureIdentity?
+        PlatformNormalizedDeclarationSignatureIdentity { get; }
+}
+
+/// <summary>
+/// Typed explicit-interface provenance for one extracted member.
+/// </summary>
+/// <remarks>
+/// This is transient inspection currency. Serialized API surfaces keep the
+/// display spelling but do not claim that explicit-interface declaration
+/// provenance was preserved or resolved.
+/// </remarks>
+public sealed record ApiExplicitInterfaceProvenance
+{
+    public ApiExplicitInterfaceProvenance(
+        ImmutableArray<ApiExplicitInterfaceDeclarationContext>
+            declarations)
+    {
+        if (declarations.IsDefaultOrEmpty)
+        {
+            throw new ArgumentException(
+                "Explicit-interface provenance requires at least one declaration context.",
+                nameof(declarations));
+        }
+
+        Declarations = declarations;
+    }
+
+    public ImmutableArray<ApiExplicitInterfaceDeclarationContext>
+        Declarations { get; }
+
+    public ApiExplicitInterfaceProvenanceKind Kind
+        => Classify(Declarations);
+
+    public AssemblyReferenceIdentity? ExternalAssembly
+        => Kind == ApiExplicitInterfaceProvenanceKind.External
+            ? Declarations[0].Assembly
+            : null;
+
+    public bool HasUnavailableDeclaration
+        => Declarations.Any(declaration =>
+            declaration.Kind
+                == ApiExplicitInterfaceDeclarationKind.Unavailable);
+
+    static ApiExplicitInterfaceProvenanceKind Classify(
+        ImmutableArray<ApiExplicitInterfaceDeclarationContext> declarations)
+    {
+        var distinct = declarations
+            .Select(declaration => (
+                declaration.Kind,
+                declaration.DefinitionName,
+                declaration.Assembly,
+                declaration.InterfaceTypeName,
+                declaration.InterfaceTypeIdentity))
+            .Distinct()
+            .ToImmutableArray();
+        if (distinct.Length != 1)
+            return ApiExplicitInterfaceProvenanceKind.Ambiguous;
+
+        return distinct[0].Kind switch
+        {
+            ApiExplicitInterfaceDeclarationKind.SameImage =>
+                ApiExplicitInterfaceProvenanceKind.SameImage,
+            ApiExplicitInterfaceDeclarationKind.External =>
+                ApiExplicitInterfaceProvenanceKind.External,
+            ApiExplicitInterfaceDeclarationKind.Unavailable =>
+                ApiExplicitInterfaceProvenanceKind.Unavailable,
+            _ => throw new InvalidOperationException(
+                "Unknown explicit-interface declaration kind."),
+        };
+    }
+}
+
 public class ApiMember
 {
     public string Name { get; set; } = "";
@@ -1004,6 +1222,26 @@ public class ApiMember
 
     [JsonIgnore]
     public ApiSignature? SignatureModel { get; set; }
+
+    /// <summary>
+    /// Typed explicit-interface declaration provenance for this member. Null for
+    /// non-explicit members and older serialized surfaces.
+    /// </summary>
+    [JsonIgnore]
+    public ApiExplicitInterfaceProvenance? ExplicitInterfaceProvenance { get; set; }
+
+    /// <summary>
+    /// Compatibility projection of <see cref="ExplicitInterfaceProvenance"/> for
+    /// callers that only understand one authenticated external assembly.
+    /// Null for same-image, unavailable, ambiguous, and older surfaces that did
+    /// not retain typed provenance.
+    /// </summary>
+    [JsonIgnore]
+    public AssemblyReferenceIdentity? ExplicitInterfaceAssembly
+    {
+        get => field ?? ExplicitInterfaceProvenance?.ExternalAssembly;
+        set => field = value;
+    }
 
     /// <summary>
     /// Number of index parameters on a property. Null means older or

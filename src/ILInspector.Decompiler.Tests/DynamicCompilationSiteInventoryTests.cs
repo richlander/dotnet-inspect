@@ -65,6 +65,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             // Cross-assembly reference seam.
             ["CrossAssemblyMethodFactsTests.cs"] = (1, "Cross-assembly seam: constructs referencing compilations to test cross-assembly facts."),
             ["AuthoredRebuildFidelityTests.cs"] = (1, "Cross-assembly snapshot seam: replaces a same-identity dependency after RTS acquisition and proves authored replay uses the frozen closure."),
+            ["SkeletonEmitTests.cs"] = (1, "Cross-assembly identity seam: removes the referenced base while retaining a same-named definition from another assembly to prove compile-back cannot substitute identities."),
             ["ReferenceEqualityMetadataFactsTests.cs"] = (1, "Cross-assembly version-pair seam: builds same-name hierarchy assemblies with distinct versions to gate exact visited identity."),
 
             // Product-output validity under varying compilation options.
@@ -123,14 +124,17 @@ public sealed class DynamicCompilationSiteInventoryTests
     //     alphabetical output and proves a second decompilation is identical.
     //   #4238 adds LambdaRaisingPassTests.cs (1 site): recompiles recovered
     //     explicit ref-parameter lambda syntax.
+    //   #3903 adds SkeletonEmitTests.cs (1 site): constructs two same-named
+    //     external bases, removes the referenced definition, and gates
+    //     fail-closed compile-back identity handling.
     //   #4250 adds ReferenceEqualityMetadataFactsTests.cs (1 site): builds a
     //     same-name assembly version pair to gate exact hierarchy identity.
     //   #4607 adds CSharpPrinterSemanticSpacingTests.cs (1 site): recompiles
     //     nested-function label scopes and structured lambda bodies containing
     //     printer line comments.
-    //   Combined: 43 files, 53 sites.
-    const int ExpectedDynamicFiles = 43;
-    const int ExpectedDynamicSites = 53;
+    //   Combined: 44 files, 54 sites.
+    const int ExpectedDynamicFiles = 44;
+    const int ExpectedDynamicSites = 54;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];

@@ -348,6 +348,11 @@ public static class BodyShapeSearch
                 return;
             if (methodTokens is not null && !methodTokens.Contains(value))
                 return;
+            if (member.ExplicitInterfaceProvenance
+                ?.HasUnavailableDeclaration == true)
+            {
+                return;
+            }
             var entity = MetadataTokens.EntityHandle(value);
             if (entity.Kind != HandleKind.MethodDefinition)
                 return;

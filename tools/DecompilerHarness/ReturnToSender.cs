@@ -1812,10 +1812,33 @@ static class ReturnToSender
         var recompiledBytes = compilationResult.PeImage;
         using var recompiledStream = new MemoryStream(recompiledBytes, writable: false);
         using var recompiled = new PEReader(recompiledStream);
-        var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
+        ApiExplicitInterfaceProvenance? explicitInterfaceProvenance =
+            FidelityCheck.ExplicitInterfaceProvenance(
+                originalPe,
+                methodHandle);
+        string canonicalSignature = ApiMemberIdentity.CreateMethodAnchor(
+            reader,
+            typeHandle,
+            reader.GetMethodDefinition(methodHandle)).CanonicalSignature;
+        var recompiledOps = FindAndDisassemble(
+                recompiled,
+                fullType,
+                methodName,
+                overload: 0,
+                canonicalSignature,
+                explicitInterfaceProvenance)
             ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
             .ToArray();
-        var implementationDiff = BuildImplementationDiff(assemblyPath, reader, methodHandle, recompiledBytes, fullType, methodName, overload: 0);
+        var implementationDiff = BuildImplementationDiff(
+            assemblyPath,
+            reader,
+            methodHandle,
+            recompiledBytes,
+            fullType,
+            methodName,
+            overload: 0,
+            canonicalSignature: canonicalSignature,
+            explicitInterfaceProvenance: explicitInterfaceProvenance);
         var ilDiff = implementationDiff?.IlDiff;
         var ilDiffDiagnostic = ToDisplayDiagnostic(ilDiff);
         var fidelityDiff = BuildIlDiff(
@@ -1826,7 +1849,9 @@ static class ReturnToSender
             fullType,
             methodName,
             overload: 0,
-            FidelityCheck.ContractBodyDiffNormalization)?.Diff;
+            FidelityCheck.ContractBodyDiffNormalization,
+            canonicalSignature,
+            explicitInterfaceProvenance)?.Diff;
 
         if (recompiledOps is null)
         {
@@ -2094,10 +2119,44 @@ static class ReturnToSender
         PEReader pe,
         string fullType,
         string methodName,
-        int overload)
-        => FindMethodDefinition(pe, fullType, methodName, overload) is { } found
+        int overload,
+        string? canonicalSignature = null,
+        ApiExplicitInterfaceProvenance? explicitInterfaceProvenance = null)
+        => FindRecompiledMethodDefinition(
+                pe,
+                fullType,
+                methodName,
+                overload,
+                canonicalSignature,
+                explicitInterfaceProvenance) is { } found
             ? MetadataInstructionProducer.Disassemble(pe, found.Reader, found.Method)
             : null;
+
+    internal static (
+        MetadataReader Reader,
+        MethodDefinitionHandle Handle,
+        MethodDefinition Method)?
+        FindRecompiledMethodDefinition(
+            PEReader pe,
+            string fullType,
+            string methodName,
+            int overload,
+            string? canonicalSignature,
+            ApiExplicitInterfaceProvenance?
+                explicitInterfaceProvenance)
+        => canonicalSignature is not null
+            ? FidelityCheck.FindMethodDefinition(
+                pe,
+                fullType,
+                methodName,
+                overload,
+                canonicalSignature,
+                explicitInterfaceProvenance)
+            : FindMethodDefinition(
+                pe,
+                fullType,
+                methodName,
+                overload);
 
     static (MetadataReader Reader, MethodDefinitionHandle Handle, MethodDefinition Method)? FindMethodDefinition(
         PEReader pe,
@@ -2157,13 +2216,23 @@ static class ReturnToSender
         string fullType,
         string methodName,
         int overload,
-        IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None)
+        IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None,
+        string? canonicalSignature = null,
+        ApiExplicitInterfaceProvenance? explicitInterfaceProvenance = null)
     {
         if (originalReader.GetMethodDefinition(originalMethod).RelativeVirtualAddress == 0)
             return null;
-        if (FindMethodDefinition(recompiledPe, fullType, methodName, overload) is not { } recompiled)
+        var recompiled =
+            FindRecompiledMethodDefinition(
+                recompiledPe,
+                fullType,
+                methodName,
+                overload,
+                canonicalSignature,
+                explicitInterfaceProvenance);
+        if (recompiled is not { } found)
             return null;
-        if (recompiled.Method.RelativeVirtualAddress == 0)
+        if (found.Method.RelativeVirtualAddress == 0)
             return null;
 
         return IlAssemblyDiff.CompareMembers(
@@ -2171,8 +2240,8 @@ static class ReturnToSender
             originalReader,
             originalMethod,
             recompiledPe,
-            recompiled.Reader,
-            recompiled.Handle,
+            found.Reader,
+            found.Handle,
             oldLabel: $"{fullType}::{methodName}",
             newLabel: $"{fullType}::{methodName}",
             normalization: normalization);
@@ -2186,7 +2255,9 @@ static class ReturnToSender
         string fullType,
         string methodName,
         int overload,
-        ImplementationDiffMechanism mechanisms = ImplementationDiffMechanism.IlBody)
+        ImplementationDiffMechanism mechanisms = ImplementationDiffMechanism.IlBody,
+        string? canonicalSignature = null,
+        ApiExplicitInterfaceProvenance? explicitInterfaceProvenance = null)
     {
         if (originalReader.GetMethodDefinition(originalMethod).RelativeVirtualAddress == 0)
             return null;
@@ -2204,16 +2275,24 @@ static class ReturnToSender
         var resolver = MetadataSource.DefaultAssemblyReferenceResolver(assemblyPath);
         using var originalSource = MetadataSource.OpenWithoutSymbols(assemblyPath);
         using var recompiledSource = MetadataSource.OpenWithoutSymbols(recompiledReference, resolver);
-        if (FindMethodDefinition(recompiledSource.Reader, fullType, methodName, overload) is not { } recompiled)
+        var recompiled =
+            FindRecompiledMethodDefinition(
+                recompiledIdentityReader,
+                fullType,
+                methodName,
+                overload,
+                canonicalSignature,
+                explicitInterfaceProvenance);
+        if (recompiled is not { } found)
             return null;
-        if (recompiled.Method.RelativeVirtualAddress == 0)
+        if (found.Method.RelativeVirtualAddress == 0)
             return null;
 
         return ImplementationDiff.CompareMembers(
             originalSource,
             originalMethod,
             recompiledSource,
-            recompiled.Handle,
+            found.Handle,
             mechanisms);
     }
 

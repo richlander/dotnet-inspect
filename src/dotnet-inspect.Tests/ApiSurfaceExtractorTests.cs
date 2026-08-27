@@ -382,6 +382,32 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
+    public void Extract_PublicPropertyPreservesProtectedSetterAccessibility()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: false);
+        var testType = Assert.Single(
+            surface.Types,
+            type => type.Name == nameof(SampleClassForTesting));
+        var property = Assert.Single(
+            testType.Members,
+            member => member.Name ==
+                nameof(SampleClassForTesting.PropertyWithProtectedSetter));
+
+        Assert.Equal(
+            "int PropertyWithProtectedSetter { get; protected set; }",
+            property.Signature);
+        Assert.Equal(
+            "protected",
+            Assert.Single(
+                property.SignatureModel!.Accessors,
+                accessor => accessor.Kind == "set").Accessibility);
+    }
+
+    [Fact]
     public void Extract_RendersMemberAttributes()
     {
         var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
@@ -1601,6 +1627,8 @@ public class SampleClassForTesting
         [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]
         get => 42;
     }
+
+    public int PropertyWithProtectedSetter { get; protected set; }
 
     public string this[int index]
     {

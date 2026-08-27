@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 
@@ -645,6 +646,9 @@ public static class MetadataTypeDeclarationProbe
                     definition.Kind,
                     declaringAssemblyDefinesCoreLibraryRoot,
                     definition.GenericParameterCount,
+                    definition.IsPubliclyAccessible,
+                    definition.HasAccessibleParameterlessConstructor,
+                    definition.IsAbstract,
                     definition.KindDependency),
             TypeDeclarationCandidate.Forwarder forwarder =>
                 new TypeDeclarationResult.Forwarded(
@@ -693,12 +697,39 @@ public static class MetadataTypeDeclarationProbe
                     declaringAssemblyDefinesCoreLibraryRoot,
                     referenceProjection,
                     out dependency);
-            bool hasValidGenericParameters =
-                TryGetGenericParameterCount(
-                    reader,
-                    handle,
-                    out int genericParameterCount);
-            if (!hasValidGenericParameters)
+            int genericParameterCount = -1;
+            bool hasValidGenericParameters = false;
+            bool isPubliclyAccessible = false;
+            bool hasAccessibleParameterlessConstructor = false;
+            bool isAbstract = false;
+            try
+            {
+                TypeDefinition definition =
+                    reader.GetTypeDefinition(handle);
+                hasValidGenericParameters =
+                    TryGetGenericParameterCount(
+                        reader,
+                        handle,
+                        out genericParameterCount);
+                if (!hasValidGenericParameters)
+                {
+                    kind = MetadataTypeDefinitionKind.Unknown;
+                }
+                else
+                {
+                    isPubliclyAccessible =
+                        IsPubliclyAccessible(reader, handle);
+                    isAbstract =
+                        (definition.Attributes & TypeAttributes.Abstract) != 0;
+                    hasAccessibleParameterlessConstructor =
+                        HasAccessibleParameterlessConstructor(
+                            reader,
+                            definition);
+                }
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException
+                    or ArgumentOutOfRangeException)
             {
                 kind = MetadataTypeDefinitionKind.Unknown;
             }
@@ -707,11 +738,102 @@ public static class MetadataTypeDeclarationProbe
                 token,
                 kind,
                 genericParameterCount,
+                isPubliclyAccessible,
+                hasAccessibleParameterlessConstructor,
+                isAbstract,
                 hasValidGenericParameters
                     && kind == MetadataTypeDefinitionKind.Unknown
                     ? dependency
                     : null);
         }
+    }
+
+    static bool IsPubliclyAccessible(
+        MetadataReader reader,
+        TypeDefinitionHandle handle)
+    {
+        while (true)
+        {
+            TypeDefinition type = reader.GetTypeDefinition(handle);
+            TypeAttributes visibility =
+                type.Attributes & TypeAttributes.VisibilityMask;
+            TypeDefinitionHandle declaring = type.GetDeclaringType();
+            if (declaring.IsNil)
+                return visibility == TypeAttributes.Public;
+            if (visibility != TypeAttributes.NestedPublic)
+                return false;
+            handle = declaring;
+        }
+    }
+
+    static bool HasAccessibleParameterlessConstructor(
+        MetadataReader reader,
+        TypeDefinition type)
+    {
+        foreach (MethodDefinitionHandle handle in type.GetMethods())
+        {
+            try
+            {
+                MethodDefinition method =
+                    reader.GetMethodDefinition(handle);
+                const MethodAttributes constructorFlags =
+                    MethodAttributes.SpecialName
+                    | MethodAttributes.RTSpecialName;
+                if ((method.Attributes & MethodAttributes.Static) != 0
+                    || (method.Attributes & constructorFlags)
+                        != constructorFlags
+                    || reader.GetBlobReader(method.Name).Length != 5
+                    || !reader.StringComparer.Equals(
+                        method.Name,
+                        ".ctor"))
+                {
+                    continue;
+                }
+
+                MethodAttributes access =
+                    method.Attributes
+                        & MethodAttributes.MemberAccessMask;
+                if (access is not (
+                    MethodAttributes.Public
+                    or MethodAttributes.Family
+                    or MethodAttributes.FamORAssem))
+                {
+                    continue;
+                }
+
+                var signature =
+                    GuardedProviderDecode.MethodResult(
+                        reader,
+                        method,
+                        ILSignatureTypeProvider.Instance,
+                        (GenericContext?)null,
+                        "object");
+                MethodSignature<string> value = signature.Value;
+                if (!signature.IsDegraded
+                    && value.Header.Kind == SignatureKind.Method
+                    && value.Header.CallingConvention
+                        == SignatureCallingConvention.Default
+                    && value.Header.IsInstance
+                    && !value.Header.IsGeneric
+                    && !value.Header.HasExplicitThis
+                    && method.GetGenericParameters().Count == 0
+                    && value.ReturnType == "void"
+                    && value.RequiredParameterCount == 0
+                    && value.ParameterTypes.Length == 0)
+                {
+                    return true;
+                }
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException
+                    or ArgumentOutOfRangeException
+                    or InvalidOperationException)
+            {
+                return false;
+            }
+        }
+
+        return false;
     }
 
     sealed class PendingForwarder : PendingCandidate

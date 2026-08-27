@@ -343,10 +343,11 @@ through this path. The CLI still owns endpoint-range parsing, compatibility filt
 ranking, and rendering; it does not select package TFMs, merge assembly surfaces, or manage
 extraction directories.
 
-**Cross-assembly constraint bridge.** Type/member extraction, assembly-set diff endpoints,
-wide platform type browse, and direct Research API comparison use the Metadata-owned
-type-resolution catalog when API extraction encounters a named generic
-constraint outside the selected image. Extraction records requests only for surfaced
+**Cross-assembly constraint and base bridge.** Type/member extraction,
+assembly-set diff endpoints, wide platform type browse, and direct Research API
+comparison use the Metadata-owned type-resolution catalog when API extraction
+encounters a named generic constraint or requests an external base outside the
+selected image. Extraction records requests only for surfaced
 generic-parameter groups, freezes one resolution generation, and then materializes the
 reference/value/neither classification onto the API model while the source reader remains
 alive. The catalog-owned retained candidate supplies both the API rows and resolution facts,
@@ -419,6 +420,153 @@ the defining image.
 Resolution-aware classification does not infer core-type semantics from a platform-looking
 reference: the reference must bind through policy, as gated by
 `MissingCoreBindingDoesNotProveConstraintKind`.
+
+External base-definition facts are a separate, explicit extraction option used by
+compile-back. The same frozen resolution generation authenticates the defining assembly
+identity and copies only non-generic class, public accessibility, and
+accessible-parameterless-constructor and abstractness facts onto transient
+`ApiBaseTypeResolution`; it does not export catalog keys or metadata handles. A method named
+`.ctor` proves constructor availability only when its metadata has the complete CLI instance
+constructor shape: special and runtime-special names, a default managed signature with no
+explicit `this`, no generic parameters, `void` return, no parameters, and accessible
+visibility.
+Missing or ambiguous base bindings produce no evidence, so the harness cannot substitute a
+same-named type from another assembly. The compile-back reference resolver matches the
+case-insensitive assembly name plus culture and public-key token exactly (normalizing only neutral
+culture). Ordinary dependencies also require an exact version; a trusted-platform reference may
+unify only to the same or a newer
+platform version so an older-TFM target can compile against the running platform without
+authorizing a downgrade or a different identity. Authenticated external bases are spelled through
+generated reference aliases so a target-local type with the same structured name cannot shadow
+the resolved definition; an unavailable exact alias fails compile-back planning rather than
+falling back to that local lookalike. Metadata identifiers that are C# keywords are escaped
+after the alias.
+Selected targets may consume that evidence directly. An authenticated abstract external base does
+not change the target type's own abstract/concrete kind. Concrete target types retain their
+reuse-slot methods and properties as override stubs with metadata accessibility, so inherited
+abstract slots remain implemented and target bodies may still construct their own declaring type.
+Recompiled targets are found by canonical member signature rather than their original same-name
+ordinal, so scaffold changes cannot shift a target onto a sibling overload.
+Unselected `System.Exception` support types additionally require the referenced assembly to bind
+through the platform scope before retaining their base clause. Manifest-less modules begin from
+the base `TypeRef`'s platform reference, then use the Metadata resolution catalog to follow
+forwarders and alias the defining assembly rather than a facade.
+Method names that merely start with `get_`, `set_`, `add_`, or `remove_` remain ordinary methods
+unless property or event MethodSemantics identify them as accessors. Explicit-interface accessors
+remain explicit-interface-implementation members because their private property or event rows do
+not independently represent the public interface contract. When selected for compile-back,
+explicit-interface methods, properties, and events retain their interface clause and valid C#
+declaration shape. That whole-member text is produced by the product, and it is rendered in the
+body view the caller requested — the same altitude and the same printer options — so a consumer
+that renders bodies itself never splices in a differently-viewed member while reporting its own
+view. An unresolved external MethodImpl declaration is accepted as interface
+evidence only when its structured definition identity also appears in the containing type's
+InterfaceImpl rows; a private body shape alone cannot turn an external class slot into an
+interface member. Authentication also requires that structured definition identity to be
+readable on both sides: a declaration parent or InterfaceImpl row whose metadata name cannot be
+represented degrades to unavailable provenance, so two unreadable identities never authenticate
+each other. A structurally valid MethodImpl whose external target cannot be authenticated
+is retained with unavailable provenance and an `authenticate MethodImpl target` inspection
+failure, rather than being silently dropped or relabeled as an interface member. Authenticated
+and unavailable declarations remain independently visible when one body has both; consumers that
+require complete declaration identity reject the mixed provenance. Each declaration also retains
+a bounded exact structural signature identity and, for a declaration rooted in a trusted platform
+assembly, a typed platform-normalized counterpart. MethodImpl authentication within the inspected
+image requires exact correspondence between the declaration identity and body signature across
+calling convention, method generic arity, return and parameter types, by-reference shape, custom
+modifiers, and function-pointer headers; an unavailable or incompatible signature is retained as
+unavailable provenance and produces the same visible authentication failure. Compile-back compares
+the exact declaration signature when the declaration-root assembly corresponds exactly. Only when
+both differing roots independently authenticate as platform may it compare the normalized
+signature, which replaces token-authenticated platform TypeRef scope and acquisition-authenticated
+platform TypeDef scope while preserving every other signature component and every non-platform
+scope. Metadata-only extraction cannot grant a current assembly that TypeDef trust from its
+self-declared name or public key. Same-named overload rows remain separate
+provenance entries because their signature identities differ; exact duplicate MethodImpl rows and
+duplicate accessor projections coalesce by the complete typed declaration context. Signature
+encoding work is charged to the extraction-wide decode budget on each builder cache miss, including
+both exact and normalized identities, so per-type builders cannot each spend the full local
+structural-signature budget without drawing down the image-wide bound. A constructed interface declaration
+authenticates only against the exact structural InterfaceImpl instantiation, including same-image
+interface roots, exact assembly or module scope, structured namespace and nesting segments,
+raw metadata segment spelling, raw class/value-type kind, the encoded argument count, and every
+nested named type argument, not merely the same generic interface definition or rendered spelling.
+The display-name `` `n `` suffix is not authoritative metadata arity: structurally identical
+TypeSpecs remain identical when their encoded argument count disagrees with that suffix, while
+different excess arguments remain distinct because the actual count and every argument are
+length-prefixed. Method, property, and event spelling uses the
+authenticated MethodImpl declaration method name for its semantic member leaf; it does not infer
+that leaf from the implementing member's unrelated metadata name. Unavailable bodies remain
+addressable as ordinary methods, but their metadata-only virtual, abstract, and override flags
+are not projected as invalid C# modifiers. Valid abstract MethodImpl bodies are retained for
+interfaces that re-abstract inherited default members, and constructed interface qualifiers are
+decoded with the containing type's generic-parameter names. Compile-back provenance keeps
+non-platform assembly identity exact;
+facade/core-library correspondence is normalized only when both assembly references carry trusted
+platform key tokens. For constructed platform interfaces, that relaxation replaces only trusted
+platform assembly scopes in the complete structural identity; namespace, nesting, arity, raw type
+kind, arguments, modifiers, declaration-signature structure, and non-platform scopes remain exact.
+When a same-image interface is reconstructed into a new compile-back image, its definition identity
+remains exact while trusted platform scopes nested in its constructed identity or declaration
+signature may normalize across the compiler's facade/core-library choice.
+Event raiser and other semantic
+methods remain method members because `ApiMember` has no event-token slots through which their
+bodies could otherwise remain addressable.
+`DirectDefinition_CarriesAccessibilityAndConstructorFacts` gates the copied declaration facts,
+`Extract_DoesNotAuthorizeOpenGenericTypeReferenceBase` gates malformed open-generic bases,
+`Extract_DoesNotTreatNamedMethodAsConstructor` gates the complete constructor shape,
+`Evaluate_RetainsExceptionBaseClause` and `Evaluate_FallsBackForNetModule` gate the authenticated
+exception support paths, while
+`SkeletonDoesNotSubstituteSameNamedBaseFromWrongAssembly` and
+`SkeletonRejectsCultureMismatchedBaseAssembly` gate exact assembly identity,
+`SkeletonQualifiesAuthenticatedExternalBaseAgainstTargetLookalike` gates alias-qualified
+spelling, `SkeletonEscapesAliasQualifiedKeywordBase` gates keyword escaping,
+`CompilerReferenceResolver_DoesNotWildcardMissingIdentityFields` gates ordinary exact-version
+matching and trusted-platform upgrade-only unification,
+`SkeletonRetainsSignalForAbstractExternalBase` and
+`SkeletonKeepsConcreteTypeForAbstractBaseWithoutAbstractMembers` gate concrete abstract-base
+scaffolding, `SkeletonFindsTargetByCanonicalSignatureAfterOverrideScaffolding` gates target
+identity after scaffold changes, `SkeletonEmitsExplicitInterfaceTargets` gates selected explicit
+methods and accessors,
+`SkeletonExplicitInterfaceWholeMemberHonorsRequestedView` gates whole-member production rendering
+the requested body view and printer options,
+`SkeletonDoesNotTreatOrdinaryAccessorPrefixesAsSemantics` gates token mapping, and
+`SkeletonOmitsUnconstructibleExternalBaseForPlainMethod` gates fail-closed compile-back
+consumption. `Extract_PreservesOrdinaryAccessorPrefixedMethods` is the direct Metadata gate for
+MethodSemantics-based accessor exclusion, and `Extract_PreservesEventRaiserAndOtherMethods` gates
+the event semantic-method boundary. `MethodImplWithoutImplementedInterface_FailsVisibly`,
+`AbstractInstanceMethodImplWithoutFinal_IsNotExplicit`,
+`Extract_TransitiveExternalMethodImplFailsVisibly`,
+`UnnamedExternalMethodImplDeclarationsDoNotAuthenticate`,
+`ConstructedMethodImplRequiresExactInterfaceInstantiation`,
+`ConstructedMethodImplAuthenticatesExactInterfaceInstantiation`,
+`ConstructedMethodImplRequiresExactArgumentAssemblyIdentity`,
+`ConstructedMethodImplPreservesEveryArgumentWithoutTrustingNameArity`,
+`ConstructedMethodImplDistinguishesDottedArgumentBoundaries`,
+`ScopedGenericIdentityPreservesScopeNameBoundariesKindAndEveryArgument`,
+`BuildSignature_PreservesMethodImplCorrespondenceFields`,
+`BuildSignature_NormalizesOnlyTrustedPlatformTypeScopes`,
+`BuildSignature_ChargesEncodedWorkOnlyOnCacheMiss`,
+`ExplicitMethodImplSignaturesUseExtractionWideDecodeBudget`,
+`IncompatibleMethodImplSignatureFailsVisibly`,
+`DuplicateNameMethodImplRowsKeepDistinctSignatureProvenance`,
+`DuplicateMethodImplRowsDoNotIncreaseProvenanceOrRetainedText`,
+`CompilerProducedOverloadedMethodImplsKeepDistinctSignatureProvenance`,
+`Extract_UsesContainingGenericParameterInExplicitQualifier`,
+`ExplicitQualifier_UsesContainingGenericParameterName`,
+`ExplicitInterfaceMethod_UsesDeclarationLeafForUndottedName`,
+`ExplicitInterfaceProperty_UsesRealVisualBasicDeclarationLeaf`,
+`UnavailableVisualBasicMethodImplDoesNotEmitPrivateVirtual`,
+`Search_MixedUnavailableMethodImplIsExcludedWithFailure`,
+`FidelityCheck_UsesAuthenticatedExplicitMethodDeclarationLeaf`,
+`FidelityLookup_RejectsMismatchedExplicitInterfaceProvenance`,
+`Extract_RetainsReabstractedInterfaceMethodImpls`, and
+`FidelityLookup_NormalizesOnlyTrustedPlatformScopedIdentity` gate the fast MethodImpl and
+provenance authentication rules above.
+`PlatformForwardedGenericExplicitInterfaceUsesDefinitionAlias` is the generated end-to-end gate
+for a constructed platform explicit implementation whose declaration signature contains a
+non-primitive platform type.
+
 A per-generation type-request budget bounds both discovery
 (`ResolutionPlan_BoundsCollectedTypeRequests`) and authentication dependencies
 (`TypeRequestBudget_RejectsExcessManifestRequests`). Row rollback also releases provisional
@@ -428,7 +576,10 @@ rows cannot accumulate request state outside that budget
 through `ApiSurface.InspectionFailures` rather than silently returning a partial classification
 (`DiscoveryBudgetExhaustionIsVisibleOnApiSurface`), authentication exhaustion is reported
 after the frozen context is applied
-(`AuthenticationBudgetExhaustionIsVisibleOnApiSurface`), and dependency exhaustion remains a
+(`AuthenticationBudgetExhaustionIsVisibleOnApiSurface`), base-authentication exhaustion is
+reported through the same failure surface under the distinct `resolve external base type`
+operation
+(`BaseAuthenticationBudgetExhaustionIsVisibleOnApiSurface`), and dependency exhaustion remains a
 non-cacheable rejection across catalog generations
 (`BudgetExhaustionIsNotPromotedAcrossGenerations`). A selected dependency that cannot be
 opened or decoded also remains unclassified, but its typed resolution rejection is projected
@@ -442,6 +593,8 @@ failed type lookup (`TransitiveDependencyOpenFailurePreservesResolvedIdentity`),
 evidence survives multiple kind-authentication hops
 (`MultiHopKindFailureRemainsVisibleAndPreservesResolvedIdentity`). The builder defensively
 withholds kind-incomplete resolutions from catalog promotion. The reproduced transitive
+base-type path projects the same failure under `resolve external base type`
+(`MultiHopBaseKindFailureRemainsVisibleOnApiSurface`). The reproduced transitive
 missing-binding outcome retains typed kind-failure evidence rather than becoming a
 success-shaped unknown kind; `TransitiveUnboundDependencyIsVisibleOnApiSurface` gates that
 case. The equivalent unavailable arm is gated end-to-end by

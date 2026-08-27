@@ -1,4 +1,10 @@
+using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
+using ILInspector.Metadata;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -137,6 +143,1126 @@ public class SkeletonEmitTests
             $"Skeleton dropped the generic constraint on {method}: {result.Status} / {result.Detail}");
     }
 
+    [Fact]
+    public void SkeletonRetainsCrossAssemblyBaseContext()
+    {
+        const string typeName =
+            "ILInspector.Decompiler.Tests.CrossAssemblyCompileBackFixture";
+        var results = FidelityCheck.Evaluate(
+            typeof(CrossAssemblyCompileBackFixture).Assembly.Location,
+            type => type == typeName);
+
+        Assert.Equal(7, results.Count);
+        Assert.All(
+            results,
+            result => Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{typeName}.{result.Method} did not retain its external base context: "
+                + $"{result.Status} / {result.Detail}"));
+    }
+
+    [Fact]
+    public void SkeletonRetainsSealedCrossAssemblyPropertyOverride()
+    {
+        using (var stream = File.OpenRead(
+            typeof(CrossAssemblyAccessorCompileBackFixture)
+                .Assembly.Location))
+        using (var peReader = new PEReader(stream))
+        {
+            var reader = peReader.GetMetadataReader();
+            var surface = ApiSurfaceExtractor.Extract(
+                peReader,
+                includeAll: true);
+            var type = Assert.Single(
+                surface.Types,
+                type => type.FullName ==
+                    "ILInspector.Decompiler.Tests."
+                    + "CrossAssemblyAccessorCompileBackFixture");
+            var property = Assert.Single(
+                type.Members,
+                member => member.Kind == "property"
+                    && member.Name == "Value");
+            Assert.Null(property.ExplicitInterfaceProvenance);
+
+            MethodDefinitionHandle getter = reader
+                .TypeDefinitions
+                .Select(reader.GetTypeDefinition)
+                .Single(type => reader.GetString(type.Name)
+                    == nameof(CrossAssemblyAccessorCompileBackFixture))
+                .GetProperties()
+                .Select(reader.GetPropertyDefinition)
+                .Single(property => reader.GetString(property.Name) == "Value")
+                .GetAccessors()
+                .Getter;
+            Assert.Null(
+                FidelityCheck.ExplicitInterfaceProvenance(
+                    peReader,
+                    getter));
+        }
+
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            typeof(CrossAssemblyAccessorCompileBackFixture).Assembly.Location,
+            type => type ==
+                "ILInspector.Decompiler.Tests.CrossAssemblyAccessorCompileBackFixture",
+            method => method.Method == "get_Value"));
+
+        Assert.True(
+            result.Status == FidelityCheck.CompileBackStatus.Exact,
+            $"{result.Status}: {result.Detail}{Environment.NewLine}"
+                + result.Annotated);
+    }
+
+    [Theory]
+    [InlineData("get_Item")]
+    [InlineData("set_Item")]
+    [InlineData("add_Changed")]
+    [InlineData("remove_Changed")]
+    public void SkeletonRetainsCrossAssemblyIndexerAndEventOverrides(
+        string methodName)
+    {
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            typeof(CrossAssemblyAccessorCompileBackFixture)
+                .Assembly.Location,
+            type => type ==
+                "ILInspector.Decompiler.Tests."
+                    + "CrossAssemblyAccessorCompileBackFixture",
+            method => method.Method == methodName));
+
+        Assert.True(
+            result.Status == FidelityCheck.CompileBackStatus.Exact,
+            $"{result.Status}: {result.Detail}{Environment.NewLine}"
+                + result.Annotated);
+        Assert.True(result.UsedProductWholeMember);
+    }
+
+    [Theory]
+    [InlineData(nameof(CfgSampleClass.CompoundAssignIndexer))]
+    [InlineData(nameof(CfgSampleClass.NullConditionalIndexerAssignment))]
+    public void SkeletonMakesOrdinarySameImageIndexersCompileBackCheckable(
+        string methodName)
+    {
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            typeof(CfgSampleClass).Assembly.Location,
+            type => type == typeof(CfgSampleClass).FullName,
+            method => method.Method == methodName));
+
+        Assert.True(
+            result.Status == FidelityCheck.CompileBackStatus.OpcodeDiff,
+            $"{result.Status}: {result.Detail}{Environment.NewLine}"
+                + $"original: {result.OriginalOpcodes}{Environment.NewLine}"
+                + $"recompiled: {result.RecompiledOpcodes}{Environment.NewLine}"
+                + string.Join(
+                    Environment.NewLine,
+                    result.FidelityDiff?.Rows.Select(row => row.Message)
+                        ?? []));
+    }
+
+    [Fact]
+    public void SkeletonCompilesSameAssemblyProtectedPropertyOverride()
+    {
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            typeof(SkeletonProtectedPropertyOverrideFixture).Assembly.Location,
+            type => type ==
+                "ILInspector.Decompiler.Tests.SkeletonProtectedPropertyOverrideFixture",
+            method => method.Method == "get_Value"));
+
+        Assert.True(
+            result.Status == FidelityCheck.CompileBackStatus.Exact,
+            $"{result.Status}: {result.Detail}{Environment.NewLine}"
+                + result.Annotated);
+    }
+
+    [Theory]
+    [InlineData(
+        "ILInspector.Decompiler.Tests.SkeletonExplicitPropertyFixture",
+        "ILInspector.Decompiler.Tests.ISkeletonExplicitProperty.get_Value")]
+    [InlineData(
+        "ILInspector.Decompiler.Tests.SkeletonExplicitEventFixture",
+        "ILInspector.Decompiler.Tests.ISkeletonExplicitEvent.add_Changed")]
+    [InlineData(
+        "ILInspector.Decompiler.Tests.SkeletonEmitFixture",
+        "System.IDisposable.Dispose")]
+    public void SkeletonEmitsExplicitInterfaceTargets(
+        string typeName,
+        string methodName)
+    {
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            typeof(SkeletonEmitFixture).Assembly.Location,
+            type => type == typeName,
+            method => method.Method == methodName));
+
+        Assert.True(
+            result.Status == FidelityCheck.CompileBackStatus.Exact,
+            $"{result.Status}: {result.Detail}{Environment.NewLine}"
+                + result.Annotated);
+        if (methodName.EndsWith(
+                ".get_Value",
+                StringComparison.Ordinal)
+            || methodName.EndsWith(
+                ".add_Changed",
+                StringComparison.Ordinal))
+        {
+            Assert.True(result.UsedProductWholeMember);
+        }
+    }
+
+    /// <summary>
+    /// The product's whole-member production must render the body view the
+    /// caller asked for. The harness renders each body itself at a requested
+    /// altitude and with the caller's <see cref="PrinterOptions"/>, then replaces
+    /// the selected member's text with the product's whole-member render and
+    /// reports <c>UsedProductWholeMember</c>; producing that text at the shipped
+    /// defaults would report one view's C# as another's (#3924). Explicit
+    /// interface implementations are the case that matters here, because their
+    /// interface-qualified signature is exactly what the harness stopped
+    /// self-spelling.
+    /// </summary>
+    [Fact]
+    public void SkeletonExplicitInterfaceWholeMemberHonorsRequestedView()
+    {
+        const string typeName =
+            "ILInspector.Decompiler.Tests.SkeletonExplicitLoweredViewFixture";
+        const string methodName =
+            "ILInspector.Decompiler.Tests.ISkeletonExplicitLoweredView.Accumulate";
+        string assemblyPath = typeof(SkeletonEmitFixture).Assembly.Location;
+
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        var reader = pe.GetMetadataReader();
+        var fixtureType = reader.GetTypeDefinition(Assert.Single(
+            reader.TypeDefinitions,
+            handle => reader.GetString(
+                reader.GetTypeDefinition(handle).Name)
+                    == "SkeletonExplicitLoweredViewFixture"));
+        var target = Assert.Single(
+            fixtureType.GetMethods(),
+            handle => reader.GetString(
+                reader.GetMethodDefinition(handle).Name) == methodName);
+
+        using var source = MetadataSource.Open(assemblyPath);
+        var raised = FidelityCheck.TryRenderTargetMember(
+            pe,
+            source,
+            target,
+            targeted: true,
+            isPrimaryConstructor: false,
+            render: FidelityCheck.BodyRender.For(source, lowered: false));
+        var lowered = FidelityCheck.TryRenderTargetMember(
+            pe,
+            source,
+            target,
+            targeted: true,
+            isPrimaryConstructor: false,
+            render: FidelityCheck.BodyRender.For(source, lowered: true));
+
+        Assert.NotNull(raised);
+        Assert.NotNull(lowered);
+        // The interface-qualified signature the harness stopped self-spelling,
+        // shortened by the product exactly as the whole-type listing spells it.
+        const string signature =
+            "int ISkeletonExplicitLoweredView.Accumulate(int value)";
+        Assert.Contains(signature, raised.Value.Text, StringComparison.Ordinal);
+        Assert.Contains(signature, lowered.Value.Text, StringComparison.Ordinal);
+        // The raised view keeps the lock statement; the lowered view shows the
+        // Monitor shape beneath it. Identical text here would mean the requested
+        // view never reached the product.
+        Assert.Contains("lock (", raised.Value.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("lock (", lowered.Value.Text, StringComparison.Ordinal);
+        Assert.Contains("Monitor.Enter", lowered.Value.Text, StringComparison.Ordinal);
+
+        // An opt-in PrinterOptions knob must reach the same production.
+        var qualified = FidelityCheck.TryRenderTargetMember(
+            pe,
+            source,
+            target,
+            targeted: true,
+            isPrimaryConstructor: false,
+            render: FidelityCheck.BodyRender.For(
+                source,
+                lowered: false,
+                new PrinterOptions { QualifyFieldAccess = true }));
+        Assert.NotNull(qualified);
+        Assert.NotEqual(raised.Value.Text, qualified.Value.Text);
+        Assert.Contains("this._total", qualified.Value.Text, StringComparison.Ordinal);
+
+        var loweredQualifiedRender =
+            FidelityCheck.BodyRender.For(
+                source,
+                lowered: true,
+                new PrinterOptions
+                {
+                    QualifyFieldAccess = true
+                });
+        var loweredFunction =
+            IrImporter.Import(source, target);
+        Assert.NotNull(loweredFunction);
+        string loweredBody =
+            Assert.IsType<string>(
+                loweredQualifiedRender
+                    .Invoke(loweredFunction)
+                    .Output);
+        Assert.Contains(
+            "this._total",
+            loweredBody,
+            StringComparison.Ordinal);
+        var loweredQualified =
+            FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                target,
+                targeted: true,
+                isPrimaryConstructor: false,
+                render: loweredQualifiedRender);
+        Assert.NotNull(loweredQualified);
+        Assert.Contains(
+            "this._total",
+            loweredQualified.Value.Text,
+            StringComparison.Ordinal);
+
+        // The whole-member text really is what the fidelity path splices in.
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            assemblyPath,
+            lowered: true,
+            FidelityCheck.ClusterMode.Off,
+            type => type == typeName,
+            method => method.Method == methodName));
+        Assert.True(result.UsedProductWholeMember);
+        Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+    }
+
+    [Fact]
+    public void LoweredBodyRender_BindsCrossMethodImportSeam()
+    {
+        using var source = MetadataSource.Open(
+            typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.NonCapturingLambda));
+        Assert.NotNull(function);
+
+        string output = Assert.IsType<string>(
+            FidelityCheck.BodyRender
+                .For(source, lowered: true)
+                .Invoke(function)
+                .Output);
+
+        Assert.Contains(
+            "x => x + 1",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "new Func<int, int>",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SkeletonKeepsExtensionMethodOnItsDeclaringType()
+    {
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            typeof(CrossAssemblyCompileBackExtensions).Assembly.Location,
+            type => type ==
+                "ILInspector.Decompiler.Tests.CrossAssemblyCompileBackExtensions",
+            method => method.Method == "Twice"));
+
+        Assert.False(
+            result.Status is FidelityCheck.CompileBackStatus.RecompileFail
+                or FidelityCheck.CompileBackStatus.ContextFail,
+            $"Extension target used its receiver's base type: "
+                + $"{result.Status} / {result.Detail}");
+    }
+
+    [Fact]
+    public void SkeletonOmitsUnconstructibleExternalBaseForPlainMethod()
+    {
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            typeof(CrossAssemblyNeedsArgumentCompileBackFixture).Assembly.Location,
+            type => type ==
+                "ILInspector.Decompiler.Tests.CrossAssemblyNeedsArgumentCompileBackFixture",
+            method => method.Method == "Sum"));
+
+        Assert.Equal(
+            FidelityCheck.CompileBackStatus.Exact,
+            result.Status);
+    }
+
+    [Fact]
+    public void SkeletonDoesNotSubstituteSameNamedBaseFromWrongAssembly()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-base-identity-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string goodPath = Path.Combine(root, "Good.dll");
+        string wrongPath = Path.Combine(root, "Wrong.dll");
+        string targetPath = Path.Combine(root, "IdentityTarget.dll");
+
+        try
+        {
+            EmitLibrary(
+                goodPath,
+                "Good",
+                """
+                namespace N;
+                public class Base
+                {
+                    public virtual int M() => 1;
+                }
+                """);
+            EmitLibrary(
+                wrongPath,
+                "Wrong",
+                """
+                namespace N;
+                public class Base
+                {
+                    public int Value => 2;
+                    public virtual int M() => 2;
+                }
+                """);
+
+            MetadataReference good =
+                MetadataReference.CreateFromFile(goodPath);
+            MetadataReference wrong =
+                MetadataReference.CreateFromFile(
+                    wrongPath,
+                    new MetadataReferenceProperties(
+                        MetadataImageKind.Assembly,
+                        aliases:
+                            System.Collections.Immutable.ImmutableArray
+                                .Create("wrong")));
+            EmitLibrary(
+                targetPath,
+                "IdentityTarget",
+                """
+                extern alias wrong;
+                namespace IdentityTarget;
+                public sealed class Derived : N.Base
+                {
+                    public override int M() => 42;
+                    public static int TouchWrong(wrong::N.Base value) => value.Value;
+                }
+                """,
+                [good, wrong]);
+
+            File.Delete(goodPath);
+            var result = Assert.Single(FidelityCheck.Evaluate(
+                targetPath,
+                type => type == "IdentityTarget.Derived",
+                method => method.Method == "M"));
+
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.RecompileFail,
+                result.Status);
+            Assert.Contains("CS0115", result.Detail);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SkeletonDoesNotFlattenUnspellableExternalBaseIdentity()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-base-segments-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string dependencyPath =
+            Path.Combine(root, "SegmentDependency.dll");
+        string targetPath =
+            Path.Combine(root, "SegmentTarget.dll");
+
+        try
+        {
+            EmitLibrary(
+                dependencyPath,
+                "SegmentDependency",
+                """
+                namespace A
+                {
+                    public class BxC
+                    {
+                        public virtual int M() => 1;
+                    }
+                }
+                namespace A.B
+                {
+                    public class C
+                    {
+                        public virtual int M() => 1;
+                    }
+                }
+                """);
+            EmitLibrary(
+                targetPath,
+                "SegmentTarget",
+                """
+                namespace SegmentTarget;
+                public sealed class Derived : A.BxC
+                {
+                    public override int M() => 42;
+                }
+                """,
+                [MetadataReference.CreateFromFile(dependencyPath)]);
+
+            ReplaceMetadataName(dependencyPath, "BxC\0"u8, "B.C\0"u8);
+            ReplaceMetadataName(targetPath, "BxC\0"u8, "B.C\0"u8);
+
+            var result = Assert.Single(FidelityCheck.Evaluate(
+                targetPath,
+                type => type == "SegmentTarget.Derived",
+                method => method.Method == "M"));
+
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.RecompileFail,
+                result.Status);
+            Assert.Contains("CS0115", result.Detail);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SkeletonDoesNotBindCfExternalBaseToLookalike()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-base-cf-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string dependencyPath =
+            Path.Combine(root, "CfDependency.dll");
+        string targetPath =
+            Path.Combine(root, "CfTarget.dll");
+
+        try
+        {
+            EmitLibrary(
+                dependencyPath,
+                "CfDependency",
+                """
+                namespace A
+                {
+                    public class BxxxC
+                    {
+                        public virtual int M() => 1;
+                    }
+
+                    public class BC
+                    {
+                        public virtual int M() => 1;
+                    }
+                }
+                """);
+            EmitLibrary(
+                targetPath,
+                "CfTarget",
+                """
+                namespace CfTarget;
+                public sealed class Derived : A.BxxxC
+                {
+                    public override int M() => 42;
+                }
+                """,
+                [MetadataReference.CreateFromFile(dependencyPath)]);
+
+            ReplaceMetadataName(
+                dependencyPath,
+                "BxxxC\0"u8,
+                "B\u200CC\0"u8);
+            ReplaceMetadataName(
+                targetPath,
+                "BxxxC\0"u8,
+                "B\u200CC\0"u8);
+
+            var result = Assert.Single(FidelityCheck.Evaluate(
+                targetPath,
+                type => type == "CfTarget.Derived",
+                method => method.Method == "M"));
+
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.RecompileFail,
+                result.Status);
+            Assert.Contains("CS0115", result.Detail);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SkeletonQualifiesAuthenticatedExternalBaseAgainstTargetLookalike()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-base-lookalike-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string dependencyPath = Path.Combine(root, "LookalikeGood.dll");
+        string targetPath = Path.Combine(root, "LookalikeTarget.dll");
+
+        try
+        {
+            EmitLibrary(
+                dependencyPath,
+                "LookalikeGood",
+                """
+                namespace N;
+                public class Base
+                {
+                    public virtual int M() => 10;
+                }
+                """);
+            MetadataReference dependency =
+                MetadataReference.CreateFromFile(
+                    dependencyPath,
+                    new MetadataReferenceProperties(
+                        MetadataImageKind.Assembly,
+                        aliases:
+                            System.Collections.Immutable.ImmutableArray
+                                .Create("good")));
+            EmitLibrary(
+                targetPath,
+                "LookalikeTarget",
+                """
+                extern alias good;
+                namespace N;
+                public class Base
+                {
+                    public virtual int M() => 10;
+                }
+                public class Derived : good::N.Base
+                {
+                    public override int M() => 20;
+                }
+                """,
+                [dependency]);
+
+            var result = Assert.Single(FidelityCheck.Evaluate(
+                targetPath,
+                type => type == "N.Derived",
+                method => method.Method == "M"));
+
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.Exact,
+                result.Status);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("int")]
+    [InlineData("object")]
+    public void SkeletonEscapesAliasQualifiedKeywordBase(
+        string baseName)
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-base-keyword-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string dependencyPath =
+            Path.Combine(root, "KeywordDependency.dll");
+        string targetPath =
+            Path.Combine(root, "KeywordTarget.dll");
+
+        try
+        {
+            EmitLibrary(
+                dependencyPath,
+                "KeywordDependency",
+                $"public class @{baseName} "
+                    + "{ public virtual int M() => 1; }");
+            EmitLibrary(
+                targetPath,
+                "KeywordTarget",
+                $"public class Derived : global::@{baseName} "
+                    + "{ public override int M() => 2; }",
+                [MetadataReference.CreateFromFile(dependencyPath)]);
+
+            var result = Assert.Single(FidelityCheck.Evaluate(
+                targetPath,
+                type => type == "Derived",
+                method => method.Method == "M"));
+
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.Exact,
+                result.Status);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SkeletonRetainsSignalForAbstractExternalBase()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-abstract-base-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string dependencyPath =
+            Path.Combine(root, "AbstractDependency.dll");
+        string targetPath =
+            Path.Combine(root, "AbstractTarget.dll");
+
+        try
+        {
+            EmitLibrary(
+                dependencyPath,
+                "AbstractDependency",
+                """
+                namespace AbstractCase;
+                public abstract class Base
+                {
+                    public abstract int Required { get; }
+                }
+                """);
+            EmitLibrary(
+                targetPath,
+                "AbstractTarget",
+                """
+                namespace AbstractCase;
+                public sealed class Derived : Base
+                {
+                    public override int Required => 42;
+                    public int Plain() => Required;
+                    public static Derived Create() => new();
+                }
+                """,
+                [MetadataReference.CreateFromFile(dependencyPath)]);
+
+            var results = FidelityCheck.Evaluate(
+                targetPath,
+                type => type == "AbstractCase.Derived",
+                method => method.Method is "Plain" or "Create");
+
+            Assert.Equal(2, results.Count);
+            Assert.All(
+                results,
+                result => Assert.Equal(
+                    FidelityCheck.CompileBackStatus.Exact,
+                    result.Status));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SkeletonPreservesExternalPropertyOverrideAccessibility()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-property-access-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string dependencyPath =
+            Path.Combine(root, "PropertyAccessDependency.dll");
+        string targetPath =
+            Path.Combine(root, "PropertyAccessTarget.dll");
+
+        try
+        {
+            EmitLibrary(
+                dependencyPath,
+                "PropertyAccessDependency",
+                """
+                namespace PropertyAccess;
+                public abstract class Base
+                {
+                    protected abstract int Required { get; set; }
+                    public abstract int Mixed { get; protected set; }
+                }
+                """);
+            EmitLibrary(
+                targetPath,
+                "PropertyAccessTarget",
+                """
+                namespace PropertyAccess;
+                public sealed class Derived : Base
+                {
+                    protected override int Required { get; set; }
+                    public override int Mixed
+                    {
+                        get => 42;
+                        protected set { }
+                    }
+
+                    public int Plain() => Required + Mixed;
+                }
+                """,
+                [MetadataReference.CreateFromFile(dependencyPath)]);
+
+            var results = FidelityCheck.Evaluate(
+                targetPath,
+                type => type == "PropertyAccess.Derived",
+                method => method.Method is "Plain" or "get_Mixed");
+
+            Assert.Equal(2, results.Count);
+            Assert.All(
+                results,
+                result => Assert.Equal(
+                    FidelityCheck.CompileBackStatus.Exact,
+                    result.Status));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SkeletonEmitsStaticExplicitInterfaceAccessors()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-static-explicit-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string dependencyPath =
+            Path.Combine(root, "StaticExplicitDependency.dll");
+        string targetPath =
+            Path.Combine(root, "StaticExplicitTarget.dll");
+
+        try
+        {
+            EmitLibrary(
+                dependencyPath,
+                "StaticExplicitDependency",
+                """
+                namespace StaticExplicit;
+                public delegate void ChangedHandler();
+                public interface IContract
+                {
+                    static abstract int Value { get; }
+                    static abstract event ChangedHandler Changed;
+                }
+                """);
+            EmitLibrary(
+                targetPath,
+                "StaticExplicitTarget",
+                """
+                namespace StaticExplicit;
+                public sealed class Implementation : IContract
+                {
+                    static int IContract.Value => 42;
+                    static event ChangedHandler IContract.Changed
+                    {
+                        add { }
+                        remove { }
+                    }
+                }
+                """,
+                [MetadataReference.CreateFromFile(dependencyPath)]);
+
+            var results = FidelityCheck.Evaluate(
+                targetPath,
+                type => type == "StaticExplicit.Implementation",
+                method => method.Method is
+                    "StaticExplicit.IContract.get_Value"
+                    or "StaticExplicit.IContract.add_Changed");
+
+            Assert.Equal(2, results.Count);
+            Assert.All(
+                results,
+                result => Assert.Equal(
+                    FidelityCheck.CompileBackStatus.Exact,
+                    result.Status));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SkeletonKeepsConcreteTypeForAbstractBaseWithoutAbstractMembers()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-concrete-abstract-base-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string dependencyPath =
+            Path.Combine(root, "ConcreteAbstractDependency.dll");
+        string targetPath =
+            Path.Combine(root, "ConcreteAbstractTarget.dll");
+
+        try
+        {
+            EmitLibrary(
+                dependencyPath,
+                "ConcreteAbstractDependency",
+                """
+                namespace ConcreteAbstractCase;
+                public abstract class Base
+                {
+                    public virtual int Shared() => 1;
+                }
+                """);
+            EmitLibrary(
+                targetPath,
+                "ConcreteAbstractTarget",
+                """
+                namespace ConcreteAbstractCase;
+                public sealed class Derived : Base
+                {
+                    public static Derived Create() => new();
+                }
+                """,
+                [MetadataReference.CreateFromFile(dependencyPath)]);
+
+            var result = Assert.Single(FidelityCheck.Evaluate(
+                targetPath,
+                type => type == "ConcreteAbstractCase.Derived",
+                method => method.Method == "Create"));
+
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.Exact,
+                result.Status);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SkeletonFindsTargetByCanonicalSignatureAfterOverrideScaffolding()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-override-overloads-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string dependencyPath =
+            Path.Combine(root, "OverloadDependency.dll");
+        string targetPath =
+            Path.Combine(root, "OverloadTarget.dll");
+
+        try
+        {
+            EmitLibrary(
+                dependencyPath,
+                "OverloadDependency",
+                """
+                namespace OverloadCase;
+                public abstract class Base
+                {
+                    public abstract void Write(char value);
+                    public abstract void Write(string value);
+                }
+                """);
+            EmitLibrary(
+                targetPath,
+                "OverloadTarget",
+                """
+                namespace OverloadCase;
+                public sealed class Derived : Base
+                {
+                    public override void Write(char value) { }
+                    public override void Write(string value)
+                        => System.GC.KeepAlive(value);
+                }
+                """,
+                [MetadataReference.CreateFromFile(dependencyPath)]);
+
+            var result = Assert.Single(FidelityCheck.Evaluate(
+                targetPath,
+                type => type == "OverloadCase.Derived",
+                method => method.Method == "Write"
+                    && method.Overload == 1));
+
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.Exact,
+                result.Status);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SkeletonDoesNotTreatOrdinaryAccessorPrefixesAsSemantics()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-accessor-prefix-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string dependencyPath =
+            Path.Combine(root, "AccessorPrefixDependency.dll");
+        string targetPath =
+            Path.Combine(root, "AccessorPrefixTarget.dll");
+
+        try
+        {
+            EmitLibrary(
+                dependencyPath,
+                "AccessorPrefixDependency",
+                """
+                namespace Prefix;
+                public class Base
+                {
+                    public virtual int get_Standalone() => 1;
+                    public virtual int set_Standalone(int value) => value + 1;
+                }
+                """);
+            EmitLibrary(
+                targetPath,
+                "AccessorPrefixTarget",
+                """
+                namespace Prefix;
+                public class Derived : Base
+                {
+                    public override int get_Standalone() => 2;
+                    public override int set_Standalone(int value) => value + 2;
+                }
+                """,
+                [MetadataReference.CreateFromFile(dependencyPath)]);
+
+            var present = FidelityCheck.Evaluate(
+                targetPath,
+                type => type == "Prefix.Derived",
+                method => method.Method is
+                    "get_Standalone" or "set_Standalone");
+            Assert.Equal(2, present.Count);
+            Assert.All(
+                present,
+                result => Assert.Equal(
+                    FidelityCheck.CompileBackStatus.Exact,
+                    result.Status));
+
+            File.Delete(dependencyPath);
+            var missing = FidelityCheck.Evaluate(
+                targetPath,
+                type => type == "Prefix.Derived",
+                method => method.Method is
+                    "get_Standalone" or "set_Standalone");
+            Assert.Equal(2, missing.Count);
+            Assert.All(
+                missing,
+                result =>
+                {
+                    Assert.Equal(
+                        FidelityCheck.CompileBackStatus.RecompileFail,
+                        result.Status);
+                    Assert.Contains("CS0115", result.Detail);
+                });
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SkeletonRejectsCultureMismatchedBaseAssembly()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-base-culture-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string dependencyPath =
+            Path.Combine(root, "CultureDependency.dll");
+        string targetPath = Path.Combine(root, "CultureTarget.dll");
+
+        try
+        {
+            EmitLibrary(
+                dependencyPath,
+                "CultureDependency",
+                """
+                using System.Reflection;
+                [assembly: AssemblyVersion("1.0.0.0")]
+                namespace CultureCase;
+                public class Base
+                {
+                    public virtual int M() => 3;
+                }
+                """);
+            EmitLibrary(
+                targetPath,
+                "CultureTarget",
+                """
+                namespace CultureCase;
+                public class Derived : Base
+                {
+                    public override int M() => 4;
+                }
+                """,
+                [MetadataReference.CreateFromFile(dependencyPath)]);
+            EmitLibrary(
+                dependencyPath,
+                "CultureDependency",
+                """
+                using System.Reflection;
+                [assembly: AssemblyVersion("1.0.0.0")]
+                [assembly: AssemblyCulture("fr")]
+                namespace CultureCase;
+                public class Base
+                {
+                    public virtual int M() => 30;
+                }
+                """);
+
+            var result = Assert.Single(FidelityCheck.Evaluate(
+                targetPath,
+                type => type == "CultureCase.Derived",
+                method => method.Method == "M"));
+
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.RecompileFail,
+                result.Status);
+            Assert.Contains("CS0115", result.Detail);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    static void EmitLibrary(
+        string path,
+        string assemblyName,
+        string source,
+        IReadOnlyList<MetadataReference>? additionalReferences = null)
+    {
+        List<MetadataReference> references = (AppContext.GetData(
+                "TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
+            .Split(
+                Path.PathSeparator,
+                StringSplitOptions.RemoveEmptyEntries)
+            .Select(path => MetadataReference.CreateFromFile(path))
+            .Cast<MetadataReference>()
+            .ToList();
+        if (additionalReferences is not null)
+            references.AddRange(additionalReferences);
+
+        CSharpCompilation compilation = CSharpCompilation.Create(
+            assemblyName,
+            [CSharpSyntaxTree.ParseText(
+                source,
+                new CSharpParseOptions(LanguageVersion.Preview))],
+            references,
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                optimizationLevel: OptimizationLevel.Release));
+        using FileStream stream = File.Create(path);
+        var emit = compilation.Emit(stream);
+        Assert.True(
+            emit.Success,
+            string.Join(
+                Environment.NewLine,
+                emit.Diagnostics.Where(
+                    diagnostic =>
+                        diagnostic.Severity == DiagnosticSeverity.Error)));
+    }
+
     static string CreateAssemblyWithDuplicateUnrelatedType()
     {
         byte[] bytes = File.ReadAllBytes(typeof(SkeletonEmitFixture).Assembly.Location);
@@ -160,6 +1286,22 @@ public class SkeletonEmitTests
             $"fidelity-check-whole-module-{Guid.NewGuid():N}.dll");
         File.WriteAllBytes(path, bytes);
         return path;
+    }
+
+    static void ReplaceMetadataName(
+        string path,
+        ReadOnlySpan<byte> original,
+        ReadOnlySpan<byte> replacement)
+    {
+        Assert.Equal(original.Length, replacement.Length);
+        byte[] bytes = File.ReadAllBytes(path);
+        int match = bytes.AsSpan().IndexOf(original);
+        Assert.True(match >= 0, $"Expected metadata name in {path}.");
+        replacement.CopyTo(bytes.AsSpan(match));
+        Assert.True(
+            bytes.AsSpan(match + original.Length).IndexOf(original) < 0,
+            $"Expected one metadata name occurrence in {path}.");
+        File.WriteAllBytes(path, bytes);
     }
 }
 

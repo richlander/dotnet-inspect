@@ -1900,6 +1900,131 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    [Fact]
+    public void CompileBackTargets_UndottedExplicitStructPropertyUsesTypedProvenance()
+    {
+        var ilasm = TryLocateIlasm();
+        if (ilasm is null)
+        {
+            Assert.Skip("ilasm not available; skipping undotted MethodImpl regression.");
+            return;
+        }
+
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"return-to-sender-{Guid.NewGuid():N}");
+        var assemblyPath = AssembleIlFixture(
+            ilasm,
+            UndottedExplicitStructPropertyIl,
+            directory,
+            "undottedexplicitstruct");
+        try
+        {
+            using (var stream = File.OpenRead(assemblyPath))
+            using (var peReader = new PEReader(stream))
+            {
+                var reader = peReader.GetMetadataReader();
+                MethodDefinitionHandle accessor = reader.TypeDefinitions
+                    .Select(reader.GetTypeDefinition)
+                    .Single(type => reader.GetString(type.Name) == "Counter")
+                    .GetMethods()
+                    .Single(handle => reader.GetString(
+                        reader.GetMethodDefinition(handle).Name) == "get_Value");
+                Assert.IsType<ApiExplicitInterfaceProvenance>(
+                    FidelityCheck.ExplicitInterfaceProvenance(
+                        peReader,
+                        accessor));
+            }
+
+            var result = Assert.Single(
+                ReturnToSender.CompileBackTargets(
+                    assemblyPath,
+                    [new ReturnToSender.RequestedTarget(
+                        "Counter",
+                        "get_Value",
+                        0)],
+                    RoundTripScope.Cluster,
+                    RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}"
+                + $"{Environment.NewLine}{result.Source}");
+            Assert.Contains(
+                "struct Counter : ICounter",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "int ICounter.Value",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public void FidelityCheck_UsesAuthenticatedExplicitMethodDeclarationLeaf()
+    {
+        var ilasm = TryLocateIlasm();
+        if (ilasm is null)
+        {
+            Assert.Skip("ilasm not available; skipping explicit method declaration-leaf regression.");
+            return;
+        }
+
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"return-to-sender-{Guid.NewGuid():N}");
+        var assemblyPath = AssembleIlFixture(
+            ilasm,
+            UndottedExplicitMethodIl,
+            directory,
+            "undottedexplicitmethod");
+        try
+        {
+            using (var stream = File.OpenRead(assemblyPath))
+            using (var peReader = new PEReader(stream))
+            {
+                var reader = peReader.GetMetadataReader();
+                MethodDefinitionHandle method = reader.TypeDefinitions
+                    .Select(reader.GetTypeDefinition)
+                    .Single(type => reader.GetString(type.Name)
+                        == "Implementation")
+                    .GetMethods()
+                    .Single(handle => reader.GetString(
+                        reader.GetMethodDefinition(handle).Name)
+                        == "Invoke");
+                Assert.IsType<ApiExplicitInterfaceProvenance>(
+                    FidelityCheck.ExplicitInterfaceProvenance(
+                        peReader,
+                        method));
+            }
+
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    candidate => candidate == "Implementation"),
+                candidate => candidate.Method == "Invoke");
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     // Regression for #3112 review (escaped-identifier shadow): a hand-authored external
     // interface can live in a namespace whose segment is a C# keyword (`class`), so its raw
     // metadata full name is `class.IProbe` but its C# display name is `@class.IProbe`. A
@@ -5995,6 +6120,68 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void RecompiledLookup_UsesCanonicalSignatureBeforeOrdinal()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public int Pick(int value) => value + 1;
+
+                public int Pick(string value) => value.Length;
+            }
+            """);
+        try
+        {
+            using var stream = File.OpenRead(assemblyPath);
+            using var pe = new PEReader(stream);
+            MetadataReader reader = pe.GetMetadataReader();
+            TypeDefinitionHandle typeHandle = Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(
+                    reader.GetTypeDefinition(handle).Name)
+                    == "Class1");
+            TypeDefinition type =
+                reader.GetTypeDefinition(typeHandle);
+            MethodDefinitionHandle[] overloads =
+                type.GetMethods()
+                    .Where(handle =>
+                        reader.GetString(
+                            reader.GetMethodDefinition(handle)
+                                .Name) == "Pick")
+                    .ToArray();
+            Assert.Equal(2, overloads.Length);
+            MethodDefinitionHandle stringOverload =
+                overloads[1];
+            string canonicalSignature =
+                ApiMemberIdentity.CreateMethodAnchor(
+                    reader,
+                    typeHandle,
+                    reader.GetMethodDefinition(
+                        stringOverload))
+                .CanonicalSignature;
+
+            var found =
+                ReturnToSender
+                    .FindRecompiledMethodDefinition(
+                        pe,
+                        "Class1",
+                        "Pick",
+                        overload: 0,
+                        canonicalSignature,
+                        explicitInterfaceProvenance: null);
+
+            Assert.NotNull(found);
+            Assert.Equal(
+                stringOverload,
+                found.Value.Handle);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_LegacySignatureCannotOverrideOrdinal()
     {
         var assemblyPath = CompileFixture("""
@@ -6020,6 +6207,323 @@ public class ReturnToSenderPrototypeTests
         {
             DeleteFixture(assemblyPath);
         }
+    }
+
+    [Fact]
+    public void FidelityLookup_RejectsMismatchedExplicitInterfaceProvenance()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public int Pick(int value) => value + 1;
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var surface = ApiSurfaceExtractor.Extract(pe);
+            var type = Assert.Single(surface.Types, type => type.FullName == "Class1");
+            var member = Assert.Single(type.Members, member => member.Name == "Pick");
+            var wrongProvenance = new ApiExplicitInterfaceProvenance(
+                [
+                    new ApiExplicitInterfaceDeclarationContext(
+                        ApiExplicitInterfaceDeclarationKind.SameImage,
+                        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                            MetadataTypeDefinitionName.Create(
+                                "",
+                                ["IWrong"])).Name)
+                ]);
+
+            Assert.Null(FidelityCheck.FindMethodDefinition(
+                pe,
+                "Class1",
+                "Pick",
+                0,
+                ApiMemberIdentity.GetCanonicalSignature(type, member),
+                wrongProvenance));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void FidelityLookup_NormalizesOnlyTrustedPlatformScopedIdentity()
+    {
+        MetadataTypeDefinitionName definitionName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "System",
+                    ["IContract"])).Name;
+        var facadeSignature =
+            new MethodSignatureIdentity(
+                "system-runtime-signature");
+        var coreLibrarySignature =
+            new MethodSignatureIdentity(
+                "corelib-signature");
+        var platformSignature =
+            new MethodSignatureIdentity(
+                "platform-signature");
+        var trustedFacade =
+            new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.External,
+                definitionName,
+                new AssemblyReferenceIdentity(
+                    "System.Runtime",
+                    new Version(10, 0, 0, 0),
+                    null,
+                    "b03f5f7f11d50a3a"),
+                "System.IContract<int>",
+                interfaceTypeIdentity:
+                    "system-runtime-scoped-IContract<int>",
+                platformNormalizedInterfaceTypeIdentity:
+                    "platform-scoped-IContract<int>",
+                declarationSignatureIdentity:
+                    facadeSignature,
+                platformNormalizedDeclarationSignatureIdentity:
+                    platformSignature);
+        var trustedCoreLibrary =
+            new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.External,
+                definitionName,
+                new AssemblyReferenceIdentity(
+                    "System.Private.CoreLib",
+                    new Version(10, 0, 0, 0),
+                    null,
+                    "7cec85d7bea7798e"),
+                "System.IContract<int>",
+                interfaceTypeIdentity:
+                    "corelib-scoped-IContract<int>",
+                platformNormalizedInterfaceTypeIdentity:
+                    "platform-scoped-IContract<int>",
+                declarationSignatureIdentity:
+                    coreLibrarySignature,
+                platformNormalizedDeclarationSignatureIdentity:
+                    platformSignature);
+        var spoofedFacade =
+            new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.External,
+                definitionName,
+                new AssemblyReferenceIdentity(
+                    "System.ContractsA",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                "System.IContract<int>",
+                interfaceTypeIdentity:
+                    "contracts-a-scoped-IContract<int>",
+                platformNormalizedInterfaceTypeIdentity:
+                    "platform-scoped-IContract<int>",
+                declarationSignatureIdentity:
+                    facadeSignature,
+                platformNormalizedDeclarationSignatureIdentity:
+                    platformSignature);
+        var spoofedCoreLibrary =
+            new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.External,
+                definitionName,
+                new AssemblyReferenceIdentity(
+                    "System.ContractsB",
+                    new Version(2, 0, 0, 0),
+                    "fr",
+                    null),
+                "System.IContract<int>",
+                interfaceTypeIdentity:
+                    "contracts-b-scoped-IContract<int>",
+                platformNormalizedInterfaceTypeIdentity:
+                    "platform-scoped-IContract<int>",
+                declarationSignatureIdentity:
+                    coreLibrarySignature,
+                platformNormalizedDeclarationSignatureIdentity:
+                    platformSignature);
+        var nonConstructedFacade =
+            new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.External,
+                definitionName,
+                trustedFacade.Assembly,
+                declarationMemberName: "GetValue",
+                declarationSignatureIdentity:
+                    facadeSignature,
+                platformNormalizedDeclarationSignatureIdentity:
+                    platformSignature);
+        var nonConstructedCoreLibrary =
+            new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.External,
+                definitionName,
+                trustedCoreLibrary.Assembly,
+                declarationMemberName: "GetValue",
+                declarationSignatureIdentity:
+                    coreLibrarySignature,
+                platformNormalizedDeclarationSignatureIdentity:
+                    platformSignature);
+        var exactAssemblySignatureMismatch =
+            new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.External,
+                definitionName,
+                trustedFacade.Assembly,
+                "System.IContract<int>",
+                interfaceTypeIdentity:
+                    trustedFacade.InterfaceTypeIdentity,
+                platformNormalizedInterfaceTypeIdentity:
+                    trustedFacade
+                        .PlatformNormalizedInterfaceTypeIdentity,
+                declarationSignatureIdentity:
+                    coreLibrarySignature,
+                platformNormalizedDeclarationSignatureIdentity:
+                    platformSignature);
+        var sameImageFacade =
+            new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.SameImage,
+                definitionName,
+                interfaceTypeName: "System.IContract<int>",
+                declarationMemberName: "GetValue",
+                interfaceTypeIdentity:
+                    "current-IContract<system-runtime-int>",
+                platformNormalizedInterfaceTypeIdentity:
+                    "current-IContract<platform-int>",
+                declarationSignatureIdentity:
+                    facadeSignature,
+                platformNormalizedDeclarationSignatureIdentity:
+                    platformSignature);
+        var sameImageCoreLibrary =
+            new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.SameImage,
+                definitionName,
+                interfaceTypeName: "System.IContract<int>",
+                declarationMemberName: "GetValue",
+                interfaceTypeIdentity:
+                    "current-IContract<corelib-int>",
+                platformNormalizedInterfaceTypeIdentity:
+                    "current-IContract<platform-int>",
+                declarationSignatureIdentity:
+                    coreLibrarySignature,
+                platformNormalizedDeclarationSignatureIdentity:
+                    platformSignature);
+
+        Assert.NotNull(trustedFacade.InterfaceTypeIdentity);
+        Assert.NotNull(trustedCoreLibrary.InterfaceTypeIdentity);
+        Assert.NotNull(
+            trustedFacade.DeclarationSignatureIdentity);
+        Assert.NotNull(
+            trustedFacade
+                .PlatformNormalizedDeclarationSignatureIdentity);
+        Assert.NotEqual(
+            trustedFacade.DeclarationSignatureIdentity,
+            trustedCoreLibrary.DeclarationSignatureIdentity);
+        Assert.Equal(
+            trustedFacade
+                .PlatformNormalizedDeclarationSignatureIdentity,
+            trustedCoreLibrary
+                .PlatformNormalizedDeclarationSignatureIdentity);
+        Assert.True(
+            FidelityCheck.ExplicitInterfaceDeclarationEqualsForTest(
+                trustedFacade,
+                trustedCoreLibrary));
+        Assert.True(
+            FidelityCheck.ExplicitInterfaceDeclarationEqualsForTest(
+                nonConstructedFacade,
+                nonConstructedCoreLibrary));
+        Assert.False(
+            FidelityCheck.ExplicitInterfaceDeclarationEqualsForTest(
+                trustedFacade,
+                exactAssemblySignatureMismatch));
+        Assert.True(
+            FidelityCheck.ExplicitInterfaceDeclarationEqualsForTest(
+                sameImageFacade,
+                sameImageCoreLibrary));
+        Assert.NotNull(spoofedFacade.InterfaceTypeIdentity);
+        Assert.NotNull(spoofedCoreLibrary.InterfaceTypeIdentity);
+        Assert.False(
+            FidelityCheck.ExplicitInterfaceDeclarationEqualsForTest(
+                spoofedFacade,
+                spoofedCoreLibrary));
+    }
+
+    [Fact]
+    public void FidelityLookup_UsesEcmaEquivalentAssemblyIdentityForOrdinaryRoots()
+    {
+        MetadataTypeDefinitionName definitionName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Contracts",
+                    ["IContract"])).Name;
+        var signature =
+            new MethodSignatureIdentity(
+                "dependency-signature");
+        var baseline =
+            new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.External,
+                definitionName,
+                new AssemblyReferenceIdentity(
+                    "Dependency",
+                    new Version(1, 2, 3, 4),
+                    "neutral",
+                    "0011223344556677"),
+                "Contracts.IContract<int>",
+                declarationMemberName: "GetValue",
+                interfaceTypeIdentity:
+                    "dependency-scoped-IContract<int>",
+                declarationSignatureIdentity:
+                    signature);
+        var equivalent =
+            new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.External,
+                definitionName,
+                new AssemblyReferenceIdentity(
+                    "dependency",
+                    new Version(1, 2, 3, 4),
+                    null,
+                    "0011223344556677".ToUpperInvariant()),
+                "Contracts.IContract<int>",
+                declarationMemberName: "GetValue",
+                interfaceTypeIdentity:
+                    "dependency-scoped-IContract<int>",
+                declarationSignatureIdentity:
+                    signature);
+        var differentVersion =
+            new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.External,
+                definitionName,
+                new AssemblyReferenceIdentity(
+                    "dependency",
+                    new Version(2, 0, 0, 0),
+                    null,
+                    "0011223344556677".ToUpperInvariant()),
+                "Contracts.IContract<int>",
+                declarationMemberName: "GetValue",
+                interfaceTypeIdentity:
+                    "dependency-scoped-IContract<int>",
+                declarationSignatureIdentity:
+                    signature);
+        var differentToken =
+            new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.External,
+                definitionName,
+                new AssemblyReferenceIdentity(
+                    "dependency",
+                    new Version(1, 2, 3, 4),
+                    null,
+                    "8899aabbccddeeff"),
+                "Contracts.IContract<int>",
+                declarationMemberName: "GetValue",
+                interfaceTypeIdentity:
+                    "dependency-scoped-IContract<int>",
+                declarationSignatureIdentity:
+                    signature);
+
+        Assert.True(
+            FidelityCheck.ExplicitInterfaceDeclarationEqualsForTest(
+                baseline,
+                equivalent));
+        Assert.False(
+            FidelityCheck.ExplicitInterfaceDeclarationEqualsForTest(
+                baseline,
+                differentVersion));
+        Assert.False(
+            FidelityCheck.ExplicitInterfaceDeclarationEqualsForTest(
+                baseline,
+                differentToken));
     }
 
     [Fact]
@@ -9798,6 +10302,71 @@ public class ReturnToSenderPrototypeTests
               call instance void [System.Runtime]System.Object::.ctor()
               ret
             }
+          }
+        }
+        """;
+
+    const string UndottedExplicitStructPropertyIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly undottedexplicitstruct { }
+        .module undottedexplicitstruct.dll
+
+        .class interface public abstract auto ansi ICounter
+        {
+          .method public hidebysig newslot abstract virtual specialname
+              instance int32 get_Value() cil managed {}
+          .property instance int32 Value()
+          {
+            .get instance int32 ICounter::get_Value()
+          }
+        }
+
+        .class public sequential ansi sealed beforefieldinit Counter
+            extends [System.Runtime]System.ValueType
+            implements ICounter
+        {
+          .method private final hidebysig newslot virtual specialname
+              instance int32 get_Value() cil managed
+          {
+            .override ICounter::get_Value
+            ldc.i4.s 42
+            ret
+          }
+          .property instance int32 Value()
+          {
+            .get instance int32 Counter::get_Value()
+          }
+        }
+        """;
+
+    const string UndottedExplicitMethodIl = """
+        .assembly extern System.Runtime
+        {
+          .ver 10:0:0:0
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+        }
+        .assembly undottedexplicitmethod {}
+        .module undottedexplicitmethod.dll
+
+        .class interface public abstract auto ansi IContract
+        {
+          .method public hidebysig newslot abstract virtual
+                  instance int32 Run() cil managed
+          {
+          }
+        }
+
+        .class public auto ansi beforefieldinit Implementation
+               extends [System.Runtime]System.Object
+               implements IContract
+        {
+          .method private final hidebysig newslot virtual
+                  instance int32 Invoke() cil managed
+          {
+            .override IContract::Run
+            .maxstack 1
+            ldc.i4.1
+            ret
           }
         }
         """;

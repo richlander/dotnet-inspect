@@ -34,6 +34,12 @@ internal static class TypeParameterKindClassifier
 
     internal sealed class ResolutionPlan
     {
+        internal enum RequestPurpose
+        {
+            Constraint,
+            BaseType,
+        }
+
         readonly MetadataReader reader;
         readonly ResolvedAssemblyReference source;
         readonly int _maxTypeResolutionRequests;
@@ -61,8 +67,10 @@ internal static class TypeParameterKindClassifier
             TypeResolutionManifestKey? Request,
             string Detail)>
             _resolutionFailureKeys = [];
-        readonly List<MetadataTypeNameFailure> _requestBudgetFailures = [];
-        readonly HashSet<int> _requestBudgetFailureSubjects = [];
+        readonly List<RequestBudgetFailureInfo>
+            _requestBudgetFailures = [];
+        readonly HashSet<(int SubjectToken, RequestPurpose Purpose)>
+            _requestBudgetFailureSubjects = [];
         readonly List<TypeResolutionRequest> _requestOrder = [];
         TypeResolutionContext? _context;
         bool _requestBudgetExhausted;
@@ -89,8 +97,10 @@ internal static class TypeParameterKindClassifier
         internal int ProjectedReferenceCount =>
             _projectedRequests.Count;
         internal MetadataTypeNameFailure? RequestBudgetFailure =>
-            _requestBudgetFailures.FirstOrDefault();
-        internal IReadOnlyList<MetadataTypeNameFailure>
+            _requestBudgetFailures.Count == 0
+                ? null
+                : _requestBudgetFailures[0].Failure;
+        internal IReadOnlyList<RequestBudgetFailureInfo>
             RequestBudgetFailures => _requestBudgetFailures;
         internal IReadOnlyList<MetadataTypeNameFailure>
             ResolutionFailures => _resolutionFailures;
@@ -99,7 +109,8 @@ internal static class TypeParameterKindClassifier
 
         internal sealed record ResolutionFailureEntry(
             MetadataTypeNameFailure Failure,
-            AssemblyReferenceIdentity? DependencyAssembly);
+            AssemblyReferenceIdentity? DependencyAssembly,
+            RequestPurpose Purpose);
 
         internal RequestCheckpoint Checkpoint() =>
             new(
@@ -148,7 +159,9 @@ internal static class TypeParameterKindClassifier
                 i--)
             {
                 _requestBudgetFailureSubjects.Remove(
-                    _requestBudgetFailures[i].SubjectToken ?? 0);
+                    (_requestBudgetFailures[i]
+                        .Failure.SubjectToken ?? 0,
+                    _requestBudgetFailures[i].Purpose));
             }
             _requestBudgetFailures.RemoveRange(
                 checkpoint.BudgetFailureCount,
@@ -163,17 +176,20 @@ internal static class TypeParameterKindClassifier
             int BudgetFailureCount,
             bool BudgetExhausted);
 
+        internal readonly record struct RequestBudgetFailureInfo(
+            MetadataTypeNameFailure Failure,
+            RequestPurpose Purpose);
+
         internal void Bind(TypeResolutionContext context)
         {
             ArgumentNullException.ThrowIfNull(context);
             _context = context;
         }
 
-        internal ConstraintClass Classify(
-            MetadataReader reader,
+        internal TypeResolutionRequest? Project(
             TypeReferenceHandle handle,
-            int? genericArgumentCount = null,
-            EntityHandle subject = default)
+            EntityHandle subject = default,
+            RequestPurpose purpose = RequestPurpose.Constraint)
         {
             if (!_projectedRequests.TryGetValue(
                     handle,
@@ -181,8 +197,8 @@ internal static class TypeParameterKindClassifier
             {
                 if (_requestBudgetExhausted)
                 {
-                    RecordRequestBudgetFailure(subject);
-                    return ConstraintClass.Unreadable;
+                    RecordRequestBudgetFailure(subject, purpose);
+                    return null;
                 }
 
                 request = CreateRequest(reader, source, handle);
@@ -191,14 +207,11 @@ internal static class TypeParameterKindClassifier
             }
 
             if (request is null)
-            {
-                return ConstraintClass.Unreadable;
-            }
+                return null;
 
-            if (_context is null)
+            if (_context is null
+                && !_requests.Contains(request))
             {
-                if (_requests.Contains(request))
-                    return ConstraintClass.Unreadable;
                 if (_requests.Count < _maxTypeResolutionRequests
                     && _requests.Add(request))
                 {
@@ -207,8 +220,27 @@ internal static class TypeParameterKindClassifier
                 else
                 {
                     _requestBudgetExhausted = true;
-                    RecordRequestBudgetFailure(subject);
+                    RecordRequestBudgetFailure(subject, purpose);
+                    return null;
                 }
+            }
+
+            return request;
+        }
+
+        internal ConstraintClass Classify(
+            MetadataReader reader,
+            TypeReferenceHandle handle,
+            int? genericArgumentCount = null,
+            EntityHandle subject = default)
+        {
+            if (Project(handle, subject) is not { } request)
+            {
+                return ConstraintClass.Unreadable;
+            }
+
+            if (_context is null)
+            {
                 return ConstraintClass.Unreadable;
             }
 
@@ -225,8 +257,7 @@ internal static class TypeParameterKindClassifier
                 return cached;
             }
 
-            TypeResolutionOutcome outcome =
-                _context.Resolve(request);
+            TypeResolutionOutcome outcome = _context.Resolve(request);
             ConstraintClass result = ClassifyOutcome(
                 request,
                 outcome,
@@ -360,7 +391,8 @@ internal static class TypeParameterKindClassifier
                 {
                     RecordAuthenticationBudgetFailure(
                         handle,
-                        budget.Budget);
+                        budget.Budget,
+                        RequestPurpose.Constraint);
                 }
                 else
                 {
@@ -402,10 +434,58 @@ internal static class TypeParameterKindClassifier
             };
         }
 
+        internal TypeResolutionOutcome Resolve(
+            TypeReferenceHandle handle,
+            TypeResolutionRequest request,
+            EntityHandle subject = default,
+            RequestPurpose purpose = RequestPurpose.Constraint)
+        {
+            if (_context is null)
+            {
+                throw new InvalidOperationException(
+                    "The resolution plan must be bound before resolving.");
+            }
+
+            TypeResolutionOutcome outcome = _context.Resolve(request);
+            RecordResolutionOutcomeFailure(
+                request,
+                outcome,
+                subject.IsNil ? handle : subject,
+                purpose);
+            if (outcome is TypeResolutionOutcome.Resolved resolved
+                && resolved.Definition.KindResolutionFailure
+                    is { } kindFailure)
+            {
+                EntityHandle failureSubject =
+                    subject.IsNil ? handle : subject;
+                if (kindFailure
+                    is TypeResolutionFailure.RequestBudgetExceeded budget)
+                {
+                    RecordAuthenticationBudgetFailure(
+                        failureSubject,
+                        budget.Budget,
+                        purpose);
+                }
+                else
+                {
+                    RecordResolutionFailure(
+                        failureSubject,
+                        kindFailure,
+                        request,
+                        purpose: purpose,
+                        dependencyAssembly:
+                            resolved.Definition
+                                .KindResolutionDependencyAssembly);
+                }
+            }
+            return outcome;
+        }
+
         void RecordResolutionOutcomeFailure(
             TypeResolutionRequest request,
             TypeResolutionOutcome outcome,
-            EntityHandle handle)
+            EntityHandle handle,
+            RequestPurpose purpose = RequestPurpose.Constraint)
         {
             switch (outcome)
             {
@@ -415,7 +495,8 @@ internal static class TypeParameterKindClassifier
                             budget:
                     RecordAuthenticationBudgetFailure(
                         handle,
-                        budget.Budget);
+                        budget.Budget,
+                        purpose);
                     break;
                 case TypeResolutionOutcome.Rejected
                 {
@@ -429,89 +510,113 @@ internal static class TypeParameterKindClassifier
                         rejected.Failure,
                         request,
                         dependencyAssembly:
-                            rejected.TerminalAssemblyIdentity);
+                            rejected.TerminalAssemblyIdentity,
+                        purpose: purpose);
                     break;
                 case TypeResolutionOutcome.Unavailable unavailable:
                     RecordResolutionFailure(
                         handle,
-                        "A generic-constraint dependency assembly was "
+                        (purpose == RequestPurpose.BaseType
+                            ? "The external base type assembly was "
+                            : "A generic-constraint dependency assembly was ")
                             + $"unavailable: '{unavailable.Failure.Kind}'.",
                         request,
                         dependencyAssembly:
-                            GetDependencyAssembly(unavailable));
+                            GetDependencyAssembly(unavailable),
+                        purpose: purpose);
                     break;
                 case TypeResolutionOutcome.NotFound notFound:
                     RecordResolutionFailure(
                         handle,
-                        $"Generic-constraint dependency "
+                        (purpose == RequestPurpose.BaseType
+                            ? "The external base type "
+                            : "Generic-constraint dependency ")
                             + $"'{request.Type.ToMetadataFullName()}' "
                             + "was not found.",
                         request,
                         dependencyAssembly:
-                            GetDependencyAssembly(notFound));
+                            GetDependencyAssembly(notFound),
+                        purpose: purpose);
                     break;
                 case TypeResolutionOutcome.UnboundBinding unbound:
                     RecordResolutionFailure(
                         handle,
-                        $"Generic-constraint dependency "
+                        (purpose == RequestPurpose.BaseType
+                            ? "The external base type "
+                            : "Generic-constraint dependency ")
                             + $"'{request.Type.ToMetadataFullName()}' "
                             + "could not be bound to an acquired assembly.",
                         request,
                         dependencyAssembly:
-                            GetDependencyAssembly(unbound));
+                            GetDependencyAssembly(unbound),
+                        purpose: purpose);
                     break;
                 case TypeResolutionOutcome.Ambiguous ambiguous:
                     RecordResolutionFailure(
                         handle,
-                        $"Generic-constraint dependency "
+                        (purpose == RequestPurpose.BaseType
+                            ? "The external base type "
+                            : "Generic-constraint dependency ")
                             + $"'{request.Type.ToMetadataFullName()}' "
                             + "resolved ambiguously.",
                         request,
                         dependencyAssembly:
-                            GetDependencyAssembly(ambiguous));
+                            GetDependencyAssembly(ambiguous),
+                        purpose: purpose);
                     break;
             }
         }
 
-        void RecordRequestBudgetFailure(EntityHandle handle) =>
+        void RecordRequestBudgetFailure(
+            EntityHandle handle,
+            RequestPurpose purpose = RequestPurpose.Constraint) =>
             RecordRequestBudgetFailure(
                 handle,
                 "Type-resolution request discovery exceeded "
                     + $"the configured budget of "
-                    + $"{_maxTypeResolutionRequests}.");
+                    + $"{_maxTypeResolutionRequests}.",
+                purpose);
 
         void RecordAuthenticationBudgetFailure(
             EntityHandle handle,
-            int budget) =>
+            int budget,
+            RequestPurpose purpose = RequestPurpose.Constraint) =>
             RecordRequestBudgetFailure(
                 handle,
                 "Type-resolution dependency authentication exceeded "
-                    + $"the configured budget of {budget}.");
+                    + $"the configured budget of {budget}.",
+                purpose);
 
         void RecordRequestBudgetFailure(
             EntityHandle handle,
-            string detail)
+            string detail,
+            RequestPurpose purpose)
         {
             int subjectToken = handle.IsNil
                 ? 0
                 : MetadataTokens.GetToken(handle);
-            if (!_requestBudgetFailureSubjects.Add(subjectToken))
+            if (!_requestBudgetFailureSubjects.Add(
+                    (subjectToken, purpose)))
                 return;
 
-            _requestBudgetFailures.Add(
+            _requestBudgetFailures.Add(new RequestBudgetFailureInfo(
                 MetadataTypeNameFailure.ForMechanism(
                     MetadataTypeNameFailureMechanism.Metadata,
                     handle,
-                    detail));
+                    detail),
+                purpose));
         }
 
         void RecordResolutionFailure(
             EntityHandle handle,
             TypeResolutionFailure failure,
             TypeResolutionRequest? request = null,
-            AssemblyReferenceIdentity? dependencyAssembly = null)
+            AssemblyReferenceIdentity? dependencyAssembly = null,
+            RequestPurpose purpose = RequestPurpose.Constraint)
         {
-            string detail = failure switch
+            string detail = purpose == RequestPurpose.BaseType
+                ? BaseTypeFailureDetail(failure)
+                : failure switch
             {
                 TypeResolutionFailure.CandidateOpenFailed open =>
                     "A generic-constraint dependency could not be opened: "
@@ -566,15 +671,63 @@ internal static class TypeParameterKindClassifier
                 detail,
                 request,
                 failure,
-                dependencyAssembly);
+                dependencyAssembly,
+                purpose);
         }
+
+        static string BaseTypeFailureDetail(
+            TypeResolutionFailure failure) =>
+            failure switch
+            {
+                TypeResolutionFailure.CandidateOpenFailed open =>
+                    "The external base type could not be opened: "
+                        + open.Failure.Detail,
+                TypeResolutionFailure.DeclarationRejected rejected =>
+                    "The external base type declaration could not be decoded: "
+                        + rejected.Rejection.Detail,
+                TypeResolutionFailure.DiscoveryBudgetExceeded budget =>
+                    "External base type dependency discovery exceeded "
+                        + $"the configured candidate budget of {budget.Budget}.",
+                TypeResolutionFailure.HopBudgetExceeded budget =>
+                    "External base type forwarding exceeded "
+                        + $"the configured hop budget of {budget.Budget}.",
+                TypeResolutionFailure.ForwarderCycle =>
+                    "External base type forwarding contains a cycle.",
+                TypeResolutionFailure.UnsupportedModuleExport =>
+                    "The external base type is exported from an unsupported module.",
+                TypeResolutionFailure.UnsupportedModuleReference =>
+                    "The external base type begins from an unsupported module.",
+                TypeResolutionFailure.UnregisteredAssembly =>
+                    "The external base type assembly was not registered in "
+                        + "the frozen resolution generation.",
+                TypeResolutionFailure.InvalidBindingPolicy invalid =>
+                    "The external base type binding policy returned "
+                        + $"'{invalid.Failure.Kind}'.",
+                TypeResolutionFailure.KindDependencyUnbound =>
+                    "A transitive external base type dependency could not be "
+                        + "bound to an acquired assembly.",
+                TypeResolutionFailure.KindDependencyUnavailable unavailable =>
+                    "A transitive external base type dependency assembly was "
+                        + $"unavailable: '{unavailable.Failure.Kind}'.",
+                TypeResolutionFailure.KindDependencyTypeNotFound notFound =>
+                    "Transitive external base type dependency "
+                        + $"'{notFound.Type.ToMetadataFullName()}' was not found.",
+                TypeResolutionFailure.KindDependencyAmbiguous ambiguous =>
+                    "Transitive external base type dependency "
+                        + $"'{ambiguous.Type.ToMetadataFullName()}' resolved ambiguously.",
+                TypeResolutionFailure.PlanExpansionRequired =>
+                    "The external base type was absent from the frozen "
+                        + "type-resolution plan.",
+                _ => "External base type resolution was rejected.",
+            };
 
         void RecordResolutionFailure(
             EntityHandle handle,
             string detail,
             TypeResolutionRequest? request = null,
             TypeResolutionFailure? failure = null,
-            AssemblyReferenceIdentity? dependencyAssembly = null)
+            AssemblyReferenceIdentity? dependencyAssembly = null,
+            RequestPurpose purpose = RequestPurpose.Constraint)
         {
             int subjectToken = handle.IsNil
                 ? 0
@@ -602,7 +755,8 @@ internal static class TypeParameterKindClassifier
             _resolutionFailureEvidence.Add(
                 new ResolutionFailureEntry(
                     projected,
-                    dependencyAssembly));
+                    dependencyAssembly,
+                    purpose));
         }
 
         static AssemblyReferenceIdentity? GetDependencyAssembly(

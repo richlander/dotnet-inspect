@@ -327,6 +327,64 @@ public sealed class ApiSurfaceExtractorBoundsTests
             ApiSurfaceExtractor.CountRetainedText(withReceiver)
                 - ApiSurfaceExtractor.CountRetainedText(withoutReceiver));
     }
+    [Fact]
+    public void ExplicitInterfaceProvenanceContributesItsRetainedText()
+    {
+        MetadataTypeDefinitionName definitionName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Contracts",
+                    ["IValue"]))
+            .Name;
+        var withoutProvenance = new ApiMember
+        {
+            Name = "Contracts.IValue.Value",
+            Kind = "property",
+            SignatureModel = new ApiSignature(),
+        };
+        var withProvenance = new ApiMember
+        {
+            Name = withoutProvenance.Name,
+            Kind = withoutProvenance.Kind,
+            SignatureModel = new ApiSignature(),
+            ExplicitInterfaceProvenance =
+                new ApiExplicitInterfaceProvenance(
+                    [
+                        new ApiExplicitInterfaceDeclarationContext(
+                            ApiExplicitInterfaceDeclarationKind.External,
+                            definitionName,
+                            new AssemblyReferenceIdentity(
+                                "Dependency",
+                                new Version(1, 0, 0, 0),
+                                "fr",
+                                "0011223344556677"),
+                            "Contracts.IValue<int>",
+                            "get_Value",
+                            "exact-interface-identity",
+                            "normalized-interface-identity",
+                            new MethodSignatureIdentity(
+                                "declaration-signature"),
+                            new MethodSignatureIdentity(
+                                "normalized-declaration-signature"))
+                    ]),
+        };
+
+        Assert.Equal(
+            "Contracts".Length
+                + "IValue".Length
+                + "Dependency".Length
+                + "fr".Length
+                + "0011223344556677".Length
+                + "Contracts.IValue<int>".Length
+                + "get_Value".Length
+                + "exact-interface-identity".Length
+                + "normalized-interface-identity".Length
+                + "declaration-signature".Length
+                + "normalized-declaration-signature".Length,
+            ApiSurfaceExtractor.CountRetainedText(withProvenance)
+                - ApiSurfaceExtractor.CountRetainedText(
+                    withoutProvenance));
+    }
 
     [Fact]
     public void JsonPropertyNameFactsContributeTheirRetainedText()
@@ -539,6 +597,649 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 methodCount: 10_000,
                 nameLength: 4_000,
                 prefix: "get_"));
+    }
+
+    [Fact]
+    public void UndottedMethodImplAccessor_IsRetained()
+    {
+        byte[] image = BuildUndottedExplicitAccessorImage();
+        using var stream = new MemoryStream(
+            image,
+            writable: false);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface =
+            ApiSurfaceExtractor.Extract(peReader);
+
+        ApiMember member = Assert.Single(
+            Assert.Single(surface.Types).Members);
+        Assert.Equal(
+            "explicit-interface-implementation",
+            member.Kind);
+        Assert.Equal("get_Value", member.Name);
+        Assert.Equal(
+            ApiExplicitInterfaceProvenanceKind.External,
+            Assert.IsType<ApiExplicitInterfaceProvenance>(
+                member.ExplicitInterfaceProvenance)
+            .Kind);
+    }
+
+    [Fact]
+    public void MethodImplWithoutImplementedInterface_FailsVisibly()
+    {
+        byte[] image = BuildUndottedExplicitAccessorImage(
+            addInterfaceImplementation: false);
+        using var stream = new MemoryStream(
+            image,
+            writable: false);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface =
+            ApiSurfaceExtractor.Extract(peReader);
+
+        Assert.Empty(Assert.Single(surface.Types).Members);
+        Assert.Contains(
+            surface.InspectionFailures,
+            failure => failure.Operation
+                == "authenticate MethodImpl target");
+    }
+
+    [Fact]
+    public void PlatformSignatureScope_CachesSharedAssemblyReferenceProjection()
+    {
+        const int PublicKeyLength = 1024 * 1024;
+        var (image, typeReferences) =
+            BuildPlatformSignatureScopeImage(
+                typeReferenceCount: 64,
+                publicKeyLength: PublicKeyLength);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        int chargeCount = 0;
+        int charged = 0;
+        var scope = new PlatformStructuralSignatureScope(
+            reader,
+            beforeDecodeWork: amount =>
+            {
+                chargeCount++;
+                charged = checked(charged + amount);
+            });
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        foreach (TypeReferenceHandle handle in typeReferences)
+            Assert.False(scope.IsTrustedPlatformType(handle));
+
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(1, chargeCount);
+        Assert.True(charged >= PublicKeyLength);
+        Assert.True(
+            allocated < 8L * 1024 * 1024,
+            $"platform scope allocated {allocated:N0} bytes");
+    }
+
+    [Fact]
+    public void PlatformSignatureScope_ChargesPublicKeyBeforeMaterializingIt()
+    {
+        const int PublicKeyLength = 4 * 1024 * 1024;
+        var (image, typeReferences) =
+            BuildPlatformSignatureScopeImage(
+                typeReferenceCount: 1,
+                publicKeyLength: PublicKeyLength);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        var scope = new PlatformStructuralSignatureScope(
+            reader,
+            beforeDecodeWork: amount =>
+            {
+                Assert.True(amount >= PublicKeyLength);
+                throw new InvalidOperationException("work limit");
+            });
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => scope.IsTrustedPlatformType(typeReferences[0]));
+
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal("work limit", exception.Message);
+        Assert.True(
+            allocated < 1024 * 1024,
+            $"rejected platform scope allocated {allocated:N0} bytes");
+    }
+
+    /// <summary>
+    /// A MethodImpl declaration parent authenticates against an InterfaceImpl row
+    /// only when both carry a readable structured definition name. Two different
+    /// external TypeRefs whose names metadata cannot represent both degrade to an
+    /// unavailable identity, and one unavailable identity never matches another.
+    /// </summary>
+    [Theory]
+    // Positive control: distinct TypeRef rows naming the same external interface
+    // still authenticate, so the guard rejects missing identity, not externals.
+    [InlineData("Contracts", "IValue", true)]
+    // The reproduction: two different unnamed external TypeRefs.
+    [InlineData("Other", "", false)]
+    // Close negative: same resolution scope and namespace, still no readable name.
+    [InlineData("Contracts", "", false)]
+    public void UnnamedExternalMethodImplDeclarationsDoNotAuthenticate(
+        string declaredNamespace,
+        string interfaceName,
+        bool authenticates)
+    {
+        byte[] image = BuildExternalInterfaceDefinitionNameImage(
+            declaredNamespace,
+            interfaceName);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader);
+
+        ApiMember member = Assert.Single(
+            Assert.Single(surface.Types).Members);
+        var provenance = Assert.IsType<ApiExplicitInterfaceProvenance>(
+            member.ExplicitInterfaceProvenance);
+        ApiExplicitInterfaceDeclarationContext declaration =
+            Assert.Single(provenance.Declarations);
+        if (authenticates)
+        {
+            Assert.Equal(
+                "explicit-interface-implementation",
+                member.Kind);
+            Assert.Equal(
+                ApiExplicitInterfaceProvenanceKind.External,
+                provenance.Kind);
+            Assert.Equal(
+                ApiExplicitInterfaceDeclarationKind.External,
+                declaration.Kind);
+            Assert.NotNull(declaration.DefinitionName);
+            Assert.DoesNotContain(
+                surface.InspectionFailures,
+                failure => failure.Operation
+                    == "authenticate MethodImpl target");
+            return;
+        }
+
+        Assert.Equal("method", member.Kind);
+        Assert.Equal(
+            ApiExplicitInterfaceProvenanceKind.Unavailable,
+            provenance.Kind);
+        Assert.Equal(
+            ApiExplicitInterfaceDeclarationKind.Unavailable,
+            declaration.Kind);
+        Assert.Null(declaration.DefinitionName);
+        Assert.Contains(
+            surface.InspectionFailures,
+            failure => failure.Operation
+                == "authenticate MethodImpl target");
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void ModuleReferenceMethodImplDeclarationsFailClosed(
+        bool useModuleReferences,
+        bool authenticates)
+    {
+        byte[] image =
+            BuildModuleScopedInterfaceImage(
+                useModuleReferences);
+        using var stream =
+            new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface =
+            ApiSurfaceExtractor.Extract(peReader);
+
+        ApiMember member = Assert.Single(
+            Assert.Single(surface.Types).Members);
+        var provenance =
+            Assert.IsType<ApiExplicitInterfaceProvenance>(
+                member.ExplicitInterfaceProvenance);
+        Assert.Equal(
+            authenticates
+                ? "explicit-interface-implementation"
+                : "method",
+            member.Kind);
+        Assert.Equal(
+            authenticates
+                ? ApiExplicitInterfaceProvenanceKind.SameImage
+                : ApiExplicitInterfaceProvenanceKind.Unavailable,
+            provenance.Kind);
+        Assert.Equal(
+            !authenticates,
+            surface.InspectionFailures.Any(
+                failure => failure.Operation
+                    == "authenticate MethodImpl target"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ConstructedMethodImplRequiresExactInterfaceInstantiation(
+        bool sameImage)
+    {
+        byte[] image =
+            BuildConstructedInterfaceMismatchImage(sameImage);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader);
+
+        ApiMember member = Assert.Single(
+            Assert.Single(
+                surface.Types,
+                type => type.Name
+                    == "ConstructedInterfaceMismatch")
+            .Members);
+        Assert.Equal("method", member.Kind);
+        Assert.False(member.IsVirtual);
+        Assert.Equal(
+            ApiExplicitInterfaceProvenanceKind.Unavailable,
+            Assert.IsType<ApiExplicitInterfaceProvenance>(
+                member.ExplicitInterfaceProvenance).Kind);
+        Assert.Contains(
+            surface.InspectionFailures,
+            failure => failure.Operation
+                == "authenticate MethodImpl target");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ConstructedMethodImplAuthenticatesExactInterfaceInstantiation(
+        bool sameImage)
+    {
+        byte[] image =
+            BuildConstructedInterfaceMismatchImage(
+                sameImage,
+                matching: true);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader);
+
+        ApiMember member = Assert.Single(
+            Assert.Single(
+                surface.Types,
+                type => type.Name
+                    == "ConstructedInterfaceMismatch")
+            .Members);
+        Assert.Equal(
+            "explicit-interface-implementation",
+            member.Kind);
+        Assert.DoesNotContain(
+            surface.InspectionFailures,
+            failure => failure.Operation
+                == "authenticate MethodImpl target");
+    }
+
+    [Fact]
+    public void ConstructedMethodImplRequiresExactArgumentAssemblyIdentity()
+    {
+        byte[] image =
+            BuildConstructedInterfaceArgumentAssemblyMismatchImage();
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader);
+
+        ApiMember member = Assert.Single(
+            Assert.Single(surface.Types).Members);
+        Assert.Equal("method", member.Kind);
+        Assert.Equal(
+            ApiExplicitInterfaceProvenanceKind.Unavailable,
+            Assert.IsType<ApiExplicitInterfaceProvenance>(
+                member.ExplicitInterfaceProvenance).Kind);
+        Assert.Contains(
+            surface.InspectionFailures,
+            failure => failure.Operation
+                == "authenticate MethodImpl target");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ConstructedMethodImplPreservesEveryArgumentWithoutTrustingNameArity(
+        bool sameExcessArgument)
+    {
+        byte[] image =
+            BuildConstructedInterfaceExcessArgumentImage(
+                sameExcessArgument);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader);
+
+        ApiMember member = Assert.Single(
+            Assert.Single(surface.Types).Members);
+        Assert.Equal(
+            sameExcessArgument
+                ? "explicit-interface-implementation"
+                : "method",
+            member.Kind);
+        ApiExplicitInterfaceDeclarationContext declaration =
+            Assert.Single(
+                Assert.IsType<ApiExplicitInterfaceProvenance>(
+                    member.ExplicitInterfaceProvenance)
+                .Declarations);
+        Assert.Equal(
+            sameExcessArgument
+                ? ApiExplicitInterfaceDeclarationKind.External
+                : ApiExplicitInterfaceDeclarationKind.Unavailable,
+            declaration.Kind);
+        Assert.NotNull(declaration.InterfaceTypeIdentity);
+        if (sameExcessArgument)
+        {
+            Assert.DoesNotContain(
+                surface.InspectionFailures,
+                failure => failure.Operation
+                    == "authenticate MethodImpl target");
+        }
+        else
+        {
+            Assert.Contains(
+                surface.InspectionFailures,
+                failure => failure.Operation
+                    == "authenticate MethodImpl target");
+        }
+    }
+
+    [Fact]
+    public void ConstructedMethodImplDistinguishesDottedArgumentBoundaries()
+    {
+        byte[] image =
+            BuildConstructedInterfaceDottedArgumentBoundaryImage();
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader);
+
+        ApiMember member = Assert.Single(
+            Assert.Single(surface.Types).Members);
+        Assert.Equal("method", member.Kind);
+        Assert.Equal(
+            ApiExplicitInterfaceDeclarationKind.Unavailable,
+            Assert.Single(
+                Assert.IsType<ApiExplicitInterfaceProvenance>(
+                    member.ExplicitInterfaceProvenance)
+                .Declarations)
+            .Kind);
+        Assert.Contains(
+            surface.InspectionFailures,
+            failure => failure.Operation
+                == "authenticate MethodImpl target");
+    }
+
+    [Fact]
+    public void IncompatibleMethodImplSignatureFailsVisibly()
+    {
+        byte[] image = BuildMethodImplSignatureImage(
+            includeMatchingDeclaration: false,
+            includeIncompatibleDeclaration: true);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader);
+
+        ApiMember member = Assert.Single(
+            Assert.Single(surface.Types).Members);
+        Assert.Equal("method", member.Kind);
+        ApiExplicitInterfaceDeclarationContext declaration =
+            Assert.Single(
+                Assert.IsType<ApiExplicitInterfaceProvenance>(
+                    member.ExplicitInterfaceProvenance)
+                .Declarations);
+        Assert.Equal(
+            ApiExplicitInterfaceDeclarationKind.Unavailable,
+            declaration.Kind);
+        Assert.NotNull(declaration.DeclarationSignatureIdentity);
+        Assert.NotNull(
+            declaration
+                .PlatformNormalizedDeclarationSignatureIdentity);
+        Assert.Contains(
+            surface.InspectionFailures,
+            failure => failure.Operation
+                == "authenticate MethodImpl target");
+    }
+
+    [Fact]
+    public void DuplicateNameMethodImplRowsKeepDistinctSignatureProvenance()
+    {
+        byte[] image = BuildMethodImplSignatureImage(
+            includeMatchingDeclaration: true,
+            includeIncompatibleDeclaration: true);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader);
+
+        ApiMember member = Assert.Single(
+            Assert.Single(surface.Types).Members);
+        ApiExplicitInterfaceDeclarationContext[] declarations =
+        [
+            .. Assert.IsType<ApiExplicitInterfaceProvenance>(
+                member.ExplicitInterfaceProvenance)
+            .Declarations,
+        ];
+        Assert.Equal(2, declarations.Length);
+        Assert.All(
+            declarations,
+            declaration =>
+                Assert.Equal(
+                    "Map",
+                    declaration.DeclarationMemberName));
+        Assert.Equal(
+            2,
+            declarations
+                .Select(declaration =>
+                    Assert.IsType<MethodSignatureIdentity>(
+                        declaration.DeclarationSignatureIdentity))
+                .Distinct()
+                .Count());
+        Assert.Contains(
+            declarations,
+            declaration => declaration.Kind
+                == ApiExplicitInterfaceDeclarationKind.External);
+        Assert.Contains(
+            declarations,
+            declaration => declaration.Kind
+                == ApiExplicitInterfaceDeclarationKind.Unavailable);
+        Assert.Contains(
+            surface.InspectionFailures,
+            failure => failure.Operation
+                == "authenticate MethodImpl target");
+    }
+
+    [Fact]
+    public void DuplicateMethodImplRowsDoNotIncreaseProvenanceOrRetainedText()
+    {
+        ApiMember unique = ExtractMember(
+            BuildMethodImplSignatureImage(
+                includeMatchingDeclaration: true,
+                includeIncompatibleDeclaration: true));
+        ApiMember duplicated = ExtractMember(
+            BuildMethodImplSignatureImage(
+                includeMatchingDeclaration: true,
+                includeIncompatibleDeclaration: true,
+                duplicateRows: true));
+
+        Assert.Equal(
+            2,
+            Assert.IsType<ApiExplicitInterfaceProvenance>(
+                duplicated.ExplicitInterfaceProvenance)
+            .Declarations
+            .Length);
+        Assert.Equal(
+            ApiSurfaceExtractor.CountRetainedText(unique),
+            ApiSurfaceExtractor.CountRetainedText(duplicated));
+
+        static ApiMember ExtractMember(byte[] image)
+        {
+            using var stream = new MemoryStream(
+                image,
+                writable: false);
+            using var peReader = new PEReader(stream);
+            return Assert.Single(
+                Assert.Single(
+                    ApiSurfaceExtractor.Extract(peReader).Types)
+                .Members);
+        }
+    }
+
+    [Fact]
+    public void CompilerProducedOverloadedMethodImplsKeepDistinctSignatureProvenance()
+    {
+        using var stream = File.OpenRead(SelfPath);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader);
+
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name.EndsWith(
+                "." + nameof(
+                    Round23ExplicitOverloadImplementation),
+                StringComparison.Ordinal));
+        ApiMember[] overloads =
+        [
+            .. type.Members.Where(member =>
+                member.Kind
+                    == "explicit-interface-implementation"),
+        ];
+        Assert.Equal(2, overloads.Length);
+        MethodSignatureIdentity[] identities =
+        [
+            .. overloads.Select(member =>
+                Assert.Single(
+                    Assert.IsType<ApiExplicitInterfaceProvenance>(
+                        member.ExplicitInterfaceProvenance)
+                    .Declarations)
+                .DeclarationSignatureIdentity)
+            .Select(Assert.IsType<MethodSignatureIdentity>),
+        ];
+        Assert.Equal(2, identities.Distinct().Count());
+    }
+
+    [Fact]
+    public void AbstractInstanceMethodImplWithoutFinal_IsNotExplicit()
+    {
+        byte[] image = BuildUndottedExplicitAccessorImage(
+            accessorAttributes:
+                MethodAttributes.Private
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual
+                | MethodAttributes.SpecialName);
+        using var stream = new MemoryStream(
+            image,
+            writable: false);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface =
+            ApiSurfaceExtractor.Extract(peReader);
+
+        Assert.Empty(Assert.Single(surface.Types).Members);
+    }
+
+    [Fact]
+    public void ExplicitMethodImplProvenance_StopsDecodeAmplification()
+    {
+        byte[] image = BuildUndottedExplicitAccessorImage(
+            declarationCount: 1_000,
+            interfaceNameLength: 3_900);
+        using var stream = new MemoryStream(
+            image,
+            writable: false);
+        using var peReader = new PEReader(stream);
+        long before =
+            GC.GetAllocatedBytesForCurrentThread();
+
+        ApiSurfaceExtractionResult result =
+            ApiSurfaceExtractor.ExtractBounded(
+                peReader,
+                ApiSurfaceExtractionScope.Public,
+                new ApiSurfaceExtractionBounds(
+                    maxTypes: 10,
+                    maxMembers: 10,
+                    maxInspectionFailures: 10,
+                    maxTypeForwarders: 10,
+                    maxMetadataRows: 10_000,
+                    maxRetainedTextCharacters: 8_000_000));
+
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+        var exceeded =
+            Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+                result);
+        Assert.Equal(
+            ApiSurfaceExtractionBound.RetainedTextCharacters,
+            exceeded.Bound);
+        Assert.True(
+            allocated < 32L * 1024 * 1024,
+            $"bounded extraction allocated {allocated:N0} bytes");
+    }
+
+    [Fact]
+    public void ExplicitMethodImplSignaturesUseExtractionWideDecodeBudget()
+    {
+        byte[] image =
+            BuildWideMethodImplSignatureImage(
+                declarationCount: 450,
+                firstParameterCount: 700);
+        using var stream = new MemoryStream(
+            image,
+            writable: false);
+        using var peReader = new PEReader(stream);
+
+        var exceeded =
+            Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+                ApiSurfaceExtractor.ExtractBounded(
+                    peReader,
+                    ApiSurfaceExtractionScope.Public,
+                    new ApiSurfaceExtractionBounds(
+                        maxTypes: 10,
+                        maxMembers: 10,
+                        maxInspectionFailures: 10,
+                        maxTypeForwarders: 10,
+                        maxMetadataRows: 10_000,
+                        maxRetainedTextCharacters:
+                            64 * 1024 * 1024)));
+
+        Assert.Equal(
+            ApiSurfaceExtractionBound.RetainedTextCharacters,
+            exceeded.Bound);
+    }
+
+    [Fact]
+    public void MalformedExplicitMethodImplSignaturesUseExtractionWideDecodeBudget()
+    {
+        byte[] image =
+            BuildMalformedWideMethodImplSignatureImage(
+                declarationCount: 500,
+                firstParameterCount: 1_000);
+        using var stream = new MemoryStream(
+            image,
+            writable: false);
+        using var peReader = new PEReader(stream);
+
+        var exceeded =
+            Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+                ApiSurfaceExtractor.ExtractBounded(
+                    peReader,
+                    ApiSurfaceExtractionScope.Public,
+                    new ApiSurfaceExtractionBounds(
+                        maxTypes: 10,
+                        maxMembers: 10,
+                        maxInspectionFailures: 10,
+                        maxTypeForwarders: 10,
+                        maxMetadataRows: 10_000,
+                        maxRetainedTextCharacters:
+                            64 * 1024 * 1024)));
+
+        Assert.Equal(
+            ApiSurfaceExtractionBound.RetainedTextCharacters,
+            exceeded.Bound);
     }
 
     [Fact]
@@ -1526,6 +2227,839 @@ public sealed class ApiSurfaceExtractorBoundsTests
         return Serialize(metadata);
     }
 
+    static byte[] BuildUndottedExplicitAccessorImage(
+        int declarationCount = 1,
+        int interfaceNameLength = 6,
+        bool addInterfaceImplementation = true,
+        MethodAttributes accessorAttributes =
+            MethodAttributes.Private
+            | MethodAttributes.Final
+            | MethodAttributes.Virtual
+            | MethodAttributes.NewSlot
+            | MethodAttributes.SpecialName)
+    {
+        var metadata = Metadata("ExplicitAccessor");
+        AssemblyReferenceHandle contracts =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Contracts"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeDefinitionHandle type = AddModuleAndPublicType(
+            metadata,
+            "ExplicitAccessor");
+        var accessorSignature = new BlobBuilder();
+        new BlobEncoder(accessorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Type().Int32(),
+                _ => { });
+        BlobHandle signature =
+            metadata.GetOrAddBlob(accessorSignature);
+        MethodDefinitionHandle accessor =
+            metadata.AddMethodDefinition(
+                accessorAttributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("get_Value"),
+                signature,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        var propertySignature = new BlobBuilder();
+        new BlobEncoder(propertySignature).PropertySignature(
+            isInstanceProperty: true).Parameters(
+                0,
+                returnType => returnType.Type().Int32(),
+                _ => { });
+        PropertyDefinitionHandle property =
+            metadata.AddProperty(
+                PropertyAttributes.None,
+                metadata.GetOrAddString("Value"),
+                metadata.GetOrAddBlob(propertySignature));
+        metadata.AddPropertyMap(type, property);
+        metadata.AddMethodSemantics(
+            property,
+            MethodSemanticsAttributes.Getter,
+            accessor);
+        for (int index = 0; index < declarationCount; index++)
+        {
+            string interfaceName = declarationCount == 1
+                ? "IValue"
+                : new string(
+                    'I',
+                    interfaceNameLength - 8)
+                    + index.ToString("D8");
+            TypeReferenceHandle contract =
+                metadata.AddTypeReference(
+                    contracts,
+                    metadata.GetOrAddString("Contracts"),
+                    metadata.GetOrAddString(interfaceName));
+            if (addInterfaceImplementation)
+                metadata.AddInterfaceImplementation(type, contract);
+            MemberReferenceHandle declaration =
+                metadata.AddMemberReference(
+                    contract,
+                    metadata.GetOrAddString("get_Value"),
+                    signature);
+            metadata.AddMethodImplementation(
+                type,
+                accessor,
+                declaration);
+        }
+        return Serialize(metadata);
+    }
+
+    static (byte[] Image, TypeReferenceHandle[] TypeReferences)
+        BuildPlatformSignatureScopeImage(
+            int typeReferenceCount,
+            int publicKeyLength)
+    {
+        var metadata = Metadata("PlatformSignatureScope");
+        AssemblyReferenceHandle reference =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Untrusted"),
+                new Version(1, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(
+                    new byte[publicKeyLength]),
+                AssemblyFlags.PublicKey,
+                default);
+        var typeReferences =
+            new TypeReferenceHandle[typeReferenceCount];
+        for (int index = 0;
+            index < typeReferences.Length;
+            index++)
+        {
+            typeReferences[index] =
+                metadata.AddTypeReference(
+                    reference,
+                    metadata.GetOrAddString("Samples"),
+                    metadata.GetOrAddString(
+                        $"Type{index}"));
+        }
+        AddModuleAndPublicType(
+            metadata,
+            "PlatformSignatureScope");
+        return (Serialize(metadata), typeReferences);
+    }
+
+    /// <summary>
+    /// An explicit-interface method whose InterfaceImpl row and whose MethodImpl
+    /// declaration parent are two separate TypeRef rows in the same external
+    /// assembly. Equal namespace and name make them the same definition; an empty
+    /// name makes each row's structured identity unreadable on both sides at once,
+    /// which is the shape that must fail closed rather than match null to null.
+    /// </summary>
+    static byte[] BuildExternalInterfaceDefinitionNameImage(
+        string declaredNamespace,
+        string interfaceName)
+    {
+        var metadata = Metadata("ExternalInterfaceDefinitionName");
+        AssemblyReferenceHandle contracts =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Contracts"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeDefinitionHandle type = AddModuleAndPublicType(
+            metadata,
+            "ExternalInterfaceDefinitionName");
+        var methodSignature = new BlobBuilder();
+        new BlobEncoder(methodSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Void(),
+                _ => { });
+        BlobHandle signature = metadata.GetOrAddBlob(methodSignature);
+        MethodDefinitionHandle body = metadata.AddMethodDefinition(
+            MethodAttributes.Private
+                | MethodAttributes.Final
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Run"),
+            signature,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        TypeReferenceHandle implemented = metadata.AddTypeReference(
+            contracts,
+            metadata.GetOrAddString("Contracts"),
+            metadata.GetOrAddString(interfaceName));
+        TypeReferenceHandle declared = metadata.AddTypeReference(
+            contracts,
+            metadata.GetOrAddString(declaredNamespace),
+            metadata.GetOrAddString(interfaceName));
+        metadata.AddInterfaceImplementation(type, implemented);
+        MemberReferenceHandle declaration = metadata.AddMemberReference(
+            declared,
+            metadata.GetOrAddString("Run"),
+            signature);
+        metadata.AddMethodImplementation(type, body, declaration);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildModuleScopedInterfaceImage(
+        bool useModuleReferences)
+    {
+        var metadata = Metadata("ModuleScopedInterface");
+        TypeDefinitionHandle type = AddModuleAndPublicType(
+            metadata,
+            "ModuleScopedInterface");
+        EntityHandle implementedScope;
+        EntityHandle declaredScope;
+        if (useModuleReferences)
+        {
+            implementedScope = metadata.AddModuleReference(
+                metadata.GetOrAddString("Implemented.netmodule"));
+            declaredScope = metadata.AddModuleReference(
+                metadata.GetOrAddString("Declared.netmodule"));
+        }
+        else
+        {
+            implementedScope =
+                MetadataTokens.EntityHandle(
+                    TableIndex.Module,
+                    rowNumber: 1);
+            declaredScope = implementedScope;
+        }
+
+        TypeReferenceHandle implemented =
+            metadata.AddTypeReference(
+                implementedScope,
+                metadata.GetOrAddString("Contracts"),
+                metadata.GetOrAddString("IValue"));
+        TypeReferenceHandle declared =
+            metadata.AddTypeReference(
+                declaredScope,
+                metadata.GetOrAddString("Contracts"),
+                metadata.GetOrAddString("IValue"));
+        var methodSignature = new BlobBuilder();
+        new BlobEncoder(methodSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Void(),
+                _ => { });
+        BlobHandle signature =
+            metadata.GetOrAddBlob(methodSignature);
+        MethodDefinitionHandle body =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | MethodAttributes.Final
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Run"),
+                signature,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        MemberReferenceHandle declaration =
+            metadata.AddMemberReference(
+                declared,
+                metadata.GetOrAddString("Run"),
+                signature);
+        metadata.AddInterfaceImplementation(
+            type,
+            implemented);
+        metadata.AddMethodImplementation(
+            type,
+            body,
+            declaration);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildConstructedInterfaceMismatchImage(
+        bool sameImage,
+        bool matching = false)
+    {
+        var metadata = Metadata("ConstructedInterfaceMismatch");
+        TypeDefinitionHandle type = AddModuleAndPublicType(
+            metadata,
+            "ConstructedInterfaceMismatch");
+        EntityHandle contract;
+        if (sameImage)
+        {
+            contract = metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                metadata.GetOrAddString("Contracts"),
+                metadata.GetOrAddString("IValue`1"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        }
+        else
+        {
+            AssemblyReferenceHandle contracts =
+                metadata.AddAssemblyReference(
+                    metadata.GetOrAddString("Contracts"),
+                    new Version(1, 0, 0, 0),
+                    default,
+                    default,
+                    default,
+                    default);
+            contract = metadata.AddTypeReference(
+                contracts,
+                metadata.GetOrAddString("Contracts"),
+                metadata.GetOrAddString("IValue`1"));
+        }
+        TypeSpecificationHandle implemented =
+            AddConstructedType(metadata, contract, 0x0e);
+        TypeSpecificationHandle declared =
+            AddConstructedType(
+                metadata,
+                contract,
+                matching ? (byte)0x0e : (byte)0x08);
+        var bodySignatureBytes = new BlobBuilder();
+        bodySignatureBytes.WriteByte(0x20);
+        bodySignatureBytes.WriteCompressedInteger(1);
+        bodySignatureBytes.WriteByte(0x08);
+        bodySignatureBytes.WriteByte(
+            matching ? (byte)0x0e : (byte)0x08);
+        BlobHandle bodySignature = metadata.GetOrAddBlob(
+            bodySignatureBytes);
+        MethodDefinitionHandle body = metadata.AddMethodDefinition(
+            MethodAttributes.Private
+                | MethodAttributes.Final
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Value"),
+            bodySignature,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        var declarationSignatureBytes = new BlobBuilder();
+        declarationSignatureBytes.WriteByte(0x20);
+        declarationSignatureBytes.WriteCompressedInteger(1);
+        declarationSignatureBytes.WriteByte(0x08);
+        declarationSignatureBytes.WriteByte(0x13);
+        declarationSignatureBytes.WriteCompressedInteger(0);
+        BlobHandle declarationSignature =
+            metadata.GetOrAddBlob(declarationSignatureBytes);
+        MemberReferenceHandle declaration = metadata.AddMemberReference(
+            declared,
+            metadata.GetOrAddString("Value"),
+            declarationSignature);
+        metadata.AddInterfaceImplementation(type, implemented);
+        metadata.AddMethodImplementation(type, body, declaration);
+        return Serialize(metadata);
+    }
+
+    static byte[]
+        BuildConstructedInterfaceArgumentAssemblyMismatchImage()
+    {
+        var metadata = Metadata(
+            "ConstructedInterfaceArgumentAssemblyMismatch");
+        TypeDefinitionHandle type = AddModuleAndPublicType(
+            metadata,
+            "ConstructedInterfaceArgumentAssemblyMismatch");
+        AssemblyReferenceHandle contracts =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Contracts"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        AssemblyReferenceHandle left =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Left"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        AssemblyReferenceHandle right =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Right"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle contract =
+            metadata.AddTypeReference(
+                contracts,
+                metadata.GetOrAddString("Contracts"),
+                metadata.GetOrAddString("IValue`1"));
+        TypeReferenceHandle leftArgument =
+            metadata.AddTypeReference(
+                left,
+                metadata.GetOrAddString("Collision"),
+                metadata.GetOrAddString("Arg"));
+        TypeReferenceHandle rightArgument =
+            metadata.AddTypeReference(
+                right,
+                metadata.GetOrAddString("Collision"),
+                metadata.GetOrAddString("Arg"));
+        TypeSpecificationHandle implemented =
+            AddConstructedType(
+                metadata,
+                contract,
+                leftArgument);
+        TypeSpecificationHandle declared =
+            AddConstructedType(
+                metadata,
+                contract,
+                rightArgument);
+        var signatureBytes = new BlobBuilder();
+        new BlobEncoder(signatureBytes).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Type().Int32(),
+                _ => { });
+        BlobHandle signature = metadata.GetOrAddBlob(
+            signatureBytes);
+        MethodDefinitionHandle body =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | MethodAttributes.Final
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Value"),
+                signature,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        MemberReferenceHandle declaration =
+            metadata.AddMemberReference(
+                declared,
+                metadata.GetOrAddString("Value"),
+                signature);
+        metadata.AddInterfaceImplementation(type, implemented);
+        metadata.AddMethodImplementation(
+            type,
+            body,
+            declaration);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildConstructedInterfaceExcessArgumentImage(
+        bool sameExcessArgument)
+    {
+        var metadata = Metadata(
+            "ConstructedInterfaceExcessArgument");
+        TypeDefinitionHandle type = AddModuleAndPublicType(
+            metadata,
+            "ConstructedInterfaceExcessArgument");
+        AssemblyReferenceHandle contracts =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Contracts"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle contract =
+            metadata.AddTypeReference(
+                contracts,
+                metadata.GetOrAddString("Contracts"),
+                metadata.GetOrAddString("IValue`1"));
+        TypeSpecificationHandle implemented =
+            AddConstructedType(
+                metadata,
+                contract,
+                [0x08, 0x0e]);
+        TypeSpecificationHandle declared =
+            AddConstructedType(
+                metadata,
+                contract,
+                sameExcessArgument
+                    ? [0x08, 0x0e]
+                    : [0x08, 0x1c]);
+        AddMethodImpl(
+            metadata,
+            type,
+            implemented,
+            declared,
+            "Value");
+        return Serialize(metadata);
+    }
+
+    static byte[]
+        BuildConstructedInterfaceDottedArgumentBoundaryImage()
+    {
+        var metadata = Metadata(
+            "ConstructedInterfaceDottedArgumentBoundary");
+        TypeDefinitionHandle type = AddModuleAndPublicType(
+            metadata,
+            "ConstructedInterfaceDottedArgumentBoundary");
+        AssemblyReferenceHandle contracts =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Contracts"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle contract =
+            metadata.AddTypeReference(
+                contracts,
+                metadata.GetOrAddString("Contracts"),
+                metadata.GetOrAddString("IValue`1"));
+        TypeReferenceHandle namespacedArgument =
+            metadata.AddTypeReference(
+                contracts,
+                metadata.GetOrAddString("Collision.Outer"),
+                metadata.GetOrAddString("Arg"));
+        TypeReferenceHandle outerArgument =
+            metadata.AddTypeReference(
+                contracts,
+                metadata.GetOrAddString("Collision"),
+                metadata.GetOrAddString("Outer"));
+        TypeReferenceHandle nestedArgument =
+            metadata.AddTypeReference(
+                outerArgument,
+                default,
+                metadata.GetOrAddString("Arg"));
+        TypeSpecificationHandle implemented =
+            AddConstructedType(
+                metadata,
+                contract,
+                namespacedArgument);
+        TypeSpecificationHandle declared =
+            AddConstructedType(
+                metadata,
+                contract,
+                nestedArgument);
+        AddMethodImpl(
+            metadata,
+            type,
+            implemented,
+            declared,
+            "Value");
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildMethodImplSignatureImage(
+        bool includeMatchingDeclaration,
+        bool includeIncompatibleDeclaration,
+        bool duplicateRows = false)
+    {
+        var metadata = Metadata("MethodImplSignatures");
+        TypeDefinitionHandle type = AddModuleAndPublicType(
+            metadata,
+            "MethodImplSignatures");
+        AssemblyReferenceHandle contracts =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Contracts"),
+                new Version(1, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(
+                    Convert.FromHexString(
+                        "B03F5F7F11D50A3A")),
+                default,
+                default);
+        TypeReferenceHandle contract =
+            metadata.AddTypeReference(
+                contracts,
+                metadata.GetOrAddString("Contracts"),
+                metadata.GetOrAddString("IMap"));
+        BlobHandle matchingSignature =
+            AddUnaryMethodSignature(metadata, 0x08);
+        BlobHandle incompatibleSignature =
+            AddUnaryMethodSignature(metadata, 0x0e);
+        MethodDefinitionHandle body =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | MethodAttributes.Final
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Map"),
+                matchingSignature,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddInterfaceImplementation(type, contract);
+        if (includeMatchingDeclaration)
+        {
+            MemberReferenceHandle declaration =
+                metadata.AddMemberReference(
+                    contract,
+                    metadata.GetOrAddString("Map"),
+                    matchingSignature);
+            int rows = duplicateRows ? 2 : 1;
+            for (int index = 0; index < rows; index++)
+            {
+                metadata.AddMethodImplementation(
+                    type,
+                    body,
+                    declaration);
+            }
+        }
+        if (includeIncompatibleDeclaration)
+        {
+            MemberReferenceHandle declaration =
+                metadata.AddMemberReference(
+                    contract,
+                    metadata.GetOrAddString("Map"),
+                    incompatibleSignature);
+            int rows = duplicateRows ? 2 : 1;
+            for (int index = 0; index < rows; index++)
+            {
+                metadata.AddMethodImplementation(
+                    type,
+                    body,
+                    declaration);
+            }
+        }
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildWideMethodImplSignatureImage(
+        int declarationCount,
+        int firstParameterCount)
+    {
+        var metadata = Metadata("WideMethodImplSignatures");
+        TypeDefinitionHandle type = AddModuleAndPublicType(
+            metadata,
+            "WideMethodImplSignatures");
+        AssemblyReferenceHandle contracts =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Contracts"),
+                new Version(1, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(
+                    Convert.FromHexString(
+                        "B03F5F7F11D50A3A")),
+                default,
+                default);
+        TypeReferenceHandle contract =
+            metadata.AddTypeReference(
+                contracts,
+                metadata.GetOrAddString("Contracts"),
+                metadata.GetOrAddString("IMap"));
+        BlobHandle bodySignature =
+            AddUnaryMethodSignature(metadata, 0x08);
+        MethodDefinitionHandle body =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | MethodAttributes.Final
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Map"),
+                bodySignature,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddInterfaceImplementation(type, contract);
+
+        for (int declarationIndex = 0;
+            declarationIndex < declarationCount;
+            declarationIndex++)
+        {
+            int parameterCount =
+                checked(firstParameterCount + declarationIndex);
+            var signature = new BlobBuilder(
+                parameterCount + 8);
+            signature.WriteByte(0x20);
+            signature.WriteCompressedInteger(parameterCount);
+            signature.WriteByte(0x08);
+            for (int parameterIndex = 0;
+                parameterIndex < parameterCount;
+                parameterIndex++)
+            {
+                signature.WriteByte(0x08);
+            }
+            MemberReferenceHandle declaration =
+                metadata.AddMemberReference(
+                    contract,
+                    metadata.GetOrAddString("Map"),
+                    metadata.GetOrAddBlob(signature));
+            metadata.AddMethodImplementation(
+                type,
+                body,
+                declaration);
+        }
+
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildMalformedWideMethodImplSignatureImage(
+        int declarationCount,
+        int firstParameterCount)
+    {
+        var metadata = Metadata(
+            "MalformedWideMethodImplSignatures");
+        TypeDefinitionHandle type = AddModuleAndPublicType(
+            metadata,
+            "MalformedWideMethodImplSignatures");
+        AssemblyReferenceHandle contracts =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Contracts"),
+                new Version(1, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(
+                    Convert.FromHexString(
+                        "B03F5F7F11D50A3A")),
+                default,
+                default);
+        TypeReferenceHandle contract =
+            metadata.AddTypeReference(
+                contracts,
+                metadata.GetOrAddString("Contracts"),
+                metadata.GetOrAddString("IMap"));
+        BlobHandle bodySignature =
+            AddUnaryMethodSignature(metadata, 0x08);
+        MethodDefinitionHandle body =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | MethodAttributes.Final
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Map"),
+                bodySignature,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddInterfaceImplementation(type, contract);
+
+        for (int declarationIndex = 0;
+            declarationIndex < declarationCount;
+            declarationIndex++)
+        {
+            int parameterCount =
+                checked(
+                    firstParameterCount
+                    + declarationIndex);
+            var signature = new BlobBuilder(
+                parameterCount + 8);
+            signature.WriteByte(0x20);
+            signature.WriteCompressedInteger(parameterCount);
+            signature.WriteByte(0x08);
+            for (int parameterIndex = 0;
+                parameterIndex < parameterCount - 1;
+                parameterIndex++)
+            {
+                signature.WriteByte(0x08);
+            }
+            signature.WriteByte(0x41);
+
+            MemberReferenceHandle declaration =
+                metadata.AddMemberReference(
+                    contract,
+                    metadata.GetOrAddString("Map"),
+                    metadata.GetOrAddBlob(signature));
+            metadata.AddMethodImplementation(
+                type,
+                body,
+                declaration);
+        }
+
+        return Serialize(metadata);
+    }
+
+    static BlobHandle AddUnaryMethodSignature(
+        MetadataBuilder metadata,
+        byte parameterTypeCode)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x20);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x08);
+        signature.WriteByte(parameterTypeCode);
+        return metadata.GetOrAddBlob(signature);
+    }
+
+    static void AddMethodImpl(
+        MetadataBuilder metadata,
+        TypeDefinitionHandle type,
+        TypeSpecificationHandle implemented,
+        TypeSpecificationHandle declared,
+        string methodName)
+    {
+        var signatureBytes = new BlobBuilder();
+        new BlobEncoder(signatureBytes).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Type().Int32(),
+                _ => { });
+        BlobHandle signature = metadata.GetOrAddBlob(
+            signatureBytes);
+        MethodDefinitionHandle body =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | MethodAttributes.Final
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(methodName),
+                signature,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        MemberReferenceHandle declaration =
+            metadata.AddMemberReference(
+                declared,
+                metadata.GetOrAddString(methodName),
+                signature);
+        metadata.AddInterfaceImplementation(type, implemented);
+        metadata.AddMethodImplementation(
+            type,
+            body,
+            declaration);
+    }
+
+    static TypeSpecificationHandle AddConstructedType(
+        MetadataBuilder metadata,
+        EntityHandle genericType,
+        IReadOnlyList<byte> argumentTypeCodes)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x15);
+        signature.WriteByte(0x12);
+        WriteTypeDefOrRef(signature, genericType);
+        signature.WriteCompressedInteger(
+            argumentTypeCodes.Count);
+        foreach (byte argumentTypeCode in argumentTypeCodes)
+            signature.WriteByte(argumentTypeCode);
+        return metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(signature));
+    }
+
+    static TypeSpecificationHandle AddConstructedType(
+        MetadataBuilder metadata,
+        EntityHandle genericType,
+        byte argumentTypeCode)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x15);
+        signature.WriteByte(0x12);
+        WriteTypeDefOrRef(signature, genericType);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(argumentTypeCode);
+        return metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(signature));
+    }
+
+    static TypeSpecificationHandle AddConstructedType(
+        MetadataBuilder metadata,
+        EntityHandle genericType,
+        EntityHandle argumentType)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x15);
+        signature.WriteByte(0x12);
+        WriteTypeDefOrRef(signature, genericType);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x12);
+        WriteTypeDefOrRef(signature, argumentType);
+        return metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(signature));
+    }
+
     static byte[] BuildRepeatedLongVisibilityAttributeTypeNameImage(
         int methodCount,
         int nameLength)
@@ -1893,6 +3427,23 @@ public sealed class ApiSurfaceExtractorBoundsTests
             signature.WriteByte(0x12);
             signature.WriteCompressedInteger(argumentCode);
         }
+    }
+
+    public interface Round23ExplicitOverloadContract
+    {
+        int Map(int value);
+
+        string Map(string value);
+    }
+
+    public sealed class Round23ExplicitOverloadImplementation
+        : Round23ExplicitOverloadContract
+    {
+        int Round23ExplicitOverloadContract.Map(int value)
+            => value;
+
+        string Round23ExplicitOverloadContract.Map(string value)
+            => value;
     }
 
     static byte[] BuildLargeAttributeImage(int valueLength)

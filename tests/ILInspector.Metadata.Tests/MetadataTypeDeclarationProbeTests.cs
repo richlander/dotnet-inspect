@@ -392,6 +392,59 @@ public class MetadataTypeDeclarationProbeTests
     }
 
     [Fact]
+    public void Probe_LongNonConstructorNamesDoNotAmplifyAllocations()
+    {
+        const int methodCount = 10_000;
+        string longName = new('M', 4_000);
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Target");
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature).MethodSignature().Parameters(
+                0,
+                returnType => returnType.Void(),
+                _ => { });
+            BlobHandle signatureHandle =
+                metadata.GetOrAddBlob(signature);
+            StringHandle nameHandle =
+                metadata.GetOrAddString(longName);
+            for (int index = 0; index < methodCount; index++)
+            {
+                metadata.AddMethodDefinition(
+                    MethodAttributes.Public
+                        | MethodAttributes.SpecialName
+                        | MethodAttributes.RTSpecialName,
+                    MethodImplAttributes.IL,
+                    nameHandle,
+                    signatureHandle,
+                    bodyOffset: -1,
+                    MetadataTokens.ParameterHandle(1));
+            }
+        });
+        MetadataTypeDefinitionName target =
+            Name("N", "Target");
+
+        MetadataTypeDeclarationProbe.Probe(
+            image.Reader,
+            target);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var defined = Assert.IsType<TypeDeclarationResult.Defined>(
+            MetadataTypeDeclarationProbe.Probe(
+                image.Reader,
+                target));
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.False(
+            defined.HasAccessibleParameterlessConstructor);
+        Assert.InRange(allocated, 0, 2 * 1024 * 1024);
+    }
+
+    [Fact]
     public void ProbeDefinition_ReturnsCurrentDefinitionProjection()
     {
         TypeDefinitionHandle handle = default;
