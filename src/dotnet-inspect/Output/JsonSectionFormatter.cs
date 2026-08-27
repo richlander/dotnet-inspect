@@ -448,7 +448,6 @@ internal sealed class JsonSectionFormatter :
         }
         var section = RequireSection(SectionKind.LabeledArrays);
         section.LabeledArrays.Add(new LabeledArray(name, values.ToArray()));
-        section.LabeledArrays.Add(new LabeledArray(name, values.ToArray()));
     }
 
     public void FormatListItem(TextWriter writer, string item)
