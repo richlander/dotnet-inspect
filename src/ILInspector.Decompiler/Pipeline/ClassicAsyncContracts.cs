@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using System.Text;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
@@ -151,8 +152,10 @@ internal sealed record ClassicAsyncPlan(
 /// captured tree is never exposed; every application receives a deep copy.
 /// </summary>
 internal sealed class ClassicAsyncBodyPlan
+    : IEquatable<ClassicAsyncBodyPlan>
 {
     readonly BlockContainer _body;
+    readonly string _fingerprint;
 
     ClassicAsyncBodyPlan(
         BlockContainer body,
@@ -160,6 +163,7 @@ internal sealed class ClassicAsyncBodyPlan
         ImmutableArray<string?> localNames)
     {
         _body = (BlockContainer)body.Clone();
+        _fingerprint = Fingerprint(_body);
         Locals = locals;
         LocalNames = localNames;
     }
@@ -176,6 +180,93 @@ internal sealed class ClassicAsyncBodyPlan
 
     internal BlockContainer Materialize()
         => (BlockContainer)_body.Clone();
+
+    public bool Equals(ClassicAsyncBodyPlan? other)
+        => other is not null
+            && _fingerprint == other._fingerprint
+            && Locals.SequenceEqual(other.Locals)
+            && LocalNames.SequenceEqual(other.LocalNames);
+
+    public override bool Equals(object? obj)
+        => obj is ClassicAsyncBodyPlan other && Equals(other);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(_fingerprint, StringComparer.Ordinal);
+        foreach (TypeRef local in Locals)
+            hash.Add(local);
+        foreach (string? name in LocalNames)
+            hash.Add(name, StringComparer.Ordinal);
+        return hash.ToHashCode();
+    }
+
+    static string Fingerprint(IrNode root)
+    {
+        var builder = new StringBuilder();
+        Append(root);
+        return builder.ToString();
+
+        void Append(IrNode node)
+        {
+            builder.Append(node.GetType().FullName)
+                .Append('|')
+                .Append(node.Describe())
+                .Append('|')
+                .Append(node.Children.Count)
+                .Append('|')
+                .Append(node.OwnsSourceLabel)
+                .Append('|')
+                .Append(SemanticDetail(node))
+                .AppendLine();
+            foreach (IrNode child in node.Children)
+                Append(child);
+        }
+    }
+
+    static string SemanticDetail(IrNode node)
+        => node switch
+        {
+            AwaitExpression awaitExpression
+                => $"{awaitExpression.ResultType?.ToDisplayString()}|"
+                    + $"{awaitExpression.ResultIsDynamic}",
+            LoadArgument argument
+                => $"{argument.IsDynamic}|"
+                    + $"{argument.ArrayElementIsDynamic}",
+            Call call
+                => MethodDetail(call),
+            Conditional conditional
+                => conditional.MergedType?.ToDisplayString() ?? "",
+            ForeachStatement foreachStatement
+                => $"{foreachStatement.IsAwait}|"
+                    + string.Join(
+                        ";",
+                        foreachStatement.ConsumedMemberRefs.Select(
+                            MethodDetail)),
+            LoadElement element
+                => $"{element.ElementType?.ToDisplayString()}|"
+                    + $"{element.ResultIsDynamic}",
+            _ => string.Join(
+                ";",
+                node.DirectTypes.Select(
+                    static type => type.ToDisplayString())),
+        };
+
+    static string MethodDetail(Call call)
+        => $"{call.IsVirtual}|"
+            + $"{call.ConstrainedTo?.ToDisplayString()}|"
+            + MethodDetail(call.Callee);
+
+    static string MethodDetail(MethodRef method)
+        => $"{method.DeclaringType.ToDisplayString()}|{method.Name}|"
+            + $"{method.ReturnType.ToDisplayString()}|{method.HasThis}|"
+            + $"{string.Join(",", method.ParameterTypes.Select(static type => type.ToDisplayString()))}|"
+            + $"{string.Join(",", method.TypeArguments.Select(static type => type.ToDisplayString()))}|"
+            + $"{method.ReturnIsDynamic}|{method.ReturnArrayElementIsDynamic}|"
+            + $"{method.ParameterRefKindsFacts}|"
+            + $"{string.Join(",", method.ParameterRefKinds)}|"
+            + $"{method.SafeTrailingElidableCount}|{method.RequiresUnsafe}|"
+            + $"{method.AccessorKind}|{method.LocalFunctionRaise}";
 }
 
 /// <summary>

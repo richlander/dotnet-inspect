@@ -460,6 +460,30 @@ public class ClassicAsyncReconstructionPassTests
                 .Select(pass => pass.Name));
     }
 
+    [Fact]
+    public void IndependentlyPreparedPlansHaveValueSemantics()
+    {
+        using var source = OpenClassicFixture();
+        IrFunction function = ImportClassicFixture(
+            source,
+            "AwaitValue");
+        var evidence = Assert.IsType<ClassicAsyncRelationshipEvidence>(
+            function.ClassicAsyncRelationship);
+
+        ClassicAsyncPreparationResult first =
+            ClassicAsyncReconstructionPass.Prepare(
+                source,
+                evidence);
+        ClassicAsyncPreparationResult second =
+            ClassicAsyncReconstructionPass.Prepare(
+                source,
+                evidence);
+
+        Assert.NotSame(first, second);
+        Assert.Equal(first, second);
+        Assert.Equal(first.GetHashCode(), second.GetHashCode());
+    }
+
     static MethodRef CaptureMoveNextRequest(MetadataSource source)
     {
         IrFunction function = ImportClassicFixture(source, "AwaitVoid");

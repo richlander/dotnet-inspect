@@ -891,19 +891,47 @@ public sealed class IrFunction : IrNode
         => $"Function {Signature.ReturnType.ToDisplayString()} {Name}({string.Join(", ", Signature.Parameters.Select(p => $"{p.Type.ToDisplayString()} {p.Name}"))})";
 }
 
-internal sealed record IrTypeFactsSnapshot(
-    IReadOnlyDictionary<TypeRef, TypeShape> TypeShapes,
-    IReadOnlyDictionary<TypeRef, TypeDefinitionIdentity> TypeFactIdentities,
-    IReadOnlySet<TypeRef> AmbiguousTypeFacts,
-    IReadOnlyDictionary<TypeRef, IReadOnlyDictionary<long, string>> EnumMembers,
-    IReadOnlyDictionary<TypeRef, TypeRef> EnumUnderlyingTypes,
-    IReadOnlySet<TypeRef> CollectionInitializerTypes,
-    IReadOnlySet<TypeRef> UnionTypes,
-    IReadOnlySet<TypeRef> ByRefLikeTypes,
-    IReadOnlySet<TypeRef> InterfaceTypes,
-    IReadOnlySet<TypeDefinitionIdentity> EqualityOperatorFreeTypes,
-    IReadOnlySet<TypeDefinitionIdentity> InequalityOperatorFreeTypes)
+internal sealed class IrTypeFactsSnapshot
+    : IEquatable<IrTypeFactsSnapshot>
 {
+    IrTypeFactsSnapshot(
+        IReadOnlyDictionary<TypeRef, TypeShape> typeShapes,
+        IReadOnlyDictionary<TypeRef, TypeDefinitionIdentity> typeFactIdentities,
+        IReadOnlySet<TypeRef> ambiguousTypeFacts,
+        IReadOnlyDictionary<TypeRef, IReadOnlyDictionary<long, string>> enumMembers,
+        IReadOnlyDictionary<TypeRef, TypeRef> enumUnderlyingTypes,
+        IReadOnlySet<TypeRef> collectionInitializerTypes,
+        IReadOnlySet<TypeRef> unionTypes,
+        IReadOnlySet<TypeRef> byRefLikeTypes,
+        IReadOnlySet<TypeRef> interfaceTypes,
+        IReadOnlySet<TypeDefinitionIdentity> equalityOperatorFreeTypes,
+        IReadOnlySet<TypeDefinitionIdentity> inequalityOperatorFreeTypes)
+    {
+        TypeShapes = typeShapes;
+        TypeFactIdentities = typeFactIdentities;
+        AmbiguousTypeFacts = ambiguousTypeFacts;
+        EnumMembers = enumMembers;
+        EnumUnderlyingTypes = enumUnderlyingTypes;
+        CollectionInitializerTypes = collectionInitializerTypes;
+        UnionTypes = unionTypes;
+        ByRefLikeTypes = byRefLikeTypes;
+        InterfaceTypes = interfaceTypes;
+        EqualityOperatorFreeTypes = equalityOperatorFreeTypes;
+        InequalityOperatorFreeTypes = inequalityOperatorFreeTypes;
+    }
+
+    internal IReadOnlyDictionary<TypeRef, TypeShape> TypeShapes { get; }
+    internal IReadOnlyDictionary<TypeRef, TypeDefinitionIdentity> TypeFactIdentities { get; }
+    internal IReadOnlySet<TypeRef> AmbiguousTypeFacts { get; }
+    internal IReadOnlyDictionary<TypeRef, IReadOnlyDictionary<long, string>> EnumMembers { get; }
+    internal IReadOnlyDictionary<TypeRef, TypeRef> EnumUnderlyingTypes { get; }
+    internal IReadOnlySet<TypeRef> CollectionInitializerTypes { get; }
+    internal IReadOnlySet<TypeRef> UnionTypes { get; }
+    internal IReadOnlySet<TypeRef> ByRefLikeTypes { get; }
+    internal IReadOnlySet<TypeRef> InterfaceTypes { get; }
+    internal IReadOnlySet<TypeDefinitionIdentity> EqualityOperatorFreeTypes { get; }
+    internal IReadOnlySet<TypeDefinitionIdentity> InequalityOperatorFreeTypes { get; }
+
     internal static IrTypeFactsSnapshot Capture(IrFunction function)
         => new(
             function.TypeShapes.ToImmutableDictionary(),
@@ -920,6 +948,71 @@ internal sealed record IrTypeFactsSnapshot(
             function.InterfaceTypes.ToImmutableHashSet(),
             function.EqualityOperatorFreeTypes.ToImmutableHashSet(),
             function.InequalityOperatorFreeTypes.ToImmutableHashSet());
+
+    public bool Equals(IrTypeFactsSnapshot? other)
+        => other is not null
+            && MapEqual(TypeShapes, other.TypeShapes)
+            && MapEqual(
+                TypeFactIdentities,
+                other.TypeFactIdentities)
+            && AmbiguousTypeFacts.SetEquals(
+                other.AmbiguousTypeFacts)
+            && EnumMapEqual(EnumMembers, other.EnumMembers)
+            && MapEqual(
+                EnumUnderlyingTypes,
+                other.EnumUnderlyingTypes)
+            && CollectionInitializerTypes.SetEquals(
+                other.CollectionInitializerTypes)
+            && UnionTypes.SetEquals(other.UnionTypes)
+            && ByRefLikeTypes.SetEquals(other.ByRefLikeTypes)
+            && InterfaceTypes.SetEquals(other.InterfaceTypes)
+            && EqualityOperatorFreeTypes.SetEquals(
+                other.EqualityOperatorFreeTypes)
+            && InequalityOperatorFreeTypes.SetEquals(
+                other.InequalityOperatorFreeTypes);
+
+    public override bool Equals(object? obj)
+        => obj is IrTypeFactsSnapshot other && Equals(other);
+
+    public override int GetHashCode()
+        => HashCode.Combine(
+            TypeShapes.Count,
+            TypeFactIdentities.Count,
+            AmbiguousTypeFacts.Count,
+            EnumMembers.Count,
+            EnumUnderlyingTypes.Count,
+            CollectionInitializerTypes.Count,
+            HashCode.Combine(
+                UnionTypes.Count,
+                ByRefLikeTypes.Count,
+                InterfaceTypes.Count,
+                EqualityOperatorFreeTypes.Count,
+                InequalityOperatorFreeTypes.Count));
+
+    static bool MapEqual<TKey, TValue>(
+        IReadOnlyDictionary<TKey, TValue> left,
+        IReadOnlyDictionary<TKey, TValue> right)
+        where TKey : notnull
+        => left.Count == right.Count
+            && left.All(pair =>
+                right.TryGetValue(pair.Key, out TValue? value)
+                && EqualityComparer<TValue>.Default.Equals(
+                    pair.Value,
+                    value));
+
+    static bool EnumMapEqual(
+        IReadOnlyDictionary<
+            TypeRef,
+            IReadOnlyDictionary<long, string>> left,
+        IReadOnlyDictionary<
+            TypeRef,
+            IReadOnlyDictionary<long, string>> right)
+        => left.Count == right.Count
+            && left.All(pair =>
+                right.TryGetValue(
+                    pair.Key,
+                    out IReadOnlyDictionary<long, string>? value)
+                && MapEqual(pair.Value, value));
 }
 
 /// <summary>
