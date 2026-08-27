@@ -147,23 +147,31 @@ Release suite.
 
 ### Immediate input and output
 
-For each eligible producer, the package layer forms one typed route input that
-contains:
+For each eligible configured source, the package layer first forms an
+identity-free classification input containing:
 
-- the syntactic source kind: HTTP endpoint, local folder, or unsupported;
-- the configured source aliases and stable producer identity selected by
-  source policy;
+- the configured source aliases and configured source value selected by source
+  policy;
+- the package coordinate or candidate capability requested by the operation;
+  and
+- the network capability selected for the public package operation.
+
+Classification either returns the package-owned classification-failure variant
+or constructs one producer-bearing route input containing:
+
+- the classified source kind: HTTP endpoint or local folder;
+- the stable producer identity;
 - the ordered runtime transport profiles for that producer;
 - an owner-issued typed source-client factory for each profile;
 - the owner-issued compatibility-request credential policy tracked by
   [NuGet feed authentication](https://github.com/richlander/dotnet-inspect/issues/4776);
-- the network capability selected for the public package operation;
 - the public operation context issued by the
   [operation-deadline owner](https://github.com/richlander/dotnet-inspect/issues/4770):
-  caller cancellation, request deadline, and operation ceiling; and
-- the package coordinate or candidate capability requested by the operation.
+  caller cancellation, request deadline, and operation ceiling.
 
-The stable producer identity authorizes payload caches and records provenance.
+The stable producer identity selects the typed route and records provenance. It
+does not replace the canonical HTTP endpoint or local-directory identity used
+for payload-cache authorization.
 Candidate-cache identity adds the discovery contract and version. Runtime
 transport-profile order controls failover but does not create another content
 identity or invalidate candidate evidence for the same immutable producer and
@@ -176,7 +184,8 @@ An owner-issued source operation returns either its typed value or a
 `PackageSourceFailure`. `DotnetInspector.Packages` wraps that result in one
 package-owned route outcome with these variants:
 
-- a successful candidate or payload value, with its producer provenance and
+- a successful owner-issued operation value, including search or version
+  candidates, an exact manifest, or a payload, with its producer provenance and
   the selected transport profile;
 - a source-operation failure, retaining the owner-issued failure and selected
   transport profile; or
@@ -319,8 +328,9 @@ projects contain non-vacuous gates for these outcomes.
 - `PackageSourceClientProvider_LocalSourcesNeverSelectHttpTransport` proves
   plain paths and `file://` directories do not enter HTTP selection.
 - `PackageSourceClientProvider_UnsupportedSchemesBecomeRouteClassificationFailures`
-  proves an unsupported scheme returns the package-owned pre-client variant
-  without a request or producer identity.
+  proves the identity-free configured source is classified before route
+  construction and an unsupported scheme returns the package-owned pre-client
+  variant without a request or producer identity.
 - `PackageRoutePreservesOfflineNetworkCapability` proves route adaptation does
   not construct or invoke an HTTP source client, and observes no request, when
   the operation lacks network permission.
@@ -344,6 +354,8 @@ projection gates:
   failure shape from #4770.
 - `PackagePayloadCallerCancellationRetainsToken` proves caller cancellation is
   not projected as a source timeout.
+- `PackageRouteOutcomeCarriesManifestWithoutPayloadProjection` proves the
+  generic success variant retains an exact manifest as its owner-issued type.
 - `PayloadKeepsSourceClientAliveThroughConsumption` proves client-handle
   disposal cannot invalidate a caller-owned payload stream.
 - `FailedRouteDisposesSourceClientHandle` proves every path without a returned
@@ -361,6 +373,9 @@ projection gates:
 - `CandidateCacheUsesProducerAndDiscoveryContractIdentity` proves transport
   profile changes do not become content identity while incompatible discovery
   contracts remain isolated.
+- `PayloadCacheAuthorizationRetainsCanonicalEndpointIdentity` proves
+  query-distinct configured endpoints remain distinct cache authorities even
+  when their typed producer identities match.
 
 These gates must fail when the corresponding classification, request-policy
 hook, timeout field, shared operation context, or completeness check is
