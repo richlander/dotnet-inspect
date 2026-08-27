@@ -91,6 +91,19 @@ export interface MemberDetailInspectionState {
   memberDocumentationKey: string;
 }
 
+export function cancelAnnotatedSourceRequest(
+  state: Pick<
+    MemberDetailInspectionState,
+    "memberAnnotatedLoading" | "memberAnnotatedKey" | "memberAnnotatedError"
+  >,
+): boolean {
+  if (!state.memberAnnotatedLoading) return false;
+  state.memberAnnotatedLoading = false;
+  state.memberAnnotatedKey = "";
+  state.memberAnnotatedError = "";
+  return true;
+}
+
 export interface MemberDetailInspectionDependencies {
   state: MemberDetailInspectionState;
   queryDocumentation(

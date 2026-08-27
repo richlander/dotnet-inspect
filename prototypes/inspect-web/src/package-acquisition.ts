@@ -349,9 +349,10 @@ export interface PackageAcquisitionDependencies {
     version: string,
     framework: string,
   ): Promise<BrowserPackageSurface>;
-  loadRuntimePack(framework: string): Promise<string>;
+  loadRuntimePack(framework: string, platformVersion: string): Promise<string>;
   loadRuntimePackAssembly(
     framework: string,
+    platformVersion: string,
     assemblyFileName: string,
     pack: string,
   ): Promise<string>;
@@ -383,12 +384,14 @@ export interface PackageAcquisition {
   loadRuntimePack(
     framework: string,
     isCurrent?: () => boolean,
+    platformVersion?: string,
   ): Promise<RuntimeAcquisitionResult>;
   loadRuntimePackAssembly(
     framework: string,
     assemblyFileName: string,
     pack: string,
     isCurrent?: () => boolean,
+    platformVersion?: string,
   ): Promise<RuntimeAcquisitionResult>;
 }
 
@@ -453,29 +456,45 @@ export function createPackageAcquisition(
       return packageModel;
     },
 
-    async loadRuntimePack(framework, isCurrent = () => true) {
+    async loadRuntimePack(
+      framework,
+      isCurrent = () => true,
+      platformVersion = "",
+    ) {
       return enqueueRuntimeRequest(async () => {
         if (!isCurrent()) return { packageModel: null, error: null };
         const requestedFramework = framework || "";
+        const requestedVersion =
+          platformVersion.toLowerCase() === "latest"
+            ? ""
+            : platformVersion;
         const existing = dependencies.runtimePackage();
         if (existing
           && runtimePackIsResident(existing)
           && (!requestedFramework
             || existing.activeFramework.toLowerCase()
-              === requestedFramework.toLowerCase())) {
+              === requestedFramework.toLowerCase())
+          && (!requestedVersion
+            || existing.version.toLowerCase()
+              === requestedVersion.toLowerCase())) {
           return { packageModel: existing, error: null };
         }
 
         return runRuntimeOperation(async () => {
           const result = dependencies.parseRuntimeSurface(
-            await dependencies.loadRuntimePack(requestedFramework));
+            await dependencies.loadRuntimePack(
+              requestedFramework,
+              requestedVersion));
           if (!isCurrent()) return null;
           dependencies.refreshPackageStats();
           const current = dependencies.runtimePackage();
           if (current
             && (!requestedFramework
               || current.activeFramework.toLowerCase()
-                === requestedFramework.toLowerCase())) {
+                === requestedFramework.toLowerCase())
+            && (!requestedVersion
+              || current.version.toLowerCase()
+                === requestedVersion.toLowerCase())) {
             const merged = mergeRuntimePackageSurface(current, result);
             const primary = selectedAssembly(result);
             if (primary) {
@@ -497,17 +516,25 @@ export function createPackageAcquisition(
       assemblyFileName,
       pack,
       isCurrent = () => true,
+      platformVersion = "",
     ) {
       return enqueueRuntimeRequest(async () => {
         if (!isCurrent()) return { packageModel: null, error: null };
         const requestedFramework = framework || "";
+        const requestedVersion =
+          platformVersion.toLowerCase() === "latest"
+            ? ""
+            : platformVersion;
         const requestedAssembly = assemblyFileName
           .replace(/\.dll$/i, "");
         const resident = dependencies.runtimePackage();
         if (resident
           && (!requestedFramework
             || resident.activeFramework.toLowerCase()
-              === requestedFramework.toLowerCase())) {
+              === requestedFramework.toLowerCase())
+          && (!requestedVersion
+            || resident.version.toLowerCase()
+              === requestedVersion.toLowerCase())) {
           if (runtimeAssemblyIsResident(
             resident,
             requestedAssembly,
@@ -520,6 +547,7 @@ export function createPackageAcquisition(
           const result = dependencies.parseRuntimeSurface(
             await dependencies.loadRuntimePackAssembly(
               requestedFramework,
+              requestedVersion,
               assemblyFileName,
               pack || ""));
           if (!isCurrent()) return null;
@@ -528,7 +556,10 @@ export function createPackageAcquisition(
           if (existing
             && (!requestedFramework
               || existing.activeFramework.toLowerCase()
-                === requestedFramework.toLowerCase())) {
+                === requestedFramework.toLowerCase())
+            && (!requestedVersion
+              || existing.version.toLowerCase()
+                === requestedVersion.toLowerCase())) {
             const merged = mergeRuntimePackageSurface(existing, result);
             const primary = selectedAssembly(result);
             // Promotion builds a package model, so it needs a descriptor. A truncated

@@ -109,6 +109,7 @@ function drillRequest(
 ): PlatformDrillRequest {
   return {
     framework: "net10.0",
+    platformVersion: "10.0.10",
     assembly: "System.Text.Json.dll",
     pack: "netcore.app",
     assemblyVersion: "10.0.0.0",

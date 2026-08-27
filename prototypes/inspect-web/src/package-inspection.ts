@@ -79,6 +79,7 @@ export interface PackageInspectionDependencies {
   ): Promise<BrowserPackageIntegrations>;
   queryPlatformIntegrations(
     framework: string,
+    platformVersion: string,
     assemblyFileName: string,
     pack: string,
   ): Promise<BrowserPackageIntegrations>;
@@ -87,6 +88,7 @@ export interface PackageInspectionDependencies {
   ): Promise<BrowserPackageOpportunities>;
   queryPlatformOpportunities(
     framework: string,
+    platformVersion: string,
     assemblyFileName: string,
     pack: string,
   ): Promise<BrowserPackageOpportunities>;
@@ -95,12 +97,14 @@ export interface PackageInspectionDependencies {
   ): Promise<PackagePerformance>;
   queryPlatformPerformance(
     framework: string,
+    platformVersion: string,
     assemblyFileName: string,
     pack: string,
   ): Promise<PackagePerformance>;
   queryPackageMetadata(packageModel: AppPackage): Promise<PackageMetadata>;
   queryPlatformMetadata(
     framework: string,
+    platformVersion: string,
     assemblyFileName: string,
     pack: string,
   ): Promise<PackageMetadata>;
@@ -165,6 +169,7 @@ export function createPackageInspectionCoordinator(
     scopedLibrary: string,
   ) => ({
     framework: packageModel.activeFramework,
+    platformVersion: packageModel.version,
     assemblyFileName: `${scopedLibrary}.dll`,
     pack: dependencies.platformPackForAssembly(scopedLibrary),
   });
@@ -289,6 +294,7 @@ export function createPackageInspectionCoordinator(
         const result = coordinates
           ? await dependencies.queryPlatformIntegrations(
               coordinates.framework,
+              coordinates.platformVersion,
               coordinates.assemblyFileName,
               coordinates.pack)
           : await dependencies.queryPackageIntegrations(packageModel);
@@ -326,6 +332,7 @@ export function createPackageInspectionCoordinator(
         const result = coordinates
           ? await dependencies.queryPlatformOpportunities(
               coordinates.framework,
+              coordinates.platformVersion,
               coordinates.assemblyFileName,
               coordinates.pack)
           : await dependencies.queryPackageOpportunities(packageModel);
@@ -363,6 +370,7 @@ export function createPackageInspectionCoordinator(
         const result = coordinates
           ? await dependencies.queryPlatformPerformance(
               coordinates.framework,
+              coordinates.platformVersion,
               coordinates.assemblyFileName,
               coordinates.pack)
           : await dependencies.queryPackagePerformance(packageModel);
@@ -400,6 +408,7 @@ export function createPackageInspectionCoordinator(
         const result = coordinates
           ? await dependencies.queryPlatformMetadata(
               coordinates.framework,
+              coordinates.platformVersion,
               coordinates.assemblyFileName,
               coordinates.pack)
           : await dependencies.queryPackageMetadata(packageModel);

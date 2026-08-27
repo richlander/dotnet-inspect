@@ -151,8 +151,18 @@ internal static class BrowserPlatformWorkspace
     internal static Task<BrowserPlatformScopeResolution> OpenRuntimeAsync(
         string targetFramework,
         CancellationToken cancellationToken = default) =>
+        OpenRuntimeAsync(
+            targetFramework,
+            platformVersion: null,
+            cancellationToken);
+
+    internal static Task<BrowserPlatformScopeResolution> OpenRuntimeAsync(
+        string targetFramework,
+        string? platformVersion,
+        CancellationToken cancellationToken = default) =>
         OpenAsync(
             targetFramework,
+            platformVersion,
             RuntimeFamily,
             DefaultRuntimeAssembly,
             ProductionHost,
@@ -165,8 +175,24 @@ internal static class BrowserPlatformWorkspace
         IPackageSourceAuthorization sourceAuthorization,
         TimeSpan operationTimeout,
         CancellationToken cancellationToken = default) =>
+        OpenRuntimeAsync(
+            targetFramework,
+            platformVersion: null,
+            client,
+            sourceAuthorization,
+            operationTimeout,
+            cancellationToken);
+
+    internal static Task<BrowserPlatformScopeResolution> OpenRuntimeAsync(
+        string targetFramework,
+        string? platformVersion,
+        HttpClient client,
+        IPackageSourceAuthorization sourceAuthorization,
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken = default) =>
         OpenAsync(
             targetFramework,
+            platformVersion,
             RuntimeFamily,
             DefaultRuntimeAssembly,
             new Host(client, sourceAuthorization),
@@ -178,15 +204,30 @@ internal static class BrowserPlatformWorkspace
         string assemblyFileName,
         string pack,
         CancellationToken cancellationToken = default) =>
+        OpenAssemblyAsync(
+            targetFramework,
+            platformVersion: null,
+            assemblyFileName,
+            pack,
+            cancellationToken);
+
+    internal static Task<BrowserPlatformScopeResolution> OpenAssemblyAsync(
+        string targetFramework,
+        string? platformVersion,
+        string assemblyFileName,
+        string pack,
+        CancellationToken cancellationToken = default) =>
         string.IsNullOrWhiteSpace(pack)
             ? OpenUnattributedAsync(
                 targetFramework,
+                platformVersion,
                 AssemblySimpleName(assemblyFileName),
                 ProductionHost,
                 BrowserPackageWorkspace.PackageOperationTimeout,
                 cancellationToken)
             : OpenAsync(
                 targetFramework,
+                platformVersion,
                 Family(pack),
                 AssemblySimpleName(assemblyFileName),
                 ProductionHost,
@@ -201,15 +242,36 @@ internal static class BrowserPlatformWorkspace
         IPackageSourceAuthorization sourceAuthorization,
         TimeSpan operationTimeout,
         CancellationToken cancellationToken = default) =>
+        OpenAssemblyAsync(
+            targetFramework,
+            platformVersion: null,
+            assemblyFileName,
+            pack,
+            client,
+            sourceAuthorization,
+            operationTimeout,
+            cancellationToken);
+
+    internal static Task<BrowserPlatformScopeResolution> OpenAssemblyAsync(
+        string targetFramework,
+        string? platformVersion,
+        string assemblyFileName,
+        string pack,
+        HttpClient client,
+        IPackageSourceAuthorization sourceAuthorization,
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken = default) =>
         string.IsNullOrWhiteSpace(pack)
             ? OpenUnattributedAsync(
                 targetFramework,
+                platformVersion,
                 AssemblySimpleName(assemblyFileName),
                 new Host(client, sourceAuthorization),
                 operationTimeout,
                 cancellationToken)
             : OpenAsync(
                 targetFramework,
+                platformVersion,
                 Family(pack),
                 AssemblySimpleName(assemblyFileName),
                 new Host(client, sourceAuthorization),
@@ -222,6 +284,7 @@ internal static class BrowserPlatformWorkspace
         CancellationToken cancellationToken = default) =>
         OpenAssembliesAsync(
             targetFramework,
+            platformVersion: null,
             assemblies,
             ProductionHost,
             BrowserPackageWorkspace.PackageOperationTimeout,
@@ -236,13 +299,28 @@ internal static class BrowserPlatformWorkspace
         CancellationToken cancellationToken = default) =>
         OpenAssembliesAsync(
             targetFramework,
+            platformVersion: null,
             assemblies,
             new Host(client, sourceAuthorization),
             operationTimeout,
             cancellationToken);
 
+    internal static Task<BrowserPlatformScopeResolution> OpenAssembliesAsync(
+        string targetFramework,
+        string? platformVersion,
+        IReadOnlyList<BrowserPlatformAssemblyRequest> assemblies,
+        CancellationToken cancellationToken = default) =>
+        OpenAssembliesAsync(
+            targetFramework,
+            platformVersion,
+            assemblies,
+            ProductionHost,
+            BrowserPackageWorkspace.PackageOperationTimeout,
+            cancellationToken);
+
     static Task<BrowserPlatformScopeResolution> OpenAsync(
         string targetFramework,
+        string? platformVersion,
         string family,
         string assembly,
         Host host,
@@ -250,6 +328,7 @@ internal static class BrowserPlatformWorkspace
         CancellationToken cancellationToken)
         => OpenAsync(
             targetFramework,
+            platformVersion,
             [new PlatformSelection(family, assembly)],
             host,
             operationTimeout,
@@ -257,6 +336,7 @@ internal static class BrowserPlatformWorkspace
 
     static Task<BrowserPlatformScopeResolution> OpenAssembliesAsync(
         string targetFramework,
+        string? platformVersion,
         IReadOnlyList<BrowserPlatformAssemblyRequest> assemblies,
         Host host,
         TimeSpan operationTimeout,
@@ -310,6 +390,7 @@ internal static class BrowserPlatformWorkspace
 
         return OpenAsync(
             targetFramework,
+            platformVersion,
             selections.ToImmutable(),
             host,
             operationTimeout,
@@ -318,19 +399,22 @@ internal static class BrowserPlatformWorkspace
 
     static Task<BrowserPlatformScopeResolution> OpenAsync(
         string targetFramework,
+        string? platformVersion,
         ImmutableArray<PlatformSelection> selections,
         Host host,
         TimeSpan operationTimeout,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
-        string targetKey = TargetKey(targetFramework);
+        platformVersion = NormalizeOptionalVersion(platformVersion);
+        string targetKey = TargetKey(targetFramework, platformVersion);
         return BrowserPackageWorkspace.RunPackageOperationAsync(
             deadline => EnqueueAsync(
                 targetKey,
                 () => OpenCoreAsync(
                     targetKey,
                     targetFramework,
+                    platformVersion,
                     selections,
                     host,
                     deadline),
@@ -341,19 +425,22 @@ internal static class BrowserPlatformWorkspace
 
     static Task<BrowserPlatformScopeResolution> OpenUnattributedAsync(
         string targetFramework,
+        string? platformVersion,
         string assembly,
         Host host,
         TimeSpan operationTimeout,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
-        string targetKey = TargetKey(targetFramework);
+        platformVersion = NormalizeOptionalVersion(platformVersion);
+        string targetKey = TargetKey(targetFramework, platformVersion);
         return BrowserPackageWorkspace.RunPackageOperationAsync(
             deadline => EnqueueAsync(
                 targetKey,
                 () => OpenUnattributedCoreAsync(
                     targetKey,
                     targetFramework,
+                    platformVersion,
                     assembly,
                     host,
                     deadline),
@@ -365,6 +452,7 @@ internal static class BrowserPlatformWorkspace
     static async Task<BrowserPlatformScopeResolution> OpenCoreAsync(
         string targetKey,
         string targetFramework,
+        string? platformVersion,
         ImmutableArray<PlatformSelection> selections,
         Host host,
         BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline)
@@ -379,6 +467,7 @@ internal static class BrowserPlatformWorkspace
         return await OpenCoreAsync(
             targetKey,
             targetFramework,
+            platformVersion,
             selections,
             host,
             deadline,
@@ -390,6 +479,7 @@ internal static class BrowserPlatformWorkspace
     static async Task<BrowserPlatformScopeResolution> OpenUnattributedCoreAsync(
         string targetKey,
         string targetFramework,
+        string? platformVersion,
         string assembly,
         Host host,
         BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline)
@@ -420,6 +510,7 @@ internal static class BrowserPlatformWorkspace
             return await OpenCoreAsync(
                 targetKey,
                 targetFramework,
+                platformVersion,
                 [new PlatformSelection(known[0].Family, assembly)],
                 host,
                 deadline,
@@ -437,6 +528,7 @@ internal static class BrowserPlatformWorkspace
             return await OpenCoreAsync(
                 targetKey,
                 targetFramework,
+                platformVersion,
                 [new PlatformSelection(Family(residentPack), assembly)],
                 host,
                 deadline,
@@ -448,6 +540,7 @@ internal static class BrowserPlatformWorkspace
         using PlatformLoadAttempt runtime = await ProbeFamilyAsync(
             state,
             targetFramework,
+            platformVersion,
             RuntimeFamily,
             assembly,
             host,
@@ -462,6 +555,7 @@ internal static class BrowserPlatformWorkspace
         using PlatformLoadAttempt aspNetCore = await ProbeFamilyAsync(
             state,
             targetFramework,
+            platformVersion,
             AspNetCoreFamily,
             assembly,
             host,
@@ -511,6 +605,7 @@ internal static class BrowserPlatformWorkspace
         return await OpenCoreAsync(
             targetKey,
             targetFramework,
+            platformVersion,
             [new PlatformSelection(family, assembly)],
             host,
             deadline,
@@ -529,6 +624,7 @@ internal static class BrowserPlatformWorkspace
     static async Task<BrowserPlatformScopeResolution> OpenCoreAsync(
         string targetKey,
         string targetFramework,
+        string? platformVersion,
         ImmutableArray<PlatformSelection> selections,
         Host host,
         BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline,
@@ -652,6 +748,7 @@ internal static class BrowserPlatformWorkspace
                 using PlatformLoadAttempt? loaded = !usesDeclaration
                     ? await LoadDeclaredAttemptAsync(
                         targetFramework,
+                        platformVersion,
                         selection.Family,
                         selection.Assembly,
                         host,
@@ -740,6 +837,7 @@ internal static class BrowserPlatformWorkspace
     static async Task<PlatformLoadAttempt> ProbeFamilyAsync(
         TargetState state,
         string targetFramework,
+        string? platformVersion,
         string family,
         string assembly,
         Host host,
@@ -753,6 +851,7 @@ internal static class BrowserPlatformWorkspace
         {
             return await LoadDeclaredAttemptAsync(
                 targetFramework,
+                platformVersion,
                 family,
                 assembly,
                 host,
@@ -776,6 +875,7 @@ internal static class BrowserPlatformWorkspace
 
     static async Task<PlatformLoadAttempt> LoadDeclaredAttemptAsync(
         string targetFramework,
+        string? platformVersion,
         string family,
         string assembly,
         Host host,
@@ -796,7 +896,8 @@ internal static class BrowserPlatformWorkspace
                         [
                             WorkspaceMemberCoordinate.Platform(
                                 family,
-                                assembly),
+                                assembly,
+                                platformVersion),
                         ],
                     },
                     Options(store, host, deadline),
@@ -1129,8 +1230,19 @@ internal static class BrowserPlatformWorkspace
         return assembly;
     }
 
-    static string TargetKey(string targetFramework) =>
-        targetFramework.ToLowerInvariant();
+    static string? NormalizeOptionalVersion(string? platformVersion) =>
+        string.IsNullOrEmpty(platformVersion)
+        || platformVersion.Equals(
+            "latest",
+            StringComparison.OrdinalIgnoreCase)
+            ? null
+            : platformVersion;
+
+    static string TargetKey(
+        string targetFramework,
+        string? platformVersion) =>
+        $"{targetFramework.ToLowerInvariant()}@"
+        + (platformVersion?.ToLowerInvariant() ?? "latest");
 
     static string ScopeKey(
         ImmutableArray<RealizedMemberCoordinate.Platform> coordinates) =>
