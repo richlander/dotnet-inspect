@@ -484,6 +484,24 @@ Selecting `All libraries` or one Library activates that Library subject. It
 does not also select a Type. Selecting a Type or Member directly is allowed and
 returns its complete ancestor descriptors in the replacement snapshot.
 
+### Navigation intent ordering
+
+One retained navigation session owns a monotonic opaque intent sequence shared
+by subject, lens, and coordinate transitions that can replace the snapshot.
+Beginning a newer transition issues a new intent token and immediately
+invalidates every older in-flight token, even before any result completes.
+
+Every asynchronous result carries both:
+
+- its issuing snapshot basis: generation, coordinate, and active subject; and
+- its navigation intent token.
+
+A result may install a snapshot, surface a transition outcome, or move focus
+only while both remain current. A superseded result is discarded without
+changing state or focus; the newer intent owns those effects. Snapshot
+generation still validates the meaning of action IDs, while intent ordering
+makes last-issued navigation win independently of completion order.
+
 ## Reconciliation
 
 Reconciliation is automatic product work after the facts underlying an already
@@ -569,9 +587,9 @@ identities, order, and availability without defining them.
 Explicit lens activation is not a subject action-ID transition. A consumer
 submits the returned owner-issued lens identity through the lens owner's typed
 transition seam together with the issuing snapshot generation, coordinate, and
-active subject identity. A result is current only while that complete basis
-still matches the installed snapshot; otherwise it is rejected or discarded
-without replacing newer state.
+active subject identity and a new shared navigation intent token. A result is
+current only while that complete basis and token still match the navigation
+session; otherwise it is rejected or discarded without replacing newer state.
 
 An applied result becomes the committed lens identity input to a complete
 replacement navigation snapshot, which the consumer installs atomically. An
@@ -830,6 +848,8 @@ covering at least:
 - `InspectWeb_UnavailableLensActivationInstallsRefreshedSnapshot`
 - `InspectWeb_RejectedOrFailedLensActivationRetainsPriorSnapshot`
 - `InspectWeb_StaleLensActivationCannotReplaceNewerSubjectSnapshot`
+- `InspectWeb_LatestLensIntentWinsAcrossCompletionOrders`
+- `InspectWeb_NewerNavigationIntentInvalidatesOlderSubjectResult`
 - `InspectWeb_SubjectNonAppliedOutcomeReturnsFocusToInvoker`
 - `InspectWeb_ConsumesSubjectOutcomeWithoutHostFallback`
 

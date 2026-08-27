@@ -450,8 +450,8 @@ Lens tablists use one tab stop and manual activation:
   remain discoverable.
 - Enter or Space activates a focused available tab by submitting its
   owner-issued lens identity plus the current snapshot generation, coordinate,
-  and active subject through the lens owner's typed transition seam; it does
-  not submit a subject action ID.
+  active subject, and a new shared navigation intent token through the lens
+  owner's typed transition seam; it does not submit a subject action ID.
 - Activating an `aria-disabled` tab has no effect.
 
 Roving `tabindex` keeps only the focused tab at `tabindex="0"`. Moving focus
@@ -465,7 +465,8 @@ returned fresh snapshot, which preserves the subject and prior effective lens
 when still valid while updating availability. A rejected or failed transition
 retains the prior snapshot and active subject while surfacing the typed outcome.
 A result whose generation, coordinate, or active subject no longer matches the
-installed snapshot cannot replace newer state.
+installed snapshot, or whose intent token is no longer current, cannot replace
+newer state or move focus.
 
 An unavailable lens remains in its owning strip with `aria-disabled="true"`
 and an accessible description of the owner-issued reason. A failed lens is
@@ -715,6 +716,11 @@ level-one heading; a successful routed transition focuses that surface's
 level-one heading. An `Unavailable`, `Rejected`, or `Failed` subject outcome
 preserves or installs the product-returned current surface, returns focus to the
 stable subject-menu invoker, and makes the outcome visible.
+
+Subject, lens, version, and TFM transitions share one monotonic navigation
+intent sequence. Starting a newer transition invalidates every older in-flight
+result immediately. A superseded result is discarded without changing the
+installed snapshot, visible outcome, or focus.
 
 When a menu item opens a modal, the menu closes without returning focus to its
 invoker and the modal applies its initial-focus rule. The stable menu-button
@@ -1049,6 +1055,9 @@ outcomes:
 11. Return `Unavailable` and `Rejected` from subject-menu activation and confirm
     that focus returns to the stable menu-button invoker with the outcome
     visible.
+12. Start a subject activation, begin a newer subject or coordinate transition,
+    then complete the older request and confirm that it cannot install state,
+    surface an outcome, or move focus.
 
 ### No effective lens
 
@@ -1078,6 +1087,8 @@ outcomes:
    active subject remain installed while each outcome is visible.
 10. Change the subject while lens work is in flight and confirm that the delayed
     result cannot replace the newer subject snapshot.
+11. From one snapshot, activate lens B and then lens C; complete them in both
+    orders and confirm that C is the final installed lens.
 
 ### Library option availability
 
