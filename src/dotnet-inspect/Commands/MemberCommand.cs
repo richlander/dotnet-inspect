@@ -490,6 +490,13 @@ public static class MemberCommand
                 effectiveOptions = effectiveOptions with { DllPath = unsafeDllPath };
             }
 
+            if (IsWholeDocumentJson(effectiveOptions)
+                && ApiCommand.RejectExactCallerAnalysisDocumentJson(
+                    effectiveOptions))
+            {
+                return 1;
+            }
+
             // Enrich with local XML docs only (source info is in the source command)
             {
                 var dllPath = runtimeAssemblyPath ?? apiDllPath;
@@ -586,13 +593,6 @@ public static class MemberCommand
                     apiType, ApiMemberSectionPipelines.Create(effectiveOptions), effectiveOptions,
                     new ApiCommand.TypeAcquisitionContext(
                         foundIn, packageName, packageVersion, apiSource, selectedTfm));
-            }
-
-            if (IsWholeDocumentJson(effectiveOptions)
-                && ApiCommand.RejectExactCallerAnalysisDocumentJson(
-                    effectiveOptions))
-            {
-                return 1;
             }
 
             // Aggregated caller queries always inspect the member's own assembly, with any
@@ -971,7 +971,8 @@ public static class MemberCommand
     }
 
     private static bool RequiresCallerScopeResolution(MemberOptions options)
-        => options.HasCallerScope
+        => !IsWholeDocumentJson(options)
+           && options.HasCallerScope
            && options.IncludeSections is { } sections
            && (sections.Contains(SectionNames.Callers)
                || sections.Contains(SectionNames.CallGraph));
@@ -1048,6 +1049,8 @@ public static class MemberCommand
     [
         SectionNames.Calls,
         SectionNames.ExceptionRegions,
+        SectionNames.AnnotatedSourceDocument,
+        SectionNames.AppliedTaste,
         SectionNames.AllocationFacts,
         SectionNames.SafetyFacts,
         SectionNames.CostFacts,

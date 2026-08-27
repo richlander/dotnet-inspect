@@ -7031,6 +7031,52 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void BodyEvidenceDiagnosticsCoverEveryExecutableBodySection()
+    {
+        var bodyless = new ApiType
+        {
+            Name = "Bodyless",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Run",
+                    Kind = "method",
+                    HasMethodBody = false
+                }
+            ]
+        };
+        var executable = new ApiType
+        {
+            Name = "Executable",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Run",
+                    Kind = "method",
+                    HasMethodBody = true
+                }
+            ]
+        };
+        var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
+        var executableOnly = pipeline.GetAvailableSections(executable)
+            .Except(
+                pipeline.GetAvailableSections(bodyless),
+                StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        Assert.NotEmpty(executableOnly);
+        Assert.All(
+            executableOnly,
+            section => Assert.True(
+                MemberCommand.IsBodyEvidenceSection(section),
+                $"Executable-body section '{section}' has no body-evidence diagnostic."));
+    }
+
+    [Fact]
     public void LibraryPipeline_InfoPreset_HasDenseSections()
     {
         var pipeline = LibrarySections.CreatePipeline();

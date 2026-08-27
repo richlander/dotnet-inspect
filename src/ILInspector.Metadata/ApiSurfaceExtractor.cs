@@ -162,7 +162,8 @@ public static class ApiSurfaceExtractor
         MethodDefinitionHandle handle)
         => handle.IsNil
             ? null
-            : reader.GetMethodDefinition(handle).RelativeVirtualAddress != 0;
+            : MethodDefinitionBodyFacts.HasAnalyzableIlBody(
+                reader.GetMethodDefinition(handle));
 
     private const string OptionalAttributeName = "System.Runtime.InteropServices.Optional";
     private const string DateTimeConstantAttributeName = "System.Runtime.CompilerServices.DateTimeConstant";
@@ -1122,7 +1123,7 @@ public static class ApiSurfaceExtractor
                     GenericArity =
                         method.GetGenericParameters().Count,
                     HasMethodBody =
-                        method.RelativeVirtualAddress != 0,
+                        MethodDefinitionBodyFacts.HasAnalyzableIlBody(method),
                     IsUnsafe = HasUnsafeSignature(signature.Text)
                         || AttributeReader.HasRequiresUnsafeAttribute(
                             reader,

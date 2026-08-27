@@ -754,14 +754,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
 
     static bool HasAnalyzableIlBody(
         MethodDefinition method)
-        => method.RelativeVirtualAddress != 0
-            && (method.Attributes
-                    & MethodAttributes.PinvokeImpl) == 0
-            && (method.ImplAttributes
-                    & (MethodImplAttributes.CodeTypeMask
-                        | MethodImplAttributes.ManagedMask
-                        | MethodImplAttributes.InternalCall))
-                == MethodImplAttributes.IL;
+        => MethodDefinitionBodyFacts.HasAnalyzableIlBody(method);
 
     MethodBodyReferenceEvidence MethodBodyReferences(
         MethodDefinitionHandle methodHandle)

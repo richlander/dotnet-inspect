@@ -857,7 +857,7 @@ public sealed class StateMachineRelationshipIndex
                         method => method.Method.Token)]);
                 return;
             }
-            if (!HasManagedIlBody(
+            if (!MethodDefinitionBodyFacts.HasAnalyzableIlBody(
                     _reader.GetMethodDefinition(claim.Kickoff)))
             {
                 PublishRejection(
@@ -1203,7 +1203,7 @@ public sealed class StateMachineRelationshipIndex
                 _reader.GetMethodDefinition(handle);
             if (method.GetDeclaringType() != declaringType
                 || (method.Attributes & MethodAttributes.Static) != 0
-                || !HasManagedIlBody(method)
+                || !MethodDefinitionBodyFacts.HasAnalyzableIlBody(method)
                 || requireImplicitVisibility
                     && ((method.Attributes
                             & MethodAttributes.MemberAccessMask)
@@ -1216,16 +1216,6 @@ public sealed class StateMachineRelationshipIndex
 
             return _signatures.MatchesMethod(method, role);
         }
-
-        static bool HasManagedIlBody(MethodDefinition method) =>
-            method.RelativeVirtualAddress != 0
-                && (method.Attributes
-                    & MethodAttributes.PinvokeImpl) == 0
-                && (method.ImplAttributes
-                    & (MethodImplAttributes.CodeTypeMask
-                        | MethodImplAttributes.ManagedMask
-                        | MethodImplAttributes.InternalCall))
-                    == MethodImplAttributes.IL;
 
         void RejectClaims(
             IReadOnlyList<Claim> claims,

@@ -14878,10 +14878,13 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData(SectionNames.Callers)]
-    [InlineData(SectionNames.CallGraph)]
+    [InlineData(SectionNames.Callers, SectionNames.PdbSource)]
+    [InlineData(SectionNames.Callers, SectionNames.SourceLocations)]
+    [InlineData(SectionNames.CallGraph, SectionNames.PdbSource)]
+    [InlineData(SectionNames.CallGraph, SectionNames.SourceLocations)]
     public async Task Member_ExactCallerAnalysisDocumentJsonFailsBeforeCallerScopeAcquisition(
-        string section)
+        string section,
+        string sourceSection)
     {
         string missingDirectory = Path.Combine(
             Path.GetTempPath(),
@@ -14889,10 +14892,11 @@ public partial class CommandExecutionTests
         var result = await RunAppAsync(
             "member", typeof(MemberBodylessEvidenceFixture).FullName!,
             "--library", typeof(MemberBodylessEvidenceFixture).Assembly.Location,
-            nameof(MemberBodylessEvidenceFixture.Native),
-            "-S", section,
+            $"{nameof(MemberBodylessEvidenceFixture.Executable)}:1",
+            "-S", $"{section},{sourceSection}",
             "--json",
             "--bin", missingDirectory,
+            "--verbose",
             "--tips", "q");
 
         Assert.Equal(1, result.Exit);
@@ -14901,6 +14905,14 @@ public partial class CommandExecutionTests
             $"Document --json cannot represent {section} analysis.",
             result.Error);
         Assert.DoesNotContain("Directory not found", result.Error);
+        Assert.DoesNotContain(
+            "PDB",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "symbol server",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]
@@ -14977,6 +14989,29 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         using var document = JsonDocument.Parse(output);
         Assert.Equal("C", document.RootElement.GetProperty("name").GetString());
+    }
+
+    [Fact]
+    public async Task Member_ExpandedCallerDocumentJsonSkipsUnusedCallerScopeAcquisition()
+    {
+        string missingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-caller-scope-{Guid.NewGuid():N}");
+        var result = await RunAppAsync(
+            "member", typeof(MemberBodylessEvidenceFixture).FullName!,
+            "--library", typeof(MemberBodylessEvidenceFixture).Assembly.Location,
+            $"{nameof(MemberBodylessEvidenceFixture.Executable)}:1",
+            "-S", "Call*",
+            "--json",
+            "--bin", missingDirectory,
+            "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.DoesNotContain("Directory not found", result.Error);
+        using var document = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            nameof(MemberBodylessEvidenceFixture),
+            document.RootElement.GetProperty("name").GetString());
     }
 
     [Fact]
@@ -15154,22 +15189,27 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData(SectionNames.SafetyFacts)]
-    [InlineData(SectionNames.UnsafeOperations)]
+    [InlineData(SectionNames.IL, SectionNames.SafetyFacts)]
+    [InlineData(SectionNames.IL, SectionNames.UnsafeOperations)]
+    [InlineData(SectionNames.AppliedTaste, SectionNames.SafetyFacts)]
+    [InlineData(SectionNames.AnnotatedSourceDocument, SectionNames.UnsafeOperations)]
     public async Task Member_BodylessMixedEvidenceReportsUnavailableExecutableSection(
+        string executableSection,
         string bodylessSection)
     {
         var result = await RunAppAsync(
             "member", typeof(MemberBodylessEvidenceFixture).FullName!,
             "--library", typeof(MemberBodylessEvidenceFixture).Assembly.Location,
             nameof(MemberBodylessEvidenceFixture.Native),
-            "-S", $"{SectionNames.IL},{bodylessSection}",
+            "-S", $"{executableSection},{bodylessSection}",
             "--tips", "q");
 
         Assert.Equal(0, result.Exit);
         Assert.Contains($"## {bodylessSection}", result.Output);
-        Assert.DoesNotContain($"## {SectionNames.IL}", result.Output);
-        Assert.Contains("section 'IL' has no data", result.Error);
+        Assert.DoesNotContain($"## {executableSection}", result.Output);
+        Assert.Contains(
+            $"section '{executableSection}' has no data",
+            result.Error);
     }
 
     [Theory]

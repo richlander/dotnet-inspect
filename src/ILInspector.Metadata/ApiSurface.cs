@@ -1123,7 +1123,7 @@ public class ApiMember
     public bool IsAsync { get; set; }
 
     /// <summary>
-    /// Whether this MethodDef has a managed body RVA. Null is retained for
+    /// Whether this MethodDef has analyzable managed IL. Null is retained for
     /// older or hand-composed surfaces that predate the exact metadata fact.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

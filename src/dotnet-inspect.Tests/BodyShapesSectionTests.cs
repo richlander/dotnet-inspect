@@ -1582,8 +1582,12 @@ public sealed class BodyShapesSectionTests
                     overloadIndex: 2)).MetadataToken);
     }
 
-    [Fact]
-    public async Task MemberBodyResolution_SelectsAccessorOrdinalBeforeBodyFiltering()
+    [Theory]
+    [InlineData(SectionNames.IL)]
+    [InlineData(SectionNames.AppliedTaste)]
+    [InlineData(SectionNames.AnnotatedSourceDocument)]
+    public async Task MemberBodyResolution_SelectsAccessorOrdinalBeforeBodyFiltering(
+        string executableSection)
     {
         var type = new ApiType
         {
@@ -1604,11 +1608,11 @@ public sealed class BodyShapesSectionTests
 
         var getter = ApiOutputFormatter.ResolveBodyMethods(
             type,
-            new HashSet<string> { SectionNames.IL },
+            new HashSet<string> { executableSection },
             new MemberOptions { OverloadIndex = 1 });
         var setter = ApiOutputFormatter.ResolveBodyMethods(
             type,
-            new HashSet<string> { SectionNames.IL },
+            new HashSet<string> { executableSection },
             new MemberOptions { OverloadIndex = 2 });
         var addressableGetter = ApiOutputFormatter.ResolveBodyMethods(
             type,
@@ -1625,7 +1629,7 @@ public sealed class BodyShapesSectionTests
             IncludeSections =
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 {
-                    SectionNames.IL
+                    executableSection
                 }
         };
         var (_, error) = await ConsoleCapture.RunAsync(() =>
@@ -1633,7 +1637,7 @@ public sealed class BodyShapesSectionTests
                 type,
                 options,
                 ApiMemberSectionPipelines.Create(options)));
-        Assert.Contains("section 'IL' has no data", error);
+        Assert.Contains($"section '{executableSection}' has no data", error);
     }
 
     static Task<(int ExitCode, string Output, string Error)> RunMemberAsync(

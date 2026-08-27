@@ -186,7 +186,8 @@ public static class MetadataDeclarationQuery
                 Signature = MethodSignatureText(declaration),
                 SignatureDecodeStatus = declaration.SignatureDecodeStatus,
                 MetadataToken = MetadataTokens.GetToken(methodHandle),
-                HasMethodBody = method.RelativeVirtualAddress != 0,
+                HasMethodBody =
+                    MethodDefinitionBodyFacts.HasAnalyzableIlBody(method),
                 IsStatic = declaration.IsStatic,
                 IsAbstract = declaration.IsAbstract,
                 IsVirtual = declaration.IsVirtual,
@@ -233,7 +234,8 @@ public static class MetadataDeclarationQuery
         MethodDefinitionHandle handle)
         => handle.IsNil
             ? null
-            : reader.GetMethodDefinition(handle).RelativeVirtualAddress != 0;
+            : MethodDefinitionBodyFacts.HasAnalyzableIlBody(
+                reader.GetMethodDefinition(handle));
 
     public static List<int> GetIntroducedTypeParameterCounts(
         MetadataReader reader,
