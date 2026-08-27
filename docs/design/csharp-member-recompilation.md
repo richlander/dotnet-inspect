@@ -484,9 +484,11 @@ Each `CompileReferenceDescriptor` records:
 - aliases and embed-interop role;
 - whether platform policy authorized it as a trusted platform reference.
 
-The selected set records the current source artifact separately. The current
-artifact contributes source-local declaration identities but is not silently
-reintroduced as a metadata reference to satisfy its own generated source.
+The selected set records the current source artifact separately, including its
+acquisition registration, retained snapshot, digest, and module identity. The
+current artifact contributes source-local declaration identities but is not
+silently reintroduced as a metadata reference to satisfy its own generated
+source.
 
 Selection follows these rules:
 
@@ -594,7 +596,7 @@ surfaces that can feed declaration rendering include:
 - type base clauses and implemented-interface clauses;
 - type and method generic-parameter constraints;
 - `MethodImpl` declarations and explicit-interface qualifiers;
-- metadata-backed attributes selected for emission, including constructor
+- metadata-backed attributes on included declarations, including constructor
   declaring types and type- or enum-valued arguments;
 - any later typed declaration component that the artifact plan opts into and
   that can contain a metadata-origin type occurrence.
@@ -608,7 +610,7 @@ context used by member signatures. If the artifact plan introduces a textual
 declaration component with no typed origin, the census is `Incomplete`; equal
 text cannot substitute for the missing identity.
 
-Declaration occurrences become ordinary local, external, intrinsic, or
+Declaration occurrences become local, external, intrinsic,
 compiler-synthesized, or unresolved closure requirements. The rebuilt binding
 receipt repeats the census against corresponding donor declarations. A base,
 interface, constraint, explicit-interface, or attribute type cannot rebind
@@ -663,6 +665,11 @@ Evaluating the plan against the frozen reference set produces one closed
   providers;
 - `Incomplete` retains decode, resolution, safety-bound, and unsupported-scope
   failures.
+
+`Complete` means the artifact is ready for compilation under its mapped
+providers. It is not final binding success: every retained
+compiler-synthesized obligation must still be discharged by the rebuilt binding
+receipt before `CompileContextOutcome.Complete`.
 
 The evaluator does not add references after seeing compiler diagnostics and
 does not retry with a different set. A missing body-only dependency therefore
