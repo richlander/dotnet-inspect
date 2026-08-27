@@ -351,6 +351,9 @@ jobs:
       - name: Build
         run: dotnet build dotnet-inspect.slnx -c Release
 
+      - name: Build package-manifest corpus verifier
+        run: dotnet build eng/verify-package-manifest-corpus.cs -c Release
+
       - name: Prepare PR decompiler corpus
         run: |
           mkdir -p artifacts/decompiler-pr-corpus

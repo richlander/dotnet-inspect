@@ -136,14 +136,18 @@ package version vector:
   `analysis.unsafety` observes one selected method's Analysis census.
 - No `--at` evaluates zero package payloads; repeated `--at` selectors perform
   sparse probes; `--at all` explicitly authorizes dense traversal.
-- `Evaluations` preserves `Present`/`Missing` self-presence through an exact
-  `FindingCorrelation<T>` and `Complete`/`SubjectAbsent` owned censuses through
-  `FindingCensusCorrelation<T>`, plus `Failed` and `Unevaluated` cells. Exact
-  identity tracks derive from the census correlation rather than bypassing it.
-  `Transitions` compares adjacent evaluated cells; a
+- `Evaluations` currently preserves `Present`/`Missing` self-presence through
+  an exact `FindingCorrelation<T>` and `Complete`/`SubjectAbsent` owned censuses
+  through `FindingCensusCorrelation<T>`, plus `Failed` and `Unevaluated` cells.
+  Exact identity tracks derive from the census correlation rather than
+  bypassing it. `Transitions` compares adjacent evaluated cells; a
   gap-spanning row is qualified and never claims an exact transition version.
   Analysis cells decode only the selected method body from the selected package
-  assembly.
+  assembly. The target
+  [#4796 Finding topology](design/finding-nomenclature.md#inspection-and-comparison-semantics)
+  will split the current absence state into `SubjectAbsent` and
+  `NoApplicableInput`; that split remains unimplemented and unverified until
+  its named Findings gates land.
 
 ### find
 
