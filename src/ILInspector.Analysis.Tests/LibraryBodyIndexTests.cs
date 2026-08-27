@@ -13885,6 +13885,73 @@ public class LibraryBodyIndexTests
 
     [Fact]
     public void
+        AsyncSiblingResolution_LiftedFailureRetainsSourceIdentity()
+    {
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        LibraryBodyIndex full = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        const string Owner = "ScopedAsyncLocalAllocationOwner";
+        MethodIdentity asyncSource = Assert.Single(
+            full.Methods,
+            method => method.Name.StartsWith(
+                $"<{Owner}>g__BuildAsync|",
+                StringComparison.Ordinal));
+        MethodIdentity moveNext = Assert.Single(
+            full.Methods,
+            method => method.Name == "MoveNext"
+                && method.DeclaringType.Name.Contains(
+                    asyncSource.Name,
+                    StringComparison.Ordinal));
+
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MethodDefinitionHandle moveNextHandle =
+            (MethodDefinitionHandle)MetadataTokens.EntityHandle(
+                moveNext.MetadataToken);
+        MethodDefinition moveNextDefinition =
+            reader.GetMethodDefinition(moveNextHandle);
+        MethodBodyBlock body = peReader.GetMethodBody(
+            moveNextDefinition.RelativeVirtualAddress);
+        var instructions = LibraryMethodAnalysisRunner.DecodeBody(
+            body.GetILBytes() ?? [],
+            body.ExceptionRegions);
+        var context = new MethodBodyAnalysisContext(
+            moveNext,
+            instructions,
+            body.ExceptionRegions,
+            [],
+            []);
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            resolver: null,
+            methodBodyReferenceIndexed: _ =>
+                throw new BadImageFormatException(
+                    "Injected lifted-owner failure."));
+        var infrastructure =
+            (ILibraryMethodAnalysisInfrastructure)builder;
+        var calls = ImmutableArray.CreateBuilder<DirectCall>();
+        MethodIdentity? diagnosticSource = null;
+
+        Assert.Throws<BadImageFormatException>(() =>
+            infrastructure.CollectAsyncSiblingOpportunities(
+                context,
+                calls,
+                moveNextDefinition,
+                typeSourceGenerated: false,
+                ref diagnosticSource));
+
+        Assert.Equal(
+            asyncSource,
+            diagnosticSource);
+    }
+
+    [Fact]
+    public void
         DirectCalls_ScopedMalformedLiftedOwnerFailsClosed()
     {
         byte[] image = File.ReadAllBytes(

@@ -335,6 +335,11 @@ resolver, so malformed-name authentication uses the provenance captured with
 the resolved owner instead of re-deriving a narrower attribute subset.
 Ultimate-owner traversal preserves that typed provenance for recommendation
 suppression instead of projecting identity alone.
+`LibraryBodyDeclaredSourceResolver` composes that lifted ownership with async
+source mapping. It owns bounded ultimate-owner traversal, declared-method
+resolution, the async/lifted/async scoped-evidence expansion sequence, and
+final declared-source publication with recoverable diagnostics, without
+owning metadata lifetime.
 `OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce`,
 `OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies`, and
 `LiftedOwnerMemberIdentity_RetainsExactAssemblyReferenceScope` gate cache
