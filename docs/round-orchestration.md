@@ -31,16 +31,18 @@ Use REST for every routine status snapshot. Do not call `rate_limit` before a
 snapshot, use GraphQL as a fallback for exhausted REST, or spend one bucket to
 discover whether the other has room. Those calls consume shared capacity
 without advancing the PR. If REST is rate-limited, publish the gating predicate
-as `waiting`, schedule one retry after the reported reset, and yield. If the
-reset is unavailable, wait at least one hour.
+as `waiting`, schedule one retry after `Retry-After` or the reported reset, and
+yield. This includes primary and secondary limits and HTTP 429. If no retry time
+is available, wait at least one hour.
 
 For a transport failure or GitHub 5xx response, retain `attempt=<n>` and
 schedule one successor after 10 minutes plus jitter, then 30 minutes, then one
 hour for later consecutive failures. Remove `attempt` after a successful
-snapshot. A 401, non-rate-limit 403, 404, or malformed response is not pending:
-clear `waiting`, `schedule`, and `attempt`, publish an explicit error with
-`rec=stop`, surface the concrete response, and end. Do not leave a wait that no
-scheduled run can satisfy or schedule a success-shaped retry.
+snapshot. Every remaining non-success HTTP response or malformed response is
+terminal, including 401, non-rate-limit 403, 404, and 422: clear `waiting`,
+`schedule`, and `attempt`, publish an explicit error with `rec=stop`, surface
+the concrete response, and end. Do not leave a wait that no scheduled run can
+satisfy or schedule a success-shaped retry.
 
 Use GraphQL only when the task genuinely requires graph-shaped data that the
 REST pair cannot provide economically, such as review threads with their
@@ -49,18 +51,26 @@ GraphQL for ordinary CI or mergeability monitoring.
 
 ### The REST pair
 
-The default for a routine status check. Two calls, the second pinned to the sha
-the first returned:
+The default for a routine status check. Set the PR number explicitly, capture
+the first response, and pin the second call to the returned SHA:
 
 ```bash
-gh api repos/{owner}/{repo}/pulls/{n} \
-  --jq '{head:.head.sha,draft,mergeable,mergeable_state}'
-gh api "repos/{owner}/{repo}/commits/{sha}/check-runs?per_page=100" \
+pr_number=4822
+pr_state=$(gh api "repos/{owner}/{repo}/pulls/$pr_number" \
+  --jq '[.head.sha,.state,.merged,.draft,.mergeable,.mergeable_state]
+    |map(if . == null then "null" else tostring end)|join("|")') \
+  || exit
+IFS='|' read -r head_sha state merged draft mergeable mergeable_state \
+  <<< "$pr_state"
+
+# Apply lifecycle, head, and mergeable:false transitions before this call.
+gh api "repos/{owner}/{repo}/commits/$head_sha/check-runs?per_page=100" \
   --jq '[.check_runs[]|select(.name=="ci-required")|{status,conclusion}]'
 ```
 
-The pin is an advantage, not merely a second call: check state is read for an
-explicit commit rather than for whatever GitHub considers the latest one. The PR
+`gh api` expands `{owner}` and `{repo}`; it does not expand arbitrary `{n}` or
+`{sha}` placeholders. The explicit pin ensures check state is read for the
+validated commit rather than for whatever GitHub considers latest. The PR
 endpoint also triggers mergeability computation, which is why it resolves
 `UNKNOWN` when GraphQL does not.
 
@@ -89,9 +99,19 @@ head SHA locally. Do not scatter discovery beyond the pair or the single query;
 additional calls are for pagination and one-off details, after the head is
 confirmed.
 
-The PR request comes first. If its returned head differs from the expected
-head, do not make the check-runs request. Clear the old wait and route the
-returned head through candidate formation or the applicable recovery
+The PR request comes first. Handle lifecycle before mergeability or checks:
+
+- **Merged:** clear the window's wait and schedule state, relinquish ownership
+  of the PR, and end without another API call.
+- **Closed but not merged:** clear `waiting`, `schedule`, and `attempt`, publish
+  the closed state with `rec=stop`, and end without another API call.
+- **Draft:** clear automated wait and schedule state. Publish
+  `blocked=<pr-number> rec=wait` when human action is required, and end without
+  another API call; do not monitor a draft on a cadence.
+
+For an open, non-draft PR, compare its returned head with the expected head. If
+they differ, do not make the check-runs request. Clear the old wait and route
+the returned head through candidate formation or the applicable recovery
 transition; it never inherits the old head's schedule.
 
 After the head matches, short-circuit `mergeable: false` into conflict recovery
@@ -108,7 +128,7 @@ second call would spend shared capacity without advancing the PR.
   that anything ran.
 - **A missing `ci-required` is inconclusive**, not green: the aggregate may not
   have registered yet. No PR is green until its current-head `ci-required` has
-  completed with a `SUCCESS` conclusion.
+  completed with REST conclusion `success` (GraphQL `SUCCESS`).
 - **A skipped leaf job is not evidence.** `COMPLETED`/`SKIPPED` does not block,
   but never cite it as validation. The aggregate `ci-required` still must
   conclude `success`. If a change should have triggered a job that skipped, the
