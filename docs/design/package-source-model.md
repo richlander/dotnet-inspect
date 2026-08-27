@@ -50,6 +50,7 @@ package id, and source provenance protects downloaded content after acquisition.
 | Enrichment endpoint | A service such as a symbol server or NuGet.org aggregate metadata API that is not itself a package source. |
 | Source client | A protocol-specific implementation that supplies package-source capabilities behind the common candidate and payload contracts. |
 | Producer route | One stable producer identity together with its source kind and ordered runtime transport profiles. |
+| Typed source identity | The NuGetFetch HTTP identity carried by owner-issued protocol results. It may fold runtime query credentials and does not replace package cache or provenance identity. |
 | Candidate observation | A normalized coordinate together with the producer that reported it, the discovery contract, and source-relative listing state. |
 | Availability observation | A transient environment- and transport-scoped result describing whether an authorized producer can currently supply a coordinate. |
 
@@ -107,13 +108,14 @@ This is gated by
 `MalformedRedirectTargetIsInvalidResponse`, and the `NuGetFetch`
 `browser-wasm` build.
 
-The typed source-client compatibility adapter therefore derives producer
-identity from a query-bearing legacy service index's origin and path while
-retaining its query and fragment only in runtime transport configuration. This
-does not change the stricter endpoint identity used for credential adoption or
-legacy caches. Portable descriptors reject queries and fragments. Two immutable
-content domains that need distinct producer identities require distinct
-endpoint paths rather than a query-only distinction.
+The typed source-client compatibility adapter therefore derives its typed
+source identity from a query-bearing legacy service index's origin and path
+while retaining its query and fragment only in runtime transport configuration.
+This does not change the stricter package producer endpoint identity used for
+credential adoption, payload provenance, or legacy caches. Portable descriptors
+reject queries and fragments. Two immutable content domains that need distinct
+typed source identities require distinct endpoint paths rather than a
+query-only distinction.
 
 Package-source identity is broader than a NuGet v3 service-index URL. A
 standard v3 feed, the built-in NuGet Gallery browser implementation, and a
@@ -157,26 +159,24 @@ identity-free classification input containing:
 - the network capability selected for the public package operation.
 
 Classification either returns the package-owned classification-failure variant
-or constructs one producer-bearing route input containing:
+or constructs one of two producer-bearing route inputs:
 
-- the classified source kind: HTTP endpoint or local folder;
-- the stable producer identity;
-- the ordered runtime transport profiles for that producer;
-- an owner-issued typed source-client factory for each profile;
-- the owner-issued compatibility-request credential policy tracked by
-  [NuGet feed authentication](https://github.com/richlander/dotnet-inspect/issues/4776);
-- the public operation context issued by the
-  [operation-deadline owner](https://github.com/richlander/dotnet-inspect/issues/4770):
-  caller cancellation, request deadline, and operation ceiling.
+| Route input | Required fields |
+| --- | --- |
+| HTTP | Canonical endpoint producer identity; typed source identity; ordered runtime transport profiles; owner-issued source-client factory for each profile; the #4776 compatibility-request credential policy; and the #4770 public operation context. |
+| Local folder | Canonical local-directory producer identity; local source kind; implemented package-layer local-store capabilities; and caller cancellation. It has no typed source identity, HTTP transport profile, or source-client factory. |
 
-The stable producer identity selects the typed route and records provenance. It
-does not replace the canonical HTTP endpoint or local-directory identity used
-for payload-cache authorization.
-Candidate-cache identity adds the discovery contract and version. Runtime
-transport-profile order controls failover but does not create another content
-identity or invalidate candidate evidence for the same immutable producer and
-discovery contract. A signed query may distinguish runtime transports, but
-credentials are not part of durable identity.
+The package producer identity owns configured-alias collapse after mapping,
+route authority, recorded payload provenance, payload-cache slot identity, and
+payload-cache authorization. Candidate-cache identity adds the discovery
+contract and version. The typed source identity selects and labels HTTP
+protocol operations only.
+
+Runtime transport-profile order controls failover but does not create another
+content identity or invalidate candidate evidence for the same immutable
+producer and discovery contract. A signed query remains part of canonical HTTP
+producer identity even when the typed source identity folds it; raw query text
+is hashed in cache keys and redacted in diagnostics.
 The package layer passes the network capability unchanged and cannot turn an
 offline operation into permission to contact a source.
 
@@ -184,18 +184,22 @@ An owner-issued source operation returns either its typed value or a
 `PackageSourceFailure`. `DotnetInspector.Packages` wraps that result in one
 package-owned route outcome with these variants:
 
-- a successful owner-issued operation value, including search or version
-  candidates, an exact manifest, or a payload, with its producer provenance and
-  the selected transport profile;
-- a source-operation failure, retaining the owner-issued failure and selected
-  transport profile; or
+- a successful HTTP operation, retaining the owner-issued search or version
+  candidates, exact manifest, or payload value together with package producer
+  identity, typed source identity, and selected transport profile;
+- a failed HTTP operation, retaining the owner-issued failure, package producer
+  identity, typed source identity, and selected transport profile;
+- a local-route observation, retaining canonical local producer identity and
+  either a package-layer local-store value or an unsupported-capability reason,
+  with no typed source identity or transport profile; or
 - a pre-client classification failure, retaining a safe configured-source
   reference, syntactic source kind, and reason without a producer identity.
 
 The classification-failure variant cannot authorize a cache entry, contribute
-candidate provenance, or assert package absence. A safe configured-source
-reference is a configured source name or redacted display, never a raw signed
-URL.
+candidate provenance, or assert package absence. Its safe source reference is
+the contained, redacted display produced by
+`PackageSourceDisplay.ForDiagnostics`; a configured source name is never used
+directly because an unmatched URL override uses its URL as the name.
 
 Raw resource URLs, response bodies, and credentials are not package-layer
 failure data. Caller cancellation propagates with the caller token instead of
@@ -209,7 +213,7 @@ selected:
 | Source kind | Package-layer action |
 | --- | --- |
 | HTTP endpoint | Ask the owner-issued factory for the endpoint's typed capability. A syntactically valid HTTP URL is not assumed to be a valid NuGet v3 source. |
-| Local path or `file://` directory | Retain the local-source identity and use only local-store capabilities implemented by the package layer. Until [local-feed acquisition](https://github.com/richlander/dotnet-inspect/issues/3759) supplies a capability, report it as unsupported explicitly and never rewrite the source as HTTP. |
+| Local path or `file://` directory | Construct the local-route input and return a local-route observation. Until [local-feed acquisition](https://github.com/richlander/dotnet-inspect/issues/3759) supplies a requested capability, retain canonical directory identity with an unsupported-capability reason and never rewrite the source as HTTP. |
 | Unsupported URI scheme or malformed runtime endpoint | Return the package-owned classification-failure variant without constructing an HTTP request, minting a producer identity, or exposing a raw argument exception. |
 
 An unsupported local capability is not an unreadable remote source. It is
@@ -220,11 +224,12 @@ result. It cannot silently grant authority to a cache or another source.
 
 ### Protocol and host handoff
 
-The package layer decides which producer may be queried, obtains the typed
-source client from the owner-issued factory, and invokes its operations with
-the operation context issued by #4770. NuGetFetch owns service-index discovery,
-endpoint construction and validation, protocol-level retry, bounded body
-reading, source-client transport construction and lifetime, and the typed
+The package layer decides which producer may be queried. For an HTTP route, it
+obtains the typed source client from the owner-issued factory and invokes its
+operations with the context issued by #4770. A local route remains within the
+package layer and never constructs that client. NuGetFetch owns service-index
+discovery, endpoint construction and validation, protocol-level retry, bounded
+body reading, source-client transport construction and lifetime, and the typed
 source-operation result.
 DotnetInspector.Core owns its host HTTP pipeline, offline enforcement, and
 redacted network diagnostics.
@@ -241,11 +246,11 @@ implementation owns an isolated transport or receives policy through another
 owner-issued factory. Transport construction, mutability, and disposal remain
 part of that adjacent owner's contract.
 
-DotnetInspector.Packages owns the typed client handle it obtains. It retains
-that handle until a returned payload stream is consumed or disposed, or
-transfers both into one wrapper with the same lifetime. It disposes the handle
-on every path that returns no payload. This is client-handle orchestration, not
-a claim about how the adjacent client owns its transport.
+DotnetInspector.Packages owns each typed HTTP client handle it obtains. It
+retains that handle until a returned payload stream is consumed or disposed,
+or transfers both into one wrapper with the same lifetime. It disposes the
+handle on every path that returns no payload. This is client-handle
+orchestration, not a claim about how the adjacent client owns its transport.
 
 ### Credential and origin boundary
 
@@ -265,7 +270,8 @@ compatibility request it constructs.
 
 ### Routes, deadlines, and projection
 
-Configured source aliases collapse by producer identity after mapping.
+Configured source aliases collapse by canonical endpoint or local-directory
+producer identity after mapping.
 Transport profiles for one producer form one ordered route rather than
 separate candidate sources. Source declaration order between different
 producers is not precedence and cannot make one source's candidate
@@ -281,7 +287,8 @@ another transport profile resets it.
 
 Package-layer projection preserves:
 
-- producer identity and transport-profile diagnostics;
+- package producer identity, typed source identity, and transport-profile
+  diagnostics without substituting one identity for another;
 - source-failure kind;
 - timeout kind and configured duration;
 - caller cancellation as cancellation rather than timeout; and
@@ -300,14 +307,14 @@ than transport failures.
 
 ### Aggregation and completeness
 
-Typed clients report one producer at a time; the package layer owns
-multi-source composition. Exact pinned acquisition may succeed from one
-eligible producer. An aggregate that selects latest or wildcard versions,
-claims authoritative absence, or otherwise depends on the complete candidate
-set requires a terminal observation from every eligible producer. A capability
-gap is itself non-terminal for completeness: the operation must fail or
-explicitly report partial authority. A healthy subset cannot silently become
-the whole authority.
+Each typed HTTP client or local-store adapter reports one producer at a time;
+the package layer owns multi-source composition. Exact pinned acquisition may
+succeed from one eligible producer. An aggregate that selects latest or
+wildcard versions, claims authoritative absence, or otherwise depends on the
+complete candidate set requires a terminal observation from every eligible
+producer. A capability gap is itself non-terminal for completeness: the
+operation must fail or explicitly report partial authority. A healthy subset
+cannot silently become the whole authority.
 
 Candidate caches remain producer- and discovery-contract-scoped observations.
 They may replace a request only for the producer and discovery contract that
@@ -330,7 +337,8 @@ projects contain non-vacuous gates for these outcomes.
 - `PackageSourceClientProvider_UnsupportedSchemesBecomeRouteClassificationFailures`
   proves the identity-free configured source is classified before route
   construction and an unsupported scheme returns the package-owned pre-client
-  variant without a request or producer identity.
+  variant without a request or producer identity, using only the contained
+  redacted source display.
 - `PackageRoutePreservesOfflineNetworkCapability` proves route adaptation does
   not construct or invoke an HTTP source client, and observes no request, when
   the operation lacks network permission.
@@ -340,7 +348,8 @@ projects contain non-vacuous gates for these outcomes.
   depends on the owner-issued policy from #4776.
 - `PackageSourceFailureDataExcludesResourceUrlsAndCredentials` proves
   package-layer failure projection does not retain signed queries, response
-  text, or authorization data.
+  text, or authorization data, including when an unmatched signed URL is also
+  the configured source name.
 
 `src/DotnetInspector.Services.Tests` owns aggregation, acquisition, and
 projection gates:
@@ -364,12 +373,16 @@ projection gates:
   leak an unreturned stream.
 - `ProducerRouteCollapsesTransportProfilesIntoOneCandidateSource` proves
   transport failover does not create duplicate source authority.
+- `ProducerAliasesCollapseByCanonicalEndpointIdentity` proves query-distinct
+  configured endpoints do not collapse merely because their typed source
+  identities match.
 - `WildcardResolutionRequiresEveryEligibleSource` proves a healthy subset or
   capability gap cannot produce an authoritative aggregate.
 - `LocalUnsupportedCapabilityPreventsAuthoritativeAggregateWithoutHttpFailure`
-  proves a filesystem-free operation keeps local-source handling visible,
-  prevents an authoritative aggregate, and does not route the source through
-  HTTP diagnostics.
+  proves a filesystem-free operation returns the local-route variant with
+  canonical directory identity and no typed source identity or transport
+  profile, prevents an authoritative aggregate, and does not route the source
+  through HTTP diagnostics.
 - `CandidateCacheUsesProducerAndDiscoveryContractIdentity` proves transport
   profile changes do not become content identity while incompatible discovery
   contracts remain isolated.
