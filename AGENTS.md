@@ -363,13 +363,16 @@ Design specifications own detailed requirements, component boundaries, and
 policies. Keep them readable as prose and typed contracts; do not turn them
 into unconventional EBNF-like descriptions of operational behavior. When a
 feature's correctness depends on significant stateful, concurrent, distributed,
-or scheduling interactions, prefer a small TLA+ model that states the relevant
-safety and liveness properties and model-check it before implementation. Use
+or scheduling interactions, use a small TLA+ model that states the relevant
+safety and liveness properties, and model-check it before implementation. Use
 the model to evaluate whether the interaction or algorithm is effective, and
 keep the design specification focused on what the system must guarantee. Link
-the model from the owning design and record the checked properties and any
-material counterexamples; the model supplements rather than replaces the
-readable specification.
+the model from the owning design and record its assumptions, checking bounds,
+checked properties, and any material counterexamples. These results establish
+evidence about the model, not the implementation. Implementation-level safety,
+soundness, or faithfulness claims must still follow
+[Asserted properties name their gate](#asserted-properties-name-their-gate).
+The model supplements rather than replaces the readable specification.
 
 ### Reviewing focused designs
 
