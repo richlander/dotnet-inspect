@@ -295,29 +295,29 @@ required by declared consumers, including typed semantic refusal.
 **Owning document:** [Metadata primitives](../metadata-primitives.md).
 
 **Supporting contract:**
-[Bounded metadata traversal](bounded-metadata-traversal.md) owns budget policy;
-[Member inspection planning and Metadata projection](member-inspection-planning-and-metadata-projection.md)
-owns the `MDP016` integration and closure gate.
+[Bounded metadata traversal](bounded-metadata-traversal.md) owns budget policy.
 
-**Claim:** activate and gate the already-registered lossless MethodSemantics
-row boundary and neutral budget, issuing typed rows or rejection to Metadata
-consumers without defining another row contract here.
+**Claim:** activate the already-registered lossless MethodSemantics row boundary
+and neutral budget, issuing typed rows or rejection to Metadata consumers
+without defining another row contract here.
 
-**Non-claims:** Metadata projection receipt, semantic classification, and
-consumer presentation.
+**Non-claims:** `MDP016` boundary gating, Metadata projection receipt, semantic
+classification, and consumer presentation.
 
-### 3. Metadata bounded-rejection receipt
+### 3. Metadata MethodSemantics and bounded-rejection receipt
 
 **Owner:** `ILInspector.Metadata`.
 
 **Owning document:**
 [Member inspection planning and Metadata projection](member-inspection-planning-and-metadata-projection.md).
 
-**Claim:** define how Metadata projection and degraded-fact results consume
-MetadataPrimitives rejection without turning exhaustion into ordinary absence.
+**Claim:** land the `MDP016` boundary gate and activate Metadata projection
+receipt of the primitive's lossless MethodSemantics rows and typed rejection,
+without turning exhaustion into ordinary absence.
 
-**Non-claims:** traversal mechanics, budget construction, filtering strategy,
-index implementation, and higher-consumer presentation.
+**Non-claims:** primitive reader implementation, traversal mechanics, budget
+construction, filtering strategy, index implementation, and higher-consumer
+presentation.
 
 ### 4. Analysis body and call-site operator evidence
 
@@ -446,8 +446,9 @@ receipt test for its incoming handoff:
 
 - Metadata's candidate-open path gates selected-entry identity against immutable
   opened content before session construction;
-- Metadata gates MetadataPrimitives/bounded-traversal rejection into its
-  projection and degraded-fact results;
+- Metadata gates receipt of MetadataPrimitives lossless MethodSemantics rows
+  and bounded-traversal rejection into its projection and degraded-fact
+  results;
 - Analysis gates Metadata-to-Analysis fact adaptation;
 - Research gates Analysis-to-Research body-identity and evidence receipt;
 - CSharp gates Metadata-to-CSharp representability input;

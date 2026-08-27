@@ -112,9 +112,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   physical occurrences into the inspection-graph descriptor model.
 - [Type, member, and API representation](design/type-member-api-representation.md): authoritative currency map for lookup, shape, identity, correspondence, location, selectors, and display.
 - [Member fidelity evidence composition](design/member-fidelity-composition.md):
-  broad composition map for typed handoffs among Metadata, Analysis,
-  Decompiler, CSharp, Research, ReturnToSender, and CLI output. It owns no
-  component-internal contract.
+  broad composition map for typed handoffs among acquisition/session,
+  MetadataPrimitives, Metadata, Analysis, Decompiler, CSharp, Research,
+  ReturnToSender, and CLI output. It owns no component-internal contract.
 - [State-machine relationship index](design/state-machine-relationship-index.md):
   Metadata-owned kickoff, state-machine type, implementation-method, and typed
   structural-failure relationships shared by higher layers.
