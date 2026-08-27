@@ -49,6 +49,25 @@ This document does not own:
 - CLI and library output formatting; or
 - the internal implementation boundaries among inspect-web modules.
 
+## Product dependencies
+
+This document composes three adjacent owner contracts without defining them:
+
+- [#4794](https://github.com/richlander/dotnet-inspect/issues/4794) owns
+  inspection-subject descriptors, availability, initial recommendation, and
+  reconciliation. The Type-first default and tools-v2 root fallback belong to
+  that focused effort.
+- [#4787](https://github.com/richlander/dotnet-inspect/issues/4787) owns stable
+  portable view identities, per-coordinate view state, and canonical packet
+  projection.
+- [#4788](https://github.com/richlander/dotnet-inspect/issues/4788) owns any
+  default-feed or acquisition-preference semantics within multi-source package
+  resolution.
+
+Inspect Web renders those owner-issued descriptors and outcomes. Their product
+semantics are not prerequisites for reviewing the UI composition in this
+document and are not re-specified here.
+
 ## Current redesign
 
 This is a coordinated information-architecture and density rework, not a set of
@@ -60,7 +79,6 @@ independent cosmetic changes.
 | Workspace selection | Replace package tabs with a Workspace surface |
 | Package coordinate | Keep a compact package, version, and TFM argument beside `dotnet-inspect` |
 | Library inspection | Select all libraries or one library within Library |
-| Default view | Open ordinary inspectable artifacts on Type API |
 | Type headings | Let the inspection command identify API and Source; retain detail in Metadata |
 | Filters | Collapse selector rows by default and summarize hidden restrictions |
 | Selected controls | Use one accent selected-state treatment across selector families |
@@ -368,22 +386,15 @@ The Workspace surface replaces the package tab strip. It consumes
 product-issued descriptors for every open coordinate and shows:
 
 - coordinate identity and acquisition kind;
-- the retained current root, Library, Type, or Member path when session or
-  canonical state supplies one;
+- optional owner-issued current-subject context;
 - loading, ready, or failed state;
 - an activation action; and
 - an explicit Close action.
 
-Activating an entry restores its session-retained subject and lens. After v1
-packet restoration, only the active entry has canonical view state; another
-entry therefore shows coordinate context without inventing a retained path and
-opens at its root overview. #4787 owns portable per-entry view state, after
-which activation restores the owner-issued per-entry subject and lens.
-
-Closing one entry requests the product-owned workspace transition. The returned
-state identifies the next active entry or an empty Home state; the UI does not
-choose a successor by package label or visual order. Separate coordinates
-remain separate even when their display package IDs match.
+Activating or closing an entry submits its opaque identity and renders the
+returned workspace outcome. The UI does not choose a subject, lens, successor,
+or fallback for the product. Separate coordinates remain separate even when
+their display package IDs match.
 
 Workspace also exposes the same Search and Open actions as the shell. It does
 not infer source identity, package equivalence, or local-file correspondence
@@ -420,75 +431,20 @@ reason. It does not retain stale panel content.
 
 ### Subject availability and reconciliation
 
-The current browser surface does not supply a host-neutral subject-navigation
-contract. [#4794](https://github.com/richlander/dotnet-inspect/issues/4794)
-owns the product descriptors, availability and failure outcomes, initial
-recommendation, and reconciliation result required by this section. The UI
-does not derive those semantics from assembly order, visible filters, package
-kind, or display text.
-
-When that contract is available, the UI consumes:
-
-- the coordinate's root subject;
-- ordered applicable Library, Type, and Member descriptors;
-- availability and owner-issued reasons for each level;
-- an optional initial subject and lens recommendation; and
-- a reconciliation result for previously selected identities.
-
-The root is always reachable for a realized coordinate. Package is the root
-only for a package-backed coordinate. Library, Type, and Member availability
-comes directly from the descriptor result rather than from whether the UI
-happens to hold a selection.
+The UI consumes the subject-navigation result owned by #4794. That result
+supplies the active subject, ordered applicable subject descriptors,
+availability, reasons, and the outcome of a requested transition.
 
 The hierarchy menu exposes every applicable subject level. An unavailable
 Library, Type, or Member item remains discoverable with `aria-disabled="true"`
-and an owner-issued reason. The coordinate root overview also summarizes
-ordinary absent capabilities, such as a valid package with no inspectable
-Types, separately from acquisition or producer failures.
+and an owner-issued reason. Activating an available item submits its opaque
+identity; the UI renders the returned active subject or typed failure without
+choosing a replacement.
 
-After a coordinate or Library change, the UI submits the previous subject
-identities and applies the owner-issued reconciliation result verbatim. A
-successful empty outcome clears Library, Type, and Member and leaves the
-coordinate root without presenting a producer failure. A typed failure also
-clears invalid dependent content but remains visible. The UI never chooses a
-replacement Type or Member by array order or current filters.
-
-Navigation changes only when the owner result makes the active subject
-unavailable:
-
-- Member moves to Type when Type remains available, otherwise to Library when
-  Library remains available, otherwise to the coordinate root.
-- Type moves to Library when Library remains available, otherwise to the
-  coordinate root.
-- Library moves to the coordinate root when no valid Library subject descriptor
-  is available.
-- The coordinate root remains active through coordinate reconciliation.
-
-### Initial subject and lens
-
-After #4794 supplies an owner-issued recommendation, a newly acquired coordinate
-applies it without re-deriving eligibility. The desired product policy is:
-
-1. Type API when a valid default Library subject and Type exist.
-2. The owner-issued initial Library lens when a Library exists but no Type does.
-3. The coordinate's root overview when no inspectable Library or Type exists.
-
-The UI does not choose the first visible Type or alter filters to manufacture
-this outcome. Until #4794 supplies the recommendation and availability result,
-implementation can open the coordinate root but cannot claim the Type-first
-default.
-
-This default applies to the initial activation of each newly acquired
-coordinate, including coordinates added to an existing Workspace. Browser
-refresh and history navigation use canonical state when available. Workspace
-reactivation uses session-retained or owner-issued per-entry state; when neither
-exists, it opens the coordinate root rather than reapplying the initial
-recommendation.
-
-A tools v2 pointer package is the required Package-fallback case. Acquisition
-succeeds, Package identity and metadata remain available, Library, Type, and
-Member are unavailable, and the workspace opens Package Overview without
-presenting the absence of types as an inspection failure.
+The inspection command, Workspace, lens strip, and content region all render
+the same returned active-subject identity. The UI does not infer initial,
+fallback, or reconciliation policy from descriptor order, assembly order,
+current filters, package kind, or display text.
 
 ### Lens ownership
 
@@ -517,15 +473,10 @@ The Library view lists every library admitted from the active coordinate and an
 `All libraries` subject when the product admits aggregate
 inspection for that coordinate.
 
-After #4794 supplies ordered Library subject descriptors and an owner-issued
-recommendation, the UI renders and submits those opaque identities. The
-recommendation may be `All libraries` or one library. The UI does not infer
-that choice from package kind, endpoint shape, assembly count, or lens
+The control consumes #4794's ordered Library subject descriptors and active
+identity. It renders and submits those opaque identities without inferring a
+selection from package kind, endpoint shape, assembly count, or lens
 capability.
-
-If an active lens cannot inspect the recommended subject arity, the subject
-remains selected and the owner-issued lens outcome reports unavailability. The
-UI does not silently replace the subject to make the lens succeed.
 
 The Library subject control is single-select. A compact population may use a
 native `select`; a visible library list uses `role="listbox"` with
@@ -561,9 +512,8 @@ The selected subject controls every Library lens:
 - An individual library requests the same lens for only that assembly.
 - The selected subject persists when switching among References, Integrations,
   Opportunities, Analysis, and Metadata.
-- Changing package version or TFM submits the prior Library identity to #4794's
-  reconciliation contract and applies its retained, replacement, cleared, or
-  failed result verbatim.
+- Changing package version or TFM submits the prior Library identity with the
+  coordinate transition and renders the owner-issued result.
 
 The active library subject remains visible while the library list is filtered
 or collapsed. A lens heading distinguishes aggregate results from a
@@ -616,7 +566,7 @@ dotnet-inspect  System.Text.Json@10.0.0/net10.0  System.Text.Json.JsonSerializer
 The coordinate remains visible across Package, Library, Type, and Member
 subjects. Activating it opens the applicable package, version, and TFM controls
 without adding another persistent row. Changing the coordinate updates the
-shared workspace and runs subject reconciliation.
+shared workspace by submitting the typed transition and rendering its outcome.
 
 Package Overview presents package details, but it is no longer the only place
 from which the coordinate may be edited. Existing package fields do not repeat
@@ -643,35 +593,17 @@ identity into readable path segments merely to make them URL-addressable. A
 non-package workspace omits the `package` courtesy field rather than placing a
 local path or other sensitive coordinate in readable URL state.
 
-The completed redesign must restore the same portable committed inspection view
-after browser refresh. The UI reaches that outcome only through
-product-issued long-form state and the product codec. It does not parse the
-packet or add compact fields.
+The workspace-definition work tracked by
+[#4787](https://github.com/richlander/dotnet-inspect/issues/4787) owns which
+workspace state is portable and how it is encoded, decoded, and restored. The
+UI receives a typed projectable, non-projectable, or failed outcome; it never
+inspects compact fields.
 
-The current v1 Browser projection can safely restore supported coordinates,
-selected contexts, the active entry, admitted Library scope, Type, and a
-portable Member. Although the wire shape has lens and section slots, their
-current consumer-owned token spaces are not stable product identities and
-remain non-projectable. V1 also has only one active view, not retained view
-state for every open coordinate. Package root facets, result-affecting filters,
-ambiguous overloads, body and source targets, and other non-portable subjects
-remain outside the current contract.
-[#4787](https://github.com/richlander/dotnet-inspect/issues/4787) owns the
-stable facet identities, per-entry view state, and other focused
-workspace-definition work required before the complete restoration target can
-be implemented.
-
-Every committed transition is classified:
-
-- **Projectable:** update the canonical packet and make refresh restore that
-  exact owner-issued state.
-- **Non-projectable:** retain the last valid packet, keep the new state
-  session-local, and make explicit Share report the typed refusal.
-- **Failed:** retain both the prior workspace and its URL.
-
-The UI must not claim that a session-local state will survive refresh. Once the
-workspace owner adds a portable representation, the same UI transition becomes
-projectable without changing its visual identity.
+- A projectable outcome supplies the canonical URL.
+- A non-projectable outcome leaves the current presentation session-local and
+  supplies the visible reason used by explicit Share.
+- A failed transition retains the prior workspace and URL and surfaces the
+  typed failure.
 
 Browser history uses the same classification:
 
@@ -687,13 +619,9 @@ Browser history uses the same classification:
 A future packet projection does not decide its own history granularity. It
 inherits this UI-owned push or replace classification.
 
-Transient interaction state is excluded: hover, keyboard focus, an uncommitted
-listbox option, animation, incidental scroll position, and whether a disclosure
-is momentarily open.
-
-If restoration cannot resolve an artifact or product identity, it follows the
-visible failure and reconciliation rules. It does not silently open a different
-subject.
+On browser refresh or shared-link activation, the UI submits the opaque packet
+to the product codec and renders its atomic success or typed failure. It does
+not use the readable package courtesy field as a fallback workspace.
 
 ## Shell actions
 
@@ -840,41 +768,18 @@ and producer provenance. This UI owner consumes those typed results and does
 not redefine them.
 
 The initial UI does not expose feed tabs or in-workspace source switching.
-Settings presents the package-source owner's registered, enabled, selected,
-capability, authentication, and cache-action descriptors. It supports the
-owner-required selected source set and does not collapse ordinary search to one
-feed.
+Settings renders the package-source owner's registration, selection,
+capability, authentication, and cache-action descriptors and submits their
+typed actions. A `Default feed` control appears only when #4788 supplies its
+descriptor and semantics.
 
-One visible `Default feed` remains the desired host interaction for new package
-search and acquisition, but the current source contract has no such typed
-concept. [#4788](https://github.com/richlander/dotnet-inspect/issues/4788) owns
-the focused source design that must define how it composes with multi-source
-discovery and authorized payload acquisition. Until that owner supplies a
-descriptor and operation semantics, the UI does not render a singular setting
-or infer precedence from source order.
-
-Once a package is acquired, Workspace shows its product-reported producer as
-read-only context. A future default-feed change may affect only later
-source-owner operations; it never reinterprets bytes already loaded into a
-Workspace. Inspecting the same coordinate from another producer is a new
-acquisition.
-
-Session authentication uses the credential contract from
-[Browser credentials](browser-package-sources.md#browser-credentials).
-Credential entry and authentication state appear only for the owning source.
-After refresh, the UI consumes the source owner's actual outcome: an authorized
-cached payload may restore without authentication, an operation may request
-authentication, or another eligible producer may fulfill a pinned coordinate.
-The UI displays the returned producer and failure or partial evidence; it does
-not promise producer-bound replay when no owner-issued replay identity exists.
-
-Source-scoped persistent package payloads may appear in Diagnostics and cache
-management. Credentials never appear there.
+Once a package is acquired, Workspace, package headings, and the data bar show
+its owner-issued compact producer label as read-only context. Source-scoped
+cache descriptors and actions may appear in Diagnostics.
 
 Search results and version choices render the owner-issued compact producer
-label verbatim for every represented producer. Workspace, package headings, and
-the data bar render that same compact label for the acquired producer. The UI
-never shortens, parses, or reconstructs it from an endpoint.
+label verbatim for every represented producer. No surface shortens, parses, or
+reconstructs that label from an endpoint.
 
 ## Command palette
 
@@ -992,47 +897,38 @@ the product domain.
 An implementation claiming this redesign is complete must satisfy these
 outcomes:
 
-### Ordinary package
+### Subject composition
 
-1. After #4794 supplies an owner recommendation, open a package whose
-   recommendation is a Library, Type, and API lens.
-2. Confirm that the UI applies that recommendation and starts on Type API
-   without selecting from the visible Type array itself.
-3. Confirm that the inspection command shows the active package coordinate and
-   Type without a package-tab or primary-view row.
-4. Open the subject menu and navigate to the active Library.
-5. Open the coordinate menu and navigate to Package Overview.
-6. Return to Type Metadata and confirm that detailed Type identity appears there
-   without returning to API or Source.
+1. Supply an owner result whose active subject is a Type and whose hierarchy
+   contains available and unavailable ancestors.
+2. Confirm that the inspection command uses the active Type as its level-one
+   heading and the subject menu renders every descriptor and unavailable reason.
+3. Activate an available ancestor and confirm that the UI submits only its
+   opaque identity and renders the returned outcome.
+4. Supply a root-only result and confirm that the always-present subject control
+   uses the owner-issued root label and still opens the hierarchy menu.
+5. Supply a typed transition failure and confirm that it is visible without the
+   UI selecting another subject.
 
-### Tools v2 pointer package
+### Workspace composition
 
-1. After #4794 supplies a valid-empty subject outcome, open the pinned
-   `DotnetInspect.TestAssets.ToolV2` pointer-package fixture.
-2. Confirm that acquisition succeeds with no inspectable Library or Type.
-3. Confirm that the workspace opens Package Overview.
-4. Confirm that absence of types is disclosed as ordinary availability rather
-   than a malformed-workspace or inspection failure in both the root overview
-   and subject menu.
+1. Supply two open-coordinate descriptors with different optional subject
+   context and status.
+2. Confirm that Workspace renders those descriptors without deriving identity
+   from their labels.
+3. Activate and close entries and confirm that each action submits the opaque
+   coordinate identity once and renders the returned workspace outcome.
 
-### Refresh restoration
+### Canonical adapter
 
-1. Open two coordinates.
-2. Select the second coordinate, one admitted Library, a Type, and a portable
-   Member.
-3. Refresh the browser.
-4. Confirm that the same active coordinate, Library, Type, and Member are
-   restored from the current canonical packet.
-5. Activate the other restored coordinate and confirm that current v1 opens its
-   root overview rather than inventing a retained subject or lens.
-6. Confirm that keyboard focus, hover, an uncommitted Library option, and
-   incidental scroll position are not restored.
-7. Select a currently non-projectable lens, section, filter, or body target and
-   confirm that
-   explicit Share reports the typed refusal rather than claiming portability.
-8. After #4787 supplies stable facet identities and per-entry view state, repeat
-   the refresh and confirm that both coordinates retain their committed subject
-   and lens and that the selected refinement is restored.
+1. Supply a projectable outcome and confirm that the UI adopts its canonical
+   URL with the transition's push or replace history classification.
+2. Supply a non-projectable outcome and confirm that explicit Share presents
+   the owner-issued reason without claiming refresh portability.
+3. Supply a failed outcome and confirm that the prior workspace and URL remain.
+4. Confirm that route preflight, refresh, and shared-link activation never parse
+   compact packet fields or use the readable package courtesy identity as a
+   fallback workspace.
 
 ### Browser history
 
@@ -1043,24 +939,18 @@ outcomes:
 4. Use Browser Forward and confirm that it restores the Source state with its
    latest replaced refinements.
 
-### Package-source authentication
+### Package-source composition
 
-1. Register an authenticated browser source and select it with at least one
-   other source.
-2. Confirm that ordinary search follows the owner-issued active source set.
-3. Give two custom sources the same display name and confirm that search results
-   and version choices render distinct owner-issued compact labels.
-4. Acquire a package and confirm that Workspace and the data bar show the
-   complete owner-issued compact producer label.
-5. If #4788 has supplied `Default feed` semantics, change that setting and
-   confirm that the UI sends the exact owner-issued policy rather than reducing
-   search to one endpoint.
-6. Refresh after session credentials are discarded.
-7. Confirm that the UI presents the actual source-owner outcome: cached
-   restoration, authentication required, another authorized producer, or typed
-   failure.
-8. Confirm that the returned producer and any partial or failure evidence are
-   visible.
+1. Supply registration, selection, capability, authentication, and cache-action
+   descriptors and confirm that the one Settings surface renders them and
+   dispatches their typed actions.
+2. Give two custom sources the same display name and confirm that search results
+   and version choices render their distinct owner-issued compact labels
+   verbatim.
+3. Supply an acquired producer label and confirm that Workspace, package
+   headings, and the data bar render it as read-only context.
+4. Confirm that no feed tabs or in-workspace feed-switching control appears.
+5. Confirm that `Default feed` is absent until #4788 supplies its descriptor.
 
 ### Search input
 
