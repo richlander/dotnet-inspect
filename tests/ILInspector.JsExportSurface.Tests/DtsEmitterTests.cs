@@ -15,6 +15,9 @@ namespace ILInspector.JsExportSurface.Tests;
 
 public sealed class DtsEmitterTests
 {
+    private const string DeclarationModuleSpecifier =
+        "/inspect-web-engine.js";
+
     private static string EmitFixtureDts(
         bool includeAll = false,
         TsBindGenDiagnostics? diagnostics = null)
@@ -197,7 +200,9 @@ public sealed class DtsEmitterTests
     [Fact]
     public void Emit_ParsesDecimalWireRootResults()
     {
-        string js = JsEmitter.Emit(BuildFixtureSurfaceWithWireContracts());
+        string js = JsEmitter.Emit(
+            BuildFixtureSurfaceWithWireContracts(),
+            DeclarationModuleSpecifier);
 
         Assert.Contains(
             "const $result = $exports.ILInspector.JsExportSurface.Fixtures."
@@ -430,7 +435,9 @@ public sealed class DtsEmitterTests
             ],
         };
 
-        string js = JsEmitter.Emit(surface);
+        string js = JsEmitter.Emit(
+            surface,
+            DeclarationModuleSpecifier);
 
         Assert.Contains(
             "export function getTaskInfo()",
@@ -463,7 +470,9 @@ public sealed class DtsEmitterTests
     [Fact]
     public void JsEmitter_EmitsCheckedInteropAndWireSignaturesFromOneSurface()
     {
-        string js = JsEmitter.Emit(BuildFixtureSurfaceWithWireContracts());
+        string js = JsEmitter.Emit(
+            BuildFixtureSurfaceWithWireContracts(),
+            DeclarationModuleSpecifier);
 
         Assert.Contains(
             """
@@ -541,9 +550,45 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
+    public void JsEmitter_UsesRequestedDeclarationModuleSpecifier()
+    {
+        string js = JsEmitter.Emit(
+            BuildFixtureSurfaceWithWireContracts(),
+            "./custom-wrapper.js");
+
+        Assert.Contains(
+            "/** @typedef {import(\"./custom-wrapper.js\").WidgetDto} WidgetDto */",
+            js,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "/inspect-web-engine.js",
+            js,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void JsEmitter_EncodesDeclarationModuleSpecifierWithoutClosingJSDoc()
+    {
+        string js = JsEmitter.Emit(
+            BuildFixtureSurfaceWithWireContracts(),
+            "./types*/contract\".js");
+
+        Assert.Contains(
+            "import(\"./types\\u002A/contract\\u0022.js\").WidgetDto",
+            js,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "types*/contract",
+            js,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void JsEmitter_ModelsInitializationAsOptionalUntilRuntimeStartupCompletes()
     {
-        string js = JsEmitter.Emit(BuildFixtureSurfaceWithWireContracts());
+        string js = JsEmitter.Emit(
+            BuildFixtureSurfaceWithWireContracts(),
+            DeclarationModuleSpecifier);
 
         Assert.Contains(
             "/** @type {$ManagedExports | undefined} */\nlet $managedExports;",
@@ -597,7 +642,9 @@ public sealed class DtsEmitterTests
             ],
         };
 
-        string js = JsEmitter.Emit(surface);
+        string js = JsEmitter.Emit(
+            surface,
+            DeclarationModuleSpecifier);
 
         Assert.Contains(
             "import(\"/inspect-web-engine.js\").$ManagedExports} "
@@ -639,7 +686,9 @@ public sealed class DtsEmitterTests
                 publicKeyToken: null),
         };
 
-        string js = JsEmitter.Emit(surface);
+        string js = JsEmitter.Emit(
+            surface,
+            DeclarationModuleSpecifier);
 
         Assert.Contains(
             "runtime.getAssemblyExports(\""
@@ -693,7 +742,9 @@ public sealed class DtsEmitterTests
             ],
         };
 
-        string js = JsEmitter.Emit(surface);
+        string js = JsEmitter.Emit(
+            surface,
+            DeclarationModuleSpecifier);
 
         Assert.Equal(
             expectedBootstrap,
@@ -2179,6 +2230,82 @@ public sealed class DtsEmitterTests
             () => DtsEmitter.Emit(surface));
     }
 
+    [Fact]
+    public void Emit_RefusesWindowExportWhenBootstrapUsesBrowserGlobal()
+    {
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Ns.Exports",
+                    Name = "ConfigureHost",
+                    ReturnType = "void",
+                    Parameters =
+                    [
+                        new ApiParameter
+                        {
+                            Name = "value",
+                            Type = "string",
+                        },
+                    ],
+                },
+                new JsExportFunction
+                {
+                    DeclaringType = "Ns.Exports",
+                    Name = "Window",
+                    ReturnType = "void",
+                },
+            ],
+        };
+
+        UnsupportedWireContractException exception =
+            Assert.Throws<UnsupportedWireContractException>(
+                () => DtsEmitter.Emit(surface));
+
+        Assert.Contains(
+            "browser window binding required by the ConfigureHost bootstrap",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void JsEmitter_AcceptsWindowExportWithoutBootstrapUse()
+    {
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            AssemblyIdentity = new ApiAssemblyIdentity(
+                "Fixture",
+                new Version(1, 0, 0, 0),
+                culture: null,
+                publicKeyToken: null),
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Ns.Exports",
+                    Name = "Window",
+                    ReturnType = "void",
+                },
+            ],
+        };
+
+        DtsEmitter.Emit(surface);
+        string js = JsEmitter.Emit(
+            surface,
+            DeclarationModuleSpecifier);
+
+        Assert.Contains(
+            "export function window()",
+            js,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "window.location.origin",
+            js,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("$exports", false)]
     [InlineData("$exports", true)]
@@ -2300,7 +2427,9 @@ public sealed class DtsEmitterTests
             ],
         };
 
-        string js = JsEmitter.Emit(surface);
+        string js = JsEmitter.Emit(
+            surface,
+            DeclarationModuleSpecifier);
 
         Assert.Contains(
             """

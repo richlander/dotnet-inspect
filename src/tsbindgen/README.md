@@ -17,7 +17,11 @@ tsbindgen <path-to-assembly.dll>
 tsbindgen <path-to-assembly.dll> --diff-against <path-to-hand-written.d.ts>
 
 # Publish a JavaScript wrapper only after the checked-in declarations cover generated output.
-tsbindgen <path-to-assembly.dll> --diff-against <path-to-hand-written.d.ts> --emit-js <path-to-wrapper.js>
+tsbindgen <path-to-assembly.dll> --diff-against <path-to-hand-written.d.ts> \
+  --emit-js <path-to-wrapper.js> --declaration-module <module-specifier>
+
+# Name the declaration module when writing declarations from stdout.
+tsbindgen <path-to-assembly.dll> --emit-js <path-to-wrapper.js> --declaration-module <module-specifier>
 ```
 
 ## Design
@@ -86,6 +90,9 @@ nested `$ManagedExports` structural type describes the raw
 parameter and return annotations. Record and enum names are type-only imports
 from the generated sibling declaration module, so direct arrays retain their
 interop shape and JSON envelopes use their authenticated wire shape.
+`--declaration-module` makes that consumer-owned module identity explicit
+because `tsbindgen` cannot infer where stdout declarations will be stored.
+There is no inspect-web-specific default.
 If a producer declaration already owns `$ManagedExports`, the internal name
 deterministically gains trailing `$` characters until it is unique; producer
 names remain unchanged.
@@ -105,8 +112,14 @@ gates sync, `Task`, `Task<T>`, nullable, array, record, enum, and JSON-envelope
 projection; `JsEmitter_ModelsInitializationAsOptionalUntilRuntimeStartupCompletes`
 gates the honest initialization state and single host conversion.
 `Emit_RefusesGeneratedWrapperLocalParameterCollisions` and
-`JsEmitter_AllocatesManagedExportsTypeNameAroundProducerDeclarations` gate
-generated value- and type-binding collisions. Inspect-web's
+`Emit_RefusesWindowExportWhenBootstrapUsesBrowserGlobal` gate generated
+value-binding collisions, including the conditional browser-global binding.
+`JsEmitter_AllocatesManagedExportsTypeNameAroundProducerDeclarations` gates
+generated type-binding collisions.
+`JsEmitter_UsesRequestedDeclarationModuleSpecifier` and
+`TsBindGenCommandTests.Invoke_EmitJsRequiresDeclarationModule` gate standalone
+declaration-module selection, while the inspect-web generation script
+explicitly selects its public `/inspect-web-engine.js` module. Inspect-web's
 `npm run typecheck` compiles the committed generated wrapper through
 `tsconfig.runtime-wrapper.json` with `checkJs`; the dedicated
 `runtime-wrapper-toolchain.test.ts` mutation canary proves that a qualified
@@ -381,10 +394,11 @@ ordered sequence of trimmed, non-blank lines. Reordered declarations, moved
 members, missing lines, and extra structure all count as drift; blank-line and
 indentation-only differences do not.
 
-When `--emit-js` and `--diff-against` are both present, tsbindgen validates the
-declaration input and drift before creating or overwriting the JavaScript
-destination. A missing or stale declaration file therefore leaves a prior
-wrapper untouched rather than publishing a success-shaped partial result.
+`--emit-js` requires `--declaration-module`; the inverse pairing is also
+required. When `--emit-js` and `--diff-against` are both present, tsbindgen
+validates the declaration input and drift before creating or overwriting the
+JavaScript destination. A missing or stale declaration file therefore leaves a
+prior wrapper untouched rather than publishing a success-shaped partial result.
 `TsBindGenCommandTests.Invoke_WithMissingDiffAgainst_DoesNotOverwriteExistingJavaScript`,
 `Invoke_WithStaleDiffAgainst_DoesNotOverwriteExistingJavaScript`, and
 `Invoke_WithCoveredDiffAgainst_PublishesJavaScript` gate that publication order.

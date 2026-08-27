@@ -36,7 +36,15 @@ public static class TsBindGenCommand
         {
             Description = "Path to write a generated runtime .js wrapper module (the wasm bootstrap "
                 + "plus one typed function per [JSExport] export, replacing a hand-maintained shim "
-                + "with a generated bridge module) alongside the printed/diffed .d.ts output.",
+                + "with a generated bridge module) alongside the printed/diffed .d.ts output. "
+                + "Requires --declaration-module.",
+        };
+
+        var declarationModuleOption = new Option<string?>(
+            "--declaration-module")
+        {
+            Description = "TypeScript module specifier that exposes the generated declarations "
+                + "to the checked JavaScript wrapper. Requires --emit-js.",
         };
 
         var rootCommand = new RootCommand(
@@ -45,6 +53,7 @@ public static class TsBindGenCommand
             assemblyArgument,
             diffOption,
             emitJsOption,
+            declarationModuleOption,
         };
 
         rootCommand.SetAction(parseResult =>
@@ -52,10 +61,36 @@ public static class TsBindGenCommand
             string assemblyPath = parseResult.GetValue(assemblyArgument)!;
             string? diffAgainst = parseResult.GetValue(diffOption);
             string? emitJsPath = parseResult.GetValue(emitJsOption);
+            string? declarationModuleSpecifier =
+                parseResult.GetValue(declarationModuleOption);
 
             if (!File.Exists(assemblyPath))
             {
                 stderr.WriteLine($"tsbindgen: assembly not found: {assemblyPath}");
+                return 1;
+            }
+
+            if (emitJsPath is not null
+                && declarationModuleSpecifier is null)
+            {
+                stderr.WriteLine(
+                    "tsbindgen: --emit-js requires --declaration-module.");
+                return 1;
+            }
+
+            if (declarationModuleSpecifier is not null
+                && emitJsPath is null)
+            {
+                stderr.WriteLine(
+                    "tsbindgen: --declaration-module requires --emit-js.");
+                return 1;
+            }
+
+            if (declarationModuleSpecifier is not null
+                && string.IsNullOrWhiteSpace(declarationModuleSpecifier))
+            {
+                stderr.WriteLine(
+                    "tsbindgen: --declaration-module must not be empty or whitespace.");
                 return 1;
             }
 
@@ -196,7 +231,9 @@ public static class TsBindGenCommand
             if (emitJsPath is not null
                 && !diagnostics.HasUnmappedTypes)
             {
-                string generatedJs = JsEmitter.Emit(jsExportSurface);
+                string generatedJs = JsEmitter.Emit(
+                    jsExportSurface,
+                    declarationModuleSpecifier!);
                 try
                 {
                     File.WriteAllText(emitJsPath, generatedJs);

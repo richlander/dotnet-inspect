@@ -12,6 +12,9 @@ namespace ILInspector.JsExportSurface.Tests;
 
 public sealed class TsBindGenCommandTests
 {
+    private const string DeclarationModuleSpecifier =
+        "./fixture-contract.js";
+
     private static string FixtureAssemblyPath => typeof(FixtureExports).Assembly.Location;
 
     private static string CleanAssemblyPath => typeof(TsBindGenCommand).Assembly.Location;
@@ -146,7 +149,15 @@ public sealed class TsBindGenCommandTests
             var error = new StringWriter();
 
             int exitCode = TsBindGenCommand.Invoke(
-                [CleanAssemblyPath, "--diff-against", diffPath, "--emit-js", emitJsPath],
+                [
+                    CleanAssemblyPath,
+                    "--diff-against",
+                    diffPath,
+                    "--emit-js",
+                    emitJsPath,
+                    "--declaration-module",
+                    DeclarationModuleSpecifier,
+                ],
                 output,
                 error);
 
@@ -176,7 +187,15 @@ public sealed class TsBindGenCommandTests
             var error = new StringWriter();
 
             int exitCode = TsBindGenCommand.Invoke(
-                [CleanAssemblyPath, "--diff-against", diffPath, "--emit-js", emitJsPath],
+                [
+                    CleanAssemblyPath,
+                    "--diff-against",
+                    diffPath,
+                    "--emit-js",
+                    emitJsPath,
+                    "--declaration-module",
+                    DeclarationModuleSpecifier,
+                ],
                 output,
                 error);
 
@@ -215,7 +234,15 @@ public sealed class TsBindGenCommandTests
             var error = new StringWriter();
 
             int exitCode = TsBindGenCommand.Invoke(
-                [CleanAssemblyPath, "--diff-against", diffPath, "--emit-js", emitJsPath],
+                [
+                    CleanAssemblyPath,
+                    "--diff-against",
+                    diffPath,
+                    "--emit-js",
+                    emitJsPath,
+                    "--declaration-module",
+                    DeclarationModuleSpecifier,
+                ],
                 output,
                 error);
 
@@ -232,6 +259,86 @@ public sealed class TsBindGenCommandTests
             File.Delete(diffPath);
             File.Delete(emitJsPath);
         }
+    }
+
+    [Fact]
+    public void Invoke_EmitJsRequiresDeclarationModule()
+    {
+        string emitJsPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "tsbindgen-missing-declaration-module.js");
+        try
+        {
+            File.Delete(emitJsPath);
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = TsBindGenCommand.Invoke(
+                [CleanAssemblyPath, "--emit-js", emitJsPath],
+                output,
+                error);
+
+            Assert.Equal(
+                1,
+                exitCode);
+            Assert.Empty(output.ToString());
+            Assert.Equal(
+                "tsbindgen: --emit-js requires --declaration-module."
+                    + Environment.NewLine,
+                error.ToString());
+            Assert.False(File.Exists(emitJsPath));
+        }
+        finally
+        {
+            File.Delete(emitJsPath);
+        }
+    }
+
+    [Fact]
+    public void Invoke_DeclarationModuleRequiresJavaScriptOutput()
+    {
+        var output = new StringWriter();
+        var error = new StringWriter();
+
+        int exitCode = TsBindGenCommand.Invoke(
+            [CleanAssemblyPath, "--declaration-module", "./custom.js"],
+            output,
+            error);
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output.ToString());
+        Assert.Equal(
+            "tsbindgen: --declaration-module requires --emit-js."
+                + Environment.NewLine,
+            error.ToString());
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Invoke_RefusesEmptyDeclarationModule(
+        string declarationModuleSpecifier)
+    {
+        var output = new StringWriter();
+        var error = new StringWriter();
+
+        int exitCode = TsBindGenCommand.Invoke(
+            [
+                CleanAssemblyPath,
+                "--emit-js",
+                "unused.js",
+                "--declaration-module",
+                declarationModuleSpecifier,
+            ],
+            output,
+            error);
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output.ToString());
+        Assert.Equal(
+            "tsbindgen: --declaration-module must not be empty or whitespace."
+                + Environment.NewLine,
+            error.ToString());
     }
 
     [Fact]
@@ -269,7 +376,13 @@ public sealed class TsBindGenCommandTests
         var error = new StringWriter();
 
         int exitCode = TsBindGenCommand.Invoke(
-            [FixtureAssemblyPath, "--emit-js", missingDirectory],
+            [
+                FixtureAssemblyPath,
+                "--emit-js",
+                missingDirectory,
+                "--declaration-module",
+                DeclarationModuleSpecifier,
+            ],
             output,
             error);
 
@@ -323,7 +436,13 @@ public sealed class TsBindGenCommandTests
             var error = new StringWriter();
 
             int exitCode = TsBindGenCommand.Invoke(
-                [assemblyPath, "--emit-js", emitJsPath],
+                [
+                    assemblyPath,
+                    "--emit-js",
+                    emitJsPath,
+                    "--declaration-module",
+                    DeclarationModuleSpecifier,
+                ],
                 output,
                 error);
 
@@ -376,7 +495,13 @@ public sealed class TsBindGenCommandTests
             var output = new StringWriter();
             var error = new StringWriter();
             int exitCode = TsBindGenCommand.Invoke(
-                [modulePath, "--emit-js", emitJsPath],
+                [
+                    modulePath,
+                    "--emit-js",
+                    emitJsPath,
+                    "--declaration-module",
+                    DeclarationModuleSpecifier,
+                ],
                 output,
                 error);
 
@@ -412,6 +537,8 @@ public sealed class TsBindGenCommandTests
                 typeof(NeedsUnmappedTypeFixtureExports).Assembly.Location,
                 "--emit-js",
                 emitJsPath,
+                "--declaration-module",
+                DeclarationModuleSpecifier,
             ],
             output,
             error);
@@ -439,6 +566,8 @@ public sealed class TsBindGenCommandTests
                     typeof(ControlPropertyNameFixture).Assembly.Location,
                     "--emit-js",
                     emitJsPath,
+                    "--declaration-module",
+                    DeclarationModuleSpecifier,
                 ],
                 output,
                 error);
@@ -481,6 +610,8 @@ public sealed class TsBindGenCommandTests
                     typeof(ScalarContextOptionsFixtureExports).Assembly.Location,
                     "--emit-js",
                     emitJsPath,
+                    "--declaration-module",
+                    DeclarationModuleSpecifier,
                 ],
                 output,
                 error);
@@ -517,6 +648,8 @@ public sealed class TsBindGenCommandTests
                     typeof(JsExportOperatorFixture).Assembly.Location,
                     "--emit-js",
                     emitJsPath,
+                    "--declaration-module",
+                    DeclarationModuleSpecifier,
                 ],
                 output,
                 error);
@@ -553,6 +686,8 @@ public sealed class TsBindGenCommandTests
                     typeof(LambdaExportFixture).Assembly.Location,
                     "--emit-js",
                     emitJsPath,
+                    "--declaration-module",
+                    DeclarationModuleSpecifier,
                 ],
                 output,
                 error);

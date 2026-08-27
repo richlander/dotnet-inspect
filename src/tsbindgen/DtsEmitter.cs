@@ -454,6 +454,9 @@ static class DtsEmitter
 
     static void ValidateFunctionNames(IEnumerable<JsExportFunction> functions)
     {
+        JsExportFunction[] functionArray = functions.ToArray();
+        bool bootstrapsHost =
+            functionArray.Any(IsConfigureHostBootstrap);
         var moduleBindings = new HashSet<string>(
             [
                 "dotnet",
@@ -463,7 +466,8 @@ static class DtsEmitter
                 "$requireManagedExports",
             ],
             StringComparer.Ordinal);
-        foreach (JsExportFunction function in functions)
+
+        foreach (JsExportFunction function in functionArray)
         {
             string functionName = CamelCase.FromPascalCase(function.Name);
             if (!TypeScriptIdentifier.IsStrictModeBindingIdentifier(functionName)
@@ -473,6 +477,17 @@ static class DtsEmitter
                 throw new UnsupportedWireContractException(
                     "JS-export function",
                     "export names must be TypeScript identifiers");
+            }
+
+            if (bootstrapsHost
+                && string.Equals(
+                    functionName,
+                    "window",
+                    StringComparison.Ordinal))
+            {
+                throw new UnsupportedWireContractException(
+                    "JS-export function",
+                    "export name collides with the browser window binding required by the ConfigureHost bootstrap");
             }
 
             if (!moduleBindings.Add(functionName))
@@ -518,6 +533,20 @@ static class DtsEmitter
             }
         }
     }
+
+    internal static bool IsConfigureHostBootstrap(
+        JsExportFunction function) =>
+        string.Equals(
+            function.Name,
+            "ConfigureHost",
+            StringComparison.Ordinal)
+        && function.ReturnType == "void"
+        && function.Parameters is
+        [
+            {
+                Type: "string",
+            },
+        ];
 
     static bool IsComposedIdentifierName(string name) =>
         name.Split('.').All(TypeScriptIdentifier.IsIdentifierName);

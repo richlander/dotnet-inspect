@@ -23,8 +23,12 @@ namespace tsbindgen;
 /// </remarks>
 static class JsEmitter
 {
-    public static string Emit(ILInspector.JsExportSurface.JsExportSurface surface)
+    public static string Emit(
+        ILInspector.JsExportSurface.JsExportSurface surface,
+        string declarationModuleSpecifier)
     {
+        ArgumentException.ThrowIfNullOrEmpty(declarationModuleSpecifier);
+
         string assemblyName = surface.AssemblyIdentity?.Name
             ?? throw new InvalidOperationException(
                 "Runtime wrapper emission requires an assembly identity.");
@@ -36,11 +40,16 @@ static class JsEmitter
             DtsEmitter.MapFunctionSignatures(surface);
         string managedExportsTypeName =
             AllocateManagedExportsTypeName(declarationTypes);
+        // JavaScriptEncoder leaves '*'; encode it so a module specifier cannot close the JSDoc.
+        string encodedDeclarationModuleSpecifier =
+            JavaScriptEncoder.Default.Encode(declarationModuleSpecifier)
+                .Replace("*", "\\u002A", StringComparison.Ordinal);
 
         foreach (ApiType declarationType in declarationTypes
             .OrderBy(type => type.Name, StringComparer.Ordinal))
         {
-            sb.Append("/** @typedef {import(\"/inspect-web-engine.js\").")
+            sb.Append("/** @typedef {import(\"")
+              .Append(encodedDeclarationModuleSpecifier).Append("\").")
               .Append(declarationType.Name).Append("} ")
               .Append(declarationType.Name).Append(" */\n");
         }
@@ -86,7 +95,8 @@ static class JsEmitter
         // its own origin (for MSDL-proxied source requests) before any other export is used, so
         // this generator calls it here rather than leaving every caller to remember to.
         TypeScriptFunctionSignature? configureHost = functions.FirstOrDefault(
-            function => IsConfigureHostBootstrap(function.Function));
+            function => DtsEmitter.IsConfigureHostBootstrap(
+                function.Function));
         if (configureHost is not null)
         {
             sb.Append("  exports.").Append(configureHost.Function.DeclaringType)
@@ -171,20 +181,6 @@ static class JsEmitter
               .Append(") => ").Append(function.InteropReturnType).Append(",\n");
         }
     }
-
-    static bool IsConfigureHostBootstrap(
-        JsExportFunction function) =>
-        string.Equals(
-            function.Name,
-            "ConfigureHost",
-            StringComparison.Ordinal)
-        && function.ReturnType == "void"
-        && function.Parameters is
-        [
-            {
-                Type: "string",
-            },
-        ];
 
     static void EmitFunction(
         StringBuilder sb,

@@ -41,8 +41,11 @@ cat > "$header_file" <<'EOF'
 EOF
 
 dotnet build "$engine_csproj" -c Release >&2
-dotnet run --project "$repo_root/src/tsbindgen" -c Release -- "$engine_dll" \
-  --emit-js "$js_generated_file.body" > "$dts_generated_file.body"
+# Prevent Git Bash from rewriting the public URL-like module name as a Windows path.
+MSYS2_ARG_CONV_EXCL="/inspect-web-engine.js" \
+  dotnet run --project "$repo_root/src/tsbindgen" -c Release -- "$engine_dll" \
+  --emit-js "$js_generated_file.body" \
+  --declaration-module "/inspect-web-engine.js" > "$dts_generated_file.body"
 cat "$header_file" "$dts_generated_file.body" > "$dts_generated_file"
 cat "$header_file" "$js_generated_file.body" > "$js_generated_file"
 

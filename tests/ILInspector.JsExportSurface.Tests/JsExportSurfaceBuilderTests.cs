@@ -1105,7 +1105,8 @@ public sealed class JsExportSurfaceBuilderTests
                 {
                     AssemblyIdentity = extracted.AssemblyIdentity,
                     Functions = [function],
-                }),
+                },
+                "./fixture.js"),
             StringComparison.Ordinal);
     }
 
@@ -1141,7 +1142,8 @@ public sealed class JsExportSurfaceBuilderTests
                 {
                     AssemblyIdentity = extracted.AssemblyIdentity,
                     Functions = [function],
-                }),
+                },
+                "./fixture.js"),
             StringComparison.Ordinal);
     }
 

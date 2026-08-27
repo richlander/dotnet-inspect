@@ -57,6 +57,10 @@ test("the generated runtime wrapper keeps the real relative host import", () => 
     wrapper,
     /^\/\/ GENERATED FILE[\s\S]*import \{ dotnet \} from "\.\/_framework\/dotnet\.js";/u,
   );
+  assert.match(
+    wrapper,
+    /@typedef \{import\("\/inspect-web-engine\.js"\)\./u,
+  );
   assert.doesNotMatch(wrapper, /@ts-(?:check|ignore|nocheck|expect-error)/u);
 });
 
