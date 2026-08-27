@@ -678,27 +678,66 @@ export interface WorkspaceLocationSnapshot {
   hash: string;
 }
 
+export interface WorkspaceRouteFailure {
+  kind: "MalformedPathEncoding";
+  message: string;
+}
+
+interface CourtesyPackageRoute {
+  package: string;
+  version: string;
+  failure: WorkspaceRouteFailure | null;
+}
+
 export interface WorkspaceLocationRoute {
   location: WorkspaceLocationSnapshot;
   encodedWorkspaceState: string | null;
   hasWorkspaceState: boolean;
+  courtesyPackageRoute: CourtesyPackageRoute | null;
   visible: ParsedWorkspaceLocation;
+}
+
+function decodeCourtesyPackageRoute(
+  location: WorkspaceLocationSnapshot,
+  hasWorkspaceState: boolean,
+): CourtesyPackageRoute | null {
+  const route = location.pathname.split("/").filter(Boolean);
+  const packageAt = route.findIndex(part => part.toLowerCase() === "packages");
+  if (hasWorkspaceState || packageAt < 0) return null;
+
+  try {
+    return {
+      package: decodeURIComponent(route[packageAt + 1] || ""),
+      version: decodeURIComponent(route[packageAt + 2] || ""),
+      failure: null,
+    };
+  } catch (error) {
+    if (!(error instanceof URIError)) throw error;
+    return {
+      package: "",
+      version: "",
+      failure: {
+        kind: "MalformedPathEncoding",
+        message:
+          "The package route contains malformed percent-encoding in its package or version.",
+      },
+    };
+  }
 }
 
 function resolveWorkspaceLocation(
   location: WorkspaceLocationSnapshot,
   share: ShareStateResult,
+  courtesyPackageRoute: CourtesyPackageRoute | null,
 ) {
   const params = new URLSearchParams(location.search);
-  const route = location.pathname.split("/").filter(Boolean);
-  const packageAt = route.findIndex(part => part.toLowerCase() === "packages");
   const hasWorkspaceState = params.has("w");
 
-  let pkg = !hasWorkspaceState && packageAt >= 0
-    ? decodeURIComponent(route[packageAt + 1] || "")
+  let pkg = courtesyPackageRoute
+    ? courtesyPackageRoute.package
     : params.get("package");
-  let version = !hasWorkspaceState && packageAt >= 0
-    ? decodeURIComponent(route[packageAt + 2] || "")
+  let version = courtesyPackageRoute
+    ? courtesyPackageRoute.version
     : params.get("version");
   let framework = params.get("framework");
   let type = params.get("type");
@@ -795,6 +834,7 @@ function resolveWorkspaceLocation(
     shareState,
     hasWorkspaceState,
     workspaceNotice,
+    routeFailure: courtesyPackageRoute?.failure ?? null,
   };
 }
 
@@ -805,11 +845,16 @@ export function parseWorkspaceRoute(
 ): WorkspaceLocationRoute {
   const params = new URLSearchParams(location.search);
   const encodedWorkspaceState = params.get("w");
+  const hasWorkspaceState = params.has("w");
+  const courtesyPackageRoute = decodeCourtesyPackageRoute(
+    location,
+    hasWorkspaceState);
   return {
     location,
     encodedWorkspaceState,
-    hasWorkspaceState: params.has("w"),
-    visible: resolveWorkspaceLocation(location, null),
+    hasWorkspaceState,
+    courtesyPackageRoute,
+    visible: resolveWorkspaceLocation(location, null, courtesyPackageRoute),
   };
 }
 
@@ -822,7 +867,8 @@ export function resolveWorkspaceRoute(
     route.location,
     encodedWorkspaceState
       ? decodeWorkspaceShareState(encodedWorkspaceState, decode)
-      : null);
+      : null,
+    route.courtesyPackageRoute);
 }
 
 export function parseWorkspaceLocation(

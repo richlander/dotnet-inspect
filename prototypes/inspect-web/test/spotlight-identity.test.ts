@@ -2501,7 +2501,7 @@ test("initial workspace packet resolution waits for the engine phase", () => {
     /const initialWorkspace = workspaceLocation\.preflightCurrent\(\);\s*const initialLocation = initialWorkspace\.visible/);
   assert.match(
     appSource,
-    /state\.home = state\.credits\s*\|\| \(!initialLocation\.package && !initialWorkspace\.hasWorkspaceState\)/);
+    /state\.home = state\.credits\s*\|\| \(!initialLocation\.package\s*&& !initialWorkspace\.hasWorkspaceState\s*&& !initialLocation\.routeFailure\)/);
   const restore = appSource.match(
     /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction isStyleTier/)?.[0]
     ?? "";
@@ -2516,6 +2516,36 @@ test("initial workspace packet resolution waits for the engine phase", () => {
   assert.notEqual(initializeAt, -1);
   assert.notEqual(restoreAt, -1);
   assert.ok(initializeAt < restoreAt);
+});
+
+test("malformed package routes use the contained restore failure path", () => {
+  const restore = appSource.match(
+    /async function restoreWorkspaceFromLocation\([\s\S]*?\n}\n\nfunction failWorkspaceRoute/)?.[0]
+    ?? "";
+  assert.match(
+    restore,
+    /canonicalSnapshot = loc\.hasWorkspaceState \|\| loc\.routeFailure[\s\S]*if \(loc\.routeFailure\) \{\s*failWorkspaceRoute\(loc\.routeFailure\.message, canonicalSnapshot\);\s*return;/);
+
+  const initial = appSource.match(
+    /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction isStyleTier/)?.[0]
+    ?? "";
+  assert.match(
+    initial,
+    /if \(loc\.routeFailure\) \{\s*await restoreWorkspaceFromLocation\(loc, deepLinkFromLocation\(loc\)\);\s*return;/);
+
+  const popstate =
+    appSource.match(/window\.addEventListener\("popstate"[\s\S]*?\n\}\);/)?.[0]
+    ?? "";
+  assert.match(
+    popstate,
+    /const canonicalSnapshot = loc\.hasWorkspaceState \|\| loc\.routeFailure[\s\S]*if \(loc\.routeFailure\) \{\s*failWorkspaceRoute\(loc\.routeFailure\.message, canonicalSnapshot\);\s*return;[\s\S]*const bareHome/);
+
+  const failure = appSource.match(
+    /function failWorkspaceRoute\([\s\S]*?\n}\n\nfunction failCanonicalWorkspaceRestore/)?.[0]
+    ?? "";
+  assert.match(
+    failure,
+    /if \(snapshot\?\.hasWorkspace\)[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\)[\s\S]*appendQueryNotice\(`Package route failed: \$\{message\}`\)[\s\S]*state\.errorTitle = "Package route failed";[\s\S]*state\.error = message/);
 });
 
 test("member entry controls move focus into the resulting member navigation", () => {

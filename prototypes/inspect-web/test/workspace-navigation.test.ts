@@ -719,7 +719,42 @@ test("authoritative packets bypass malformed courtesy paths", () => {
   assert.equal(parsed.hasWorkspaceState, true);
   assert.equal(parsed.shareState, null);
   assert.equal(parsed.package, "Visible.Package");
+  assert.equal(parsed.routeFailure, null);
   assert.match(parsed.workspaceNotice, /packet is invalid/);
+});
+
+test("malformed courtesy package routes become typed failures", () => {
+  const route = parseWorkspaceRoute({
+    href: "https://inspect.example/packages/%E0%A4%A/1.0.0",
+    pathname: "/packages/%E0%A4%A/1.0.0",
+    search: "",
+    hash: "",
+  });
+
+  assert.equal(route.visible.package, "");
+  assert.equal(route.visible.version, "");
+  assert.deepEqual(route.visible.routeFailure, {
+    kind: "MalformedPathEncoding",
+    message:
+      "The package route contains malformed percent-encoding in its package or version.",
+  });
+
+  const resolved = resolveWorkspaceRoute(route, () => {
+    throw new Error("unexpected packet decode");
+  });
+  assert.deepEqual(resolved.routeFailure, route.visible.routeFailure);
+});
+
+test("valid courtesy package routes continue to decode normally", () => {
+  const parsed = parseWorkspaceLocation(locationSnapshot(
+    "https://inspect.example/packages/Example%2EPackage/1.0.0%2Bbuild#source"),
+  () => {
+    throw new Error("unexpected packet decode");
+  });
+
+  assert.equal(parsed.package, "Example.Package");
+  assert.equal(parsed.version, "1.0.0+build");
+  assert.equal(parsed.routeFailure, null);
 });
 
 test("an empty workspace parameter remains authoritative", () => {

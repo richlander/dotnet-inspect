@@ -1233,7 +1233,9 @@ const initialLocation = initialWorkspace.visible;
 // its workspace directly.
 state.credits = isCreditsPath(location.pathname);
 state.home = state.credits
-  || (!initialLocation.package && !initialWorkspace.hasWorkspaceState);
+  || (!initialLocation.package
+    && !initialWorkspace.hasWorkspaceState
+    && !initialLocation.routeFailure);
 state.queryNotice = "";
 if (initialLocation.package) {
   state.requestedPackage = initialLocation.package;
@@ -8986,11 +8988,15 @@ async function restoreWorkspaceFromLocation(
   loc: ParsedLocation,
   deep: DeepLink,
   navigationSeq = navigationSequence.begin(),
-  canonicalSnapshot = loc.hasWorkspaceState
+  canonicalSnapshot = loc.hasWorkspaceState || loc.routeFailure
     ? captureCanonicalWorkspaceRestoreSnapshot()
     : null,
 ) {
   if (!navigationSequence.isCurrent(navigationSeq)) return;
+  if (loc.routeFailure) {
+    failWorkspaceRoute(loc.routeFailure.message, canonicalSnapshot);
+    return;
+  }
   if (loc.hasWorkspaceState && !loc.shareState) {
     failCanonicalWorkspaceRestore(
       loc,
@@ -9183,6 +9189,37 @@ async function restoreWorkspaceFromLocation(
   }
 }
 
+function failWorkspaceRoute(
+  message: string,
+  snapshot: CanonicalWorkspaceRestoreSnapshot | null,
+) {
+  if (snapshot?.hasWorkspace) {
+    restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
+    state.credits = false;
+    state.loading = false;
+    state.error = "";
+    state.errorTitle = "";
+    state.errorDetail = "";
+    state.retryAction = null;
+    appendQueryNotice(`Package route failed: ${message}`);
+    failedWorkspaceUrlPreservation = {
+      url: location.href,
+      projection: workspaceUrlProjection(),
+    };
+    render();
+    return;
+  }
+  clearWorkspacePackages();
+  state.credits = false;
+  state.loading = false;
+  state.home = false;
+  state.errorTitle = "Package route failed";
+  state.error = message;
+  state.errorDetail = "";
+  state.retryAction = null;
+  render();
+}
+
 function failCanonicalWorkspaceRestore(
   loc: ParsedLocation,
   deep: DeepLink,
@@ -9230,6 +9267,10 @@ function applyLocationView(loc: ParsedLocation) {
 // cross-package dependency edges come back. Only the focused target restores its deep-link.
 async function restoreInitialWorkspace() {
   const loc = initialWorkspace.resolve();
+  if (loc.routeFailure) {
+    await restoreWorkspaceFromLocation(loc, deepLinkFromLocation(loc));
+    return;
+  }
   if (loc.hasWorkspaceState && !loc.shareState) {
     await restoreWorkspaceFromLocation(loc, deepLinkFromLocation(loc));
     return;
@@ -9807,7 +9848,7 @@ window.addEventListener("popstate", () => {
   invalidateGraphMemberNavigation();
   state.loading = false;
   const loc = parseLocation();
-  const canonicalSnapshot = loc.hasWorkspaceState
+  const canonicalSnapshot = loc.hasWorkspaceState || loc.routeFailure
     ? captureCanonicalWorkspaceRestoreSnapshot()
     : null;
   state.queryNotice = loc.workspaceNotice || "";
@@ -9818,6 +9859,10 @@ window.addEventListener("popstate", () => {
     state.home = true;
     spotlight.reset();
     render();
+    return;
+  }
+  if (loc.routeFailure) {
+    failWorkspaceRoute(loc.routeFailure.message, canonicalSnapshot);
     return;
   }
   if (loc.hasWorkspaceState && !loc.shareState) {
