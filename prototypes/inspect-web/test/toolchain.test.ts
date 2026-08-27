@@ -21,14 +21,14 @@ import {
   resolve,
   sep,
 } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import {
   supportedAnalysisHosts,
   verifyAnalysisHost,
 } from "../scripts/verify-analysis-host.ts";
 import { verifySiteArtifact } from "../scripts/verify-site-artifact.ts";
-import { bundlerReadFiles } from "./vite-audit.ts";
+import { bundlerReadFiles, resolvedBuildSettings } from "./vite-audit.ts";
 
 interface PackageLockEntry {
   readonly link?: boolean;
@@ -614,15 +614,55 @@ test("the lint covers every file the bundler reads", async () => {
   // package directory above it is one the lock declares, and is this project's problem
   // otherwise. The gate that pins the lock's contents runs above, so this cannot be
   // satisfied by inventing a lock entry either.
+  //
+  // Round 10 (Gemini 3.1 Pro) found the cost of pairing that with round 9's removal of
+  // the out-of-root filter. npm hoists: with a workspace or a parent install, a real
+  // dependency lands in a `node_modules` above this project, and asking *this* lockfile
+  // about a `../node_modules/is-odd` key can only ever miss. The package was reported as
+  // unchecked project source, which is the safe direction to fail but the wrong answer,
+  // and a gate that misfires on an ordinary npm layout is a gate somebody eventually
+  // deletes. So the lookup finds the lockfile that governs the file -- the nearest one at
+  // or above it -- and asks that, with keys relative to that lockfile's own directory.
+  // For everything in this project that is the same lockfile and the same answer as
+  // before. Note that only this project's lock is pinned by the gate above; a lock
+  // outside it is trusted as npm's account of its own tree, which holds here because no
+  // such tree is committable in this repository.
+  const lockCache = new Map<string, PackageLock | undefined>();
+  const governingLock = (directory: string): { root: string; lock: PackageLock } | undefined => {
+    for (let current = directory; ; current = dirname(current)) {
+      if (!lockCache.has(current)) {
+        const candidate = join(current, "package-lock.json");
+        lockCache.set(current, existsSync(candidate)
+          ? readJson<PackageLock>(pathToFileURL(candidate).href)
+          : undefined);
+      }
+      const lock = lockCache.get(current);
+      if (lock !== undefined) {
+        return { root: current, lock };
+      }
+      const parent = dirname(current);
+      if (parent === current) {
+        return undefined;
+      }
+    }
+  };
+
   const declaredDependency = (file: string): boolean => {
-    const path = projectRelative(root, file);
-    if (!path.split("/").includes("node_modules")) {
+    if (!projectRelative(root, file).split("/").includes("node_modules")) {
+      return false;
+    }
+    const governing = governingLock(dirname(file));
+    if (governing === undefined) {
+      return false;
+    }
+    const path = projectRelative(governing.root, file);
+    if (path.startsWith("../")) {
       return false;
     }
     for (let directory = dirname(path);
       directory !== "." && directory !== "";
       directory = dirname(directory)) {
-      if (Object.hasOwn(packageLock.packages, directory)) {
+      if (Object.hasOwn(governing.lock.packages, directory)) {
         return true;
       }
     }
@@ -703,8 +743,7 @@ test("the lint covers every file the bundler reads", async () => {
 // point of keeping both: it audits what the build *reads*, and a verbatim copy is never
 // read. This project has no such directory and does not need one -- `manifest.json` is
 // Vite's own build manifest and `assets/` is imported through the bundler -- so the path
-// is switched off rather than policed, and pinned here so it cannot come back without
-// this gate being answered.
+// is switched off rather than policed.
 //
 // Round 9 (Sol) found the second path of the same kind. A Vite plugin can read a file
 // with `readFileSync` and splice it into a module in `transform`. Nothing registers that
@@ -712,27 +751,36 @@ test("the lint covers every file the bundler reads", async () => {
 // to it; the payload shipped with all four commands green. A plugin is code in a file
 // that is linted and type checked, but the *text* it injects is not, and it need not be
 // hostile to do this -- a plugin that stamps a banner from a file has the same shape.
-// This project declares no plugins, so that path is pinned shut too.
 //
-// Both pins read the config source rather than the resolved config, which is a weaker
-// check than the derivations above: it stops the setting reappearing, not a determined
-// author who spells it differently. That is the right depth here. The gates exist to
-// keep unchecked source from arriving by accident or convenience, and `vite.config.ts`
-// is itself reviewed, linted and type checked.
-test("the bundler has no unread path into the shipped output", () => {
+// Round 9 pinned both by matching the text of `vite.config.ts`, and said in this comment
+// that reading source rather than resolved config was the right depth. Round 10 (Sol)
+// showed it was not. A plugin declared in an imported helper and spread in as
+// `...unwatchedInputConfig()` never writes `plugins:` in that file: the pattern matched
+// nothing, all four commands stayed green, and the injected payload shipped. That is
+// ordinary config composition, not evasion, which is the whole objection -- the pin was
+// reading the spelling of a setting instead of the setting, and one refactor was enough
+// to separate the two.
+//
+// So both are derived now, the same way everything else here is. Vite resolves the config
+// it will actually build with, and resolving a second time with `configFile: false` says
+// what Vite installs on its own. The difference is what this project added, and this file
+// never has to know what Vite's own set contains. Comparing sorted names rather than a
+// count catches a plugin that borrows an existing name, and comparing after resolution
+// catches every spelling: spread, imported, conditional or computed.
+test("the bundler has no unread path into the shipped output", async () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
-  const config = readFileSync(new URL("../vite.config.ts", import.meta.url), "utf8");
-  assert.match(config, /publicDir:\s*false/u,
-    "vite.config.ts must disable `publicDir`; while it is enabled, any file placed "
+  const settings = await resolvedBuildSettings(root);
+  assert.equal(settings.publicDir, "",
+    "the resolved config enables `publicDir`; while it is enabled, any file placed "
       + "there is copied into `dist/` without the compiler or the lint ever reading it");
   assert.ok(!existsSync(join(root, "public")),
     "a `public/` directory exists; with `publicDir` disabled it ships nothing, so "
       + "remove it rather than leaving a directory that reads as shipped content");
-  assert.doesNotMatch(config, /\bplugins\s*:/u,
-    "vite.config.ts declares plugins; a plugin can read a file and splice it into a "
-      + "module without Rollup ever watching it, which is invisible to the gate above. "
-      + "Adding one means answering for what it injects, so this gate has to be "
-      + "reckoned with rather than edited away");
+  assert.deepStrictEqual(settings.pluginNames, settings.builtinPluginNames,
+    "the resolved config adds plugins Vite did not install itself; a plugin can read a "
+      + "file and splice it into a module without Rollup ever watching it, which is "
+      + "invisible to the gate above. Adding one means answering for what it injects, so "
+      + "this gate has to be reckoned with rather than edited away");
 });
 
 // Being under a lint target turns out not to mean the lint reads the file. oxlint applies

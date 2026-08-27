@@ -34,3 +34,34 @@ export async function bundlerReadFiles(root: string): Promise<string[]> {
   });
   return [...read];
 }
+
+// Round 9 pinned `publicDir: false` and the absence of plugins by matching the text of
+// `vite.config.ts`. Round 10 (Sol) showed what that is worth: a plugin declared in an
+// imported helper and spread in as `...unwatchedInputConfig()` never writes `plugins:`
+// in that file, so the pattern found nothing while the plugin injected an unwatched
+// payload into the bundle. The pin was reading the source of a setting instead of the
+// setting, and that gap costs an attacker one ordinary refactor.
+//
+// Vite resolves the config it is going to use, so it can be asked instead. Resolving the
+// project's real config and resolving with `configFile: false` gives the plugins the
+// project added on top of the ones Vite always installs, without this file ever having
+// to know what Vite's own set is -- 34 plugins here, none of them named in this repo.
+// However the config is spelled, composed, imported or computed, the difference shows up
+// after resolution.
+export interface ResolvedBuildSettings {
+  readonly publicDir: string;
+  readonly pluginNames: readonly string[];
+  readonly builtinPluginNames: readonly string[];
+}
+
+export async function resolvedBuildSettings(root: string): Promise<ResolvedBuildSettings> {
+  const { resolveConfig } = await import("vite");
+  const real = await resolveConfig({ root, logLevel: "error" }, "build");
+  const builtin = await resolveConfig({ root, configFile: false, logLevel: "error" }, "build");
+  const names = (config: typeof real): string[] => config.plugins.map(plugin => plugin.name).sort();
+  return {
+    publicDir: real.publicDir,
+    pluginNames: names(real),
+    builtinPluginNames: names(builtin),
+  };
+}
