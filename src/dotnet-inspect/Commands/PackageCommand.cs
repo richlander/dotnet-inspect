@@ -45,9 +45,10 @@ public class PackageCommand
         var packageArgs = options.PackageArgs;
         var explicitVersion = options.ExplicitVersion;
         var catalog = PackageSectionDescriptors.CreateCatalog();
+        var sectionCatalog = catalog.Sections;
         var pipeline = catalog.Pipeline;
-        var queryRegistry = catalog.QueryRegistry;
-        var sectionNames = pipeline.SelectableSectionNames;
+        var queryCatalog = catalog.QueryCatalog;
+        var sectionNames = sectionCatalog.SelectableSectionNames;
         bool packageLibraryMode = options.PackageLibrary != null || options.AllLibraries;
         if (!packageLibraryMode)
             options = NormalizeDependencyProjection(options);
@@ -80,8 +81,8 @@ public class PackageCommand
                     var selectResult = SelectResolver.ResolveSelectAsSections(
                         options.Select,
                         sectionNames,
-                        pipeline.BareSelectSectionNames,
-                        pipeline.GetCategoryMap(),
+                        sectionCatalog.BareSelectSectionNames,
+                        sectionCatalog.SelectionCategoryMap,
                         selectDefault: options.SelectDefault
                             && !hasExplicitSelection);
                     if (SelectOutput.WriteUnresolved(selectResult))
@@ -98,7 +99,7 @@ public class PackageCommand
                 tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
                 verbosity: (int)options.Verbosity,
                 sectionCostAnnotations: pipeline.GetCostAnnotations(),
-                sectionCategories: pipeline.GetCategoryMap(),
+                sectionCategories: sectionCatalog.SelectionCategoryMap,
                 // --schema reveals the full catalog including the @Hidden pole; a static -D
                 // without --schema keeps the curated top-level view.
                 catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections(),
@@ -132,7 +133,10 @@ public class PackageCommand
         {
             // -S/--select with values: resolve as section filter for backpressure
             var selectResult = SelectResolver.ResolveSelectAsSections(
-                options.Select, sectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap(),
+                options.Select,
+                sectionNames,
+                sectionCatalog.InfoSectionNames,
+                sectionCatalog.SelectionCategoryMap,
                 selectDefault: options.SelectDefault);
             if (SelectOutput.WriteUnresolved(selectResult)) return 1;
             if (selectResult.Sections != null)
@@ -243,7 +247,7 @@ public class PackageCommand
 
             IReadOnlyCollection<string>? tabularSections =
                 options.FixedOverview
-                    ? pipeline.BareSelectSectionNames
+                    ? sectionCatalog.BareSelectSectionNames
                     : options.IncludeSections;
             if (!options.Count
                 && !OutputFormatResolver.ValidateSingleSectionForTabular(
@@ -290,13 +294,21 @@ public class PackageCommand
         var logger = context.Logger;
 
         if (packageArgs.Length > 1)
+        {
+            PackageSourceQueryPlan sourceQueryPlan = CreatePackageSourceQueryPlan(
+                sectionCatalog,
+                queryCatalog,
+                producerOptions,
+                excludeUnbounded:
+                    options.Discover is not null && !options.Schema);
             return await ExecuteMultiPackageAsync(
                 packageArgs,
                 options,
                 producerOptions,
                 context,
-                pipeline,
-                queryRegistry);
+                sectionCatalog,
+                sourceQueryPlan);
+        }
 
         // Handle --versions mode: list versions and exit early
         if (options.ListVersions)
@@ -872,14 +884,13 @@ public class PackageCommand
                     producerOptions,
                     pipeline))
                 PopulatePackageContentAudit(result, extractPath);
-            HashSet<InspectionQueryDefinition> sourceQueries =
-                pipeline.GetRequiredQueries(
-                    producerOptions.Verbosity,
-                    producerOptions.IncludeSections,
-                    producerOptions.FixedOverview,
-                    excludeUnbounded: effectiveDiscovery);
+            PackageSourceQueryPlan sourceQueryPlan = CreatePackageSourceQueryPlan(
+                sectionCatalog,
+                queryCatalog,
+                producerOptions,
+                excludeUnbounded: effectiveDiscovery);
             if (ShouldPopulatePackageSourceFiles(producerOptions)
-                || sourceQueries.Count > 0)
+                || !sourceQueryPlan.SectionPlan.Queries.IsEmpty)
             {
                 await PopulatePackageSourceLinkAsync(
                     result,
@@ -889,8 +900,7 @@ public class PackageCommand
                     producerOptions,
                     context,
                     logger,
-                    queryRegistry,
-                    sourceQueries);
+                    sourceQueryPlan);
             }
 
             // Filter output based on options
@@ -1002,7 +1012,7 @@ public class PackageCommand
                         sectionCostAnnotations:
                             pipeline.GetCostAnnotations(),
                         sectionCategories:
-                            pipeline.GetCategoryMap(),
+                            sectionCatalog.SelectionCategoryMap,
                         catalogHiddenSections:
                             options.Schema
                                 ? null
@@ -1143,9 +1153,10 @@ public class PackageCommand
         InspectionOptions options,
         InspectionOptions producerOptions,
         CommandContext context,
-        SectionPipeline<InspectionResult> pipeline,
-        InspectionQueryRegistry<SourceLinkQueryContext> queryRegistry)
+        SectionCatalog<InspectionResult> sectionCatalog,
+        PackageSourceQueryPlan sourceQueryPlan)
     {
+        SectionPipeline<InspectionResult> pipeline = sectionCatalog.Pipeline;
         if (options.ShowContent)
             return await ExecuteMultiPackageContentAsync(packageArgs, options, context);
 
@@ -1160,7 +1171,7 @@ public class PackageCommand
             || IsPackageFileSection(rowSection)
             || options.IncludeSections?.Any(IsPackageFileSection) == true
             || (options.FixedOverview
-                && pipeline.BareSelectSectionNames.Any(IsPackageFileSection))
+                && sectionCatalog.BareSelectSectionNames.Any(IsPackageFileSection))
             || options.IncludeSections?.Contains(PackageSections.Signals) == true
             || options.IncludeSections?.Contains(PackageSections.AuditArtifactText) == true
             || options.IncludeSections?.Contains(PackageSections.AuditFindings) == true
@@ -1203,8 +1214,8 @@ public class PackageCommand
                 producerOptions,
                 context,
                 wantsFilesSection,
-                pipeline,
-                queryRegistry);
+                sectionCatalog,
+                sourceQueryPlan);
             if (result == null)
                 return 1;
             results.Add(result);
@@ -2647,9 +2658,10 @@ public class PackageCommand
         InspectionOptions producerOptions,
         CommandContext context,
         bool wantsFilesSection,
-        SectionPipeline<InspectionResult> pipeline,
-        InspectionQueryRegistry<SourceLinkQueryContext> queryRegistry)
+        SectionCatalog<InspectionResult> sectionCatalog,
+        PackageSourceQueryPlan sourceQueryPlan)
     {
+        SectionPipeline<InspectionResult> pipeline = sectionCatalog.Pipeline;
         var logger = context.Logger;
         string? extractPath = null;
         PackageExtractionResult? resolution = null;
@@ -2740,14 +2752,8 @@ public class PackageCommand
                 PopulatePackageContentAudit(result, extractPath);
             }
 
-            HashSet<InspectionQueryDefinition> sourceQueries =
-                pipeline.GetRequiredQueries(
-                    producerOptions.Verbosity,
-                    producerOptions.IncludeSections,
-                    producerOptions.FixedOverview,
-                    excludeUnbounded: options.Discover != null && !options.Schema);
             if (ShouldPopulatePackageSourceFiles(producerOptions)
-                || sourceQueries.Count > 0)
+                || !sourceQueryPlan.SectionPlan.Queries.IsEmpty)
             {
                 await PopulatePackageSourceLinkAsync(
                     result,
@@ -2757,8 +2763,7 @@ public class PackageCommand
                     producerOptions,
                     context,
                     logger,
-                    queryRegistry,
-                    sourceQueries);
+                    sourceQueryPlan);
             }
 
             FilterResultForOutput(result, options);
@@ -2924,6 +2929,36 @@ public class PackageCommand
     private static bool ShouldPopulatePackageSourceFiles(InspectionOptions options)
         => options.IncludeSections?.Contains(PackageSections.SourceLinkFiles) == true;
 
+    private static PackageSourceQueryPlan CreatePackageSourceQueryPlan(
+        SectionCatalog<InspectionResult> sectionCatalog,
+        InspectionQueryCatalog<SourceLinkQueryContext> queryCatalog,
+        InspectionOptions options,
+        bool excludeUnbounded)
+    {
+        SectionQueryPlan sectionPlan = sectionCatalog.PlanQueries(
+            options.Verbosity,
+            options.IncludeSections,
+            options.FixedOverview,
+            excludeUnbounded);
+        // The IEnumerable overload boxes ImmutableArray; use the direct common-plan overloads
+        // and reserve general compilation for uncommon multi-query demand.
+        InspectionQueryPlan<SourceLinkQueryContext> queryPlan =
+            sectionPlan.Queries.Length switch
+            {
+                0 => queryCatalog.Plan(
+                    Array.Empty<InspectionQueryDefinition>()),
+                1 => queryCatalog.Plan(sectionPlan.Queries[0]),
+                _ => queryCatalog.Plan(sectionPlan.Queries),
+            };
+        return new PackageSourceQueryPlan(
+            sectionPlan,
+            queryPlan);
+    }
+
+    private readonly record struct PackageSourceQueryPlan(
+        SectionQueryPlan SectionPlan,
+        InspectionQueryPlan<SourceLinkQueryContext> QueryPlan);
+
     private static async Task PopulatePackageSourceLinkAsync(
         InspectionResult result,
         string extractPath,
@@ -2932,9 +2967,9 @@ public class PackageCommand
         InspectionOptions options,
         CommandContext context,
         VerboseLogger logger,
-        InspectionQueryRegistry<SourceLinkQueryContext> queryRegistry,
-        HashSet<InspectionQueryDefinition> requestedQueries)
+        PackageSourceQueryPlan sourceQueryPlan)
     {
+        var requestedQueries = sourceQueryPlan.SectionPlan.Queries;
         bool collectSourceFiles = ShouldPopulatePackageSourceFiles(options);
         bool auditAvailability =
             requestedQueries.Contains(SourceAvailabilityQuery.Definition);
@@ -2982,11 +3017,11 @@ public class PackageCommand
                     options.SourceOptions);
 
                 InspectionQueryResults? queryResults = null;
-                if (requestedQueries.Count > 0)
+                if (!requestedQueries.IsEmpty)
                 {
-                    queryResults = await queryRegistry.RunAsync(
-                        requestedQueries,
-                        queryContext).ConfigureAwait(false);
+                    queryResults = await sourceQueryPlan.QueryPlan
+                        .RunAsync(queryContext)
+                        .ConfigureAwait(false);
                 }
                 else if (collectSourceFiles)
                 {
