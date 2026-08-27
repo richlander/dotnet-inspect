@@ -92,14 +92,14 @@ display columns from JSON property names.
 | --- | --- | --- |
 | `--json` | Typed | Preserve the established typed contract. |
 | `--json -S ...` | Typed | Do not lower; the command's typed section-selection contract applies. |
-| `--json --rows ...` | Typed | Do not lower; the command's typed absolute-range contract applies. |
+| `--json --rows ...` | Typed | Preserve released typed routing; the pending L3 design owns future item grammar. |
 | `--json --compact` | Typed | Do not lower; change whitespace where the typed contract supports it. |
 | `--json -D ... --fields/--columns ...` | Lens contract | Let discovery own its JSON and projection; do not enter document routing. |
 | `--json --fields/--columns ... --value/--print/...` | Payload contract | Resolve the accepted payload projection first; the field/column request selects its source where supported. |
 | `--json --fields ...` | Lowered | Apply the selected section's declared field/annotation projection. |
 | `--json --columns ...` | Lowered | Apply table-column projection through the section model. |
 | Lowered JSON plus `-S` | Lowered | Select sections before applying per-section projection. |
-| Lowered JSON plus `-n`/`--rows` | Lowered | Select semantic items/ranges before JSON serialization. |
+| Lowered JSON plus released row/line gestures | Lowered | Preserve current routing; future item selection must consume the shared component before serialization. |
 | Lowered JSON plus `--compact` | Lowered | Change whitespace only. |
 | Printable JSON plus `-n N --lines` | Payload contract | Clip each selected content value before serialization; never truncate encoded JSON. |
 

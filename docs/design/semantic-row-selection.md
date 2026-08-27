@@ -80,9 +80,10 @@ same selected values, order, and strict-range outcome. The
 source-pushdown design owns how that proof is represented and obtained.
 
 The project references only the BCL. It has no dependency on Sections, Queries,
-Packages, Services, Markout, console APIs, filesystem APIs, or network APIs. Its
-public execution surface is synchronous and deterministic, making it usable by
-NativeAOT and single-threaded Browser/Wasm consumers.
+Packages, Services, or Markout. A static product-closure gate prohibits console,
+filesystem, network, process, dedicated-thread, parallel-loop, and native
+interop APIs. Its public execution surface is synchronous and deterministic,
+making it usable by NativeAOT and single-threaded Browser/Wasm consumers.
 
 ## Normalized plan
 
@@ -116,7 +117,8 @@ a closed range whose end precedes its start. The comparer resolver must return
 a non-null comparer for every `Top` order; violating that condition is caller
 misuse, not a semantic range failure.
 
-An empty plan preserves every row.
+An empty plan preserves every input value and its order without invoking the
+comparer resolver.
 
 ## Stage semantics
 
@@ -214,6 +216,24 @@ rendering, per-row payload acquisition, or destination mutation. This avoids a
 presentation-dependent partial success in which one table honors a range while
 another silently clamps or disappears.
 
+## Failure model
+
+The single-sequence executor returns a `RowRangeFailure` with:
+
+- `StageNumber`: the one-based index of the failing `Range` stage;
+- `RequiredPosition`: the closed range end or open range start that had to
+  exist; and
+- `AvailableCount`: the size of that stage's current input.
+
+The named-sequence executor returns `NamedRowRangeFailure<TKey>`, containing the
+opaque input `Key` and the same `RowRangeFailure`. Failures contain no message,
+exception text, row value, or rendered identity. The caller owns diagnostic
+wording.
+
+Invalid plan construction and a missing resolved comparer are caller misuse,
+not `RowRangeFailure` outcomes. They reject before a selected result is
+returned.
+
 ## Reference semantics and optimized execution
 
 The stage definitions over a complete sequence are the semantic oracle.
@@ -270,11 +290,18 @@ The implementation must add these named Release gates:
 | --- | --- |
 | `SelectionStagesComposeInDeclaredOrder` | Reversing `Head`, `Tail`, `Range`, or `Top` stages changes results exactly as the reference examples require; every stage reads positions beginning at 1 from the preceding output. |
 | `SelectionCountsAreLenientAndRangesAreStrict` | Oversized `Head`, `Tail`, and `Top` return the complete current input, while closed and open ranges fail unless their required endpoint exists at that stage. |
+| `RowSelectionPlanRejectsInvalidStages` | Nonpositive counts, nonpositive range coordinates, and a closed end before its start reject during construction rather than becoming an empty or unlimited stage. |
+| `EmptyRowSelectionPlanIsIdentity` | An empty plan returns every original value in order and never invokes the comparer resolver. |
+| `TopRequiresResolvedComparer` | A resolver that returns no comparer identifies the `Top` stage and rejects as caller misuse before any selected result is returned. |
 | `StrictRangesValidateNamedSequencesAtomically` | A strict-range miss in any one of several keyed sequences identifies the key and stage and returns no selected sequence collection. |
 | `SelectionFailuresAreDeterministic` | Multiple failing named sequences return the first failure by input sequence order and stage order; duplicate keys reject before execution. |
+| `RowRangeFailureShapeIsExact` | Unkeyed failures contain exactly stage number, required position, and available count; named failures add only the opaque key. Closed ranges report their end and open ranges report their start against the post-predecessor count. |
 | `TopRetainsCurrentOrderForEqualRanks` | Equal comparer results preserve current sequence order, including after an earlier stage changed the current sequence. |
 | `SelectionReturnsOriginalValuesInOrder` | The executor returns the original caller-owned values without cloning, wrapping, relabeling, or deriving identity from stage positions. |
-| `RowSelectionIsAPlatformNeutralLeaf` | The project dependency gate permits only the BCL, and its tests run under the repository's NativeAOT and Browser-compatible constraints. |
+| `RowSelectionHasOnlyBclDependencies` | The project-reference closure permits only the BCL and rejects Sections, Queries, Packages, Services, Markout, and host projects. |
+| `RowSelectionForbidsHostApis` | A static product-closure gate rejects console, filesystem, network, process, dedicated-thread, parallel-loop, and native-interop APIs even though those APIs are in the BCL. |
+| `RowSelectionRunsOnNativeAotAndBrowser` | The reference stage matrix executes in Release under NativeAOT and single-threaded Browser/Wasm hosts. |
+| `RowSelectionPublicApiIsSynchronous` | A signature-closure gate rejects `Task`/`ValueTask`, `Thread`, `Stream`/`TextReader`/`TextWriter`, `Uri`/`HttpClient`, `FileSystemInfo`, and `Process` from public members. |
 
 The source-pushdown successor must add an equivalence gate comparing every
 optimized plan it supports with this complete-sequence reference executor,

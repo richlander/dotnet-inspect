@@ -135,20 +135,20 @@ route through the shared pipeline, the same infrastructure `library`/`member`/
 
 **What did not land alongside it:** the flag-numbering half of this
 recommendation. This document's own "one deliberate, called-out behavior
-change" for this migration step was retiring `-t`-as-package-limit in favor of
-the settled `-n` contract — but `find --package-prefix`'s corpus limit is
-still spelled `-t` on `main` (`FindOptions.Limit`, validated as "`-t` must be
-between 1 and..."). `-S` and `--where` are also not yet wired (there is
-currently exactly one section, `Packages`, so `-S` selection is moot until the
-facet layer adds more to select between).
+change" for this migration step was retiring `-t`-as-package-limit. That
+decision is superseded; the pending L3 design owns replacement grammar and
+compatibility. `find --package-prefix`'s corpus limit remains `-t` on `main`
+(`FindOptions.Limit`, validated as "`-t` must be between 1 and..."). `-S` and
+`--where` are also not yet wired (there is currently exactly one section,
+`Packages`, so `-S` selection is moot until the facet layer adds more to
+select between).
 
 **Interaction concern for the next slice:** the Sections migration and the
 `-t`→`-n` flag rename were assumed to be one atomic step; in practice they
 decoupled, and the migration landed first. The next slice (wiring nuspec-tier
-`--where`, [Landing sequence](#landing-sequence) step 3) should not silently
-inherit `-t` as precedent — it should either retire `-t` for `-n` itself, or
-explicitly hand that retirement to whatever implements #4677 across the CLI,
-naming which PR owns it so it does not fall through the gap a second time.
+`--where`, [Landing sequence](#landing-sequence) step 3) leaves `-t` unchanged.
+The pending #4677 L3 design alone decides its replacement and compatibility
+policy; package-query work must not establish either by precedent.
 
 ### `-t` is the wrong flag to build on; `-n` owns the corpus limit
 
@@ -336,15 +336,13 @@ the CLI's named facets as canonical for the browser's facet rail.
    Sections registry (`PackageProfileSections`,
    `SectionPipeline<PackageProfileView>`), so `--count`/`--rows` work the
    same way they do for `library`/`member`/`package`, without a second
-   bespoke implementation. What did not land alongside it: retiring
-   `-t`-as-package-limit for the settled `-n` contract, and `-S`/`--where`
-   remain unwired. See
+   bespoke implementation. Replacement of `-t` remains with the pending L3
+   design, and `-S`/`--where` remain unwired. See
    [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing).
-3. **Retire `-t` for `-n` on `find --package-prefix`**, closing the gap step
-   2 left open, and **wire nuspec-tier `--where`** onto package-profile rows,
-   deciding and documenting the filter-before-bound ordering from
+3. **Wire nuspec-tier `--where`** onto package-profile rows without changing
+   `-t`, deciding and documenting the filter-before-bound ordering from
    [Completion and bound honesty parity](#completion-and-bound-honesty-parity-with-the-browser).
-   Neither sub-goal has landed yet.
+   This has not landed yet.
 4. **Add the promoted-tier capability gate and `--deepen`-bounded IL
    evaluation**, including the L2 tier-gating error for an ungated
    promoted-tier field.
