@@ -13,28 +13,28 @@ internal static partial class WorkflowContract
             ["markdownlint"] = "needs.changes.outputs.docs == 'true'",
             ["skill-gate"] =
                 "needs.changes.outputs.skills == 'true' && " +
-                "github.event_name == 'pull_request'",
+                "github.event_name != 'push'",
             ["test"] =
                 "needs.changes.outputs.code == 'true' && " +
-                "github.event_name == 'pull_request'",
+                "github.event_name != 'push'",
             ["test-windows"] =
                 "needs.changes.outputs.code == 'true' && " +
-                "github.event_name == 'pull_request'",
+                "github.event_name != 'push'",
             ["build-net10"] =
                 "needs.changes.outputs.shipped == 'true' && " +
-                "github.event_name == 'pull_request'",
+                "github.event_name != 'push'",
             ["decompiler-gates"] =
-                "github.event_name == 'pull_request' && " +
-                "needs.changes.outputs.decompiler == 'true'",
+                "needs.changes.outputs.decompiler == 'true' && " +
+                "github.event_name != 'push'",
             ["csharp-diff-smoke"] =
-                "github.event_name == 'pull_request' && " +
-                "needs.changes.outputs.csharpdiff == 'true'",
+                "needs.changes.outputs.csharpdiff == 'true' && " +
+                "github.event_name != 'push'",
             ["il-diff-smoke"] =
-                "github.event_name == 'pull_request' && " +
-                "needs.changes.outputs.ildiff == 'true'",
+                "needs.changes.outputs.ildiff == 'true' && " +
+                "github.event_name != 'push'",
             ["pack"] =
-                "github.event_name == 'pull_request' && " +
-                "needs.changes.outputs.packaging == 'true'",
+                "needs.changes.outputs.packaging == 'true' && " +
+                "github.event_name != 'push'",
         };
         foreach ((string jobName, string condition) in conditions)
         {
