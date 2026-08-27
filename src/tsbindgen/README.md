@@ -45,14 +45,18 @@ syntax, and `.d.ts` layout — lives entirely in this tool (`TsTypeMapper`,
 `CamelCase`, `DtsEmitter`). A future binding-generation target besides
 TypeScript would add its own "personality" layer here without needing to touch
 the OM. `TsTypeMapper` currently also contains legacy `ValueTask` mapping
-branches, but the authenticated surface rejects `ValueTask` signatures before
-they can reach those branches; the target architecture removes that
-unreachable code and its tests. Async JSON return authentication currently
-recognizes the compiler-async form whose physical result sink is in
-`MoveNext`; it does not yet recognize the equivalent runtime-async form whose
-physical body and return sink remain on the exported method. The target
-architecture requires both forms to issue the same `JsExportSurface` facts and
-generated TypeScript.
+branches that mapper tests and hand-composed declaration-only surfaces can
+reach. The SDK's JavaScript interop source generator instead rejects a compiled
+`[JSExport] ValueTask` signature with `SYSLIB1072`, before a runtime-publishable
+surface exists. The target architecture removes those mapper branches, retains
+that SDK compile-time negative, and rejects an unsupported hand-composed input
+visibly. Async JSON return authentication currently recognizes the
+compiler-async form whose physical result sink is in `MoveNext`; it does not
+yet recognize the equivalent runtime-async form whose physical body and return
+sink remain on the exported method. Issue
+[#4790](https://github.com/richlander/dotnet-inspect/issues/4790) owns that
+`ILInspector.JsExportSurface` prerequisite; the target generator only consumes
+the lowering-independent facts.
 
 Generated JSON-wire interfaces are producer-owned snapshots: their properties
 are `readonly`, arrays use `ReadonlyArray<T>`, and string-keyed dictionaries use
@@ -94,6 +98,14 @@ published. `JsExportSurfaceBuilderTests.Build_ProjectsRuntimeQualifiedDeclaringT
 and `Build_ProjectsNestedRuntimeDeclaringTypePath` gate the compiled namespaced
 top-level and nested paths, while the inspect-web generated-artifact check
 remains the global-namespace consumer canary.
+
+The current wrapper indexes that path by the bare managed method name.
+`JsExportSurfaceBuilder` authenticates each generated registration's signature
+hash but does not retain the exact runtime member key on `JsExportFunction`, so
+the emitter cannot select overloads exactly. Issue
+[#4791](https://github.com/richlander/dotnet-inspect/issues/4791) owns the
+target-language-neutral input fact; `ts-jsexport` will consume that opaque key
+instead of inferring dispatch from a TypeScript or managed display name.
 
 The inspect-web bootstrap convention automatically invokes only an exact
 `static void ConfigureHost(string)` export with `window.location.origin`.
