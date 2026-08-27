@@ -24,6 +24,20 @@ anything that depends on #4551's source client, the query bar, promoted-tier
 that future implementation, not a claim about code that exists yet, and is
 unverified until the corresponding landing-sequence step ships its own gate.
 
+## Shell placement boundary
+
+Inspect Web UI owns shell placement, lifecycle, focus, and browser-history
+composition. Its replacement of package tabs with Workspace supersedes this
+document's former `Query`-tab placement and package-tab handoff path. This
+document continues to own the query surface's internal request, state, evidence,
+and rendering contract.
+
+No query shell entry is specified yet. A later Inspect Web UI change must
+define that entry and its routed or transient behavior before the query surface
+is integrated into the shell. `Open in workspace` submits the selected
+product-issued package coordinate through the standard typed Workspace
+transition; it does not reopen the removed package-tab path.
+
 ## Why this is not another workbench lens
 
 The Metadata Explorer and the annotated source viewer are full-bleed layers
@@ -86,12 +100,12 @@ tracked as landing-sequence follow-up.
 
 ## Layout
 
-A new tab kind, peer to the existing `Platform` tab in the package bar, not a
-modal over one package:
+The query content is a full-bleed working surface rather than a modal over one
+package. Its surrounding shell entry and lifecycle remain intentionally
+unspecified:
 
 ```text
-┌ Platform │ ▤ System.Text.Json │ ▤ Polly │ ⌕ Query: Microsoft.* out-of-support ┐  ← tab strip
-├──────────────────────────────────────────────────────────────────────────────┤
+┌──────────────────────────────────────────────────────────────────────────────┐
 │  ⌕ [ package-prefix: Microsoft. ]  [ tfm: out-of-support only ]     ▶ 1,204   │  ← query bar
 │                                                                     streamed  │
 ├───────────────┬────────────────────────────────────────────────────────────--┤
@@ -110,9 +124,6 @@ modal over one package:
 └───────────────┴────────────────────────────────────────────────────────────--┘
 ```
 
-- **Tab strip**: a `Query` tab behaves like a package tab (closable, carries a
-  short label) but its content is the funnel, not a workbench. Multiple query
-  tabs can be open, exactly as multiple package tabs can.
 - **Query bar**: the request rendered as editable chips (scope, predicate
   terms), matching the existing chip idiom (`opp-chip`, `type-chip`,
   `framework-chip`). Not a free-text query language in v1 — see
@@ -127,9 +138,9 @@ modal over one package:
   matched dependency group) — never a bare name, per the same "evidence over
   checkmark" convention `package-opportunities.ts` already uses for
   integration signals.
-- **Handoff, not duplication**: "Open in workspace" reuses the existing
-  package-tab-open path (`onDependencyOpen`-style action) — the funnel never
-  grows its own type/member browser.
+- **Handoff, not duplication**: `Open in workspace` submits the result's
+  product-issued package coordinate through the standard typed Workspace
+  transition — the funnel never grows its own type/member browser.
 - **Deepen action**: an explicit, checkbox-gated escalation from `nuspec` tier
   to `promoted` tier for the *currently selected* rows only. This is where an
   IL-level predicate (the C# union / memory-safety-v2 examples) attaches,
@@ -141,7 +152,7 @@ modal over one package:
 
 | State | Trigger | UI |
 |---|---|---|
-| Composing | Query tab opened with no predicate yet | *(depends on the query bar, not yet built — currently the scaffold renders a bare "choose a scope" card; the facet rail before any request and curated starter queries are a design requirement for that landing-sequence step, not implemented or tested today)* Facet rail with no results pane; suggested starter queries (curated, matching product-home-demos conventions) |
+| Composing | Query surface opened with no predicate yet | *(depends on the query bar, not yet built — currently the scaffold renders a bare "choose a scope" card; the facet rail before any request and curated starter queries are a design requirement for that landing-sequence step, not implemented or tested today)* Facet rail with no results pane; suggested starter queries (curated, matching product-home-demos conventions) |
 | Streaming | Request dispatched | Result rows append as pages arrive; running count; cancel affordance; facets stay interactive and re-scope the live stream |
 | Partial failure | One source/page fails | Rows already fetched stay visible; a banner names the failed source, matching `NuGetSearchOutcome.Failures` — never silently drop to a smaller "complete" count *(persistent for now; dismissing it is a design requirement for a future landing-sequence step, not implemented or tested today)* |
 | Bounded-complete | Stream reaches the declared cap or the source is exhausted | Footer states which one explicitly: `"first 1,500 relevance-ranked ids"` vs. `"all 340 matches"` — the exhaustiveness claim from the funnel-feasibility analysis is rendered, not just known internally; if a source also failed partway *and the cap was reached via exhaustion*, the footer says so ("all matches from sources that succeeded") rather than overclaiming completeness — a stream stopped by hitting the declared cap keeps its `bounded: <reason>` label regardless, since a cap-reached outcome never claimed exhaustiveness to begin with |
@@ -159,13 +170,12 @@ runtime-to-record mapping (in particular, how `scopeLabel`/`scopeQuery`
 collapse into the record's single `scope` field) is not yet specified; this
 section describes the intended destination and projection split, not a
 claim that the conversion is already implemented. Following the
-`encodeWorkspaceShareState`/`WorkspaceUrlState` convention already used for
-package tabs, a query tab's URL carries a terse projection of the preset
-(scope + facet references + `requestedLimit`), so a query tab round-trips
-through a URL the way a package tab already does. A resolved `QueryOutcome` is
-never encoded into the URL — it is always re-run, because nuget.org state
-moves and a stale cached result list would misrepresent a live feed as a
-snapshot.
+canonical state contract, the product-issued query record carries a terse
+projection of the preset (scope + facet references + `requestedLimit`). This
+document does not define its surrounding route or packet encoding. A resolved
+`QueryOutcome` is never encoded into shared state — it is always re-run,
+because nuget.org state moves and a stale cached result list would misrepresent
+a live feed as a snapshot.
 
 ## Two-tier evaluation, made visible
 
@@ -337,7 +347,7 @@ preset never needs to "contain" its own history.
 1. **This document** — UX shape, reviewable independent of the engine work.
 2. **#4551** (nuspec-only package prefix profiles) — supplies `QueryOutcome`'s
    data source for the `nuspec` tier.
-3. **Dependency-owner enrichment** and **persistent Wasm package-tab adapter**
+3. **Dependency-owner enrichment** and **persistent Wasm workspace handoff**
    (#4551's named follow-ups) — needed before "Open in workspace" and
    multi-package facet rows are fully backed.
 4. **Facet vocabulary wiring** — map each shipped CLI predicate flag to a facet
