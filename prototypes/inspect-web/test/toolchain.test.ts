@@ -436,6 +436,70 @@ test("the only JavaScript is the file the lint exemption names", () => {
     "the lint exemption and the JavaScript it covers must name the same files");
 });
 
+// Every gate in this file accounts for *files*: the compiler builds a program out of
+// `.ts` files, and oxlint is handed a list of paths. Script written inside a document is
+// therefore invisible to both, and the browser runs it anyway.
+//
+// This was not hypothetical. `index.html` carried a `<script type="module">` block that
+// dereferenced `document.querySelector("#app")` without checking it -- the exact defect
+// `no-unsafe-member-access` is enabled to catch -- and shipped that way for as long as
+// the file existed, because nothing read it. Round 5 (Sol) found it; it is issue #4783
+// and `src/bootstrap.ts` is where that code lives now.
+//
+// So the gate is not "lint HTML too", which would mean owning a second parser and a
+// second set of rules. It is that a document may reference script and may not contain
+// any, which leaves exactly one kind of place for script to be: a file. The three forms
+// below are the three ways HTML runs script that a `src` reference does not cover, and
+// they are named by the spec rather than by a list of things anyone thought of --
+// element content, the `on*` event handler content attributes, and the `javascript:`
+// URL scheme.
+test("no HTML document carries script the gates cannot read", () => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const documents = projectFiles([".html", ".htm"]);
+
+  // Non-vacuity. A walk that silently found nothing would pass every assertion below
+  // while proving nothing at all, and the entry document is the reason this gate exists.
+  const names = documents.map(file => projectRelative(root, file)).sort();
+  assert.ok(names.includes("index.html"),
+    `the walk found no entry document, so this gate proved nothing; it saw ${
+      names.length > 0 ? names.join(", ") : "no HTML at all"}`);
+
+  const findings: string[] = [];
+  for (const file of documents) {
+    const name = projectRelative(root, file);
+    const html = readFileSync(file, "utf8");
+
+    // A script body cannot itself contain `</script`, because that ends the element
+    // whatever it is nested in, so this pairing is exact rather than a best effort.
+    for (const match of html.matchAll(/<script\b([^>]*)>([\S\s]*?)<\/script\s*>/gi)) {
+      const body = (match[2] ?? "").trim();
+      if (body.length === 0) {
+        continue;
+      }
+      findings.push(`${name}: <script${match[1] ?? ""}> has a body of ${
+        body.split("\n").length} line(s)`);
+    }
+
+    // Every event handler content attribute in HTML is spelled `on` plus the event name,
+    // and its value is script. Matching the shape rather than a list of attribute names
+    // is what keeps this from being one more enumeration with a hole in it.
+    for (const match of html.matchAll(/\s(on[a-z]+)\s*=/gi)) {
+      findings.push(`${name}: \`${match[1] ?? ""}\` is an event handler attribute, and `
+        + "its value is script");
+    }
+
+    for (const match of html.matchAll(/["'\s(]javascript:/gi)) {
+      findings.push(`${name}: a \`javascript:\` URL at offset ${match.index} is script`);
+    }
+  }
+
+  assert.deepEqual(findings, [],
+    "this script is run by the browser but read by neither the compiler nor the lint, "
+      + "because both of them account for files and none of this is in one. Move it into "
+      + "a module under `src/` and reference that module with `src=`, the way "
+      + "`index.html` loads `src/bootstrap.ts`");
+});
+
 // The gate above asks whether a file is TypeScript. It does not ask whether anything
 // compiles it, and those are different questions: `scripts/probe.mts` and a root-level
 // `bypass.ts` are both unimpeachably TypeScript, and both sailed through every gate in
@@ -702,9 +766,12 @@ test("the lint covers every file the bundler reads", async () => {
   // which is issue #4780, and its `package.json` is read for resolution. Both predate
   // this branch.
   //
-  // `index.html` is the entry document. The JavaScript written inside it is bundled and
-  // executed while no lint target and no compiler project can name it, which is issue
-  // #4783; that gap predates this branch and the file is untouched here.
+  // `index.html` is the entry document. It is read by the bundler and gated by neither
+  // half of the test below -- oxlint reads script, and the compiler has no account of a
+  // document -- so it stays pinned here. What it may *contain* is a separate gate: it
+  // carried an unchecked `<script>` block until #4783, and a gate above now fails if any
+  // document this project owns carries a script body, an event handler attribute or a
+  // `javascript:` URL. So the only script it can reach is a module under a lint target.
   //
   // `package.json` is read for dependency resolution rather than compiled, and the gates
   // above already assert its contents field by field.
@@ -715,9 +782,9 @@ test("the lint covers every file the bundler reads", async () => {
   //
   // Pinning the exact list is what makes this fail closed. Anything else the build reads
   // changes it and fails -- including a second stylesheet, which is a small cost for a
-  // gate that otherwise has to guess which extensions are harmless. Closing #4780 or
-  // #4783 changes it too, so the pin has to be deleted deliberately rather than quietly
-  // outliving the gaps it describes.
+  // gate that otherwise has to guess which extensions are harmless. Closing #4780 changes
+  // it too, so the pin has to be deleted deliberately rather than quietly outliving the
+  // gaps it describes.
   const knownReadButUngated = [
     "../annotated-source-viewer/package.json",
     "../annotated-source-viewer/src/document-model.js",
