@@ -96,7 +96,11 @@ static class EnumUnderlyingPrimitive
                 const FieldAttributes RequiredAttributes =
                     FieldAttributes.SpecialName
                     | FieldAttributes.RTSpecialName;
+                // `value__` holds the enum's value at runtime, so it is a real
+                // instance slot. Literal implies static in the CLI, and a
+                // literal instance field is a shape no valid enum can carry.
                 if (found
+                    || (field.Attributes & FieldAttributes.Literal) != 0
                     || (field.Attributes & RequiredAttributes)
                         != RequiredAttributes
                     || (field.Attributes & FieldAttributes.FieldAccessMask)
@@ -265,6 +269,17 @@ static class EnumUnderlyingPrimitive
         string name,
         out PrimitiveTypeCode code)
     {
+        // A metadata type name may legally contain characters that are escape
+        // sequences in a reflection type name, so the exact spelling is tried
+        // before the reflection-normalized one. Normalizing first would unescape
+        // a name SRM's provider looks up verbatim, and the guard would then skip
+        // a different width than the decode consumes.
+        if (TryFindDefinition(reader, name.AsSpan(), out var exact))
+        {
+            code = FromDefinition(reader, exact);
+            return true;
+        }
+
         ReadOnlySpan<char> simple = NormalizeSerializedName(name).AsSpan();
         if (TryFindDefinition(reader, simple, out var definition))
         {

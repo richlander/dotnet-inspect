@@ -582,6 +582,9 @@ public sealed class TypeResolutionEnumWidthTests
         Assert.Equal(
             PrimitiveTypeCode.Int32,
             ResolveWidth(BuildMalformedEnumImage(MalformedShape.GenericParameter)));
+        Assert.Equal(
+            PrimitiveTypeCode.Int32,
+            ResolveWidth(BuildMalformedEnumImage(MalformedShape.LiteralValueField)));
     }
 
     [Fact]
@@ -600,6 +603,7 @@ public sealed class TypeResolutionEnumWidthTests
         PrivateValueField,
         NonLiteralStaticField,
         GenericParameter,
+        LiteralValueField,
     }
 
     static byte[] BuildMalformedEnumImage(MalformedShape shape)
@@ -619,6 +623,9 @@ public sealed class TypeResolutionEnumWidthTests
             (shape == MalformedShape.PrivateValueField
                 ? FieldAttributes.Private
                 : FieldAttributes.Public)
+                | (shape == MalformedShape.LiteralValueField
+                    ? FieldAttributes.Literal
+                    : default)
                 | FieldAttributes.SpecialName
                 | FieldAttributes.RTSpecialName);
         AddFieldWithAttributes(

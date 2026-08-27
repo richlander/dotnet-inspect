@@ -169,8 +169,42 @@ public static class CustomAttributeValueGuard
         BlobReader _signature = signature;
         BlobReader _value = value;
         bool _substituteGenerics = true;
+        string? _memoEnumName;
+        PrimitiveTypeCode _memoEnumWidth;
 
         public void Push(WorkItem item) => _work.Push(item);
+
+        /// <summary>
+        /// Resolves an enum SerString to its width, reusing the previous
+        /// answer when the name repeats. Every element of a typed enum array
+        /// carries the same name, so without this the walk re-parses and
+        /// re-projects that name once per declared element — allocation
+        /// proportional to an attacker-chosen count, inside the guard whose
+        /// purpose is to bound exactly that. The resolver is a frozen table
+        /// and the projection is pure, so a repeated name has a repeated
+        /// answer and guard/SRM alignment is unaffected.
+        /// </summary>
+        PrimitiveTypeCode ResolveEnumNameMemoized(string? enumName)
+        {
+            if (enumName is not null
+                && _memoEnumName is not null
+                && string.Equals(_memoEnumName, enumName, StringComparison.Ordinal))
+            {
+                return _memoEnumWidth;
+            }
+
+            PrimitiveTypeCode width = ResolveEnumName(
+                _reader,
+                enumName,
+                _enumUnderlyingType);
+            if (enumName is not null)
+            {
+                _memoEnumName = enumName;
+                _memoEnumWidth = width;
+            }
+
+            return width;
+        }
 
         public Result Run()
         {
@@ -423,7 +457,7 @@ public static class CustomAttributeValueGuard
                 SerializedEnum => SkipBytes(
                     ref _value,
                     EnumUnderlyingPrimitive.ByteSize(
-                        ResolveEnumName(_reader, enumName, _enumUnderlyingType))),
+                        ResolveEnumNameMemoized(enumName))),
                 _ => Result.Unsafe,
             };
         }
@@ -502,10 +536,7 @@ public static class CustomAttributeValueGuard
                         : SkipBytes(
                             ref _value,
                             EnumUnderlyingPrimitive.ByteSize(
-                                ResolveEnumName(
-                                    _reader,
-                                    enumName,
-                                    _enumUnderlyingType)));
+                                ResolveEnumNameMemoized(enumName)));
                 }
                 case ElementTypeSzArray:
                 {

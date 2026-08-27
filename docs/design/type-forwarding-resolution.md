@@ -61,13 +61,28 @@ constrains the assembly the reference bound to, so when forwarding hops were
 followed the narrowing inspects the first hop's source rather than the terminal
 definition. A definition
 that is not a CLI-valid enum -- unsealed, not directly derived from
-`System.Enum`, generic, carrying a non-public or non-special `value__`, or
-carrying a non-literal static field -- supplies no width. Product extract does
+`System.Enum`, generic, carrying a non-public, non-special, or literal
+`value__`, or
+carrying a non-literal static field -- supplies no width.
+
+A type name is looked up by its exact metadata spelling before its
+reflection-normalized spelling. Metadata names may contain characters that a
+reflection type name treats as escapes, and a handle-derived name reaches the
+provider verbatim, so normalizing first would miss a local TypeDef that the
+guard resolves straight from its handle -- leaving the guard skipping one width
+while the decode consumed another. The guard also resolves a repeated enum name
+once rather than once per array element, because the element count is
+attacker-chosen and per-element parsing is the amplification the guard exists to
+prevent.
+
+Product extract does
 not
 yet collect CA enum names into a generation; that remains residual on
 [#4741](https://github.com/richlander/dotnet-inspect/issues/4741).
 `TypeResolutionEnumWidthTests` gates the adapter, and
-`CustomAttributeValueGuardTests` gates guard/decoder width alignment.
+`CustomAttributeValueGuardTests` gates guard/decoder width alignment through
+`EscapedTypeDefEnumName_GuardSkipMatchesDecodeWidth` and
+`EnumArrayElements_ResolveTheWidthOncePerName`.
 
 ## The problem
 

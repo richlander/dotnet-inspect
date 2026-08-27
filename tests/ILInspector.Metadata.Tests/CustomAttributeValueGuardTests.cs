@@ -2207,6 +2207,227 @@ public sealed class CustomAttributeValueGuardTests
         return Serialize(metadata);
     }
 
+    [Fact]
+    public void EscapedTypeDefEnumName_DecodesTheDefinitionWidth()
+    {
+        // A metadata type name may contain a backslash, which reflection type
+        // names use as an escape. The provider must find such a TypeDef by its
+        // exact spelling, or an Int64 enum silently decodes as Int32.
+        using var image = Open(BuildEscapedTypeDefEnumImage());
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        Assert.True(
+            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
+        var decoded = AttributeDecoder.TryDecode(image.Reader, attribute);
+        Assert.NotNull(decoded);
+        Assert.Equal(7L, decoded.Value.FixedArguments[0].Value);
+    }
+
+    [Fact]
+    public void EscapedTypeDefEnumName_GuardSkipMatchesDecodeWidth()
+    {
+        // The guard resolves a handle-derived enum from its definition while
+        // the decoder looks the same name up in its TypeDef index. If the index
+        // unescapes the name it misses, the decoder reads four bytes where the
+        // guard skipped eight, and the trailing four bytes of the value become
+        // an attacker-chosen array count that the guard already approved.
+        using var image = Open(BuildEscapedTypeDefEnumDesyncImage());
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        Assert.True(
+            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
+
+        int maxCharge = 0;
+        var decoded = AttributeDecoder.TryDecode(
+            image.Reader,
+            attribute,
+            count => maxCharge = Math.Max(maxCharge, count),
+            (Func<string, PrimitiveTypeCode>?)null);
+
+        Assert.NotNull(decoded);
+        Assert.True(
+            maxCharge < 1_000,
+            $"Guard approved the blob but decoding charged {maxCharge}; "
+                + "the guard skip and the decode width disagree.");
+    }
+
+    [Fact]
+    public void EnumArrayElements_ResolveTheWidthOncePerName()
+    {
+        // Every element of a typed enum array carries the same enum name. The
+        // guard must not re-parse and re-project it per element: the element
+        // count is attacker-chosen, so per-element work is the amplification
+        // this guard exists to prevent.
+        static long Measure(int elementCount)
+        {
+            using var image = Open(BuildNamedEnumArrayImage(elementCount));
+            CustomAttribute attribute = FirstAttribute(image.Reader);
+            Assert.True(
+                CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            Assert.True(
+                CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
+            return GC.GetAllocatedBytesForCurrentThread() - before;
+        }
+
+        long one = Measure(1);
+        long many = Measure(10_000);
+        Assert.True(
+            many < one + 100_000,
+            $"Guarding one element allocated {one} bytes and 10,000 allocated "
+                + $"{many}; the enum name is being resolved per element.");
+    }
+
+    static byte[] BuildEscapedTypeDefEnumImage()
+    {
+        var metadata = CreateMetadata("BackslashEnum");
+        AssemblyReferenceHandle other = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle systemEnum = metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Enum"));
+        TypeReferenceHandle attributeType = metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("SampleAttribute"));
+        TypeDefinitionHandle enumDef = MetadataTokens.TypeDefinitionHandle(2);
+        var constructorSignature = new BlobBuilder();
+        new BlobEncoder(constructorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                1,
+                returnType => returnType.Void(),
+                parameters => parameters.AddParameter().Type().Type(enumDef, isValueType: true));
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            attributeType,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+        var fieldSignature = new BlobBuilder();
+        new BlobEncoder(fieldSignature).FieldSignature().Int64();
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName,
+            metadata.GetOrAddString("value__"),
+            metadata.GetOrAddBlob(fieldSignature));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("E\\\\F"),
+            systemEnum,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle attributed = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Attributed"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(2),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteInt64(7);
+        value.WriteUInt16(0);
+        metadata.AddCustomAttribute(
+            attributed,
+            constructor,
+            metadata.GetOrAddBlob(value));
+        return Serialize(metadata);
+    }
+
+
+    static byte[] BuildEscapedTypeDefEnumDesyncImage()
+    {
+        var metadata = CreateMetadata("BackslashDesync");
+        AssemblyReferenceHandle other = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle systemEnum = metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Enum"));
+        TypeReferenceHandle attributeType = metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("SampleAttribute"));
+        TypeDefinitionHandle enumDef = MetadataTokens.TypeDefinitionHandle(2);
+        var constructorSignature = new BlobBuilder();
+        new BlobEncoder(constructorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                2,
+                returnType => returnType.Void(),
+                parameters =>
+                {
+                    parameters.AddParameter().Type().Type(enumDef, isValueType: true);
+                    parameters.AddParameter().Type().SZArray().Int32();
+                });
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            attributeType,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+        var fieldSignature = new BlobBuilder();
+        new BlobEncoder(fieldSignature).FieldSignature().Int64();
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName,
+            metadata.GetOrAddString("value__"),
+            metadata.GetOrAddBlob(fieldSignature));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("E\\\\F"),
+            systemEnum,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle attributed = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Attributed"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(2),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        // 8-byte enum slot. SRM, reading only 4, will take the trailing four
+        // bytes as the following array's declared count.
+        value.WriteInt32(0);
+        value.WriteInt32(100_000_000);
+        // The count the guard sees after skipping the full 8 bytes.
+        value.WriteInt32(1);
+        value.WriteInt32(42);
+        value.WriteUInt16(0);
+        metadata.AddCustomAttribute(
+            attributed,
+            constructor,
+            metadata.GetOrAddBlob(value));
+        return Serialize(metadata);
+    }
+
+
+
+
     static byte[] BuildDuplicateTypeDefEnumImage(int elementCount)
     {
         var metadata = CreateMetadata("DupEnum");
@@ -2437,5 +2658,26 @@ public sealed class CustomAttributeValueGuardTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+
+    static byte[] BuildNamedEnumArrayImage(int elementCount)
+    {
+        var metadata = CreateMetadata("ProbeEnumAmp");
+        MemberReferenceHandle constructor = AddConstructor(
+            metadata,
+            parameters => parameters.AddParameter().Type().Object(),
+            parameterCount: 1);
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteByte(0x1d);
+        value.WriteByte(0x55);
+        value.WriteSerializedString("Samples.Colors");
+        value.WriteInt32(elementCount);
+        for (int i = 0; i < elementCount; i++)
+            value.WriteInt32(i);
+        value.WriteUInt16(0);
+        AddAttributedType(metadata, constructor, value);
+        return Serialize(metadata);
     }
 }

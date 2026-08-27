@@ -407,6 +407,14 @@ public static class AttributeDecoder
 
         public PrimitiveTypeCode GetUnderlyingEnumType(string type)
         {
+            // The exact metadata spelling wins over the reflection-normalized
+            // one. Handle-derived names reach here verbatim, and a metadata name
+            // may contain characters that reflection treats as escapes, so
+            // normalizing first would miss a local TypeDef the pre-decode guard
+            // resolves directly from its handle.
+            if (TypeDefinitionsByName.TryGetValue(type, out var exact))
+                return EnumUnderlyingPrimitive.FromDefinition(reader, exact);
+
             string normalized = EnumUnderlyingPrimitive.NormalizeSerializedName(type);
             if (TypeDefinitionsByName.TryGetValue(normalized, out var handle))
                 return EnumUnderlyingPrimitive.FromDefinition(reader, handle);
