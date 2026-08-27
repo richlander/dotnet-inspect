@@ -622,6 +622,7 @@ public sealed class MethodCorrespondenceResolverTests
         MethodCorrespondenceResult result = ResolveApiMember(
             BuildScopedTypeMethodImage(
                 "system.runtime",
+                culture: "neutral",
                 publicKeyToken:
                     [0xb0, 0x3f, 0x5f, 0x7f, 0x11, 0xd5, 0x0a, 0x3a]),
             BuildScopedTypeMethodImage(
@@ -631,6 +632,24 @@ public sealed class MethodCorrespondenceResolverTests
 
         Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
         Assert.Single(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_CulturedCoreLibraryFacadeDoesNotCorrespond()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildScopedTypeMethodImage(
+                "System.Runtime",
+                culture: "fr-FR",
+                publicKeyToken:
+                    [0xb0, 0x3f, 0x5f, 0x7f, 0x11, 0xd5, 0x0a, 0x3a]),
+            BuildScopedTypeMethodImage(
+                "System.Private.CoreLib",
+                publicKeyToken:
+                    [0x7c, 0xec, 0x85, 0xd7, 0xbe, 0xa7, 0x79, 0x8e]));
+
+        Assert.Equal(MethodCorrespondenceStatus.Absent, result.Status);
+        Assert.Empty(result.Candidates);
     }
 
     [Fact]
@@ -2131,6 +2150,51 @@ public sealed class MethodCorrespondenceResolverTests
         Assert.True(
             allocated < 24 * 1024 * 1024,
             $"Method-attribute rejection allocated {allocated:N0} bytes.");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ResolveApiMember_DeepExtensionAttributeRelationshipsRespectOperationBudget(
+        bool useTypeReference)
+    {
+        byte[] source =
+            BuildDeepExtensionAttributeRelationshipImage(
+                attributeCount: 0,
+                useTypeReference);
+        byte[] target =
+            BuildDeepExtensionAttributeRelationshipImage(
+                attributeCount: 128,
+                useTypeReference);
+
+        MethodCorrespondenceResult result =
+            ResolveApiMember(source, target);
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains(
+            "correspondence anchor work budget",
+            result.Failure);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ResolveApiMember_OneDeepExtensionAttributeRelationshipRemainsExact(
+        bool useTypeReference)
+    {
+        byte[] source =
+            BuildDeepExtensionAttributeRelationshipImage(
+                attributeCount: 0,
+                useTypeReference);
+        byte[] target =
+            BuildDeepExtensionAttributeRelationshipImage(
+                attributeCount: 1,
+                useTypeReference);
+
+        MethodCorrespondenceResult result =
+            ResolveApiMember(source, target);
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
     }
 
     [Fact]
@@ -4817,6 +4881,97 @@ public sealed class MethodCorrespondenceResolverTests
                     extensionConstructor,
                     value);
             }
+        }
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildDeepExtensionAttributeRelationshipImage(
+        int attributeCount,
+        bool useTypeReference)
+    {
+        var metadata =
+            CreateSingleTypeMetadata(
+                "DeepExtensionAttributeRelationships",
+                "C",
+                out TypeDefinitionHandle type,
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Sealed);
+
+        EntityHandle attributeType;
+        if (useTypeReference)
+        {
+            AssemblyReferenceHandle assembly =
+                metadata.AddAssemblyReference(
+                    metadata.GetOrAddString("Dependency"),
+                    new Version(1, 0, 0, 0),
+                    default,
+                    default,
+                    default,
+                    default);
+            EntityHandle scope = assembly;
+            TypeReferenceHandle current = default;
+            for (int i = 0;
+                i < MetadataSafetyPolicy.MaxRelationshipNodes;
+                i++)
+            {
+                current =
+                    metadata.AddTypeReference(
+                        scope,
+                        default,
+                        default);
+                scope = current;
+            }
+            attributeType = current;
+        }
+        else
+        {
+            TypeDefinitionHandle parent = default;
+            TypeDefinitionHandle current = default;
+            for (int i = 0;
+                i < MetadataSafetyPolicy.MaxRelationshipNodes;
+                i++)
+            {
+                current =
+                    metadata.AddTypeDefinition(
+                        i == 0
+                            ? TypeAttributes.Public
+                            : TypeAttributes.NestedPublic,
+                        default,
+                        default,
+                        default,
+                        MetadataTokens.FieldDefinitionHandle(1),
+                        MetadataTokens.MethodDefinitionHandle(2));
+                if (!parent.IsNil)
+                    metadata.AddNestedType(current, parent);
+                parent = current;
+            }
+            attributeType = current;
+        }
+
+        MemberReferenceHandle constructor =
+            metadata.AddMemberReference(
+                attributeType,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x20, 0x00, 0x01 }));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x00, 0x00, 0x01 }),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        BlobHandle value =
+            metadata.GetOrAddBlob(
+                new byte[] { 0x01, 0x00, 0x00, 0x00 });
+        for (int i = 0; i < attributeCount; i++)
+        {
+            metadata.AddCustomAttribute(
+                type,
+                constructor,
+                value);
         }
         return Serialize(metadata);
     }

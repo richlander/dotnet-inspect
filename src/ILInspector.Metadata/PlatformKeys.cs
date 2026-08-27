@@ -50,9 +50,10 @@ public static class PlatformKeys
             StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// True when a referenced assembly has both a core-library facade name and
-    /// a platform public-key token. Gated by
-    /// <c>ResolveApiMember_CoreLibraryFacadeScopesCorrespond</c> and
+    /// True when a referenced assembly has a core-library facade name, a
+    /// platform public-key token, and neutral culture. Gated by
+    /// <c>ResolveApiMember_CoreLibraryFacadeScopesCorrespond</c>,
+    /// <c>ResolveApiMember_CulturedCoreLibraryFacadeDoesNotCorrespond</c>, and
     /// <c>ResolveApiMember_UntrustedCoreLibraryFacadeDoesNotCorrespond</c>.
     /// </summary>
     internal static bool IsCoreLibraryFacadeReference(
@@ -60,6 +61,8 @@ public static class PlatformKeys
     {
         ArgumentNullException.ThrowIfNull(identity);
         return IsCoreLibraryFacade(identity.Name)
+            && AssemblyReferenceIdentity.NormalizeCulture(identity.Culture)
+                .Length == 0
             && IsPlatform(identity.PublicKeyToken);
     }
 }

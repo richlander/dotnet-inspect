@@ -118,6 +118,8 @@ multiply relationship traversal outside that budget. Signature TypeDef and
 TypeRef relationship walks use the same charge-before-comparison callback for
 every estimate, materialization, validation, and identity projection, so many
 methods cannot amplify a shared deep signature chain outside the budget either.
+Extension-attribute classification propagates that callback through both
+observation and formatting walks for TypeDef and TypeRef constructor parents.
 Raw public-key material contributes only to that one-time operation charge; each
 signature occurrence accounts for the normalized token that correspondence
 actually retains, including a non-nil empty full-key blob whose SHA-1-derived
@@ -186,6 +188,8 @@ identity.
 `MethodCorrespondenceContext_LaterOwnerChargeFailureIsNotCached`,
 `ResolveApiMember_DeepDeclaringTypeCycleChecksRespectOperationBudget`,
 `ResolveApiMember_RepeatedDeepSignatureRelationshipsRespectOperationBudget`,
+`ResolveApiMember_DeepExtensionAttributeRelationshipsRespectOperationBudget`,
+`ResolveApiMember_CulturedCoreLibraryFacadeDoesNotCorrespond`,
 `ResolveApiMember_ReusedGenericAssemblyReferenceIsProjectedOnceBeforeBudgetFailure`,
 `ResolveApiMember_DistinctGenericAssemblyReferencesFailWithinOperationBudget`,
 `ResolveApiMember_InvalidCurrentModuleScopeFails`,

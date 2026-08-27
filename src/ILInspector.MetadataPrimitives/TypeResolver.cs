@@ -127,7 +127,11 @@ public static class TypeResolver
             return false;
         }
 
-        return ResolveTypeNameFromReference(reader, handle, enforceCharacterBudget)
+        return ResolveTypeNameFromReference(
+                reader,
+                handle,
+                enforceCharacterBudget,
+                beforeMaterialize)
             .TryComplete(out name, out rejection);
     }
 
@@ -141,7 +145,8 @@ public static class TypeResolver
         => ResolveTypeNameFromReference(
             reader,
             handle,
-            enforceCharacterBudget: true);
+            enforceCharacterBudget: true,
+            beforeCycleComparisons: null);
 
     public static RelationshipTraversalResult<string> ResolveTypeNameFromReference(
         MetadataReader reader,
@@ -151,13 +156,26 @@ public static class TypeResolver
             reader,
             handle,
             enforceCharacterBudget,
-            out _);
+            beforeCycleComparisons: null);
 
     static RelationshipTraversalResult<string> ResolveTypeNameFromReference(
         MetadataReader reader,
         TypeReferenceHandle handle,
         bool enforceCharacterBudget,
-        out MetadataTypeNameBudget budget)
+        Action<int>? beforeCycleComparisons)
+        => ResolveTypeNameFromReference(
+            reader,
+            handle,
+            enforceCharacterBudget,
+            out _,
+            beforeCycleComparisons);
+
+    static RelationshipTraversalResult<string> ResolveTypeNameFromReference(
+        MetadataReader reader,
+        TypeReferenceHandle handle,
+        bool enforceCharacterBudget,
+        out MetadataTypeNameBudget budget,
+        Action<int>? beforeCycleComparisons = null)
     {
         try
         {
@@ -187,7 +205,10 @@ public static class TypeResolver
 
         return FormatChain(
             reader,
-            MetadataRelationshipTraversal.WalkTypeReferenceResolutionScope(reader, handle),
+            MetadataRelationshipTraversal.WalkTypeReferenceResolutionScope(
+                reader,
+                handle,
+                beforeCycleComparisons),
             current =>
             {
                 var typeRef = reader.GetTypeReference(current);
@@ -270,7 +291,11 @@ public static class TypeResolver
             return false;
         }
 
-        return ResolveTypeNameFromDefinition(reader, handle, enforceCharacterBudget)
+        return ResolveTypeNameFromDefinition(
+                reader,
+                handle,
+                enforceCharacterBudget,
+                beforeMaterialize)
             .TryComplete(out name, out rejection);
     }
 
@@ -288,6 +313,7 @@ public static class TypeResolver
                 reader,
                 handle,
                 rootToLeaf,
+                beforeMaterialize,
                 out int consumedNodes,
                 out _,
                 out _))
@@ -315,6 +341,7 @@ public static class TypeResolver
                 reader,
                 handle,
                 rootToLeaf,
+                beforeMaterialize,
                 out int consumedNodes,
                 out _,
                 out _))
@@ -338,7 +365,8 @@ public static class TypeResolver
         => ResolveTypeNameFromDefinition(
             reader,
             handle,
-            enforceCharacterBudget: true);
+            enforceCharacterBudget: true,
+            beforeCycleComparisons: null);
 
     public static RelationshipTraversalResult<string> ResolveTypeNameFromDefinition(
         MetadataReader reader,
@@ -348,13 +376,26 @@ public static class TypeResolver
             reader,
             handle,
             enforceCharacterBudget,
-            out _);
+            beforeCycleComparisons: null);
 
     static RelationshipTraversalResult<string> ResolveTypeNameFromDefinition(
         MetadataReader reader,
         TypeDefinitionHandle handle,
         bool enforceCharacterBudget,
-        out MetadataTypeNameBudget budget)
+        Action<int>? beforeCycleComparisons)
+        => ResolveTypeNameFromDefinition(
+            reader,
+            handle,
+            enforceCharacterBudget,
+            out _,
+            beforeCycleComparisons);
+
+    static RelationshipTraversalResult<string> ResolveTypeNameFromDefinition(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        bool enforceCharacterBudget,
+        out MetadataTypeNameBudget budget,
+        Action<int>? beforeCycleComparisons = null)
     {
         try
         {
@@ -384,7 +425,10 @@ public static class TypeResolver
 
         return FormatChain(
             reader,
-            MetadataRelationshipTraversal.WalkTypeDefinitionDeclaringChain(reader, handle),
+            MetadataRelationshipTraversal.WalkTypeDefinitionDeclaringChain(
+                reader,
+                handle,
+                beforeCycleComparisons),
             current =>
             {
                 var typeDef = reader.GetTypeDefinition(current);

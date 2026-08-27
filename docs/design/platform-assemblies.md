@@ -100,10 +100,14 @@ charged to the operation. Storage successfully read before a later malformed
 field is charged before the failure is cached, including for distinct rows
 that share heap storage. Named-type correspondence storage reads are charged
 during signature decode, so repeated TypeRefs cannot amplify shared scope scans
-outside the operation budget. Generic-parameter rows are projected from the raw
-`GenericParam` table with integer row numbers rather
-than SRM's `ushort`-backed handle collection, which hides exactly 65,536 rows
-for one owner. The first owner lookup charges the complete table and validates
+outside the operation budget. Extension-attribute classification likewise
+charges both relationship walks for TypeDef and TypeRef constructor parents.
+Core-library facade normalization requires neutral culture as well as a trusted
+platform token; a cultured reference retains its ordinary assembly identity.
+Generic-parameter rows are projected from the raw `GenericParam` table with
+integer row numbers rather than SRM's `ushort`-backed handle collection, which
+hides exactly 65,536 rows for one owner. The first owner lookup charges the
+complete table and validates
 nondecreasing `TypeOrMethodDef` coded-index order; later lookups use charged raw
 binary search without allocating an all-owner index. Successful and malformed
 TypeDef projections are cached per reader and TypeDef, charge failures remain

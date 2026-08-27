@@ -97,6 +97,7 @@ public static class MetadataSafetyPolicy
     /// <c>MethodCorrespondenceContext_LaterOwnerChargeFailureIsNotCached</c>,
     /// <c>ResolveApiMember_DeepDeclaringTypeCycleChecksRespectOperationBudget</c>,
     /// <c>ResolveApiMember_RepeatedDeepSignatureRelationshipsRespectOperationBudget</c>,
+    /// <c>ResolveApiMember_DeepExtensionAttributeRelationshipsRespectOperationBudget</c>,
     /// and
     /// <c>ResolveApiMember_DistinctGenericAssemblyReferencesFailWithinOperationBudget</c>.
     /// </summary>
@@ -221,7 +222,19 @@ public static class MetadataRelationshipTraversal
             TypeDefinitionHandle handle)
         => Walk<TypeDefinitionHandle, TypeDefinitionRelationship>(
             reader,
-            handle);
+            handle,
+            beforeCycleComparisons: null);
+
+    internal static RelationshipTraversalResult<
+        RelationshipChain<TypeDefinitionHandle>>
+        WalkTypeDefinitionDeclaringChain(
+            MetadataReader reader,
+            TypeDefinitionHandle handle,
+            Action<int>? beforeCycleComparisons)
+        => Walk<TypeDefinitionHandle, TypeDefinitionRelationship>(
+            reader,
+            handle,
+            beforeCycleComparisons);
 
     /// <summary>
     /// Walks a TypeDef declaring-type chain into caller-owned storage without allocating
@@ -267,7 +280,19 @@ public static class MetadataRelationshipTraversal
             TypeReferenceHandle handle)
         => Walk<TypeReferenceHandle, TypeReferenceRelationship>(
             reader,
-            handle);
+            handle,
+            beforeCycleComparisons: null);
+
+    internal static RelationshipTraversalResult<
+        RelationshipChain<TypeReferenceHandle>>
+        WalkTypeReferenceResolutionScope(
+            MetadataReader reader,
+            TypeReferenceHandle handle,
+            Action<int>? beforeCycleComparisons)
+        => Walk<TypeReferenceHandle, TypeReferenceRelationship>(
+            reader,
+            handle,
+            beforeCycleComparisons);
 
     /// <summary>
     /// Walks a TypeRef resolution-scope chain into caller-owned storage without allocating
@@ -313,7 +338,8 @@ public static class MetadataRelationshipTraversal
             ExportedTypeHandle handle)
         => Walk<ExportedTypeHandle, ExportedTypeRelationship>(
             reader,
-            handle);
+            handle,
+            beforeCycleComparisons: null);
 
     /// <summary>
     /// Walks an ExportedType implementation chain into caller-owned storage without allocating
@@ -337,7 +363,8 @@ public static class MetadataRelationshipTraversal
 
     static RelationshipTraversalResult<RelationshipChain<THandle>> Walk<THandle, TRelationship>(
         MetadataReader reader,
-        EntityHandle start)
+        EntityHandle start,
+        Action<int>? beforeCycleComparisons)
         where THandle : unmanaged
         where TRelationship : struct, IRelationship<THandle>
     {
@@ -347,7 +374,7 @@ public static class MetadataRelationshipTraversal
                 reader,
                 start,
                 rootToLeaf,
-                beforeCycleComparisons: null,
+                beforeCycleComparisons,
                 out int consumedNodes,
                 out EntityHandle terminal,
                 out var rejection))
