@@ -95,9 +95,10 @@ The immutable artifact and source identities are:
 | Source SHA-256 | `CD1085BF738003442ABE2532A2693D2C14E608423A8D477ABD0055E0DDB14730` |
 
 `AuthoredSourceOracleManifestTests` enforces the complete-set and nested-source
-contracts. The periodic source-oracle benchmark exercises the product-produced
-rows against `oracle/manifest.json`; `--verify-authored-corpus` independently
-re-acquires the source and verifies its checksum and extracted bodies.
+contracts. A follow-up main-branch change will add a periodic benchmark of the
+product-produced rows against `oracle/manifest.json`. The existing
+`--verify-authored-corpus` command independently re-acquires the source and
+verifies its checksum and extracted bodies.
 
 ## Regenerating
 
