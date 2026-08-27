@@ -492,7 +492,11 @@ source.
 
 Selection follows these rules:
 
-1. Exact repeated registrations of the same bytes and module may coalesce.
+1. Repeated occurrences of the same owner-issued registration over the same
+   retained bytes and module may coalesce. Distinct registrations remain
+   distinct even when their bytes, digest, MVID, and assembly identity match;
+   byte equality does not make their candidates correspond or choose between
+   them.
 2. Assembly simple name is diagnostic data, never a uniqueness key.
 3. Candidates with the same simple name but different full identity, content
    digest, or MVID remain distinct until policy selects one.
@@ -678,23 +682,36 @@ does not retry with a different set. A missing body-only dependency therefore
 becomes `Missing` before product-whole-member admission and compilation. A
 neighboring complete artifact remains eligible under the same policy.
 
-### Planning convergence and freeze
+### Planning convergence and attempt commit
 
 Reference selection happens once before declaration-cluster iteration and never
 grows from compiler diagnostics. Declaration membership may still converge
 through the existing bounded typed-root process.
 
-For each proposed declaration plan, tools recompute signature requirements,
-declaration-reference censuses, local receipts, and every effective real-body
-census against the same frozen reference set. A missing local declaration may
-contribute a typed declaration root. A missing or ambiguous external provider
-stops closure; it cannot add a reference from a compiler search path.
+Each iteration follows one ordered transition:
 
-Supported compiler diagnostics may contribute another typed declaration root.
-Doing so invalidates that iteration's artifact, closure, compilation, and
-binding receipts. The replacement declaration plan is rendered and evaluated
-again from its immutable inputs. Only the converged declaration plan and final
-compilation can contribute durable receipts or fidelity outcomes.
+1. Build an immutable typed candidate plan without treating it as product
+   evidence.
+2. Recompute signature requirements, declaration-reference censuses, local
+   receipts, and every effective real-body census against the frozen reference
+   set.
+3. Add any supported source-local declaration roots and repeat planning. A
+   final missing, ambiguous, or incomplete provider is a policy refusal and
+   produces `Declined`; it cannot add a reference from a compiler search path.
+4. After static closure is `Complete`, cross `ProductAttemptCommit` for that
+   exact plan and invoke product artifact production and the compiler.
+5. A supported compiler diagnostic may contribute one typed declaration root.
+   That explicitly supersedes the in-flight attempt without producing a
+   terminal admission arm. Discard its artifact, closure, compilation, and
+   binding evidence, then begin a replacement iteration.
+6. A terminal product, compiler, rebuilt-resolution, or binding failure after
+   `ProductAttemptCommit` produces `Failed`.
+7. A successful compile plus complete rebuilt binding produces `Admitted`.
+
+`ProductAttemptCommit` is the only boundary that permits product evidence to
+become authoritative. `Provisional` describes in-flight planning state only; it
+is not a closed result arm and never appears in persisted output. Only the
+converged attempt can contribute durable receipts or fidelity outcomes.
 
 ### Rebuilt binding receipt
 
@@ -742,21 +759,28 @@ the product artifact and routing through the legacy shell. A legacy artifact
 may retain `Exact` only when its own context receipt is complete, and its report
 must identify the legacy policy.
 
+One tools-owned receipt-bearing classifier is the only authority that can
+construct an `Exact` compile-back verdict. Primary targets, sibling accessors,
+effective companions, nested ReturnToSender rows, and future verdict producers
+all call it; an enum assignment or opcode-only helper is not authoritative.
+
+Each verdict retains the exact artifact and compile-context receipt IDs plus its
+member-binding entry. A companion may share the artifact-level receipt only
+when it was compiled in that exact artifact/context and its own member entry is
+complete. A missing or mismatched receipt produces `FidelityUnavailable`, even
+when opcode and C# comparers independently return equality.
+
 ### Product-whole-member admission
 
-Requesting the product-whole-member policy starts one progressive
-`ProductWholeMemberAdmission` transition. It may decline before an artifact is
-produced, fail after the product path is selected, or admit only after all
-prerequisites succeed.
+`ProductWholeMemberAdmission` is the terminal projection of the ordered
+planning transition:
 
-The closed result is:
-
-- `Declined` when reference selection, declaration planning, closure, or local
-  requirements fail before compilation. It carries the typed reasons and the
-  selected legacy policy, when permitted.
+- `Declined` is the pre-`ProductAttemptCommit` policy refusal from reference
+  selection, declaration planning, closure, or local requirements. It carries
+  the typed reasons and selected legacy policy, when permitted.
 - `Failed` when artifact production, compilation, rebuilt resolution, or
-  binding fails after the product path is selected. It retains every product
-  artifact and partial receipt that exists.
+  binding fails after `ProductAttemptCommit`. It retains every product artifact
+  and partial receipt that exists.
 - `Admitted` only after the exact artifact and typed declaration plan exist, the
   frozen reference set is unambiguous, signature/declaration/body closure is
   `Complete`, every Metadata `LocalRequirement` has a declaration receipt, and
@@ -766,13 +790,14 @@ The closed result is:
 
 The current `UsedProductWholeMember` boolean cannot represent these states. It
 may remain as a compatibility projection only if it means `Admission is
-Admitted`; provisional, declined, and failed artifacts project false and retain
-their richer outcome.
+Admitted`; declined and failed artifacts project false and retain their richer
+outcome.
 
-A pre-compilation `Declined` result may select the independently defined legacy
-artifact policy, with the reason visible. A post-selection `Failed` result
-remains a failure. A separately labelled legacy control cannot replace it or
-be reported as the product result.
+A `Declined` result may select the independently defined legacy artifact policy,
+with the reason visible. A `Failed` result remains a failure. A separately
+labelled legacy control cannot replace it or be reported as the product result.
+An expandable planning diagnostic produces neither arm and cannot select a
+legacy result while its replacement iteration remains viable.
 
 An overall result that attributes `Exact` to the product-whole-member artifact
 requires `ProductWholeMemberAdmission.Admitted`. C# or IL equality without
@@ -787,17 +812,19 @@ not a separate policy:
 
 1. targeted and batch modes create the same frozen reference inventory and
    selected set;
-2. the current explicit member is provisionally rendered as a product-owned
-   whole-member artifact;
+2. tools build the current explicit member's typed candidate plan without
+   treating it as product evidence;
 3. its declaration signatures, declaration-shape references, local
    requirements, and every effective real body contribute to the
    artifact-specific closure plan;
-4. a pre-compilation `Declined` outcome selects the existing legacy policy with
-   visible reasons;
-5. a provisional product artifact that later fails compilation or binding
-   remains `Failed`;
-6. only `Admitted` product evidence or a separately complete legacy context may
-   contribute a fidelity verdict.
+4. a policy refusal before `ProductAttemptCommit` selects the existing legacy
+   policy with visible `Declined` reasons;
+5. after the commit, product rendering and compiler probes run; a supported
+   declaration-root diagnostic supersedes that iteration without producing an
+   admission arm;
+6. a terminal attempted-product failure remains `Failed`;
+7. only `Admitted` product evidence or a separately complete legacy context may
+   contribute a receipt-bearing fidelity verdict.
 
 This gating does not admit another explicit-member shape and does not change
 product spelling. Both public harness modes call the same planner and evaluator;
@@ -831,8 +858,13 @@ No layer converts failure or unavailability into an empty successful result.
 - Add artifact-specific signature, declaration-shape, local-declaration, and
   effective-body closure plus deferred compiler-generated correspondence and
   the rebuilt binding and compile-context receipts required by every `Exact`.
-- Add typed product-whole-member provisional, declined, failed, and admitted
-  outcomes without allowing a legacy artifact to borrow product receipts.
+- Centralize primary, companion, accessor, and nested fidelity verdicts through
+  the receipt-bearing classifier.
+- Model diagnostic-driven cluster growth through the ordered
+  `ProductAttemptCommit` transition and discard every superseded attempt.
+- Add typed product-whole-member declined, failed, and admitted outcomes without
+  allowing an in-flight planning state or legacy artifact to borrow product
+  receipts.
 - Add the missing product-owned, handle-addressed `MemberBodyProducer` result that
   returns a typed `CSharpMemberBody` plus fidelity and failure provenance; adapt
   ReturnToSender away from its harness-side body conversion.
@@ -982,8 +1014,9 @@ Issue #4810 adds these named gates:
     evidence is discarded; only receipts carrying the converged artifact digest
     may survive. A typed seam separately injects a binding receipt carrying the
     earlier digest. Reusing any earlier evidence produces a context mismatch and
-    cannot report `Exact`; bypassing invalidation is mutation-verified to fail
-    the gate.
+    cannot report `Exact`; the converged replacement reaches `Admitted`.
+    Bypassing invalidation or terminating on the expandable diagnostic is
+    mutation-verified to fail the gate.
 16. `CompleteNeighboringArtifactRemainsProductAdmitted` compiles an unambiguous
     neighboring member and proves `Admitted` plus the expected fidelity result.
 17. `TargetedAndBatchUseIdenticalCompileContextPlanning` proves equal reference
@@ -991,6 +1024,22 @@ Issue #4810 adds these named gates:
 18. `CompileBackResultRetainsReceiptsAfterOwnerDisposal` proves all reference,
     closure, admission, diagnostic, and binding evidence remains readable after
     disposable owners are gone.
+19. `CompileReferenceSelectionPreservesDistinctIdenticalRegistrations` creates
+    two fresh owner-issued registrations over identical bytes, digest, MVID, and
+    assembly identity. Repeated occurrences of either registration may
+    coalesce, but the two registrations remain distinct and ambiguous when no
+    policy selects one.
+20. `EveryExactProducerRequiresMatchingContextReceipt` covers the primary
+    target, a sibling accessor, an effective companion, and a nested
+    ReturnToSender row. Each reports `Exact` with its matching artifact receipt
+    and complete member entry; withholding or mismatching either changes only
+    that verdict to `FidelityUnavailable`. Removing the central classifier call
+    from any producer is mutation-verified to fail its negative arm.
+21. `ProductAdmissionSeparatesDeclineAndFailure` proves both terminal arms and
+    their fallback boundary. A pre-commit reference or closure refusal produces
+    `Declined` and may select the labelled legacy policy. A terminal product or
+    compiler failure after `ProductAttemptCommit` produces `Failed`, retains
+    available product evidence, and cannot be replaced by the legacy control.
 
 Documentation-only changes validate Markdown. Implementation milestones add the
 smallest focused product and harness checks that prove their claims.
