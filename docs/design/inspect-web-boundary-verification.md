@@ -85,7 +85,7 @@ TypeScript assigns to an operation. The initial capability set is:
 | Capability | Semantic evidence | Owning adapter |
 | --- | --- | --- |
 | Numeric DOM payload acquisition | A cataloged key read from `DOMStringMap`, or its corresponding `data-*` attribute read through `Element` or `NamedNodeMap` APIs | The planned numeric DOM adapter |
-| Owned DOM selector lookup | A call to `ParentNode.querySelector`, `ParentNode.querySelectorAll`, or `NonElementParentNode.getElementById` with a constant selector or identifier from an owner-issued catalog | The product module that declares that selector catalog |
+| Owned DOM selector lookup | A call to a characterized DOM selector declaration with a constant selector or identifier from an owner-issued catalog | The product module that declares that selector catalog |
 
 Catalogs may add capabilities, but every row needs all three parts: semantic
 evidence, an owning adapter, and mutation coverage. Broad bans on types such as
@@ -98,6 +98,14 @@ recognizes `Reflect.get` or `Object.getOwnPropertyDescriptor` when the resolved
 intrinsic operates on a `DOMStringMap`, `Element`, or `NamedNodeMap`; selector
 rules recognize reflective extraction of a covered selector method. The
 exercised capability still determines the adapter.
+
+Platform capabilities are normalized from the declarations in the pinned DOM
+library, not inferred from one interface name or inheritance assumption. The
+selector set includes `querySelector` and `querySelectorAll` declarations on
+DOM `ParentNode` implementations and every relevant `getElementById`
+declaration, including the distinct `Document` and `DocumentFragment`
+declarations. Characterization tests derive and pin the complete declaration
+set for the configured DOM library.
 
 The verifier asks TypeScript for the symbol, declaration, resolved signature,
 and type at the operation. It follows TypeScript aliases to their declarations.
@@ -116,30 +124,32 @@ including:
 - bound, called, and extracted methods;
 - `Element.getAttribute`, `Element.getAttributeNS`,
   `Element.getAttributeNode`, and `Element.getAttributeNodeNS`;
-- `Element.attributes` and the indexed, `getNamedItem`, and `getNamedItemNS`
-  paths through its `NamedNodeMap`;
+- `Element.attributes` and indexed, `item`, `getNamedItem`, `getNamedItemNS`,
+  spread, and iterable paths through its `NamedNodeMap`;
 - `Reflect.get`, `Reflect.apply`, and corresponding covered `Object`
   operations; and
 - parenthesized, asserted, or otherwise transparent wrapper expressions.
 
 Dynamic property names that cannot be reduced to a catalog key are not silently
 accepted. For a covered carrier they produce an unsupported-dynamic-access
-diagnostic outside its adapter. The verifier is not required to evaluate
-arbitrary JavaScript expressions.
+diagnostic outside its adapter. Indexed, `item`, spread, or iterable
+`NamedNodeMap` acquisition is likewise unsupported outside the numeric adapter:
+the resulting `Attr` no longer proves its originating attribute name. The
+verifier is not required to evaluate arbitrary JavaScript expressions.
 
 Lexically shadowed locals remain valid close negatives. A local named
 `document`, `Reflect`, `Object`, `window`, or `self` is not a browser capability
 unless TypeScript resolves it to the corresponding platform declaration.
 
-### Carrier escape and type erasure
+### Carrier transfer and type erasure
 
 TypeScript permits a platform carrier to be assigned to a structurally
 compatible type that no longer retains its platform declaration. The verifier
 does not assume semantic identity survives that conversion.
 
-Outside the owning adapter, a configured carrier must not cross a conversion
-that erases the identity needed by its rule. The verifier compares the source
-type with the contextual or target type at:
+A configured carrier must not cross a conversion that erases the identity
+needed by its rule, including inside an adapter. The verifier compares the
+source type with the contextual or target type at:
 
 - variable declarations and assignments;
 - arguments and parameters;
@@ -148,6 +158,20 @@ type with the contextual or target type at:
 - object spread and destructuring rest; and
 - calls to copy or reflection intrinsics that receive the carrier.
 
+Type-preserving aliases within one module remain valid. A call is a separate
+transfer boundary: outside an owning adapter, a raw carrier may be passed only
+to an exact callable declaration registered as an entry point by the owning
+adapter's descriptor. Inside an adapter, a carrier may also pass to helpers
+declared in that same module. Passing it to an arbitrary local, imported,
+generic, rest-parameter, or intrinsic call is rejected even when the resolved
+parameter type preserves the carrier identity.
+
+Entry-point authority applies only to receiving the carrier for the declared
+capability. It does not transfer adapter authority to the caller. Adapter
+exports may not return, yield, or expose configured carriers, covered methods,
+or structurally erased forms of either. Descriptor completeness and
+carrier-transfer mutations gate those public surfaces.
+
 Passing `DOMStringMap` as `Record<string, string | undefined>`, passing
 `Document` as a local structural selector interface, or copying either carrier
 therefore produces a carrier-escape diagnostic at the conversion. Aliases that
@@ -155,10 +179,13 @@ retain the configured platform type remain classifiable by that type. A
 structurally similar value whose source type is not a configured platform
 carrier remains a close negative.
 
-This is local semantic conversion inspection, not value-provenance inference.
-If a carrier reaches a use without either retained semantic identity or a
-visible checked conversion, the claimed boundary is not proven and the old
-enforcement cannot be retired.
+The transfer rule closes generic laundering without interprocedural
+value-provenance inference. For example, `erase<T>(document)` is rejected at
+the call because `erase` is not a registered adapter entry point, even if its
+resolved parameter is `Document` and its return type has already erased that
+identity. If a carrier reaches a use without either retained semantic identity
+or a checked transfer or conversion, the claimed boundary is not proven and
+the old enforcement cannot be retired.
 
 Selector ownership is based on cataloged selector and identifier constants, not
 every call to `querySelector`, `querySelectorAll`, or `getElementById`. Product
@@ -222,6 +249,8 @@ the verifier, initially:
 - resolve the signature and declaration selected for a call;
 - reduce a property expression to a TypeScript constant when available;
 - compare source and contextual types at a conversion; and
+- resolve a call to its exact declaration and instantiated parameter and return
+  types; and
 - compare declarations with configured DOM library and product declarations.
 
 Rules receive these facts rather than TypeScript API objects. This limits churn
@@ -274,10 +303,13 @@ The implementation adds an `inspect-web-boundaries` script and makes
 
 1. **Semantic characterization:** exercises the pinned adapter against the real
    product `tsconfig.json` and DOM library. It asserts stable declaration
-   identity for every configured platform capability.
+   identity and a complete normalized declaration set for every configured
+   platform capability.
 2. **Positive mutation corpus:** rejects direct, computed, destructured,
    aliased, extracted, reflective, bound, wrapped, attribute-based, and
-   type-erased access for each capability outside its adapter.
+   type-erased access for each capability outside its adapter. Carrier-transfer
+   cases include generic laundering, rest parameters, imported consumers,
+   aggregate storage, and adapter-return escape.
 3. **Close-negative corpus:** accepts lexical shadows, same-named properties on
    unrelated types, unrelated intrinsic-like objects, and authorized adapter
    access.
@@ -313,7 +345,7 @@ Migration is replacement, not indefinite layering:
    [PR #4581](https://github.com/richlander/dotnet-inspect/pull/4581). Preserve
    every direct, alias, computed, destructuring, reflection, wrapper,
    dynamic-key, attribute-method, `NamedNodeMap`, type-erasure, decoder-shadow,
-   and lexical-shadow case.
+   generic-transfer, and lexical-shadow case.
 3. Establish parity and non-vacuity for numeric payload acquisition, then
    remove only the superseded numeric OXC reconstruction.
 4. Extract product-owned selector descriptors from the modules whose ownership
