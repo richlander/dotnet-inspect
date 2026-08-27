@@ -1,3 +1,5 @@
+using System.Buffers;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Options;
@@ -47,6 +49,42 @@ public static class DiscoverOutput
                     ["Name", "Kind"])
                 ? projectionExitCode
                 : 0;
+        }
+
+        bool projectedJson = json
+            && projection is not null
+            && (projection.Fields is { Length: > 0 }
+                || projection.Columns is { Length: > 0 });
+        if (projectedJson)
+        {
+            if (tree)
+            {
+                CommandError.Write(
+                    "--fields/--columns cannot be combined with --tree for discovery.");
+                return 1;
+            }
+
+            var projectedRows = GetDiscoveryRows(
+                discover,
+                schema,
+                sectionCostAnnotations,
+                sectionCategories,
+                catalogHiddenSections,
+                listedCategoryDoors);
+            if (projectedRows == null)
+                return 1;
+
+            if (!LensProjection.TryResolveColumns(
+                    projection!,
+                    "-D/--discover",
+                    ["Name", "Kind"],
+                    out var projectedColumns))
+                return 1;
+
+            WriteProjectedJson(
+                [.. RowWindow.Apply(projection!.Rows, projectedRows)],
+                projectedColumns);
+            return 0;
         }
 
         // Auto-promote to tree when discovering items from multiple sections
@@ -103,6 +141,32 @@ public static class DiscoverOutput
         }
 
         return 0;
+    }
+
+    private static void WriteProjectedJson(
+        IReadOnlyList<DiscoveryRow> rows,
+        IReadOnlyList<string> columns)
+    {
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartArray();
+            foreach (var row in rows)
+            {
+                writer.WriteStartObject();
+                foreach (var column in columns)
+                {
+                    if (column.Equals("Name", StringComparison.OrdinalIgnoreCase))
+                        writer.WriteString("name", row.Name);
+                    else
+                        writer.WriteString("kind", row.Kind);
+                }
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+        }
+
+        Console.WriteLine(Encoding.UTF8.GetString(buffer.WrittenSpan));
     }
 
     /// <summary>

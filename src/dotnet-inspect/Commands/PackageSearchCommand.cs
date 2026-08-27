@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Views;
@@ -21,6 +22,9 @@ public class PackageSearchCommand
 
         try
         {
+            if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                return 1;
+
             var outcome = await NuGetSearchService.SearchAsync(
                 context.HttpClient,
                 options.Query,
@@ -46,11 +50,13 @@ public class PackageSearchCommand
             // --count reduces the payload, so it is resolved before the format flags that
             // render it. Ordering these the other way lets --json answer a count request
             // with the full unprojected result set.
-            if (options.Count)
-            {
-                CountOutput.WriteCount(results.Count);
-                return exitCode;
-            }
+            if (LensProjection.TryProject(
+                    options,
+                    "package search",
+                    results.Count,
+                    out var projectionExitCode,
+                    ["Package", "Version", "Downloads", "Description"]))
+                return Math.Max(exitCode, projectionExitCode);
 
             if (options.JsonOutput)
             {
@@ -92,7 +98,7 @@ public class PackageSearchCommand
 /// <summary>
 /// Options for the package search command.
 /// </summary>
-public record PackageSearchOptions
+public record PackageSearchOptions : IProjectionOptions
 {
     /// <summary>Search query (keyword or package name prefix).</summary>
     public string Query { get; init; } = "";
@@ -114,6 +120,12 @@ public record PackageSearchOptions
 
     /// <summary>Reduce the result table to a single row count.</summary>
     public bool Count { get; init; }
+
+    /// <summary>Field projection inherited from the package command.</summary>
+    public string[]? Fields { get; init; }
+
+    /// <summary>Column projection inherited from the package command.</summary>
+    public string[]? Columns { get; init; }
 
     /// <summary>NuGet sources to search. Defaults to nuget.org when unset.</summary>
     public NuGetSourceOptions? SourceOptions { get; init; }

@@ -210,6 +210,8 @@ public static class PackageCommandDefinitions
                 CompactJson = parseResult.GetValue(compactOption),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 Count = parseResult.GetValue(opts.Count),
+                Fields = opts.ParseFields(parseResult),
+                Columns = opts.ParseColumns(parseResult),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };
 

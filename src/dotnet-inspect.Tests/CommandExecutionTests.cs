@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Buffers.Binary;
+using System.CommandLine;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO.Compression;
@@ -11101,23 +11102,26 @@ public partial class CommandExecutionTests
         // a discovery request there would have been rejected with a misleading column message.
         // Discovery must be dispatched before the projection guard, matching the main listing path.
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.*", "--library", TestAssemblyPath, "-D", "Classes", "--fields", "Type", "--json");
+            "type", "System.*", "--library", TestAssemblyPath,
+            "-D", "Classes", "--fields", "Name", "--json");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("cannot be combined with --json", error);
-        Assert.Contains("\"kind\":\"column\"", output);
+        using var document = JsonDocument.Parse(output);
+        Assert.NotEmpty(document.RootElement.EnumerateArray());
+        Assert.All(
+            document.RootElement.EnumerateArray(),
+            row => Assert.Equal(
+                ["name"],
+                row.EnumerateObject().Select(property => property.Name)));
     }
 
     [Fact]
     public void ProjectedJsonRoutingAudit_InventoryIncludesEveryProjectionCapableCommand()
     {
         var root = CommandLineBuilder.CreateRootCommand();
-        var commands = root.Subcommands
-            .Where(command =>
-                command.Options.Any(option => option.Name == "--json")
-                && command.Options.Any(option => option.Name is "--fields" or "--columns"))
-            .Select(command => command.Name)
-            .OrderBy(name => name, StringComparer.Ordinal)
+        var routes = ProjectionCapableRoutes(root)
+            .OrderBy(path => path, StringComparer.Ordinal)
             .ToArray();
 
         Assert.Equal(
@@ -11129,12 +11133,51 @@ public partial class CommandExecutionTests
                 "library",
                 "member",
                 "package",
+                "package search",
                 "project",
                 "timeline",
                 "type",
                 "vocabulary",
             },
-            commands);
+            routes);
+
+        static IEnumerable<string> ProjectionCapableRoutes(Command root)
+        {
+            return Visit(root, "", []);
+
+            static IEnumerable<string> Visit(
+                Command parent,
+                string parentPath,
+                HashSet<string> inheritedOptions)
+            {
+                foreach (var command in parent.Subcommands)
+                {
+                    var path = parentPath.Length == 0
+                        ? command.Name
+                        : $"{parentPath} {command.Name}";
+                    var effectiveOptions = new HashSet<string>(
+                        inheritedOptions,
+                        StringComparer.Ordinal);
+                    effectiveOptions.UnionWith(
+                        command.Options.Select(option => option.Name));
+
+                    if (effectiveOptions.Contains("--json")
+                        && (effectiveOptions.Contains("--fields")
+                            || effectiveOptions.Contains("--columns")))
+                    {
+                        yield return path;
+                    }
+
+                    foreach (var descendant in Visit(
+                        command,
+                        path,
+                        effectiveOptions))
+                    {
+                        yield return descendant;
+                    }
+                }
+            }
+        }
     }
 
     [Theory]
@@ -11160,6 +11203,70 @@ public partial class CommandExecutionTests
         Assert.Empty(output);
         Assert.Contains("requires lowered JSON", error);
         Assert.Contains("does not support yet", error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchInheritedProjectionFailsClosed()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "--columns", "Package",
+            "search", "ThisQueryMustNotReachTheNetwork", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("requires lowered JSON", error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_IlOffsetsProjectionFailsClosed()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(
+            path,
+            "sample 0x06000001+0x0",
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library", "--platform", "System.Text.Json",
+                "--il-offsets", path,
+                "--json", "--columns", "Member", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("requires lowered JSON", error);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_LibraryDiscoveryOwnsProjectedJson()
+    {
+        var projected = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-D", "Library Info", "--json", "--columns", "Name", "--tips", "q");
+        var invalid = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-D", "Library Info", "--json", "--columns", "NoSuchColumn", "--tips", "q");
+
+        Assert.Equal(0, projected.Exit);
+        Assert.Empty(projected.Error);
+        using (var document = JsonDocument.Parse(projected.Output))
+        {
+            Assert.NotEmpty(document.RootElement.EnumerateArray());
+            Assert.All(
+                document.RootElement.EnumerateArray(),
+                row => Assert.Equal(
+                    ["name"],
+                    row.EnumerateObject().Select(property => property.Name)));
+        }
+
+        Assert.Equal(1, invalid.Exit);
+        Assert.Empty(invalid.Output);
+        Assert.Contains("NoSuchColumn", invalid.Error);
     }
 
     [Fact]
@@ -13047,11 +13154,18 @@ public partial class CommandExecutionTests
         // The -D discovery branch honors projection itself and returns before the guard, so a
         // discovery request carrying --fields/--json must not be rejected.
         var (exit, output, error) = await RunAppAsync(
-            "find", "Cache", "--library", TestAssemblyPath, "-D", "Results", "--fields", "Type", "--json");
+            "find", "Cache", "--library", TestAssemblyPath,
+            "-D", "Results", "--fields", "Name", "--json");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("cannot be combined with --json", error);
-        Assert.Contains("\"kind\":\"column\"", output);
+        using var document = JsonDocument.Parse(output);
+        Assert.NotEmpty(document.RootElement.EnumerateArray());
+        Assert.All(
+            document.RootElement.EnumerateArray(),
+            row => Assert.Equal(
+                ["name"],
+                row.EnumerateObject().Select(property => property.Name)));
     }
 
     [Fact]
@@ -22051,6 +22165,35 @@ public partial class CommandExecutionTests
             Assert.Contains(
                 "--all-libraries cannot be combined with --fields",
                 error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageDiscoveryOwnsProjectedJson()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.DiscoveryProjection",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath,
+                "-D", "--json", "--columns", "Name", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            Assert.NotEmpty(document.RootElement.EnumerateArray());
+            Assert.All(
+                document.RootElement.EnumerateArray(),
+                row => Assert.Equal(
+                    ["name"],
+                    row.EnumerateObject().Select(property => property.Name)));
         }
         finally
         {

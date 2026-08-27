@@ -1184,6 +1184,9 @@ public class LibraryCommand
                 ["Coordinate", "Label", "Member", "IL Offset", "Meaning", "Evidence"]))
             return projectionExitCode != 0 ? projectionExitCode : batchExitCode;
 
+        if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+            return 1;
+
         WriteILCoordinateBatchRows(
             [.. visibleRows],
             options with { Rows = null });

@@ -31,9 +31,11 @@ lowered JSON paths; the main `type` and `member` document paths still reject
 column projection under `--json`. `project` also rejects projection, while
 `library`, `package`, `timeline`, `implements`, and `extensions` reject
 otherwise-unclaimed `--json --fields/--columns` requests at the typed-document
-serializer boundary. New command families adopt this contract individually
-rather than treating the existing formatter as evidence that every section or
-route is correct.
+serializer boundary. Discovery owns projected JSON for its `Name`/`Kind` row
+schema under the lens contract; unadopted lens and nested routes such as
+`library --il-offsets` and `package search` reject. New command families adopt
+this contract individually rather than treating the existing formatter as
+evidence that every section or route is correct.
 
 The pilots do not yet satisfy the full contract. In particular, the current
 global rendered-line limiter can truncate their lowered JSON, section and field
@@ -530,13 +532,14 @@ this output is additive. That applies to routes such as current `type` and
 `member`, which reject rather than return a document.
 
 Before the routing audit, `library`, `package`, `timeline`, `implements`, and
-`extensions` succeeded after silently dropping the projection. Establishing
-visible fail-closed routing was therefore an explicit compatibility change.
-Those commands now reject before their typed serializer writes stdout, so
-replacing that rejection with conforming lowered JSON is additive. A future
-route found to succeed after dropping projection must likewise establish
-visible fail-closed routing or an approved migration before adoption; it may
-not call the change additive.
+`extensions`, plus early-return discovery, IL-offset, and nested package-search
+routes, succeeded after silently dropping the projection. Establishing visible
+routing was therefore an explicit compatibility change: discovery now honors
+the request under its lens contract, while the unadopted routes reject before
+writing stdout. Replacing those rejections with conforming lowered JSON is
+additive. A future route found to succeed after dropping projection must
+likewise establish visible fail-closed routing or an approved migration before
+adoption; it may not call the change additive.
 
 Once a command ships lowered JSON, changing its strings to inferred native JSON
 types is breaking. A future typed Markout seam may support a separately designed
@@ -618,11 +621,15 @@ Existing pilot coverage proves only the currently wired slice:
   in `JsonSectionFormatterTests` gate visible failure for the formatter's known
   loss cases.
 - `ProjectedJsonRoutingAudit_InventoryIncludesEveryProjectionCapableCommand`
-  fixes the audited command-family set. The
-  `ProjectedJsonRoutingAudit_*TypedDocumentFailsClosed` tests, together with
-  the existing `type`, `member`, `project`, `find`, `vocabulary`, discovery,
-  and payload-projection tests, gate that every current route lowers, rejects,
-  or is claimed before typed-document serialization.
+  recursively fixes the audited executable-route set using each route's own
+  and inherited options. The
+  `ProjectedJsonRoutingAudit_*TypedDocumentFailsClosed`,
+  `ProjectedJsonRoutingAudit_*DiscoveryOwnsProjectedJson`,
+  `ProjectedJsonRoutingAudit_IlOffsetsProjectionFailsClosed`, and
+  `ProjectedJsonRoutingAudit_PackageSearchInheritedProjectionFailsClosed`
+  tests, together with the existing `type`, `member`, `project`, `find`,
+  `vocabulary`, and payload-projection tests, gate that every current route
+  lowers, rejects, or is claimed before typed-document serialization.
 
 The full contract remains **unverified** until these remaining future gates are
 implemented:
