@@ -602,6 +602,81 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PlatformWorkspace_LatestSentinelUsesVersionDiscovery()
+    {
+        const string packageId =
+            "microsoft.netcore.app.runtime.linux-x64";
+        const string discoveredVersion = "11.0.75";
+        byte[] nupkg = PlatformPackage(
+            ("System.Private.CoreLib.dll",
+                File.ReadAllBytes(typeof(object).Assembly.Location)));
+        var handler = new PlatformVersionHandler(
+            packageId,
+            discoveredVersion,
+            nupkg);
+        using var client = new HttpClient(handler);
+        var authorization =
+            new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+
+        using BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                "net11.0-latest-platform-sentinel",
+                "latest",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(discoveredVersion, resolution.Coordinate.Version);
+    }
+
+    [Fact]
+    public async Task PlatformWorkspace_ExactVersionSkipsDiscoveryAndDoesNotReuseLatestState()
+    {
+        const string packageId =
+            "microsoft.netcore.app.runtime.linux-x64";
+        const string latestVersion = "11.0.76";
+        const string exactVersion = "11.0.77";
+        const string framework = "net11.0-exact-platform-version";
+        byte[] nupkg = PlatformPackage(
+            ("System.Private.CoreLib.dll",
+                File.ReadAllBytes(typeof(object).Assembly.Location)));
+        var latestHandler = new PlatformVersionHandler(
+            packageId,
+            latestVersion,
+            nupkg);
+        var exactHandler = new PlatformVersionHandler(
+            packageId,
+            exactVersion,
+            nupkg);
+        using var latestClient = new HttpClient(latestHandler);
+        using var exactClient = new HttpClient(exactHandler);
+        var authorization =
+            new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+
+        using BrowserPlatformScopeResolution latest =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                framework,
+                latestClient,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        using BrowserPlatformScopeResolution exact =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                framework,
+                exactVersion,
+                exactClient,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(latestVersion, latest.Coordinate.Version);
+        Assert.Equal(exactVersion, exact.Coordinate.Version);
+        Assert.NotSame(latest.Scope, exact.Scope);
+        Assert.Equal(1, exactHandler.Requests);
+    }
+
+    [Fact]
     public async Task PlatformWorkspace_LeasesArchivesUntilCandidateRegistration()
     {
         const string runtimePackage =
@@ -934,8 +1009,8 @@ public sealed class BrowserEngineBoundaryTests
                     "Targets",
                     BindingFlags.Static | BindingFlags.NonPublic)!
                 .GetValue(null));
-        Assert.False(targets.Contains(frameworks[0]));
-        Assert.True(targets.Contains(frameworks[^1]));
+        Assert.False(targets.Contains($"{frameworks[0]}@latest"));
+        Assert.True(targets.Contains($"{frameworks[^1]}@latest"));
     }
 
     [Fact]
@@ -1029,8 +1104,8 @@ public sealed class BrowserEngineBoundaryTests
                             "Targets",
                             BindingFlags.Static | BindingFlags.NonPublic)!
                         .GetValue(null));
-            Assert.True(targets.Contains(frameworks[0]));
-            Assert.False(targets.Contains(frameworks[1]));
+            Assert.True(targets.Contains($"{frameworks[0]}@latest"));
+            Assert.False(targets.Contains($"{frameworks[1]}@latest"));
         }
         finally
         {
@@ -2020,6 +2095,115 @@ public sealed class BrowserEngineBoundaryTests
         BrowserPackageCoordinate requestedRoot = second.RequestedCoordinates[0];
         Assert.Equal("Root.Order.B", requestedRoot.PackageId);
         Assert.Equal("Root.Order.B", second.Scope.Coordinate(requestedRoot).PackageId);
+    }
+
+    [Fact]
+    public void MemberCallGraphRequests_PreserveContextOrderAndLocateNonFirstRoot()
+    {
+        (BrowserPackageRequest[] requests, int rootIndex) =
+            InspectionEngine.MemberCallGraphRequests(
+                "Root.Package",
+                "1.0.0",
+                "net11.0",
+                """
+                [
+                  {
+                    "package": "Binding.First",
+                    "version": "2.0.0",
+                    "framework": "net11.0"
+                  },
+                  {
+                    "package": "Root.Package",
+                    "version": "1.0.0",
+                    "framework": "net11.0"
+                  }
+                ]
+                """);
+
+        Assert.Equal(1, rootIndex);
+        Assert.Collection(
+            requests,
+            first => Assert.Equal("Binding.First", first.PackageId),
+            root => Assert.Equal("Root.Package", root.PackageId));
+    }
+
+    [Fact]
+    public void MemberCallGraphRequests_RequireOneRootInExpandedContext()
+    {
+        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(
+            () => InspectionEngine.MemberCallGraphRequests(
+                "Root.Package",
+                "1.0.0",
+                "net11.0",
+                """
+                [
+                  {
+                    "package": "Other.Package",
+                    "version": "2.0.0",
+                    "framework": "net11.0"
+                  }
+                ]
+                """));
+
+        Assert.Contains(
+            "active package coordinate exactly once",
+            failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task QueryMemberCallGraph_RejectsCollapsedContextCoordinates()
+    {
+        byte[] rootImage =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] duplicateImage =
+            File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
+        _ = Coordinate(
+            "CallGraph.Root",
+            Package(rootImage, "lib/net11.0/CallGraph.Root.dll"));
+        _ = Coordinate(
+            "CallGraph.Duplicate",
+            Package(
+                duplicateImage,
+                "lib/net11.0/CallGraph.Duplicate.dll"));
+
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => InspectionEngine.QueryMemberCallGraph(
+                    "CallGraph.Root",
+                    "1.0.0",
+                    "net11.0",
+                    "CallGraph.Root.dll",
+                    "T:Example.Root",
+                    "T:Example.Root",
+                    "Run",
+                    "void Run()",
+                    "Run|",
+                    0,
+                    """
+                    [
+                      {
+                        "package": "CallGraph.Root",
+                        "version": "1.0.0",
+                        "framework": "net11.0"
+                      },
+                      {
+                        "package": "CallGraph.Duplicate",
+                        "version": "1.0.0",
+                        "framework": "net11.0"
+                      },
+                      {
+                        "package": "CallGraph.Duplicate",
+                        "version": "1.0.0",
+                        "framework": "net11.0"
+                      }
+                    ]
+                    """));
+
+        Assert.Contains(
+            "distinct package coordinates",
+            failure.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
