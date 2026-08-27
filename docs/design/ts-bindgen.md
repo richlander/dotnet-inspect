@@ -18,6 +18,17 @@ browser hosting.
 `[JSExport]` surface. The generated module is an opinionated developer facade
 over the already-callable API returned by `getAssemblyExports()`.
 
+The tool is general-purpose within that convention. Any .NET project can use it
+when its compiled assembly exposes supported static `[JSExport]` methods and,
+when richer wire types are wanted, supported System.Text.Json source-generated
+contracts. Inspect-web is the first real consumer and repository canary, not a
+hard-coded target or the definition of the tool's domain.
+
+The current tool must be built from this repository's source; no `ts-bindgen`
+package from this project has been distributed on NuGet. Distribution may
+change without changing this architecture. The design neither requires nor
+forbids a future .NET tool package.
+
 The consumer's TypeScript compiler turns that source into executable
 JavaScript. A consumer may also emit `.d.ts` declarations when it maintains a
 compiled module or package boundary. Within one TypeScript source environment,
@@ -407,6 +418,7 @@ evidence.
 
 - generate or replace .NET's `[JSExport]` ABI thunks;
 - teach `dotnet.js` or `dotnet.runtime.js` new marshalling types;
+- depend on inspect-web names, DTOs, or startup policy;
 - generate bindings for arbitrary public C# APIs;
 - translate C# or IL implementations into TypeScript;
 - synthesize a richer object-oriented or workflow API from exported methods;
@@ -422,7 +434,7 @@ evidence.
 
 The current implementation predates this decision:
 
-- the command and package are named `tsbindgen`;
+- the command, project, and configured package identity are named `tsbindgen`;
 - stdout is a generated `.d.ts` declaration surface;
 - `--emit-js` generates the runtime facade directly as JavaScript;
 - the JavaScript and declaration emitters spell parallel projections that must
@@ -431,8 +443,9 @@ The current implementation predates this decision:
 - `ConfigureHost(string)` is an implicit name-and-signature convention.
 
 Those are migration inputs, not compatibility requirements. This repository is
-the tool's only consumer. The unrelated `tsbindgen` NuGet package establishes
-no compatibility obligation for this project.
+the tool's only consumer, and it has not distributed its configured package.
+The unrelated `tsbindgen` NuGet package establishes no compatibility obligation
+for this project.
 
 The replacement should retain the surface-authentication and mapping work while
 removing the dual-emitter and direct-JavaScript architecture.

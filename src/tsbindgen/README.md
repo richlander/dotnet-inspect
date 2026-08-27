@@ -4,8 +4,9 @@
 `[JSExport]` wasm/JS interop surface, and can diff generated output against a
 hand-written `.d.ts`/`.ts` file to detect drift (for CI gating).
 
-It is a standalone tool, packaged like `mdi`, and does not add a
-`dotnet-inspect` subcommand.
+It is configured as a standalone .NET tool like `mdi`, but is currently built
+from repository source rather than distributed as a NuGet package. It does not
+add a `dotnet-inspect` subcommand.
 
 > **Target architecture:** This implementation is transitioning to
 > `ts-bindgen`, which generates one native TypeScript facade and leaves
