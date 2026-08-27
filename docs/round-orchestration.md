@@ -189,6 +189,7 @@ make extra status calls in the same run.
 | --- | --- |
 | `mergeable: false` | Apply the conflict transition in [Canonical round flow](../AGENTS.md#canonical-round-flow). After pushing the resolution head, use the standard initial 10- or 35-minute cadence when status gates progress again. |
 | `ci-required` completed with a conclusion other than `success` | Classify it and apply the applicable [recovery transition](../AGENTS.md#recovery-transitions). A terminal non-green result is an answer, not something to wait out. |
+| `mergeable: true`, `ci-required` green, REST `mergeable_state: "behind"`, `goal=merge` | Clear automated wait and schedule state, then apply [carry-forward after clean reviews](#carry-forward-after-clean-reviews). Do not report readiness or merge from this snapshot. |
 | `mergeable: true`, `ci-required` green, REST `mergeable_state: "blocked"` | For `goal=advance`, clear the wait and continue round completion or reviewer dispatch; zero conflicts and green CI satisfy that gate. For `goal=merge`, clear automated wait and schedule state, publish `blocked=<pr-number> rec=wait`, and end without a successor. |
 | `mergeable: true`, `ci-required` green at this head | **Done.** Clear the waiting state and proceed to whatever waited on the answer. |
 | `mergeable: null`, CI green | Publish `waiting=merge`, retain `goal`, and schedule one REST snapshot for five minutes later; see [resolving unknown mergeability](#resolving-unknown-mergeability). |
@@ -199,8 +200,10 @@ make extra status calls in the same run.
 Read the table top-down: the first matching row wins. Conflict recovery has
 first priority, including when CI is also terminal non-green. A terminal
 non-green `ci-required` outranks the remaining mergeability values because
-`mergeable: true` describes the merge path and never means green. The green row
-is the exit; every pending row creates one later run, not a polling loop.
+`mergeable: true` describes the merge path and never means green. A `behind`
+merge goal enters carry-forward before the generic green exit because the
+effective base is part of the candidate. The green row is the exit; every
+pending row creates one later run, not a polling loop.
 
 Every successor delay is relative to the snapshot that just completed, never
 to the original push. If both mergeability and CI remain unresolved, keep at
