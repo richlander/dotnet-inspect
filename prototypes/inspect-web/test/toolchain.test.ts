@@ -723,6 +723,24 @@ test("the lint reads every file this project owns", () => {
   assert.ok(owned.length > 50, `expected the project sources, found ${owned.length}`);
 
   const read = oxlintFileCount(root, lintTokens);
+
+  // The traversal count above compares two differently-derived sets, and round 6 (Sol)
+  // cancelled them out: oxlint reads extensions this walk does not collect, so an
+  // unimported `count-offset.vue` added one to oxlint's side while an unsafe
+  // `bypass.min.ts` -- refused by name -- removed one from it. 85 met 85 and unchecked
+  // code reached the bundle.
+  //
+  // Widening the walk to whatever oxlint reads today would be the same losing game as
+  // predicting its skip rules. Instead oxlint is handed exactly the files this project
+  // owns, so nothing it finds on its own can pad the total and any file it refuses shows
+  // up as a shortfall. Offsetting now needs two failures that cancel within one fixed set,
+  // rather than one file of an extension nobody thought to walk.
+  const named = oxlintFileCount(root, [...lintTokens.filter(token => token.startsWith("-")),
+    ...owned.map(file => projectRelative(root, file))]);
+  assert.equal(named, owned.length,
+    `oxlint read ${named} of the ${owned.length} files it was handed by name, so it `
+      + "refuses some of them outright; the shortfall is unlinted source");
+
   if (read === owned.length) {
     return;
   }
@@ -747,23 +765,76 @@ test("the lint reads every file this project owns", () => {
       + "being under a lint target");
 });
 
+// The rules this conversion exists to enforce. Hoisted so the gate that pins them in the
+// config and the gate that rejects inline suppressions of them cannot drift apart.
+const protectedRules = [
+  "typescript/no-unsafe-argument",
+  "typescript/no-unsafe-assignment",
+  "typescript/no-unsafe-call",
+  "typescript/no-unsafe-member-access",
+  "typescript/no-unsafe-return",
+] as const;
+
 // Sol also walked past the assertion above entirely by turning a rule off at the top
 // level, where no override is involved and the exemption sets still matched. The rules
 // the conversion exists to apply are therefore pinned where they are declared.
 test("the unsafe-operation rules stay enabled for authored source", () => {
-  for (const rule of [
-    "typescript/no-unsafe-argument",
-    "typescript/no-unsafe-assignment",
-    "typescript/no-unsafe-call",
-    "typescript/no-unsafe-member-access",
-    "typescript/no-unsafe-return",
-  ]) {
+  for (const rule of protectedRules) {
     assert.equal(oxlintConfig.rules?.[rule], "error", `${rule} must stay enabled`);
   }
   // The other way to reach every file at once. `ignorePatterns` drops files from the lint
   // run entirely, which would leave the rules above enabled and enforced against nothing.
   assert.deepEqual(oxlintConfig.ignorePatterns ?? [], [],
     "an ignore pattern removes files from the lint run rather than from these rules");
+});
+
+// A rule stays enabled and still does nothing if the code turns it off one line at a
+// time. Round 6 (Sol) suppressed `no-unsafe-member-access` with an inline directive in an
+// imported module: typecheck, tests, lint and build all passed, and the unchecked write
+// reached the production bundle. The config pin above is untouched by that, because the
+// rule really is still enabled -- it just is not applied there.
+//
+// Which directive forms to refuse was measured against oxlint rather than assumed. A
+// blanket directive suppresses; one naming a protected rule suppresses; the `eslint-`
+// spelling suppresses too; and one mentioned mid-sentence in prose does not suppress at
+// all. So the scan anchors where oxlint actually honours a directive -- the start of a
+// comment -- which also leaves this file's own prose about directives alone.
+//
+// Directives naming other rules stay legal, and several files rely on that for
+// `no-unsafe-type-assertion`. Only the protected rules, and blanket directives that would
+// cover them, are refused.
+test("no source file suppresses the unsafe-operation rules", () => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const files = projectFiles([...typeScriptExtensions, ...javaScriptExtensions]);
+  assert.ok(files.includes(fileURLToPath(import.meta.url)),
+    "the scan must cover the file that defines it");
+
+  // Assembled from parts so this file does not match its own scan while describing it.
+  const disable = ["dis", "able"].join("");
+  const directive = new RegExp(
+    String.raw`(?://|/\*)\s*(?:oxlint|eslint)-${disable}(?:-next-line|-line)?([^\n*]*)`,
+    "gu");
+
+  const offenders: string[] = [];
+  for (const file of files) {
+    for (const match of readFileSync(file, "utf8").matchAll(directive)) {
+      const named = ((match[1] ?? "").split("--")[0] ?? "")
+        .split(",")
+        .map(rule => rule.trim())
+        .filter(rule => rule.length > 0);
+      // A directive naming nothing switches off everything, protected rules included.
+      const reachesProtected = named.length === 0
+        || named.some(rule => protectedRules.some(guarded =>
+          rule === guarded || rule === guarded.slice(guarded.indexOf("/") + 1)));
+      if (reachesProtected) {
+        offenders.push(`${projectRelative(root, file)}: ${match[0].trim()}`);
+      }
+    }
+  }
+
+  assert.deepEqual(offenders.sort(), [],
+    "these directives switch off an unsafe-operation rule that the lint exists to "
+      + "enforce; narrow the type or fix the code rather than suppressing the rule");
 });
 
 // Every rule above is type-aware, and oxlint runs type-aware rules only when asked. Sol
