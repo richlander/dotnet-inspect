@@ -43,6 +43,61 @@ consumer-owned tsc
         `-- optional .d.ts at a compiled module boundary
 ```
 
+## Roles and execution phases
+
+This repository contains three similarly named but operationally separate
+parts:
+
+1. **`ts-bindgen` is a build-time tool.** It reads a compiled assembly as
+   metadata and IL data and generates a TypeScript facade for the type paths and
+   static methods represented by its `[JSExport]` surface.
+2. **Inspect-web is a consumer of the tool.** Its managed
+   `InspectWeb.Engine.dll` exposes dotnet-inspect functionality through one
+   `InspectionEngine` type containing static `[JSExport]` methods.
+3. **`ILInspector.JsExportSurface` is part of the tool's implementation.** It
+   is a host-side library over Metadata- and Analysis-owned facts. It constructs
+   the target-language-neutral export and wire-evidence model consumed by
+   `ts-bindgen`.
+
+`ILInspector.JsExportSurface` is not the generated binding, an API that
+application TypeScript calls, or a library required by the browser runtime. The
+inspected engine assembly does not execute it. The tool uses it while generating
+source, before the resulting JavaScript and managed application meet in the
+browser.
+
+The phases compose as follows:
+
+```text
+ts-bindgen process on a developer or CI host
+
+InspectWeb.Engine.dll --read as PE/IL data--> Metadata and Analysis facts
+                                                    |
+                                                    v
+                                          JsExportSurface model
+                                                    |
+                                                    v
+                                           TypeScript emitter
+                                                    |
+                                                    v
+                                        inspect-web-engine.ts
+
+
+browser execution
+
+inspect-web-engine.js --> dotnet.js / dotnet.runtime.js
+                                      |
+                                      v
+                             InspectWeb.Engine.dll
+                                      |
+                                      v
+                         dotnet-inspect product libraries
+```
+
+The compiler step between the diagrams derives
+`inspect-web-engine.js` from `inspect-web-engine.ts`. Neither the
+`ts-bindgen` executable nor its `ILInspector.JsExportSurface` implementation
+library crosses into the browser execution phase.
+
 ## Name
 
 The command, tool package, and user-facing product name are `ts-bindgen`.
@@ -411,6 +466,9 @@ module handoff but does not decide those consumer contracts.
 
 The target remains unverified until all of these gates exist:
 
+- a project-graph and publish-artifact gate proves that inspect-web's runtime
+  dependency closure contains neither `ts-bindgen` nor
+  `ILInspector.JsExportSurface`;
 - a set-equality gate proves that supported `[JSExport]` methods and generated
   managed-operation facade functions have exact one-to-one correspondence,
   excluding separately identified module infrastructure;

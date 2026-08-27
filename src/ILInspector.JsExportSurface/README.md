@@ -4,6 +4,11 @@
 `[JSExport]` wasm/JS interop surface, projected from `ILInspector.Metadata`'s
 `ApiSurface`/`ApiSurfaceExtractor`.
 
+It is a host-side inspection and binding-generation library. `ts-bindgen`
+references it while reading a compiled assembly as metadata and IL data; the
+inspected assembly does not execute or reference this project, and browser
+applications do not need it in their runtime bundle.
+
 `JsExportSurfaceBuilder.Build(surface, bodyIndex)` discovers:
 
 - **Functions** — every runtime-publishable, ordinary static `[JSExport]`

@@ -84,9 +84,11 @@ substrates, and inspection producers that will extend that space.
   vocabulary, and keeps unanchored facts visible without inventing coordinates.
 - `tools/DecompilerHarness/` owns ReturnToSender closure discovery and type-cluster planning. RTS specifies the required Metadata/CSharp request shape; `ILInspector.CSharp` owns rendering it.
 - [`docs/design/ts-bindgen.md`](design/ts-bindgen.md) owns the `ts-bindgen`
-  TypeScript facade projected from an `ILInspector.JsExportSurface`. It consumes
-  those facts without weakening their evidence, emits one opinionated
-  TypeScript module, and leaves compilation and publication to the consumer.
+  TypeScript facade projected at build time from an
+  `ILInspector.JsExportSurface`. The host-side tool consumes that evidence
+  without entering the inspected application's browser dependency closure,
+  emits one opinionated TypeScript module, and leaves compilation and
+  publication to the consumer.
 
 ## Engineering guidance
 
