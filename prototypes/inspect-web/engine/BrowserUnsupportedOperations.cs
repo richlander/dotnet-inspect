@@ -38,6 +38,7 @@ public static partial class InspectionEngine
     [JSExport]
     public static Task<string> QueryPlatformPerformance(
         string targetFramework,
+        string platformVersion,
         string assemblyFileName,
         string pack) =>
         throw Unavailable("Platform performance", NoPlatformProjection);

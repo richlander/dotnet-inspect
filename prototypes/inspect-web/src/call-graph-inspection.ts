@@ -38,6 +38,7 @@ export interface MemberCallGraphRequest {
 
 export interface PlatformDrillRequest {
   framework: string;
+  platformVersion: string;
   assembly: string;
   pack: string;
   assemblyVersion: string | null;
@@ -81,6 +82,7 @@ export interface CallGraphInspectionDependencies {
   ): Promise<BrowserCallGraph>;
   queryPlatform(request: {
     framework: string;
+    platformVersion: string;
     assembly: string;
     pack: string;
     assemblyVersion: string | null;
@@ -134,6 +136,7 @@ export function createCallGraphInspectionCoordinator(
     try {
       const graph = await dependencies.queryPlatform({
         framework: request.framework,
+        platformVersion: request.version,
         assembly: request.assembly,
         pack: request.platformPack,
         assemblyVersion: request.platformAssemblyVersion,

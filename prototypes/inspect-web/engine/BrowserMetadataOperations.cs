@@ -125,12 +125,14 @@ public static partial class InspectionEngine
     [JSExport]
     public static async Task<string> QueryPlatformMetadata(
         string targetFramework,
+        string platformVersion,
         string assemblyFileName,
         string pack)
     {
         using BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
+                platformVersion,
                 assemblyFileName,
                 pack);
         AssemblyContextEntry<MetadataImageOverview> result =
@@ -157,6 +159,7 @@ public static partial class InspectionEngine
     [JSExport]
     public static async Task<string> QueryPlatformMetadataTable(
         string targetFramework,
+        string platformVersion,
         string assemblyFileName,
         string pack,
         int tableIndex,
@@ -166,6 +169,7 @@ public static partial class InspectionEngine
         using BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
+                platformVersion,
                 assemblyFileName,
                 pack);
         var request = new MetadataTableWindowRequest(
@@ -192,6 +196,7 @@ public static partial class InspectionEngine
     [JSExport]
     public static async Task<string> QueryPlatformHeapEntries(
         string targetFramework,
+        string platformVersion,
         string assemblyFileName,
         string pack,
         string heap)
@@ -199,6 +204,7 @@ public static partial class InspectionEngine
         using BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
+                platformVersion,
                 assemblyFileName,
                 pack);
         HeapKind heapKind = ParseHeap(heap);
