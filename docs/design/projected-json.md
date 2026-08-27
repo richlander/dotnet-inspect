@@ -629,8 +629,11 @@ Existing pilot coverage proves only the currently wired slice:
   `ProjectedJsonRoutingAudit_EmptyEffectiveDiscoveryValidatesProjection`,
   `ProjectedJsonRoutingAudit_IlOffsetsProjectionFailsClosed`,
   `ProjectedJsonRoutingAudit_MultiPackagePayloadProjectionsFailClosed`,
-  `ProjectedJsonRoutingAudit_PackageLensRoutesFailClosed`, and
-  `ProjectedJsonRoutingAudit_PackageSearchInheritedProjectionFailsClosed`
+  `ProjectedJsonRoutingAudit_NarrowedDiscoveryOwnsProjectionValidation`,
+  `ProjectedJsonRoutingAudit_PackageLensRoutesFailClosed`,
+  `ProjectedJsonRoutingAudit_PackageSearchInheritedProjectionFailsClosed`,
+  `ProjectedJsonRoutingAudit_TypeShapeFailsClosed`, and
+  `ProjectedJsonRoutingAudit_TypeShapePayloadProjectionsFailClosed`
   tests, together with the existing `type`, `member`, `project`, `find`,
   `vocabulary`, and payload-projection tests, gate that every current route
   lowers, rejects, or is claimed before typed-document serialization.

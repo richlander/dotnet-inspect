@@ -474,6 +474,7 @@ public class LibraryCommand
                     : null;
         if ((options.Fields is { Length: > 0 }
                 || options.Columns is { Length: > 0 })
+            && options.Discover == null
             && projectionSections is { Count: > 0 }
             && !ProjectionDiagnostics.ValidateProjection(
                 schemaMap,

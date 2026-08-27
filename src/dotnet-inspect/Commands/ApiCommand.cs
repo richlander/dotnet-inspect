@@ -2209,6 +2209,18 @@ public class ApiCommand
 
         if (options is TypeOptions { ShapeOutput: true } typeOptions && !options.Count)
         {
+            if (LensProjection.TryProject(
+                    options,
+                    "--shape",
+                    rowCount: 0,
+                    out var projectionExitCode))
+            {
+                return projectionExitCode;
+            }
+
+            if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                return 1;
+
             ApiOutputFormatter.WriteShapeOutput(
                 type,
                 foundIn,

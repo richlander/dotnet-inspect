@@ -1591,6 +1591,8 @@ public class PackageCommand
         {
             return true;
         }
+        if (options.Discover != null)
+            return true;
 
         DocumentSchema schema = PackageDiscoverySchema();
         if (packageCount > 1

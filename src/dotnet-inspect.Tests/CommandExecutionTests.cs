@@ -11383,6 +11383,79 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task ProjectedJsonRoutingAudit_NarrowedDiscoveryOwnsProjectionValidation()
+    {
+        var library = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-D", "Library Info", "--effective",
+            "--json", "--columns", "Kind", "--tips", "q");
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.NarrowedDiscovery",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var package = await RunAppAsync(
+                "package", packagePath,
+                "-D", "-S", "Package Info",
+                "--json", "--columns", "Kind", "--tips", "q");
+
+            foreach (var result in new[] { library, package })
+            {
+                Assert.Equal(0, result.Exit);
+                Assert.Empty(result.Error);
+                using var document = JsonDocument.Parse(result.Output);
+                Assert.NotEmpty(document.RootElement.EnumerateArray());
+                Assert.All(
+                    document.RootElement.EnumerateArray(),
+                    row => Assert.Equal(
+                        ["kind"],
+                        row.EnumerateObject().Select(property => property.Name)));
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("--fields")]
+    [InlineData("--columns")]
+    public async Task ProjectedJsonRoutingAudit_TypeShapeFailsClosed(
+        string projection)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "SampleClassForTesting", "--library", TestAssemblyPath,
+            "--shape", "--json", projection, "ZZZNoSuchColumn", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("requires lowered JSON", error);
+        Assert.DoesNotContain("selection was ignored", error);
+    }
+
+    [Theory]
+    [InlineData("--value")]
+    [InlineData("--urls")]
+    [InlineData("--paths")]
+    [InlineData("--print")]
+    public async Task ProjectedJsonRoutingAudit_TypeShapePayloadProjectionsFailClosed(
+        string projection)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "SampleClassForTesting", "--library", TestAssemblyPath,
+            "--shape", "-S", "Type Info",
+            "--json", "--fields", "Name", projection, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains($"{projection} is not available with --shape", error);
+        Assert.DoesNotContain("produced unprojected output", error);
+        Assert.DoesNotContain("selection was ignored", error);
+    }
+
+    [Fact]
     public async Task Router_RewrittenCommand_IsAudited()
     {
         // The router captures projection flags as raw tokens, so the outer invocation records
