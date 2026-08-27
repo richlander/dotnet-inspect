@@ -6,7 +6,7 @@ defines the replacement architecture; its target properties are **unverified**
 until the gates under [Acceptance](#acceptance) exist.
 
 This is the owning document for the `ts-bindgen` TypeScript facade. It defines
-how one authenticated
+how one
 [`JsExportSurface`](../../src/ILInspector.JsExportSurface/README.md) becomes one
 TypeScript source module. It does not own .NET JavaScript interop thunk
 generation, `JsExportSurface` authentication, TypeScript compiler behavior, or
@@ -15,16 +15,15 @@ browser hosting.
 ## Decision
 
 `ts-bindgen` generates TypeScript source from a compiled .NET assembly's
-authenticated `[JSExport]` surface. The generated module is an opinionated
-developer facade over the already-callable API returned by
-`getAssemblyExports()`.
+`[JSExport]` surface. The generated module is an opinionated developer facade
+over the already-callable API returned by `getAssemblyExports()`.
 
-The consumer's pinned TypeScript compiler turns that source into:
+The consumer's TypeScript compiler turns that source into executable
+JavaScript. A consumer may also emit `.d.ts` declarations when it maintains a
+compiled module or package boundary. Within one TypeScript source environment,
+the generated `.ts` file supplies both implementation and types.
 
-- the JavaScript module deployed beside the .NET WebAssembly runtime; and
-- the `.d.ts` declarations consumed by TypeScript application code.
-
-`ts-bindgen` does not generate those derived artifacts itself:
+`ts-bindgen` does not generate derived JavaScript or declarations itself:
 
 ```text
 compiled .NET assembly
@@ -32,7 +31,7 @@ compiled .NET assembly
         v
 ILInspector.JsExportSurface
         |
-        | authenticated functions and JSON wire contracts
+        | runtime-publishable functions and authenticated JSON wire contracts
         v
 ts-bindgen
         |
@@ -40,8 +39,8 @@ ts-bindgen
         v
 consumer-owned tsc
         |
-        +-- deployable JavaScript
-        `-- public .d.ts declarations
+        +-- executable JavaScript
+        `-- optional .d.ts at a compiled module boundary
 ```
 
 ## Name
@@ -53,8 +52,7 @@ distinguishes this tool from the unrelated `tsbindgen` package on NuGet.
 `ts-bindgen` names the tool's target-language personality, not every constraint
 on its input. Its one-line contract supplies the necessary scope:
 
-> Generate a TypeScript facade from an authenticated .NET `[JSExport]`
-> surface.
+> Generate a TypeScript facade from a .NET assembly's `[JSExport]` surface.
 
 `ts-jsexport-bindgen` would encode more of the current input but would still be
 incomplete: the tool also authenticates and projects System.Text.Json wire
@@ -64,9 +62,10 @@ Names such as `jsexport-bindgen` or `dotnet-js-bindgen` would instead suggest
 ownership of the low-level JavaScript ABI glue that remains with .NET.
 
 The shorter name is therefore deliberate. Documentation and diagnostics must
-consistently say that the input is a compiled .NET assembly with a supported,
-authenticated `[JSExport]` surface; the name alone must not be used to imply
-arbitrary C#-to-TypeScript generation.
+consistently say that the input is a compiled .NET assembly's `[JSExport]`
+surface; the name alone must not be used to imply arbitrary
+C#-to-TypeScript generation. Support and evidence requirements belong in the
+technical contract rather than the product name or tagline.
 
 ## Why this layer generates TypeScript
 
@@ -111,7 +110,7 @@ Generating JavaScript plus JSDoc would express those TypeScript decisions
 indirectly and require the generator to own comment containment, JSDoc import
 syntax, typedef allocation, and JavaScript-to-declaration synchronization.
 Generating native TypeScript expresses the selected language directly and lets
-the consumer's pinned compiler own JavaScript and declaration emission.
+the consumer's compiler own JavaScript and optional declaration emission.
 
 ## Ownership
 
@@ -120,18 +119,15 @@ the consumer's pinned compiler own JavaScript and declaration emission.
 | .NET JavaScript interop | `[JSExport]` selection, generated managed thunks, marshalling descriptors, registration, generic runtime support | application JSON meaning, TypeScript facade policy |
 | `ILInspector.JsExportSurface` | C#-faithful export facts, runtime-publication evidence, authenticated JSON wire evidence | TypeScript names, syntax, wrappers, compiler configuration |
 | `ts-bindgen` | deterministic TypeScript facade source from one `JsExportSurface` | thunk generation, runtime implementation, TypeScript compilation, browser publication |
-| Consumer build | pinned TypeScript version and options, emitted JavaScript and `.d.ts` placement, stale-output checks | reinterpreting or weakening the authenticated input surface |
-| Browser host | serving the emitted module beside `_framework`, runtime asset layout, application startup | binding discovery or type projection |
+| Consumer | TypeScript compiler configuration, derived artifacts, module resolution, and hosting | reinterpreting or weakening the `JsExportSurface` input |
 
-These boundaries are intentionally asymmetric. `ts-bindgen` may reject an
-authenticated surface it cannot faithfully represent in TypeScript. It must
-not broaden acceptance by reimplementing or weakening the evidence rules owned
-by `ILInspector.JsExportSurface`.
+These boundaries are intentionally asymmetric. `ts-bindgen` may reject an input
+surface it cannot faithfully represent in TypeScript. It must not broaden
+acceptance by reimplementing or weakening the evidence rules owned by
+`ILInspector.JsExportSurface`.
 
 The consumer compiler owns derived artifacts, but it does not own facade
-semantics. Changing compiler flags must not silently change the module shape
-that `ts-bindgen` promises. The consumer therefore pins the compiler and checks
-both generated-source drift and derived-artifact drift.
+semantics. Compiler configuration is outside this design.
 
 ## Three type views
 
@@ -223,13 +219,15 @@ containing:
 1. public enum and DTO declarations for reached wire contracts;
 2. one private structural type for the raw `getAssemblyExports()` object;
 3. private initialized-state storage and a narrowing accessor;
-4. `initializeEngine`, which creates one runtime and captures its exports;
+4. `initializeEngine`, which creates one runtime, captures its exports, awaits
+   `runtime.runMain()`, and only then publishes initialized state;
 5. one exported facade function per supported `[JSExport]` method; and
 6. the exact JSON parse operation for each authenticated envelope.
 
 The module imports only the generic .NET runtime JavaScript module at runtime.
-It does not import its own emitted declarations: `tsc` derives those
-declarations from the same TypeScript source.
+It does not import a sibling declaration module because its TypeScript source
+already contains the implementation and types. If a consumer emits
+declarations, `tsc` derives them from that source.
 
 Generated identifiers must be valid, collision-free TypeScript bindings.
 Reserved module bindings, helper names, wrapper-local names, DTO names,
@@ -238,48 +236,34 @@ module before any output is published.
 
 The current exact `ConfigureHost(string)` browser bootstrap is consumer policy,
 not a general implication of `[JSExport]`. `ts-bindgen` emits it as an ordinary
-facade function and does not call it implicitly. An inspect-web-owned entry
-module calls that function with `window.location.origin` after initialization.
-No exported method name carries hidden bootstrap semantics.
+facade function and does not call it implicitly. Any required invocation,
+argument, or ordering belongs to the consumer. No exported method name carries
+hidden bootstrap semantics.
 
-## Consumer compilation and publication
+## Compiler handoff
 
-`ts-bindgen` does not embed or acquire TypeScript. Each consumer selects and
-pins the compiler that defines its emitted JavaScript contract.
+`ts-bindgen` does not embed, acquire, or configure TypeScript. Its output is one
+TypeScript source module. A consumer can include that source directly in a
+TypeScript program, compile it to JavaScript, or additionally emit declarations
+for a compiled module boundary.
 
-For inspect-web, the generated module remains separate from the Vite bundle:
+The two consumption forms are distinct:
 
-```text
-generated inspect-web-engine.ts
-        |
-        | dedicated emitting tsconfig
-        v
-engine/wwwroot/inspect-web-engine.js
-src/inspect-web-engine.d.ts
-```
+| Consumption form | Files consumed | Role of `.d.ts` |
+| --- | --- | --- |
+| TypeScript source | generated `.ts` | none; the source contains implementation and types |
+| Compiled module or package | emitted `.js` plus emitted `.d.ts` | describes the JavaScript API when the `.ts` source is not consumed |
 
-The emitted JavaScript stays beside `_framework/dotnet.js`, preserving the
-runtime-relative import. Vite continues to treat
-`/inspect-web-engine.js` as an external browser module. Application TypeScript
-resolves that public module identity to the emitted declaration file.
+The `.d.ts` file is never a second implementation and is not required merely
+because the consumer uses TypeScript. It is a declaration-only description of
+compiled JavaScript, analogous to a public interface artifact. `ts-bindgen`
+does not require consumers to create or distribute one.
 
-The generation workflow must define an acyclic order for:
-
-1. producing the managed assembly inspected by `ts-bindgen`;
-2. generating TypeScript from that exact assembly;
-3. compiling the generated TypeScript;
-4. building the frontend bundle; and
-5. publishing the final .NET WebAssembly site.
-
-Previously committed outputs may not silently satisfy an earlier stage.
-The implementation must provide explicit generation and check modes and fail
-visibly when an authoritative or derived artifact is stale.
-
-Whether derived JavaScript and declarations are committed is an inspect-web
-repository policy, not a `ts-bindgen` contract. If committed, CI must reproduce
-them from the generated TypeScript and exact pinned compiler. If produced only
-during the build, every build and publish entry point must run the generating
-stages.
+The tool's immediate output obligation is valid, deterministic TypeScript whose
+runtime import and public facade semantics survive TypeScript compilation.
+Output placement, declaration emission, module resolution, bundling,
+stale-derived-artifact checks, and publication belong to the consumer and are
+not specified here.
 
 ## Related tool categories
 
@@ -350,15 +334,15 @@ The current implementation predates this decision:
 - `--emit-js` generates the runtime facade directly as JavaScript;
 - the JavaScript and declaration emitters spell parallel projections that must
   remain synchronized;
-- the runtime wrapper expresses its types through JSDoc; and
+- the runtime wrapper is untyped JavaScript; and
 - `ConfigureHost(string)` is an implicit name-and-signature convention.
 
 Those are migration inputs, not compatibility requirements. This repository is
 the tool's only consumer. The unrelated `tsbindgen` NuGet package establishes
 no compatibility obligation for this project.
 
-The replacement should retain the authenticated surface and mapping work while
-removing the dual-emitter and checked-JavaScript architecture.
+The replacement should retain the surface-authentication and mapping work while
+removing the dual-emitter and direct-JavaScript architecture.
 
 ## Migration
 
@@ -370,40 +354,40 @@ The implementation effort should:
    module emitter;
 3. retain explicit raw interop, wire, and public signatures in the generator
    model;
-4. make inspect-web compile that module with its pinned TypeScript compiler;
-5. derive the deployed JavaScript and public `.d.ts` from the same source;
-6. move the `ConfigureHost` invocation into inspect-web-owned startup;
-7. preserve runtime behavior and generated-output drift gates; and
-8. delete the obsolete JSDoc-only configuration and tests.
+4. emit only that TypeScript module;
+5. remove hidden `ConfigureHost` bootstrap semantics;
+6. preserve runtime initialization, including `runtime.runMain()` before
+   initialized state is published; and
+7. preserve deterministic output and failure-before-publication behavior.
 
-The implementation should begin after the authored inspect-web TypeScript
-conversion tracked by
-[#4574](https://github.com/richlander/dotnet-inspect/issues/4574), because both
-efforts change the frontend compiler and toolchain boundary.
+## Consumer migration residual
 
-PR [#4774](https://github.com/richlander/dotnet-inspect/pull/4774) is a proven
-checked-JavaScript fallback, not the target architecture. It should remain
-unmerged while the TypeScript replacement is developed, then be closed as
-superseded after the replacement proves the same behavior.
+Adopting the generated TypeScript in inspect-web is a separate focused effort
+owned by inspect-web. That effort must decide compiler configuration, source
+and derived-artifact placement, application module resolution, Vite
+externalization, startup policy including `ConfigureHost`, build ordering,
+stale-output checks, and publication. This document supplies the TypeScript
+module handoff but does not decide those consumer contracts.
 
 ## Acceptance
 
 The target remains unverified until all of these gates exist:
 
-- a generator test proves one TypeScript source produces both the runtime
-  wrapper behavior and public declarations;
+- a generator test proves one TypeScript source contains both the runtime
+  wrapper implementation and its public TypeScript types;
 - compiler tests reject mutations to raw managed-export parameter and return
   types;
 - compiler tests reject mutations to public wrapper parameter and return
   types;
 - close-negative tests keep direct interop values distinct from authenticated
   JSON wire values;
-- generated-output checks reproduce JavaScript and `.d.ts` from the exact
-  TypeScript source and pinned compiler;
-- runtime tests prove initialization failure, one-runtime reuse, exact export
-  dispatch, JSON parsing, and exception propagation; and
-- a publication test proves stale or failed generation cannot leave
-  success-shaped current artifacts.
+- a compiler test proves the generated TypeScript emits executable JavaScript
+  without changing runtime import or public facade semantics;
+- runtime tests prove initialization failure, one-runtime reuse,
+  `runtime.runMain()` invocation before initialized state is published, exact
+  export dispatch, JSON parsing, and exception propagation; and
+- a command test proves failed generation does not publish partial TypeScript
+  output.
 
 No individual syntax assertion establishes this architecture. The gates must
 exercise the generated TypeScript through the real compiler and the emitted

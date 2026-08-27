@@ -9,7 +9,8 @@ It is a standalone tool, packaged like `mdi`, and does not add a
 
 > **Target architecture:** This implementation is transitioning to
 > `ts-bindgen`, which generates one native TypeScript facade and leaves
-> JavaScript and `.d.ts` emission to the consumer's pinned TypeScript compiler.
+> compilation and optional declaration emission to the consumer's TypeScript
+> compiler.
 > [`ts-bindgen` TypeScript facade generation](../../docs/design/ts-bindgen.md)
 > owns that decision, its boundaries, and the current implementation
 > mismatches. The usage below describes the current command until that migration
