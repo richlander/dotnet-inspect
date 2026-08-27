@@ -875,11 +875,13 @@ failed history entry with `/`. Other dismissals and projection changes replace
 the failed entry with a guaranteed package-root recovery URL; if history
 replacement is blocked, the owned failure and notice remain visible. Canonical
 workspace Retry actions restore their own failed URL before retrying rather
-than adopting an ambient route, and do not run when that restoration is
-blocked. Parsed restore paths likewise stop before replacing an unrecovered
-route failure. In-app and history navigation with a resident workspace retain
-it and report the failed route as a notice. `failed URL state is retained and
-retired atomically`,
+than adopting an ambient route. Retry proceeds without history mutation when
+that URL is already current, but does not run when a required restoration is
+blocked. Parsed restore paths and final-package closure likewise stop before
+replacing an unrecovered route failure or releasing its workspace. In-app and
+history navigation with a resident workspace retain it and report the failed
+route as a notice. `last package close recovers a route before releasing the
+workspace`, `failed URL state is retained and retired atomically`,
 `workspace retry restores its owned URL before running`, `route failure
 recovery owns malformed URL replacement`, `malformed courtesy package routes
 become typed failures`, `valid courtesy package routes continue to decode

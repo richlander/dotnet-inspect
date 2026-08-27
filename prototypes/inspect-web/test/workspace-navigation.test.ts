@@ -845,10 +845,12 @@ test("failed URL state is retained and retired atomically", () => {
 
 test("workspace retry restores its owned URL before running", () => {
   let currentUrl = "https://inspect.example/packages/%E0%A4%A/1.0.0";
+  let blockedReplaceCount = 0;
   let retryCount = 0;
   const failedUrl = "https://inspect.example/?w=canonical";
   const retry = bindWorkspaceRetryToUrl(
     failedUrl,
+    () => currentUrl,
     url => {
       currentUrl = url;
       return true;
@@ -862,14 +864,35 @@ test("workspace retry restores its owned URL before running", () => {
   assert.equal(currentUrl, failedUrl);
   assert.equal(retryCount, 1);
 
-  const blockedRetry = bindWorkspaceRetryToUrl(
+  const sameUrlBlockedRetry = bindWorkspaceRetryToUrl(
     failedUrl,
-    () => false,
+    () => currentUrl,
+    () => {
+      blockedReplaceCount++;
+      return false;
+    },
     () => {
       retryCount++;
     });
-  assert.equal(blockedRetry(), undefined);
-  assert.equal(retryCount, 1);
+  assert.equal(sameUrlBlockedRetry(), undefined);
+  assert.equal(blockedReplaceCount, 0);
+  assert.equal(retryCount, 2);
+
+  currentUrl = "https://inspect.example/packages/%E0%A4%A/1.0.0";
+  const movedUrlBlockedRetry = bindWorkspaceRetryToUrl(
+    failedUrl,
+    () => currentUrl,
+    () => {
+      blockedReplaceCount++;
+      return false;
+    },
+    () => {
+      retryCount++;
+    });
+  assert.equal(movedUrlBlockedRetry(), undefined);
+  assert.equal(blockedReplaceCount, 1);
+  assert.equal(currentUrl, "https://inspect.example/packages/%E0%A4%A/1.0.0");
+  assert.equal(retryCount, 2);
 });
 
 test("route failure recovery owns malformed URL replacement", () => {

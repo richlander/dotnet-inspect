@@ -1758,6 +1758,10 @@ function selectPackageTab(pkg: PackageBarPackage | null) {
 function closePackageTab(packageKey: string) {
   const removal = removeWorkspacePackage(state.packages, state.package, packageKey);
   if (!removal.closed) return;
+  if (!removal.active && !clearWorkspaceRouteFailure()) {
+    render();
+    return;
+  }
 
   state.packages = removal.packages;
   releasePackageModelCaches(removal.closed);
@@ -9349,6 +9353,7 @@ function failCanonicalWorkspaceRestore(
   const ownedRetryAction = retryAction
     ? bindWorkspaceRetryToUrl(
       failedUrl,
+      () => location.href,
       url => workspaceLocation.replace(url),
       retryAction)
     : null;

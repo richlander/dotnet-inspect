@@ -2450,7 +2450,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /loc\.hasWorkspaceState && !loc\.shareState[\s\S]*restoreWorkspaceFromLocation\([\s\S]*return;[\s\S]*const packageId = loc\.package/);
   assert.match(
     appSource,
-    /function failCanonicalWorkspaceRestore\([\s\S]*const failedUrl = location\.href;[\s\S]*bindWorkspaceRetryToUrl\(\s*failedUrl,\s*url => workspaceLocation\.replace\(url\),\s*retryAction\)[\s\S]*snapshot\?\.hasWorkspace[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\)[\s\S]*appendQueryNotice\([\s\S]*ownedRetryAction\);[\s\S]*failedWorkspaceUrlState = \{\s*kind: "canonical",\s*url: failedUrl,[\s\S]*projection: workspaceUrlProjection\(\)[\s\S]*render\(\);\s*return/);
+    /function failCanonicalWorkspaceRestore\([\s\S]*const failedUrl = location\.href;[\s\S]*bindWorkspaceRetryToUrl\(\s*failedUrl,\s*\(\) => location\.href,\s*url => workspaceLocation\.replace\(url\),\s*retryAction\)[\s\S]*snapshot\?\.hasWorkspace[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\)[\s\S]*appendQueryNotice\([\s\S]*ownedRetryAction\);[\s\S]*failedWorkspaceUrlState = \{\s*kind: "canonical",\s*url: failedUrl,[\s\S]*projection: workspaceUrlProjection\(\)[\s\S]*render\(\);\s*return/);
   assert.match(
     restore,
     /loc\.hasWorkspaceState && !loc\.shareState[\s\S]*canonicalSnapshot,\s*null\)/);
@@ -2603,6 +2603,16 @@ test("package tab selection resets type-specific member filters", () => {
   assert.match(
     selection,
     /state\.selectedTypeId = defaultVisibleTypeId\(packageModel\);[\s\S]*resetMemberFilters\(\);[\s\S]*resetMemberSectionState\(\)/);
+});
+
+test("last package close recovers a route before releasing the workspace", () => {
+  const close =
+    appSource.match(/function closePackageTab\([\s\S]*?\n}\n\nfunction activatePackage/)?.[0]
+    ?? "";
+
+  assert.match(
+    close,
+    /const removal = removeWorkspacePackage\([\s\S]*if \(!removal\.closed\) return;\s*if \(!removal\.active && !clearWorkspaceRouteFailure\(\)\) \{\s*render\(\);\s*return;\s*\}\s*state\.packages = removal\.packages;\s*releasePackageModelCaches\(removal\.closed\);[\s\S]*state\.package = null;\s*goHome\(\);/);
 });
 
 test("loaded-package Spotlight selection resets type-specific member filters", () => {
