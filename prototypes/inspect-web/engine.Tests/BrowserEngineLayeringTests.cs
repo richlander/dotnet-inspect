@@ -59,6 +59,12 @@ public sealed class BrowserEngineLayeringTests
         Assert.Contains("T:ILInspector.Metadata.TypeDependencyScanner", banned);
         Assert.Contains("T:ILInspector.Metadata.TypeHierarchyScanner", banned);
         Assert.Contains("P:ILInspector.Metadata.ResolvedAssemblyReference.OpenRead", banned);
+        Assert.Contains(
+            "M:ILInspector.Metadata.ResolvedAssemblyReference.CreateFromModulePathIfManaged(System.String,ILInspector.Metadata.AssemblyResolutionProvenance)",
+            banned);
+        Assert.Contains(
+            "M:ILInspector.Metadata.ResolvedAssemblyReference.CreateInspectionReferenceFromPathIfManaged(System.String,ILInspector.Metadata.AssemblyResolutionProvenance)",
+            banned);
         Assert.Contains("T:ILInspector.Metadata.IAssemblyReferenceResolver", banned);
         Assert.Contains("T:ILInspector.Metadata.AssemblyReferenceBindingPolicy", banned);
         Assert.Contains("T:System.Reflection.PortableExecutable.PEReader", banned);
