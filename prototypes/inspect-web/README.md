@@ -209,9 +209,8 @@ count. Constructed generic nodes recover assembly identity from their
 definition. Synthetic array and function-pointer nodes remain visible but carry
 no navigable definition identity. Accessor nodes resolve through their opaque
 body selector even when the graph has no `MethodDef` token. That exact body
-enables Call graph and Annotated source; Facts retains the engine's explicit
-unavailable response, and whole-member Source remains hidden because its product
-query intentionally rejects accessor bodies.
+enables Call graph, Annotated source, and Facts; whole-member Source remains
+hidden because its product query intentionally rejects accessor bodies.
 The call-graph legend explains the independent border vocabulary: solid nodes
 receive no platform lookup, while dashed nodes are unresolved external
 assemblies that receive a .NET platform lookup on click.
@@ -484,8 +483,40 @@ rather than making the lens fail, and any bounded-surface notice remains visible
 beside the Analysis result. A 201st navigable ranked member produces a visible
 truncation notice instead of making the top 200 look complete. Accessor evidence
 is aggregated under its owning property or event with every body token retained.
-Rows open the supported member Overview; Facts remains unavailable in the
-browser. Non-public opportunities remain visible in the aggregate count.
+Rows open the supported member Overview. Non-public opportunities remain visible
+in the aggregate count.
+
+`QueryMemberFacts` resolves the selected reference-preferred member to its exact
+implementation body through the product's opaque member correspondence, then
+invokes `AssemblyContextMethodAnalysisQuery` for that participant and physical
+MethodDef token. The query owns retained-image, metadata-context, and Analysis
+index lifetime. The browser only formats signals, allocation and call
+occurrences, unsafe evidence, exception regions, opportunities, and visible
+diagnostics. Allocation occurrences retain the product's heap-counting
+discriminator, and safety rows use the product's deduplicated semantic
+projection. Call rows use qualified type spelling and retain constructed
+generic method type arguments. Selected graph-only accessor bodies use their
+body selector and token, and ref/lib MethodDef row numbers are validated rather
+than treated as cross-image identities. Surface selections use structural
+correspondence without offering their reference-image token as an implementation
+fallback; only a graph-only member surface returned by the product authorizes
+fallback, using the graph response's exact selected body name, selector, and
+implementation MethodDef token rather than fields restored from a shared
+target. Owning property and event surfaces retain that selected accessor
+separately from navigation state. The selected body coordinates overlay rather
+than replace the full graph target, preserving its assembly and type identity
+for history restoration; `selected graph bodies preserve the full navigation
+identity` gates that round trip.
+`BrowserEngineBoundaryTests.MemberFacts_DistinguishesSurfaceAndBodyTokenResolution`
+gates token and accessor provenance, heap classification, unsafe-operation
+deduplication, and constructed generic call identity. The frontend retains at
+most one in-flight Facts Analysis request per member signature and lets a
+returning selection reattach to that work; `same member facts request does not
+duplicate in-flight analysis` and `returning to in-flight member facts reuses
+work and owns publication` gate that single-threaded Browser/Wasm protection.
+`graph-only implementation bodies select, switch, and clear` gates the mutable
+application projection that authorizes accessor fallback and removes that
+authorization when the selected target no longer matches a product body.
 
 `QueryPackageDependencies` asks the package-content query for every dependency
 group in manifest order and an exact-framework selection outcome. A missing
@@ -538,7 +569,6 @@ rather than fixture results or success-shaped empty output.
 
 | Unsupported export | Missing product query |
 | --- | --- |
-| `QueryMemberFacts` | method-scoped Analysis evidence over a group participant |
 | `QueryPackageMetadata`, `QueryPackageMetadataTable`, `QueryPackageHeapEntries` | metadata image, table, and heap projections over a group (`MetadataImageQuery` binds to a host-opened session today) |
 | `QueryPlatformMetadata`, `QueryPlatformMetadataTable`, `QueryPlatformHeapEntries` | the same missing group-scoped metadata image, table, and heap projections as the package exports |
 | `QueryPlatformPerformance` | assembly-wide Analysis ranking over a platform group |
@@ -546,8 +576,8 @@ rather than fixture results or success-shaped empty output.
 Package-backed type Metadata/Source and member Source/Annotated Source exports
 do not accept platform coordinates. The Platform UI therefore withholds those
 type lenses and member sections rather than routing `Microsoft.NETCore.App`
-through NuGet package acquisition. Platform call graphs and the explicit
-method-Facts refusal remain available.
+through NuGet package acquisition. Platform call graphs remain available;
+method Facts remains package-backed.
 
 `ResolvedAssemblyReference.CreateFromStreamIfManaged` owns pathless identity
 decoding, so Browser acquisition does not reconstruct assembly identity.
@@ -615,7 +645,7 @@ to the client-rendered `/credits` route. `src/credits-panel.ts` owns that page's
 markup, route recognition, and rendered control bindings. Azure Static Web Apps
 rewrites direct Credits requests to the non-cacheable `index.html`; the
 document's root base keeps SDK-generated framework imports valid on both
-`/credits` and `/credits/`. `scripts/verify-site-artifact.js` gates that base
+`/credits` and `/credits/`. `scripts/verify-site-artifact.ts` gates that base
 and its ordering in the Vite bundle and SDK-published site. Other application
 routes use the navigation fallback, while API, asset, and framework requests
 remain excluded.
@@ -832,6 +862,31 @@ survives automatic renders until navigation changes`, `Browser Call Graph
 contexts reject Platform participants`, `explicit coordinate changes discard a
 floating canonical basis`, and `canonical commit clears a settled graph source
 without rendering` gate those boundaries.
+Malformed percent-encoding in an ordinary package or version courtesy path
+produces a typed route failure rather than escaping `decodeURIComponent`.
+Boot and navigation without a resident workspace render that failure in the
+error shell without offering an ineffective retry, and explicit Home navigation
+clears the route error and its failed-URL hold. A resident route failure owns
+its notice and URL hold in one discriminated state record; projection changes
+retire both before presentation, while ordinary query notices and Retry actions
+remain independent. A valid route, explicit Home or Credits navigation, and
+both dismiss surfaces share its cleanup path; Home dismissal also replaces the
+failed history entry with `/`. Other dismissals and projection changes replace
+the failed entry with a guaranteed package-root recovery URL; if history
+replacement is blocked, the owned failure and notice remain visible. Canonical
+workspace Retry actions restore their own failed URL before retrying rather
+than adopting an ambient route. Retry proceeds without history mutation when
+that URL is already current, but does not run when a required restoration is
+blocked. Parsed restore paths and final-package closure likewise stop before
+replacing an unrecovered route failure or releasing its workspace. In-app and
+history navigation with a resident workspace retain it and report the failed
+route as a notice. `last package close recovers a route before releasing the
+workspace`, `failed URL state is retained and retired atomically`,
+`workspace retry restores its owned URL before running`, `route failure
+recovery owns malformed URL replacement`, `malformed courtesy package routes
+become typed failures`, `valid courtesy package routes continue to decode
+normally`, and `malformed package routes use the contained restore failure path`
+gate those boundaries.
 `canonical transitions cancel visible source work before snapshot` and
 `canonical transitions settle annotated source before snapshot` specifically
 gate source-request settlement. Filters and browse presentation stay

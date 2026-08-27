@@ -49,6 +49,7 @@ import {
   graphMemberPendingMatchesView,
   graphMemberShareTarget,
   graphMemberSelection,
+  graphMemberTargetWithSelectedBody,
   graphMemberTargetFromPacket,
   graphMemberTargetFromShare,
   graphOnlyBodyTarget,
@@ -583,7 +584,7 @@ test("platform type and member navigation hides package-only operations", () => 
     ["api"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, true),
-    ["overview", "call-graph", "facts"]);
+    ["overview", "call-graph"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, false),
     ["overview", "call-graph", "facts", "source", "annotated"]);
@@ -1195,7 +1196,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /app\.innerHTML = `[\s\S]*bindLoadErrorShell\(document, loadErrorShellActions\)/);
   assert.match(
     workbenchActions,
-    /onDismissNotice: \(\) => \{[\s\S]*state\.queryNotice = "";[\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*render\(\);\s*\},\n  onDismissPackageNotice:/);
+    /onDismissNotice: dismissQueryNotice,\n  onDismissPackageNotice:/);
   assert.match(
     workbenchActions,
     /onDismissPackageNotice: \(\) => \{[\s\S]*pkg\.inspectionErrors = \[\];[\s\S]*pkg\.inspectionError = "";[\s\S]*render\(\);\s*\},\n  onGoHome:/);
@@ -1204,10 +1205,10 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /onGoHome: goHome,[\s\S]*onHelp: \(\) => showToast\([\s\S]*onNavigateBack: navBack,[\s\S]*onNavigateForward: navForward,[\s\S]*onRetryNotice: \(\) => \{[\s\S]*state\.queryNoticeRetryAction;[\s\S]*if \(retryAction\) observeAction\(retryAction, "Retrying the inspection"\);[\s\S]*onShare: \(\) => void share\(\),[\s\S]*onToggleTheme: toggleTheme/);
   assert.match(
     homeActions,
-    /onDemo: runHomeDemo,\s*onDismissNotice: \(\) => \{[\s\S]*state\.queryNotice = "";[\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*render\(\);\s*\},\n  onOpenCredits: openCredits,\n  onToggleTheme: toggleTheme/);
+    /onDemo: runHomeDemo,\s*onDismissNotice: dismissQueryNotice,\s*onOpenCredits: openCredits,\s*onToggleTheme: toggleTheme/);
   assert.match(
     loadErrorActions,
-    /onOpenPackage: openPackageQuery,\s*onRetry: \(\) =>\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\)/);
+    /onOpenPackage: openPackageQuery,\s*onRetry: \(\) => \{\s*if \(state\.retryAction === retryUnavailable\) return;\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\);\s*\}/);
   assert.doesNotMatch(
     appSource,
     /\bquerySelector(?:All)?(?:<[^>]+>)?\("(?:#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|go-home|theme-toggle|help|home-theme|home-credits|retry-load|error-package-query|error-package-input|toggle-error-detail)|\[data-home-demo\]|\.load-error-detail)"\)/);
@@ -2449,7 +2450,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /loc\.hasWorkspaceState && !loc\.shareState[\s\S]*restoreWorkspaceFromLocation\([\s\S]*return;[\s\S]*const packageId = loc\.package/);
   assert.match(
     appSource,
-    /function failCanonicalWorkspaceRestore\([\s\S]*snapshot\?\.hasWorkspace[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\)[\s\S]*state\.credits = false;[\s\S]*failedWorkspaceUrlPreservation = \{[\s\S]*projection: workspaceUrlProjection\(\)[\s\S]*render\(\);\s*return/);
+    /function failCanonicalWorkspaceRestore\([\s\S]*const failedUrl = location\.href;[\s\S]*bindWorkspaceRetryToUrl\(\s*failedUrl,\s*\(\) => location\.href,\s*url => workspaceLocation\.replace\(url\),\s*retryAction\)[\s\S]*snapshot\?\.hasWorkspace[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\)[\s\S]*appendQueryNotice\([\s\S]*ownedRetryAction\);[\s\S]*failedWorkspaceUrlState = \{\s*kind: "canonical",\s*url: failedUrl,[\s\S]*projection: workspaceUrlProjection\(\)[\s\S]*render\(\);\s*return/);
   assert.match(
     restore,
     /loc\.hasWorkspaceState && !loc\.shareState[\s\S]*canonicalSnapshot,\s*null\)/);
@@ -2461,7 +2462,13 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /preserveUrlThroughNextRender/);
   assert.match(
     sync,
-    /workspaceUrlPreservationApplies\([\s\S]*failedWorkspaceUrlPreservation[\s\S]*workspaceUrlProjection\(\)[\s\S]*return;[\s\S]*failedWorkspaceUrlPreservation = null/);
+    /if \(retainFailedWorkspaceUrl\(\)\) return;/);
+  assert.match(
+    appSource,
+    /function retainFailedWorkspaceUrl\(\) \{\s*const failedState = failedWorkspaceUrlState;\s*const retainedState = retainWorkspaceUrlPreservation\(\s*failedState,\s*location\.href,\s*workspaceUrlProjection\(\)\);\s*if \(retainedState\) return true;\s*if \(failedState\?\.kind === "route"\s*&& !recoverWorkspaceRouteFailure\(\s*failedState,\s*location,\s*url => workspaceLocation\.replace\(url\)\)\) \{\s*return true;\s*\}\s*failedWorkspaceUrlState = null;\s*return false;\s*\}/);
+  assert.match(
+    appSource,
+    /if \(state\.loading \|\| state\.error\) \{[\s\S]*return;\s*\}\s*retainFailedWorkspaceUrl\(\);\s*if \(state\.home\)/);
   assert.match(
     appSource,
     /navigation: navigationHistory\.snapshot\(\)[\s\S]*navigationHistory\.restore\(snapshot\.navigation\)/);
@@ -2501,7 +2508,7 @@ test("initial workspace packet resolution waits for the engine phase", () => {
     /const initialWorkspace = workspaceLocation\.preflightCurrent\(\);\s*const initialLocation = initialWorkspace\.visible/);
   assert.match(
     appSource,
-    /state\.home = state\.credits\s*\|\| \(!initialLocation\.package && !initialWorkspace\.hasWorkspaceState\)/);
+    /state\.home = state\.credits\s*\|\| \(!initialLocation\.package\s*&& !initialWorkspace\.hasWorkspaceState\s*&& !initialLocation\.routeFailure\)/);
   const restore = appSource.match(
     /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction isStyleTier/)?.[0]
     ?? "";
@@ -2516,6 +2523,65 @@ test("initial workspace packet resolution waits for the engine phase", () => {
   assert.notEqual(initializeAt, -1);
   assert.notEqual(restoreAt, -1);
   assert.ok(initializeAt < restoreAt);
+});
+
+test("malformed package routes use the contained restore failure path", () => {
+  const restore = appSource.match(
+    /async function restoreWorkspaceFromLocation\([\s\S]*?\n}\n\nfunction failWorkspaceRoute/)?.[0]
+    ?? "";
+  assert.match(
+    restore,
+    /canonicalSnapshot = loc\.hasWorkspaceState\s*\? captureCanonicalWorkspaceRestoreSnapshot\(\)[\s\S]*if \(loc\.routeFailure\) \{\s*failWorkspaceRoute\(loc\.routeFailure\.message\);\s*return;\s*\}\s*if \(!clearWorkspaceRouteFailure\(\)\) \{\s*render\(\);\s*return;\s*\}/);
+
+  const initial = appSource.match(
+    /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction isStyleTier/)?.[0]
+    ?? "";
+  assert.match(
+    initial,
+    /if \(loc\.routeFailure\) \{\s*await restoreWorkspaceFromLocation\(loc, deepLinkFromLocation\(loc\)\);\s*return;/);
+
+  const popstate =
+    appSource.match(/window\.addEventListener\("popstate"[\s\S]*?\n\}\);/)?.[0]
+    ?? "";
+  assert.match(
+    popstate,
+    /if \(loc\.routeFailure\) \{\s*failWorkspaceRoute\(loc\.routeFailure\.message\);\s*return;\s*\}\s*if \(!clearWorkspaceRouteFailure\(\)\) \{\s*render\(\);\s*return;\s*\}\s*const canonicalSnapshot = loc\.hasWorkspaceState[\s\S]*state\.queryNotice = loc\.workspaceNotice \|\| "";[\s\S]*const bareHome/);
+
+  const failure = appSource.match(
+    /function failWorkspaceRoute\([\s\S]*?\n}\n\nfunction failCanonicalWorkspaceRestore/)?.[0]
+    ?? "";
+  assert.match(
+    failure,
+    /function failWorkspaceRoute\(message: string\) \{\s*if \(state\.package\)[\s\S]*failedWorkspaceUrlState = \{\s*kind: "route",\s*notice: `Package route failed: \$\{message\}`,[\s\S]*pathname: location\.pathname,\s*search: location\.search,\s*recoveryUrl: buildPackageRootStateUrl\(location\.href,[\s\S]*state\.errorTitle = "Package route failed";[\s\S]*state\.error = message;[\s\S]*state\.retryAction = retryUnavailable/);
+  assert.match(
+    appSource,
+    /function goHome\(\) \{[\s\S]*invalidateGraphMemberNavigation\(\);\s*clearNavigationError\(\);\s*if \(!clearWorkspaceRouteFailure\(\)\) \{\s*render\(\);\s*return;\s*\}[\s\S]*workspaceLocation\.push\("\/"\);[\s\S]*render\(\)/);
+  assert.match(
+    appSource,
+    /function visibleQueryNotice\(\) \{\s*const routeNotice = failedWorkspaceUrlState\?\.kind === "route"\s*\? failedWorkspaceUrlState\.notice\s*: null;\s*return \[state\.queryNotice, routeNotice\]\s*\.filter\(Boolean\)\s*\.join\(" "\);\s*\}/);
+  assert.match(
+    appSource,
+    /function clearWorkspaceRouteFailure\(recoveryUrl\?: string\) \{\s*if \(failedWorkspaceUrlState\?\.kind !== "route"\) return true;\s*if \(!recoverWorkspaceRouteFailure\(\s*failedWorkspaceUrlState,\s*location,\s*url => workspaceLocation\.replace\(url\),\s*recoveryUrl\)\) \{\s*return false;\s*\}\s*failedWorkspaceUrlState = null;\s*return true;\s*\}[\s\S]*function dismissQueryNotice\(\) \{\s*const routeFailureOnHome =\s*failedWorkspaceUrlState\?\.kind === "route" && state\.home;\s*state\.queryNotice = "";\s*state\.queryNoticeRetryAction = null;\s*if \(!clearWorkspaceRouteFailure\(routeFailureOnHome \? "\/" : undefined\)\) \{\s*render\(\);\s*return;\s*\}\s*failedWorkspaceUrlState = null;\s*render\(\);\s*\}/);
+  assert.match(
+    appSource,
+    /const workbenchShellActions: WorkbenchShellBindingActions = \{\s*onDismissNotice: dismissQueryNotice,/);
+  assert.match(
+    appSource,
+    /const homeShellActions: HomeShellBindingActions = \{\s*onDemo: runHomeDemo,\s*onDismissNotice: dismissQueryNotice,/);
+  assert.equal(
+    appSource.match(
+      /<span class="query-notice-text">\${escapeHtml\(visibleQueryNotice\(\)\)}<\/span>/g,
+    )?.length,
+    2);
+  assert.match(
+    appSource,
+    /state\.queryNotice && state\.queryNoticeRetryAction\s*\? '<button id="retry-notice"/);
+  assert.match(
+    appSource,
+    /function openCredits\(\) \{\s*if \(!clearWorkspaceRouteFailure\(\)\) \{\s*render\(\);\s*return;\s*\}/);
+  assert.match(
+    appSource,
+    /state\.retryAction === retryUnavailable\s*\? ""\s*: `<button id="retry-load" type="button">retry<\/button>`/);
 });
 
 test("member entry controls move focus into the resulting member navigation", () => {
@@ -2537,6 +2603,16 @@ test("package tab selection resets type-specific member filters", () => {
   assert.match(
     selection,
     /state\.selectedTypeId = defaultVisibleTypeId\(packageModel\);[\s\S]*resetMemberFilters\(\);[\s\S]*resetMemberSectionState\(\)/);
+});
+
+test("last package close recovers a route before releasing the workspace", () => {
+  const close =
+    appSource.match(/function closePackageTab\([\s\S]*?\n}\n\nfunction activatePackage/)?.[0]
+    ?? "";
+
+  assert.match(
+    close,
+    /const removal = removeWorkspacePackage\([\s\S]*if \(!removal\.closed\) return;\s*if \(!removal\.active && !clearWorkspaceRouteFailure\(\)\) \{\s*render\(\);\s*return;\s*\}\s*state\.packages = removal\.packages;\s*releasePackageModelCaches\(removal\.closed\);[\s\S]*state\.package = null;\s*goHome\(\);/);
 });
 
 test("loaded-package Spotlight selection resets type-specific member filters", () => {
@@ -3080,6 +3156,10 @@ test("member detail adapters preserve exact engine coordinates", () => {
     appSource.match(
       /async function loadSelectedMemberFacts\(\)[\s\S]*?\n}\n\ninterface LoadPackageOptions/)?.[0]
     ?? "";
+  const factsRenderer =
+    appSource.match(
+      /function renderMemberFacts\([\s\S]*?\n}\n\ntype FactTableColumn/)?.[0]
+    ?? "";
 
   assert.match(
     coordinator,
@@ -3092,7 +3172,7 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /const document = result\.document;\s*validateAnnotatedSourceDocument\(document\);\s*return \{ \.\.\.result, document \};/);
   assert.match(
     coordinator,
-    /inspectMemberFacts\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.type,\s*request\.member,\s*request\.memberSignature\)/);
+    /inspectMemberFacts\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.typeIdentity,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.implementationBodySelected\)/);
   assert.match(
     documentationLoader,
     /const signature = memberRequestSignature\(type, overload\)/);
@@ -3104,10 +3184,31 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /loadAnnotated\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*type: type\.queryId \?\? type\.id,\s*member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name,\s*memberSignature: overload\.signature,[\s\S]*taste: JSON\.stringify\(state\.taste\)/);
   assert.match(
     factsLoader,
-    /const signature = memberRequestSignature\(type, overload\)/);
+    /const signature = memberRequestSignature\(type, overload, true\)/);
   assert.match(
     factsLoader,
-    /return memberDetailInspection\.loadFacts\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*type: type\.queryId \?\? type\.id,\s*member: overload\.name,\s*memberSignature: overload\.signature,\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
+    /const implementationBody = graphOnlyImplementationBody\(overload\);\s*const implementationMetadataToken = implementationBody\?\.token \?\? 0;\s*const implementationBodySelected = implementationMetadataToken !== 0;\s*return memberDetailInspection\.loadFacts\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*type: type\.queryId \?\? type\.id,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*member: implementationBody\?\.memberName\s*\?\? state\.selectedBodyTarget\?\.memberName\s*\?\? overload\.name,\s*memberSignature: overload\.signature,\s*selectorKey: implementationBody\?\.selectorKey\s*\?\? state\.selectedBodyTarget\?\.selectorKey\s*\?\? overload\.graphSelectorKey,\s*metadataToken: implementationMetadataToken,\s*implementationBodySelected,\s*isCurrent: \(\) => memberRequestIsCurrent\(signature, true\)/);
+  assert.match(
+    packageAcquisitionSource,
+    /implementationBody\?: BrowserMemberBodySelector/);
+  assert.match(
+    packageAcquisitionSource,
+    /function retainGraphOnlyImplementationBody[\s\S]*overload\.bodySelectors\.find\([\s\S]*overload\.implementationBody = selectedBody;[\s\S]*graphMemberTargetWithSelectedBody\(target, selectedBody\)/);
+  assert.match(
+    appSource,
+    /const selectedTarget = graphMemberTargetWithSelectedBody\(\s*target,\s*projection\.selectedBody\);[\s\S]*stageGraphMemberSelection\([\s\S]*selectedTarget,[\s\S]*projection\.member\);[\s\S]*commitGraphMemberSelection\([\s\S]*selectedTarget,[\s\S]*staged\)/);
+  assert.doesNotMatch(
+    factsLoader,
+    /state\.selectedBodyTarget\?\.metadataToken \?\? overload\.metadataToken/);
+  assert.match(
+    factsRenderer,
+    /const heapAllocations = facts\.allocations\.filter\(a => a\.countedAsHeap\);\s*const allocOffsets = heapAllocations\.map\(a => a\.offset\)/);
+  assert.match(
+    factsRenderer,
+    /\["Heap", row => row\.countedAsHeap \? "yes" : "no"\][\s\S]*No allocation occurrences were found in this method/);
+  assert.match(
+    factsRenderer,
+    /\["Operation", "operation"\],[\s\S]*\["Requirement", "requirement"\],[\s\S]*\["Evidence", "evidence"\]/);
 });
 
 test("type source identity includes decompiler taste", () => {
@@ -3316,12 +3417,12 @@ test("generated source wrappers parse their JSON envelopes", () => {
 
   for (const name of [
     "queryMemberAnnotatedSource",
+    "queryMemberFacts",
     "queryMemberSource",
     "queryTypeMemberSource",
   ]) {
     assert.match(wrapper(name), /return JSON\.parse\(result\);/);
   }
-  assert.doesNotMatch(wrapper("queryMemberFacts"), /JSON\.parse\(result\)/);
 });
 
 test("MethodDef-only member sections are hidden for bodiless APIs", () => {
@@ -4268,7 +4369,7 @@ test("history rebuilds graph-only members through exact pending identity", () =>
     /const hasSelectedBody =\s*graphSelection\?\.group\.key === view\.selectedMemberKey;[\s\S]*?memberSectionIdsFor\(member, pkg\.isRuntimePack, hasSelectedBody\)/);
   assert.match(
     apply,
-    /retainGraphOnlyBodyTarget\(\s*graphSelection\.group\.overloads\[graphSelection\.overloadIndex\],\s*view\.bodyTarget\)/);
+    /state\.selectedBodyTarget = retainGraphOnlyImplementationBody\(\s*graphSelection\.group\.overloads\[graphSelection\.overloadIndex\],\s*view\.bodyTarget\)/);
   assert.match(
     apply,
     /memberSectionIdsFor\(\s*graphSelection\.group,\s*pkg\.isRuntimePack,\s*true\)\.includes\(view\.memberSection\)/);
@@ -4694,13 +4795,43 @@ test("graph-only overloads retain the latest graph-selected body", () => {
     false);
   assert.match(
     appSource,
-    /retainGraphOnlyBodyTarget\(group\.overloads\[overloadIndex\], bodyTarget\)/);
+    /selectedBodyTarget = retainGraphOnlyImplementationBody\(\s*overload,\s*bodyTarget\)/);
   assert.match(
     appSource,
-    /retainGraphOnlyBodyTarget\(staged\.member, target\)/);
+    /const selectedTarget = retainGraphOnlyImplementationBody\(\s*staged\.member,\s*target\)/);
   assert.doesNotMatch(
     appSource,
     /group\.overloads\[overloadIndex\]\.graphTarget = bodyTarget/);
+});
+
+test("selected graph bodies preserve the full navigation identity", () => {
+  const selected = graphMemberTargetWithSelectedBody({
+    assembly: "Example.dll",
+    assemblyVersion: "1.2.3.4",
+    assemblyCulture: null,
+    assemblyPublicKeyToken: "abcdef",
+    typeDefinitionId: "T:Example.Widget",
+    typeMetadataId: "Example.Widget",
+    memberName: "stale",
+    selectorKey: "stale-selector",
+    metadataToken: 0x06000002,
+  }, {
+    token: 0x06000001,
+    memberName: "get_Value",
+    selectorKey: "getter-selector",
+  });
+
+  assert.deepEqual(graphMemberShareTarget(selected), [
+    "Example.dll",
+    "1.2.3.4",
+    null,
+    "abcdef",
+    "T:Example.Widget",
+    "Example.Widget",
+    "get_Value",
+    "getter-selector",
+    0x06000001,
+  ]);
 });
 
 test("call graph navigation keeps identity-unknown targets inert", () => {
@@ -5149,7 +5280,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /function toggleCreditsTheme\(\): "light" \| "dark" \{\s+setTheme\(state\.theme === "dark" \? "light" : "dark", false\);\s+return state\.theme === "light" \? "light" : "dark";\s+\}[\s\S]*onToggleTheme: toggleCreditsTheme/);
   assert.match(
     appSource,
-    /\(\) =>\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\)/);
+    /onRetry: \(\) => \{\s*if \(state\.retryAction === retryUnavailable\) return;\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\);\s*\}/);
   assert.match(
     appSource,
     /state\.retryAction = openRuntimePackFromHome/);
