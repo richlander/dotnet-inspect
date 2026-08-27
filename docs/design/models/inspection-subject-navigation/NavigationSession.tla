@@ -92,6 +92,7 @@ Range(s) == { s[i] : i \in DOMAIN s }
 
 HasMaintenance(n) == \E i \in DOMAIN maintenanceQueue : maintenanceQueue[i].seq = n
 MaintenanceIndex(n) == CHOOSE i \in DOMAIN maintenanceQueue : maintenanceQueue[i].seq = n
+MaintenanceEntry(n) == maintenanceQueue[MaintenanceIndex(n)]
 
 TypeOK ==
   /\ installedRev \in Nat
@@ -393,25 +394,15 @@ MaintenanceRequestOrder ==
 \* under exactly the session's current unconsumed authority.
 NoStaleVisibleEffect == visibleWitness
 
-\* No stuck queued maintenance.  Whenever work is queued, the head is either
-\* still gathering facts, still owed a rebuild, waiting for explicit work to
-\* resolve, waiting for an effect to be acknowledged or abandoned, or
-\* admissible right now.  Adding any further admission condition without a
-\* matching release path breaks this invariant.
-NoStuckQueuedMaintenance ==
-  maintenanceQueue # << >> =>
-    \/ ~Head(maintenanceQueue).ready
-    \/ Head(maintenanceQueue).basis # installedRev
-    \/ explicit # NoExplicitWork
-    \/ effect # NoAuthority
-    \/ MaintenanceAdmissible
-
 (***************************************************************************)
 (* Liveness.                                                               *)
 (*                                                                         *)
 (* Explicit intents are bounded, so after the last one the queue must       *)
-(* drain: abort and acknowledgement release maintenance rather than         *)
-(* stranding it.                                                            *)
+(* drain.  Progress is stated per request, not only for the whole queue: a  *)
+(* request that is blocked by unresolved explicit work, by an unconsumed    *)
+(* effect, or by an owed rebuild must still be admitted once that blocker   *)
+(* resolves.  Those are the properties that make abort, acknowledgement,    *)
+(* abandonment, and rebuild real release paths instead of stated ones.      *)
 (***************************************************************************)
 ExplicitWorkEventuallyResolves ==
   (explicit # NoExplicitWork) ~> (explicit = NoExplicitWork)
@@ -421,5 +412,31 @@ EffectEventuallyConsumed ==
 
 MaintenanceEventuallyDrains ==
   (maintenanceQueue # << >>) ~> (maintenanceQueue = << >>)
+
+\* Every queued request is eventually admitted, so the head advances and the
+\* request leaves the queue rather than sitting at the front forever.
+EveryQueuedRequestIsAdmitted ==
+  \A n \in 1 .. MaxMaintenance : HasMaintenance(n) ~> (lastAdmitted >= n)
+
+\* Blocked by unresolved explicit work or by an unconsumed effect: the
+\* explicit operation must resolve and the effect must be acknowledged or
+\* abandoned before this request can be admitted, and it still is.
+BlockedMaintenanceResumes ==
+  \A n \in 1 .. MaxMaintenance :
+    (HasMaintenance(n) /\ (explicit # NoExplicitWork \/ effect # NoAuthority))
+      ~> (lastAdmitted >= n)
+
+\* Blocked behind an external prerequisite abort specifically: the abort
+\* effect must be acknowledged or abandoned before maintenance resumes.
+MaintenanceResumesAfterAbort ==
+  \A n \in 1 .. MaxMaintenance :
+    (HasMaintenance(n) /\ effect.outcome = "aborted") ~> (lastAdmitted >= n)
+
+\* Blocked by a basis a newer snapshot invalidated: the request must rebuild
+\* and re-gather before it can be admitted, and it still is.
+StaleBasisMaintenanceResumes ==
+  \A n \in 1 .. MaxMaintenance :
+    (HasMaintenance(n) /\ MaintenanceEntry(n).basis # installedRev)
+      ~> (lastAdmitted >= n)
 
 =============================================================================

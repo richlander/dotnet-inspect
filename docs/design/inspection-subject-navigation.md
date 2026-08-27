@@ -297,7 +297,7 @@ Subject and lens activation return one of these semantic outcomes:
 | Outcome | State effect |
 | --- | --- |
 | Applied | Installs the exact requested subject or lens in a replacement snapshot |
-| Unavailable | Returns current availability without substituting another requested target |
+| Unavailable | Returns current availability without substituting another requested target; installs a replacement when refreshed facts or reconciliation change the snapshot |
 | Rejected | Retains state because the command is stale, foreign, or invalid |
 | Failed | Retains state because navigation evaluation failed |
 | Superseded | Produces no visible effect because a newer explicit intent owns the session |
@@ -306,6 +306,12 @@ An unavailable request never silently activates a sibling, ancestor, or
 recommended Type. If the already committed subject became invalid
 independently, automatic reconciliation may change it before the unavailable
 outcome is returned.
+
+Outcome labels do not determine revision behavior. Every semantically changed
+snapshot advances the state revision, including an unavailable result with
+refreshed descriptors or a reconciled active subject. An unavailable result
+shares the unchanged-snapshot outcome class only when the complete snapshot is
+unchanged.
 
 Selecting a Library does not also select a Type. Selecting a Type or Member
 directly returns its complete ancestor context.
@@ -361,6 +367,8 @@ The model establishes these design guarantees:
   visible effects;
 - every admitted result receives exact session, state-revision, intent, and
   effect-epoch authority;
+- every semantically changed snapshot advances the state revision regardless
+  of its outcome label;
 - stale or foreign authority cannot install state or move focus;
 - prerequisite failure terminates the explicit operation without inventing a
   navigation result; and
@@ -448,6 +456,7 @@ The eventual subject-navigation implementation must include named gates for:
 - `EveryBoundedInventoryRow_PreservesProducerOrderAndIdentity`
 - `UnavailableDescriptor_HasNoTargetOrActionId`
 - `ExplicitUnavailableTransition_DoesNotApplyFallback`
+- `UnavailableReplacement_AdvancesStateRevision`
 - `SameCoordinateReconciliation_FollowsSubjectTable`
 - `CoordinateVariation_UsesTypedCorrespondence`
 - `LensReconciliation_PreservesExactSubjectScopedIdentity`

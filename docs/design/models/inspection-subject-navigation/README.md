@@ -71,13 +71,21 @@ a consumer holding authority that has since stopped being current.
 | `MaintenanceAdmissionDiscipline` | No maintenance was admitted while explicit work was unresolved or an effect was unconsumed |
 | `MaintenanceRequestOrder` | Maintenance was admitted in owner-issued request order, never fact-completion order, and the queue stays ordered and outstanding |
 | `NoStaleVisibleEffect` | Every render, focus, or outcome effect executed under exactly the session's current unconsumed authority |
-| `NoStuckQueuedMaintenance` | Queued maintenance is only ever blocked by gathering facts, an owed rebuild, unresolved explicit work, or an unconsumed effect |
+
+Progress is stated per request rather than only for the queue as a whole. Each
+property below names a specific blocker and requires the request to be admitted
+once that blocker's disclosed release path runs, so abort, acknowledgement,
+abandonment, and rebuild have to be real release paths.
 
 | Liveness property | Claim |
 | --- | --- |
 | `ExplicitWorkEventuallyResolves` | Explicit work always reaches a result, a retained outcome, or an abort |
 | `EffectEventuallyConsumed` | Unconsumed authority is eventually acknowledged, abandoned, or superseded |
-| `MaintenanceEventuallyDrains` | Queued maintenance eventually drains, including after an abort, rather than waiting forever behind an unconsumed effect |
+| `MaintenanceEventuallyDrains` | The whole queue eventually drains |
+| `EveryQueuedRequestIsAdmitted` | Every queued request is eventually admitted, so the head advances and the request leaves the queue |
+| `BlockedMaintenanceResumes` | A request blocked by unresolved explicit work or an unconsumed effect is still admitted once that work resolves and that effect is released |
+| `MaintenanceResumesAfterAbort` | A request blocked behind an external prerequisite abort is admitted after that abort effect is acknowledged or abandoned |
+| `StaleBasisMaintenanceResumes` | A request whose basis a newer snapshot invalidated rebuilds, re-gathers, and is admitted |
 
 Liveness uses weak fairness on explicit resolution, per-request fact gathering
 and rebuilding, maintenance admission, and acknowledgement. Beginning a new
@@ -89,6 +97,12 @@ queue drains once intents stop arriving.
 Canonical restoration prepares one subject and one lens together under one
 explicit intent, coordinates with at least one other restoration participant,
 and commits or aborts as a transaction.
+
+Navigation's own preparation has two explicitly tracked halves. The subject
+half and the lens half are each working, ready, or failed, so navigation can
+fail before either half resolves, after the subject half alone, or after the
+lens half alone. Each of those failures has to settle through abort with
+neither half becoming visible.
 
 The visible subject and the visible lens are modelled as two separate
 variables, each tagged with the intent that installed it. That is the shape a
@@ -102,25 +116,33 @@ action that disturbed the visible pair is detected.
 | `TypeOK` | State stays within its declared shape |
 | `NoPartialInstallation` | The visible subject and visible lens always come from the same restoration |
 | `VisiblePairIsLastCommit` | Failure, abort, and supersession retain the prior visible pair exactly |
-| `CommitRequiresReadyParticipantsAndCurrentIntent` | A commit happened only with every participant ready and the preparation's token still current |
+| `CommitRequiresReadyParticipantsAndCurrentIntent` | A commit happened only with both navigation halves ready, every peer ready, and the preparation's token still current |
 | `NoSupersededCommit` | A preparation a newer intent replaced never became visible |
+| `FailedPreparationNeverVisible` | A preparation that failed in either navigation half or in a peer never became visible |
 | `PreparationIsInvisible` | A live preparation never leaks its subject or lens before commit |
 
 | Liveness property | Claim |
 | --- | --- |
 | `EveryAttemptSettles` | Every attempt reaches commit, abort, or discard rather than leaving the transaction open |
+| `FailedAttemptsAbort` | An attempt with any failed participant settles instead of waiting for the remaining participants |
+| `HalfFailedAttemptsSettle` | A navigation half-failure settles too, including when the other half is already prepared |
 
 ## `SnapshotAuthority.tla`
 
 Retained and stateless execution of the same navigation work. A retained
 operation reads prior state only from its session's installed snapshot and
-rejects caller-supplied prior state with a typed outcome. A stateless
+rejects explicitly supplied prior state with a typed outcome. A stateless
 evaluation may consume an explicit prior snapshot as data and retains nothing.
 
+The supplied prior-state domain covers a snapshot the consumer invented, one
+minted by another session, and a stale copy of this session's own earlier
+snapshot. All three are rejected in retained mode: the rule is about who owns
+retained prior state, not about whether the supplied value looks plausible.
+
 Snapshots carry provenance, and only a session snapshot can carry a session
-lens, so a committed lens that came from caller data is detectable rather than
-indistinguishable. The replacement snapshot records the origin of the snapshot
-it was derived from.
+lens, so a committed lens that came from supplied data is detectable rather
+than indistinguishable. The replacement snapshot records the origin of the
+snapshot it was derived from.
 
 A retained typed rejection is still a retained result. It changes no installed
 state, but it advances the effect epoch and returns current retained
@@ -131,12 +153,12 @@ retained authority, whether it succeeds or is rejected.
 | Invariant | Claim |
 | --- | --- |
 | `TypeOK` | State stays within its declared shape |
-| `NoForeignRetainedState` | No caller or foreign snapshot becomes retained authority; the installed snapshot is always session-owned and session-derived |
-| `OnlyRetainedExecutionInstalls` | Only retained execution installs session state |
+| `NoForeignRetainedState` | No supplied snapshot becomes retained authority; the installed snapshot is always session-owned and session-derived |
+| `OnlyRetainedExecutionInstalls` | The installed revision advances only through retained execution |
 | `RetainedPriorStateIsInstalledSnapshot` | Every retained operation used the installed snapshot as its only prior state |
-| `RetainedRejectsCallerSuppliedPriorState` | Caller-supplied prior state in retained mode is rejected, never adopted |
+| `NonApplyStepsPreserveInstalledSnapshot` | Stateless execution, stateless rejection, retained rejection, and the authority-only steps left the whole installed snapshot record unchanged, compared field by field rather than by revision counting |
 | `RetainedRejectionHasExactAuthorityAndInstallsNothing` | Every retained rejection advanced the effect epoch, returned authority naming this session, the unchanged installed revision, the current operation, and the new epoch, and installed nothing |
-| `RetainedCommittedLensEqualsInstalledLens` | The retained committed lens equals the installed snapshot's lens and is never a caller-only lens |
+| `RetainedCommittedLensEqualsInstalledLens` | The retained committed lens equals the installed snapshot's lens and is never a lens only supplied data could carry |
 | `StatelessIssuesNoRetainedAuthority` | A stateless evaluation issues no retained effect authority |
 | `ExactCurrentAuthority` | Unconsumed authority matches the session identity, installed revision, current operation, and epoch exactly |
 | `StaleOrForeignAuthorityNeverExecutes` | Stale or foreign authority never executes deferred work |
@@ -145,34 +167,33 @@ retained authority, whether it succeeds or is rejected.
 | --- | --- |
 | `EveryCommandResolves` | Every submitted operation reaches a result or a typed rejection |
 | `EffectEventuallyConsumed` | Unconsumed authority is eventually acknowledged, abandoned, or superseded |
+| `SuppliedRetainedPriorStateIsAlwaysRejected` | Every retained operation carrying explicitly supplied prior state reaches the typed rejection instead of being applied or left pending |
 
 ## Alignment with the owning document
 
-The three models were scanned once against the current owning document. One
-mismatch was found and fixed: retained typed rejections resolved without effect
-authority, while the document requires every admitted result to carry exact
-session, state-revision, intent, and effect-epoch authority, and classifies
-`Rejected` and `Failed` as outcomes that retain state rather than as outcomes
-that produce nothing. `SnapshotAuthority.tla` now issues that authority for
-both retained rejection paths. `NavigationSession.tla` already did, through its
-`retained` outcome class.
+The three models were scanned against the current owning document. The
+remaining differences are deliberate abstractions rather than disagreements:
 
-The remaining differences are deliberate abstractions rather than
-disagreements:
-
-- The document's five explicit-activation outcomes collapse to three classes in
-  `NavigationSession.tla`. `applied` installs a replacement snapshot,
-  `retained` covers `Unavailable`, `Rejected`, and `Failed` because all three
-  keep the revision and still take a new effect epoch, and a superseded
-  operation returns with no effect at all.
-- A newer explicit intent invalidates in-flight maintenance results. The model
-  preserves the queued request, clears its completed-facts marker, and requires
-  it to rebuild from the replacement snapshot before admission.
-- Canonical restoration's subject and lens are optional in the packet. The
-  model always prepares both, because the claim under test is that a prepared
-  pair installs together.
-- Action IDs, generations, descriptor states, diagnostics, and correspondence
-  are not modelled. Subjects, lenses, and snapshots are opaque values.
+- **Outcome classes.** The document's five explicit-activation outcomes
+  collapse to three classes in `NavigationSession.tla`. `applied` covers every
+  outcome that installs a replacement snapshot, which includes an
+  `Unavailable` outcome whenever refreshed availability or reconciliation
+  returns a semantically changed, revision-advancing snapshot. `retained`
+  covers only outcomes that leave the installed snapshot unchanged: `Rejected`,
+  `Failed`, and an `Unavailable` outcome whose complete refreshed snapshot,
+  including its descriptors and active subject, is unchanged.
+  A superseded operation returns with no visible effect at all. Every
+  non-superseded class still takes a new effect epoch, which is what keeps two
+  results that share a revision distinguishable.
+- **Superseded maintenance results.** A newer explicit intent invalidates
+  already gathered maintenance facts. The queued request remains, rebuilds
+  from the replacement snapshot, and re-gathers before admission.
+- **Optional restoration inputs.** Canonical restoration's subject and lens are
+  optional in the packet. The model always prepares both, because the claim
+  under test is that a prepared pair installs together.
+- **Unmodelled currencies.** Action IDs, generations, descriptor states,
+  diagnostics, and correspondence are not modelled. Subjects, lenses, and
+  snapshots are opaque values.
 
 ## Guard witnesses
 
@@ -180,7 +201,7 @@ Some claims are about a step rather than a state: "no maintenance was admitted
 while an effect was unconsumed" is not visible in any single state after the
 fact. Those claims use latching boolean witness variables, named
 `admissionWitness`, `orderWitness`, `visibleWitness`, `commitWitness`,
-`basisWitness`, `rejectWitness`, `rejectionAuthorityWitness`, and
+`basisWitness`, `snapshotStabilityWitness`, `rejectionAuthorityWitness`, and
 `executeWitness`.
 
 A witness re-derives, in the pre-state and independently of the action's own
@@ -189,6 +210,11 @@ conjoins it into the witness. The paired invariant then asserts the witness was
 never falsified. If a future edit weakens an action guard, the witness still
 evaluates the real pre-state, so TLC reports a counterexample. Witnesses are
 model bookkeeping, not product state.
+
+`snapshotStabilityWitness` compares the whole installed snapshot record rather
+than its revision, so a step that rewrote the snapshot's lens or provenance
+while leaving the revision alone is still caught. Probe `SA5`/`SA6` below
+demonstrates exactly that gap in revision arithmetic.
 
 ## Running TLC
 
@@ -213,13 +239,22 @@ them.
 
 ### Locally used tools
 
-The recorded results below came from:
+The results below came from:
 
 - TLC `TLC2 Version 2026.08.21.155922 (rev: 9787e65)`, from the official
   `v1.8.0` `tla2tools.jar` asset downloaded on 2026-08-27.
 - Eclipse Temurin JRE `21.0.12.1+1`, macOS `arm64`.
+- Run on 2026-08-27.
 
-### Recorded results
+## Evidence
+
+Three different things are recorded below, and they are not interchangeable.
+Exhaustive checking says the shipped configuration has no reachable
+counterexample. Action coverage says each modelled step actually occurs in that
+exploration. Mutation probes say a named claim would catch a specific broken
+rule.
+
+### Exhaustive model checking
 
 Each run is an exhaustive breadth-first exploration of the shipped `.cfg`, so
 the counts are stable across repeated runs on the same tools version. All three
@@ -228,40 +263,83 @@ report `Model checking completed. No error has been found.`
 | Model | States generated | Distinct states | Search depth |
 | --- | --- | --- | --- |
 | `NavigationSession.tla` | 9,834 | 1,867 | 15 |
-| `AtomicRestoration.tla` | 13,349 | 2,900 | 10 |
-| `SnapshotAuthority.tla` | 6,987 | 2,534 | 9 |
+| `AtomicRestoration.tla` | 87,321 | 13,097 | 11 |
+| `SnapshotAuthority.tla` | 13,767 | 4,850 | 9 |
 
 Deadlock checking is disabled in all three configs. A behaviour that has issued
 every intent, drained its queue, and consumed its last effect has nothing left
 to do; termination is the intended end state, not a defect.
 
-## Non-vacuity probes
+### Action coverage
 
-Each invariant was confirmed to have teeth by mutating the corresponding design
-rule in a scratch copy and re-running TLC. These probes are not committed; the
-table records how to reproduce them.
+`tlc2.TLC -coverage 1` reports that every action in every model contributes
+transitions in the shipped configuration, so no modelled step is dead. Two
+actions contribute transitions but no new distinct states: `VisibleEffect` in
+`NavigationSession.tla` and `ExecuteEffectWork` in `SnapshotAuthority.tla` only
+latch a witness that is already true, which is the intended shape for a
+consumer-side revalidation step.
 
-| Mutation | Reported violation |
-| --- | --- |
-| Drop the unconsumed-effect blocker from `MaintenanceAdmissible` | `MaintenanceAdmissionDiscipline` |
-| Admit the newest ready maintenance request instead of the oldest | `MaintenanceRequestOrder` |
-| Let a superseded explicit result return effect authority | `LatestIntentSafety` |
-| Add an admission condition with no matching release path | `NoStuckQueuedMaintenance` |
-| Stop releasing the effect on acknowledgement | Temporal properties (the queue never drains) |
-| Commit the restored subject without the restored lens | `NoPartialInstallation` |
-| Drop the current-intent requirement from commit | `CommitRequiresReadyParticipantsAndCurrentIntent` |
-| Reset the visible pair on abort | `VisiblePairIsLastCommit` |
-| Take the retained basis from caller-supplied prior state | `NoForeignRetainedState` |
-| Adopt the caller snapshot while rejecting a retained operation | `NoForeignRetainedState` |
-| Return a retained rejection without advancing the effect epoch | `RetainedRejectionHasExactAuthorityAndInstallsNothing` |
-| Let stateless evaluation install session state | `OnlyRetainedExecutionInstalls` |
-| Skip authority revalidation before deferred work | `StaleOrForeignAuthorityNeverExecutes` |
+### Mutation probes
+
+Coverage and exhaustive checking do not show that a claim would catch anything.
+Each probe below breaks one design rule in a scratch copy and re-runs TLC with
+a configuration that enables exactly one claim, so the reported violation names
+the claim under test rather than whichever claim happens to be listed first.
+
+Every safety invariant and liveness property in the tables above has a probe,
+with one deliberate exception: `TypeOK` in each model is a typing guard, not a
+headline claim, and is not probed. The probes are not committed; the table
+records how to reproduce them.
+
+| Probe | Mutation | Claim | Result |
+| --- | --- | --- | --- |
+| NS1 | Admit maintenance while an effect is unconsumed | `MaintenanceAdmissionDiscipline` | violated |
+| NS2 | Admit the newest ready request instead of the oldest | `MaintenanceRequestOrder` | violated |
+| NS3 | Let a superseded explicit result return effect authority | `LatestIntentSafety` | violated |
+| NS4 | Return a retained outcome under the previous effect epoch | `ExactCurrentAuthority` | violated |
+| NS5 | Run a visible effect without revalidating authority | `NoStaleVisibleEffect` | violated |
+| NS6 | Stop releasing the effect on acknowledgement | `EveryQueuedRequestIsAdmitted` | violated |
+| NS7 | Add an admission condition with no disclosed release path | `BlockedMaintenanceResumes` | violated |
+| NS8 | Make an abort effect impossible to acknowledge | `MaintenanceResumesAfterAbort` | violated |
+| NS9 | Remove the rebuild path for a request with a stale basis | `StaleBasisMaintenanceResumes` | violated |
+| NS10 | Drop fairness on explicit resolution | `ExplicitWorkEventuallyResolves` | violated |
+| NS11 | Stop releasing the effect on acknowledgement | `EffectEventuallyConsumed` | violated |
+| NS12 | Stop releasing the effect on acknowledgement | `MaintenanceEventuallyDrains` | violated |
+| AR1 | Commit the restored subject without the restored lens | `NoPartialInstallation` | violated |
+| AR2 | Drop the current-intent requirement from commit | `CommitRequiresReadyParticipantsAndCurrentIntent` | violated |
+| AR3 | Drop the current-intent requirement from commit | `NoSupersededCommit` | violated |
+| AR4 | Reset the visible pair on abort | `VisiblePairIsLastCommit` | violated |
+| AR5 | Commit with a failed navigation half | `FailedPreparationNeverVisible` | violated |
+| AR6 | Show the subject half as soon as it is prepared | `PreparationIsInvisible` | violated |
+| AR7 | Abort only on peer failure, never on a navigation half-failure | `HalfFailedAttemptsSettle` | violated |
+| AR8 | Abort only on peer failure, never on a navigation half-failure | `EveryAttemptSettles` | violated |
+| AR9 | Abort only on peer failure, never on a navigation half-failure | `FailedAttemptsAbort` | violated |
+| SA1 | Take the retained basis from supplied prior state | `NoForeignRetainedState` | violated |
+| SA2 | Take the retained basis from supplied prior state | `RetainedPriorStateIsInstalledSnapshot` | violated |
+| SA3 | Take the retained basis from supplied prior state | `SuppliedRetainedPriorStateIsAlwaysRejected` | violated |
+| SA4 | Let stateless evaluation install session state | `OnlyRetainedExecutionInstalls` | violated |
+| SA5 | Rewrite the installed lens from a stateless step, leaving the revision alone | `NonApplyStepsPreserveInstalledSnapshot` | violated |
+| SA6 | The same lens rewrite, checked against revision arithmetic only | `OnlyRetainedExecutionInstalls` | not violated |
+| SA7 | Return a retained rejection without advancing the effect epoch | `RetainedRejectionHasExactAuthorityAndInstallsNothing` | violated |
+| SA8 | Report an applied retained lens the installed snapshot does not carry | `RetainedCommittedLensEqualsInstalledLens` | violated |
+| SA9 | Issue retained effect authority from a stateless evaluation | `StatelessIssuesNoRetainedAuthority` | violated |
+| SA10 | Return applied authority naming the previous snapshot revision | `ExactCurrentAuthority` | violated |
+| SA11 | Skip authority revalidation before deferred work | `StaleOrForeignAuthorityNeverExecutes` | violated |
+| SA12 | Drop fairness on command resolution | `EveryCommandResolves` | violated |
+| SA13 | Drop fairness on acknowledgement | `EffectEventuallyConsumed` | violated |
+
+`SA6` is the one probe that is expected not to fire. It applies the same
+mutation as `SA5` and checks the revision-arithmetic invariant instead, which
+does not notice a snapshot rewritten in place. That pair is why
+`NonApplyStepsPreserveInstalledSnapshot` compares the record.
 
 ## Changing a model
 
 Keep each model independent and finite. Raising `MaxIntent`, `MaxMaintenance`,
 `MaxCommands`, or the `Peers`, `Subjects`, and `Lenses` sets grows the state
 space quickly and buys little: the shipped bounds are the smallest that reach
-supersession, out-of-order fact completion, stale authority, and abort. When a
-design rule changes, change the action that states it, keep the paired witness
-an independent re-derivation, and re-run TLC before updating the counts above.
+supersession, out-of-order fact completion, half-failed preparation, stale
+authority, and abort. When a design rule changes, change the action that states
+it, keep the paired witness an independent re-derivation, and re-run TLC before
+updating the counts above. A claim added to a table needs a probe added with
+it.

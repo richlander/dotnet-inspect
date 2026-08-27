@@ -24,11 +24,14 @@
 (* a session snapshot never has, so a committed retained lens that came from *)
 (* caller data is detectable rather than indistinguishable.                  *)
 (*                                                                          *)
-(* `basisWitness`, `rejectWitness`, `rejectionAuthorityWitness`, and         *)
-(* `executeWitness` are latching booleans.  Each re-derives, independently   *)
-(* of the action's own guard, the exact condition the design requires for    *)
-(* the step just taken, so a later weakening of a guard breaks the paired    *)
-(* invariant.                                                               *)
+(* `basisWitness`, `snapshotStabilityWitness`, `rejectionAuthorityWitness`,  *)
+(* and `executeWitness` are latching booleans.  Each re-derives,             *)
+(* independently of the action's own guard, the exact condition the design   *)
+(* requires for the step just taken, so a later weakening of a guard breaks  *)
+(* the paired invariant.  `snapshotStabilityWitness` compares the whole      *)
+(* installed snapshot record, not its revision, so a step that rewrote the   *)
+(* snapshot's lens or provenance while leaving the revision alone is caught  *)
+(* too.                                                                     *)
 (***************************************************************************)
 EXTENDS Naturals
 
@@ -53,13 +56,14 @@ VARIABLES
   hostAuthority,
   commandsIssued,
   basisWitness,
-  rejectWitness,
+  snapshotStabilityWitness,
   rejectionAuthorityWitness,
   executeWitness
 
 vars == << installed, retainedCommits, command, result, effectEpoch, effect,
-           hostAuthority, commandsIssued, basisWitness, rejectWitness,
-           rejectionAuthorityWitness, executeWitness >>
+           hostAuthority, commandsIssued, basisWitness,
+           snapshotStabilityWitness, rejectionAuthorityWitness,
+           executeWitness >>
 
 Modes == {"retained", "stateless"}
 AllLenses == SessionLenses \cup ForeignLenses
@@ -67,11 +71,18 @@ AllLenses == SessionLenses \cup ForeignLenses
 NoSnapshot ==
   [origin |-> "none", rev |-> 0, lens |-> "none", derivedFrom |-> "none"]
 
-\* Prior state a caller might try to hand in.  "caller" is a snapshot the
-\* consumer kept; "foreign" is one from another session or host.
-CallerSnapshots ==
+\* Prior state a caller might hand in explicitly.  "caller" is a snapshot the
+\* consumer invented, "foreign" is one from another session or host, and
+\* "session" is a stale copy of this session's own earlier snapshot that the
+\* consumer kept.  In retained mode all three are equally inadmissible: the
+\* rule is about who owns the prior state, not about whether the value looks
+\* plausible.
+SuppliedSnapshots ==
   { [origin |-> o, rev |-> 1, lens |-> l, derivedFrom |-> o] :
       o \in {"caller", "foreign"}, l \in ForeignLenses }
+  \cup
+  { [origin |-> "session", rev |-> 0, lens |-> l, derivedFrom |-> "session"] :
+      l \in SessionLenses }
 
 LensesOfSnapshot(s) ==
   IF s.origin = "session" THEN SessionLenses ELSE ForeignLenses
@@ -98,13 +109,13 @@ TypeOK ==
   /\ retainedCommits \in Nat
   /\ command.mode \in Modes \cup {"none"}
   /\ command.lens \in AllLenses \cup {"none"}
-  /\ command.prior \in CallerSnapshots \cup {NoSnapshot}
+  /\ command.prior \in SuppliedSnapshots \cup {NoSnapshot}
   /\ result.mode \in Modes \cup {"none"}
   /\ result.outcome \in {"applied", "rejected", "none"}
   /\ commandsIssued \in 0 .. MaxCommands
   /\ effectEpoch \in Nat
   /\ basisWitness \in BOOLEAN
-  /\ rejectWitness \in BOOLEAN
+  /\ snapshotStabilityWitness \in BOOLEAN
   /\ rejectionAuthorityWitness \in BOOLEAN
   /\ executeWitness \in BOOLEAN
 
@@ -120,7 +131,7 @@ Init ==
   /\ hostAuthority = NoAuthority
   /\ commandsIssued = 0
   /\ basisWitness = TRUE
-  /\ rejectWitness = TRUE
+  /\ snapshotStabilityWitness = TRUE
   /\ rejectionAuthorityWitness = TRUE
   /\ executeWitness = TRUE
 
@@ -137,29 +148,35 @@ SubmitCommand(mode, lens, prior) ==
   /\ commandsIssued' = commandsIssued + 1
   /\ effect' = NoAuthority
   /\ UNCHANGED << installed, retainedCommits, result, effectEpoch,
-                  hostAuthority, basisWitness, rejectWitness,
-                  rejectionAuthorityWitness, executeWitness >>
+                  hostAuthority, basisWitness, rejectionAuthorityWitness,
+                  executeWitness >>
+  /\ snapshotStabilityWitness' =
+       /\ snapshotStabilityWitness
+       /\ installed' = installed
+       /\ retainedCommits' = retainedCommits
 
-\* A retained operation that carries caller-supplied prior state is rejected
-\* with a typed outcome.  The session never adopts that value, but the
-\* rejected outcome is still a retained result: it advances the effect epoch
-\* and comes back under current retained authority so a consumer can render
-\* it and acknowledge it like any other outcome.
-RejectCallerSuppliedPriorState ==
+\* A retained operation that carries explicitly supplied prior state is
+\* rejected with a typed outcome, whether that value was invented by the
+\* consumer, minted by another session, or is a stale copy of this session's
+\* own earlier snapshot.  The session never adopts it.  The rejection is
+\* still a retained result: it advances the effect epoch and comes back under
+\* current retained authority so a consumer can render and acknowledge it
+\* like any other outcome.
+RejectSuppliedPriorState ==
   /\ command.mode = "retained"
   /\ command.prior # NoSnapshot
   /\ result' = [mode |-> "retained", outcome |-> "rejected", lens |-> "none",
-                basis |-> "none", reason |-> "callerSuppliedPriorState"]
+                basis |-> "none", reason |-> "suppliedPriorState"]
   /\ effectEpoch' = effectEpoch + 1
   /\ effect' = Authority(installed.rev, commandsIssued, effectEpoch + 1)
   /\ hostAuthority' = effect'
   /\ command' = NoCommand
   /\ UNCHANGED << installed, retainedCommits, commandsIssued, basisWitness,
                   executeWitness >>
-  /\ rejectWitness' =
-       /\ rejectWitness
-       /\ command.mode = "retained"
-       /\ command.prior.origin # "session"
+  /\ snapshotStabilityWitness' =
+       /\ snapshotStabilityWitness
+       /\ installed' = installed
+       /\ retainedCommits' = retainedCommits
   /\ rejectionAuthorityWitness' =
        /\ rejectionAuthorityWitness
        /\ effectEpoch' = effectEpoch + 1
@@ -185,7 +202,11 @@ RejectLensOutsideInstalledSnapshot ==
   /\ hostAuthority' = effect'
   /\ command' = NoCommand
   /\ UNCHANGED << installed, retainedCommits, commandsIssued, basisWitness,
-                  rejectWitness, executeWitness >>
+                  executeWitness >>
+  /\ snapshotStabilityWitness' =
+       /\ snapshotStabilityWitness
+       /\ installed' = installed
+       /\ retainedCommits' = retainedCommits
   /\ rejectionAuthorityWitness' =
        /\ rejectionAuthorityWitness
        /\ effectEpoch' = effectEpoch + 1
@@ -224,8 +245,8 @@ ExecuteRetained ==
   /\ effect' = Authority(installed.rev + 1, commandsIssued, effectEpoch + 1)
   /\ hostAuthority' = effect'
   /\ command' = NoCommand
-  /\ UNCHANGED << commandsIssued, rejectWitness, rejectionAuthorityWitness,
-                  executeWitness >>
+  /\ UNCHANGED << commandsIssued, snapshotStabilityWitness,
+                  rejectionAuthorityWitness, executeWitness >>
 
 (***************************************************************************)
 (* Stateless execution.  An explicit prior snapshot is ordinary data: the    *)
@@ -245,8 +266,12 @@ ExecuteStateless ==
                 reason |-> "none"]
   /\ command' = NoCommand
   /\ UNCHANGED << installed, retainedCommits, effectEpoch, effect,
-                  hostAuthority, commandsIssued, basisWitness, rejectWitness,
+                  hostAuthority, commandsIssued, basisWitness,
                   rejectionAuthorityWitness, executeWitness >>
+  /\ snapshotStabilityWitness' =
+       /\ snapshotStabilityWitness
+       /\ installed' = installed
+       /\ retainedCommits' = retainedCommits
 
 RejectStatelessLens ==
   /\ command.mode = "stateless"
@@ -255,8 +280,12 @@ RejectStatelessLens ==
                 basis |-> "none", reason |-> "lensNotInSuppliedPriorState"]
   /\ command' = NoCommand
   /\ UNCHANGED << installed, retainedCommits, effectEpoch, effect,
-                  hostAuthority, commandsIssued, basisWitness, rejectWitness,
+                  hostAuthority, commandsIssued, basisWitness,
                   rejectionAuthorityWitness, executeWitness >>
+  /\ snapshotStabilityWitness' =
+       /\ snapshotStabilityWitness
+       /\ installed' = installed
+       /\ retainedCommits' = retainedCommits
 
 (***************************************************************************)
 (* Consumer side: authority validation.                                     *)
@@ -272,7 +301,11 @@ ExecuteEffectWork ==
        /\ hostAuthority.epoch = effectEpoch
   /\ UNCHANGED << installed, retainedCommits, command, result, effectEpoch,
                   effect, hostAuthority, commandsIssued, basisWitness,
-                  rejectWitness, rejectionAuthorityWitness >>
+                  rejectionAuthorityWitness >>
+  /\ snapshotStabilityWitness' =
+       /\ snapshotStabilityWitness
+       /\ installed' = installed
+       /\ retainedCommits' = retainedCommits
 
 AcknowledgeEffect ==
   /\ hostAuthority # NoAuthority
@@ -280,27 +313,39 @@ AcknowledgeEffect ==
   /\ effect' = NoAuthority
   /\ hostAuthority' = NoAuthority
   /\ UNCHANGED << installed, retainedCommits, command, result, effectEpoch,
-                  commandsIssued, basisWitness, rejectWitness,
-                  rejectionAuthorityWitness, executeWitness >>
+                  commandsIssued, basisWitness, rejectionAuthorityWitness,
+                  executeWitness >>
+  /\ snapshotStabilityWitness' =
+       /\ snapshotStabilityWitness
+       /\ installed' = installed
+       /\ retainedCommits' = retainedCommits
 
 AbandonEffect ==
   /\ hostAuthority # NoAuthority
   /\ hostAuthority' = NoAuthority
   /\ effect' = IF hostAuthority = effect THEN NoAuthority ELSE effect
   /\ UNCHANGED << installed, retainedCommits, command, result, effectEpoch,
-                  commandsIssued, basisWitness, rejectWitness,
-                  rejectionAuthorityWitness, executeWitness >>
+                  commandsIssued, basisWitness, rejectionAuthorityWitness,
+                  executeWitness >>
+  /\ snapshotStabilityWitness' =
+       /\ snapshotStabilityWitness
+       /\ installed' = installed
+       /\ retainedCommits' = retainedCommits
 
 \* A consumer is handed authority minted by another navigation session.
 ForeignAuthorityOffered ==
   /\ hostAuthority = NoAuthority
   /\ hostAuthority' = ForeignAuthority
   /\ UNCHANGED << installed, retainedCommits, command, result, effectEpoch,
-                  effect, commandsIssued, basisWitness, rejectWitness,
+                  effect, commandsIssued, basisWitness,
                   rejectionAuthorityWitness, executeWitness >>
+  /\ snapshotStabilityWitness' =
+       /\ snapshotStabilityWitness
+       /\ installed' = installed
+       /\ retainedCommits' = retainedCommits
 
 ResolveCommand ==
-  \/ RejectCallerSuppliedPriorState
+  \/ RejectSuppliedPriorState
   \/ RejectLensOutsideInstalledSnapshot
   \/ ExecuteRetained
   \/ ExecuteStateless
@@ -308,7 +353,7 @@ ResolveCommand ==
 
 Next ==
   \/ \E mode \in Modes, lens \in AllLenses,
-        prior \in CallerSnapshots \cup {NoSnapshot} :
+        prior \in SuppliedSnapshots \cup {NoSnapshot} :
        SubmitCommand(mode, lens, prior)
   \/ ResolveCommand
   \/ ExecuteEffectWork
@@ -326,7 +371,7 @@ Spec == Init /\ [][Next]_vars /\ Fairness
 (* Invariants.                                                             *)
 (***************************************************************************)
 
-\* No foreign or caller snapshot becomes retained authority.  The installed
+\* No supplied snapshot becomes retained authority.  The installed
 \* snapshot is always session-owned and always derived from session state.
 NoForeignRetainedState ==
   /\ installed.origin = "session"
@@ -341,15 +386,19 @@ OnlyRetainedExecutionInstalls == installed.rev = retainedCommits
 \* A retained operation used the installed snapshot as its only prior state.
 RetainedPriorStateIsInstalledSnapshot == basisWitness
 
-\* Caller-supplied prior state in retained mode is rejected, never adopted.
-RetainedRejectsCallerSuppliedPriorState == rejectWitness
+\* Only the retained apply action may replace the installed snapshot.  Every
+\* other step, including stateless execution, stateless rejection, retained
+\* rejection, and the authority-only steps, left the whole installed snapshot
+\* record and the retained commit count exactly as they were.  This compares
+\* the record itself rather than inferring stability from revision counting.
+NonApplyStepsPreserveInstalledSnapshot == snapshotStabilityWitness
 
 \* A retained typed rejection stays visible under exact current authority and
 \* installs nothing: it advanced the effect epoch, returned authority naming
 \* this session, the unchanged installed revision, the current operation, and
-\* the new epoch, and left the installed snapshot and the retained commit
-\* count alone.  A rejection that adopted caller state would have to move the
-\* installed revision, which this witness records.
+\* the new epoch, and left the whole installed snapshot record and the
+\* retained commit count alone.  A rejection that adopted supplied prior state
+\* would have to change that record, which this witness compares directly.
 RetainedRejectionHasExactAuthorityAndInstallsNothing ==
   rejectionAuthorityWitness
 
@@ -378,10 +427,22 @@ ExactCurrentAuthority ==
 StaleOrForeignAuthorityNeverExecutes == executeWitness
 
 (***************************************************************************)
-(* Liveness.                                                               *)
+(* Liveness and progress.                                                  *)
 (***************************************************************************)
 EveryCommandResolves == (command # NoCommand) ~> (command = NoCommand)
 
 EffectEventuallyConsumed == (effect # NoAuthority) ~> (effect = NoAuthority)
+
+\* Every retained operation that arrives carrying explicitly supplied prior
+\* state reaches the typed rejection, rather than being applied or left
+\* pending.  This holds for caller, foreign, and stale same-session prior
+\* values alike, because the rule is about who owns retained prior state.  An
+\* execution path that accepted supplied prior state would reach an applied
+\* retained result instead and break this property.
+SuppliedRetainedPriorStateIsAlwaysRejected ==
+  (command.mode = "retained" /\ command.prior # NoSnapshot)
+    ~> ( /\ result.mode = "retained"
+         /\ result.outcome = "rejected"
+         /\ result.reason = "suppliedPriorState" )
 
 =============================================================================
