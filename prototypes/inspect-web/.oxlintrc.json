@@ -16,9 +16,9 @@
   "overrides": [
     {
       "files": [
-        "scripts/*.js",
-        "test/**/*.{js,ts}",
-        "vite.config.js"
+        "scripts/*.ts",
+        "test/**/*.ts",
+        "vite.config.ts"
       ],
       "env": {
         "browser": false,
@@ -27,7 +27,7 @@
     },
     {
       "files": [
-        "**/*.js"
+        "engine/wwwroot/inspect-web-engine.js"
       ],
       "rules": {
         "typescript/no-unsafe-argument": "off",
