@@ -9,14 +9,16 @@ import {
   type PackageInspectionState,
   type PackagePerformance,
 } from "../src/package-inspection.ts";
-import type { AppPackage } from "../src/package-acquisition.ts";
 import type {
-  BrowserMemberSurface,
+  AppMemberSurface,
+  AppPackage,
+  AppTypeSurface,
+} from "../src/package-acquisition.ts";
+import type {
   BrowserPackageDependencies,
   BrowserPackageIntegrations,
   BrowserPackageOpportunities,
   BrowserPerformanceMember,
-  BrowserTypeSurface,
 } from "../src/inspect-web-engine.d.ts";
 import type { PackageMetadata } from "../src/metadata-viewer.ts";
 
@@ -131,7 +133,7 @@ function performanceResult(): PackagePerformance {
   };
 }
 
-function performanceMember(): BrowserMemberSurface {
+function performanceMember(): AppMemberSurface {
   return {
     name: "Bounds",
     kind: "property",
@@ -165,8 +167,8 @@ function performanceMember(): BrowserMemberSurface {
 }
 
 function performanceType(
-  member: BrowserMemberSurface,
-): BrowserTypeSurface {
+  member: AppMemberSurface,
+): AppTypeSurface {
   return {
     id: "Example.dll:Example.Outer+Inner",
     definitionId: "Example.Outer+Inner",
@@ -191,8 +193,8 @@ function performanceType(
 test(
   "performance navigation uses stable surface identity across body tokens",
   () => {
-    const member: BrowserMemberSurface = performanceMember();
-    const type: BrowserTypeSurface = performanceType(member);
+    const member = performanceMember();
+    const type = performanceType(member);
     const packageItem: AppPackage = packageModel({ types: [type] });
     const performance: BrowserPerformanceMember = {
       assembly: "Example.dll",

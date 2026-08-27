@@ -630,8 +630,13 @@ test("package-root URLs discard stale workspace state and restore the package le
 });
 
 test("unsupported canonical lenses fail visibly before activation", () => {
-  const state = workspaceState();
-  state.view.lens = "future-lens";
+  const initial = workspaceState();
+  const state = workspaceState({
+    view: {
+      ...initial.view,
+      lens: "future-lens",
+    },
+  });
 
   const parsed = parseWorkspaceLocation(
     locationSnapshot("https://inspect.example/?package=Visible&w=opaque"),
@@ -896,8 +901,13 @@ test("product decoder failures preserve visible location authority", () => {
 });
 
 test("canonical packets without a lens discard legacy hash state", () => {
-  const state = workspaceState();
-  state.view.lens = null;
+  const initial = workspaceState();
+  const state = workspaceState({
+    view: {
+      ...initial.view,
+      lens: null,
+    },
+  });
 
   const parsed = parseWorkspaceLocation(
     locationSnapshot(
