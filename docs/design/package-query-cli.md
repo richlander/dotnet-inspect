@@ -65,7 +65,7 @@ Related docs:
 typed manifests over a corpus, with an explicit bound and honest truncation
 and partial-source failure, rendered through the shared Sections registry
 just as `library`/`member`/`package` are. Its corpus-limit spelling is still
-`-t`, not yet the target `-n` vocabulary — see
+`-t`; the pending L3 design owns any replacement vocabulary — see
 [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing).
 What it does not have yet is a way to
 ask "and does each package satisfy *this*" — a facet predicate — cheaply for

@@ -125,32 +125,144 @@ comparer resolver.
 
 ## Public surface and immutability
 
-The allowed public product surface is:
+This is the complete allowed product signature manifest; method bodies are
+omitted. No other public type, constructor, property, method, event, or field is
+part of the component:
 
-| Type | Role |
-| --- | --- |
-| `RowSelectionStageKind` | Closed `Head`, `Tail`, `Range`, and `Top` discriminator. |
-| `RowSelectionStage<TOrder>` | Immutable stage value with validating named factories and kind-checked accessors. |
-| `RowSelectionPlan<TOrder>` | Immutable ordered stage snapshot with `Empty`, validating `Create`, read-only `Stages`, and functional `Append`. |
-| `NamedRowSequence<TKey, T>` | Immutable opaque key plus complete read-only values. |
-| `RowSelectionExecutor` | Synchronous `Apply` and `ApplyNamed` entry points. |
-| `RowSelectionResult<T>` | Immutable single-sequence success-or-range-failure result. |
-| `NamedRowSelectionResult<TKey, T>` | Immutable all-named-sequences-success-or-one-failure result. |
-| `RowRangeFailure` | Unkeyed structured strict-range failure. |
-| `NamedRowRangeFailure<TKey>` | Opaque key plus `RowRangeFailure`. |
+```csharp
+namespace DotnetInspector.RowSelection;
 
-No public constructor bypasses the validating stage factories or plan creation
-path. `Create` defensively copies the caller's stage collection, `Stages`
-exposes no mutable collection, and `Append` returns a new plan without changing
-the prior value. Stage values copy their opaque `TOrder`; callers must supply an
-immutable order value whose equality and meaning do not change after plan
-construction.
+public enum RowSelectionStageKind
+{
+    Head,
+    Tail,
+    Range,
+    Top
+}
 
-The expected public type and member set is derived from this table. A fixture
-project outside the component compiles against every row and executes every
-entry point. The same gate rejects extra public constructors, mutators,
-asynchronous protocols, or host-shaped overloads, so an empty or exclusion-only
-API cannot satisfy the design.
+public sealed class RowSelectionStage<TOrder>
+    where TOrder : notnull
+{
+    public RowSelectionStageKind Kind { get; }
+    public int Count { get; }
+    public int Start { get; }
+    public int? End { get; }
+    public TOrder Order { get; }
+
+    public static RowSelectionStage<TOrder> Head(int count);
+    public static RowSelectionStage<TOrder> Tail(int count);
+    public static RowSelectionStage<TOrder> Range(int start, int? end);
+    public static RowSelectionStage<TOrder> Top(int count, TOrder order);
+}
+
+public sealed class RowSelectionPlan<TOrder>
+    where TOrder : notnull
+{
+    public static RowSelectionPlan<TOrder> Empty { get; }
+    public IReadOnlyList<RowSelectionStage<TOrder>> Stages { get; }
+
+    public static RowSelectionPlan<TOrder> Create(
+        IReadOnlyList<RowSelectionStage<TOrder>> stages);
+    public RowSelectionPlan<TOrder> Append(RowSelectionStage<TOrder> stage);
+}
+
+public sealed class NamedRowSequence<TKey, T>
+    where TKey : notnull
+{
+    public TKey Key { get; }
+    public IReadOnlyList<T> Values { get; }
+
+    public static NamedRowSequence<TKey, T> Create(
+        TKey key,
+        IReadOnlyList<T> values);
+}
+
+public sealed class RowRangeFailure
+{
+    public int StageNumber { get; }
+    public int RequiredPosition { get; }
+    public int AvailableCount { get; }
+}
+
+public sealed class NamedRowRangeFailure<TKey>
+    where TKey : notnull
+{
+    public TKey Key { get; }
+    public RowRangeFailure Failure { get; }
+}
+
+public sealed class RowSelectionResult<T>
+{
+    public bool IsSuccess { get; }
+    public IReadOnlyList<T> Values { get; }
+    public RowRangeFailure? Failure { get; }
+}
+
+public sealed class NamedRowSelectionResult<TKey, T>
+    where TKey : notnull
+{
+    public bool IsSuccess { get; }
+    public IReadOnlyList<NamedRowSequence<TKey, T>> Sequences { get; }
+    public NamedRowRangeFailure<TKey>? Failure { get; }
+}
+
+public static class RowSelectionExecutor
+{
+    public static RowSelectionResult<T> Apply<T, TOrder>(
+        IReadOnlyList<T> values,
+        RowSelectionPlan<TOrder> plan,
+        Func<TOrder, IComparer<T>?>? comparerResolver = null)
+        where TOrder : notnull;
+
+    public static NamedRowSelectionResult<TKey, T> ApplyNamed<TKey, T, TOrder>(
+        IReadOnlyList<NamedRowSequence<TKey, T>> sequences,
+        RowSelectionPlan<TOrder> plan,
+        Func<TOrder, IComparer<T>?>? comparerResolver = null)
+        where TKey : notnull
+        where TOrder : notnull;
+}
+```
+
+The API manifest includes type kind, visibility, generic arity and constraints,
+member name, static/instance shape, parameter and return type, nullability, and
+enum values. Inherited `object` members and compiler-generated metadata that
+does not add callable surface are outside the manifest.
+
+`Count` is valid for `Head`, `Tail`, and `Top`; `Start` and `End` are valid for
+`Range`; `Order` is valid for `Top`. A wrong-kind accessor throws
+`InvalidOperationException`. All required reference arguments reject null with
+`ArgumentNullException`; `comparerResolver` may be null only when the plan has
+no `Top`. Plan creation and append reject null stage entries, and named
+execution rejects null sequence entries. A missing resolver or one returning
+null for a `Top` throws `InvalidOperationException` naming its one-based stage.
+Resolver and comparer exceptions propagate unchanged.
+
+No public constructor bypasses the validating stage factories, plan creation,
+named-sequence creation, or internal result factories. `Create` defensively
+copies the caller's stage collection, `Stages` exposes no mutable collection,
+and `Append` returns a new plan without changing the prior value. Stage values
+copy their opaque `TOrder`; callers must supply an immutable order value whose
+equality and meaning do not change after plan construction.
+
+`NamedRowSequence.Create` snapshots value membership and order.
+`RowSelectionExecutor` returns component-owned snapshots on every success path,
+including empty plans and lenient stages that retain every value. Success
+results have a null `Failure`; failure results have an empty immutable value or
+sequence collection and a non-null `Failure`. Named success preserves input
+sequence order. Exposed `IReadOnlyList` values cannot be cast to a mutable
+collection that changes the snapshot.
+
+The component snapshots collections, not row objects. Every selected `T` is the
+same caller-owned value or reference supplied at the boundary. Mutating a
+mutable `T` remains visible by design; mutating a source collection after
+`Create` or `Apply` does not change plan, named-input, or result membership and
+order. Callers must not mutate a source collection concurrently with the
+synchronous boundary call.
+
+A fixture project outside the component compiles against every signature above
+and executes every entry point. The same manifest gate rejects extra public
+constructors, mutators, asynchronous protocols, or host-shaped overloads, so an
+empty or exclusion-only API cannot satisfy the design.
 
 ## Stage semantics
 
@@ -323,16 +435,19 @@ The implementation must add these named Release gates:
 | `SelectionStagesComposeInDeclaredOrder` | Reversing `Head`, `Tail`, `Range`, or `Top` stages changes results exactly as the reference examples require; every stage reads positions beginning at 1 from the preceding output. |
 | `SelectionCountsAreLenientAndRangesAreStrict` | Oversized `Head`, `Tail`, and `Top` return the complete current input, while closed and open ranges fail unless their required endpoint exists at that stage. |
 | `RowSelectionPlanRejectsInvalidStages` | Every public construction path rejects nonpositive counts, nonpositive range coordinates, and a closed end before its start rather than creating an empty or unlimited stage. |
-| `EmptyRowSelectionPlanIsIdentity` | An empty plan returns every original value in order and never invokes the comparer resolver. |
+| `EmptyRowSelectionPlanIsIdentity` | An empty plan returns an immutable snapshot containing every original value in order and never invokes the comparer resolver. |
 | `TopRequiresResolvedComparer` | A resolver that returns no comparer identifies the `Top` stage and rejects as caller misuse before any selected result is returned. |
+| `RowSelectionRejectsNullBoundaryInputs` | Every required reference argument rejects null; a null resolver is accepted only without `Top`; nullable row values remain ordinary selected values. |
+| `StageAccessorsRejectWrongKind` | Each kind exposes only its documented values; every wrong-kind `Count`, `Start`, `End`, or `Order` access throws rather than returning a plausible default. |
 | `StrictRangesValidateNamedSequencesAtomically` | A strict-range miss in any one of several keyed sequences identifies the key and stage and returns no selected sequence collection. |
 | `SelectionFailuresAreDeterministic` | Multiple failing named sequences return the first failure by input sequence order and stage order; duplicate keys reject before execution. |
 | `RowRangeFailureShapeIsExact` | Unkeyed failures contain exactly stage number, required position, and available count; named failures add only the opaque key. Closed ranges report their end and open ranges report their start against the post-predecessor count. |
 | `TopRetainsCurrentOrderForEqualRanks` | Equal comparer results preserve current sequence order, including after an earlier stage changed the current sequence. |
-| `SelectionReturnsOriginalValuesInOrder` | The executor returns the original caller-owned values without cloning, wrapping, relabeling, or deriving identity from stage positions. |
+| `SelectionReturnsOriginalValuesInOrder` | The executor preserves each original caller-owned `T` value or reference without cloning, relabeling, or deriving identity from stage positions. |
+| `SelectionResultsSnapshotMembership` | Source-list mutation after named-input creation or execution cannot change result membership or order; exposed collections cannot mutate the snapshot. Fixtures cover empty, oversized Head/Tail/Top, Range, mixed stages, and named success/failure paths. |
 | `RowSelectionPlanIsImmutableSnapshot` | Mutating a caller-owned stage collection after `Create` cannot change the plan; `Stages` exposes no mutable collection; `Append` leaves the prior plan unchanged; every stage remains immutable. |
-| `RowSelectionPublicSurfaceIsExact` | A generated expected set derived from [Public surface and immutability](#public-surface-and-immutability) rejects missing or extra public types, constructors, members, mutators, host-shaped overloads, and asynchronous protocols. |
-| `RowSelectionExternalConsumerExercisesSurface` | A separate fixture project constructs every stage and plan form, invokes both executor entry points, and observes every success and failure result; removing any intended public wiring fails the gate. |
+| `RowSelectionPublicSurfaceIsExact` | A generated expected set derived from the signature manifest in [Public surface and immutability](#public-surface-and-immutability) rejects any missing or extra type, constructor, member, mutator, host-shaped overload, asynchronous protocol, generic constraint, or enum value. |
+| `RowSelectionExternalConsumerExercisesSurface` | A non-friend fixture project constructs every stage, plan, and named input through the declared factories; invokes both executor methods; and observes every accessor and success/failure branch. Removing any intended public wiring fails the gate. |
 | `RowSelectionHasOnlyFrameworkRuntimeDependencies` | Evaluated Release references and resolved compile/runtime/native assets contain only framework references and this component; build-only tooling is allowed only when it contributes no product asset. |
 | `RowSelectionForbidsHostApis` | A static product-closure gate rejects console, filesystem, network, process, dedicated-thread, parallel-loop, and native-interop APIs even though those APIs are in the BCL. |
 | `RowSelectionRunsOnNativeAotAndBrowser` | The reference stage matrix executes in Release under NativeAOT and single-threaded Browser/Wasm hosts. |
