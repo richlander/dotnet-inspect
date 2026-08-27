@@ -75,7 +75,8 @@ public partial class SearchService
             take,
             prerelease,
             auth,
-            operation).ConfigureAwait(false);
+            operation,
+            pluginAuthenticationSourceUrl: null).ConfigureAwait(false);
     }
 
     internal async Task<IReadOnlyList<SearchResult>> SearchAsync(
@@ -83,14 +84,16 @@ public partial class SearchService
         int take,
         bool prerelease,
         AuthenticationHeaderValue? auth,
-        NuGetOperationDeadline operation) =>
+        NuGetOperationDeadline operation,
+        string? pluginAuthenticationSourceUrl = null) =>
         await SearchPageAsync(
             query,
             skip: 0,
             take,
             prerelease,
             auth,
-            operation).ConfigureAwait(false);
+            operation,
+            pluginAuthenticationSourceUrl).ConfigureAwait(false);
 
     private async Task<IReadOnlyList<SearchResult>> SearchPageAsync(
         string query,
@@ -98,7 +101,8 @@ public partial class SearchService
         int take,
         bool prerelease,
         AuthenticationHeaderValue? auth,
-        NuGetOperationDeadline operation)
+        NuGetOperationDeadline operation,
+        string? pluginAuthenticationSourceUrl)
     {
         string pre = prerelease ? "true" : "false";
         if (!SearchRequestUri.TryCompose(
@@ -128,6 +132,10 @@ public partial class SearchService
             {
                 request.Headers.Authorization = auth;
             }
+            NuGetSourceRequest.SuppressPluginAuthenticationForCrossOrigin(
+                request,
+                pluginAuthenticationSourceUrl,
+                url);
 
             using HttpResponseMessage response = await _client.SendAsync(
                 request,
@@ -221,7 +229,8 @@ public partial class SearchService
             take,
             prerelease,
             auth,
-            operation).ConfigureAwait(false);
+            operation,
+            pluginAuthenticationSourceUrl: null).ConfigureAwait(false);
     }
 
     internal async Task<IReadOnlyList<SearchResult>> SearchByPrefixAsync(
@@ -229,7 +238,8 @@ public partial class SearchService
         int take,
         bool prerelease,
         AuthenticationHeaderValue? auth,
-        NuGetOperationDeadline operation)
+        NuGetOperationDeadline operation,
+        string? pluginAuthenticationSourceUrl = null)
     {
         PrefixSearchResult result = await SearchByPrefixWithStateAsync(
             prefix,
@@ -237,7 +247,8 @@ public partial class SearchService
             prerelease,
             auth,
             maximumSkip: null,
-            operation).ConfigureAwait(false);
+            operation,
+            pluginAuthenticationSourceUrl).ConfigureAwait(false);
         if (result.Completion
             is PrefixSearchCompletion.SourcePageLimitReached
                 or PrefixSearchCompletion.ClientPageLimitReached
@@ -272,7 +283,8 @@ public partial class SearchService
             prerelease,
             auth,
             maximumSkip,
-            operation).ConfigureAwait(false);
+            operation,
+            pluginAuthenticationSourceUrl: null).ConfigureAwait(false);
     }
 
     internal async Task<PrefixSearchResult> SearchByPrefixWithStateAsync(
@@ -281,7 +293,8 @@ public partial class SearchService
         bool prerelease,
         AuthenticationHeaderValue? auth,
         int? maximumSkip,
-        NuGetOperationDeadline operation)
+        NuGetOperationDeadline operation,
+        string? pluginAuthenticationSourceUrl = null)
     {
         if (maximumSkip < 0)
             throw new ArgumentOutOfRangeException(nameof(maximumSkip));
@@ -308,7 +321,8 @@ public partial class SearchService
                 PrefixSearchPageSize,
                 prerelease,
                 auth,
-                operation).ConfigureAwait(false);
+                operation,
+                pluginAuthenticationSourceUrl).ConfigureAwait(false);
             if (page.Count == 0)
             {
                 return new PrefixSearchResult(

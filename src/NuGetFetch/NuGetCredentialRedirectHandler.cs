@@ -109,12 +109,20 @@ internal sealed class NuGetCredentialRedirectHandler(
                 }
 
                 redirectedRequest?.Dispose();
+                bool sameOrigin =
+                    SameOrigin(credentialOrigin, target);
                 redirectedRequest = CreateRedirectRequest(
                     request,
                     target,
-                    SameOrigin(credentialOrigin, target)
+                    sameOrigin
                         ? authorization
                         : null);
+                if (!sameOrigin)
+                {
+                    NuGetSourceRequest
+                        .SuppressPluginAuthenticationForRequest(
+                            redirectedRequest);
+                }
                 current = redirectedRequest;
             }
         }

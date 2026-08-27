@@ -339,6 +339,40 @@ public class HttpClientFactoryTests : IDisposable
     }
 
     [Fact]
+    public async Task PackageSearch_LocalSourcesRemainTypedUnavailable()
+    {
+        string localPath = Path.Combine(_cacheDir, "local-feed");
+        Directory.CreateDirectory(localPath);
+
+        string[] localSources =
+        [
+            localPath,
+            new Uri(localPath).AbsoluteUri,
+        ];
+        foreach (string source in localSources)
+        {
+            InvalidOperationException error =
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => NuGetSearchService.SearchAsync(
+                        HttpClientFactory.Shared,
+                        "contoso",
+                        sourceOptions: new NuGetSourceOptions
+                        {
+                            Sources = [source],
+                        }));
+
+            Assert.Contains(
+                "no searchable endpoint",
+                error.Message,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "absolute HTTP or HTTPS URL",
+                error.Message,
+                StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public void PackageSourceClientProvider_InjectedTransportDoesNotInitializeSharedClient()
     {
         var source = new NuGetFetch.PackageSource(
@@ -735,6 +769,81 @@ public class HttpClientFactoryTests : IDisposable
                 "dXNlcjpwYXNzd29yZA==",
                 probe.Authorization[0]);
             Assert.Null(probe.Authorization[1]);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory
+                .SetAuthenticationDecorator(null);
+            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        }
+    }
+
+    [Fact]
+    public async Task PackageSourceClientProvider_SuppressesPluginCredentialForCrossOriginSearch()
+    {
+        var probe = new CrossOriginPluginProbe(useRedirect: false);
+        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+            probe.Attach);
+        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        try
+        {
+            using NuGetFetch.IPackageSourceClient runtime =
+                PackageSourceClientProvider.Create(
+                    new NuGetFetch.PackageSource(
+                        "private",
+                        "https://feed.example/v3/index.json"),
+                    HttpClientFactory.Shared);
+
+            var failed = Assert.IsType<
+                NuGetFetch.PackageSourceOperationResult<
+                    NuGetFetch.PackageSearchResult>.Failed>(
+                        await runtime.SearchAsync(
+                            "contoso",
+                            cancellationToken:
+                                TestContext.Current.CancellationToken));
+
+            Assert.Equal(
+                NuGetFetch.PackageSourceFailureKind.AuthenticationRequired,
+                failed.Failure.Kind);
+            Assert.Empty(probe.CredentialRequests);
+            Assert.Equal([null], probe.CrossOriginAuthorization);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory
+                .SetAuthenticationDecorator(null);
+            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        }
+    }
+
+    [Fact]
+    public async Task PackageSourceClientProvider_SuppressesPluginCredentialForCrossOriginRedirect()
+    {
+        var probe = new CrossOriginPluginProbe(useRedirect: true);
+        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+            probe.Attach);
+        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        try
+        {
+            using NuGetFetch.IPackageSourceClient runtime =
+                PackageSourceClientProvider.Create(
+                    new NuGetFetch.PackageSource(
+                        "private",
+                        "https://feed.example/v3/index.json"),
+                    HttpClientFactory.Shared);
+
+            var failed = Assert.IsType<
+                NuGetFetch.PackageSourceOperationResult<
+                    NuGetFetch.PackageVersionResult>.Failed>(
+                        await runtime.GetVersionsAsync(
+                            "contoso",
+                            TestContext.Current.CancellationToken));
+
+            Assert.Equal(
+                NuGetFetch.PackageSourceFailureKind.AuthenticationRequired,
+                failed.Failure.Kind);
+            Assert.Empty(probe.CredentialRequests);
+            Assert.Equal([null], probe.CrossOriginAuthorization);
         }
         finally
         {
@@ -1167,6 +1276,124 @@ public class HttpClientFactoryTests : IDisposable
                 CancellationToken cancellationToken) =>
                 Task.FromResult<NuGetFetch.PackageSourceCredential?>(
                     new("user", "password"));
+        }
+    }
+
+    private sealed class CrossOriginPluginProbe(bool useRedirect)
+    {
+        private readonly bool _useRedirect = useRedirect;
+
+        internal List<Uri> CredentialRequests { get; } = [];
+
+        internal List<string?> CrossOriginAuthorization { get; } = [];
+
+        internal HttpMessageHandler Attach(HttpMessageHandler inner) =>
+            new NuGetFetch.Plugins.PluginAuthenticationHandler(
+                new CredentialSource(this),
+                new ProbeHandler(this, inner));
+
+        private sealed class CredentialSource(
+            CrossOriginPluginProbe owner) :
+            NuGetFetch.Plugins.ICredentialSource
+        {
+            public bool HasCredentialSources => true;
+
+            public Task<NuGetFetch.PackageSourceCredential?>
+                GetCredentialsAsync(
+                    Uri uri,
+                    bool isRetry,
+                    CancellationToken cancellationToken)
+            {
+                owner.CredentialRequests.Add(uri);
+                return Task.FromResult<
+                    NuGetFetch.PackageSourceCredential?>(
+                        new("user", "password"));
+            }
+        }
+
+        private sealed class ProbeHandler(
+            CrossOriginPluginProbe owner,
+            HttpMessageHandler inner) : DelegatingHandler(inner)
+        {
+            protected override Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                Uri uri = request.RequestUri!;
+                if (uri.Host == "feed.example"
+                    && uri.AbsolutePath == "/v3/index.json")
+                {
+                    string body = owner._useRedirect
+                        ? """
+                          {
+                            "resources": [
+                              {
+                                "@id": "https://feed.example/flat/",
+                                "@type": "PackageBaseAddress/3.0.0"
+                              }
+                            ]
+                          }
+                          """
+                        : """
+                          {
+                            "resources": [
+                              {
+                                "@id": "https://cross.example/query",
+                                "@type": "SearchQueryService/3.5.0"
+                              }
+                            ]
+                          }
+                          """;
+                    return Task.FromResult(Json(request, body));
+                }
+
+                if (owner._useRedirect
+                    && uri.Host == "feed.example"
+                    && uri.AbsolutePath
+                        == "/flat/contoso/index.json")
+                {
+                    return Task.FromResult(
+                        new HttpResponseMessage(HttpStatusCode.Found)
+                        {
+                            RequestMessage = request,
+                            Headers =
+                            {
+                                Location = new Uri(
+                                    "https://cross.example/versions"),
+                            },
+                        });
+                }
+
+                owner.CrossOriginAuthorization.Add(
+                    request.Headers.Authorization?.Parameter);
+                if (request.Headers.Authorization is null)
+                {
+                    return Task.FromResult(
+                        new HttpResponseMessage(
+                            HttpStatusCode.Unauthorized)
+                        {
+                            RequestMessage = request,
+                        });
+                }
+
+                string successfulBody = owner._useRedirect
+                    ? """{"versions":["1.0.0"]}"""
+                    : """{"data":[]}""";
+                return Task.FromResult(
+                    Json(request, successfulBody));
+            }
+
+            private static HttpResponseMessage Json(
+                HttpRequestMessage request,
+                string body) =>
+                new(HttpStatusCode.OK)
+                {
+                    RequestMessage = request,
+                    Content = new StringContent(
+                        body,
+                        Encoding.UTF8,
+                        "application/json"),
+                };
         }
     }
 

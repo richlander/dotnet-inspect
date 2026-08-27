@@ -19,6 +19,9 @@ public enum PackageSourceKind
 
     /// <summary>A package source backed by a local directory.</summary>
     LocalFolder,
+
+    /// <summary>A package source whose transport is not supported.</summary>
+    Unsupported,
 }
 
 /// <summary>
@@ -338,12 +341,7 @@ public static class PackageSourceClientFactory
         NuGetFetchOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(source);
-        if (!Uri.TryCreate(source.Url, UriKind.Absolute, out Uri? endpoint)
-            || endpoint.IsFile)
-        {
-            throw new PackageSourceClientUnavailableException(
-                PackageSourceKind.LocalFolder);
-        }
+        Uri endpoint = GetRuntimeEndpoint(source);
 
         return new NuGetV3PackageSourceClient(
             PackageSourceIdentity.ForProducerEndpoint(endpoint),
@@ -369,12 +367,7 @@ public static class PackageSourceClientFactory
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(client);
-        if (!Uri.TryCreate(source.Url, UriKind.Absolute, out Uri? endpoint)
-            || endpoint.IsFile)
-        {
-            throw new PackageSourceClientUnavailableException(
-                PackageSourceKind.LocalFolder);
-        }
+        Uri endpoint = GetRuntimeEndpoint(source);
 
         HttpClient transport = OperatingSystem.IsBrowser()
             ? client
@@ -553,12 +546,7 @@ public static class PackageSourceClientFactory
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(transport);
-        if (!Uri.TryCreate(source.Url, UriKind.Absolute, out Uri? endpoint)
-            || endpoint.IsFile)
-        {
-            throw new PackageSourceClientUnavailableException(
-                PackageSourceKind.LocalFolder);
-        }
+        Uri endpoint = GetRuntimeEndpoint(source);
 
         return new NuGetV3PackageSourceClient(
             PackageSourceIdentity.ForProducerEndpoint(endpoint),
@@ -602,6 +590,32 @@ public static class PackageSourceClientFactory
             CreateOwnedTransport(descriptor.Endpoint!, transport),
             options,
             credential);
+    }
+
+    private static Uri GetRuntimeEndpoint(PackageSource source)
+    {
+        if (!Uri.TryCreate(
+                source.Url,
+                UriKind.Absolute,
+                out Uri? endpoint)
+            || endpoint.IsFile)
+        {
+            throw new PackageSourceClientUnavailableException(
+                PackageSourceKind.LocalFolder);
+        }
+
+        if (!endpoint.Scheme.Equals(
+                Uri.UriSchemeHttp,
+                StringComparison.OrdinalIgnoreCase)
+            && !endpoint.Scheme.Equals(
+                Uri.UriSchemeHttps,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new PackageSourceClientUnavailableException(
+                PackageSourceKind.Unsupported);
+        }
+
+        return endpoint;
     }
 
     private static HttpClient CreateOwnedTransport(
@@ -798,6 +812,8 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
 
                 Exception? lastFailure = null;
                 PrefixSearchResult? incompletePrefix = null;
+                string sourceUrl =
+                    NuGetSourceRequest.EndpointUrl(_endpoint);
                 foreach (string endpoint in endpoints)
                 {
                     try
@@ -821,7 +837,9 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                                             endpoint,
                                             _credential),
                                     maximumSkip: null,
-                                    operation)
+                                    operation,
+                                    pluginAuthenticationSourceUrl:
+                                        sourceUrl)
                                 .ConfigureAwait(false);
                             if (prefix.Completion is
                                 PrefixSearchCompletion.SourcePageLimitReached
@@ -847,7 +865,9 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                                                 _endpoint),
                                             endpoint,
                                             _credential),
-                                    operation)
+                                    operation,
+                                    pluginAuthenticationSourceUrl:
+                                        sourceUrl)
                                 .ConfigureAwait(false);
                         return PackageSourceProjection.ProjectSearch(
                             results,
@@ -1058,6 +1078,9 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                 or OperationCanceledException
                 or IOException
                 or TimeoutException)
+        && exception is not NuGetRequestTimeoutException
+        && exception is not NuGetMetadataBodyTimeoutException
+        && exception is not NuGetOperationTimeoutException
         && exception is not HttpRequestException
         {
             StatusCode:

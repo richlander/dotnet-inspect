@@ -879,6 +879,37 @@ public sealed class PackageCoordinateResolverTests
     }
 
     [Fact]
+    public async Task WildcardLatest_RequiresEveryAuthorizedSourceToAnswer()
+    {
+        const string VersionCacheCategory = "versions-v5";
+        CoreCache.Initialize("dotnet-inspect-test");
+        CoreCache.Clear(VersionCacheCategory);
+        using var client = new HttpClient(
+            new IncompleteVersionSourcesHandler(
+                malformedVersionIndex: false));
+
+        try
+        {
+            Assert.Null(
+                await DotnetInspector.Packages.PackageExtractor
+                    .ResolveVersionPatternWithSourcesAsync(
+                    client,
+                    IncompleteVersionSourcesHandler.PackageId,
+                    "1.*",
+                    [
+                        IncompleteVersionSourcesHandler.IncompleteSource,
+                        IncompleteVersionSourcesHandler.AvailableSource,
+                    ],
+                    log: null,
+                    includePrerelease: false));
+        }
+        finally
+        {
+            CoreCache.Clear(VersionCacheCategory);
+        }
+    }
+
+    [Fact]
     public async Task FloatingCoordinate_MixedMalformedCriticalResourceIsIncomplete()
     {
         using var client = new HttpClient(

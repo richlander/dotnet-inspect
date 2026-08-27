@@ -1792,6 +1792,43 @@ public sealed class PackageSourceClientTests
             failure.Message);
     }
 
+    [Theory]
+    [InlineData(false, PackageSourceTimeoutKind.Request)]
+    [InlineData(true, PackageSourceTimeoutKind.MetadataBody)]
+    public async Task V3SearchDeadlineDoesNotFailOverEquivalentEndpoint(
+        bool stallBody,
+        PackageSourceTimeoutKind expectedTimeout)
+    {
+        var handler = new EquivalentSearchDeadlineHandler(stallBody);
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                client,
+                new NuGetFetchOptions
+                {
+                    RequestTimeout = stallBody
+                        ? TimeSpan.FromSeconds(1)
+                        : TimeSpan.FromMilliseconds(20),
+                    MetadataBodyTimeout = TimeSpan.FromMilliseconds(20),
+                    OperationTimeout = TimeSpan.FromSeconds(2),
+                });
+
+        PackageSourceFailure failure = Failed(
+            await runtime.SearchAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
+        Assert.Equal(expectedTimeout, failure.Timeout?.Kind);
+        Assert.DoesNotContain(
+            handler.Requested,
+            url => url.Contains(
+                "/query-second",
+                StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task V3SearchCallerCancellationRemainsCancellation()
     {
@@ -4788,6 +4825,35 @@ public sealed class PackageSourceClientTests
         Assert.Equal(PackageSourceKind.LocalFolder, error.Kind);
     }
 
+    [Theory]
+    [InlineData("ftp://feed.example/packages")]
+    [InlineData("htttps://feed.example/v3/index.json")]
+    public void UnsupportedSchemeRemainsTypedUnavailable(
+        string sourceUrl)
+    {
+        var source = new PackageSource("unsupported", sourceUrl);
+        using var client = new HttpClient();
+        using var handler = new RecordingHandler();
+
+        PackageSourceClientUnavailableException owned =
+            Assert.Throws<PackageSourceClientUnavailableException>(
+                () => PackageSourceClientFactory.Create(source));
+        PackageSourceClientUnavailableException borrowed =
+            Assert.Throws<PackageSourceClientUnavailableException>(
+                () => PackageSourceClientFactory.Create(
+                    source,
+                    client));
+        PackageSourceClientUnavailableException adapted =
+            Assert.Throws<PackageSourceClientUnavailableException>(
+                () => PackageSourceClientFactory.Create(
+                    source,
+                    handler));
+
+        Assert.Equal(PackageSourceKind.Unsupported, owned.Kind);
+        Assert.Equal(PackageSourceKind.Unsupported, borrowed.Kind);
+        Assert.Equal(PackageSourceKind.Unsupported, adapted.Kind);
+    }
+
     private static string? DecodeBasic(string? parameter) =>
         parameter is null
             ? null
@@ -5169,6 +5235,74 @@ public sealed class PackageSourceClientTests
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             throw new InvalidOperationException("Unreachable.");
         }
+    }
+
+    private sealed class EquivalentSearchDeadlineHandler(
+        bool stallBody) : HttpMessageHandler
+    {
+        private const string FirstSearch =
+            "https://feed.example/query-first";
+        private const string SecondSearch =
+            "https://feed.example/query-second";
+
+        public List<string> Requested { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.AbsoluteUri;
+            Requested.Add(url);
+            if (url == ServiceIndex)
+            {
+                return Json(
+                    request,
+                    $$"""
+                      {
+                        "resources": [
+                          {
+                            "@id": "{{FirstSearch}}",
+                            "@type": "SearchQueryService/3.5.0"
+                          },
+                          {
+                            "@id": "{{SecondSearch}}",
+                            "@type": "SearchQueryService/3.5.0"
+                          }
+                        ]
+                      }
+                      """);
+            }
+
+            if (url.StartsWith(
+                    FirstSearch,
+                    StringComparison.Ordinal))
+            {
+                if (stallBody)
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        RequestMessage = request,
+                        Content = new StreamContent(
+                            new BlockingEofStream()),
+                    };
+                }
+
+                await Task.Delay(
+                    Timeout.InfiniteTimeSpan,
+                    cancellationToken);
+            }
+
+            return Json(request, """{"data":[]}""");
+        }
+
+        private static HttpResponseMessage Json(
+            HttpRequestMessage request,
+            string body) =>
+            new(HttpStatusCode.OK)
+            {
+                RequestMessage = request,
+                Content = new StringContent(body),
+            };
     }
 
     private sealed class BlockingEofStream : Stream

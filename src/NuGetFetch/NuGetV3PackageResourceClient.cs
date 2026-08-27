@@ -63,6 +63,11 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
                 NuGetSourceRequest.ApplyCredential(
                     request,
                     endpointCredential);
+                NuGetSourceRequest
+                    .SuppressPluginAuthenticationForCrossOrigin(
+                        request,
+                        serviceIndexUrl,
+                        url);
                 using HttpResponseMessage response = await client.SendAsync(
                     request,
                     HttpCompletionOption.ResponseHeadersRead,
@@ -135,6 +140,11 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
             NuGetSourceRequest.ApplyCredential(
                 request,
                 endpointCredential);
+            NuGetSourceRequest
+                .SuppressPluginAuthenticationForCrossOrigin(
+                    request,
+                    serviceIndexUrl,
+                    url);
             HttpResponseMessage response = await client.SendAsync(
                 request,
                 HttpCompletionOption.ResponseHeadersRead,
@@ -240,6 +250,11 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
             NuGetSourceRequest.ApplyCredential(
                 request,
                 endpointCredential);
+            NuGetSourceRequest
+                .SuppressPluginAuthenticationForCrossOrigin(
+                    request,
+                    serviceIndexUrl,
+                    url);
             using HttpResponseMessage response = await client.SendAsync(
                 request,
                 HttpCompletionOption.ResponseHeadersRead,

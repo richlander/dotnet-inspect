@@ -32,6 +32,14 @@ namespace NuGetFetch.Plugins;
 /// <see cref="MaxAuthRetries"/> attempts per source, and 401 always triggers acquisition while
 /// 403 does so only when explicitly enabled.
 /// </para>
+/// <para>
+/// Typed source clients mark cross-origin resources and redirects as
+/// ineligible for plugin authentication. The
+/// <c>PackageSourceClientProvider_SuppressesPluginCredentialForCrossOriginSearch</c>
+/// and
+/// <c>PackageSourceClientProvider_SuppressesPluginCredentialForCrossOriginRedirect</c>
+/// tests gate that boundary.
+/// </para>
 /// </remarks>
 public sealed class PluginAuthenticationHandler : DelegatingHandler
 {
@@ -71,7 +79,10 @@ public sealed class PluginAuthenticationHandler : DelegatingHandler
         HttpRequestMessage request,
         CancellationToken cancellationToken)
     {
-        if (!_provider.HasCredentialSources || request.RequestUri is null)
+        if (!_provider.HasCredentialSources
+            || request.RequestUri is null
+            || NuGetSourceRequest.IsPluginAuthenticationSuppressed(
+                request))
         {
             return await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
         }

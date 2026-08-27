@@ -54,12 +54,16 @@ internal static class PackageSourceClientProvider
 
     internal static HttpClient SelectTransport(
         PackageSource source,
-        HttpClient client) =>
-        HttpClientFactory.IsSharedClient(client)
-            ? HttpClientFactory.GetPackageSourceTransport(
-                source.Url,
-                ProducerIdentity(source.Url)?.Value ?? source.Url)
-            : client;
+        HttpClient client)
+    {
+        PackageSourceIdentity? producer = ProducerIdentity(source.Url);
+        return HttpClientFactory.IsSharedClient(client)
+            && producer is not null
+                ? HttpClientFactory.GetPackageSourceTransport(
+                    source.Url,
+                    producer.Value)
+                : client;
+    }
 
     internal static NuGetFetchOptions FetchOptionsFor(HttpClient client)
     {

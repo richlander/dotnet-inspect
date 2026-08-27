@@ -2513,7 +2513,8 @@ public static class PackageExtractor
             client,
             normalizedName,
             sources,
-            log).ConfigureAwait(false);
+            log,
+            requireCompleteSources: true).ConfigureAwait(false);
         if (perSource is null || perSource.Any(candidate => !candidate.Authoritative))
             return null;
 
