@@ -1035,7 +1035,8 @@ public static class MetadataDeclarationQuery
     static string MethodSignatureText(MetadataMethodDeclaration declaration)
     {
         var parameters = $"({string.Join(", ", declaration.Signature.Parameters.Select(ParameterDeclaration))})";
-        var returnType = declaration.Signature.ReturnType ?? "void";
+        var returnType = ContainCompatibilityType(
+            declaration.Signature.ReturnType ?? "void");
         var name = declaration.Signature.TypeParameters.Count == 0
             ? declaration.CSharpName
             : $"{declaration.CSharpName}<{string.Join(", ", declaration.Signature.TypeParameters.Select(parameter => SanitizeIdentifier(parameter.Name)))}>";
@@ -1044,7 +1045,8 @@ public static class MetadataDeclarationQuery
 
     static string PropertySignatureText(MetadataPropertyDeclaration declaration)
     {
-        var returnType = declaration.Signature.ReturnType ?? "void";
+        var returnType = ContainCompatibilityType(
+            declaration.Signature.ReturnType ?? "void");
         var accessors = declaration.Signature.Accessors.Count == 0
             ? "{ get; }"
             : "{ " + string.Join(" ", declaration.Signature.Accessors.Select(AccessorText)) + " }";
@@ -1058,7 +1060,7 @@ public static class MetadataDeclarationQuery
         var attributes = parameter.Attributes.Count == 0
             ? ""
             : $"[{string.Join(", ", parameter.Attributes)}] ";
-        string type = EscapeCompatibilityTypeKeywords(parameter.Type);
+        string type = ContainCompatibilityType(parameter.Type);
         string typeWithModifier = string.IsNullOrEmpty(parameter.Modifier)
             ? type
             : $"{parameter.Modifier} {type}";
@@ -1396,7 +1398,7 @@ public static class MetadataDeclarationQuery
                 continue;
             }
 
-            string escapedType = EscapeCompatibilityTypeKeywords(parameterType);
+            string escapedType = ContainCompatibilityType(parameterType);
             return $"({escapedType}){defaultValue.ToString(CultureInfo.InvariantCulture)}";
         }
 

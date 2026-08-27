@@ -3851,7 +3851,9 @@ public static class ApiSurfaceExtractor
             && IsLikelyEnumDefaultType(typeName)
             && TryConvertEnumConstant(value, out var defaultValue))
         {
-            return $"({typeName}){defaultValue.ToString(CultureInfo.InvariantCulture)}";
+            string containedType =
+                MetadataDeclarationQuery.ContainCompatibilityType(typeName);
+            return $"({containedType}){defaultValue.ToString(CultureInfo.InvariantCulture)}";
         }
 
         return value switch
@@ -4016,6 +4018,8 @@ public static class ApiSurfaceExtractor
                 if (!string.Equals(typeName, enumTypeName, StringComparison.Ordinal))
                     continue;
 
+                string containedType =
+                    MetadataDeclarationQuery.ContainCompatibilityType(typeName);
                 foreach (var fieldHandle in typeDef.GetFields())
                 {
                     var field = reader.GetFieldDefinition(fieldHandle);
@@ -4028,11 +4032,13 @@ public static class ApiSurfaceExtractor
                     if (TryReadEnumConstant(reader, constant, out var memberValue)
                         && memberValue == defaultValue)
                     {
-                        return $"{typeName}.{DecodeString(reader, field.Name, beforeDecodeWork)}";
+                        string containedMember = ContainIdentifierDisplay(
+                            DecodeString(reader, field.Name, beforeDecodeWork));
+                        return $"{containedType}.{containedMember}";
                     }
                 }
 
-                return $"({typeName}){defaultValue.ToString(CultureInfo.InvariantCulture)}";
+                return $"({containedType}){defaultValue.ToString(CultureInfo.InvariantCulture)}";
             }
             catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
             {

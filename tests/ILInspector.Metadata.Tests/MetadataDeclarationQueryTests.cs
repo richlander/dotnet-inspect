@@ -197,6 +197,58 @@ public sealed class MetadataDeclarationQueryTests
         Assert.Contains("@scoped scopedValue", syntaxKeywords.Signature, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("\u202e", "\\u202E")]
+    [InlineData("\\u202e", "\\\\u202e")]
+    public void TypeSurface_ContainsRawTypeSlotsInCompatibilitySignatures(
+        string rawSuffix,
+        string containedSuffix)
+    {
+        string path = EmitHostileTypeSurface(rawSuffix);
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            var reader = peReader.GetMetadataReader();
+            var hostHandle = reader.TypeDefinitions.Single(handle =>
+                TypeResolver.GetFullName(
+                    reader,
+                    reader.GetTypeDefinition(handle)) == "N.Host");
+
+            var surface = MetadataDeclarationQuery.GetTypeSurface(
+                reader,
+                hostHandle,
+                includeNonPublicMembers: true);
+            var method = Assert.Single(
+                surface.Members,
+                member => member.Name == "HostileType");
+            var property = Assert.Single(
+                surface.Members,
+                member => member.Name == "Item");
+            string methodSignature = Assert.IsType<string>(method.Signature);
+            string propertySignature = Assert.IsType<string>(property.Signature);
+
+            string rawType = $"N.E{rawSuffix}";
+            string containedType = $"N.E{containedSuffix}";
+            Assert.Equal(rawType, method.SignatureModel!.ReturnType);
+            Assert.Equal(rawType, Assert.Single(method.SignatureModel.Parameters).Type);
+            Assert.Equal(rawType, property.SignatureModel!.ReturnType);
+            Assert.Equal(rawType, Assert.Single(property.SignatureModel.Parameters).Type);
+            Assert.Equal(
+                $"{containedType} HostileType({containedType} p)",
+                methodSignature);
+            Assert.Equal(
+                $"{containedType} this[{containedType} key] {{ get; }}",
+                propertySignature);
+            Assert.DoesNotContain('\u202e', methodSignature);
+            Assert.DoesNotContain('\u202e', propertySignature);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public void MethodDeclaration_PreservesNestedGenericTypeArgumentPlacement()
     {
@@ -322,6 +374,57 @@ public sealed class MetadataDeclarationQueryTests
         type.CreateType();
 
         string path = Path.Combine(Path.GetTempPath(), $"MissingParamRow-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
+    static string EmitHostileTypeSurface(string suffix)
+    {
+        var assemblyName = new AssemblyName("HostileTypeSurface");
+        var assembly = new PersistedAssemblyBuilder(
+            assemblyName,
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        Type hostileType = module
+            .DefineType(
+                $"N.E{suffix}",
+                TypeAttributes.Public | TypeAttributes.Class)
+            .CreateType();
+        var host = module.DefineType(
+            "N.Host",
+            TypeAttributes.Public | TypeAttributes.Class);
+        var method = host.DefineMethod(
+            "HostileType",
+            MethodAttributes.Public | MethodAttributes.Static,
+            hostileType,
+            [hostileType]);
+        method.DefineParameter(1, ParameterAttributes.None, "p");
+        var methodIl = method.GetILGenerator();
+        methodIl.Emit(OpCodes.Ldnull);
+        methodIl.Emit(OpCodes.Ret);
+
+        var property = host.DefineProperty(
+            "Item",
+            PropertyAttributes.None,
+            hostileType,
+            [hostileType]);
+        var getter = host.DefineMethod(
+            "get_Item",
+            MethodAttributes.Public
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            hostileType,
+            [hostileType]);
+        getter.DefineParameter(1, ParameterAttributes.None, "key");
+        var getterIl = getter.GetILGenerator();
+        getterIl.Emit(OpCodes.Ldnull);
+        getterIl.Emit(OpCodes.Ret);
+        property.SetGetMethod(getter);
+        host.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"HostileTypeSurface-{Guid.NewGuid():N}.dll");
         assembly.Save(path);
         return path;
     }

@@ -1,3 +1,6 @@
+using System.Reflection;
+using System.Reflection.Emit;
+using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
 
@@ -111,6 +114,149 @@ public sealed class DefaultValueRenderingTests
         var sig = Signature(nameof(DefaultValueFixtures.ExternalEnumDefault));
         Assert.Contains("day = (System.DayOfWeek)1", sig);
         Assert.DoesNotContain("day = 1", sig);
+    }
+
+    [Theory]
+    [InlineData("\u202e", "\\u202E")]
+    [InlineData("\\u202e", "\\\\u202e")]
+    public void HostileEnumDefaults_ContainRawTypeAndMemberSlots(
+        string rawSuffix,
+        string containedSuffix)
+    {
+        string path = EmitHostileEnumDefaults(rawSuffix);
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            MetadataReader reader = peReader.GetMetadataReader();
+            ApiSurface extracted = ApiSurfaceExtractor.Extract(
+                peReader,
+                includeAll: true);
+            ApiType extractedHost = Assert.Single(
+                extracted.Types,
+                type => type.Namespace == "N" && type.Name == "Host");
+            TypeDefinitionHandle hostHandle = reader.TypeDefinitions.Single(handle =>
+                TypeResolver.GetFullName(
+                    reader,
+                    reader.GetTypeDefinition(handle)) == "N.Host");
+            ApiType queriedHost = MetadataDeclarationQuery.GetTypeSurface(
+                reader,
+                hostHandle,
+                includeNonPublicMembers: true);
+
+            string rawType = $"N.Flag{rawSuffix}";
+            string containedType = $"N.Flag{containedSuffix}";
+            string namedDefault = $"{containedType}.One{containedSuffix}";
+            string castDefault = $"({containedType})2";
+            string externalCastDefault =
+                $"(N.ExternalFlag{containedSuffix})2";
+            ApiMember extractedNamed = Assert.Single(
+                extractedHost.Members,
+                member => member.Name == "NamedDefault");
+            ApiMember extractedCast = Assert.Single(
+                extractedHost.Members,
+                member => member.Name == "CastDefault");
+            ApiMember extractedExternalCast = Assert.Single(
+                extractedHost.Members,
+                member => member.Name == "ExternalCastDefault");
+            ApiMember queriedCast = Assert.Single(
+                queriedHost.Members,
+                member => member.Name == "CastDefault");
+            string extractedNamedSignature =
+                Assert.IsType<string>(extractedNamed.Signature);
+            string extractedCastSignature =
+                Assert.IsType<string>(extractedCast.Signature);
+            string extractedExternalCastSignature =
+                Assert.IsType<string>(extractedExternalCast.Signature);
+            string queriedCastSignature =
+                Assert.IsType<string>(queriedCast.Signature);
+
+            Assert.Equal(
+                rawType,
+                Assert.Single(extractedNamed.SignatureModel!.Parameters).Type);
+            Assert.Equal(
+                namedDefault,
+                Assert.Single(extractedNamed.SignatureModel.Parameters).DefaultValueText);
+            Assert.Contains($"= {namedDefault}", extractedNamedSignature);
+            Assert.Contains($"= {castDefault}", extractedCastSignature);
+            Assert.Contains(
+                $"= {externalCastDefault}",
+                extractedExternalCastSignature);
+            Assert.Contains($"= {castDefault}", queriedCastSignature);
+            Assert.DoesNotContain('\u202e', extractedNamedSignature);
+            Assert.DoesNotContain('\u202e', extractedCastSignature);
+            Assert.DoesNotContain('\u202e', extractedExternalCastSignature);
+            Assert.DoesNotContain('\u202e', queriedCastSignature);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    static string EmitHostileEnumDefaults(string suffix)
+    {
+        var assemblyName = new AssemblyName("HostileEnumDefaults");
+        var assembly = new PersistedAssemblyBuilder(
+            assemblyName,
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        var externalAssemblyName = new AssemblyName("ExternalHostileEnumDefaults");
+        var externalAssembly = new PersistedAssemblyBuilder(
+            externalAssemblyName,
+            typeof(object).Assembly);
+        var externalModule = externalAssembly.DefineDynamicModule(
+            externalAssemblyName.Name!);
+        var externalEnumBuilder = externalModule.DefineEnum(
+            $"N.ExternalFlag{suffix}",
+            TypeAttributes.Public,
+            typeof(int));
+        externalEnumBuilder.DefineLiteral("One", 1);
+        Type externalEnumType = externalEnumBuilder.CreateType();
+        var enumBuilder = module.DefineEnum(
+            $"N.Flag{suffix}",
+            TypeAttributes.Public,
+            typeof(int));
+        enumBuilder.DefineLiteral($"One{suffix}", 1);
+        Type enumType = enumBuilder.CreateType();
+
+        var host = module.DefineType(
+            "N.Host",
+            TypeAttributes.Public | TypeAttributes.Class);
+        DefineOptionalEnumMethod(host, "NamedDefault", enumType, 1);
+        DefineOptionalEnumMethod(host, "CastDefault", enumType, 2);
+        DefineOptionalEnumMethod(
+            host,
+            "ExternalCastDefault",
+            externalEnumType,
+            2);
+        host.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"HostileEnumDefaults-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
+    static void DefineOptionalEnumMethod(
+        TypeBuilder host,
+        string name,
+        Type enumType,
+        int defaultValue)
+    {
+        var method = host.DefineMethod(
+            name,
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(void),
+            [enumType]);
+        method
+            .DefineParameter(
+                1,
+                ParameterAttributes.Optional | ParameterAttributes.HasDefault,
+                "value")
+            .SetConstant(defaultValue);
+        method.GetILGenerator().Emit(OpCodes.Ret);
     }
 }
 
