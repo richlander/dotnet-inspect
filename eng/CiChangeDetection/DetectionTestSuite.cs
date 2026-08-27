@@ -342,6 +342,19 @@ internal static class DetectionTestSuite
                 + FormatValues(globalAnalyzerInput));
         }
 
+        Dictionary<string, string> sourceOraclePreparation = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/prepare-authored-source-oracles.sh",
+            outputs);
+        if (sourceOraclePreparation["code"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Source-oracle preparation canary did not select code: " +
+                FormatValues(sourceOraclePreparation));
+        }
+
         Dictionary<string, string> web = RunDetection(
             repository,
             body,

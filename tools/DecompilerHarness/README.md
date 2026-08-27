@@ -433,8 +433,8 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
 ```
 
 The periodic authored-corpus Deep Inspect lane runs this perfection gate before
-the separate EVIL regression ratchet. `DeepInspect_RunsTheWholeFileSourceOracleGate`
-is the non-vacuity gate for that workflow wiring.
+the separate EVIL regression ratchet. `DeepInspectOracleWorkflowContract` is the
+non-vacuity gate for that workflow wiring.
 
 Raw syntax indexes used by fixture and on-demand source probes do not carry that
 typed correlation, so fault attribution is not attempted for them. Their

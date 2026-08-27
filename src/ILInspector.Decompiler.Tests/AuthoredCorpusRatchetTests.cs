@@ -1427,34 +1427,12 @@ public class AuthoredCorpusRatchetTests
     }
 
     [Fact]
-    public void DeepInspect_RunsTheWholeFileSourceOracleGate()
+    public void SourceOracleAssemblyPreparation_IsPinned()
     {
         string root = FindRepositoryRoot();
-        string workflow = File.ReadAllText(
-            Path.Combine(root, ".github", "workflows", "deep-inspect.yml"));
         string poolScript = File.ReadAllText(
             Path.Combine(root, "eng", "prepare-authored-source-oracles.sh"));
 
-        Assert.Contains(
-            "prepare-authored-source-oracles.sh \"$RUNNER_TEMP/source-oracle-assemblies.txt\"",
-            workflow,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "mapfile -t oracle_assemblies < \"$RUNNER_TEMP/source-oracle-assemblies.txt\"",
-            workflow,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "--benchmark-authored-corpus external/authored-source-corpus/oracle/corpus.jsonl",
-            workflow,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "--source-oracle-manifest external/authored-source-corpus/oracle/manifest.json",
-            workflow,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "--json \"${oracle_assemblies[@]}\"",
-            workflow,
-            StringComparison.Ordinal);
         Assert.Contains(
             "<PackageReference Include=\"System.Text.Encodings.Web\" Version=\"$VERSION\" />",
             poolScript,
