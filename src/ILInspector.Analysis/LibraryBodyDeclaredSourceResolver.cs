@@ -356,7 +356,8 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
         MethodIdentity source)
     {
         AuthenticatedSourceOwner sourceOwner =
-            CreateAuthenticatedSourceOwner(source);
+            _asyncSourceResolver
+                .CreateAuthenticatedSourceOwner(source);
         if (IsMalformedGeneratedLiftedOwner(sourceOwner))
             return false;
 
