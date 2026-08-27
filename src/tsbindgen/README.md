@@ -7,6 +7,14 @@ hand-written `.d.ts`/`.ts` file to detect drift (for CI gating).
 It is a standalone tool, packaged like `mdi`, and does not add a
 `dotnet-inspect` subcommand.
 
+> **Target architecture:** This implementation is transitioning to
+> `ts-bindgen`, which generates one native TypeScript facade and leaves
+> JavaScript and `.d.ts` emission to the consumer's pinned TypeScript compiler.
+> [`ts-bindgen` TypeScript facade generation](../../docs/design/ts-bindgen.md)
+> owns that decision, its boundaries, and the current implementation
+> mismatches. The usage below describes the current command until that migration
+> lands.
+
 ## Usage
 
 ```bash

@@ -243,6 +243,7 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
 | Inspection-graph modes | `docs/design/inspection-graph-modes.md` |
 | Call-graph projection | `docs/design/call-graph-projection.md` |
 | Shared IL/control-flow substrate | `docs/design/instruction-substrate.md`, plus the consuming subsystem's docs |
+| TypeScript facade generation for `[JSExport]` | `docs/design/ts-bindgen.md` |
 | IL round-trip tests | `tests/DotnetInspector.ILRoundtrip.Tests/README.md` |
 | Decompiler raising, structuring, typing, or printer behavior | `docs/decompiler-correctness-pipeline.md`, then `docs/decompiler-raise-discipline.md` |
 | Classic async state-machine reconstruction | `docs/design/classic-async-reconstruction.md` |

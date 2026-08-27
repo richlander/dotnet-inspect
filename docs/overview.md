@@ -83,6 +83,11 @@ substrates, and inspection producers that will extend that space.
   resolves facts through targets to multi-span nodes, filters the stable node-kind
   vocabulary, and keeps unanchored facts visible without inventing coordinates.
 - `tools/DecompilerHarness/` owns ReturnToSender closure discovery and type-cluster planning. RTS specifies the required Metadata/CSharp request shape; `ILInspector.CSharp` owns rendering it.
+- [`docs/design/ts-bindgen.md`](design/ts-bindgen.md) owns the `ts-bindgen`
+  TypeScript facade projected from an authenticated `[JSExport]` surface. It
+  consumes `ILInspector.JsExportSurface` facts without weakening their evidence,
+  emits one opinionated TypeScript module, and leaves JavaScript and `.d.ts`
+  emission to the consumer's pinned TypeScript compiler.
 
 ## Engineering guidance
 
@@ -98,6 +103,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   workspace lifetimes, packages, and assembly inspection.
 - [Architecture](architecture.md): command and metadata architecture.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
+- [`ts-bindgen` TypeScript facade generation](design/ts-bindgen.md): ownership,
+  type views, compiler handoff, related generator categories, and migration from
+  direct JavaScript plus declaration emission.
 - [Member inspection planning and metadata projection](design/member-inspection-planning-and-metadata-projection.md):
   proposed separation of type/member intent, section resolution, producer
   authorization, shared declaration validation, and C# representability.
