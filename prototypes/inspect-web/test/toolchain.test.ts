@@ -28,7 +28,7 @@ import {
   verifyAnalysisHost,
 } from "../scripts/verify-analysis-host.ts";
 import { verifySiteArtifact } from "../scripts/verify-site-artifact.ts";
-import { bundlerReadFiles, resolvedBuildSettings } from "./vite-audit.ts";
+import { auditedBuild, builtinPluginNames, bundlerReadFiles, shippedChunks } from "./vite-audit.ts";
 
 interface PackageLockEntry {
   readonly link?: boolean;
@@ -627,17 +627,30 @@ test("the lint covers every file the bundler reads", async () => {
   // before. Note that only this project's lock is pinned by the gate above; a lock
   // outside it is trusted as npm's account of its own tree, which holds here because no
   // such tree is committable in this repository.
+  // Round 11 (Gemini 3.1 Pro) forged one. The search started at the file and walked up,
+  // so a `package-lock.json` planted inside `node_modules` was found *before* this
+  // project's own, and a payload at
+  // `node_modules/my-evil-package/node_modules/inner-evil/evil.ts` was excused by a lock
+  // the attacker wrote. Walking up from the file was never what hoisting needed: npm
+  // hoists *upward*, so the lock that governs an installed tree is always at or above the
+  // project, never inside it. The search runs over this project's directory and its
+  // ancestors only, and takes the first that both declares a lock and contains the file.
+  // A lockfile below the project is not consulted at all, so planting one changes nothing.
   const lockCache = new Map<string, PackageLock | undefined>();
-  const governingLock = (directory: string): { root: string; lock: PackageLock } | undefined => {
-    for (let current = directory; ; current = dirname(current)) {
-      if (!lockCache.has(current)) {
-        const candidate = join(current, "package-lock.json");
-        lockCache.set(current, existsSync(candidate)
-          ? readJson<PackageLock>(pathToFileURL(candidate).href)
-          : undefined);
-      }
-      const lock = lockCache.get(current);
-      if (lock !== undefined) {
+  const lockAt = (directory: string): PackageLock | undefined => {
+    if (!lockCache.has(directory)) {
+      const candidate = join(directory, "package-lock.json");
+      lockCache.set(directory, existsSync(candidate)
+        ? readJson<PackageLock>(pathToFileURL(candidate).href)
+        : undefined);
+    }
+    return lockCache.get(directory);
+  };
+
+  const governingLock = (file: string): { root: string; lock: PackageLock } | undefined => {
+    for (let current = root; ; current = dirname(current)) {
+      const lock = lockAt(current);
+      if (lock !== undefined && !projectRelative(current, file).startsWith("../")) {
         return { root: current, lock };
       }
       const parent = dirname(current);
@@ -651,15 +664,11 @@ test("the lint covers every file the bundler reads", async () => {
     if (!projectRelative(root, file).split("/").includes("node_modules")) {
       return false;
     }
-    const governing = governingLock(dirname(file));
+    const governing = governingLock(file);
     if (governing === undefined) {
       return false;
     }
-    const path = projectRelative(governing.root, file);
-    if (path.startsWith("../")) {
-      return false;
-    }
-    for (let directory = dirname(path);
+    for (let directory = dirname(projectRelative(governing.root, file));
       directory !== "." && directory !== "";
       directory = dirname(directory)) {
       if (Object.hasOwn(governing.lock.packages, directory)) {
@@ -739,48 +748,84 @@ test("the lint covers every file the bundler reads", async () => {
 
 // `publicDir` is the bundler's verbatim-copy path: anything in it lands in `dist/`
 // unread by Vite, unparsed by the compiler and unlinted, whatever its extension. Round 7
-// (Sol) shipped a payload that way. The gate above cannot see this one, and that is the
-// point of keeping both: it audits what the build *reads*, and a verbatim copy is never
-// read. This project has no such directory and does not need one -- `manifest.json` is
-// Vite's own build manifest and `assets/` is imported through the bundler -- so the path
-// is switched off rather than policed.
+// (Sol) shipped a payload that way. The gate that audits what the build *reads* cannot
+// see this one, because a verbatim copy is never read. This project has no such directory
+// and does not need one -- `manifest.json` is Vite's own build manifest and `assets/` is
+// imported through the bundler -- so the path is switched off rather than policed.
 //
-// Round 9 (Sol) found the second path of the same kind. A Vite plugin can read a file
-// with `readFileSync` and splice it into a module in `transform`. Nothing registers that
-// file with Rollup, so it never appears in `getWatchFiles` and the audit above is blind
-// to it; the payload shipped with all four commands green. A plugin is code in a file
-// that is linted and type checked, but the *text* it injects is not, and it need not be
-// hostile to do this -- a plugin that stamps a banner from a file has the same shape.
+// Round 9 (Sol) found the second path of the same kind: a plugin can `readFileSync` a file
+// and splice it into a module in `transform`, registering nothing with Rollup, so
+// `getWatchFiles` never sees it. Round 9 pinned both by matching the text of
+// `vite.config.ts`. Round 10 broke that from both seats -- a plugin spread in from an
+// imported helper, and a plugin assigned as `conf.plugins` -- and the pins moved to
+// Vite's own resolution.
 //
-// Round 9 pinned both by matching the text of `vite.config.ts`, and said in this comment
-// that reading source rather than resolved config was the right depth. Round 10 (Sol)
-// showed it was not. A plugin declared in an imported helper and spread in as
-// `...unwatchedInputConfig()` never writes `plugins:` in that file: the pattern matched
-// nothing, all four commands stayed green, and the injected payload shipped. That is
-// ordinary config composition, not evasion, which is the whole objection -- the pin was
-// reading the spelling of a setting instead of the setting, and one refactor was enough
-// to separate the two.
+// Round 11 broke that too, three ways, and they share one mistake. Resolving the config
+// *here* asks what the config looks like in this process at this moment, which is not the
+// same question as what the build used. Sol guarded a plugin on
+// `npm_lifecycle_event === "build"` and Gemini guarded one on `process.argv` containing
+// `vite`; both are absent under `node --test` and present under `npm run build`. Worse,
+// my own check for those found that a separate `resolveConfig` call here defaults to
+// *development* mode while the build runs in production, so a plugin guarded on
+// `mode === "production"` was invisible to the pin and active in every real build.
 //
-// So both are derived now, the same way everything else here is. Vite resolves the config
-// it will actually build with, and resolving a second time with `configFile: false` says
-// what Vite installs on its own. The difference is what this project added, and this file
-// never has to know what Vite's own set contains. Comparing sorted names rather than a
-// count catches a plugin that borrows an existing name, and comparing after resolution
-// catches every spelling: spread, imported, conditional or computed.
+// So nothing is resolved separately any more. The audited build reports its own resolved
+// config through `configResolved`, which is by construction the config that build used --
+// its mode, its `publicDir` and its plugin list. The baseline it is compared against is
+// resolved with `configFile: false` at that same observed mode, so this suite still never
+// has to know what Vite installs on its own. Paired with the gate below, which proves the
+// audited build is the shipped build, that closes the gap the three round 11 findings all
+// went through: a conditional plugin either changes the audited build's plugin list, or
+// makes the audited and shipped builds disagree.
 test("the bundler has no unread path into the shipped output", async () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
-  const settings = await resolvedBuildSettings(root);
-  assert.equal(settings.publicDir, "",
+  const audited = await auditedBuild(root);
+  assert.equal(audited.publicDir, "",
     "the resolved config enables `publicDir`; while it is enabled, any file placed "
       + "there is copied into `dist/` without the compiler or the lint ever reading it");
   assert.ok(!existsSync(join(root, "public")),
     "a `public/` directory exists; with `publicDir` disabled it ships nothing, so "
       + "remove it rather than leaving a directory that reads as shipped content");
-  assert.deepStrictEqual(settings.pluginNames, settings.builtinPluginNames,
-    "the resolved config adds plugins Vite did not install itself; a plugin can read a "
-      + "file and splice it into a module without Rollup ever watching it, which is "
-      + "invisible to the gate above. Adding one means answering for what it injects, so "
-      + "this gate has to be reckoned with rather than edited away");
+  assert.deepStrictEqual(audited.pluginNames, await builtinPluginNames(root, audited.mode),
+    "the build resolved plugins Vite did not install itself; a plugin can read a file "
+      + "and splice it into a module without Rollup ever watching it, which is invisible "
+      + "to the gate that audits what the build reads. Adding one means answering for "
+      + "what it injects, so this gate has to be reckoned with rather than edited away");
+  assert.equal(audited.workerPluginCount, 0,
+    "the build declares worker plugins. This project bundles no workers, and a worker "
+      + "plugin injects into a bundle these gates do not audit, so the two have to stay "
+      + "that way together");
+});
+
+// Round 10 derived the two settings above from Vite's resolution instead of the text of
+// the config, which closed every spelling of *declaring* a plugin. Round 11 (Sol) showed
+// that resolution is still a question asked at a particular moment, in a particular
+// process. A plugin guarded by `process.env.npm_lifecycle_event === "build"` is simply
+// not there when `npm test` resolves the config, and is there when `npm run build` runs:
+// the gate above saw Vite's own plugin list unchanged, all four commands stayed green,
+// and the payload shipped in `dist/assets/dotnet-inspect-B2MTdysw.js`.
+//
+// That is not only an evasion. Config conditional on mode or environment is ordinary Vite
+// practice, so the plugin gate was equally blind to an honest conditional plugin. Every
+// gate in this file audits a build that the *test* runs, and each one inherits this: they
+// describe the build the test could see, not the build that ships.
+//
+// So this asserts the two are the same build. `npm run build` runs in its own process
+// with whatever environment npm gives it, and its chunks must match the audited build's
+// exactly. It models nothing about what a config may do -- a config that behaves
+// differently when it is being watched makes the two disagree, whatever it switched on.
+// The gates above keep their value because this one says they were looking at the
+// artifact that ships.
+test("the audited build is the build that ships", async () => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const audited = await auditedBuild(root);
+  assert.ok(audited.chunks.length > 0, "the audited build emitted no chunks to compare");
+  assert.deepStrictEqual(shippedChunks(root), audited.chunks,
+    "`npm run build` emits different code than the build these gates audit, so the "
+      + "audit describes something other than what ships. A config that resolves "
+      + "differently under the build than under the test -- conditional on mode, on the "
+      + "npm lifecycle, or on any other environment -- does this, and so does anything "
+      + "that injects into one build and not the other");
 });
 
 // Being under a lint target turns out not to mean the lint reads the file. oxlint applies

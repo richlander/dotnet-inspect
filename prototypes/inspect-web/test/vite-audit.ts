@@ -15,16 +15,53 @@
 // audit reads what the real build reads. Only the output is suppressed: `write: false`
 // keeps this off disk, because the audit needs the module graph rather than an artifact,
 // and the shipped build keeps its own shape and gains no source maps.
+import { execFileSync } from "node:child_process";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { build } from "vite";
 
-export async function bundlerReadFiles(root: string): Promise<string[]> {
+export interface AuditedBuild {
+  readonly readFiles: string[];
+  readonly chunks: string[];
+  readonly mode: string;
+  readonly publicDir: string;
+  readonly pluginNames: string[];
+  readonly workerPluginCount: number;
+}
+
+// The audit installs one plugin of its own, so exactly one instance of that name is
+// removed rather than every match. A plugin that borrows the name to hide behind it
+// leaves the second instance in the list, and the gate still fails.
+const auditPluginName = "toolchain-gate-audit";
+
+function withoutAuditPlugin(names: string[]): string[] {
+  const remaining = [...names];
+  const mine = remaining.indexOf(auditPluginName);
+  if (mine !== -1) {
+    remaining.splice(mine, 1);
+  }
+  return remaining.sort();
+}
+
+export async function auditedBuild(root: string): Promise<AuditedBuild> {
   const read = new Set<string>();
-  await build({
+  let observed: { mode: string; publicDir: string; pluginNames: string[]; workerPluginCount: number }
+    | undefined;
+  const result = await build({
     root,
     logLevel: "error",
     build: { write: false, sourcemap: false },
     plugins: [{
-      name: "toolchain-gate-audit",
+      name: auditPluginName,
+      configResolved(config) {
+        const worker: unknown = config.worker.plugins;
+        observed = {
+          mode: config.mode,
+          publicDir: config.publicDir,
+          pluginNames: withoutAuditPlugin(config.plugins.map(plugin => plugin.name)),
+          workerPluginCount: Array.isArray(worker) ? worker.length : 0,
+        };
+      },
       buildEnd() {
         for (const file of this.getWatchFiles()) {
           read.add(file);
@@ -32,7 +69,41 @@ export async function bundlerReadFiles(root: string): Promise<string[]> {
       },
     }],
   });
-  return [...read];
+  const results = Array.isArray(result) ? result : [result];
+  const chunks = results
+    .flatMap(one => "output" in one ? one.output : [])
+    .flatMap(one => one.type === "chunk" ? [one.code] : [])
+    .sort();
+  if (observed === undefined) {
+    throw new Error("the audited build never resolved a config");
+  }
+  return { readFiles: [...read], chunks, ...observed };
+}
+
+export async function bundlerReadFiles(root: string): Promise<string[]> {
+  return (await auditedBuild(root)).readFiles;
+}
+
+// Round 11 (Sol) showed that resolving the config is still asking a question rather than
+// watching what happens. A plugin guarded by `process.env.npm_lifecycle_event === "build"`
+// is absent when `npm test` resolves the config and present when `npm run build` runs, so
+// the plugin gate saw an empty list while the payload shipped. Nothing about that is
+// exotic: config conditional on mode or environment is ordinary Vite practice, which
+// means the gate had a false negative for honest configs as well as evasive ones.
+//
+// The audit cannot out-model a config that is a function of its own environment, so it
+// stops trying. It runs the project's real build command in its own process -- the same
+// command that produces what ships, with whatever environment npm gives it -- and the
+// gate requires the audited build and that one to emit identical chunks. The audit then
+// either describes the shipped bundle or the build fails, and no config can be one thing
+// under test and another under `npm run build` without the two disagreeing.
+export function shippedChunks(root: string): string[] {
+  execFileSync("npm", ["run", "build"], { cwd: root, stdio: "ignore" });
+  const assets = join(root, "dist", "assets");
+  return readdirSync(assets)
+    .filter(name => name.endsWith(".js"))
+    .map(name => readFileSync(join(assets, name), "utf8"))
+    .sort();
 }
 
 // Round 9 pinned `publicDir: false` and the absence of plugins by matching the text of
@@ -48,20 +119,8 @@ export async function bundlerReadFiles(root: string): Promise<string[]> {
 // to know what Vite's own set is -- 34 plugins here, none of them named in this repo.
 // However the config is spelled, composed, imported or computed, the difference shows up
 // after resolution.
-export interface ResolvedBuildSettings {
-  readonly publicDir: string;
-  readonly pluginNames: readonly string[];
-  readonly builtinPluginNames: readonly string[];
-}
-
-export async function resolvedBuildSettings(root: string): Promise<ResolvedBuildSettings> {
+export async function builtinPluginNames(root: string, mode: string): Promise<string[]> {
   const { resolveConfig } = await import("vite");
-  const real = await resolveConfig({ root, logLevel: "error" }, "build");
-  const builtin = await resolveConfig({ root, configFile: false, logLevel: "error" }, "build");
-  const names = (config: typeof real): string[] => config.plugins.map(plugin => plugin.name).sort();
-  return {
-    publicDir: real.publicDir,
-    pluginNames: names(real),
-    builtinPluginNames: names(builtin),
-  };
+  const builtin = await resolveConfig({ root, mode, configFile: false, logLevel: "error" }, "build");
+  return builtin.plugins.map(plugin => plugin.name).sort();
 }
