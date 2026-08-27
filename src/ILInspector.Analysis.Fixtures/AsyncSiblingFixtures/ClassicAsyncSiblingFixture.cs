@@ -250,6 +250,19 @@ public static class ClassicAsyncSiblingFixture
         }
     }
 
+    internal static Func<Task<object>>
+        ScopedCapturedAsyncLocalAllocationOwner(int marker)
+    {
+        async Task<object> BuildAsync()
+        {
+            await Task.Yield();
+            GC.KeepAlive(marker);
+            return new object[1];
+        }
+
+        return BuildAsync;
+    }
+
     public static Task ScopedAsyncLambdaOwner(int marker) =>
         Task.CompletedTask;
 

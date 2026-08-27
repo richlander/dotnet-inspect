@@ -450,13 +450,22 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             || asyncSource == method)
         {
             ultimateOwner = null;
-            bool canonicalOwnerRequiredBody =
-                CompilerGeneratedNames
-                    .IsLocalFunctionOrLambda(method.Name)
-                || _asyncSourceResolver
+            bool stateMachineExecutionBody =
+                _asyncSourceResolver
                     .IsAsyncStateMachineExecutionMethod(
                         methodHandle,
                         methodDefinition);
+            if (stateMachineExecutionBody
+                && CompilerGeneratedNames
+                    .IsMalformedLiftedStateMachineLeaf(
+                        method.DeclaringType))
+            {
+                return DeclaredOwnerResolution.Rejected;
+            }
+            bool canonicalOwnerRequiredBody =
+                CompilerGeneratedNames
+                    .IsLocalFunctionOrLambda(method.Name)
+                || stateMachineExecutionBody;
             return canonicalOwnerRequiredBody
                 ? DeclaredOwnerResolution.Unresolved
                 : DeclaredOwnerResolution.None;

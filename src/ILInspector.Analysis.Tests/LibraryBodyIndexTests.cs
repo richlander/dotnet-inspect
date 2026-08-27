@@ -5090,6 +5090,77 @@ public class LibraryBodyIndexTests
 
     [Fact]
     public void
+        OptimizationOpportunities_MalformedLiftedStateMachineFailsClosedInScopedViews()
+    {
+        byte[] image =
+            BuildMalformedAsyncSourceAssembly(
+                moveNextSmallArray: true,
+                orphanStateMachine: true);
+        ReplaceAscii(
+            image,
+            "<AnalyzeAsync>d__1",
+            "<<AnalyzeAs>b__x>d",
+            expectedReplacements: 1);
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"MalformedLiftedStateMachine-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(path, image);
+            LibraryBodyIndex full = LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities);
+            MethodIdentity moveNext = Assert.Single(
+                full.Methods,
+                method => method.Name == "MoveNext"
+                    && method.ParameterTypes.IsDefaultOrEmpty);
+            Assert.True(
+                CompilerGeneratedNames.RequiresDeclaredOwner(
+                    moveNext));
+            Assert.Null(
+                full.ResolveDeclaredMethod(moveNext));
+            Assert.Contains(
+                full.OptimizationOpportunities,
+                opportunity =>
+                    opportunity.Shape == "small-array"
+                    && opportunity.Method.MetadataToken
+                        == moveNext.MetadataToken);
+
+            foreach (LibraryBodyIndex scoped in new[]
+            {
+                LibraryBodyIndex.Open(
+                    path,
+                    LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities,
+                    bodyScope: new HashSet<int>
+                    {
+                        moveNext.MetadataToken,
+                    }),
+                LibraryBodyIndex.Open(
+                    path,
+                    LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities,
+                    bodyTypeScope:
+                        type => type.Equals(
+                            moveNext.DeclaringType)),
+            })
+            {
+                Assert.DoesNotContain(
+                    scoped.OptimizationOpportunities,
+                    opportunity =>
+                        opportunity.Method.MetadataToken
+                            == moveNext.MetadataToken);
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void
         OptimizationOpportunities_CompiledAsyncLambdaStateMachineIsScopeInvariant()
     {
         string path =
@@ -5175,6 +5246,47 @@ public class LibraryBodyIndexTests
         Assert.True(
             CompilerGeneratedNames.RequiresDeclaredOwner(
                 moveNext));
+    }
+
+    [Fact]
+    public void
+        ResolveDeclaredMethod_CompiledCapturedAsyncLocalMapsToAuthoredOwner()
+    {
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        LibraryBodyIndex index = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures
+                .OptimizationOpportunities);
+        MethodIdentity owner = Assert.Single(
+            index.Methods,
+            method => method.Name
+                == "ScopedCapturedAsyncLocalAllocationOwner");
+        MethodIdentity source = Assert.Single(
+            index.Methods,
+            method => method.Name.StartsWith(
+                "<ScopedCapturedAsyncLocalAllocationOwner>g__BuildAsync|",
+                StringComparison.Ordinal));
+        MethodIdentity moveNext = Assert.Single(
+            index.Methods,
+            method => method.Name == "MoveNext"
+                && method.DeclaringType.Name.Contains(
+                    source.Name,
+                    StringComparison.Ordinal));
+
+        Assert.DoesNotContain(
+            '_',
+            source.Name[
+                source.Name.LastIndexOf('|')..]);
+        Assert.True(
+            CompilerGeneratedNames
+                .IsLocalFunctionOrLambda(source.Name));
+        Assert.Equal(
+            owner,
+            index.ResolveDeclaredMethod(source));
+        Assert.Equal(
+            owner,
+            index.ResolveDeclaredMethod(moveNext));
     }
 
     [Fact]

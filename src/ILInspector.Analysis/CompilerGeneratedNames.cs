@@ -80,18 +80,19 @@ public static class CompilerGeneratedNames
             methodName.AsSpan(marker + 4);
         if (localFunction)
         {
-            int separator = suffix.LastIndexOf('|');
-            if (separator <= 0)
+            int separator = suffix.IndexOf('|');
+            if (separator <= 0
+                || suffix[(separator + 1)..]
+                    .Contains('|'))
+            {
                 return false;
+            }
             suffix = suffix[(separator + 1)..];
         }
 
         int underscore = suffix.IndexOf('_');
         if (underscore < 0)
-        {
-            return !localFunction
-                && IsCanonicalOrdinal(suffix);
-        }
+            return IsCanonicalOrdinal(suffix);
         if (underscore == 0
             || underscore == suffix.Length - 1
             || suffix[(underscore + 1)..]
@@ -202,6 +203,25 @@ public static class CompilerGeneratedNames
             || method.Name == "MoveNext"
                 && IsStateMachineLeaf(
                     LeafName(method.DeclaringType));
+
+    internal static bool IsMalformedLiftedStateMachineLeaf(
+        TypeRef declaringType)
+    {
+        string simpleName =
+            MetadataNameArity.StripFromSegment(
+                LeafName(declaringType));
+        if (!simpleName.StartsWith('<')
+            || !simpleName.EndsWith(
+                ">d",
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        string sourceName = simpleName[..^2];
+        return HasLiftedMethodMarker(sourceName)
+            && !IsLocalFunctionOrLambda(sourceName);
+    }
 
     static bool IsStateMachineLeaf(string leafName)
     {

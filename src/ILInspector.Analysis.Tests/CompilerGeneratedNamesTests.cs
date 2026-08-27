@@ -10,6 +10,7 @@ public sealed class CompilerGeneratedNamesTests
     [InlineData("<Owner>b__0", true)]
     [InlineData("<Owner>b__0_0`1", true)]
     [InlineData("<Owner>g__Local|0_0", true)]
+    [InlineData("<Owner>g__Local|0", true)]
     [InlineData("<Owner>g__Local|0_0`1", true)]
     [InlineData("<<Owner>b__0_0>b__0_1", true)]
     [InlineData("Noise>b__0_0", false)]
@@ -21,6 +22,7 @@ public sealed class CompilerGeneratedNamesTests
     [InlineData("<Owner>b__2147483648_0", false)]
     [InlineData("<Owner>g__Local|x_0", false)]
     [InlineData("<Owner>g__Local|0_0_0", false)]
+    [InlineData("<Owner>g__Local|extra|0_0", false)]
     [InlineData("<Owner>g__|0_0", false)]
     [InlineData("<>b__0_0", false)]
     public void IsLocalFunctionOrLambda_RequiresCanonicalShape(
