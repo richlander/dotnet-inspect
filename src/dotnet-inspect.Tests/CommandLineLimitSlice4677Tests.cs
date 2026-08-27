@@ -38,6 +38,19 @@ public class CommandLineLimitSlice4677Tests
         Assert.Equal(
             ["find", "--package-prefix", "Azure", "--type", "-5"],
             numericSelector);
+
+        // `--platform` is a value-less bool flag for search-scope commands (find, implements,
+        // extensions, depends), unlike its required-value form for type/member/match/assembly.
+        // A bare -N following it must still expand to -n N rather than being swallowed as a
+        // (nonexistent) --platform value.
+        Assert.Equal(
+            ["find", "JsonSerializer", "--platform", "-n", "5"],
+            CommandLineBuilder.PreprocessArgs(["find", "JsonSerializer", "--platform", "-5"]));
+
+        // For commands where --platform does take a required value, the following bare -N must
+        // still be treated as that value, not expanded.
+        string[] platformRequiredValue = ["member", "JsonSerializer", "--platform", "-5"];
+        Assert.Same(platformRequiredValue, CommandLineBuilder.PreprocessArgs(platformRequiredValue));
     }
 
     [Fact]

@@ -147,11 +147,21 @@ public static class ArgumentPreprocessor
         if (endOfOptions < 0)
             endOfOptions = args.Length;
 
+        // `--platform` is a required-value option (a library name) for type/member/match/
+        // assembly commands, but a value-less bool flag for search-scope commands (find,
+        // implements, extensions, depends) -- see CommandLineHelpers.CreatePlatformOption.
+        // RewriteValuedPlatformForSearchCommands (above) already rewrites any search-scope
+        // `--platform <library>` into `--platform-library <library>`, so by this point any
+        // remaining literal `--platform` in a search-scope command is guaranteed to be the
+        // bool-flag form and must not be treated as consuming the following token.
+        int searchScopeCommandIndex = FindSearchScopeCommandIndex(args);
+        bool platformIsValueless = searchScopeCommandIndex >= 0;
+
         // Expand every bare -NN shorthand (e.g., -30) into -n 30 before parsing.
         for (int i = 0; i < endOfOptions; i++)
         {
             if (args[i].Length >= 2 && args[i][0] == '-' && char.IsDigit(args[i][1])
-                && !IsFollowingRequiredOptionValue(args, i)
+                && !IsFollowingRequiredOptionValue(args, i, platformIsValueless)
                 && int.TryParse(args[i].AsSpan(1), out var headN))
             {
                 args = [.. args[..i], "-n", args[i][1..], .. args[(i + 1)..]];
@@ -243,13 +253,15 @@ public static class ArgumentPreprocessor
         return args;
     }
 
-    private static bool IsFollowingRequiredOptionValue(string[] args, int index)
+    private static bool IsFollowingRequiredOptionValue(string[] args, int index, bool platformIsValueless)
     {
         if (index == 0)
             return false;
 
         string precedingToken = args[index - 1];
         string optionName = precedingToken.Split('=', 2)[0];
+        if (platformIsValueless && string.Equals(optionName, "--platform", StringComparison.Ordinal))
+            return false;
         return !precedingToken.Contains('=', StringComparison.Ordinal)
             && RequiredValueOptions.Contains(optionName);
     }
