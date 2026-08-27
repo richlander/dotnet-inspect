@@ -376,6 +376,9 @@ public sealed partial class CSharpPrinter
             ConstructorChain = _constructorChain,
             FieldInitializers = _fieldInitializers,
             RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
+            ClassicAsyncOutcome = function.ClassicAsyncOutcome,
+            ClassicAsyncDeclarationDisposition =
+                function.ClassicAsyncDeclarationDisposition,
             RequiresUnsafeBodyModifier = function.Descendants.Prepend(function).Any(NeedsUnsafeContext),
             ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
             BodyIsSingleExpressionBody = BodyIsSingleExpressionBody(function, output),

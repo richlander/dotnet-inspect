@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 
+using ILInspector.Metadata;
+
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
@@ -15,20 +17,60 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        if (TryAcknowledgeSupportMethod(function, context))
+        if (function.ClassicAsyncRelationship is not
+            {
+                Relationship: StateMachineRelationshipResult.Resolved
+                {
+                    Relationship.Kind: StateMachineClaimKind.ClassicAsync,
+                } resolved,
+            } evidence)
+        {
             return;
+        }
+
+        if (evidence.HostRole is
+            ClassicAsyncHostRole.Execution or ClassicAsyncHostRole.Support)
+        {
+            return;
+        }
 
         if (context.ImportMethodBody is null)
             return;
-        if (!TryGetKickoff(function, out var kickoff))
+        if (evidence.HostRole != ClassicAsyncHostRole.DeclaredKickoff)
             return;
+
+        if (!TryGetKickoff(
+                function,
+                resolved.Relationship.StateMachineName,
+                out var kickoff,
+                out var declineReason,
+                out bool narrowHandoff))
+        {
+            Decline(
+                function,
+                context,
+                declineReason,
+                narrowHandoff);
+            return;
+        }
+
+        if (!resolved.Relationship.TryGetMethod(
+                StateMachineMethodRole.MoveNext,
+                out var moveNextAddress))
+        {
+            return;
+        }
 
         var moveNextMethod = new MethodRef(
             kickoff.StateMachineType,
             "MoveNext",
             TypeRef.CoreLib("System", "Void"),
             [],
-            HasThis: true);
+            HasThis: true)
+        {
+            ExactDefinitionAddress = moveNextAddress,
+            ExactDefinitionAcquisitionGuard = evidence.AcquisitionGuard,
+        };
         var moveNextPasses = IrPasses.ForReconstruction<ClassicAsyncReconstructionPass>();
         if (!context.TryImportAndRunMethodBody(
                 moveNextMethod,
@@ -52,12 +94,22 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             return;
         }
         if (reconstruction != ReconstructionResult.Reconstructed)
+        {
+            Decline(
+                function,
+                context,
+                ClassicAsyncDeclineReason.UnrecognizedAwaiterProtocol,
+                kickoff.IsNarrow);
             return;
+        }
 
         context.Stepper.StepOver($"reconstruct classic async '{function.Name}' from {kickoff.StateMachineType.Name}.MoveNext");
         function.MergeTypeFactsFrom(moveNext);
         function.ResetLocals(locals, localNames);
         function.RequiresAsyncBodyModifier = true;
+        function.ClassicAsyncOutcome = new ClassicAsyncOutcome.Reconstructed();
+        function.ClassicAsyncDeclarationDisposition =
+            ClassicAsyncDeclarationDisposition.IncludeAsync;
         function.Body.DetachChildren();
         foreach (var block in body.Blocks.ToList())
         {
@@ -66,7 +118,72 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         }
     }
 
-    sealed record Kickoff(TypeRef StateMachineType, int StateMachineLocal, int SourceOffset);
+    static void Decline(
+        IrFunction function,
+        PassContext context,
+        ClassicAsyncDeclineReason reason,
+        bool narrowHandoff)
+    {
+        context.Stepper.StepOver(
+            $"decline classic async '{function.Name}': {reason}");
+        var marker = new UnsupportedNode(
+            0,
+            "classic async",
+            $"unsupported classic async state machine: {ReasonText(reason)}");
+        var statement = new ExpressionStatement(marker);
+        if (narrowHandoff)
+        {
+            function.ResetLocals([], []);
+            function.Body.DetachChildren();
+            var markerBlock = new Block(0);
+            markerBlock.Add(statement);
+            function.Body.Add(markerBlock);
+        }
+        else if (function.Body.Blocks.FirstOrDefault() is { } firstBlock)
+        {
+            var preserved = firstBlock.DetachChildren();
+            firstBlock.Add(statement);
+            foreach (IrNode node in preserved)
+                firstBlock.Add(node);
+        }
+        else
+        {
+            var markerBlock = new Block(0);
+            markerBlock.Add(statement);
+            function.Body.Add(markerBlock);
+        }
+        function.Diagnostics.Add(new DecompilerDiagnostic(
+            DiagnosticIds.UnsupportedConstruct,
+            $"classic async reconstruction declined: {ReasonText(reason)}"));
+        function.ClassicAsyncOutcome = new ClassicAsyncOutcome.Declined(
+            reason,
+            narrowHandoff
+                ? ClassicAsyncKickoffDisposition.ReplacedNarrowHandoff
+                : ClassicAsyncKickoffDisposition.PreservedOriginal);
+        function.ClassicAsyncDeclarationDisposition =
+            ClassicAsyncDeclarationDisposition.OmitAsync;
+        function.RequiresAsyncBodyModifier = false;
+    }
+
+    static string ReasonText(ClassicAsyncDeclineReason reason)
+        => reason switch
+        {
+            ClassicAsyncDeclineReason.KickoffMachineMismatch
+                => "kickoff does not hand off the owner-selected state machine",
+            ClassicAsyncDeclineReason.NonNarrowKickoffHandoff
+                => "kickoff handoff is not narrow",
+            ClassicAsyncDeclineReason.UnsupportedBuilder
+                => "unsupported async method builder",
+            ClassicAsyncDeclineReason.UnrecognizedAwaiterProtocol
+                => "unrecognized awaiter protocol",
+            _ => throw new ArgumentOutOfRangeException(nameof(reason)),
+        };
+
+    sealed record Kickoff(
+        TypeRef StateMachineType,
+        int StateMachineLocal,
+        int SourceOffset,
+        bool IsNarrow);
 
     enum ReconstructionResult
     {
@@ -92,43 +209,24 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         public ImmutableArray<string?> Names => _names.ToImmutable();
     }
 
-    static bool TryAcknowledgeSupportMethod(IrFunction function, PassContext context)
-    {
-        if (function.Name is not ("MoveNext" or "SetStateMachine"))
-            return false;
-        if (function.DeclaringTypeCompilerGenerated != MetadataFactState.Yes)
-            return false;
-        if (!LooksLikeClassicAsyncStateMachine(function))
-            return false;
-
-        context.Stepper.StepOver($"acknowledge generated classic async support method '{function.DeclaringType.Name}.{function.Name}'");
-        function.ResetLocals([], []);
-        function.Body.DetachChildren();
-        var block = new Block(0);
-        block.Add(new Return(null));
-        function.Body.Add(block);
-        return true;
-    }
-
-    static bool LooksLikeClassicAsyncStateMachine(IrFunction function)
-        => IsStateMachineType(function.DeclaringType)
-            && function.Descendants.Any(static node => node switch
-            {
-                LoadField { Field.Name: "<>t__builder" } => true,
-                LoadFieldAddress { Field.Name: "<>t__builder" } => true,
-                StoreField { Field.Name: "<>t__builder" } => true,
-                _ => false,
-            });
-
-    static bool TryGetKickoff(IrFunction function, out Kickoff kickoff)
+    static bool TryGetKickoff(
+        IrFunction function,
+        MetadataTypeDefinitionName expectedStateMachine,
+        out Kickoff kickoff,
+        out ClassicAsyncDeclineReason declineReason,
+        out bool narrowHandoff)
     {
         kickoff = null!;
+        narrowHandoff = false;
+        declineReason =
+            ClassicAsyncDeclineReason.NonNarrowKickoffHandoff;
         if (function.Body.Blocks is not [var block])
             return false;
 
         StoreField? builderStore = null;
         ExpressionStatement? startStatement = null;
         Return? returnTask = null;
+        Return? returnVoid = null;
 
         foreach (var statement in block.Children)
         {
@@ -143,41 +241,183 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
             if (statement is ExpressionStatement { Expression: Call { Callee.Name: "Start" } } expression)
                 startStatement = expression;
-            else if (statement is Return { Value: LoadProperty { PropertyName: "Task" } } ret)
-                returnTask = ret;
+            else if (statement is Return { Value: LoadProperty { PropertyName: "Task" } } taskResult)
+                returnTask = taskResult;
+            else if (statement is Return { Value: null } voidResult)
+                returnVoid = voidResult;
         }
 
         if (builderStore?.Instance is not LoadLocalAddress stateMachineAddress
             || startStatement is null
-            || returnTask is null)
+            || returnTask is null && returnVoid is null)
         {
             return false;
         }
 
         var stateMachineType = function.Locals[stateMachineAddress.Index];
-        if (IsStateMachineType(stateMachineType))
+        TypeRef stateMachineDefinition =
+            stateMachineType.Kind == TypeRefKind.GenericInstance
+                && stateMachineType.ElementType is { } definition
+                    ? definition
+                    : stateMachineType;
+        if (stateMachineDefinition.DefinitionName
+            != expectedStateMachine)
         {
-            kickoff = new Kickoff(stateMachineType, stateMachineAddress.Index, builderStore.SourceOffset);
-            return true;
+            declineReason =
+                ClassicAsyncDeclineReason.KickoffMachineMismatch;
+            return false;
         }
 
-        return false;
+        narrowHandoff = IsNarrowKickoff(
+            function,
+            block,
+            stateMachineAddress.Index);
+        if (function.Signature.ReturnType is
+            {
+                Namespace: "System",
+                Name: "Void",
+            })
+        {
+            if (returnVoid is null)
+            {
+                declineReason =
+                    ClassicAsyncDeclineReason.NonNarrowKickoffHandoff;
+                return false;
+            }
+            declineReason =
+                ClassicAsyncDeclineReason.UnsupportedBuilder;
+            return false;
+        }
+
+        if (returnTask is null)
+            return false;
+
+        kickoff = new(
+            stateMachineType,
+            stateMachineAddress.Index,
+            builderStore.SourceOffset,
+            narrowHandoff);
+        return true;
     }
 
-    static bool IsStateMachineType(TypeRef type)
+    static bool IsNarrowKickoff(
+        IrFunction function,
+        Block block,
+        int stateMachineLocal)
     {
-        var name = MetadataName(type);
-        return name.StartsWith("<", StringComparison.Ordinal)
-            && name.Contains(">d__", StringComparison.Ordinal);
+        int builderCreates = 0;
+        int stateInitializations = 0;
+        int starts = 0;
+        int returns = 0;
+        var copiedArguments = new HashSet<int>();
+
+        foreach (IrNode statement in block.Children)
+        {
+            switch (statement)
+            {
+                case StoreField
+                {
+                    Field.Name: "<>t__builder",
+                    Instance: LoadLocalAddress builderTarget,
+                    Value: Call
+                    {
+                        Callee.Name: "Create",
+                        Arguments.Count: 0,
+                    },
+                } when builderTarget.Index == stateMachineLocal:
+                    builderCreates++;
+                    break;
+
+                case StoreField
+                {
+                    Field.Name: "<>1__state",
+                    Instance: LoadLocalAddress stateTarget,
+                    Value: Constant { Value: -1 },
+                } when stateTarget.Index == stateMachineLocal:
+                    stateInitializations++;
+                    break;
+
+                case StoreField
+                {
+                    Instance: LoadLocalAddress copyTarget,
+                    Value: LoadArgument argument,
+                } when copyTarget.Index == stateMachineLocal
+                    && IsSourceArgument(function, argument)
+                    && copiedArguments.Add(argument.Index):
+                    break;
+
+                case ExpressionStatement
+                {
+                    Expression: Call
+                    {
+                        Callee.Name: "Start",
+                        Arguments:
+                        [
+                            LoadFieldAddress
+                            {
+                                Field.Name: "<>t__builder",
+                                Instance: LoadLocalAddress builderOwner,
+                            },
+                            LoadLocalAddress machine,
+                        ],
+                    },
+                } when builderOwner.Index == stateMachineLocal
+                    && machine.Index == stateMachineLocal:
+                    starts++;
+                    break;
+
+                case Return
+                {
+                    Value: LoadProperty
+                    {
+                        PropertyName: "Task",
+                        Instance: LoadFieldAddress
+                        {
+                            Field.Name: "<>t__builder",
+                            Instance: LoadLocalAddress builderOwner,
+                        },
+                        IndexArguments.Count: 0,
+                    },
+                } when builderOwner.Index == stateMachineLocal:
+                    returns++;
+                    break;
+
+                case Return { Value: null }
+                    when function.Signature.ReturnType is
+                    {
+                        Namespace: "System",
+                        Name: "Void",
+                    }:
+                    returns++;
+                    break;
+
+                default:
+                    return false;
+            }
+        }
+
+        return builderCreates == 1
+            && stateInitializations == 1
+            && starts == 1
+            && returns == 1;
     }
 
-    static string MetadataName(TypeRef type)
+    static bool IsSourceArgument(
+        IrFunction function,
+        LoadArgument argument)
     {
-        var name = type.Kind == TypeRefKind.GenericInstance && type.ElementType is { } definition
-            ? definition.Name
-            : type.Name;
-        var nested = name.LastIndexOf('+');
-        return nested >= 0 ? name[(nested + 1)..] : name;
+        int parameterIndex = function.Signature.HasThis
+            ? argument.Index - 1
+            : argument.Index;
+        if (parameterIndex == -1)
+        {
+            return argument.Type.Equals(function.DeclaringType);
+        }
+
+        return parameterIndex >= 0
+            && parameterIndex < function.Signature.Parameters.Length
+            && argument.Type.Equals(
+                function.Signature.Parameters[parameterIndex].Type);
     }
 
     static ReconstructionResult TryReconstruct(

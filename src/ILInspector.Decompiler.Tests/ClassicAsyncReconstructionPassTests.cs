@@ -1,343 +1,404 @@
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
-// Adversarial near-miss matrix for ClassicAsyncReconstructionPass (#1290).
-//
-// The pass raises runtime-async=off async kickoffs back to async bodies. It has
-// two recognition entry points, and each leans on compiler-reserved evidence
-// that user-authored C# cannot forge:
-//
-//   * the support-method path (TryAcknowledgeSupportMethod) trusts the
-//     `<...>d__N` state-machine type-name shape PLUS the
-//     DeclaringTypeCompilerGenerated metadata fact PLUS a `<>t__builder`
-//     field reference;
-//   * the kickoff path (TryGetKickoff) trusts the `<>t__builder` builder-field
-//     name stored into a `<...>d__N` state-machine *local* by address, alongside
-//     shape signals (a `Start` call and a `.Task`-named return). Those two shape
-//     signals are matched by name only and are NOT independently correlated to
-//     the builder; the real builder/MoveNext correlation is enforced downstream,
-//     because the pass only reconstructs after importing and structurally
-//     recognizing the named state machine's sibling MoveNext.
-//
-// The `<...>d__N` type name and the `<>t__builder` field name are unspeakable in
-// C# source, so the trust line is "compiler-reserved names + a metadata fact",
-// not an attacker-forgeable shape. Each test below flips exactly one input
-// dimension and asserts the lookalike stays lowered (declined), pinning the
-// matcher so a future loosening of that gate fails loudly. Most gates are pinned
-// to a single clause; the builder-store-on-local invariant is doubly guarded in
-// the pass, so its test pins the observable behavior rather than one clause.
-// These are synthetic-IR pins; the positive reconstruction shapes are covered by
-// the Fixtures.ClassicAsync overlay referenced in AwaitRecoveryFacts.
 [Trait("Area", "Pass")]
 public class ClassicAsyncReconstructionPassTests
 {
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
-    static readonly TypeRef Task = TypeRef.CoreLib("System.Threading.Tasks", "Task");
-
-    // Compiler-reserved state-machine type name (`<...>d__N`).
-    static readonly TypeRef StateMachine = TypeRef.Definition("Synthetic", "Samples", "Outer+<Fake>d__0");
-
-    // A compiler-generated type whose name is NOT state-machine-shaped (no `>d__`);
-    // models a display class or other generated helper.
-    static readonly TypeRef NonStateMachine = TypeRef.Definition("Synthetic", "Samples", "Outer+<Fake>e__0");
-
-    // Has the `>d__` infix but lacks the leading `<`; isolates IsStateMachineType's
-    // leading-angle-bracket clause.
-    static readonly TypeRef NoLeadingAngleType = TypeRef.Definition("Synthetic", "Samples", "Outer+Fake>d__0");
-
-    static readonly TypeRef Builder = TypeRef.Definition("Synthetic", "Samples", "BuilderLike");
-
-    // ---- Support-method acknowledgment path -------------------------------
+    static readonly TypeRef Task = TypeRef.CoreLib(
+        "System.Threading.Tasks",
+        "Task");
+    static readonly TypeRef StateMachine = TypeRef.Definition(
+        "Synthetic",
+        "Samples",
+        "Outer+<Fake>d__0");
+    static readonly TypeRef Builder = TypeRef.Definition(
+        "Synthetic",
+        "Samples",
+        "BuilderLike");
 
     [Fact]
-    public void CompilerGeneratedMoveNext_IsAcknowledged()
+    public void UnstampedSupportLookalike_IsNotEdited()
     {
-        var function = BuildSupportMethod("MoveNext");
+        IrFunction function = BuildSupportLookalike();
+        string before = IrPrinter.Dump(function);
 
-        new ClassicAsyncReconstructionPass().Run(function, PassContext.None);
+        new ClassicAsyncReconstructionPass().Run(
+            function,
+            PassContext.None);
 
-        Assert.True(IsAcknowledgedEmptyReturn(function));
-        Assert.Empty(function.Descendants.OfType<LoadField>());
-        Assert.Empty(function.Descendants.OfType<Call>());
+        Assert.Equal(before, IrPrinter.Dump(function));
     }
 
     [Fact]
-    public void CompilerGeneratedSetStateMachine_IsAcknowledged()
+    public void UnstampedKickoffLookalike_DoesNotReachImport()
     {
-        var function = BuildSupportMethod("SetStateMachine");
+        IrFunction function = BuildKickoffLookalike();
+        bool attempted = false;
+        var context = PassContext.ForImport(_ =>
+        {
+            attempted = true;
+            return null;
+        });
 
-        new ClassicAsyncReconstructionPass().Run(function, PassContext.None);
-
-        Assert.True(IsAcknowledgedEmptyReturn(function));
-    }
-
-    // Discriminator: declaring-type compiler-generated metadata fact.
-    [Fact]
-    public void SupportMethodLookalikeWithoutCompilerGeneratedMetadata_IsNotAcknowledged()
-    {
-        var function = BuildSupportMethod("MoveNext", declaringTypeGenerated: MetadataFactState.No);
-
-        new ClassicAsyncReconstructionPass().Run(function, PassContext.None);
-
-        AssertSupportMethodDeclined(function);
-    }
-
-    // Discriminator: method name. A generated state-machine method that is not
-    // MoveNext/SetStateMachine must not be hollowed out.
-    [Fact]
-    public void WrongMethodName_IsNotAcknowledged()
-    {
-        var function = BuildSupportMethod("Dispose");
-
-        new ClassicAsyncReconstructionPass().Run(function, PassContext.None);
-
-        AssertSupportMethodDeclined(function);
-    }
-
-    // Discriminator: declaring-type name shape (`<...>d__N`). Right metadata, right
-    // builder field, but the declaring type is not a state-machine name.
-    [Fact]
-    public void NonStateMachineDeclaringType_IsNotAcknowledged()
-    {
-        var function = BuildSupportMethod("MoveNext", declaringType: NonStateMachine);
-
-        new ClassicAsyncReconstructionPass().Run(function, PassContext.None);
-
-        AssertSupportMethodDeclined(function);
-    }
-
-    // Discriminator: the leading `<` of the state-machine name. A type with the
-    // `>d__` infix but no leading `<` (unspeakable-name shape broken) must not match.
-    [Fact]
-    public void DeclaringTypeWithoutLeadingAngleBracket_IsNotAcknowledged()
-    {
-        var function = BuildSupportMethod("MoveNext", declaringType: NoLeadingAngleType);
-
-        new ClassicAsyncReconstructionPass().Run(function, PassContext.None);
-
-        AssertSupportMethodDeclined(function);
-    }
-
-    // Discriminator: `<>t__builder` field reference. A state-machine MoveNext with
-    // builder calls but no builder-field reference (only `<>1__state`) must not be
-    // acknowledged just because the declaring type name and metadata match.
-    [Fact]
-    public void WithoutBuilderFieldReference_IsNotAcknowledged()
-    {
-        var function = BuildSupportMethod("MoveNext", builderFieldName: "<>1__state");
-
-        new ClassicAsyncReconstructionPass().Run(function, PassContext.None);
-
-        AssertSupportMethodDeclined(function);
-    }
-
-    // ---- Kickoff path -----------------------------------------------------
-    //
-    // The kickoff path needs the cross-method import seam to pull in the sibling
-    // MoveNext. We drive the pass with a recording import delegate: if the kickoff
-    // shape is recognized, the pass reaches the import (records `attempted`); if a
-    // discriminator is off, TryGetKickoff declines before any import. Returning
-    // null from the import keeps the body lowered, so recognition is observed
-    // purely through whether the import was attempted.
-
-    [Fact]
-    public void WellFormedKickoff_ReachesSiblingImport()
-    {
-        var function = BuildKickoff();
-
-        var attempted = RunWithRecordingImport(function);
-
-        Assert.True(attempted);
-    }
-
-    // Discriminator: the `Start` call.
-    [Fact]
-    public void KickoffMissingStartCall_IsNotRecognized()
-    {
-        var function = BuildKickoff(includeStart: false);
-
-        var attempted = RunWithRecordingImport(function);
+        new ClassicAsyncReconstructionPass().Run(function, context);
 
         Assert.False(attempted);
     }
 
-    // Discriminator: the builder `.Task` return. A kickoff that returns a different
-    // property is not a runtime-async kickoff.
     [Fact]
-    public void KickoffReturningNonTaskProperty_IsNotRecognized()
+    public void ResolvedClassicKickoff_ImportsOwnerIssuedMoveNext()
     {
-        var function = BuildKickoff(returnPropertyName: "get_Result");
+        using var source = OpenClassicFixture();
+        IrFunction function = ImportClassicFixture(source, "AwaitVoid");
+        MethodRef? requested = null;
+        var context = PassContext.ForImport(method =>
+        {
+            if (method.ExactDefinitionAddress is not null)
+                requested = method;
+            return IrImporter.Import(source, method);
+        });
 
-        var attempted = RunWithRecordingImport(function);
+        IrPasses.Run(function, IrPasses.Default, context);
 
-        Assert.False(attempted);
+        Assert.NotNull(requested);
+        var evidence = Assert.IsType<ClassicAsyncRelationshipEvidence>(
+            function.ClassicAsyncRelationship);
+        var resolved = Assert.IsType<StateMachineRelationshipResult.Resolved>(
+            evidence.Relationship);
+        Assert.True(resolved.Relationship.TryGetMethod(
+            StateMachineMethodRole.MoveNext,
+            out var moveNext));
+        Assert.Equal(moveNext, requested.ExactDefinitionAddress);
+        Assert.Same(
+            evidence.AcquisitionGuard,
+            requested.ExactDefinitionAcquisitionGuard);
+        Assert.True(function.RequiresAsyncBodyModifier);
     }
 
-    // Discriminator: the state-machine *local* type. A kickoff that initializes a
-    // similar (uncorrelated) struct whose type name is not `<...>d__N` must not be
-    // treated as a state-machine kickoff.
     [Fact]
-    public void KickoffInitializingNonStateMachineStruct_IsNotRecognized()
+    public void GenericStateMachine_UsesOwnerDefinitionIdentity()
     {
-        var function = BuildKickoff(stateMachineLocal: NonStateMachine);
+        using var source = OpenClassicFixture();
+        IrFunction function = ImportClassicFixture(source, "AwaitGeneric");
 
-        var attempted = RunWithRecordingImport(function);
+        IrPasses.Run(
+            function,
+            IrPasses.Default,
+            PassContext.ForImport(
+                method => IrImporter.Import(source, method)));
 
-        Assert.False(attempted);
+        Assert.IsType<ClassicAsyncOutcome.Reconstructed>(
+            function.ClassicAsyncOutcome);
+        Assert.Equal(
+            ClassicAsyncDeclarationDisposition.IncludeAsync,
+            function.ClassicAsyncDeclarationDisposition);
     }
 
-    // Discriminator: the single-block kickoff shape. A multi-block body is not the
-    // trivial kickoff the pass reconstructs.
     [Fact]
-    public void KickoffWithMultipleBlocks_IsNotRecognized()
+    public void AsyncVoid_DeclinesAsUnsupportedBuilder()
     {
-        var function = BuildKickoff(extraBlock: true);
+        using var source = OpenClassicFixture();
+        IrFunction function = ImportClassicFixture(
+            source,
+            "AwaitAsyncVoid");
 
-        var attempted = RunWithRecordingImport(function);
+        IrPasses.Run(
+            function,
+            IrPasses.Default,
+            PassContext.ForImport(
+                method => IrImporter.Import(source, method)));
 
-        Assert.False(attempted);
+        var outcome = Assert.IsType<ClassicAsyncOutcome.Declined>(
+            function.ClassicAsyncOutcome);
+        Assert.Equal(
+            ClassicAsyncDeclineReason.UnsupportedBuilder,
+            outcome.Reason);
+        Assert.Equal(
+            ClassicAsyncKickoffDisposition.ReplacedNarrowHandoff,
+            outcome.KickoffDisposition);
+        Assert.Equal(
+            ClassicAsyncDeclarationDisposition.OmitAsync,
+            function.ClassicAsyncDeclarationDisposition);
     }
 
-    // Discriminator: the `<>t__builder` builder-field name. A builder-looking store
-    // under a different field name is not the compiler-reserved builder.
     [Fact]
-    public void KickoffWithNonBuilderFieldName_IsNotRecognized()
+    public void ResolvedClassicExecutionMethod_IsNotEdited()
     {
-        var function = BuildKickoff(builderFieldName: "<>u__awaiter");
+        using var source = OpenClassicFixture();
+        IrFunction function = IrImporter.ImportAssembly(source)
+            .Select(method => method.Function)
+            .First(method => method.ClassicAsyncRelationship is
+            {
+                HostRole: ClassicAsyncHostRole.Execution,
+                Relationship: StateMachineRelationshipResult.Resolved
+                {
+                    Relationship.Kind: StateMachineClaimKind.ClassicAsync,
+                },
+            });
+        string before = IrPrinter.Dump(function);
 
-        var attempted = RunWithRecordingImport(function);
+        new ClassicAsyncReconstructionPass().Run(
+            function,
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
 
-        Assert.False(attempted);
+        Assert.Equal(before, IrPrinter.Dump(function));
     }
 
-    // Invariant: the builder store must target a state-machine local by address
-    // (`LoadLocalAddress`). A `<>t__builder` store whose instance is an argument,
-    // not a local address, is not the kickoff's state-machine init. This invariant
-    // is doubly guarded in the pass (the StoreField match requires a
-    // `LoadLocalAddress` instance, and a later recheck rejects a non-local
-    // instance), so this test pins the observable behavior rather than a single
-    // clause.
     [Fact]
-    public void KickoffBuilderStoreNotOnLocalAddress_IsNotRecognized()
+    public void UnsupportedResolvedClassic_PreservesKickoffAndNamesDecline()
     {
-        var function = BuildKickoff(builderStoreOnLocal: false);
+        using var source = OpenClassicFixture();
+        IrFunction function = ImportClassicFixture(
+            source,
+            "AwaitVoidThenReturn");
+        var context = PassContext.ForImport(
+            method => IrImporter.Import(source, method));
+        RunBeforeClassicAsync(function, context);
+        IReadOnlyList<string> originalStatements = function.Body.Blocks[0]
+            .Children
+            .Select(SubtreeSignature)
+            .ToList();
 
-        var attempted = RunWithRecordingImport(function);
+        new ClassicAsyncReconstructionPass().Run(function, context);
 
-        Assert.False(attempted);
+        var outcome = Assert.IsType<ClassicAsyncOutcome.Declined>(
+            function.ClassicAsyncOutcome);
+        Assert.Equal(
+            ClassicAsyncDeclineReason.UnrecognizedAwaiterProtocol,
+            outcome.Reason);
+        Assert.Equal(
+            ClassicAsyncKickoffDisposition.ReplacedNarrowHandoff,
+            outcome.KickoffDisposition);
+        Assert.Equal(
+            ClassicAsyncDeclarationDisposition.OmitAsync,
+            function.ClassicAsyncDeclarationDisposition);
+        Assert.Single(function.Body.Blocks);
+        Assert.Single(function.Body.Blocks[0].Children);
+        Assert.Empty(function.Locals);
+        Assert.DoesNotContain(
+            originalStatements,
+            statement => function.Body.Blocks[0]
+                .Children
+                .Select(SubtreeSignature)
+                .Contains(statement));
     }
 
-    // ---- Builders ---------------------------------------------------------
-
-    static IrFunction BuildSupportMethod(
-        string name,
-        MetadataFactState declaringTypeGenerated = MetadataFactState.Yes,
-        TypeRef? declaringType = null,
-        string builderFieldName = "<>t__builder")
+    [Fact]
+    public void NonNarrowDecline_PreservesEveryOriginalStatement()
     {
-        var owner = declaringType ?? StateMachine;
+        using var source = OpenClassicFixture();
+        IrFunction function = ImportClassicFixture(
+            source,
+            "AwaitVoidThenReturn");
+        var context = PassContext.ForImport(
+            method => IrImporter.Import(source, method));
+        RunBeforeClassicAsync(function, context);
+        var unexplained = new ExpressionStatement(new Call(
+            new MethodRef(
+                TypeRef.Definition("Synthetic", "Samples", "Effects"),
+                "Observe",
+                Void,
+                [],
+                HasThis: false),
+            isVirtual: false,
+            []));
+        function.Body.Blocks[0].Add(unexplained);
+        IReadOnlyList<string> originalStatements = function.Body.Blocks[0]
+            .Children
+            .Select(SubtreeSignature)
+            .ToList();
 
+        new ClassicAsyncReconstructionPass().Run(function, context);
+
+        var outcome = Assert.IsType<ClassicAsyncOutcome.Declined>(
+            function.ClassicAsyncOutcome);
+        Assert.Equal(
+            ClassicAsyncKickoffDisposition.PreservedOriginal,
+            outcome.KickoffDisposition);
+        Assert.Equal(
+            originalStatements,
+            function.Body.Blocks[0]
+                .Children
+                .Skip(1)
+                .Select(SubtreeSignature));
+    }
+
+    [Fact]
+    public void ExactMoveNextAddress_IsBoundToItsAcquisition()
+    {
+        using var source = OpenClassicFixture();
+        MethodRef requested = CaptureMoveNextRequest(source);
+        using var otherSource = OpenClassicFixture();
+
+        Assert.Null(IrImporter.Import(otherSource, requested));
+    }
+
+    [Fact]
+    public void ExactMoveNextAddress_RejectsSymbolicSignatureMismatch()
+    {
+        using var source = OpenClassicFixture();
+        MethodRef requested = CaptureMoveNextRequest(source);
+
+        Assert.Null(IrImporter.Import(
+            source,
+            requested with { Name = "SetStateMachine" }));
+    }
+
+    static MethodRef CaptureMoveNextRequest(MetadataSource source)
+    {
+        IrFunction function = ImportClassicFixture(source, "AwaitVoid");
+        MethodRef? requested = null;
+        var context = PassContext.ForImport(method =>
+        {
+            if (method.ExactDefinitionAddress is not null)
+                requested = method;
+            return null;
+        });
+
+        RunUntilClassicAsync(function, context);
+
+        return Assert.IsType<MethodRef>(requested);
+    }
+
+    static IrFunction BuildSupportLookalike()
+    {
         var block = new Block(0);
         block.Add(new ExpressionStatement(new LoadField(
-            new FieldRef(owner, builderFieldName, Builder),
-            new LoadArgument(0, "this", owner))));
+            new FieldRef(StateMachine, "<>t__builder", Builder),
+            new LoadArgument(0, "this", StateMachine))));
         block.Add(new ExpressionStatement(new Call(
-            new MethodRef(owner, "SideEffect", Void, [], HasThis: false),
+            new MethodRef(
+                StateMachine,
+                "SideEffect",
+                Void,
+                [],
+                HasThis: false),
             isVirtual: false,
             [])));
         block.Add(new Return(null));
 
         var body = new BlockContainer();
         body.Add(block);
-
         return new IrFunction(
-            name,
-            owner,
-            new MethodSignature(Void, [], HasThis: true, GenericParameterCount: 0),
+            "MoveNext",
+            StateMachine,
+            new MethodSignature(
+                Void,
+                [],
+                HasThis: true,
+                GenericParameterCount: 0),
             [],
             body)
         {
-            DeclaringTypeCompilerGenerated = declaringTypeGenerated,
+            DeclaringTypeCompilerGenerated = MetadataFactState.Yes,
         };
     }
 
-    static IrFunction BuildKickoff(
-        bool includeStart = true,
-        string returnPropertyName = "get_Task",
-        TypeRef? stateMachineLocal = null,
-        bool extraBlock = false,
-        string builderFieldName = "<>t__builder",
-        bool builderStoreOnLocal = true)
+    static IrFunction BuildKickoffLookalike()
     {
-        var localType = stateMachineLocal ?? StateMachine;
         var owner = TypeRef.Definition("Synthetic", "Samples", "Outer");
-
-        IrExpression builderInstance = builderStoreOnLocal
-            ? new LoadLocalAddress(0, localType)
-            : new LoadArgument(0, "this", owner);
-
         var block = new Block(0);
         block.Add(new StoreField(
-            new FieldRef(localType, builderFieldName, Builder),
-            builderInstance,
+            new FieldRef(StateMachine, "<>t__builder", Builder),
+            new LoadLocalAddress(0, StateMachine),
             new Call(
-                new MethodRef(Builder, "Create", Builder, [], HasThis: false),
+                new MethodRef(
+                    Builder,
+                    "Create",
+                    Builder,
+                    [],
+                    HasThis: false),
                 isVirtual: false,
                 [])));
-
-        if (includeStart)
-        {
-            block.Add(new ExpressionStatement(new Call(
-                new MethodRef(Builder, "Start", Void, [], HasThis: true),
-                isVirtual: false,
-                [])));
-        }
-
+        block.Add(new ExpressionStatement(new Call(
+            new MethodRef(
+                Builder,
+                "Start",
+                Void,
+                [],
+                HasThis: true),
+            isVirtual: false,
+            [])));
         block.Add(new Return(new LoadProperty(
-            new MethodRef(Builder, returnPropertyName, Task, [], HasThis: true),
-            new LoadLocalAddress(0, localType),
+            new MethodRef(
+                Builder,
+                "get_Task",
+                Task,
+                [],
+                HasThis: true),
+            new LoadLocalAddress(0, StateMachine),
             [])));
 
         var body = new BlockContainer();
         body.Add(block);
-        if (extraBlock)
-        {
-            var tail = new Block(1);
-            tail.Add(new Return(null));
-            body.Add(tail);
-        }
-
         return new IrFunction(
             "KickoffMethod",
             owner,
-            new MethodSignature(Task, [], HasThis: false, GenericParameterCount: 0),
-            [localType],
+            new MethodSignature(
+                Task,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [StateMachine],
             body);
     }
 
-    static bool RunWithRecordingImport(IrFunction function)
+    static MetadataSource OpenClassicFixture()
     {
-        var attempted = false;
-        var context = new PassContext(
-            new Stepper(enabled: false),
-            importMethodBody: _ =>
-            {
-                attempted = true;
-                return null;
-            });
-
-        new ClassicAsyncReconstructionPass().Run(function, context);
-        return attempted;
+        string configuration = new DirectoryInfo(
+            AppContext.BaseDirectory).Name;
+        string path = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..",
+            "..",
+            "ILInspector.Decompiler.Fixtures.ClassicAsync",
+            configuration,
+            "ILInspector.Decompiler.Fixtures.ClassicAsync.dll"));
+        return MetadataSource.Open(path);
     }
 
-    static void AssertSupportMethodDeclined(IrFunction function)
+    static IrFunction ImportClassicFixture(
+        MetadataSource source,
+        string methodName)
+        => Assert.IsType<IrFunction>(IrImporter.Import(
+            source,
+            "ILInspector.Decompiler.Fixtures.ClassicAsync.AsyncFixtures",
+            methodName));
+
+    static void RunUntilClassicAsync(
+        IrFunction function,
+        PassContext context)
     {
-        Assert.False(IsAcknowledgedEmptyReturn(function));
-        Assert.NotEmpty(function.Descendants.OfType<Call>());
+        foreach (IIrPass pass in IrPasses.Default)
+        {
+            pass.Run(function, context);
+            if (pass is ClassicAsyncReconstructionPass)
+                return;
+        }
+
+        Assert.Fail("ClassicAsyncReconstructionPass is not registered.");
     }
 
-    static bool IsAcknowledgedEmptyReturn(IrFunction function)
-        => function.Body.Blocks is [var block]
-            && block.Children is [Return { Value: null }];
+    static void RunBeforeClassicAsync(
+        IrFunction function,
+        PassContext context)
+    {
+        foreach (IIrPass pass in IrPasses.Default)
+        {
+            if (pass is ClassicAsyncReconstructionPass)
+                return;
+            pass.Run(function, context);
+        }
+
+        Assert.Fail("ClassicAsyncReconstructionPass is not registered.");
+    }
+
+    static string SubtreeSignature(IrNode node)
+        => string.Join(
+            "\n",
+            node.Descendants.Prepend(node).Select(current =>
+                $"{current.GetType().Name}:{current.Describe()}"));
 }

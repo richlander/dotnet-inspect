@@ -308,6 +308,12 @@ public sealed record DecompilerResult(
     /// </summary>
     public bool RequiresAsyncBodyModifier { get; init; }
 
+    /// <summary>The terminal outcome when the classic-async component made a healthy decision.</summary>
+    public ClassicAsyncOutcome? ClassicAsyncOutcome { get; init; }
+
+    /// <summary>How that decision resolves the surrounding declaration's async modifier.</summary>
+    public ClassicAsyncDeclarationDisposition ClassicAsyncDeclarationDisposition { get; init; }
+
     /// <summary>
     /// True when the rendered body contains operations that require an unsafe
     /// member context. Full-body consumers carry this typed projection fact to
@@ -380,6 +386,8 @@ public sealed record DecompilerResult(
             && EqualityComparer<string?>.Default.Equals(ConstructorChain, other.ConstructorChain)
             && EqualityComparer<IReadOnlyList<(string Field, string Value)>>.Default.Equals(FieldInitializers, other.FieldInitializers)
             && RequiresAsyncBodyModifier == other.RequiresAsyncBodyModifier
+            && EqualityComparer<ClassicAsyncOutcome?>.Default.Equals(ClassicAsyncOutcome, other.ClassicAsyncOutcome)
+            && ClassicAsyncDeclarationDisposition == other.ClassicAsyncDeclarationDisposition
             && RequiresUnsafeBodyModifier == other.RequiresUnsafeBodyModifier
             && ContainsAwaitExpression == other.ContainsAwaitExpression
             && BodyIsSingleExpressionBody == other.BodyIsSingleExpressionBody
@@ -395,6 +403,8 @@ public sealed record DecompilerResult(
         hash.Add(ConstructorChain);
         hash.Add(FieldInitializers);
         hash.Add(RequiresAsyncBodyModifier);
+        hash.Add(ClassicAsyncOutcome);
+        hash.Add(ClassicAsyncDeclarationDisposition);
         hash.Add(RequiresUnsafeBodyModifier);
         hash.Add(ContainsAwaitExpression);
         hash.Add(BodyIsSingleExpressionBody);

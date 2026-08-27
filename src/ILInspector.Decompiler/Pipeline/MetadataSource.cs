@@ -4,6 +4,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -43,6 +44,8 @@ public sealed class MetadataSource : IDisposable
     bool _ownsCrossContext;
     CrossAssemblyTypeResolver? _crossAssembly;
     readonly object _crossLock = new();
+    readonly object _acquisitionGuard = new();
+    readonly Lazy<StateMachineRelationshipIndex> _stateMachineRelationships;
 
     MetadataSource(string path, string? filePath, Stream? stream, PEReader peReader, MetadataReader reader, string assemblyName, ResolvedAssemblyReference assembly, string? externalPdbPath, bool readSymbols, IAssemblyBindingPolicy bindingPolicy, MetadataContext? context)
     {
@@ -57,6 +60,9 @@ public sealed class MetadataSource : IDisposable
         _readSymbols = readSymbols;
         _bindingPolicy = bindingPolicy;
         _suppliedContext = context;
+        _stateMachineRelationships = new(
+            () => StateMachineRelationshipIndex.Create(reader),
+            LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     public string Path { get; }
@@ -94,6 +100,54 @@ public sealed class MetadataSource : IDisposable
     internal PEReader Pe { get; }
 
     internal MetadataReader Reader { get; }
+
+    internal object AcquisitionGuard => _acquisitionGuard;
+
+    internal ClassicAsyncRelationshipEvidence ClassicAsyncRelationship(
+        MethodDefinitionHandle methodHandle,
+        MethodClassification? asyncClassification)
+    {
+        var address = MetadataMethodAddress.Create(Reader, methodHandle);
+        StateMachineRelationshipResult kickoff =
+            _stateMachineRelationships.Value.GetByKickoff(methodHandle);
+        if (kickoff is StateMachineRelationshipResult.Resolved
+            || kickoff is StateMachineRelationshipResult.Rejected
+                && asyncClassification
+                    == MethodClassification.StateMachineAsync)
+        {
+            return new(
+                address,
+                ClassicAsyncHostRole.DeclaredKickoff,
+                asyncClassification,
+                kickoff,
+                _acquisitionGuard);
+        }
+
+        StateMachineRelationshipResult implementation =
+            _stateMachineRelationships.Value.GetByImplementation(methodHandle);
+        if (implementation is StateMachineRelationshipResult.Resolved resolved)
+        {
+            ClassicAsyncHostRole role = resolved.Relationship.Methods
+                .First(method => method.Method == address).Role switch
+            {
+                StateMachineMethodRole.MoveNext => ClassicAsyncHostRole.Execution,
+                _ => ClassicAsyncHostRole.Support,
+            };
+            return new(
+                address,
+                role,
+                asyncClassification,
+                implementation,
+                _acquisitionGuard);
+        }
+
+        return new(
+            address,
+            ClassicAsyncHostRole.Ordinary,
+            asyncClassification,
+            implementation,
+            _acquisitionGuard);
+    }
 
     /// <summary>
     /// The symbol source consulted for local names so far: <see cref="DecompilerSymbolSource.None"/>

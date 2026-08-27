@@ -31,6 +31,11 @@ public sealed record MemberBodyProductionResult(
     DecompilerResult Projection)
 {
     public bool IsComplete => Status == MemberBodyProductionStatus.Complete;
+    public Pipeline.ClassicAsyncOutcome? ClassicAsyncOutcome
+        => Projection.ClassicAsyncOutcome;
+    public Pipeline.ClassicAsyncDeclarationDisposition
+        ClassicAsyncDeclarationDisposition
+        => Projection.ClassicAsyncDeclarationDisposition;
 
     /// <summary>
     /// The raised product IR that produced <see cref="Body"/>. Kept internal so
@@ -189,7 +194,9 @@ public static class MemberBodyProducer
                 : null;
             var body = new CSharpBlockBody(projection.Output.TrimEnd(), initializer)
             {
-                RequiresAsyncModifier = projection.RequiresAsyncBodyModifier,
+                RequiresAsyncModifier = ResolveAsyncModifier(
+                    projection.ClassicAsyncDeclarationDisposition,
+                    projection.RequiresAsyncBodyModifier),
                 RequiresUnsafeModifier = projection.RequiresUnsafeBodyModifier,
                 // Member-agnostic destructor gate: suppress '~Type()' whenever the
                 // body was not recovered as a canonical destructor (issue #3157).
@@ -1165,11 +1172,13 @@ public static class MemberBodyProducer
 
                     string? constructorChain = null;
                     bool requiresUnsafeContext = false;
+                    Pipeline.ClassicAsyncDeclarationDisposition
+                        classicAsyncDeclarationDisposition = default;
                     bool bodyIsSingleExpressionBody = false;
                     bool bodyIsDestructor = false;
                     string? body = member.IsAbstract
                         ? null
-                        : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions, failOnDiagnostic: only is not null);
+                        : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresUnsafeContext, out classicAsyncDeclarationDisposition, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions, failOnDiagnostic: only is not null);
 
                     // An explicit interface property implementation surfaces
                     // as its accessor method (Iface.get_X). Render the
@@ -1211,8 +1220,12 @@ public static class MemberBodyProducer
                         ? null
                         : new CSharpBlockBody(body)
                         {
-                            RequiresAsyncModifier = memberHandle is { } asyncHandle
-                                && TypeShellProducer.RequiresAsyncBodyModifier(reader, asyncHandle),
+                            RequiresAsyncModifier = ResolveAsyncModifier(
+                                classicAsyncDeclarationDisposition,
+                                memberHandle is { } asyncHandle
+                                    && TypeShellProducer.RequiresAsyncBodyModifier(
+                                        reader,
+                                        asyncHandle)),
                             RequiresUnsafeModifier = requiresUnsafeContext,
                             // Only spell '~Type()' when the destructor pass actually
                             // recovered the canonical try/finally { base.Finalize(); }
@@ -2098,6 +2111,7 @@ public static class MemberBodyProducer
         Pipeline.MetadataSource pipelineSource, MethodDefinitionHandle? memberHandle,
         string typeFullName, ApiMember member, int overloadIndex,
         SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext,
+        out Pipeline.ClassicAsyncDeclarationDisposition classicAsyncDeclarationDisposition,
         out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor, Pipeline.PrinterOptions? printerOptions,
         bool failOnDiagnostic)
     {
@@ -2110,7 +2124,7 @@ public static class MemberBodyProducer
         if (memberHandle is { } methodHandle)
             return DecompileFunction(pipelineSource,
                 Pipeline.IrImporter.Import(pipelineSource, methodHandle),
-                bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions, failOnDiagnostic);
+                bodyNamespaces, out constructorChain, out requiresUnsafeContext, out classicAsyncDeclarationDisposition, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions, failOnDiagnostic);
 
         // Public-only overload counting, except explicit interface
         // implementations (non-public by nature) — matching the API surface
@@ -2119,7 +2133,7 @@ public static class MemberBodyProducer
             publicOnly: member.Kind != "explicit-interface-implementation"
                 && !(member.Kind == "constructor" && member.DeclaringOverloadIndex is not null)
                 && member.Accessibility is null,
-            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions, failOnDiagnostic);
+            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out classicAsyncDeclarationDisposition, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions, failOnDiagnostic);
     }
 
     /// <summary>
@@ -2212,13 +2226,17 @@ public static class MemberBodyProducer
             bodyNamespaces,
             out _,
             out requiresUnsafeContext,
+            out var classicAsyncDeclarationDisposition,
             out bodyIsSingleExpressionBody,
             out _,
             printerOptions,
             failOnDiagnostic);
-        requiresAsyncContext = function is not null
-            && (function.RequiresAsyncBodyModifier
-                || function.IsRuntimeAsync == Pipeline.MetadataFactState.Yes);
+        requiresAsyncContext = ResolveAsyncModifier(
+            classicAsyncDeclarationDisposition,
+            function is not null
+                && (function.RequiresAsyncBodyModifier
+                    || function.IsRuntimeAsync
+                        == Pipeline.MetadataFactState.Yes));
         return body;
     }
 
@@ -2232,11 +2250,12 @@ public static class MemberBodyProducer
     static string? DecompileMethod(
         Pipeline.MetadataSource pipelineSource, string typeFullName, string methodName, int overloadIndex,
         bool publicOnly, SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext,
+        out Pipeline.ClassicAsyncDeclarationDisposition classicAsyncDeclarationDisposition,
         out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor, Pipeline.PrinterOptions? printerOptions,
         bool failOnDiagnostic)
         => DecompileFunction(pipelineSource,
             Pipeline.IrImporter.Import(pipelineSource, typeFullName, methodName, overloadIndex, publicOnly),
-            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions, failOnDiagnostic);
+            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out classicAsyncDeclarationDisposition, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions, failOnDiagnostic);
 
     /// <summary>
     /// Runs the raising passes and prints an already-imported function. A null
@@ -2248,11 +2267,13 @@ public static class MemberBodyProducer
     static string? DecompileFunction(
         Pipeline.MetadataSource pipelineSource, Pipeline.IrFunction? function,
         SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext,
+        out Pipeline.ClassicAsyncDeclarationDisposition classicAsyncDeclarationDisposition,
         out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor, Pipeline.PrinterOptions? printerOptions,
         bool failOnDiagnostic)
     {
         constructorChain = null;
         requiresUnsafeContext = false;
+        classicAsyncDeclarationDisposition = default;
         bodyIsSingleExpressionBody = false;
         bodyIsDestructor = false;
         if (function is null)
@@ -2270,10 +2291,22 @@ public static class MemberBodyProducer
         }
         constructorChain = result.ConstructorChain;
         requiresUnsafeContext = result.RequiresUnsafeBodyModifier;
+        classicAsyncDeclarationDisposition =
+            result.ClassicAsyncDeclarationDisposition;
         bodyIsSingleExpressionBody = result.BodyIsSingleExpressionBody;
         bodyIsDestructor = result.BodyIsDestructor;
         return result.Output?.TrimEnd() ?? DiagnosticComment(result);
     }
+
+    static bool ResolveAsyncModifier(
+        Pipeline.ClassicAsyncDeclarationDisposition disposition,
+        bool fallback)
+        => disposition switch
+        {
+            Pipeline.ClassicAsyncDeclarationDisposition.IncludeAsync => true,
+            Pipeline.ClassicAsyncDeclarationDisposition.OmitAsync => false,
+            _ => fallback,
+        };
 
     /// <summary>
     /// Unions the namespaces of every definition type the function references

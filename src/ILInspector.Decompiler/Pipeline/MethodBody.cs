@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -98,5 +99,6 @@ public sealed record ImportedMethod(
     MetadataFactState CompilerGenerated = MetadataFactState.Unknown,
     MetadataFactState DeclaringTypeCompilerGenerated = MetadataFactState.Unknown,
     MetadataFactState IsRuntimeAsync = MetadataFactState.Unknown,
+    MethodClassification? AsyncClassification = null,
     int MetadataToken = 0,
     ImmutableArray<string> DeclaringTypeGenericParameterNames = default);

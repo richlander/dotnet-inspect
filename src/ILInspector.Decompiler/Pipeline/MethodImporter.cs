@@ -163,6 +163,10 @@ public static class MethodImporter
             CompilerGenerated: FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes())),
             DeclaringTypeCompilerGenerated: FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, typeDef.GetCustomAttributes())),
             IsRuntimeAsync: FactState(MethodDefinitionFacts.IsRuntimeAsync(method)),
+            AsyncClassification:
+                MethodClassificationScanner.ClassifyAsyncMethod(
+                    reader,
+                    method),
             MetadataToken: MetadataTokens.GetToken(methodHandle),
             DeclaringTypeGenericParameterNames: typeGenericParameterNames);
     }

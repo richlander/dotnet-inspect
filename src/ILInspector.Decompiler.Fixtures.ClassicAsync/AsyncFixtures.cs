@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 
@@ -52,6 +53,25 @@ public static class AsyncFixtures
     public static async Task<int> AwaitValue(Task<int> a, int b) => await a + b;
 
     public static async Task AwaitVoid(Task a) => await a;
+
+    public static async Task<T> AwaitGeneric<T>(Task<T> value)
+        => await value;
+
+    public static async void AwaitAsyncVoid(Task value)
+        => await value;
+
+    public static async IAsyncEnumerable<int> AsyncSequence(Task delay)
+    {
+        await delay;
+        yield return 1;
+    }
+
+    public static async Task<int> AwaitVoidThenReturn(Task a)
+    {
+        await a;
+        GC.KeepAlive(a);
+        return 42;
+    }
 
     public static async Task TwoSequentialAwaits(Task<int> a, Task<int> b)
     {

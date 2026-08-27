@@ -64,6 +64,37 @@ public static class IrImporter
     /// </summary>
     public static IrFunction? Import(MetadataSource source, MethodRef method)
     {
+        if (method.ExactDefinitionAddress is { } exactAddress)
+        {
+            if (!ReferenceEquals(
+                    method.ExactDefinitionAcquisitionGuard,
+                    source.AcquisitionGuard)
+                || !exactAddress.BelongsTo(source.Reader))
+            {
+                return null;
+            }
+
+            int row = MetadataTokens.GetRowNumber(exactAddress.Handle);
+            if (row <= 0
+                || row > source.Reader.GetTableRowCount(TableIndex.MethodDef))
+            {
+                return null;
+            }
+
+            IrFunction? imported = Import(source, exactAddress.Handle);
+            return imported is not null
+                && imported.Name == method.Name
+                && DefinitionName(imported.DeclaringType)
+                    == DefinitionName(method.DeclaringType)
+                && imported.Signature.ReturnType.Equals(method.ReturnType)
+                && imported.Signature.HasThis == method.HasThis
+                && imported.Signature.Parameters
+                    .Select(parameter => parameter.Type)
+                    .SequenceEqual(method.ParameterTypes)
+                    ? imported
+                    : null;
+        }
+
         TypeRef type = ImporterType(method);
         if (type.DefinitionName is not { } exactName)
             return Import(source, ImporterTypeName(type), method.Name);
@@ -86,6 +117,12 @@ public static class IrImporter
                 ex);
         }
     }
+
+    static MetadataTypeDefinitionName? DefinitionName(TypeRef type)
+        => type.Kind == TypeRefKind.GenericInstance
+            && type.ElementType is { } definition
+                ? definition.DefinitionName
+                : type.DefinitionName;
 
     /// <summary>
     /// Typed evidence for the interfaces a type declares in its own assembly: the
@@ -620,6 +657,16 @@ public static class IrImporter
             CompilerGenerated = method.CompilerGenerated,
             DeclaringTypeCompilerGenerated = method.DeclaringTypeCompilerGenerated,
             IsRuntimeAsync = method.IsRuntimeAsync,
+            ClassicAsyncRelationship =
+                method.AsyncClassification
+                    == MethodClassification.StateMachineAsync
+                || method.DeclaringTypeCompilerGenerated
+                    == MetadataFactState.Yes
+                    ? ClassicAsyncRelationship(
+                        source,
+                        method.MetadataToken,
+                        method.AsyncClassification)
+                    : null,
         };
         var span = method.Body.IL.AsSpan();
         var leaders = FindLeaders(span, method.Body.Handlers);
@@ -649,6 +696,25 @@ public static class IrImporter
         if (IrInvariants.Enabled)
             function.CheckInvariant(IrInvariants.CheckSemantics);
         return function;
+    }
+
+    static ClassicAsyncRelationshipEvidence? ClassicAsyncRelationship(
+        MetadataSource source,
+        int metadataToken,
+        MethodClassification? asyncClassification)
+    {
+        EntityHandle handle = MetadataTokens.EntityHandle(metadataToken);
+        if (handle.Kind != HandleKind.MethodDefinition)
+            return null;
+
+        var methodHandle = (MethodDefinitionHandle)handle;
+        int row = MetadataTokens.GetRowNumber(methodHandle);
+        return row > 0
+            && row <= source.Reader.GetTableRowCount(TableIndex.MethodDef)
+                ? source.ClassicAsyncRelationship(
+                    methodHandle,
+                    asyncClassification)
+                : null;
     }
 
     /// <summary>
