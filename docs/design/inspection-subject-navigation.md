@@ -36,14 +36,15 @@ Inspection Subject Navigation owns:
 - hierarchy and Library-selection descriptors;
 - applicability, availability, valid-empty, partial, and failed outcomes;
 - initial subject and lens recommendations;
-- exact subject-transition outcomes; and
+- exact subject- and lens-transition outcomes;
+- owner-issued navigation intent and post-result effect authority; and
 - reconciliation after coordinate, Library, or inventory changes.
 
 The owner returns one internally consistent snapshot. Consumers render that
 snapshot and submit opaque action IDs from it for subject activation. Lens
-activation uses the lens owner's identity and transition seam. Consumers do not
-choose a default, infer a parent, substitute another subject after failure, or
-reconstruct identity from labels.
+activation submits an owner-issued lens identity back to this owner. Consumers
+do not choose a default, infer a parent, substitute another subject after
+failure, mint navigation intent, or reconstruct identity from labels.
 
 ## Boundaries
 
@@ -59,10 +60,10 @@ The owner consumes:
   deterministic navigation order, and their scoped inspection failures;
 - product-owned accessibility descriptors;
 - exact type-definition identities and member anchors;
-- subject-scoped lens descriptors and availability;
+- view-facet registry descriptors plus subject applicability and availability;
 - an optional committed owner-issued lens identity;
 - an optional prior navigation snapshot; and
-- an optional explicit subject request or typed resolution outcome.
+- an optional explicit subject or lens request or typed resolution outcome.
 
 These inputs remain owned by their existing components. This owner sequences
 and composes them; it does not redefine their construction, validation,
@@ -83,7 +84,8 @@ The owner returns:
   per-descriptor availability state;
 - an effective, unavailable, or failed typed lens outcome;
 - scoped diagnostics and partial-result evidence; and
-- a typed transition or reconciliation outcome.
+- a typed transition or reconciliation outcome; and
+- opaque navigation-intent and post-result effect authority for retained hosts.
 
 ### Non-claims
 
@@ -93,6 +95,7 @@ This owner does not define:
 - package, platform, project, file, or other root construction;
 - assembly, type, member, or API identity internals;
 - type/member inventory extraction or filtering vocabulary;
+- view-facet registry identity construction or compatibility;
 - lens contents, rendering, or browser accessibility behavior;
 - browser history, URL shape, canonical packet encoding, or restoration
   atomicity;
@@ -107,8 +110,10 @@ compile Library exists is adjacent acquisition work tracked by
 [Type, member, and API representation](type-member-api-representation.md) owns
 the identity currencies this contract composes.
 [Inspect Web UI](inspect-web-ui.md) owns rendering and interaction.
-[Workspace definitions](workspace-definitions.md) and issue #4787 own portable
-projection and restoration.
+[Workspace definitions](workspace-definitions.md) owns portable view-facet
+registry binding. This owner consumes those registry identities and scopes
+their navigation descriptors to a subject; issue #4787 owns portable projection
+and restoration.
 
 ## Structural subjects
 
@@ -172,6 +177,18 @@ The structured identity is product currency. It is not itself a URL encoding.
 Issue #4787 decides which structured identities are portable and how they are
 projected.
 
+The navigation-scoped lens identity is:
+
+```text
+InspectionLensIdentity(subject kind, view-facet registry identity)
+```
+
+The view-facet registry owns its stable identity, labels, and order. Inspection
+Subject Navigation binds that identity to one structural subject and issues
+the resulting lens identity in its descriptors. Equality uses both components;
+a same-labelled or same-registry facet bound to another subject is not the same
+navigation lens.
+
 ### Action IDs
 
 Each navigation snapshot issues opaque action IDs for its non-active available
@@ -189,6 +206,45 @@ Action IDs are deliberately separate from structured identity:
 
 A stale, foreign, unknown, or duplicated action ID produces a typed rejection
 and does not mutate the current state.
+
+### Retained navigation session
+
+A retained host keeps one product-owned navigation session with the installed
+snapshot. The session issues opaque monotonic intent tokens; consumers request
+and retain those handles but never mint, order, or compare their values.
+Session initialization establishes the first current token without implying a
+user transition.
+
+The conceptual authority currencies are:
+
+```text
+NavigationIntentToken
+NavigationEffectAuthority(snapshot generation, intent token)
+```
+
+Beginning an explicit subject, lens, coordinate, or canonical-restoration
+intent issues a new token and immediately supersedes every older explicit or
+maintenance operation. A coordinate operation obtains its token before
+acquisition and returns the realized coordinate and typed resolution outcomes
+to this session under that same token.
+
+Inventory refresh and reconciliation initiated independently of an explicit
+operation are snapshot maintenance, not new user intent. Standalone maintenance
+captures the current intent token without advancing it. It cannot install while
+an explicit operation under that token is unresolved: it waits to rebuild from
+the explicit result or is discarded. Reconciliation required to complete an
+explicit transition instead inherits that transition's token and completes
+atomically inside it. Maintenance started earlier cannot replace a newer
+explicit intent, and maintenance completed against an older snapshot basis
+cannot replace a newer generation.
+
+Every result that may replace or retain the installed snapshot is admitted by
+the session against its captured basis and token. A current result returns
+effect authority bound to the returned snapshot generation and the same intent
+token. A host accepts the returned snapshot for rendering only while that
+authority remains current and revalidates it again when each deferred visible
+effect executes. Installing the result alone is not lasting authority to move
+focus or surface an outcome.
 
 ## Navigation snapshot
 
@@ -449,10 +505,11 @@ passes through UI display text.
 The transition outcome is one of:
 
 ```text
-Applied(snapshot)
-Unavailable(snapshot, reason)
-Rejected(snapshot, diagnostic)
-Failed(snapshot, diagnostic)
+Applied(snapshot, effectAuthority)
+Unavailable(snapshot, reason, effectAuthority)
+Rejected(snapshot, diagnostic, effectAuthority)
+Failed(snapshot, diagnostic, effectAuthority)
+Superseded
 ```
 
 - **Applied** activates exactly the requested subject and returns a complete
@@ -466,6 +523,8 @@ Failed(snapshot, diagnostic)
   foreign, malformed, or otherwise invalid for this generation.
 - **Failed** retains the current snapshot because subject resolution or
   navigation failed.
+- **Superseded** means a newer explicit intent invalidated the operation. It
+  carries no snapshot or visible effect authority.
 
 An explicit transition never silently activates a sibling, ancestor,
 recommended Type, or Root. It may return a recommendation as explanatory data,
@@ -483,24 +542,6 @@ from the unavailable request.
 Selecting `All libraries` or one Library activates that Library subject. It
 does not also select a Type. Selecting a Type or Member directly is allowed and
 returns its complete ancestor descriptors in the replacement snapshot.
-
-### Navigation intent ordering
-
-One retained navigation session owns a monotonic opaque intent sequence shared
-by subject, lens, and coordinate transitions that can replace the snapshot.
-Beginning a newer transition issues a new intent token and immediately
-invalidates every older in-flight token, even before any result completes.
-
-Every asynchronous result carries both:
-
-- its issuing snapshot basis: generation, coordinate, and active subject; and
-- its navigation intent token.
-
-A result may install a snapshot, surface a transition outcome, or move focus
-only while both remain current. A superseded result is discarded without
-changing state or focus; the newer intent owns those effects. Snapshot
-generation still validates the meaning of action IDs, while intent ordering
-makes last-issued navigation win independently of completion order.
 
 ## Reconciliation
 
@@ -581,24 +622,29 @@ failures into valid empty inventories.
 ## Lens reconciliation
 
 Subject and lens are separate axes, but subject navigation owns the lens
-outcome attached to its subject transition. It consumes owner-issued lens
-identities, order, and availability without defining them.
+outcome attached to its subject transition. It consumes view-facet registry
+identity, labels, order, and availability facts without redefining them, then
+issues the subject-scoped navigation lens identity defined above.
 
 Explicit lens activation is not a subject action-ID transition. A consumer
-submits the returned owner-issued lens identity through the lens owner's typed
-transition seam together with the issuing snapshot generation, coordinate, and
-active subject identity and a new shared navigation intent token. A result is
-current only while that complete basis and token still match the navigation
-session; otherwise it is rejected or discarded without replacing newer state.
+requests a new explicit intent token from the navigation session, then submits
+the returned owner-issued lens identity with the issuing snapshot generation,
+coordinate, and active subject identity to this owner under that token.
 
-An applied result becomes the committed lens identity input to a complete
-replacement navigation snapshot, which the consumer installs atomically. An
-unavailable result also returns a fresh generation: it preserves the active
-subject and prior effective lens while they remain valid, updates the requested
-lens descriptor to unavailable, and applies ordinary lens reconciliation if
-independent facts invalidated the prior effective lens. Rejected and failed
-results retain the prior snapshot. The consumer never mutates effective lens
-state locally.
+This owner consumes current subject-scoped view-facet descriptors and typed
+lens-resolution facts, validates the exact requested identity, and returns the
+same transition outcome family as subject activation. It does not delegate
+navigation-snapshot construction or lens reconciliation to a lens renderer or
+content producer.
+
+An applied result commits the requested lens identity and returns a complete
+replacement navigation snapshot. An unavailable result also returns a fresh
+generation: it preserves the active subject and prior effective lens while
+they remain valid, updates the requested lens descriptor to unavailable, and
+applies ordinary lens reconciliation if independent facts invalidated the
+prior effective lens. Rejected and failed results retain the prior snapshot.
+Superseded carries no state or visible effect. The consumer never mutates
+effective lens state locally.
 
 - Preserve the committed current lens when the active subject identity is
   retained and that exact owner-issued lens identity remains available.
@@ -626,8 +672,9 @@ Inspect Web:
 - renders descriptor labels, order, active state, availability, reasons, and
   diagnostics verbatim;
 - submits opaque action IDs with their snapshot generation;
-- submits owner-issued lens identities through the lens owner's transition
-  seam rather than treating them as subject actions;
+- obtains opaque intent tokens from the retained navigation session;
+- submits owner-issued lens identities through this owner's lens transition
+  rather than treating them as subject actions;
 - renders wrapped producer-owned Type and Member rows with their supplied
   activation descriptor;
 - renders the returned active subject consistently in the command, hierarchy,
@@ -648,8 +695,9 @@ Snapshot action IDs are never serialized.
 ### Other hosts
 
 A CLI, service, or another retained host may consume the same recommendation
-and transition model without adopting browser layout. This contract does not
-add implicit session state to stateless CLI commands.
+and transition model without adopting browser layout. Retained hosts opt into
+the explicit navigation-session contract; stateless CLI commands compute one
+result without implicit cross-command session state.
 
 ## Acceptance scenarios
 
@@ -791,6 +839,17 @@ does not construct that acquisition result.
 2. Replace the coordinate or navigation generation.
 3. Submit the old ID and confirm a typed rejection with no state change.
 
+### Operation ordering
+
+1. Start inventory refresh, then begin an explicit subject transition and
+   confirm that the refresh cannot replace the explicit result.
+2. Begin a subject transition, then request refresh and confirm that maintenance
+   waits to rebuild from the transition result rather than invalidating it.
+3. Install a transition result, begin a newer intent before deferred focus
+   executes, and confirm that the older effect authority no longer validates.
+4. Begin canonical restoration and confirm that it supersedes older subject,
+   lens, coordinate, and maintenance work.
+
 ## Required gates
 
 The target contract remains unverified until implementation adds named gates
@@ -819,6 +878,12 @@ covering at least:
 - `UnavailableTransition_ReconcilesIndependentlyInvalidatedActiveSubject`
 - `UnavailableTransition_PreservesSubjectOnlyWhileAvailable`
 - `ForeignOrStaleActionId_IsRejected`
+- `NavigationSession_IssuesMonotonicOpaqueIntentTokens`
+- `ExplicitIntent_SupersedesOlderExplicitAndMaintenanceWork`
+- `Maintenance_CannotInvalidateInFlightExplicitIntent`
+- `MaintenanceResult_CannotReplaceNewerSnapshot`
+- `TransitionEffectAuthority_UsesReturnedSnapshotGeneration`
+- `CanonicalRestoration_BeginsExplicitIntent`
 - `MissingMember_FallsBackToContainingTypeNotAnotherMember`
 - `SameCoordinateUnavailable_FollowsMissingSubjectRules`
 - `MissingTypeWithMissingLibrary_FallsBackToAggregateThenRoot`
@@ -833,7 +898,9 @@ covering at least:
 - `LensOutcome_DistinguishesUnavailableFailedAndPartialFailure`
 - `EffectiveLens_MatchesExactlyOneReturnedAvailableDescriptor`
 - `LensDescriptors_PreserveOwnerOrderAndPerDescriptorState`
+- `LensIdentity_ComposesSubjectAndRegistryIdentity`
 - `LensRecommendation_DoesNotCrossSubjectKindsByLabel`
+- `ExplicitLensActivation_IsResolvedBySubjectNavigation`
 - `InspectWeb_SubmitsActionIdAndGeneration`
 - `InspectWeb_CoordinateVariationSuppliesPriorNavigationSnapshot`
 - `InspectWeb_UsesProductTypeInventoryLibraryContextAtRoot`
@@ -844,12 +911,15 @@ covering at least:
 - `InspectWeb_DerivesLensTabsOnlyFromSnapshotDescriptors`
 - `InspectWeb_LibraryListboxCommitsOnlyAvailableAction`
 - `InspectWeb_LensActivationUsesOwnerIssuedLensIdentity`
+- `InspectWeb_ObtainsIntentTokensFromNavigationSession`
 - `InspectWeb_AppliedLensActivationInstallsReplacementSnapshot`
 - `InspectWeb_UnavailableLensActivationInstallsRefreshedSnapshot`
 - `InspectWeb_RejectedOrFailedLensActivationRetainsPriorSnapshot`
 - `InspectWeb_StaleLensActivationCannotReplaceNewerSubjectSnapshot`
 - `InspectWeb_LatestLensIntentWinsAcrossCompletionOrders`
 - `InspectWeb_NewerNavigationIntentInvalidatesOlderSubjectResult`
+- `InspectWeb_DeferredFocusRevalidatesEffectAuthority`
+- `InspectWeb_SupersededOutcomeHasNoVisibleEffect`
 - `InspectWeb_SubjectNonAppliedOutcomeReturnsFocusToInvoker`
 - `InspectWeb_ConsumesSubjectOutcomeWithoutHostFallback`
 

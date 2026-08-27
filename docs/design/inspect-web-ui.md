@@ -450,8 +450,9 @@ Lens tablists use one tab stop and manual activation:
   remain discoverable.
 - Enter or Space activates a focused available tab by submitting its
   owner-issued lens identity plus the current snapshot generation, coordinate,
-  active subject, and a new shared navigation intent token through the lens
-  owner's typed transition seam; it does not submit a subject action ID.
+  and active subject to Inspection Subject Navigation under a new opaque intent
+  token requested from the retained navigation session; it does not submit a
+  subject action ID.
 - Activating an `aria-disabled` tab has no effect.
 
 Roving `tabindex` keeps only the focused tab at `tabindex="0"`. Moving focus
@@ -464,9 +465,10 @@ lens state ahead of the product result. An unavailable transition installs the
 returned fresh snapshot, which preserves the subject and prior effective lens
 when still valid while updating availability. A rejected or failed transition
 retains the prior snapshot and active subject while surfacing the typed outcome.
-A result whose generation, coordinate, or active subject no longer matches the
-installed snapshot, or whose intent token is no longer current, cannot replace
-newer state or move focus.
+A superseded transition has no visible effect. The UI uses the returned effect
+authority before installing the returned rendered snapshot and for outcome
+presentation and focus; any deferred effect revalidates that authority with the
+navigation session when it executes.
 
 An unavailable lens remains in its owning strip with `aria-disabled="true"`
 and an accessible description of the owner-issued reason. A failed lens is
@@ -688,8 +690,10 @@ A future packet projection does not decide its own history granularity. It
 inherits this UI-owned push or replace classification.
 
 On browser refresh or shared-link activation, the UI submits the opaque packet
-to the product codec and renders its atomic success or typed failure. It does
-not use the readable package courtesy field as a fallback workspace.
+to the product codec under a new explicit canonical-restoration intent requested
+from the retained navigation session, then renders its atomic success or typed
+failure. It does not use the readable package courtesy field as a fallback
+workspace.
 
 ## Shell actions
 
@@ -715,12 +719,28 @@ successful inspection transition focuses the returned active-subject
 level-one heading; a successful routed transition focuses that surface's
 level-one heading. An `Unavailable`, `Rejected`, or `Failed` subject outcome
 preserves or installs the product-returned current surface, returns focus to the
-stable subject-menu invoker, and makes the outcome visible.
+stable subject-menu invoker, and makes the outcome visible. Each effect occurs
+only while its returned navigation effect authority remains current at the
+moment focus or outcome presentation executes.
 
-Subject, lens, version, and TFM transitions share one monotonic navigation
-intent sequence. Starting a newer transition invalidates every older in-flight
-result immediately. A superseded result is discarded without changing the
-installed snapshot, visible outcome, or focus.
+Before installing any returned rendered snapshot, the UI validates its effect
+authority with the navigation session. It repeats that validation inside each
+scheduled focus or outcome callback rather than treating earlier installation
+as continuing authority.
+
+Subject, lens, version, TFM, and canonical-restoration transitions request
+opaque intent tokens from one retained Inspection Subject Navigation session.
+The UI never mints, orders, or compares token values. Starting a newer explicit
+intent invalidates every older in-flight explicit or maintenance result
+immediately. A superseded result is discarded without changing the installed
+snapshot, visible outcome, or focus.
+
+Inventory refresh and reconciliation initiated outside an explicit transition
+do not create newer user intent. They enter the session as maintenance under
+the current token. Maintenance cannot install while an explicit operation under
+that token is unresolved and cannot replace a newer snapshot generation.
+Reconciliation needed to complete an explicit transition remains atomic within
+that transition.
 
 When a menu item opens a modal, the menu closes without returning focus to its
 invoker and the modal applies its initial-focus rule. The stable menu-button
@@ -1058,6 +1078,11 @@ outcomes:
 12. Start a subject activation, begin a newer subject or coordinate transition,
     then complete the older request and confirm that it cannot install state,
     surface an outcome, or move focus.
+13. Start inventory refresh before and during explicit subject activation and
+    confirm in both orders that maintenance cannot invalidate or overwrite the
+    explicit result.
+14. Install a result, begin a newer intent before its scheduled focus callback,
+    and confirm that the older callback cannot move focus.
 
 ### No effective lens
 
@@ -1075,8 +1100,8 @@ outcomes:
    identity, order, availability, reasons, and diagnostics come only from the
    returned snapshot collection.
 6. Activate an available non-effective tab and confirm that the UI submits its
-   owner-issued lens identity through the lens transition seam, never a subject
-   action ID.
+   owner-issued lens identity through Inspection Subject Navigation, never a
+   subject action ID.
 7. Return an applied result and confirm that the committed identity is supplied
    to navigation and the complete replacement snapshot is installed before tab
    or panel selection changes.
@@ -1089,6 +1114,9 @@ outcomes:
     result cannot replace the newer subject snapshot.
 11. From one snapshot, activate lens B and then lens C; complete them in both
     orders and confirm that C is the final installed lens.
+12. Confirm that both lens activations obtain opaque intent tokens from
+    Inspection Subject Navigation and that the UI never constructs or compares
+    their values.
 
 ### Library option availability
 
