@@ -38,6 +38,7 @@ public static partial class InspectionEngine
     [JSExport]
     public static Task<string> QueryPlatformPerformance(
         string targetFramework,
+        string platformVersion,
         string assemblyFileName,
         string pack) =>
         throw Unavailable("Platform performance", NoPlatformProjection);
@@ -58,6 +59,7 @@ public static partial class InspectionEngine
     [JSExport]
     public static Task<string> QueryPlatformMetadata(
         string targetFramework,
+        string platformVersion,
         string assemblyFileName,
         string pack) =>
         throw Unavailable("Platform metadata", NoPlatformProjection);
@@ -78,6 +80,7 @@ public static partial class InspectionEngine
     [JSExport]
     public static Task<string> QueryPlatformMetadataTable(
         string targetFramework,
+        string platformVersion,
         string assemblyFileName,
         string pack,
         int tableIndex,
@@ -99,22 +102,10 @@ public static partial class InspectionEngine
     [JSExport]
     public static Task<string> QueryPlatformHeapEntries(
         string targetFramework,
+        string platformVersion,
         string assemblyFileName,
         string pack,
         string heap) =>
         throw Unavailable("Platform heap entries", NoPlatformProjection);
-
-    [JSExport]
-    public static Task<string> QueryMemberFacts(
-        string packageId,
-        string version,
-        string targetFramework,
-        string assemblyName,
-        string typeId,
-        string memberName,
-        string memberSignature) =>
-        throw Unavailable(
-            "Member facts",
-            "no group-scoped query projects method-scoped Analysis evidence");
 
 }

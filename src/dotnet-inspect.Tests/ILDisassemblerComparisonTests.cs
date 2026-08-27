@@ -164,6 +164,99 @@ public class ILDisassemblerComparisonTests
         return outputDll;
     }
 
+    /// <summary>
+    /// The signature-fidelity gate for <see cref="ArrayShapeText"/>: ILAsm spells a rank-1
+    /// multi-dimensional array <c>int32[...]</c>, which is a different signature from the vector
+    /// <c>int32[]</c>. <c>CanonicalIL</c> emits IL that is reassembled elsewhere, so collapsing
+    /// the two would silently emit a different type.
+    /// </summary>
+    /// <remarks>
+    /// Comparing the rendered text against itself would be circular, so this reassembles what
+    /// <c>CanonicalIL</c> spelled and requires the resulting signature blob to be byte-identical
+    /// to the one ILAsm produced from the original source.
+    /// </remarks>
+    [Fact]
+    public void CanonicalIL_ArraySpellings_ReassembleToTheSameSignature()
+    {
+        Assert.SkipUnless(HasILAsm, "ildasm/ilasm not found — install them with `source eng/activate-iltools.sh`");
+
+        string[] sourceSpellings = ["int32[...]", "int32[]", "int32[,]"];
+        var tempDir = Path.Combine(Path.GetTempPath(), $"array-shape-fidelity-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var (originalBlobs, rendered) = AssembleAndRender(sourceSpellings, tempDir, "original");
+
+            // The distinction the fix exists to preserve: three source spellings, three renderings.
+            Assert.Equal("int32[...]", rendered[0]);
+            Assert.Equal("int32[]", rendered[1]);
+            Assert.Equal("int32[,]", rendered[2]);
+            Assert.Equal(3, rendered.Distinct(StringComparer.Ordinal).Count());
+
+            // Reassembling what CanonicalIL spelled must reproduce the exact signatures.
+            var (roundtrippedBlobs, _) = AssembleAndRender(rendered, tempDir, "roundtripped");
+
+            for (int i = 0; i < sourceSpellings.Length; i++)
+            {
+                Assert.Equal(originalBlobs[i], roundtrippedBlobs[i]);
+            }
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    /// <summary>
+    /// Assembles a class with one static method per spelling, then returns each method's raw
+    /// signature blob alongside the parameter type as <c>CanonicalIL</c> renders it.
+    /// </summary>
+    static (byte[][] SignatureBlobs, string[] Rendered) AssembleAndRender(
+        IReadOnlyList<string> parameterSpellings,
+        string tempDir,
+        string name)
+    {
+        var il = new System.Text.StringBuilder();
+        il.AppendLine(".assembly extern mscorlib { .ver 4:0:0:0 }");
+        il.AppendLine($".assembly {name} {{}}");
+        il.AppendLine(".class public Shapes {");
+        for (int i = 0; i < parameterSpellings.Count; i++)
+        {
+            il.AppendLine(
+                $"  .method public static void M{i}({parameterSpellings[i]} a) cil managed {{ ret }}");
+        }
+
+        il.AppendLine("}");
+
+        string ilPath = Path.Combine(tempDir, $"{name}.il");
+        string dllPath = Path.Combine(tempDir, $"{name}.dll");
+        File.WriteAllText(ilPath, il.ToString());
+        RunILAsm(ilPath, dllPath);
+
+        using var stream = File.OpenRead(dllPath);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+
+        var blobs = new byte[parameterSpellings.Count][];
+        var rendered = new string[parameterSpellings.Count];
+        foreach (var handle in reader.MethodDefinitions)
+        {
+            var method = reader.GetMethodDefinition(handle);
+            string methodName = reader.GetString(method.Name);
+            if (!methodName.StartsWith('M') || !int.TryParse(methodName[1..], out int index))
+                continue;
+
+            blobs[index] = reader.GetBlobBytes(method.Signature);
+            rendered[index] = method
+                .DecodeSignature(ILSignatureTypeProvider.Instance, genericContext: null)
+                .ParameterTypes[0];
+        }
+
+        Assert.All(blobs, blob => Assert.NotNull(blob));
+        return (blobs, rendered);
+    }
+
     // --- Helpers ---
 
     static string ResolveAssembly(string key) => key switch

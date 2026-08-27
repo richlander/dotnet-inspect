@@ -4,506 +4,632 @@
 //   eng/generate-inspect-web-engine-dts.sh
 // CI fails if the committed file drifts from this output.
 
-export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Ambiguous";
+export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Ambiguous" | number;
 
-export type BrowserDependencyCoordinateProvenance = "NuGetPackage" | "PlatformRuntime";
+export type BrowserDependencyCoordinateProvenance = "NuGetPackage" | "PlatformRuntime" | number;
 
 export interface BrowserAccessibilityDescriptor {
-  id: string;
-  label: string;
-  order: number;
-  isDefault: boolean;
-  count: number;
+  readonly id: string;
+  readonly label: string;
+  readonly order: number;
+  readonly isDefault: boolean;
+  readonly count: number;
+}
+
+export interface BrowserAllocationFact {
+  readonly kind: string;
+  readonly type: string | null;
+  readonly offset: string;
+  readonly countedAsHeap: boolean;
+  readonly frequency: string;
+  readonly multiplicity: string;
+  readonly path: string;
+  readonly escape: string;
+  readonly inLoop: boolean;
+  readonly estimatedSizeBytes: number | null;
+  readonly detail: string | null;
 }
 
 export interface BrowserAnnotatedSource {
-  document: unknown;
-  provenance: string;
-  contextLimitation: string | null;
+  readonly document: unknown;
+  readonly provenance: string;
+  readonly contextLimitation: string | null;
 }
 
 export interface BrowserAssemblyReference {
-  name: string;
-  version: string;
-  culture: string | null;
-  publicKeyToken: string | null;
+  readonly name: string;
+  readonly version: string;
+  readonly culture: string | null;
+  readonly publicKeyToken: string | null;
 }
 
 export interface BrowserAssemblySurface {
-  id: string;
-  name: string;
-  version: string;
-  culture: string | null;
-  publicKeyToken: string | null;
-  asset: string;
-  publicTypes: number;
-  publicMembers: number;
-  platformPack: string | null;
+  readonly id: string;
+  readonly name: string;
+  readonly version: string;
+  readonly culture: string | null;
+  readonly publicKeyToken: string | null;
+  readonly asset: string;
+  readonly publicTypes: number;
+  readonly publicMembers: number;
+  readonly platformPack: string | null;
 }
 
 export interface BrowserBuildIdentity {
-  version: string;
-  commit: string | null;
-  builtAtUtc: string | null;
-  commitUrl: string | null;
+  readonly version: string;
+  readonly commit: string | null;
+  readonly builtAtUtc: string | null;
+  readonly commitUrl: string | null;
+}
+
+export interface BrowserCallFact {
+  readonly callee: string;
+  readonly offset: string;
+  readonly opcode: string;
+  readonly kind: string;
+  readonly multiplicity: string;
+  readonly inLoop: boolean;
 }
 
 export interface BrowserCallGraph {
-  mermaid: string;
-  callers: BrowserCallGraphNode;
-  callees: BrowserCallGraphNode;
-  scope: BrowserCallGraphScope;
-  targets: BrowserCallGraphTarget[];
-  diagnostics: BrowserCallGraphDiagnostics;
-  noBody: boolean;
+  readonly mermaid: string;
+  readonly callers: BrowserCallGraphNode;
+  readonly callees: BrowserCallGraphNode;
+  readonly scope: BrowserCallGraphScope;
+  readonly targets: ReadonlyArray<BrowserCallGraphTarget>;
+  readonly diagnostics: BrowserCallGraphDiagnostics;
+  readonly noBody: boolean;
 }
 
 export interface BrowserCallGraphDiagnostics {
-  incompleteNodes: number;
-  incompleteEdges: number;
-  bindingIdentityConflicts: number;
-  hasUnexploredTraversalBoundary: boolean;
-  hasAnalysisFailureBoundary: boolean;
-  isIncomplete: boolean;
+  readonly incompleteNodes: number;
+  readonly incompleteEdges: number;
+  readonly bindingIdentityConflicts: number;
+  readonly hasUnexploredTraversalBoundary: boolean;
+  readonly hasAnalysisFailureBoundary: boolean;
+  readonly isIncomplete: boolean;
 }
 
 export interface BrowserCallGraphNode {
-  label: string;
-  status: string;
-  inLoop: boolean;
-  source: string | null;
-  children: BrowserCallGraphNode[];
-  assembly: string;
-  typeFullName: string;
-  memberName: string;
+  readonly label: string;
+  readonly status: string;
+  readonly inLoop: boolean;
+  readonly source: string | null;
+  readonly children: ReadonlyArray<BrowserCallGraphNode>;
+  readonly assembly: string;
+  readonly typeFullName: string;
+  readonly memberName: string;
 }
 
 export interface BrowserCallGraphScope {
-  packages: number;
-  assemblies: number;
-  callerAssemblies: number;
-  calleeScope: string;
+  readonly packages: number;
+  readonly assemblies: number;
+  readonly callerAssemblies: number;
+  readonly calleeScope: string;
 }
 
 export interface BrowserCallGraphTarget {
-  id: string;
-  assembly: string;
-  assemblyVersion: string | null;
-  assemblyCulture: string | null;
-  assemblyPublicKeyToken: string | null;
-  typeFullName: string;
-  typeMetadataId: string | null;
-  typeDefinitionId: string | null;
-  memberName: string;
-  parameterTypes: string[];
-  returnType: string;
-  genericArity: number;
-  metadataToken: number | null;
-  selectorKey: string;
-  kind: string;
-  platformPack: string | null;
+  readonly id: string;
+  readonly assembly: string;
+  readonly assemblyVersion: string | null;
+  readonly assemblyCulture: string | null;
+  readonly assemblyPublicKeyToken: string | null;
+  readonly typeFullName: string;
+  readonly typeMetadataId: string | null;
+  readonly typeDefinitionId: string | null;
+  readonly memberName: string;
+  readonly parameterTypes: ReadonlyArray<string>;
+  readonly returnType: string;
+  readonly genericArity: number;
+  readonly metadataToken: number | null;
+  readonly selectorKey: string;
+  readonly kind: string;
+  readonly platformPack: string | null;
 }
 
 export interface BrowserDependencyCoordinateCandidate {
-  key: string;
-  provenance: BrowserDependencyCoordinateProvenance;
-  packageId: string;
-  version: string;
-  targetFramework: string;
+  readonly key: string;
+  readonly provenance: BrowserDependencyCoordinateProvenance;
+  readonly packageId: string;
+  readonly version: string;
+  readonly targetFramework: string;
 }
 
 export interface BrowserDependencyCoordinateMatch {
-  outcome: BrowserDependencyCoordinateMatchOutcome;
-  candidateKey: string | null;
+  readonly outcome: BrowserDependencyCoordinateMatchOutcome;
+  readonly candidateKey: string | null;
+}
+
+export interface BrowserExceptionRegion {
+  readonly region: number;
+  readonly clause: string;
+  readonly tryRange: string;
+  readonly handlerRange: string;
+  readonly filterRange: string | null;
+  readonly caughtType: string | null;
 }
 
 export interface BrowserExceptionSurface {
-  type: string;
-  description: string;
+  readonly type: string;
+  readonly description: string;
+}
+
+export interface BrowserGraphMemberSurface {
+  readonly member: BrowserMemberSurface;
+  readonly selectedBody: BrowserMemberBodySelector;
 }
 
 export interface BrowserHomeDemoCatalog {
-  demos: BrowserHomeDemoCatalogEntry[];
+  readonly demos: ReadonlyArray<BrowserHomeDemoCatalogEntry>;
 }
 
 export interface BrowserHomeDemoCatalogEntry {
-  id: string;
-  title: string;
-  summary: string;
+  readonly id: string;
+  readonly title: string;
+  readonly summary: string;
 }
 
 export interface BrowserHomeDemoMember {
-  kind: string;
-  id: string;
-  version: string | null;
-  framework: string | null;
-  assembly: string | null;
+  readonly kind: string;
+  readonly id: string;
+  readonly version: string | null;
+  readonly framework: string | null;
+  readonly assembly: string | null;
 }
 
 export interface BrowserHomeDemoNavigationTab {
-  id: string;
-  member: BrowserHomeDemoMember;
+  readonly id: string;
+  readonly member: BrowserHomeDemoMember;
 }
 
 export interface BrowserHomeDemoResolveResult {
-  found: boolean;
-  demo: BrowserHomeDemoResolved | null;
+  readonly found: boolean;
+  readonly demo: BrowserHomeDemoResolved | null;
 }
 
 export interface BrowserHomeDemoResolved {
-  id: string;
-  title: string;
-  summary: string;
-  workspaceMembers: BrowserHomeDemoMember[];
-  tabs: BrowserHomeDemoNavigationTab[];
-  focusTabIndex: number;
-  view: BrowserHomeDemoView;
+  readonly id: string;
+  readonly title: string;
+  readonly summary: string;
+  readonly workspaceMembers: ReadonlyArray<BrowserHomeDemoMember>;
+  readonly tabs: ReadonlyArray<BrowserHomeDemoNavigationTab>;
+  readonly focusTabIndex: number;
+  readonly view: BrowserHomeDemoView;
 }
 
 export interface BrowserHomeDemoRunActivation {
-  focusPackage: string;
-  focusVersion: string;
-  focusFramework: string;
-  typeId: string;
-  section: string;
-  memberName: string | null;
-  memberKind: string | null;
-  memberAnchorDigest: string | null;
-  memberSection: string | null;
+  readonly focusPackage: string;
+  readonly focusVersion: string;
+  readonly focusFramework: string;
+  readonly typeId: string;
+  readonly section: string;
+  readonly memberName: string | null;
+  readonly memberKind: string | null;
+  readonly memberAnchorDigest: string | null;
+  readonly memberSection: string | null;
 }
 
 export interface BrowserHomeDemoRunResult {
-  found: boolean;
-  packages: BrowserPackageSurface[];
-  activation: BrowserHomeDemoRunActivation | null;
-  callGraph: BrowserCallGraph | null;
+  readonly found: boolean;
+  readonly packages: ReadonlyArray<BrowserPackageSurface>;
+  readonly activation: BrowserHomeDemoRunActivation | null;
+  readonly callGraph: BrowserCallGraph | null;
 }
 
 export interface BrowserHomeDemoView {
-  library: string | null;
-  type: string | null;
-  memberAnchor: string | null;
-  memberKey: string | null;
-  section: string | null;
+  readonly library: string | null;
+  readonly type: string | null;
+  readonly memberAnchor: string | null;
+  readonly memberKey: string | null;
+  readonly section: string | null;
 }
 
 export interface BrowserIntegrationCategory {
-  integration: string;
-  signals: BrowserIntegrationSignal[];
+  readonly integration: string;
+  readonly signals: ReadonlyArray<BrowserIntegrationSignal>;
 }
 
 export interface BrowserIntegrationSignal {
-  kind: string;
-  name: string;
-  shape: string;
+  readonly kind: string;
+  readonly name: string;
+  readonly shape: string;
 }
 
 export interface BrowserMemberBodySelector {
-  token: number;
-  memberName: string;
-  selectorKey: string;
+  readonly token: number;
+  readonly memberName: string;
+  readonly selectorKey: string;
 }
 
 export interface BrowserMemberDocumentation {
-  summary: string | null;
-  returns: string | null;
-  parameters: Record<string, string>;
-  exceptions: BrowserExceptionSurface[];
+  readonly summary: string | null;
+  readonly returns: string | null;
+  readonly parameters: Readonly<Record<string, string>>;
+  readonly exceptions: ReadonlyArray<BrowserExceptionSurface>;
+}
+
+export interface BrowserMemberFacts {
+  readonly metadataToken: number;
+  readonly signals: BrowserMethodSignals;
+  readonly allocations: ReadonlyArray<BrowserAllocationFact>;
+  readonly calls: ReadonlyArray<BrowserCallFact>;
+  readonly safety: ReadonlyArray<BrowserSafetyFact>;
+  readonly exceptionRegions: ReadonlyArray<BrowserExceptionRegion>;
+  readonly performanceOpportunities: ReadonlyArray<BrowserPerformanceOpportunity>;
+  readonly diagnostics: ReadonlyArray<string>;
 }
 
 export interface BrowserMemberSurface {
-  name: string;
-  kind: string;
-  signature: string;
-  accessibility: string;
-  isStatic: boolean;
-  isUnsafe: boolean;
-  isVirtual: boolean;
-  isAbstract: boolean;
-  isOverride: boolean;
-  isExtension: boolean;
-  isObsolete: boolean;
-  genericArity: number;
-  metadataToken: number | null;
-  returnType: string | null;
-  parameters: BrowserParameterSurface[];
-  documentationId: string | null;
-  summary: string | null;
-  returns: string | null;
-  exceptions: BrowserExceptionSurface[];
-  stableSelector: string;
-  anchorDigest: string;
-  canonicalSignature: string;
-  graphSelectorKey: string;
-  bodySelectors: BrowserMemberBodySelector[];
+  readonly name: string;
+  readonly kind: string;
+  readonly signature: string;
+  readonly accessibility: string;
+  readonly isStatic: boolean;
+  readonly isUnsafe: boolean;
+  readonly isVirtual: boolean;
+  readonly isAbstract: boolean;
+  readonly isOverride: boolean;
+  readonly isExtension: boolean;
+  readonly isObsolete: boolean;
+  readonly genericArity: number;
+  readonly metadataToken: number | null;
+  readonly returnType: string | null;
+  readonly parameters: ReadonlyArray<BrowserParameterSurface>;
+  readonly documentationId: string | null;
+  readonly summary: string | null;
+  readonly returns: string | null;
+  readonly exceptions: ReadonlyArray<BrowserExceptionSurface>;
+  readonly stableSelector: string;
+  readonly anchorDigest: string;
+  readonly canonicalSignature: string;
+  readonly graphSelectorKey: string;
+  readonly bodySelectors: ReadonlyArray<BrowserMemberBodySelector>;
+}
+
+export interface BrowserMethodSignals {
+  readonly allocations: number;
+  readonly copies: number;
+  readonly unsafe: boolean;
+  readonly reflection: number;
+  readonly throws: number;
+  readonly catches: number;
+  readonly finallys: number;
+  readonly allocatesInLoop: boolean;
+  readonly evidenceOffsets: ReadonlyArray<string>;
+  readonly exceptionTypes: ReadonlyArray<string>;
 }
 
 export interface BrowserOpportunityCategory {
-  integration: string;
-  items: BrowserOpportunityItem[];
+  readonly integration: string;
+  readonly items: ReadonlyArray<BrowserOpportunityItem>;
 }
 
 export interface BrowserOpportunityItem {
-  api: string;
-  integrationType: string;
-  lookFor: string;
-  sourceDefinitionId: string | null;
-  sourceAssembly: string;
-  sourceAssemblyVersion: string;
-  sourceAssemblyCulture: string | null;
-  sourceAssemblyPublicKeyToken: string | null;
+  readonly api: string;
+  readonly integrationType: string;
+  readonly lookFor: string;
+  readonly sourceDefinitionId: string | null;
+  readonly sourceAssembly: string;
+  readonly sourceAssemblyVersion: string;
+  readonly sourceAssemblyCulture: string | null;
+  readonly sourceAssemblyPublicKeyToken: string | null;
 }
 
 export interface BrowserPackageCacheStats {
-  packages: number;
-  resident: number;
-  workspaces: number;
-  residentBytes: number;
+  readonly packages: number;
+  readonly resident: number;
+  readonly workspaces: number;
+  readonly residentBytes: number;
 }
 
 export interface BrowserPackageDependencies {
-  package: string;
-  version: string;
-  activeFramework: string;
-  assembly: string;
-  dependencyGroups: BrowserPackageDependencyGroup[];
-  assemblyReferences: BrowserAssemblyReference[];
-  dependencyGroupError: string | null;
-  assemblyReferenceError: string | null;
+  readonly package: string;
+  readonly version: string;
+  readonly activeFramework: string;
+  readonly assembly: string;
+  readonly dependencyGroups: ReadonlyArray<BrowserPackageDependencyGroup>;
+  readonly assemblyReferences: ReadonlyArray<BrowserAssemblyReference>;
+  readonly dependencyGroupError: string | null;
+  readonly assemblyReferenceError: string | null;
 }
 
 export interface BrowserPackageDependency {
-  id: string;
-  versionRange: string;
+  readonly id: string;
+  readonly versionRange: string;
 }
 
 export interface BrowserPackageDependencyGroup {
-  index: number;
-  framework: string;
-  isActive: boolean;
-  dependencies: BrowserPackageDependency[];
+  readonly index: number;
+  readonly framework: string;
+  readonly isActive: boolean;
+  readonly dependencies: ReadonlyArray<BrowserPackageDependency>;
 }
 
 export interface BrowserPackageDocument {
-  kind: string;
-  name: string;
-  path: string;
-  size: number;
+  readonly kind: string;
+  readonly name: string;
+  readonly path: string;
+  readonly size: number;
 }
 
 export interface BrowserPackageDocumentContent {
-  kind: string;
-  name: string;
-  path: string;
-  text: string;
+  readonly kind: string;
+  readonly name: string;
+  readonly path: string;
+  readonly text: string;
 }
 
 export interface BrowserPackageIntegrations {
-  package: string;
-  version: string;
-  framework: string;
-  categories: BrowserIntegrationCategory[];
-  totalSignals: number;
-  isComplete: boolean;
-  inspectionError: string | null;
+  readonly package: string;
+  readonly version: string;
+  readonly framework: string;
+  readonly categories: ReadonlyArray<BrowserIntegrationCategory>;
+  readonly totalSignals: number;
+  readonly isComplete: boolean;
+  readonly inspectionError: string | null;
 }
 
 export interface BrowserPackageOpportunities {
-  package: string;
-  version: string;
-  activeFramework: string;
-  categories: BrowserOpportunityCategory[];
-  totalOpportunities: number;
-  isComplete: boolean;
-  inspectionError: string | null;
+  readonly package: string;
+  readonly version: string;
+  readonly activeFramework: string;
+  readonly categories: ReadonlyArray<BrowserOpportunityCategory>;
+  readonly totalOpportunities: number;
+  readonly isComplete: boolean;
+  readonly inspectionError: string | null;
 }
 
 export interface BrowserPackagePerformance {
-  members: BrowserPerformanceMember[];
-  inspectionError: string | null;
-  nonPublicOpportunities: number;
-  totalOpportunities: number;
+  readonly members: ReadonlyArray<BrowserPerformanceMember>;
+  readonly inspectionError: string | null;
+  readonly nonPublicOpportunities: number;
+  readonly totalOpportunities: number;
 }
 
 export interface BrowserPackageSurface {
-  package: string;
-  version: string;
-  frameworks: string[];
-  activeFramework: string;
-  defaultAssemblyId: string;
-  assemblies: BrowserAssemblySurface[];
-  types: BrowserTypeSurface[];
-  accessibility: BrowserAccessibilityDescriptor[];
-  totalMembers: number;
-  documents: BrowserPackageDocument[];
-  inspectionErrors: string[];
-  inspectionError: string | null;
+  readonly package: string;
+  readonly version: string;
+  readonly frameworks: ReadonlyArray<string>;
+  readonly activeFramework: string;
+  readonly defaultAssemblyId: string;
+  readonly assemblies: ReadonlyArray<BrowserAssemblySurface>;
+  readonly types: ReadonlyArray<BrowserTypeSurface>;
+  readonly accessibility: ReadonlyArray<BrowserAccessibilityDescriptor>;
+  readonly totalMembers: number;
+  readonly documents: ReadonlyArray<BrowserPackageDocument>;
+  readonly inspectionErrors: ReadonlyArray<string>;
+  readonly inspectionError: string | null;
 }
 
 export interface BrowserParameterSurface {
-  name: string;
-  type: string;
-  modifier: string | null;
-  hasDefault: boolean;
-  defaultValue: string | null;
-  description: string | null;
+  readonly name: string;
+  readonly type: string;
+  readonly modifier: string | null;
+  readonly hasDefault: boolean;
+  readonly defaultValue: string | null;
+  readonly description: string | null;
 }
 
 export interface BrowserPerformanceMember {
-  assembly: string;
-  typeId: string;
-  memberName: string;
-  stableSelector: string;
-  bodyTokens: number[];
-  opportunityCount: number;
-  inLoopCount: number;
-  shapes: string[];
-  confidence: string;
+  readonly assembly: string;
+  readonly typeId: string;
+  readonly memberName: string;
+  readonly stableSelector: string;
+  readonly bodyTokens: ReadonlyArray<number>;
+  readonly opportunityCount: number;
+  readonly inLoopCount: number;
+  readonly shapes: ReadonlyArray<string>;
+  readonly confidence: string;
+}
+
+export interface BrowserPerformanceOpportunity {
+  readonly shape: string;
+  readonly evidence: string;
+  readonly fix: string;
+  readonly confidence: string;
+  readonly offset: string | null;
+  readonly inLoop: boolean;
+  readonly caveat: string | null;
+  readonly finding: string | null;
+  readonly provenance: string;
+}
+
+export interface BrowserSafetyFact {
+  readonly kind: string;
+  readonly offset: string | null;
+  readonly operation: string;
+  readonly requirement: string;
+  readonly evidence: string;
 }
 
 export interface BrowserSource {
-  provider: string;
-  provenance: string;
-  url: string | null;
-  pdbSourceLimitation: string | null;
-  text: string;
+  readonly provider: string;
+  readonly provenance: string;
+  readonly url: string | null;
+  readonly pdbSourceLimitation: string | null;
+  readonly text: string;
 }
 
 export interface BrowserTypeCandidate {
-  key: string;
-  name: string;
-  full: string;
+  readonly key: string;
+  readonly name: string;
+  readonly full: string;
 }
 
 export interface BrowserTypeComposition {
-  methods: number;
-  properties: number;
-  fields: number;
-  events: number;
-  constructors: number;
-  operators: number;
-  explicitInterfaceImplementations: number;
-  extensionMethods: number;
-  static: number;
-  unsafe: number;
-  async: number;
-  virtual: number;
-  abstract: number;
-  override: number;
-  extension: number;
-  obsolete: number;
-  total: number;
+  readonly methods: number;
+  readonly properties: number;
+  readonly fields: number;
+  readonly events: number;
+  readonly constructors: number;
+  readonly operators: number;
+  readonly explicitInterfaceImplementations: number;
+  readonly extensionMethods: number;
+  readonly static: number;
+  readonly unsafe: number;
+  readonly async: number;
+  readonly virtual: number;
+  readonly abstract: number;
+  readonly override: number;
+  readonly extension: number;
+  readonly obsolete: number;
+  readonly total: number;
 }
 
 export interface BrowserTypeGraphEdge {
-  fromId: string;
-  toId: string;
-  kind: string;
+  readonly fromId: string;
+  readonly toId: string;
+  readonly kind: string;
 }
 
 export interface BrowserTypeGraphNode {
-  id: string;
-  displayName: string;
-  role: string;
+  readonly id: string;
+  readonly displayName: string;
+  readonly role: string;
 }
 
 export interface BrowserTypeMetadata {
-  fullName: string;
-  namespace: string | null;
-  name: string;
-  kind: string;
-  modifiers: string[];
-  accessibility: string | null;
-  assembly: string | null;
-  baseType: string | null;
-  interfaces: string[];
-  derivedTypes: string[];
-  typeParameters: BrowserTypeParameter[];
-  attributes: string[];
-  enumUnderlyingType: string | null;
-  composition: BrowserTypeComposition | null;
-  graphNodes: BrowserTypeGraphNode[];
-  graphEdges: BrowserTypeGraphEdge[];
-  inspectionFailures: string[];
+  readonly fullName: string;
+  readonly namespace: string | null;
+  readonly name: string;
+  readonly kind: string;
+  readonly modifiers: ReadonlyArray<string>;
+  readonly accessibility: string | null;
+  readonly assembly: string | null;
+  readonly baseType: string | null;
+  readonly interfaces: ReadonlyArray<string>;
+  readonly derivedTypes: ReadonlyArray<string>;
+  readonly typeParameters: ReadonlyArray<BrowserTypeParameter>;
+  readonly attributes: ReadonlyArray<string>;
+  readonly enumUnderlyingType: string | null;
+  readonly composition: BrowserTypeComposition | null;
+  readonly graphNodes: ReadonlyArray<BrowserTypeGraphNode>;
+  readonly graphEdges: ReadonlyArray<BrowserTypeGraphEdge>;
+  readonly inspectionFailures: ReadonlyArray<string>;
 }
 
 export interface BrowserTypeParameter {
-  name: string;
-  variance: string | null;
-  constraints: string[];
+  readonly name: string;
+  readonly variance: string | null;
+  readonly constraints: ReadonlyArray<string>;
 }
 
 export interface BrowserTypeSearchHit {
-  key: string;
-  kind: string;
+  readonly key: string;
+  readonly kind: string;
 }
 
 export interface BrowserTypeSurface {
-  id: string;
-  definitionId: string;
-  queryId: string;
-  metadataId: string;
-  name: string;
-  displayName: string;
-  namespace: string;
-  kind: string;
-  accessibility: string;
-  accessibilityId: string;
-  assembly: string;
-  assemblyId: string;
-  assemblyName: string;
-  members: number;
-  signature: string;
-  api: BrowserMemberSurface[];
-  platformPack: string | null;
+  readonly id: string;
+  readonly definitionId: string;
+  readonly queryId: string;
+  readonly metadataId: string;
+  readonly name: string;
+  readonly displayName: string;
+  readonly namespace: string;
+  readonly kind: string;
+  readonly accessibility: string;
+  readonly accessibilityId: string;
+  readonly assembly: string;
+  readonly assemblyId: string;
+  readonly assemblyName: string;
+  readonly members: number;
+  readonly signature: string;
+  readonly api: ReadonlyArray<BrowserMemberSurface>;
+  readonly platformPack: string | null;
 }
 
 export interface BrowserVocabularyDocument {
-  schema_version: number;
-  sections: BrowserVocabularySection[];
+  readonly schema_version: number;
+  readonly sections: ReadonlyArray<BrowserVocabularySection>;
 }
 
 export interface BrowserVocabularyField {
-  id: string;
-  label: string;
-  summary: string;
-  type: string;
-  operators: string[];
+  readonly id: string;
+  readonly label: string;
+  readonly summary: string;
+  readonly type: string;
+  readonly operators: ReadonlyArray<string>;
 }
 
 export interface BrowserVocabularySection {
-  id: string;
-  name: string;
-  summary: string;
-  categories: string[];
-  accepted_by: string[];
-  fields: BrowserVocabularyField[];
-  values: unknown[];
+  readonly id: string;
+  readonly name: string;
+  readonly summary: string;
+  readonly categories: ReadonlyArray<string>;
+  readonly accepted_by: ReadonlyArray<string>;
+  readonly fields: ReadonlyArray<BrowserVocabularyField>;
+  readonly values: ReadonlyArray<unknown>;
 }
 
-export interface BrowserWorkspacePackage {
-  package: string;
-  version: string;
-  framework: string;
+export interface BrowserWorkspaceShareContext {
+  readonly id: string;
+  readonly tabIds: ReadonlyArray<string>;
+}
+
+export interface BrowserWorkspaceShareDecodeResult {
+  readonly succeeded: boolean;
+  readonly state: BrowserWorkspaceShareState | null;
+  readonly failure: BrowserWorkspaceShareFailure | null;
+}
+
+export interface BrowserWorkspaceShareEncodeResult {
+  readonly succeeded: boolean;
+  readonly packet: string | null;
+  readonly failure: BrowserWorkspaceShareFailure | null;
+}
+
+export interface BrowserWorkspaceShareFailure {
+  readonly kind: string;
+  readonly path: string;
+  readonly message: string;
+}
+
+export interface BrowserWorkspaceShareState {
+  readonly tabs: ReadonlyArray<BrowserWorkspaceShareTab>;
+  readonly contexts: ReadonlyArray<BrowserWorkspaceShareContext>;
+  readonly activeTabId: string;
+  readonly selectedContextId: string;
+  readonly view: BrowserWorkspaceShareView;
+}
+
+export interface BrowserWorkspaceShareTab {
+  readonly id: string;
+  readonly kind: string;
+  readonly source: string;
+  readonly version: string | null;
+  readonly framework: string | null;
+  readonly runtimeIdentifier: string | null;
+}
+
+export interface BrowserWorkspaceShareView {
+  readonly lens: string | null;
+  readonly type: string | null;
+  readonly memberAnchor: string | null;
+  readonly memberSignature: string | null;
+  readonly section: string | null;
+  readonly libraries: ReadonlyArray<string>;
 }
 
 export declare function initializeEngine(onStatus?: (status: string) => void): Promise<unknown>;
 export declare function buildIdentity(): BrowserBuildIdentity;
 export declare function cancelSourceQuery(): void;
 export declare function configureHost(origin: string): void;
-export declare function expandPlatformCallGraph(targetFramework: string, assembly: string, pack: string, assemblyVersion: string, assemblyCulture: string | null, assemblyPublicKeyToken: string | null, typeFullName: string, memberName: string, selectorKey: string, metadataToken: number): Promise<BrowserCallGraph>;
+export declare function decodeWorkspaceShareState(encoded: string): BrowserWorkspaceShareDecodeResult;
+export declare function encodeWorkspaceShareState(stateJson: string): BrowserWorkspaceShareEncodeResult;
+export declare function expandPlatformCallGraph(targetFramework: string, platformVersion: string, assembly: string, pack: string, assemblyVersion: string, assemblyCulture: string | null, assemblyPublicKeyToken: string | null, typeFullName: string, memberName: string, selectorKey: string, metadataToken: number): Promise<BrowserCallGraph>;
 export declare function getPackageDocument(packageId: string, version: string, path: string): Promise<BrowserPackageDocumentContent>;
 export declare function listHomeDemos(): BrowserHomeDemoCatalog;
 export declare function listVocabulary(): BrowserVocabularyDocument;
-export declare function loadRuntimePack(targetFramework: string): Promise<string>;
-export declare function loadRuntimePackAssembly(targetFramework: string, assemblyFileName: string, pack: string): Promise<string>;
+export declare function loadRuntimePack(targetFramework: string, platformVersion: string): Promise<string>;
+export declare function loadRuntimePackAssembly(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<string>;
 export declare function matchPackageDependencyCoordinate(packageId: string, declaredRange: string | null, candidatesJson: string): BrowserDependencyCoordinateMatch;
 export declare function packageCacheStats(): BrowserPackageCacheStats;
-export declare function queryGraphMemberSurface(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number): Promise<BrowserMemberSurface>;
+export declare function queryGraphMemberSurface(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number): Promise<BrowserGraphMemberSurface>;
 export declare function queryMemberAnnotatedSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserAnnotatedSource>;
 export declare function queryMemberCallGraph(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, workspaceJson: string): Promise<BrowserCallGraph>;
 export declare function queryMemberDocumentation(packageId: string, version: string, framework: string, assemblyName: string, documentationId: string): Promise<BrowserMemberDocumentation>;
-export declare function queryMemberFacts(packageId: string, version: string, targetFramework: string, assemblyName: string, typeId: string, memberName: string, memberSignature: string): Promise<string>;
+export declare function queryMemberFacts(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, implementationBodySelected: boolean): Promise<BrowserMemberFacts>;
 export declare function queryMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserSource>;
 export declare function queryPackage(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageSurface>;
 export declare function queryPackageDependencies(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<BrowserPackageDependencies>;
@@ -513,17 +639,17 @@ export declare function queryPackageMetadata(packageId: string, version: string,
 export declare function queryPackageMetadataTable(packageId: string, version: string, targetFramework: string, assemblyFileName: string, tableIndex: number, startRowId: number, maxRows: number): Promise<string>;
 export declare function queryPackageOpportunities(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageOpportunities>;
 export declare function queryPackagePerformance(packageId: string, version: string, targetFramework: string): Promise<BrowserPackagePerformance>;
-export declare function queryPackageVersions(packageId: string): Promise<string[]>;
-export declare function queryPlatformHeapEntries(targetFramework: string, assemblyFileName: string, pack: string, heap: string): Promise<string>;
-export declare function queryPlatformIntegrations(targetFramework: string, assemblyFileName: string, pack: string): Promise<BrowserPackageIntegrations>;
-export declare function queryPlatformMetadata(targetFramework: string, assemblyFileName: string, pack: string): Promise<string>;
-export declare function queryPlatformMetadataTable(targetFramework: string, assemblyFileName: string, pack: string, tableIndex: number, startRowId: number, maxRows: number): Promise<string>;
-export declare function queryPlatformOpportunities(targetFramework: string, assemblyFileName: string, pack: string): Promise<BrowserPackageOpportunities>;
-export declare function queryPlatformPerformance(targetFramework: string, assemblyFileName: string, pack: string): Promise<string>;
+export declare function queryPackageVersions(packageId: string): Promise<ReadonlyArray<string>>;
+export declare function queryPlatformHeapEntries(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, heap: string): Promise<string>;
+export declare function queryPlatformIntegrations(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<BrowserPackageIntegrations>;
+export declare function queryPlatformMetadata(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<string>;
+export declare function queryPlatformMetadataTable(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, tableIndex: number, startRowId: number, maxRows: number): Promise<string>;
+export declare function queryPlatformOpportunities(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<BrowserPackageOpportunities>;
+export declare function queryPlatformPerformance(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<string>;
 export declare function queryTypeMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserSource>;
 export declare function queryTypeProjection(packageId: string, version: string, targetFramework: string, assemblyName: string, typeId: string): Promise<BrowserTypeMetadata>;
 export declare function queryTypeSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string): Promise<BrowserSource>;
 export declare function resolveHomeDemo(scenarioId: string): BrowserHomeDemoResolveResult;
 export declare function resolvePackageDependencyVersion(packageId: string, declaredRange: string | null): Promise<string>;
 export declare function runHomeDemo(scenarioId: string): Promise<BrowserHomeDemoRunResult>;
-export declare function searchTypes(query: string, candidatesJson: string): BrowserTypeSearchHit[];
+export declare function searchTypes(query: string, candidatesJson: string): ReadonlyArray<BrowserTypeSearchHit>;

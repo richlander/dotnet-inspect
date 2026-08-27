@@ -76,6 +76,66 @@ dependency direction and the assembly owner.
 The typed evaluation stack is opt-in via `MethodInstructions.InterpretStack(...)`,
 so broad scans and the offset join never pay for it.
 
+Analysis also projects a narrow call-result-use fact onto `DirectCall`: a
+non-void result can be identified as directly returned, discarded, or stored
+once and then supplied to another call. This is consumer-owned Layer 1 built
+from the shared instructions and Analysis reaching definitions; it is not a
+general cross-consumer symbolic stack. Unknown, multiply used, address-taken,
+or otherwise unresolved flows stay `Unknown`.
+`MethodCallAnalysisTests.ClassifiesReturnedAndDiscardedCallResults` and
+`ClassifiesSingleLocalUseAsCallArgument` gate the projection and its conservative
+boundary.
+
+`DirectCall.FirstArgumentStringLiteral` is a separate narrow projection for
+call authentication. It is populated only when the first declared argument is
+a direct `ldstr`, or every reaching definition of an unaddressed local carries
+the same proven literal. Missing user strings, raw values, address-taken locals,
+cycles, and different merged literals remain null; Analysis does not evaluate
+general expressions or guess from display text.
+`MethodCallAnalysisTests.CollectsFirstArgumentStringLiteral` and
+`DoesNotGuessFirstArgumentStringLiteralAcrossMerge` gate the positive and
+fail-closed boundaries.
+
+`TypedStackResult.BlockExit` records the evaluation stack each block left
+behind, alongside the per-offset `StackBefore` map. A merge erases provenance at
+the join, so the value a predecessor contributed is recoverable only from what
+that block had on the stack when it exited; an unvisited block keeps a default
+exit, which is how a consumer distinguishes "never reached" from "reached and
+left nothing".
+`SubstrateTests.Retains_per_block_exit_stacks_including_unreached_blocks` gates
+it. Value-changing unary and shift operations stamp their own producer offset
+rather than retaining the input's provenance;
+`SubstrateTests.Value_changing_unary_operations_stamp_their_own_provenance`
+gates that boundary. Analysis builds `MethodReturnFlow` on top of it — see
+`docs/design/type-member-api-representation.md` — and the substrate itself stays
+model-free.
+
+For consumers that must prove a complete result envelope rather than one
+successful call-result path, Analysis also exposes `MethodResultSink`: every
+physical `ret` and each single-argument call has either all directly proven
+call-result sources or an explicit incomplete result. This remains an
+Analysis-owned Layer-1 interpretation over reaching definitions and the
+evaluation stack; raw, non-call, merged-unresolved, and incomplete sources
+never become a success-shaped producer list.
+`MethodCallAnalysisTests.ClassifiesReturnSinkSourcesAndIncompleteCoverage` and
+`MethodCallAnalysisTests.RejectsMergedEvaluationStackResultSources` gate the
+multi-branch complete case plus raw return and local-store merge boundaries.
+
+The same opt-in call-value flow separately projects an instance call's receiver
+sources. A receiver is complete only when every path comes from directly proven
+non-void call results, including through a single local; raw values,
+allocations, arguments, and unresolved merges remain incomplete.
+`MethodCallAnalysisTests.CollectsInstanceReceiverCallSources` gates the direct
+and raw boundaries. This evidence lets consumers authenticate a stable receiver
+without turning Analysis into a general symbolic evaluator.
+
+When call analysis fails inside an async state machine, the retained diagnostic
+keeps both the physical `MoveNext` MethodDef and the declared source method
+token/type. Publication consumers can therefore invalidate the original export
+instead of losing source attribution at the recoverable failure boundary.
+`JsonWireContractResolverTests.Build_RejectsRealAsyncStateMachineCallAnalysisFailure`
+patches a compiled `MoveNext` call operand and gates this attribution.
+
 ## dotnet/runtime heritage and upstream tracking
 
 The byte reader is **ported from `dotnet/runtime`** — the same
@@ -257,6 +317,29 @@ closed on numbers. Its credible future home is **memory-safety lifetime**
 (ref-struct / `scoped` / ArrayPool aliasing — runtime `StackValue.ByRef` + flags
 territory), to be measured the same way. Until then the typed stack stays a
 minimal, opt-in Layer-1 model with its own fidelity gate, not a product dependency.
+
+## Block reachability rides the existing dataflow kernel
+
+"Is this call reachable from the body entry?" is a question the JSExport
+authentication gates need — an unreachable `call` to a trusted method is not
+evidence that the call happens. It is answered by the **existing** Layer-1
+pieces, not by a new traversal and not by the gated typed stack: `BlockGraph`
+already models EH-aware edges, and `ForwardDataflow.Solve` already computes the
+`DataflowBlockState.Reachable` fixed point over them. `MethodCallAnalysis` runs
+that solve with empty transfer sets and reads reachability off the block states.
+
+Two properties follow from reusing the kernel rather than walking the
+interpreter's own path:
+
+- A call the evaluation-stack interpreter happens not to visit is still
+  classified, because reachability comes from the CFG rather than from
+  successful stack simulation.
+- The answer is tri-state. `DirectCall.IsReachable` is `bool?`, and it is null
+  when the block graph is not `IsComplete` or the feature was not requested, so
+  "unknown" can never read as "reachable". Publication requires `true`.
+
+`MethodCallResolvedValueTests.MarksCallsAfterUnconditionalBranchUnreachable` is
+the gate.
 
 ## The Metadata cutover (done)
 

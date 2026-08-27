@@ -53,7 +53,8 @@ internal sealed class DetectionHarness(
             startInfo.Environment["BASH_ENV"] = "";
             startInfo.Environment["CHANGED_FILES"] = scenario.Files;
             startInfo.Environment["CI_BEFORE_SHA"] = Before;
-            startInfo.Environment["CI_PR_NUMBER"] = "3704";
+            startInfo.Environment["CI_PR_NUMBER"] =
+                scenario.EventName == "pull_request" ? "3704" : "";
             startInfo.Environment["CHANGED_FILE_COUNT_IS_STRING"] =
                 scenario.ChangedFileCountIsString
                     .ToString()

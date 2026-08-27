@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { BrowserHomeDemoResolved } from "../src/inspect-web-engine.d.ts";
+import type {
+  BrowserHomeDemoResolved,
+  BrowserWorkspaceShareState,
+} from "../src/inspect-web-engine.d.ts";
 import {
   HOME_DEMO_PENDING_SLOT_COUNT,
   PLATFORM_RUNTIME_PACK,
@@ -148,6 +151,41 @@ const callGraphResolved: BrowserHomeDemoResolved = {
   },
 };
 
+let encodedDemoState: BrowserWorkspaceShareState | null = null;
+
+function demoHref(resolved: BrowserHomeDemoResolved): string | null {
+  encodedDemoState = null;
+  return productHomeDemoLocationHref(resolved, stateJson => {
+    const value: unknown = JSON.parse(stateJson);
+    assert.ok(isBrowserWorkspaceShareState(value));
+    encodedDemoState = value;
+    return {
+      succeeded: true,
+      packet: "canonical-demo",
+      failure: null,
+    };
+  });
+}
+
+function isBrowserWorkspaceShareState(
+  value: unknown,
+): value is BrowserWorkspaceShareState {
+  return value !== null
+    && typeof value === "object"
+    && "tabs" in value
+    && Array.isArray(value.tabs)
+    && "contexts" in value
+    && Array.isArray(value.contexts)
+    && "activeTabId" in value
+    && (value.activeTabId === null || typeof value.activeTabId === "string")
+    && "selectedContextId" in value
+    && (value.selectedContextId === null
+      || typeof value.selectedContextId === "string")
+    && "view" in value
+    && value.view !== null
+    && typeof value.view === "object";
+}
+
 function parseDemoHref(href: string) {
   const url = new URL(href, "https://inspect.local/");
   return {
@@ -157,7 +195,11 @@ function parseDemoHref(href: string) {
       pathname: url.pathname,
       search: url.search,
       hash: url.hash,
-    }),
+    }, () => ({
+      succeeded: true,
+      state: encodedDemoState,
+      failure: null,
+    })),
   };
 }
 
@@ -195,7 +237,7 @@ test("isProductHomeDemoId uses the installed engine catalog", () => {
 });
 
 test("stj-serializer deep link selects JsonSerializer on STJ 10.0.0", () => {
-  const href = productHomeDemoLocationHref(stjResolved);
+  const href = demoHref(stjResolved);
   assert.ok(href);
   const { url, location } = parseDemoHref(href);
   assert.equal(url.searchParams.get("package"), "System.Text.Json");
@@ -203,6 +245,10 @@ test("stj-serializer deep link selects JsonSerializer on STJ 10.0.0", () => {
     id: "System.Text.Json",
     version: "10.0.0",
     framework: "net10.0",
+    shareId: "t0",
+    shareKind: "package",
+    shareSource: "System.Text.Json",
+    runtimeIdentifier: null,
   }]);
   assert.equal(location.active, 0);
   assert.equal(location.type, "System.Text.Json.JsonSerializer");
@@ -210,26 +256,42 @@ test("stj-serializer deep link selects JsonSerializer on STJ 10.0.0", () => {
 });
 
 test("unversioned platform residual maps to the browser runtime pack", () => {
-  const href = productHomeDemoLocationHref(unversionedRuntimeResolved);
+  const href = demoHref(unversionedRuntimeResolved);
   assert.ok(href);
+  assert.deepEqual(encodedDemoState?.contexts, [{
+    id: "g0",
+    tabIds: ["t1", "t0"],
+  }]);
   const { url, location } = parseDemoHref(href);
-  assert.equal(url.searchParams.get("package"), PLATFORM_RUNTIME_PACK.id);
+  assert.equal(url.searchParams.get("package"), "Microsoft.NETCore.App");
   assert.deepEqual(location.tabs, [
     {
       id: "System.Text.Json",
       version: "10.0.0",
       framework: "net10.0",
+      shareId: "t0",
+      shareKind: "package",
+      shareSource: "System.Text.Json",
+      runtimeIdentifier: null,
     },
-    { ...PLATFORM_RUNTIME_PACK },
+    {
+      id: "Microsoft.NETCore.App",
+      version: PLATFORM_RUNTIME_PACK.version,
+      framework: PLATFORM_RUNTIME_PACK.framework,
+      shareId: "t1",
+      shareKind: "group",
+      shareSource: ":Platform",
+      runtimeIdentifier: null,
+    },
   ]);
   assert.equal(location.active, 1);
   assert.equal(location.library, "System.Private.CoreLib");
   assert.equal(location.type, "System.Collections.Generic.List`1");
-  assert.equal(location.package, PLATFORM_RUNTIME_PACK.id);
+  assert.equal(location.package, "Microsoft.NETCore.App");
 });
 
 test("extensions-callgraph delegates execution to the engine instead of encoding a location", () => {
-  assert.equal(productHomeDemoLocationHref(callGraphResolved), null);
+  assert.equal(demoHref(callGraphResolved), null);
 });
 
 test("single-package Call Graph demos also delegate to the engine", () => {
@@ -267,7 +329,7 @@ test("single-package Call Graph demos also delegate to the engine", () => {
       section: "Call Graph",
     },
   };
-  assert.equal(productHomeDemoLocationHref(serializeResolved), null);
+  assert.equal(demoHref(serializeResolved), null);
 });
 
 test("platform residual rejects pinned runtime coordinates", () => {
@@ -288,7 +350,7 @@ test("platform residual rejects pinned runtime coordinates", () => {
     ],
   };
   assert.throws(
-    () => productHomeDemoLocationHref(pinned),
+    () => demoHref(pinned),
     /unversioned shape/,
   );
 });

@@ -2865,6 +2865,201 @@ public class LibraryBodyIndexTests
         return image.ToArray();
     }
 
+    static byte[] EmitFieldAliasAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("FieldAlias.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("FieldAlias"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            AssemblyHashAlgorithm.Sha1);
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle owner = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Fixtures"),
+            metadata.GetOrAddString("Context"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var int32FieldSignature = new BlobBuilder();
+        new BlobEncoder(int32FieldSignature)
+            .FieldSignature()
+            .Int32();
+        BlobHandle int32Field =
+            metadata.GetOrAddBlob(int32FieldSignature);
+        FieldDefinitionHandle definition =
+            metadata.AddFieldDefinition(
+                FieldAttributes.Public | FieldAttributes.Static,
+                metadata.GetOrAddString("Value"),
+                int32Field);
+        MemberReferenceHandle alias =
+            metadata.AddMemberReference(
+                owner,
+                metadata.GetOrAddString("Value"),
+                int32Field);
+
+        AssemblyReferenceHandle selfAssembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("FieldAlias"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle selfType =
+            metadata.AddTypeReference(
+                selfAssembly,
+                metadata.GetOrAddString("Fixtures"),
+                metadata.GetOrAddString("Context"));
+        MemberReferenceHandle selfAlias =
+            metadata.AddMemberReference(
+                selfType,
+                metadata.GetOrAddString("Value"),
+                int32Field);
+
+        ModuleReferenceHandle selfModule =
+            metadata.AddModuleReference(
+                metadata.GetOrAddString("FieldAlias.dll"));
+        TypeReferenceHandle moduleType =
+            metadata.AddTypeReference(
+                selfModule,
+                metadata.GetOrAddString("Fixtures"),
+                metadata.GetOrAddString("Context"));
+        MemberReferenceHandle moduleAlias =
+            metadata.AddMemberReference(
+                moduleType,
+                metadata.GetOrAddString("Value"),
+                int32Field);
+
+        AssemblyReferenceHandle externalAssembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("FieldAlias.External"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle externalType =
+            metadata.AddTypeReference(
+                externalAssembly,
+                metadata.GetOrAddString("Fixtures"),
+                metadata.GetOrAddString("Context"));
+        MemberReferenceHandle externalAlias =
+            metadata.AddMemberReference(
+                externalType,
+                metadata.GetOrAddString("Value"),
+                int32Field);
+        var localTypeSpecSignature = new BlobBuilder();
+        localTypeSpecSignature.WriteByte(0x12);
+        localTypeSpecSignature.WriteCompressedInteger(
+            MetadataTokens.GetRowNumber(owner) << 2);
+        TypeSpecificationHandle localTypeSpec =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(localTypeSpecSignature));
+        MemberReferenceHandle localTypeSpecAlias =
+            metadata.AddMemberReference(
+                localTypeSpec,
+                metadata.GetOrAddString("Value"),
+                int32Field);
+        AssemblyReferenceHandle sameNameExternalAssembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("FieldAlias"),
+                new Version(2, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle sameNameExternalType =
+            metadata.AddTypeReference(
+                sameNameExternalAssembly,
+                metadata.GetOrAddString("Fixtures"),
+                metadata.GetOrAddString("Context"));
+        MemberReferenceHandle sameNameExternalAlias =
+            metadata.AddMemberReference(
+                sameNameExternalType,
+                metadata.GetOrAddString("Value"),
+                int32Field);
+
+        var int64FieldSignature = new BlobBuilder();
+        new BlobEncoder(int64FieldSignature)
+            .FieldSignature()
+            .Int64();
+        MemberReferenceHandle wrongSignature =
+            metadata.AddMemberReference(
+                owner,
+                metadata.GetOrAddString("Value"),
+                metadata.GetOrAddBlob(int64FieldSignature));
+        MemberReferenceHandle wrongSelfSignature =
+            metadata.AddMemberReference(
+                selfType,
+                metadata.GetOrAddString("Value"),
+                metadata.GetOrAddBlob(int64FieldSignature));
+
+        var methodSignature = new BlobBuilder();
+        new BlobEncoder(methodSignature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                0,
+                returnType => returnType.Void(),
+                _ => { });
+        var il = new BlobBuilder();
+        foreach (EntityHandle field in new EntityHandle[]
+            {
+                definition,
+                alias,
+                selfAlias,
+                moduleAlias,
+                externalAlias,
+                localTypeSpecAlias,
+                sameNameExternalAlias,
+                wrongSignature,
+                wrongSelfSignature,
+            })
+        {
+            il.WriteByte((byte)ILOpCode.Ldc_i4_0);
+            il.WriteByte((byte)ILOpCode.Stsfld);
+            il.WriteInt32(MetadataTokens.GetToken(field));
+        }
+        il.WriteByte((byte)ILOpCode.Ret);
+        var bodies = new BlobBuilder();
+        int body = new MethodBodyStreamEncoder(bodies)
+            .AddMethodBody(
+                new InstructionEncoder(il),
+                maxStack: 1);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(methodSignature),
+            body,
+            default);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
     static byte[] BuildMethodImplAsyncSourceAssembly(
         bool includeMethodImpl,
         byte siblingSignatureHeader = 0x20,
@@ -6830,6 +7025,173 @@ public class LibraryBodyIndexTests
             && c.Callee.Name == "ToString"));
 
         Assert.Equal(CallKind.CallVirtual, call.Kind);
+    }
+
+    /// <summary>
+    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is the
+    /// non-vacuity gate for tsbindgen's value-flow opt-in: plain method
+    /// evidence retains direct calls without materializing their argument,
+    /// receiver, or result flow, while the named feature supplies them.
+    /// </summary>
+    [Fact]
+    public void MethodEvidence_OmitsCallValueFlowUntilJsonWireContractFlowIsRequested()
+    {
+        string path = typeof(CallSiteFixtures).Assembly.Location;
+        LibraryBodyIndex plain = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        LibraryBodyIndex jsonWire = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+
+        Assert.NotEmpty(plain.DirectCalls);
+        Assert.Empty(plain.ResultSinks);
+        Assert.All(
+            plain.DirectCalls,
+            call =>
+            {
+                Assert.Empty(call.ArgumentSources);
+                Assert.Null(call.ReceiverSource);
+                Assert.Equal(DirectCallResultUse.Unknown, call.ResultUse);
+            });
+
+        Assert.NotEmpty(jsonWire.ResultSinks);
+        Assert.Contains(
+            jsonWire.DirectCalls,
+            call => call.ArgumentSources.Count > 0);
+        Assert.Contains(
+            jsonWire.DirectCalls,
+            call => call.ReceiverSource is not null);
+    }
+
+    [Fact]
+    public void FieldIdentity_CanonicalizesLocalMemberRefAliasBySignature()
+    {
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "FieldAlias.dll",
+                ImmutableArray.Create(EmitFieldAliasAssembly()),
+                LibraryBodyAnalysisFeatures.MethodEvidence
+                    | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        FieldStoreFact[] stores =
+        [
+            .. index.FieldStores.OrderBy(store => store.ILOffset),
+        ];
+
+        Assert.Equal(9, stores.Length);
+        FieldIdentity canonical = Assert.IsType<FieldIdentity>(
+            stores[0].Identity);
+        Assert.All(
+            stores[1..4],
+            store => Assert.Equal(canonical, store.Identity));
+        Assert.Equal(
+            stores[0].FieldToken,
+            canonical.LocalDefinitionToken);
+        FieldIdentity external = Assert.IsType<FieldIdentity>(
+            stores[4].Identity);
+        Assert.NotEqual(canonical, external);
+        Assert.Equal(0, external.LocalDefinitionToken);
+
+        // A TypeSpec parent naming a type in this module aliases the same runtime field, so it
+        // canonicalizes to the same local FieldDef the direct store resolved to. Leaving it as a
+        // token-0 identity would make it neither null nor equal, and a consumer counting
+        // single-initialization candidates would drop it rather than count it.
+        FieldIdentity typeSpec = Assert.IsType<FieldIdentity>(
+            stores[5].Identity);
+        Assert.Equal(canonical, typeSpec);
+        Assert.Equal(
+            stores[0].FieldToken,
+            typeSpec.LocalDefinitionToken);
+        Assert.All(
+            stores[6..],
+            store => Assert.Null(store.Identity));
+    }
+
+    /// <summary>
+    /// Canonicalization keeps each alias's own declaring-type spelling while equality for local
+    /// identities compares only name and local token. <c>GetHashCode</c> must therefore ignore
+    /// the declaring type whenever the token is present, or equal identities land in different
+    /// hash buckets.
+    /// </summary>
+    [Fact]
+    public void FieldIdentity_LocalAliases_HashConsistentlyWithEquality()
+    {
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "FieldAlias.dll",
+                ImmutableArray.Create(EmitFieldAliasAssembly()),
+                LibraryBodyAnalysisFeatures.MethodEvidence
+                    | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        FieldIdentity[] local =
+        [
+            .. index.FieldStores
+                .OrderBy(store => store.ILOffset)
+                .Select(store => store.Identity)
+                .OfType<FieldIdentity>()
+                .Where(identity => identity.LocalDefinitionToken != 0),
+        ];
+
+        // The FieldDef store plus every alias that canonicalized onto it.
+        Assert.Equal(5, local.Length);
+
+        // Non-vacuity: these aliases really do carry distinct declaring-type resolutions
+        // (CurrentAssembly, AssemblyReference, and ModuleReference origins for the same type),
+        // which is precisely the state the old GetHashCode mixed in and Equals ignores.
+        Assert.True(
+            local
+                .Select(identity => identity.DeclaringType.Resolution)
+                .Distinct()
+                .Count() > 1,
+            "expected aliases to retain distinct declaring-type resolutions");
+
+        Assert.All(
+            local,
+            identity =>
+            {
+                Assert.Equal(local[0], identity);
+                Assert.Equal(local[0].GetHashCode(), identity.GetHashCode());
+            });
+        Assert.Single(new HashSet<FieldIdentity>(local));
+    }
+
+    /// <summary>
+    /// The narrowness gate for <see cref="FieldIdentity.MightBeSameFieldAs"/>: counting
+    /// unproven writes as candidates must not degrade into counting every same-named field
+    /// anywhere, or an ordinary assembly stops authenticating.
+    /// </summary>
+    [Fact]
+    public void FieldIdentity_DistinguishesUnprovenForeignFields()
+    {
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "FieldAlias.dll",
+                ImmutableArray.Create(EmitFieldAliasAssembly()),
+                LibraryBodyAnalysisFeatures.MethodEvidence
+                    | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        FieldStoreFact[] stores =
+        [
+            .. index.FieldStores.OrderBy(store => store.ILOffset),
+        ];
+        FieldIdentity canonical = Assert.IsType<FieldIdentity>(
+            stores[0].Identity);
+        FieldIdentity external = Assert.IsType<FieldIdentity>(
+            stores[4].Identity);
+
+        // Same field name, a declaring type that resolves to a different assembly, and no local
+        // definition behind it: not this field, and not a candidate.
+        Assert.Equal(canonical.Name, external.Name);
+        Assert.False(canonical.MightBeSameFieldAs(external));
+        Assert.False(external.MightBeSameFieldAs(canonical));
+
+        // An access that resolved to nothing at all might be any field.
+        Assert.True(canonical.MightBeSameFieldAs(null));
+
+        // Every alias that canonicalized onto this field stays a candidate.
+        Assert.All(
+            stores[..4],
+            store => Assert.True(
+                canonical.MightBeSameFieldAs(store.Identity)));
     }
 
     [Fact]

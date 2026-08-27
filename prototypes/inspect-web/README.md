@@ -146,9 +146,15 @@ evicted cumulative workspace can be re-acquired without version drift or lost
 participants. Every archive is temporarily leased as soon as acquisition
 returns it and until the cumulative candidate is registered or abandoned, so a
 later family download cannot evict bytes that the unregistered candidate still
-holds. Shared links carry the selected library's exact pack token, and initial
-member graphs use the same escaped definition identity as subsequent graph
-descent. Platform graph loads and descents also carry the target's complete
+holds. Shared links carry the canonical `:Platform` group version and selected library
+identity. An exact version bypasses discovery, keys retained Platform state
+separately from floating acquisition, and follows every later assembly and
+query operation; a different resident patch cannot satisfy it. A missing pin or
+the Browser `latest` sentinel remains floating and uses version discovery.
+`PlatformWorkspace_ExactVersionSkipsDiscoveryAndDoesNotReuseLatestState` and
+`PlatformWorkspace_LatestSentinelUsesVersionDiscovery` gate those behaviors.
+Initial member graphs use the same escaped definition identity
+as subsequent graph descent. Platform graph loads and descents also carry the target's complete
 assembly identity and reject an acquired root that is not binding-equivalent,
 rather than applying a valid selector to a different assembly version or
 public-key token. A selected Platform coordinate that matches multiple full
@@ -203,9 +209,8 @@ count. Constructed generic nodes recover assembly identity from their
 definition. Synthetic array and function-pointer nodes remain visible but carry
 no navigable definition identity. Accessor nodes resolve through their opaque
 body selector even when the graph has no `MethodDef` token. That exact body
-enables Call graph and Annotated source; Facts retains the engine's explicit
-unavailable response, and whole-member Source remains hidden because its product
-query intentionally rejects accessor bodies.
+enables Call graph, Annotated source, and Facts; whole-member Source remains
+hidden because its product query intentionally rejects accessor bodies.
 The call-graph legend explains the independent border vocabulary: solid nodes
 receive no platform lookup, while dashed nodes are unresolved external
 assemblies that receive a .NET platform lookup on click.
@@ -219,6 +224,7 @@ assemblies that receive a .NET platform lookup on click.
 | `engine/Program.cs` | the entry point, and nothing else |
 | `engine/BannedSymbols.txt` | the compiler-enforced workspace rule |
 | `engine/BrowserContracts.cs` | the transport records and their source-generated JSON context |
+| `engine/BrowserWorkspaceShareOperations.cs` | typed Browser adaptation over the product-owned workspace packet codec and transposer |
 | `engine/BrowserPackageWorkspace.cs` | the Browser adapter over shared package acquisition, the session cache/capacity policy, and the bounded workspace registry |
 | `engine/BrowserPlatformWorkspace.cs` | content-backed platform acquisition, exact family pins, cumulative group replacement, and shared package/workspace accounting |
 | `engine/BrowserApiSurfacePolicy.cs` | the explicit participant/type/member bounds every API-surface projection runs under |
@@ -477,8 +483,40 @@ rather than making the lens fail, and any bounded-surface notice remains visible
 beside the Analysis result. A 201st navigable ranked member produces a visible
 truncation notice instead of making the top 200 look complete. Accessor evidence
 is aggregated under its owning property or event with every body token retained.
-Rows open the supported member Overview; Facts remains unavailable in the
-browser. Non-public opportunities remain visible in the aggregate count.
+Rows open the supported member Overview. Non-public opportunities remain visible
+in the aggregate count.
+
+`QueryMemberFacts` resolves the selected reference-preferred member to its exact
+implementation body through the product's opaque member correspondence, then
+invokes `AssemblyContextMethodAnalysisQuery` for that participant and physical
+MethodDef token. The query owns retained-image, metadata-context, and Analysis
+index lifetime. The browser only formats signals, allocation and call
+occurrences, unsafe evidence, exception regions, opportunities, and visible
+diagnostics. Allocation occurrences retain the product's heap-counting
+discriminator, and safety rows use the product's deduplicated semantic
+projection. Call rows use qualified type spelling and retain constructed
+generic method type arguments. Selected graph-only accessor bodies use their
+body selector and token, and ref/lib MethodDef row numbers are validated rather
+than treated as cross-image identities. Surface selections use structural
+correspondence without offering their reference-image token as an implementation
+fallback; only a graph-only member surface returned by the product authorizes
+fallback, using the graph response's exact selected body name, selector, and
+implementation MethodDef token rather than fields restored from a shared
+target. Owning property and event surfaces retain that selected accessor
+separately from navigation state. The selected body coordinates overlay rather
+than replace the full graph target, preserving its assembly and type identity
+for history restoration; `selected graph bodies preserve the full navigation
+identity` gates that round trip.
+`BrowserEngineBoundaryTests.MemberFacts_DistinguishesSurfaceAndBodyTokenResolution`
+gates token and accessor provenance, heap classification, unsafe-operation
+deduplication, and constructed generic call identity. The frontend retains at
+most one in-flight Facts Analysis request per member signature and lets a
+returning selection reattach to that work; `same member facts request does not
+duplicate in-flight analysis` and `returning to in-flight member facts reuses
+work and owns publication` gate that single-threaded Browser/Wasm protection.
+`graph-only implementation bodies select, switch, and clear` gates the mutable
+application projection that authorizes accessor fallback and removes that
+authorization when the selected target no longer matches a product body.
 
 `QueryPackageDependencies` asks the package-content query for every dependency
 group in manifest order and an exact-framework selection outcome. A missing
@@ -531,7 +569,6 @@ rather than fixture results or success-shaped empty output.
 
 | Unsupported export | Missing product query |
 | --- | --- |
-| `QueryMemberFacts` | method-scoped Analysis evidence over a group participant |
 | `QueryPackageMetadata`, `QueryPackageMetadataTable`, `QueryPackageHeapEntries` | metadata image, table, and heap projections over a group (`MetadataImageQuery` binds to a host-opened session today) |
 | `QueryPlatformMetadata`, `QueryPlatformMetadataTable`, `QueryPlatformHeapEntries` | the same missing group-scoped metadata image, table, and heap projections as the package exports |
 | `QueryPlatformPerformance` | assembly-wide Analysis ranking over a platform group |
@@ -539,8 +576,8 @@ rather than fixture results or success-shaped empty output.
 Package-backed type Metadata/Source and member Source/Annotated Source exports
 do not accept platform coordinates. The Platform UI therefore withholds those
 type lenses and member sections rather than routing `Microsoft.NETCore.App`
-through NuGet package acquisition. Platform call graphs and the explicit
-method-Facts refusal remain available.
+through NuGet package acquisition. Platform call graphs remain available;
+method Facts remains package-backed.
 
 `ResolvedAssemblyReference.CreateFromStreamIfManaged` owns pathless identity
 decoding, so Browser acquisition does not reconstruct assembly identity.
@@ -608,7 +645,7 @@ to the client-rendered `/credits` route. `src/credits-panel.ts` owns that page's
 markup, route recognition, and rendered control bindings. Azure Static Web Apps
 rewrites direct Credits requests to the non-cacheable `index.html`; the
 document's root base keeps SDK-generated framework imports valid on both
-`/credits` and `/credits/`. `scripts/verify-site-artifact.js` gates that base
+`/credits` and `/credits/`. `scripts/verify-site-artifact.ts` gates that base
 and its ordering in the Vite bundle and SDK-published site. Other application
 routes use the navigation fallback, while API, asset, and framework requests
 remain excluded.
@@ -776,14 +813,63 @@ state: changing either resolves a different workspace. Lenses this engine does
 not answer report the engine's failure rather than fixture results.
 
 `src/workspace-navigation.ts` owns the in-memory view history, monotonic
-navigation generation, share-packet encoding and decoding, URL routing and
-building, the browser-history port, and the single delegated click listener
+navigation generation, URL routing and building, typed adaptation to the
+generated workspace-state bridge, the browser-history port, and the single delegated click listener
 that intercepts same-origin in-app anchor clicks
 (`bindWorkspaceLinkNavigation`/`shouldInterceptLinkClick`) — a modified click,
 `target`-scoped link, `download` link, or cross-origin href keeps native
 browser behavior. Initial routing records the opaque `w=` value without decoding
 it, which preserves the bare-home paint before WebAssembly while allowing shared
 workspace resolution to run only after the engine is ready.
+`BrowserWorkspaceShareOperations` then routes decode through
+`WorkspaceSharePacketCodec` and `WorkspaceSharePacketTransposer`; encoding
+reverses the same path. TypeScript neither understands compact packet fields nor
+owns base64url. Packet-local tabs, independent navigation focus and selected
+binding context, portable member anchors/signatures, section, and sorted library
+scope cross the generated bridge as long-form records. The selected context,
+not every open tab, bounds package Call Graph expansion. Browser-created Call
+Graph state composes only package tabs with the active tab's framework and RID;
+incompatible tabs remain separate contexts. Product-run Call Graph demos install
+their exact executed package order as the selected context, and expanded queries
+send that complete ordered context to the product engine.
+
+Browser activation supports package tabs and one exact or floating `:Platform`
+group tab without RIDs. Canonical activation is atomic: any unavailable tab,
+library, type, member, applicable member section, or many-to-one or
+coordinate-changing tab resolution leaves the original URL intact, retains the
+prior workbench when one exists, and reports the failed restore rather than
+activating a partial workspace.
+Unsupported groups, multiple Platform tabs, runtime identifiers,
+multiple selected libraries, unknown lenses or sections, package-root facets,
+unresolved graph targets,
+ambiguous overloads, graph-discovered members, accessor-specific bodies, and
+members without a portable product identity fail visibly rather than producing
+lossy state. These boundaries are gated by `canonical tabs must remain distinct
+and ordered after resolution`, `missing Platform reacquisition retains only an
+aligned canonical pin`, and `canonical restoration is atomic and history adopts
+the active packet basis`. A present `w=` remains authoritative even when
+decoding or Browser adaptation rejects it; the visible package label is never a
+fallback workspace, and malformed courtesy paths cannot preempt packet handling.
+Failed packet URLs survive automatic nested renders until the projected
+workspace changes. Successful packet activation discards any prior graph-source
+modal, and explicit version or framework changes discard a floating packet basis
+before URL capture only after acquisition succeeds. A failed Platform switch
+retains its resident workspace. A selected Call Graph context containing a
+Platform participant fails visibly because the Browser transport realizes only
+package participants. `an empty workspace parameter remains authoritative`,
+`authoritative packets bypass malformed courtesy paths`, `failed URL retention
+survives automatic renders until navigation changes`, `Browser Call Graph
+contexts reject Platform participants`, `explicit coordinate changes discard a
+floating canonical basis`, and `canonical commit clears a settled graph source
+without rendering` gate those boundaries.
+`canonical transitions cancel visible source work before snapshot` and
+`canonical transitions settle annotated source before snapshot` specifically
+gate source-request settlement. Filters and browse presentation stay
+session-local. A package-root view drops stale `w=` state and uses the ordinary
+Browser package route for address-bar synchronization and explicit Share until
+product facet ids exist. Other transient,
+non-projectable views retain the last valid canonical URL; explicit Share
+reports the refusal.
 `test/workspace-navigation.test.ts` gates that the route preflight cannot decode
 the packet and that later resolution invokes exactly one decoder.
 `dotnet-inspect.ts` remains the sole mutable
@@ -820,19 +906,33 @@ handled fallthrough, exact modifiers, conflict reporting, disposal, and the
 original stack-navigation collision. `test/spotlight-identity.test.js` gates
 the single-listener wiring and the complete workbench priority order.
 `test/workspace-navigation.test.ts` gates
-history traversal, stale-entry removal, navigation cancellation, rich and
-legacy URL compatibility, visible invalid-state failures, sandboxed history
-errors, and the link-interception rule.
+history traversal, stale-entry removal, navigation cancellation, generated
+codec delegation, canonical topology and identity adaptation, visible typed
+failures, sandboxed history errors, and the link-interception rule.
 
 `src/package-acquisition.ts` owns NuGet and runtime-pack engine invocation,
 surface-to-workspace-model projection, serialized runtime-pack loading, and
 stale-result checks at the publication boundary. `dotnet-inspect.ts` supplies
 the engine and state ports and retains mutable loading/error state, package
 activation, workspace restoration, notices, retries, and rendering.
+The generated engine declarations expose JSON-wire values as readonly
+snapshots. Package acquisition therefore creates explicit application-owned
+package, type, member, and parameter models only for the paths the client
+mutates: runtime package aggregation, graph-member retention, and documentation
+hydration. Immutable assembly, accessibility, document, and exception values
+remain shared where their identity is useful; their containing application
+collections are copied before mutation. The
+`generatedPackageSurfaceRejectsMutation` and
+`generatedMemberSurfaceRejectsMutation` TypeScript canaries keep direct wire
+mutation red, while `package projection copies only application-owned mutable
+collections` and `documentation hydration mutates only the application
+projection` gate the copy boundary and wire-object isolation.
 `test/package-acquisition.test.ts` gates package projection, publication
 ordering, runtime request serialization and merging, cancellation after queued
 or in-flight work, request-local failure reporting, replacement-slot
 preservation, retry after failure, and resident-pack reuse;
+exact Platform pins additionally gate version-aware resident reuse and engine
+invocation;
 `test/spotlight-identity.test.js` gates provenance, failure adaptation, and
 composition-root wiring.
 
