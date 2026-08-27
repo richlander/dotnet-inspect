@@ -54,7 +54,8 @@ The owner consumes:
   root-lens capabilities;
 - admitted library identities, declaration order, primary-library preference,
   and library-level capability outcomes from workspace realization;
-- available API type inventories and their scoped inspection failures;
+- available API type inventories, their producer-issued deterministic
+  navigation order, and their scoped inspection failures;
 - product-owned accessibility descriptors;
 - exact type-definition identities and member anchors;
 - subject-scoped lens descriptors and availability;
@@ -166,9 +167,10 @@ projected.
 
 ### Action IDs
 
-Each navigation snapshot issues opaque action IDs for its available
-descriptors. An action ID is scoped to the snapshot generation and coordinate.
-A UI retains and submits it without parsing.
+Each navigation snapshot issues opaque action IDs for its non-active available
+descriptors. An active available descriptor is marked `Current` rather than
+receiving a no-op action. An action ID is scoped to the snapshot generation and
+coordinate. A UI retains and submits it without parsing.
 
 Action IDs are deliberately separate from structured identity:
 
@@ -211,14 +213,15 @@ Root, Library, Type, Member order. A descriptor carries:
 - one discriminated availability arm:
 
   ```text
-  Available(target, actionId, diagnostics)
+  Available(target, Current | Activate(actionId), diagnostics)
   Unavailable(reason)
   Failed(diagnostic)
   ```
 
-Only `Available` carries a target structured identity and opaque action ID.
-Unavailable and failed descriptors never fabricate placeholder identities or
-action tokens.
+Only `Available` carries a target structured identity. Its active descriptor
+carries `Current`; a non-active activatable descriptor carries an opaque action
+ID. Unavailable and failed descriptors never fabricate placeholder identities
+or action tokens.
 
 The Library descriptor is the active Type or Member's defining Library when
 one exists. At Root, its available arm targets the recommended Library subject;
@@ -242,9 +245,9 @@ The Library selector consumes a separate ordered descriptor list:
 3. remaining admitted libraries in workspace declaration order.
 
 Each entry uses the same discriminated descriptor shape. An available entry
-carries a complete Library subject identity and action ID; unavailable and
-failed entries carry no target. A consumer does not treat assembly count,
-package kind, filename, or list position as selection policy.
+carries a complete Library subject identity plus `Current` or an action ID;
+unavailable and failed entries carry no target. A consumer does not treat
+assembly count, package kind, filename, or list position as selection policy.
 
 Library selection is single-select. Arbitrary subsets are result filters, not
 Library subject identities.
@@ -304,9 +307,10 @@ The Type candidate ranking is deterministic and product-owned:
 4. Types in another library outside the default accessibility buckets.
 
 Within a tier, libraries use primary-then-workspace declaration order and Types
-use exact metadata-definition identity order. Current UI filters, current
-search text, current namespace/kind selections, and backend arrival order never
-participate.
+use the inventory producer's deterministic navigation order. That order is an
+owner-issued input, not a comparison invented from metadata identity, display
+text, or arrival sequence. Current UI filters, current search text, current
+namespace/kind selections, and backend arrival order never participate.
 
 A non-default-accessibility Type remains a valid recommendation when it is the
 only trustworthy Type candidate. The active subject is independent of a
@@ -342,10 +346,10 @@ does not choose a lens fallback.
 Activating a hierarchy or Library descriptor submits its opaque action ID
 against the snapshot generation that issued it.
 
-Interactive consumers receive action IDs only for available descriptors.
-Product peers such as canonical restoration may instead submit a structured
-subject identity through a typed product seam; that identity never passes
-through UI display text.
+Interactive consumers receive action IDs only for non-active available
+descriptors. Product peers such as canonical restoration may instead submit a
+structured subject identity through a typed product seam; that identity never
+passes through UI display text.
 
 The transition outcome is one of:
 
@@ -370,6 +374,15 @@ Failed(snapshot, diagnostic)
 An explicit transition never silently activates a sibling, ancestor,
 recommended Type, or Root. It may return a recommendation as explanatory data,
 but applying that recommendation requires another explicit request.
+
+Before returning `Unavailable`, the owner confirms that the committed active
+subject remains available. If it became unavailable independently of the
+requested action, the owner runs automatic same-coordinate reconciliation and
+returns that consistent replacement snapshot with the request's unavailable
+reason. If the active subject's availability or reconciliation fails, the
+transition returns `Failed` with the prior snapshot instead. Any subject change
+in this path is caused by invalidation of the committed subject, not fallback
+from the unavailable request.
 
 Selecting `All libraries` or one Library activates that Library subject. It
 does not also select a Type. Selecting a Type or Member directly is allowed and
@@ -398,6 +411,10 @@ resolve successfully, the active subject follows this ordered table:
 | Type | Retain it when available. If it is missing and its defining Library remains available, activate the highest-ranked trustworthy Type in that Library, then that Library when none exists. If the defining Library is unavailable, use `All libraries` when available, then Root. |
 | Member | Retain it when available. If it is missing and its containing Type remains available, activate that Type. Otherwise apply the Type row using its containing Type and defining Library. |
 
+For Type and Member, `Unavailable` follows the same row as a missing subject.
+For every subject kind, `Failed` follows
+[Reconciliation failure](#reconciliation-failure).
+
 No arbitrary Member replaces a missing Member.
 Inventory refresh does not auto-promote an explicitly selected Root or Library
 to Type.
@@ -410,7 +427,7 @@ committed subject only through typed owner-issued resolution:
 | Current subject and resolution | New-coordinate result |
 | --- | --- |
 | Root | The new coordinate's Root. |
-| `All libraries` | The new coordinate's `All libraries` when available, otherwise Root. |
+| `All libraries` | The new coordinate's `All libraries` when available. When unavailable or failed, activate Root and retain any failure diagnostic. |
 | One Library resolves exactly and is available | The resolved one-Library subject. |
 | One Library is definitively missing | `All libraries` when available, otherwise Root. |
 | Type resolves exactly and is available | The resolved Type. |
@@ -421,12 +438,10 @@ committed subject only through typed owner-issued resolution:
 | Member and Type are missing but the defining Library resolves and is available | The highest-ranked trustworthy Type in that Library, then that Library when none exists. |
 | Member, Type, and defining Library are definitively missing | `All libraries` when available, otherwise Root. |
 
-A resolved identity whose subject availability is `Unavailable` follows the
-same row as a definitively missing subject. Failed availability follows the
-non-success rule below.
-
-For a one-Library, Type, or Member subject, when no correspondence is available,
-or correspondence is ambiguous, refused, or failed, no old subject is carried.
+For a one-Library, Type, or Member subject, a resolved identity whose subject
+availability is `Unavailable` follows the same row as a definitively missing
+subject. When no correspondence is available, availability or correspondence
+fails, or correspondence is ambiguous or refused, no old subject is carried.
 The new coordinate uses the initial Type -> Library -> Root policy and retains
 the non-success outcome as a diagnostic. An independently recommended subject
 is not evidence that the ambiguous or failed correspondence matched it.
@@ -457,7 +472,8 @@ identities, order, and availability without defining them.
 
 - Preserve the committed current lens when the active subject identity is
   retained and that exact owner-issued lens identity remains available.
-- When the subject changes, select its recommended available lens.
+- When the subject changes, select its recommended lens when available,
+  otherwise the first available lens in the subject owner's order.
 - When a retained subject's committed lens becomes unavailable, select the
   first available lens in the subject owner's order.
 - When no lens is available, return a typed lens-unavailable outcome while
@@ -557,13 +573,16 @@ does not construct that acquisition result.
 
 ### Explicit unavailable transition
 
-1. Submit an exact Member identity through the typed product seam after that
-   Member becomes unavailable.
-2. Confirm that the current subject remains active and the outcome is
-   `Unavailable`.
-3. Confirm that the returned snapshot reflects current availability and carries
-   no action ID for the unavailable Member.
-4. Confirm that no ancestor or recommended Type is activated automatically.
+1. Retain the action ID and generation for a non-active available Member.
+2. Make that Member unavailable before the action resolves.
+3. Submit the retained action and confirm that the current subject remains
+   active and the outcome is `Unavailable`.
+4. Confirm that the returned snapshot has a new generation, reflects current
+   availability, and carries no action ID for the unavailable Member.
+5. Confirm that no ancestor or recommended Type is activated automatically.
+6. Repeat while independently invalidating the committed active subject and
+   confirm automatic reconciliation produces a consistent active descriptor,
+   or failed reconciliation returns `Failed` with the prior snapshot.
 
 ### Reconciliation scenarios
 
@@ -605,21 +624,28 @@ covering at least:
 - `InitialRecommendation_NeverChoosesMember`
 - `TypeRecommendation_UsesPrimaryLibraryAndAccessibilityTiers`
 - `TypeRecommendation_IgnoresConsumerFiltersAndArrivalOrder`
+- `TypeRecommendation_UsesProducerOrderAcrossArrivalPermutations`
 - `LibraryDescriptors_PlaceAggregateThenPrimaryThenDeclarationOrder`
 - `UnavailableDescriptor_HasNoTargetOrActionId`
+- `ActiveDescriptor_IsCurrentWithoutActionId`
 - `ToolsV2WithoutLibraries_RecommendsPackageRoot`
 - `ValidEmptyTypes_DiffersFromTypeInspectionFailure`
 - `PartialTypeInventory_DeterministicallyRetainsCandidateAndFailure`
 - `ExplicitUnavailableTransition_RefreshesAvailabilityWithoutFallback`
+- `UnavailableTransition_ReconcilesIndependentlyInvalidatedActiveSubject`
 - `ForeignOrStaleActionId_IsRejected`
 - `MissingMember_FallsBackToContainingTypeNotAnotherMember`
+- `SameCoordinateUnavailable_FollowsMissingSubjectRules`
 - `MissingTypeWithMissingLibrary_FallsBackToAggregateThenRoot`
 - `CoordinateVariation_RetainsExactTypeAndLibrary`
+- `CoordinateVariation_FailedAggregateFallsBackToRootWithDiagnostic`
 - `CoordinateVariation_NonSuccessUsesIndependentInitialRecommendation`
 - `CoordinateVariation_UsesTypedResolutionNotDisplayText`
 - `ExplicitRoot_RemainsRootAcrossInventoryRefresh`
 - `LensReconciliation_PreservesExactCommittedIdentity`
+- `LensReconciliation_SubjectChangeUsesRecommendationThenOwnerOrder`
 - `LensRecommendation_DoesNotCrossSubjectKindsByLabel`
+- `InspectWeb_SubmitsActionIdAndGeneration`
 - `InspectWeb_ConsumesSubjectOutcomeWithoutHostFallback`
 
 Product-side gates should live with the eventual subject-navigation query.

@@ -456,9 +456,9 @@ availability, reasons, and the outcome of a requested transition.
 
 The hierarchy menu exposes every applicable subject level. An unavailable
 Library, Type, or Member item remains discoverable with `aria-disabled="true"`
-and an owner-issued reason. Activating an available item submits its opaque
-action ID together with the snapshot generation; the UI renders the returned
-active subject or typed failure without choosing a replacement.
+and an owner-issued reason. Activating a non-active available item submits its
+opaque action ID together with the snapshot generation; the UI renders the
+returned active subject or typed failure without choosing a replacement.
 
 The inspection command, Workspace, lens strip, and content region all render
 the same returned active-subject identity. The UI does not infer initial,
@@ -494,9 +494,9 @@ inspection for that coordinate.
 
 The control consumes Inspection Subject Navigation's ordered Library subject
 descriptors and active identity. It renders the returned identity and submits
-the selected descriptor's opaque action ID together with the snapshot
-generation, without inferring a selection from package kind, endpoint shape,
-assembly count, or lens capability.
+the selected non-active descriptor's opaque action ID together with the
+snapshot generation when selection changes, without inferring a selection from
+package kind, endpoint shape, assembly count, or lens capability.
 
 The Library subject control is single-select. A compact population may use a
 native `select`; a visible library list uses `role="listbox"` with
@@ -532,8 +532,8 @@ The selected subject controls every Library lens:
 - An individual library requests the same lens for only that assembly.
 - The selected subject persists when switching among References, Integrations,
   Opportunities, Analysis, and Metadata.
-- Changing package version or TFM submits the prior Library identity with the
-  coordinate transition and renders the owner-issued result.
+- Changing package version or TFM supplies the prior product-issued navigation
+  snapshot to coordinate reconciliation and renders the owner-issued result.
 
 The active library subject remains visible while the library list is filtered
 or collapsed. A lens heading distinguishes aggregate results from a
@@ -978,9 +978,9 @@ outcomes:
    contains available and unavailable descriptors above and below that Type.
 2. Confirm that the inspection command uses the active Type as its level-one
    heading and the subject menu renders every descriptor and unavailable reason.
-3. Activate an available descriptor and confirm that the UI submits only its
-   opaque identity, renders the returned outcome, and focuses its active-subject
-   heading.
+3. Activate a non-active available descriptor and confirm that the UI submits
+   only its opaque action ID together with the snapshot generation, renders the
+   returned outcome, and focuses its active-subject heading.
 4. Supply a root-only result and confirm that the always-present subject control
    uses the owner-issued root label and the hierarchy menu still exposes every
    unavailable lower-level descriptor and reason.
