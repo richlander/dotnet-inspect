@@ -936,7 +936,8 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
       request.member,
       request.memberSignature,
       request.selectorKey,
-      request.metadataToken),
+      request.metadataToken,
+      request.implementationBodySelected),
   describeError: errorMessage,
   render,
   renderPreservingMemberFocus,
@@ -8541,8 +8542,8 @@ async function loadSelectedMemberFacts() {
     memberSignature: overload.signature,
     selectorKey:
       state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
-    metadataToken:
-      state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
+    metadataToken: state.selectedBodyTarget?.metadataToken ?? 0,
+    implementationBodySelected: state.selectedBodyTarget !== null,
     isCurrent: () => memberRequestIsCurrent(signature, true),
   });
 }

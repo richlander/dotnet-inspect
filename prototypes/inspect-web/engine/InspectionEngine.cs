@@ -324,7 +324,8 @@ public static partial class InspectionEngine
         string memberName,
         string memberSignature,
         string selectorKey,
-        int metadataToken)
+        int metadataToken,
+        bool implementationBodySelected)
     {
         _ = memberSignature;
         (
@@ -339,7 +340,7 @@ public static partial class InspectionEngine
             typeIdentity,
             memberName,
             selectorKey,
-            metadataToken);
+            implementationBodySelected ? metadataToken : 0);
 
         AssemblyMethodAnalysis analysis = BrowserSurfaceProjection.Require(
             scope.UseImplementationParticipant(

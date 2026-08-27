@@ -2942,7 +2942,7 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /const document = result\.document;\s*validateAnnotatedSourceDocument\(document\);\s*return \{ \.\.\.result, document \};/);
   assert.match(
     coordinator,
-    /inspectMemberFacts\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.typeIdentity,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken\)/);
+    /inspectMemberFacts\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.typeIdentity,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.implementationBodySelected\)/);
   assert.match(
     documentationLoader,
     /const signature = memberRequestSignature\(type, overload\)/);
@@ -2957,7 +2957,7 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /const signature = memberRequestSignature\(type, overload, true\)/);
   assert.match(
     factsLoader,
-    /return memberDetailInspection\.loadFacts\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*type: type\.queryId \?\? type\.id,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name,\s*memberSignature: overload\.signature,\s*selectorKey:[\s\S]*metadataToken:[\s\S]*isCurrent: \(\) => memberRequestIsCurrent\(signature, true\)/);
+    /return memberDetailInspection\.loadFacts\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*type: type\.queryId \?\? type\.id,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name,\s*memberSignature: overload\.signature,\s*selectorKey:[\s\S]*metadataToken: state\.selectedBodyTarget\?\.metadataToken \?\? 0,\s*implementationBodySelected: state\.selectedBodyTarget !== null,\s*isCurrent: \(\) => memberRequestIsCurrent\(signature, true\)/);
 });
 
 test("type source identity includes decompiler taste", () => {

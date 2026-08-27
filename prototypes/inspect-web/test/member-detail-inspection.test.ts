@@ -207,6 +207,7 @@ function factsRequest(
     memberSignature: "void Run(string value)",
     selectorKey: "Run|System.String",
     metadataToken: 0x06000001,
+    implementationBodySelected: false,
     isCurrent: () => true,
     ...overrides,
   };

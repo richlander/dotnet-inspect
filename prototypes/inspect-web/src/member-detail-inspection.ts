@@ -46,6 +46,7 @@ export interface MemberFactsRequest extends MemberCoordinates {
   typeIdentity: string;
   selectorKey: string;
   metadataToken: number;
+  implementationBodySelected: boolean;
   isCurrent(): boolean;
 }
 

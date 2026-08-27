@@ -494,7 +494,11 @@ index lifetime. The browser only formats signals, allocation and call
 occurrences, unsafe evidence, exception regions, opportunities, and visible
 diagnostics. Selected graph-only accessor bodies use their body selector and
 token, and ref/lib MethodDef row numbers are validated rather than treated as
-cross-image identities.
+cross-image identities. Surface selections use structural correspondence
+without offering their reference-image token as an implementation fallback;
+only graph-selected implementation bodies authorize token fallback.
+`BrowserEngineBoundaryTests.MemberFacts_DistinguishesSurfaceAndBodyTokenResolution`
+gates both paths.
 
 `QueryPackageDependencies` asks the package-content query for every dependency
 group in manifest order and an exact-framework selection outcome. A missing

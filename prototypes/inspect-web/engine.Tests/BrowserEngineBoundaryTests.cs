@@ -3166,7 +3166,7 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task MemberFacts_UsesStructuralFallbackForTokenMismatch()
+    public async Task MemberFacts_DistinguishesSurfaceAndBodyTokenResolution()
     {
         const string PackageId = "Browser.Member.Facts";
         byte[] image = File.ReadAllBytes(
@@ -3211,7 +3211,8 @@ public sealed class BrowserEngineBoundaryTests
             member.GetProperty("graphSelectorKey").GetString()!,
             typeof(BrowserEngineBoundaryTests)
                 .GetMethod(nameof(PerformanceNoAllocationProbe))!
-                .MetadataToken);
+                .MetadataToken,
+            implementationBodySelected: false);
 
         using JsonDocument document = JsonDocument.Parse(json);
         JsonElement root = document.RootElement;
@@ -3242,6 +3243,42 @@ public sealed class BrowserEngineBoundaryTests
                 == "box-value-type");
         Assert.Empty(
             root.GetProperty("diagnostics").EnumerateArray());
+
+        int implementationToken = typeof(BrowserEngineBoundaryTests)
+            .GetMethod(nameof(PerformanceBoxingProbe))!
+            .MetadataToken;
+        string implementationBodyJson =
+            await InspectionEngine.QueryMemberFacts(
+                PackageId,
+                "1.0.0",
+                "net11.0",
+                type.GetProperty("assembly").GetString()!,
+                type.GetProperty("definitionId").GetString()!,
+                member.GetProperty("name").GetString()!,
+                member.GetProperty("signature").GetString()!,
+                "missing-structural-selector",
+                implementationToken,
+                implementationBodySelected: true);
+        using JsonDocument implementationBodyDocument =
+            JsonDocument.Parse(implementationBodyJson);
+        Assert.Equal(
+            implementationToken,
+            implementationBodyDocument.RootElement
+                .GetProperty("metadataToken")
+                .GetInt32());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => InspectionEngine.QueryMemberFacts(
+                PackageId,
+                "1.0.0",
+                "net11.0",
+                type.GetProperty("assembly").GetString()!,
+                type.GetProperty("definitionId").GetString()!,
+                member.GetProperty("name").GetString()!,
+                member.GetProperty("signature").GetString()!,
+                "missing-structural-selector",
+                implementationToken,
+                implementationBodySelected: false));
     }
 
     [Fact]

@@ -196,9 +196,9 @@ export async function queryMemberDocumentation(packageId, version, framework, as
   return JSON.parse(result);
 }
 
-export async function queryMemberFacts(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, memberSignature, selectorKey, metadataToken) {
+export async function queryMemberFacts(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, memberSignature, selectorKey, metadataToken, implementationBodySelected) {
   if (!queryMemberFactsExport) throw new Error("The browser inspection engine is not initialized.");
-  const result = await queryMemberFactsExport(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, memberSignature, selectorKey, metadataToken);
+  const result = await queryMemberFactsExport(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, memberSignature, selectorKey, metadataToken, implementationBodySelected);
   return JSON.parse(result);
 }
 
