@@ -85,16 +85,27 @@ design.
 ### Product program input
 
 The engine receives one absolute filesystem path to the product
-`tsconfig.json`. It asks TypeScript to open that project and requires one
-immutable semantic snapshot for the complete run.
+`tsconfig.json` and uses the fixed product composition root
+`src/semantic-boundaries.ts`. It asks TypeScript to open that project and
+requires one immutable semantic snapshot for the complete run.
 
 The source set is the non-declaration product files selected by that program.
 Tests, scripts, generated output, and dependencies are excluded because they
 are not in the product program, not because the engine performs a second
 recursive file search.
 
+The composition root is part of that same program. It imports owner-issued
+descriptor declarations and exports one typed `boundaryDescriptors` tuple. The
+engine resolves the root source file and exported symbol from the active
+snapshot and reads its declarations without importing or executing product
+JavaScript. A descriptor from another program or semantic snapshot is invalid.
+The fixed root is discovery configuration; capability, operation, and type
+identity still come only from resolved declarations.
+
 Configuration diagnostics, source diagnostics, an empty or ambiguous project,
-or a project whose resolved path differs from the requested path fail the run.
+an absent or ambiguous composition root, or a project whose resolved path
+differs from the requested path fail the run. The descriptor tuple may be empty
+before a production capability owner adopts the engine.
 
 ### Boundary descriptor input
 
@@ -108,10 +119,10 @@ BoundaryDescriptor
   guarded operation declarations
   operation-receiver type declarations
   transfer-root type or callable declarations
-  optional non-generic producer positions
+  optional non-generic productive positions
   optional owner-issued literal-set declarations
   exact authorized operation sites
-  exact authorized transfer edges
+  exact authorized callable and module transfer edges
 ```
 
 This is a semantic handoff, not a second policy language. Each anchor must be a
@@ -131,10 +142,17 @@ to exercise that operation; it does not authorize carrier transfer or code
 outside the product program.
 
 An authorized transfer edge identifies an exact callable declaration,
-direction, and parameter, result, yield, or callable-value position. The anchor
-may resolve to a free function or a member declaration; the engine does not
-require an exported free-function API. The capability owner remains responsible
-for issuing a statically resolvable anchor from its own component.
+module binding, direction, and parameter, result, yield, callable-value, import,
+or export position. The anchor may resolve to a free function, member
+declaration, exported declaration, export specifier, re-export, export
+assignment, or import binding; the engine does not require an exported
+free-function API. The capability owner remains responsible for issuing a
+statically resolvable anchor from its own component.
+
+A non-generic productive position identifies an exact readable property,
+index, iterator, call, or construct result on a source type that can produce a
+configured identity. The adjacent owner issues these positions because the
+engine cannot discover them by recursively walking every platform member.
 
 The engine rejects duplicate capability identities, unresolved or ambiguous
 anchors, `any` or unknown authority positions, stale declarations, operation
@@ -176,9 +194,13 @@ Only one tooling module imports `typescript/unstable/sync` or
   signatures, index results, tuple and array elements, and instantiated generic
   arguments;
 - resolving members required by a target type against a source type;
+- classifying generic parameter occurrences by variance in readable and
+  value-producing declaration positions;
 - classifying a selected callable as analyzed product, configured platform, or
   bodyless external code;
 - resolving captures from a callable to declarations outside its local scope;
+- resolving the fixed descriptor composition root and module bindings inside
+  the active snapshot;
 - identifying declaration ownership by configured library or product source;
 - enumerating the semantic conversion edges defined below; and
 - returning explicit unavailable or ambiguous results instead of `undefined`
@@ -219,6 +241,7 @@ produces a whole value:
 
 - variable, property, element, object, array, and destructuring initializers or
   assignments;
+- parameter and binding-pattern default initializers;
 - arguments against selected parameter positions;
 - synchronous returns and async resolved returns;
 - call and construct results against contextual targets;
@@ -228,13 +251,15 @@ produces a whole value:
 - `await` results against their contextual targets;
 - `yield` and `yield*` against represented generator positions;
 - type assertions and `satisfies` expressions;
-- object spread and destructuring rest; and
+- object spread and destructuring rest;
+- exported declarations, export specifiers, re-exports, export assignments, and
+  their importing bindings; and
 - copy or reflection intrinsics whose selected declaration transports a value.
 
 Closure capture and `throw` are explicit transport channels even though they
 have no ordinary contextual target type. A closure environment is modeled as a
-hidden aggregate owned by its callable value. Throwing a configured receiver
-lineage or transfer root is always rejected because JavaScript exception
+hidden aggregate owned by its callable value. Throwing any receiver-containing
+or carrier-bearing value is always rejected because JavaScript exception
 transport has no statically identifiable recipient or typed authorization
 position.
 
@@ -295,13 +320,29 @@ authority.
 This rule applies only to conversion of the whole receiver value. Reading
 `element.nodeType` into a number does not make that number receiver-bearing.
 
+Receiver containment follows value-producing positions too. A repository
+aggregate, productive generic argument, or owner-issued non-generic productive
+position containing a receiver-lineage value is receiver-containing. The
+engine applies that classification before checking an opaque target or
+bodyless call, so unchanged `HTMLCollection` movement cannot conceal its
+configured `Element` output merely because source and target have the same type.
+
 ### Nested and mixed-wrapper comparison
 
 The same identity rule applies recursively to corresponding value positions.
 Repository-authored unions, intersections, properties, signatures, tuples,
-arrays, index results, and constraints are compared cycle-safely. Every
-instantiated generic argument is compared regardless of whether its declaration
-is product or platform owned.
+arrays, index results, and constraints are compared cycle-safely.
+
+An instantiated generic argument participates in containment when its type
+parameter occurs in a readable or value-producing position of the resolved
+declaration. Covariant and invariant positions participate. A parameter used
+only contravariantly, such as `Consumer<T>`, and a phantom parameter with no
+value-producing occurrence do not make an existing value contain `T`.
+`Generator<T, TReturn, TNext>`, for example, produces `T` and `TReturn` but does
+not already contain its input-only `TNext`. Passing a configured value into a
+consumer remains an ordinary checked argument edge. Productive-position
+analysis uses the same fail-closed structural work budget as conversion
+comparison.
 
 When source and target generic declarations differ, their represented
 arguments do not correspond, or either side is non-generic, the comparison is
@@ -326,9 +367,12 @@ contravariantly. Results and readable values are compared covariantly. Every
 overload and represented rest position selected by TypeScript is checked.
 
 The comparison is memoized by descriptor identity, source type, target type,
-and variance. Revisiting an in-progress tuple terminates that branch; an
-unresolved required position fails closed rather than being treated as
-unrelated.
+and variance. It also has fixed repository-owned budgets for nesting depth,
+distinct type pairs, and required members per semantic edge. Revisiting an
+in-progress tuple terminates that branch. Exceeding a budget or failing to
+resolve a required position emits an explicit diagnostic rather than treating
+the position as unrelated. The budget closes recursively expanding generic
+shapes that continually produce fresh TypeScript type identities.
 
 ### Transfer-root preservation
 
@@ -337,9 +381,9 @@ type is carrier-bearing when it is:
 
 - a configured transfer root;
 - a repository-authored aggregate position containing a carrier-bearing type;
-- any instantiated generic argument containing a carrier-bearing type,
-  regardless of declaration owner; or
-- a descriptor-characterized non-generic producer position containing a
+- a productive instantiated generic argument containing a carrier-bearing
+  type, regardless of declaration owner; or
+- an owner-issued non-generic productive position containing a
   carrier-bearing type.
 
 The engine does not recursively walk unrelated members of a platform type to
@@ -351,13 +395,17 @@ allow list.
 Every semantic conversion edge preserves a carrier's configured identity. A
 carrier-bearing value may cross a callable, module, result, or yield boundary
 only through an exact authorized transfer edge. This applies to the complete
-carrier-bearing type, including standard wrappers; returning
+carrier-bearing type, including platform generic wrappers; returning
 `Promise<TransferRoot>` is an egress and requires explicit result authority.
+Direct exports and re-exports are module transfer even when the exported type
+preserves identity. Unlisted exported declarations, specifiers, and assignments
+are rejected.
 
 A callable value whose closure captures a carrier-bearing value is itself
 carrier-bearing, independent of its declared parameter and result types. The
 hidden closure aggregate follows the same call, storage, return, and export
-rules. Throwing a receiver-lineage or transfer-root value is categorically
+rules. Throwing any receiver-containing or carrier-bearing value, including an
+aggregate, generic wrapper, or carrier-bearing closure, is categorically
 forbidden and cannot be authorized.
 
 No authority is inferred from matching parameter types, same-module spelling,
@@ -392,9 +440,9 @@ The implementation adds an `inspect-web-semantic-boundaries` script and makes
 
 1. **Semantic characterization:** loads the real product project with the
    pinned TypeScript API and pins the repository-owned fact shapes, configured
-   library identities, generic argument positions, non-generic producer
-   positions, and edge inventory. Every characterized productive position has
-   a mutation that fails when it is removed.
+   library identities, productive generic argument positions, owner-issued
+   non-generic productive positions, and edge inventory. Every productive
+   position used by the canary has a mutation that fails when it is removed.
 2. **Operation identity:** rejects direct, aliased, destructured, computed,
    extracted, bound, and reflective access to a test capability outside its
    owner while accepting lexical shadows and unrelated declarations. Exact
@@ -402,8 +450,11 @@ The implementation adds an `inspect-web-semantic-boundaries` script and makes
    and does not authorize transfer.
 3. **Receiver preservation:** rejects direct and two-stage structural erasure,
    base-to-structural erasure, opaque conversion, unconstrained generics, nested
-   aggregates, callbacks, method parameters, and generic results. It accepts
-   type-preserving movement, actual platform-base movement and restoration,
+   aggregates, productive generic and non-generic platform containers,
+   callbacks, method parameters, and generic results. It rejects unchanged
+   `HTMLCollection` transfer to bodyless code and
+   `HTMLCollection -> unknown` laundering. It accepts type-preserving movement
+   inside analyzed code, actual platform-base movement and restoration,
    primitive property reads, and ordinary DOM composition such as
    `appendChild(HTMLElement)`. A close case records the intentional conservative
    rejection of structural projection from another runtime subtype represented
@@ -413,39 +464,48 @@ The implementation adds an `inspect-web-semantic-boundaries` script and makes
    `HTMLCollection -> ArrayLike<Reader>`, plus
    `NodeListOf<Element> -> Iterable<Reader>`, repository wrappers, arrays,
    tuples, promises, maps, sets, callbacks, and contravariant method positions.
-   Close negatives preserve actual DOM identities in the same shapes.
+   A recursively expanding pair of generic declarations reaches the work budget
+   and fails explicitly. Close negatives preserve actual DOM identities in
+   finite shapes.
 5. **Transfer preservation:** rejects identity erasure, unauthorized call
    boundaries, aggregates, async results, `Promise<TransferRoot>`, iterators,
    generators, rest parameters, reflection, generic platform containers,
-   closure capture followed by egress, and higher-order wrappers for a test
-   transfer root. Throwing a receiver-lineage or transfer-root value always
-   fails. Exact descriptor-issued edges pass.
+   closure capture followed by egress, direct exports and re-exports, and
+   higher-order wrappers for a test transfer root. Throwing a direct, aggregate,
+   generic, or closure-carried configured identity always fails. Exact
+   descriptor-issued callable and module edges pass. Consumer-only and phantom
+   generic parameters remain close negatives.
 6. **Descriptor integrity:** rejects duplicate identities, unresolved and
    stale anchors, ambiguous overloads, unknown authority positions, wrong
-   value positions, operation authority outside analyzed product code, and
-   anchors whose declarations differ from the selected operation.
+   value positions, operation authority outside analyzed product code,
+   descriptors outside the active product snapshot, and anchors whose
+   declarations differ from the selected operation. An owner-like fixture
+   descriptor is discovered only through the same-program composition root.
 7. **Diagnostics and service failure:** snapshots stable rule identifiers,
    locations, ordering, owner guidance, and explicit project or semantic
    failures.
 8. **Contextual and external edges:** rejects conditional, logical, nullish,
-   loop-binding, `await`, concise-return, and opaque bodyless-call escapes.
-   Removing any edge kind from the central visitor table fails its witness.
+   loop-binding, `await`, concise-return, parameter-default, binding-default,
+   import, export, and opaque bodyless-call escapes. Removing any edge kind from
+   the central visitor table fails its witness.
 9. **Import and artifact isolation:** rejects a second import of either
    TypeScript unstable API, builds the production site, and proves that the
    semantic tool and TypeScript packages are absent from the shipped artifact
    graph.
-10. **Real-tree non-vacuity:** runs the engine over the real source graph with a
-   test-owned canary descriptor, introduces one forbidden operation and one
-   identity-erasing edge in a temporary project copy, and proves both fail.
-   Removing the script from `npm run analyze` also fails.
+10. **Real-tree non-vacuity:** runs the engine over the real source graph and
+   then augments the same-program composition root in a temporary project copy
+   with a test-owned canary, one forbidden operation, and one identity-erasing
+   edge. Both mutations fail. Removing the script from `npm run analyze` also
+   fails.
 
 The implementation gate is:
 
 ```bash
-npx --yes node@24 npm run inspect-web-semantic-boundaries
-npx --yes node@24 npm run analyze
-npx --yes node@24 npm test
-npx --yes node@24 npm run build
+cd prototypes/inspect-web
+npx --yes node@24 --run inspect-web-semantic-boundaries
+npx --yes node@24 --run analyze
+npx --yes node@24 --run test
+npx --yes node@24 --run build
 ```
 
 The first command proves the focused mechanism. The other commands prove its
