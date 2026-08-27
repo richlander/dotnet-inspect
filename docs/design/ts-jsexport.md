@@ -308,8 +308,13 @@ contradictory evidence remains a visible generation failure.
 
 Inspect-web deliberately supplies both real-consumer canaries. Its normal Mono
 build uses compiler async; its isolated CoreCLR comparison build enables
-runtime async. Mono's lack of runtime-async support is a deployment distinction,
-not a second generated facade contract.
+runtime async. The CoreCLR workflow passes `Features=runtime-async=on` as a
+global property to the root engine publish on a fresh runner, so the engine and
+every repository project in its transitive `ProjectReference` closure are
+rebuilt with runtime async enabled. This does not include framework/runtime-pack
+binaries, the separately published server API, or repository projects outside
+the browser engine's managed application graph. Mono's lack of runtime-async
+support is a deployment distinction, not a second generated facade contract.
 
 ### Correspondence, not managed API translation
 
@@ -541,11 +546,12 @@ The current implementation predates this decision:
 - authenticated async return-wire discovery recognizes compiler-generated
   `MoveNext` result sinks but not a runtime-async export's own physical body.
 
-The CoreCLR comparison deployment already compiles the real inspect-web engine
-with `runtime-async=on`, but the generated-surface drift gate inspects a separate
-compiler-async build and the deployment has no browser smoke that invokes a
-known genuinely awaited export. Enabling the compiler feature alone therefore
-does not gate lowering-independent surface generation or runtime execution.
+The CoreCLR comparison deployment already rebuilds the real inspect-web managed
+application graph with `runtime-async=on`, but the generated-surface drift gate
+inspects a separate compiler-async build and the deployment has no browser smoke
+that invokes a known genuinely awaited export. Enabling the compiler feature
+across the graph alone therefore does not gate lowering-independent surface
+generation or runtime execution.
 
 Those are migration inputs, not compatibility requirements.
 
@@ -647,6 +653,9 @@ The target remains unverified until all of these gates exist:
   CoreCLR managed deployment assemblies, assert that a named canary export is
   compiler async in the former and runtime async in the latter, and compare the
   generated facade contract;
+- a clean-build project-graph gate proves every repository project compiled
+  into the CoreCLR browser engine's transitive managed application closure
+  receives `Features=runtime-async=on`; and
 - browser deployment smoke tests invoke that genuinely awaited canary through
   the generated facade on both runtimes and require the same typed result; and
 - a command test proves failed generation does not publish partial TypeScript
