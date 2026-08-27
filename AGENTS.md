@@ -920,6 +920,8 @@ Put it under `## Demo` above validation in the PR body.
 - Prefer fewer coherent PRs over mechanical splits; use a stack for genuinely
   independent slices.
 - Keep concurrent agents modest and avoid unnecessary churn in central files.
+- Label a documentation-only PR (no product code, test, or build changes)
+  `documentation` when opening it.
 - Treat CI as confirmation: run the focused local gate, then push promptly.
   Run eligible local suites, CI, and review concurrently.
 - Use [status discovery](docs/round-orchestration.md#status-discovery): REST by
