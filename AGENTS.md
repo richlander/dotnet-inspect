@@ -141,8 +141,9 @@ act on them**:
   prioritise, and that the next agent hitting the same wall can find instead of
   re-investigating it. If a flake blocks you and no issue exists, file one and
   cite it.
-- **`waiting`** takes a predicate a tool can evaluate against your `head`:
-  `check:<name>`, `checks`, `merge`, or `review`. Use it when nothing is wrong
+- **`waiting`** takes one or more comma-separated predicates a tool can evaluate
+  against your `head`: `check:<name>`, `checks`, `merge`, or `review`. The wait
+  ends only when every listed predicate clears. Use it when nothing is wrong
   and nothing is openable — a check that has not reported yet is not a defect
   and does not deserve an issue.
 
@@ -742,12 +743,12 @@ least one reviewer returned a finding.
   unchanged head. Repeat only with concrete transient evidence; otherwise treat
   it as requiring an author change.
 
-If final-gate CI reports a non-successful conclusion after a documentation-only
-round closes, it does not reopen or renumber that completed round. Retry a
-failed or cancelled run at the unchanged head only with concrete transient
-evidence. If the result requires an author change, remove `review-clean`, make
-the fix, and form a candidate at the next round number, respecting the next
-six-round authorization boundary.
+If final-gate `ci-required` reports any conclusion other than success after a
+documentation-only round closes, it does not reopen or renumber that completed
+round. Retry at the unchanged head only with concrete evidence that the result
+is transient and requires no author change. Otherwise remove `review-clean`,
+make the required fix, and form a candidate at the next round number,
+respecting the next six-round authorization boundary.
 
 Never close with a required check red. A superseded attempt spends no round and
 gets no completion report. Let its reviewers finish or have cancellation
@@ -901,13 +902,14 @@ comments are themselves a sign that the remaining work should be split into
 focused successors. The same presumption and burden apply at every 6-round
 boundary after round 12.
 
-After round 12 closes, the split recommendation puts the completed head in an
-immutable decision hold while the user decides. This is not a round lock; do
-not mutate the head or dispatch another round during the hold. If approved,
-publicly map every current claim and every finding — including resolved or
-dismissed findings and their resulting changes or rationale — to a focused
-successor, close the current PR as superseded without merging it, and open the
-successors from their effective base. Each successor starts at round 1;
+After round 12 or a later six-round boundary closes, the split recommendation
+puts the completed head in an immutable decision hold while the user decides.
+This is not a round lock; do not mutate the head or dispatch another round
+during the hold. If approved, publicly assign every current change, claim, and
+finding — including resolved or dismissed findings and their resulting changes
+or rationale — to a focused successor, or explicitly record why an item is
+being dropped. Close the current PR as superseded without merging it, and open
+the successors from their effective base. Each successor starts at round 1;
 reviews, round counts, and authorization blocks do not carry forward.
 
 At round 12 and every 6-round boundary after (18, 24, and so on), also answer:

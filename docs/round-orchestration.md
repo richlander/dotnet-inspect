@@ -145,7 +145,7 @@ detects conflicts early.
 
 | First check says | Do this |
 | --- | --- |
-| `ci-required` failed or was cancelled | Stop polling. Classify it and apply the applicable [recovery transition](../AGENTS.md#recovery-transitions). A settled red result is an answer, not something to wait out. |
+| `ci-required` completed without success | Stop polling. Classify it and apply the applicable [recovery transition](../AGENTS.md#recovery-transitions). A settled non-success result is an answer, not something to wait out. |
 | `CONFLICTING` | Apply the conflict transition in [Canonical round flow](../AGENTS.md#canonical-round-flow), then schedule a new five-minute check. |
 | `MERGEABLE`, `ci-required` green at this head | **Done. Stop polling** and proceed to whatever waited on the answer. |
 | `UNKNOWN`, CI green | Ask REST, which triggers the computation; see [resolving `UNKNOWN`](#resolving-unknown). |
@@ -221,7 +221,7 @@ Round <n> is complete for PR <number>.
 
 Reviews: <clean>/<required> clean — <status by reviewer>
 Blocked: <PR or issue numbers not yours to fix; omit when empty>
-Waiting: <tool-evaluable predicate; omit when empty>
+Waiting: <comma-separated tool-evaluable predicates; omit when empty>
 Recommendation: [continue, wait, merge, split into focused successors,
 approve next rounds, stop (reason)]
 
@@ -239,18 +239,21 @@ Classification must match the reviewer outcomes:
 
 `Reviews` records the dual-clean count that GitHub cannot observe. Every
 `Blocked` entry must be an existing PR or issue; file one before citing a new
-shared failure. `Waiting` records a predicate tooling can evaluate, such as
-`check:<name>`, `checks`, `merge`, or `review`; it is not a blocker.
+shared failure. `Waiting` records one or more comma-separated predicates tooling
+can evaluate, such as `check:<name>`, `checks`, `merge`, or `review`; it is not
+a blocker, and it clears only when every listed predicate clears.
 
 - `continue` means the next round is inside the current authorized six-round
   block. Emit the report, then immediately begin the next candidate cycle. Do
   not ask, set `HELP`, or wait for user input.
 - `wait` requires a non-empty `Blocked` or `Waiting` field and means the agent
   will resume when it clears.
-- When a completed documentation-only round is otherwise ready but
-  `ci-required` remains pending or missing, use
-  `Waiting: check:ci-required` and `Recommendation: wait`. Add `merge` to
-  `Waiting` when live mergeability is also unresolved.
+- When a completed documentation-only round is review-clean and no further
+  author or review round is needed, but `ci-required` remains pending or
+  missing, use `Waiting: check:ci-required` and `Recommendation: wait`. Use
+  `Waiting: check:ci-required,merge` when live mergeability is also unresolved.
+  An intermediate or fix-producing round still reports `continue` and does not
+  wait for CI.
 - `split into focused successors` is valid at round 12 and later six-round
   boundaries after the required checkpoint. It requests the user's split
   decision and follows the transition in
