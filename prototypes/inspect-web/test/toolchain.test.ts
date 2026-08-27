@@ -16,8 +16,8 @@ import test from "node:test";
 import {
   supportedAnalysisHosts,
   verifyAnalysisHost,
-} from "../scripts/verify-analysis-host.js";
-import { verifySiteArtifact } from "../scripts/verify-site-artifact.js";
+} from "../scripts/verify-analysis-host.ts";
+import { verifySiteArtifact } from "../scripts/verify-site-artifact.ts";
 
 interface PackageLockEntry {
   readonly link?: boolean;
@@ -37,8 +37,14 @@ interface PackageJson {
   readonly scripts: Readonly<Record<string, string>>;
 }
 
+interface OxlintOverride {
+  readonly files: readonly string[];
+  readonly rules?: Readonly<Record<string, unknown>>;
+}
+
 interface OxlintConfig {
   readonly ignorePatterns?: readonly string[];
+  readonly overrides?: readonly OxlintOverride[];
 }
 
 interface TsconfigFile {
@@ -85,6 +91,7 @@ const packageJson = readJson<PackageJson>("../package.json");
 const oxlintConfig = readJson<OxlintConfig>("../.oxlintrc.json");
 const browserTsconfig = readJson<TsconfigFile>("../tsconfig.json");
 const testTsconfig = readJson<TsconfigFile>("tsconfig.json");
+const nodeTsconfig = readJson<TsconfigFile>("../tsconfig.node.json");
 const staticWebAppConfig
   = readJson<StaticWebAppConfig>("../staticwebapp.config.json");
 const siteIndexHtml = readFileSync(
@@ -109,9 +116,17 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
   assert.equal(testTsconfig.extends, "../tsconfig.json");
   assert.deepEqual(testTsconfig.compilerOptions.types, ["node"]);
   assert.deepEqual(testTsconfig.include, ["./**/*.ts"]);
+  // The toolchain scripts and the Vite config are Node programs rather than browser
+  // source, so they get Node globals from their own project instead of widening the
+  // browser one. Without this project the Vite config would be checked by nothing: no
+  // test imports it, so it would not be pulled into the test program either.
+  assert.equal(nodeTsconfig.extends, "./tsconfig.json");
+  assert.deepEqual(nodeTsconfig.compilerOptions.types, ["node"]);
+  assert.deepEqual(nodeTsconfig.include, ["scripts/**/*.ts", "vite.config.ts"]);
   assert.equal(
     packageJson.scripts.typecheck,
-    "tsc --noEmit && tsc --noEmit -p test/tsconfig.json",
+    "tsc --noEmit && tsc --noEmit -p test/tsconfig.json"
+      + " && tsc --noEmit -p tsconfig.node.json",
   );
 });
 
@@ -153,6 +168,7 @@ test("the strictness options this project relies on stay enabled", () => {
 for (const [name, project] of [
   ["browser", "tsconfig.json"],
   ["test", "test/tsconfig.json"],
+  ["node", "tsconfig.node.json"],
 ] as const) {
   test(`the ${name} project rejects an unchecked indexed read`, () => {
     const root = new URL("../", import.meta.url);
@@ -213,9 +229,17 @@ for (const [name, project] of [
 function checkedSourceFiles(extensions: readonly string[]): string[] {
   const root = new URL("../", import.meta.url);
   const files: string[] = [];
-  for (const directory of ["src", "test"]) {
+  // The project root is scanned without recursion so that a root-level module such as the
+  // Vite config is covered without walking `node_modules`, `dist`, or the generated
+  // `engine` output. Every other authored directory is walked in full.
+  for (const [directory, recursive] of [
+    [".", false],
+    ["src", true],
+    ["test", true],
+    ["scripts", true],
+  ] as const) {
     for (const entry of readdirSync(new URL(directory, root), {
-      recursive: true,
+      recursive,
       withFileTypes: true,
     })) {
       if (entry.isFile()
@@ -249,20 +273,28 @@ test("no source file suppresses type checking", () => {
 });
 
 // The third way out of type checking is to not write TypeScript at all. The oxlint config
-// turns the `no-unsafe-*` family off for `**/*.js`, which is right for the build script,
-// the generated engine wrapper, and the Vite config, but would silently exempt a new
-// JavaScript file dropped into the application or its tests. Both directories are now
-// wholly TypeScript, so the cheapest way to keep the exemption scoped to the files that
-// need it is to assert that neither directory has any JavaScript to exempt.
-test("the application and its tests are wholly TypeScript", () => {
+// used to turn the `no-unsafe-*` family off for `**/*.js`, because the toolchain scripts
+// and the Vite config were JavaScript; a new JavaScript file dropped anywhere in the
+// project inherited that exemption for free. Those files are TypeScript now, so the
+// override names the one file that still needs it -- the generated engine wrapper, which
+// is Wasm build output rather than authored source -- and this asserts that the authored
+// tree has no JavaScript left for a `**/*.js` override to come back for.
+test("the project is authored wholly in TypeScript", () => {
   const root = new URL("../", import.meta.url);
   const unchecked = checkedSourceFiles([".js", ".jsx", ".mjs", ".cjs"]);
 
   assert.deepEqual(
     unchecked.map(file => file.slice(fileURLToPath(root).length)),
     [],
-    "src and test are TypeScript-only; the oxlint `**/*.js` override would exempt these "
-      + "files from the no-unsafe rules that the rest of the application is held to");
+    "the authored project is TypeScript-only; JavaScript here would be checked by "
+      + "neither the compiler nor the type-aware lint rules the rest of it is held to");
+  // The exemption that remains must stay pinned to the generated file, since widening it
+  // back to a pattern would re-open the hole above without changing any file this scans.
+  assert.deepEqual(
+    (oxlintConfig.overrides ?? [])
+      .filter(override => override.rules !== undefined)
+      .flatMap(override => override.files),
+    ["engine/wwwroot/inspect-web-engine.js"]);
 });
 
 test("static hosting serves credits links through the application entry point", () => {
@@ -371,8 +403,8 @@ test("the analysis host check matches locked native packages and lint wiring", (
 
   assert.equal(
     packageJson.scripts.lint,
-    "node scripts/verify-analysis-host.js && oxlint src test scripts "
-      + "engine/wwwroot/inspect-web-engine.js vite.config.js",
+    "node scripts/verify-analysis-host.ts && oxlint src test scripts "
+      + "engine/wwwroot/inspect-web-engine.js vite.config.ts",
   );
 });
 
