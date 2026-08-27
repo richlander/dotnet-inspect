@@ -61,14 +61,10 @@ public sealed class SlotMaterializationPass : IIrPass
         var plan = BuildPlan(function);
         var decided = plan.Candidates.Where(static candidate => candidate.Vetoes == SlotMaterializationVeto.None).ToList();
 
-        // Two-phase rewrite (review: CRITICAL clone-orphaning): replace ALL
-        // loads across ALL decided slots first — in-place subtree mutation
-        // keeps the collected store references valid — THEN rewrite stores.
-        // A store's Clone() thereby copies already-materialized LoadLocals;
-        // cloning one slot's store before another slot's nested load was
-        // processed injected a fresh LoadStackSlot into the live tree while
-        // the pass replaced the original inside the discarded subtree,
-        // orphaning the live one forever.
+        // Replace every load before moving store values so nested slot loads
+        // have already become locals. Reparent each value instead of cloning
+        // it: nested function objects are slot-web scope identities shared
+        // with the analysis decision.
         var indices = new Dictionary<int, int>();
         foreach (var candidate in decided)
             indices[candidate.Slot] = function.AddLocal(candidate.Type!, $"S_{candidate.Slot}");
@@ -85,10 +81,11 @@ public sealed class SlotMaterializationPass : IIrPass
             foreach (var store in candidate.Stores)
             {
                 context.Stepper.StepOver($"materialize slot {candidate.Slot} store as local {indices[candidate.Slot]}", store);
+                var value = (IrExpression)store.DetachChildren()[0];
                 store.ReplaceWith(new StoreLocal(
                     indices[candidate.Slot],
                     candidate.Type!,
-                    (IrExpression)store.Value.Clone()));
+                    value));
             }
         }
     }
@@ -172,6 +169,14 @@ public sealed class SlotMaterializationPass : IIrPass
             if (nestedSlots.Contains(candidate.Slot))
                 candidate.Vetoes |= SlotMaterializationVeto.NestedSlotNumberCollision;
 
+            if (candidate.Stores.Count > 1 && candidate.Loads.Count == 1)
+                candidate.Vetoes |= SlotMaterializationVeto.MultiStoreSingleLoadFold;
+            if (candidate.Stores.Count > 1
+                && candidate.Stores.Select(static store => store.Parent).Distinct().Count() > 1)
+                candidate.Vetoes |= SlotMaterializationVeto.CrossBlockStoreFold;
+            if (candidate.Loads.Count == 1 && candidate.Stores is [{ Value: Conditional }])
+                candidate.Vetoes |= SlotMaterializationVeto.ConditionalSingleLoadFold;
+
             if (candidate.Type is not { } slotType)
                 continue;
 
@@ -181,13 +186,6 @@ public sealed class SlotMaterializationPass : IIrPass
                     && !CoercionRendering.CanSpellSlotCoercion(
                         store.Value.ResultType, slotType, function.TypeShapes, function.EnumUnderlyingTypes)))
                 candidate.Vetoes |= SlotMaterializationVeto.UnrenderableStoreType;
-            if (candidate.Stores.Count > 1 && candidate.Loads.Count == 1)
-                candidate.Vetoes |= SlotMaterializationVeto.MultiStoreSingleLoadFold;
-            if (candidate.Stores.Count > 1
-                && candidate.Stores.Select(static store => store.Parent).Distinct().Count() > 1)
-                candidate.Vetoes |= SlotMaterializationVeto.CrossBlockStoreFold;
-            if (candidate.Loads.Count == 1 && candidate.Stores is [{ Value: Conditional }])
-                candidate.Vetoes |= SlotMaterializationVeto.ConditionalSingleLoadFold;
             if (candidate.Loads.Any(load => load.Parent is StoreElement element
                     && ReferenceEquals(element.Value, load)
                     && CoercionSinks.StoreElementTarget(element, function.TypeShapes) is { } elementTarget

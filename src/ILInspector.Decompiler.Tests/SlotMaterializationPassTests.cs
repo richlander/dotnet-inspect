@@ -315,4 +315,61 @@ public class SlotMaterializationPassTests
 
         Assert.Equal(["S_1", "S_0"], function.LocalNames[^2..]);
     }
+
+    [Fact]
+    public void MaterializationPreservesNestedSlotWebScopeIdentity()
+    {
+        var nestedBlock = new Block();
+        nestedBlock.Add(new StoreStackSlot(1, new Constant(1, Int32)));
+        nestedBlock.Add(new Return(new LoadStackSlot(1, Int32)));
+        var nestedBody = new BlockContainer();
+        nestedBody.Add(nestedBlock);
+        var lambda = new Lambda(Action, [], [], [],
+            usesUpdatedMemorySafetyRules: false, skipLocalsInit: false, nestedBody);
+
+        var body = new BlockContainer();
+        var block = new Block();
+        block.Add(new StoreStackSlot(0, new Call(
+            new MethodRef(Owner, "Use", Int32, [Action], HasThis: false),
+            isVirtual: false,
+            [lambda])));
+        block.Add(new StoreLocal(0, Int32, new LoadStackSlot(0, Int32)));
+        block.Add(new StoreLocal(1, Int32, new LoadStackSlot(0, Int32)));
+        body.Add(block);
+        var function = Function([Int32, Int32], body);
+        var nestedDecision = Assert.Single(
+            SlotMaterializationPass.Analyze(function),
+            decision => decision.Vetoes == SlotMaterializationVeto.NestedScope);
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+
+        Assert.Same(nestedDecision.Scope, Assert.Single(function.Descendants.OfType<Lambda>()));
+        Assert.Single(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Single(function.Descendants.OfType<LoadStackSlot>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void AnalysisAttributesStructuralFoldsWithoutTypeTestimony()
+    {
+        var body = new BlockContainer();
+        var firstStore = new Block(0);
+        firstStore.Add(new StoreStackSlot(0, new Constant(1, Int32)));
+        var secondStore = new Block(4);
+        secondStore.Add(new StoreStackSlot(0, new Constant(2, Int32)));
+        var loadBlock = new Block(8);
+        loadBlock.Add(new ExpressionStatement(new LoadStackSlot(0, type: null)));
+        body.Add(firstStore);
+        body.Add(secondStore);
+        body.Add(loadBlock);
+        var function = Function([], body);
+
+        var decision = Assert.Single(SlotMaterializationPass.Analyze(function));
+
+        Assert.Equal(
+            SlotMaterializationVeto.UnderivableTypeTestimony
+                | SlotMaterializationVeto.MultiStoreSingleLoadFold
+                | SlotMaterializationVeto.CrossBlockStoreFold,
+            decision.Vetoes);
+    }
 }
