@@ -530,6 +530,11 @@ The custom listbox has the accessible name `Libraries` and one tab stop. Focus
 remains on the listbox while `aria-activedescendant` identifies the active
 option; `aria-selected` identifies the committed Library subject.
 
+Unavailable and failed options remain in owner order with
+`aria-disabled="true"`. An unavailable option exposes its owner-issued reason;
+a failed option exposes its diagnostic distinctly. The custom listbox allows
+either to receive active focus for discoverability but never commits it.
+
 The active option has a visible focus indicator in addition to its rest or
 committed-selection styling. The indicator is not conveyed by color alone,
 and remains distinct from the committed `aria-selected` state. The UI scrolls
@@ -541,12 +546,14 @@ Library selection uses manual commit:
 - Home and End move the active option to the first and last option.
 - Printable input, including Space, moves the active option through prefix
   typeahead and never commits the Library subject.
-- Enter commits the active option as the Library subject and starts the
-  selected lens work.
+- Enter commits only a non-active available option carrying
+  `Activate(actionId)` and starts the selected lens work. A `Current`,
+  unavailable, or failed option is a no-op.
 - Escape or focus leaving the listbox without a commit restores the active
   option to the committed selection.
 
-Native `select` uses the platform's equivalent selection and commit behavior.
+Native `select` disables unavailable and failed options and uses the platform's
+equivalent selection and commit behavior for available options.
 
 The selected subject controls every Library lens:
 
@@ -1041,6 +1048,17 @@ outcomes:
 5. Permute or filter no descriptor state in the host and confirm that tab
    identity, order, availability, reasons, and diagnostics come only from the
    returned snapshot collection.
+
+### Library option availability
+
+1. Supply failed `All libraries` first and an available current Library second.
+2. In the custom listbox, use Home to focus the failed aggregate option and
+   confirm its diagnostic is exposed.
+3. Press Enter and confirm that no action is submitted and the committed
+   Library remains selected.
+4. Focus a non-active available Library, press Enter, and confirm submission of
+   only its action ID plus generation.
+5. Confirm that the native `select` disables unavailable and failed options.
 
 ### Workspace composition
 

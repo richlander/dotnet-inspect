@@ -804,6 +804,7 @@ covering at least:
 - `InspectWeb_FailedLensOutcomeHasNoSelectedTabOrPanel`
 - `InspectWeb_EffectiveLensRetainsPartialFailureDiagnostics`
 - `InspectWeb_DerivesLensTabsOnlyFromSnapshotDescriptors`
+- `InspectWeb_LibraryListboxCommitsOnlyAvailableAction`
 - `InspectWeb_ConsumesSubjectOutcomeWithoutHostFallback`
 
 Product-side gates should live with the eventual subject-navigation query.
