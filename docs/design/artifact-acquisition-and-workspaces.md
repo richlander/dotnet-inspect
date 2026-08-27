@@ -328,6 +328,13 @@ separate workspace admission roles. This is a target change from the current
 parameterless
 `ResolvedAssemblyReference.OpenRead` and public readable `Path`.
 
+`ArtifactContentReference` is the query-time input to a downstream content
+consumer. The artifact owner issues it for one identity in a sealed generation
+and binds that artifact's descriptor and acquisition registration. Role
+observations and retained-content opens revalidate the query lease supplied
+when the reference was issued. The type makes no claim that the content is a
+managed assembly; Metadata owns that decode and identity.
+
 It does not:
 
 - resolve package versions;
@@ -843,6 +850,7 @@ The target is complete only when tests equivalent to these exist:
 - `DefinitionLoadAndScenarioResolution_PerformNoAcquisition`
 - `ArtifactDescriptor_ExposesNoUnguardedContentRoute`
 - `ArtifactOpen_RejectsContentSubstitutionAfterAdmission`
+- `ArtifactContentReference_BindsIdentityRegistrationRoleAndContent`
 - `LocalArtifactSnapshot_MutationCannotChangeInspectionBytes`
 - `ArtifactAcquisition_CancellationRemainsCancellation`
 - `RequiredMember_EmptyOrNonProjectableAcquisitionFailsContext`
@@ -889,13 +897,15 @@ immutability, bounded owner-private materialization, read-only retained streams,
 visible required-acquisition and cleanup failures, acquisition-lease disposal,
 owner-held state release, late-outcome lease disposal, seal exclusion during
 acquisition and disposal, shared termination completion, query revocation,
-non-masking disposal, and role assignment separate from provenance.
+non-masking disposal, role assignment separate from provenance, and
+owner-bound content references that cannot mix descriptor, registration, role,
+or bytes across artifacts or generations.
 `LocalArtifactSourceTests` enforce pre-registration local snapshots, typed
 missing/limit diagnostics, mutation and deletion resistance, and cancellation
 remaining cancellation. `LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`
-deletes its temporary source after publication, then passes the guarded
-published snapshot to Metadata, so a source-path fallback cannot satisfy the
-gate.
+deletes its temporary source after publication, then passes an
+`ArtifactContentReference` with guarded published snapshot access to Metadata,
+so a source-path fallback cannot satisfy the gate.
 
 Workspace-wide admission budgets, single-flight/reentrancy, directory
 acquisition, content digests, dependent-group quiescence, and Metadata

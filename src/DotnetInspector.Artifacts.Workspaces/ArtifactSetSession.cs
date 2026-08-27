@@ -492,6 +492,28 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Projects one published artifact into an owner-bound content reference.
+    /// </summary>
+    public ArtifactContentReference GetContentReference(
+        ArtifactIdentity identity,
+        ArtifactQueryLease lease)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        ArgumentNullException.ThrowIfNull(lease);
+        lock (_gate)
+        {
+            EnsurePublished();
+            _authority.ValidateQueryLease(lease);
+            PublishedArtifact artifact = FindArtifact(identity);
+            return new ArtifactContentReference(
+                this,
+                artifact.Descriptor,
+                artifact.Registration,
+                lease);
+        }
+    }
+
     public IArtifactProvenance GetProvenance(
         ArtifactIdentity identity,
         ArtifactQueryLease lease)
