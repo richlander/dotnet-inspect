@@ -1436,6 +1436,47 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
+    public void MethodCorrespondenceContext_LaterOwnerChargeFailureIsNotCached()
+    {
+        using var pe =
+            new PEReader(
+                new MemoryStream(
+                    BuildInterleavedGenericParameterOwnersImage()));
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeDefinitionHandle first =
+            reader.TypeDefinitions.Skip(1).First();
+        TypeDefinitionHandle last =
+            reader.TypeDefinitions.Last();
+        var context =
+            new ApiMemberIdentity.MethodCorrespondenceContext();
+
+        Assert.True(
+            context.TryGetTypeDefinitionGenericParameterCount(
+                reader,
+                first,
+                static _ => { },
+                out int firstCount));
+        Assert.Equal(1, firstCount);
+        Assert.Throws<BadImageFormatException>(
+            () => context
+                .TryGetTypeDefinitionGenericParameterCount(
+                    reader,
+                    last,
+                    static _ =>
+                        throw new BadImageFormatException(
+                            "budget exhausted"),
+                    out _));
+
+        Assert.True(
+            context.TryGetTypeDefinitionGenericParameterCount(
+                reader,
+                last,
+                static _ => { },
+                out int lastCount));
+        Assert.Equal(1, lastCount);
+    }
+
+    [Fact]
     public void ResolveApiMember_DistinctGenericAssemblyReferencesFailWithinOperationBudget()
     {
         byte[] source =

@@ -94,6 +94,7 @@ public static class MetadataSafetyPolicy
     /// <c>MethodCorrespondenceContext_MaximumTypeArityChargeFailureIsNotCached</c>,
     /// <c>MethodCorrespondenceContext_UnsortedGenericParameterOwnersFailOnce</c>,
     /// <c>MethodCorrespondenceContext_InterleavedOwnersUseCodedIndexOrder</c>,
+    /// <c>MethodCorrespondenceContext_LaterOwnerChargeFailureIsNotCached</c>,
     /// and
     /// <c>ResolveApiMember_DistinctGenericAssemblyReferencesFailWithinOperationBudget</c>.
     /// </summary>

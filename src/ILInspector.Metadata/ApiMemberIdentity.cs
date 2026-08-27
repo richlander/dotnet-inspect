@@ -324,63 +324,84 @@ public static class ApiMemberIdentity
                 GetTypeOrMethodDefinitionKey(owner);
             int low = 1;
             int high = rowCount + 1;
+            while (low < high)
+            {
+                int middle =
+                    low + ((high - low) / 2);
+                charge(1);
+                if (!TryReadGenericParameter(
+                        reader,
+                        middle,
+                        out _,
+                        out int middleOwnerKey))
+                {
+                    range = default;
+                    return false;
+                }
+                if (middleOwnerKey < ownerKey)
+                    low = middle + 1;
+                else
+                    high = middle;
+            }
+
+            int firstRow = 0;
+            int count = 0;
+            for (int row = low;
+                row <= rowCount;
+                row++)
+            {
+                charge(1);
+                if (!TryReadGenericParameter(
+                        reader,
+                        row,
+                        out GenericParameter parameter,
+                        out int parameterOwnerKey))
+                {
+                    range = default;
+                    return false;
+                }
+                if (parameterOwnerKey != ownerKey)
+                    break;
+                if (parameter.Parent != owner
+                    || parameter.Index != count)
+                {
+                    range = default;
+                    return false;
+                }
+                if (firstRow == 0)
+                    firstRow = row;
+                count++;
+            }
+            range =
+                new GenericParameterRange(
+                    firstRow,
+                    count);
+            return true;
+        }
+
+        static bool TryReadGenericParameter(
+            MetadataReader reader,
+            int row,
+            out GenericParameter parameter,
+            out int ownerKey)
+        {
             try
             {
-                while (low < high)
-                {
-                    int middle =
-                        low + ((high - low) / 2);
-                    charge(1);
-                    GenericParameter parameter =
-                        reader.GetGenericParameter(
-                            MetadataTokens.GenericParameterHandle(
-                                middle));
-                    int middleOwnerKey =
-                        GetTypeOrMethodDefinitionKey(
-                            parameter.Parent);
-                    if (middleOwnerKey < ownerKey)
-                        low = middle + 1;
-                    else
-                        high = middle;
-                }
-
-                int firstRow = 0;
-                int count = 0;
-                for (int row = low;
-                    row <= rowCount;
-                    row++)
-                {
-                    charge(1);
-                    GenericParameter parameter =
-                        reader.GetGenericParameter(
-                            MetadataTokens.GenericParameterHandle(
-                                row));
-                    if (GetTypeOrMethodDefinitionKey(
-                            parameter.Parent) != ownerKey)
-                    {
-                        break;
-                    }
-                    if (parameter.Parent != owner
-                        || parameter.Index != count)
-                    {
-                        range = default;
-                        return false;
-                    }
-                    if (firstRow == 0)
-                        firstRow = row;
-                    count++;
-                }
-                range =
-                    new GenericParameterRange(
-                        firstRow,
-                        count);
+                parameter =
+                    reader.GetGenericParameter(
+                        MetadataTokens.GenericParameterHandle(
+                            row));
+                ownerKey =
+                    GetTypeOrMethodDefinitionKey(
+                        parameter.Parent);
                 return true;
             }
             catch (Exception ex) when (
                 ex is BadImageFormatException
                     or ArgumentOutOfRangeException)
             {
-                range = default;
+                parameter = default;
+                ownerKey = 0;
                 return false;
             }
         }
