@@ -503,7 +503,9 @@ using that surface's member name, selector, and implementation MethodDef token
 rather than fields restored from a shared target.
 `BrowserEngineBoundaryTests.MemberFacts_DistinguishesSurfaceAndBodyTokenResolution`
 gates token provenance, heap classification, and unsafe-operation
-deduplication.
+deduplication. The frontend permits only one in-flight Facts Analysis request
+per member signature; `same member facts request does not duplicate in-flight
+analysis` gates that single-threaded Browser/Wasm protection.
 
 `QueryPackageDependencies` asks the package-content query for every dependency
 group in manifest order and an exact-framework selection outcome. A missing

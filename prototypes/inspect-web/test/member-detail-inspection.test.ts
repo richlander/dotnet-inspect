@@ -981,6 +981,30 @@ test("cached member facts render without querying or invalidating annotated cont
   assert.equal(state.memberAnnotated, annotated);
 });
 
+test("same member facts request does not duplicate in-flight analysis", async () => {
+  const query = deferred<MemberFacts>();
+  const result = factsResult();
+  let queries = 0;
+  const state = inspectionState();
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryFacts: async () => {
+        queries++;
+        return query.promise;
+      },
+    }));
+
+  const firstLoad = coordinator.loadFacts(factsRequest());
+  await coordinator.loadFacts(factsRequest());
+
+  assert.equal(queries, 1);
+  assert.equal(state.memberFactsLoading, true);
+  query.resolve(result);
+  await firstLoad;
+  assert.equal(state.memberFacts, result);
+  assert.equal(state.memberFactsLoading, false);
+});
+
 test("cleared member facts reload for the same member", async () => {
   const current = factsResult();
   let queries = 0;

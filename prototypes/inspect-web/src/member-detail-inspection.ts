@@ -202,10 +202,12 @@ export function createMemberDetailInspectionCoordinator(
     },
 
     async loadFacts(request) {
-      if (state.memberFactsKey === request.signature
-        && (state.memberFacts || state.memberFactsError)) {
-        dependencies.render();
-        return;
+      if (state.memberFactsKey === request.signature) {
+        if (state.memberFactsLoading) return;
+        if (state.memberFacts || state.memberFactsError) {
+          dependencies.render();
+          return;
+        }
       }
 
       state.memberFactsKey = request.signature;
