@@ -2,9 +2,11 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 using ILInspector.Analysis;
+using ILInspector.Analysis.ClassicAsyncFixtures;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries.Tests;
@@ -87,6 +89,75 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
         Assert.Empty(result.DirectCalls);
         Assert.Empty(result.ExceptionRegions);
         Assert.Empty(result.OptimizationOpportunities);
+    }
+
+    [Fact]
+    public void MethodAnalysis_KeepsAsyncKickoffAndMoveNextEvidenceSeparate()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location);
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace, image);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+        MethodInfo kickoff = typeof(ClassicAsyncSiblingFixture)
+            .GetMethod(
+                nameof(
+                    ClassicAsyncSiblingFixture
+                        .CallsSyncSiblingFromAsync))!;
+        Type stateMachine = kickoff
+            .GetCustomAttribute<AsyncStateMachineAttribute>()!
+            .StateMachineType;
+        MethodInfo moveNext = stateMachine.GetMethod(
+            nameof(IAsyncStateMachine.MoveNext),
+            BindingFlags.Instance
+                | BindingFlags.NonPublic
+                | BindingFlags.Public)!;
+
+        AssemblyMethodAnalysis kickoffAnalysis = Assert.IsType<
+            AssemblyContextEntry<AssemblyMethodAnalysis>.Available>(
+                AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
+                    group,
+                    participant,
+                    kickoff.MetadataToken)).Value;
+        AssemblyMethodAnalysis moveNextAnalysis = Assert.IsType<
+            AssemblyContextEntry<AssemblyMethodAnalysis>.Available>(
+                AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
+                    group,
+                    participant,
+                    moveNext.MetadataToken)).Value;
+
+        Assert.DoesNotContain(
+            kickoffAnalysis.DirectCalls,
+            call =>
+                call.Callee.Name
+                == nameof(ClassicAsyncSiblingFixture.ReadValue));
+        Assert.Contains(
+            moveNextAnalysis.DirectCalls,
+            call =>
+                call.Callee.Name
+                == nameof(ClassicAsyncSiblingFixture.ReadValue));
+        Assert.All(
+            kickoffAnalysis.DirectCalls,
+            call => Assert.Equal(
+                kickoff.MetadataToken,
+                call.EvidenceMethod.MetadataToken));
+        Assert.All(
+            moveNextAnalysis.DirectCalls,
+            call => Assert.Equal(
+                moveNext.MetadataToken,
+                call.EvidenceMethod.MetadataToken));
+        Assert.All(
+            moveNextAnalysis.OptimizationOpportunities,
+            opportunity => Assert.Equal(
+                moveNext.MetadataToken,
+                opportunity.EvidenceMethodToken
+                    ?? opportunity.Method.MetadataToken));
+        Assert.All(
+            moveNextAnalysis.Diagnostics,
+            diagnostic => Assert.Equal(
+                moveNext.MetadataToken,
+                diagnostic.MethodToken));
     }
 
     [Fact]

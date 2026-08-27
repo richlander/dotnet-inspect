@@ -386,22 +386,33 @@ public static partial class InspectionEngine
             ],
             [
                 .. analysis.DirectCalls.Select(
-                    call => new BrowserCallFact(
-                        $"{call.Callee.DeclaringType.ToDisplayString()}."
-                            + $"{call.Callee.Name}("
+                    call =>
+                    {
+                        string typeArguments =
+                            call.Callee.TypeArguments.Length == 0
+                                ? ""
+                                : $"<{string.Join(
+                                    ", ",
+                                    call.Callee.TypeArguments.Select(
+                                        argument =>
+                                            argument.ToDisplayString()))}>";
+                        return new BrowserCallFact(
+                            $"{call.Callee.DeclaringType.ToDisplayString()}."
+                            + $"{call.Callee.Name}{typeArguments}("
                             + string.Join(
                                 ", ",
                                 call.Callee.ParameterTypes.Select(
                                     parameter =>
                                         parameter.ToDisplayString()))
                             + ")",
-                        FormatOffset(call.ILOffset),
-                        string.IsNullOrEmpty(call.Opcode)
-                            ? FormatCallKind(call.Kind)
-                            : call.Opcode,
-                        call.Kind.ToString(),
-                        call.Multiplicity.ToString(),
-                        call.InLoop)),
+                            FormatOffset(call.ILOffset),
+                            string.IsNullOrEmpty(call.Opcode)
+                                ? FormatCallKind(call.Kind)
+                                : call.Opcode,
+                            call.Kind.ToString(),
+                            call.Multiplicity.ToString(),
+                            call.InLoop);
+                    }),
             ],
             [
                 .. Analysis.SemanticFactProjection.SafetyFacts(

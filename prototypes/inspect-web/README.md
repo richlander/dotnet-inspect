@@ -494,18 +494,21 @@ index lifetime. The browser only formats signals, allocation and call
 occurrences, unsafe evidence, exception regions, opportunities, and visible
 diagnostics. Allocation occurrences retain the product's heap-counting
 discriminator, and safety rows use the product's deduplicated semantic
-projection. Selected graph-only accessor bodies use their body selector and
-token, and ref/lib MethodDef row numbers are validated rather than treated as
-cross-image identities. Surface selections use structural correspondence
-without offering their reference-image token as an implementation fallback;
-only a graph-only member surface returned by the product authorizes fallback,
-using that surface's member name, selector, and implementation MethodDef token
-rather than fields restored from a shared target.
+projection. Constructed generic call rows retain their method type arguments.
+Selected graph-only accessor bodies use their body selector and token, and
+ref/lib MethodDef row numbers are validated rather than treated as cross-image
+identities. Surface selections use structural correspondence without offering
+their reference-image token as an implementation fallback; only a graph-only
+member surface returned by the product authorizes fallback, using that surface's
+member name, selector, and implementation MethodDef token rather than fields
+restored from a shared target.
 `BrowserEngineBoundaryTests.MemberFacts_DistinguishesSurfaceAndBodyTokenResolution`
-gates token provenance, heap classification, and unsafe-operation
-deduplication. The frontend permits only one in-flight Facts Analysis request
-per member signature; `same member facts request does not duplicate in-flight
-analysis` gates that single-threaded Browser/Wasm protection.
+gates token provenance, heap classification, unsafe-operation deduplication, and
+constructed generic call identity. The frontend retains at most one in-flight
+Facts Analysis request per member signature and lets a returning selection
+reattach to that work; `same member facts request does not duplicate in-flight
+analysis` and `returning to in-flight member facts reuses work and owns
+publication` gate that single-threaded Browser/Wasm protection.
 
 `QueryPackageDependencies` asks the package-content query for every dependency
 group in manifest order and an exact-framework selection outcome. A missing

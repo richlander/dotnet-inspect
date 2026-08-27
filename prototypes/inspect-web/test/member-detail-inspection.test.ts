@@ -985,6 +985,7 @@ test("same member facts request does not duplicate in-flight analysis", async ()
   const query = deferred<MemberFacts>();
   const result = factsResult();
   let queries = 0;
+  const focusCalls: (MemberFocusSnapshot | null | undefined)[] = [];
   const state = inspectionState();
   const coordinator = createMemberDetailInspectionCoordinator(
     inspectionDependencies(state, {
@@ -992,17 +993,99 @@ test("same member facts request does not duplicate in-flight analysis", async ()
         queries++;
         return query.promise;
       },
+      renderPreservingMemberFocus: fallback => {
+        focusCalls.push(fallback);
+        return focusSnapshot();
+      },
     }));
 
   const firstLoad = coordinator.loadFacts(factsRequest());
-  await coordinator.loadFacts(factsRequest());
+  const secondLoad = coordinator.loadFacts(factsRequest());
 
   assert.equal(queries, 1);
   assert.equal(state.memberFactsLoading, true);
+  assert.deepEqual(focusCalls, [undefined, undefined]);
   query.resolve(result);
-  await firstLoad;
+  await Promise.all([firstLoad, secondLoad]);
   assert.equal(state.memberFacts, result);
   assert.equal(state.memberFactsLoading, false);
+  assert.deepEqual(focusCalls, [undefined, undefined, focusSnapshot()]);
+});
+
+test("returning to in-flight member facts reuses work and owns publication", async () => {
+  for (const firstResolution of ["a", "b"] as const) {
+    const aQuery = deferred<MemberFacts>();
+    const bQuery = deferred<MemberFacts>();
+    const aResult = {
+      ...factsResult(),
+      metadataToken: 0x06000001,
+    };
+    const bResult = {
+      ...factsResult(),
+      metadataToken: 0x06000002,
+    };
+    const queries = new Map<string, number>();
+    let current = "a-first";
+    let focusCalls = 0;
+    const state = inspectionState();
+    const coordinator = createMemberDetailInspectionCoordinator(
+      inspectionDependencies(state, {
+        queryFacts: async request => {
+          queries.set(
+            request.signature,
+            (queries.get(request.signature) ?? 0) + 1);
+          return request.signature === "a"
+            ? aQuery.promise
+            : bQuery.promise;
+        },
+        renderPreservingMemberFocus: () => {
+          focusCalls++;
+          return focusSnapshot();
+        },
+      }));
+
+    const firstA = coordinator.loadFacts(factsRequest({
+      signature: "a",
+      isCurrent: () => current === "a-first",
+    }));
+    current = "b";
+    const b = coordinator.loadFacts(factsRequest({
+      signature: "b",
+      metadataToken: 0x06000002,
+      isCurrent: () => current === "b",
+    }));
+    current = "a-return";
+    const returningA = coordinator.loadFacts(factsRequest({
+      signature: "a",
+      isCurrent: () => current === "a-return",
+    }));
+
+    assert.deepEqual([...queries], [["a", 1], ["b", 1]]);
+    assert.equal(state.memberFactsKey, "a");
+    assert.equal(state.memberFactsLoading, true);
+    assert.equal(focusCalls, 3);
+
+    if (firstResolution === "a") {
+      aQuery.resolve(aResult);
+      await Promise.all([firstA, returningA]);
+      assert.equal(state.memberFacts, aResult);
+      assert.equal(state.memberFactsLoading, false);
+      bQuery.resolve(bResult);
+      await b;
+    } else {
+      bQuery.resolve(bResult);
+      await b;
+      assert.equal(state.memberFacts, null);
+      assert.equal(state.memberFactsLoading, true);
+      aQuery.resolve(aResult);
+      await Promise.all([firstA, returningA]);
+    }
+
+    assert.equal(state.memberFacts, aResult);
+    assert.equal(state.memberFactsLoading, false);
+    assert.equal(state.memberFactsKey, "a");
+    assert.equal(focusCalls, 4);
+  }
 });
 
 test("cleared member facts reload for the same member", async () => {

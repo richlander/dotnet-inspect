@@ -106,6 +106,8 @@ export function createMemberDetailInspectionCoordinator(
   dependencies: MemberDetailInspectionDependencies,
 ): MemberDetailInspectionCoordinator {
   const { state } = dependencies;
+  const memberFactsQueries = new Map<string, Promise<MemberFacts>>();
+  let memberFactsRequestId = 0;
 
   return {
     async loadDocumentation(request) {
@@ -202,14 +204,14 @@ export function createMemberDetailInspectionCoordinator(
     },
 
     async loadFacts(request) {
-      if (state.memberFactsKey === request.signature) {
-        if (state.memberFactsLoading) return;
-        if (state.memberFacts || state.memberFactsError) {
-          dependencies.render();
-          return;
-        }
+      if (state.memberFactsKey === request.signature
+        && !state.memberFactsLoading
+        && (state.memberFacts || state.memberFactsError)) {
+        dependencies.render();
+        return;
       }
 
+      const requestId = ++memberFactsRequestId;
       state.memberFactsKey = request.signature;
       state.memberFacts = null;
       state.memberFactsLoading = true;
@@ -217,19 +219,30 @@ export function createMemberDetailInspectionCoordinator(
       state.memberAnnotated = null;
       state.memberAnnotatedError = "";
       const preservedFocus = dependencies.renderPreservingMemberFocus();
+      let query = memberFactsQueries.get(request.signature);
+      if (!query) {
+        query = (async () => dependencies.queryFacts(request))();
+        memberFactsQueries.set(request.signature, query);
+      }
       try {
-        const result = await dependencies.queryFacts(request);
+        const result = await query;
         if (request.isCurrent()
-          && state.memberFactsKey === request.signature) {
+          && state.memberFactsKey === request.signature
+          && memberFactsRequestId === requestId) {
           state.memberFacts = result;
         }
       } catch (error) {
         if (request.isCurrent()
-          && state.memberFactsKey === request.signature) {
+          && state.memberFactsKey === request.signature
+          && memberFactsRequestId === requestId) {
           state.memberFactsError = dependencies.describeError(error);
         }
       } finally {
-        if (state.memberFactsKey === request.signature) {
+        if (memberFactsQueries.get(request.signature) === query) {
+          memberFactsQueries.delete(request.signature);
+        }
+        if (state.memberFactsKey === request.signature
+          && memberFactsRequestId === requestId) {
           state.memberFactsLoading = false;
           if (request.isCurrent()) {
             dependencies.renderPreservingMemberFocus(preservedFocus);

@@ -40,6 +40,17 @@ public sealed class BrowserEngineBoundaryTests
         return values[0];
     }
 
+    public static int PerformanceGenericCallProbe()
+    {
+        PerformanceGenericCallTarget<int>();
+        PerformanceGenericCallTarget<string>();
+        return 0;
+    }
+
+    static void PerformanceGenericCallTarget<T>()
+    {
+    }
+
     public static object PerformanceBoxingProperty => 42;
 
     public static class PerformanceNestedProbe
@@ -3254,6 +3265,42 @@ public sealed class BrowserEngineBoundaryTests
                 == "box-value-type");
         Assert.Empty(
             root.GetProperty("diagnostics").EnumerateArray());
+
+        JsonElement genericCallMember = Assert.Single(
+            type.GetProperty("api").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("name").GetString()
+                == nameof(PerformanceGenericCallProbe));
+        string genericCallJson = await InspectionEngine.QueryMemberFacts(
+            PackageId,
+            "1.0.0",
+            "net11.0",
+            type.GetProperty("assembly").GetString()!,
+            type.GetProperty("definitionId").GetString()!,
+            genericCallMember.GetProperty("name").GetString()!,
+            genericCallMember.GetProperty("signature").GetString()!,
+            genericCallMember.GetProperty("graphSelectorKey").GetString()!,
+            metadataToken: 0,
+            implementationBodySelected: false);
+        using JsonDocument genericCallDocument =
+            JsonDocument.Parse(genericCallJson);
+        string[] genericCallees =
+        [
+            .. genericCallDocument.RootElement
+                .GetProperty("calls")
+                .EnumerateArray()
+                .Select(call =>
+                    call.GetProperty("callee").GetString()!)
+                .Where(callee =>
+                    callee.Contains(
+                        nameof(PerformanceGenericCallTarget),
+                        StringComparison.Ordinal))
+                .Distinct(),
+        ];
+        Assert.Equal(2, genericCallees.Length);
+        Assert.All(
+            genericCallees,
+            callee => Assert.Contains("<", callee));
 
         int implementationToken = typeof(BrowserEngineBoundaryTests)
             .GetMethod(nameof(PerformanceBoxingProbe))!
