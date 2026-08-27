@@ -17,6 +17,7 @@ import {
   graphMemberPendingMatchesView,
   graphMemberShareTarget,
   graphMemberSelection,
+  graphMemberTargetWithSelectedBody,
   graphMemberTargetFromShare,
   graphOnlyBodyTarget,
   MARKDOWN_SANITIZE_OPTIONS,
@@ -36,7 +37,6 @@ import {
   removeWorkspacePackage,
   removeAppendedNotice,
   retainGraphMemberProjection,
-  retainGraphOnlyBodyTarget,
   retainWorkspacePackage,
   resolveLoadedGraphTargetCandidate,
   resolveOpportunitySourceCandidate,
@@ -109,6 +109,8 @@ import {
   createNuGetPackageModel,
   createAppMemberSurface,
   createPackageAcquisition,
+  graphOnlyImplementationBody,
+  retainGraphOnlyImplementationBody,
   runtimeAssemblyIsResident,
   runtimePackIsResident,
   type AppMemberSurface,
@@ -920,16 +922,18 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
     validateAnnotatedSourceDocument(document);
     return { ...result, document };
   },
-  queryFacts: async request =>
-    parseEngineJson<MemberFacts>(
-      await inspectMemberFacts(
-        request.packageId,
-        request.version,
-        request.framework,
-        request.assembly,
-        request.type,
-        request.member,
-        request.memberSignature)),
+  queryFacts: request =>
+    inspectMemberFacts(
+      request.packageId,
+      request.version,
+      request.framework,
+      request.assembly,
+      request.typeIdentity,
+      request.member,
+      request.memberSignature,
+      request.selectorKey,
+      request.metadataToken,
+      request.implementationBodySelected),
   describeError: errorMessage,
   render,
   renderPreservingMemberFocus,
@@ -1099,8 +1103,7 @@ function applyView(view: WorkspaceView) {
     state.selectedMemberKey = graphSelection.group.key;
     state.memberBrowseTypeId = type.id;
     state.selectedOverloadIndex = graphSelection.overloadIndex;
-    state.selectedBodyTarget = view.bodyTarget;
-    retainGraphOnlyBodyTarget(
+    state.selectedBodyTarget = retainGraphOnlyImplementationBody(
       graphSelection.group.overloads[graphSelection.overloadIndex],
       view.bodyTarget);
     state.memberSection = isMemberSection(view.memberSection)
@@ -4125,17 +4128,20 @@ function renderMemberFacts(
 
   const facts = state.memberFacts;
   const signals = facts.signals;
-  const allocOffsets = facts.allocations.map(a => a.offset);
+  const heapAllocations = facts.allocations.filter(a => a.countedAsHeap);
+  const allocOffsets = heapAllocations.map(a => a.offset);
   const callOffsets = facts.calls.map(c => c.offset);
-  const safetyOffsets = facts.safety.map(s => s.offset);
-  const loopAllocOffsets = facts.allocations.filter(a => a.inLoop).map(a => a.offset);
+  const safetyOffsets = facts.safety
+    .map(s => s.offset)
+    .filter((offset): offset is string => offset != null);
+  const loopAllocOffsets = heapAllocations.filter(a => a.inLoop).map(a => a.offset);
   return `
     <section class="document-section facts-section">
       <div class="section-title"><h2>Method facts</h2><span>selected overload</span></div>
       ${factRows([
         ["Overload", `${overloadIndex + 1} of ${member.overloads.length}`],
         ["Kind", overload.kind],
-        ["Metadata token", overload.metadataToken == null ? "not exposed" : `0x${overload.metadataToken.toString(16).padStart(8, "0")}`],
+        ["Metadata token", `0x${facts.metadataToken.toString(16).padStart(8, "0")}`],
         ["Declaring type", type.id],
         ["Allocations", String(signals.allocations), allocOffsets],
         ["Calls", String(facts.calls.length), callOffsets],
@@ -4147,19 +4153,20 @@ function renderMemberFacts(
       ])}
     </section>
     ${renderFactTable("Allocation facts", facts.allocations, [
-      ["IL", "offset"], ["Kind", "kind"], ["Type", "type"], ["Multiplicity", "multiplicity"],
+      ["IL", "offset"], ["Kind", "kind"], ["Type", "type"],
+      ["Heap", row => row.countedAsHeap ? "yes" : "no"], ["Multiplicity", "multiplicity"],
       ["Path", "path"], ["Escape", "escape"], ["Loop", row => row.inLoop ? "yes" : ""],
       ["Size", row => typeof row.estimatedSizeBytes === "number"
         ? `${row.estimatedSizeBytes} B`
         : ""]
-    ], "No heap-allocation occurrences were found in this method.")}
+    ], "No allocation occurrences were found in this method.")}
     ${renderFactTable("Calls", facts.calls, [
       ["IL", "offset"], ["Opcode", "opcode"], ["Callee", "callee"],
-      ["Multiplicity", "multiplicity"], ["Loop", row => row.inLoop ? "yes" : ""],
-      ["Target", row => row.exactTarget ? "exact" : "open"]
+      ["Multiplicity", "multiplicity"], ["Loop", row => row.inLoop ? "yes" : ""]
     ], "No direct call sites were found in this method.")}
     ${renderFactTable("Safety facts", facts.safety, [
-      ["IL", row => row.offset || ""], ["Kind", "kind"], ["Evidence", "detail"]
+      ["IL", row => row.offset || ""], ["Kind", "kind"], ["Operation", "operation"],
+      ["Requirement", "requirement"], ["Evidence", "evidence"]
     ], "No unsafe operations or declaration evidence were found.")}
     ${renderFactTable("Exception regions", facts.exceptionRegions, [
       ["Region", "region"], ["Clause", "clause"], ["Try", "tryRange"],
@@ -4176,7 +4183,10 @@ function renderMemberFacts(
             <dl><dt>Possible direction</dt><dd>${escapeHtml(opportunity.fix)}</dd>${opportunity.caveat ? `<dt>Caveat</dt><dd>${escapeHtml(opportunity.caveat)}</dd>` : ""}<dt>Provenance</dt><dd>${escapeHtml([opportunity.provenance, opportunity.finding].filter(Boolean).join(" · "))}</dd></dl>
           </article>`).join("")
         : '<div class="empty-fact-group">No curated performance opportunities were found for this method.</div>'}
-    </section>`;
+    </section>
+    ${facts.diagnostics.length
+      ? `<section class="document-section fact-group"><div class="section-title"><h2>Analysis diagnostics</h2><span>${facts.diagnostics.length}</span></div><ul>${facts.diagnostics.map(diagnostic => `<li>${escapeHtml(diagnostic)}</li>`).join("")}</ul></section>`
+      : ""}`;
 }
 
 type FactTableColumn<T> =
@@ -6451,8 +6461,7 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
       && deep.graphTarget) {
       state.selectedMemberKey = localGraphSelection.group.key;
       state.selectedOverloadIndex = localGraphSelection.overloadIndex;
-      state.selectedBodyTarget = deep.graphTarget;
-      retainGraphOnlyBodyTarget(
+      state.selectedBodyTarget = retainGraphOnlyImplementationBody(
         localGraphSelection.group.overloads[localGraphSelection.overloadIndex],
         deep.graphTarget);
       state.memberSection = deep.section
@@ -7811,7 +7820,9 @@ function commitGraphMemberSelection(
     type.api ??= [];
     type.api.push(staged.member);
   }
-  retainGraphOnlyBodyTarget(staged.member, target);
+  const selectedTarget = retainGraphOnlyImplementationBody(
+    staged.member,
+    target);
   const selection = resolveLoadedGraphTarget(
     target,
     { status: "unique", pkg, type });
@@ -7819,7 +7830,11 @@ function commitGraphMemberSelection(
     throw new Error(
       `The graph target '${target.memberName}' was lost while committing its projection.`);
   }
-  return { ...selection, group: selection.group };
+  return {
+    ...selection,
+    group: selection.group,
+    selectedBodyTarget: selectedTarget,
+  };
 }
 
 async function navigateToGraphMember(
@@ -7831,12 +7846,16 @@ async function navigateToGraphMember(
   state.platformDrillLoading = false;
   state.platformDrillError = "";
   if ("group" in loaded) {
+    const overload = loaded.group.overloads[loaded.overloadIndex];
+    const selectedBodyTarget = overload
+      ? retainGraphOnlyImplementationBody(overload, target)
+      : target;
     navigateToMember(
       loaded.pkg,
       loaded.type,
       loaded.group,
       loaded.overloadIndex,
-      target);
+      selectedBodyTarget);
     return;
   }
 
@@ -7850,7 +7869,7 @@ async function navigateToGraphMember(
   state.graphMemberNavigationError = "";
   render();
   try {
-    const surface = await loadGraphMemberSurface(
+    const projection = await loadGraphMemberSurface(
       loaded.pkg,
       loaded.type,
       target);
@@ -7861,15 +7880,18 @@ async function navigateToGraphMember(
       }
       return;
     }
+    const selectedTarget = graphMemberTargetWithSelectedBody(
+      target,
+      projection.selectedBody);
     const staged = stageGraphMemberSelection(
       loaded.pkg,
       loaded.type,
-      target,
-      surface);
+      selectedTarget,
+      projection.member);
     const selection = commitGraphMemberSelection(
       loaded.pkg,
       loaded.type,
-      target,
+      selectedTarget,
       staged);
     state.graphMemberNavigationTitle = "";
     navigateToMember(
@@ -7877,7 +7899,7 @@ async function navigateToGraphMember(
       selection.type,
       selection.group,
       selection.overloadIndex,
-      target);
+      selection.selectedBodyTarget);
   } catch (error) {
     if (!navigationIsCurrent()) {
       if (seq === state.graphMemberNavigationSeq) {
@@ -7921,23 +7943,29 @@ async function restorePendingGraphMember() {
       throw new Error(
         "The graph member's declaring type is no longer available.");
     }
-    const surface = await loadGraphMemberSurface(pkg, type, pending.target);
+    const projection = await loadGraphMemberSurface(
+      pkg,
+      type,
+      pending.target);
     if (!restorationIsCurrent()) {
       discardIfOwned();
       return;
     }
+    const selectedTarget = graphMemberTargetWithSelectedBody(
+      pending.target,
+      projection.selectedBody);
     const staged = stageGraphMemberSelection(
       pkg,
       type,
-      pending.target,
-      surface);
+      selectedTarget,
+      projection.member);
     if (staged.selection.group.key !== pending.member) {
       throw new Error("The shared member identity does not match the graph target.");
     }
     const selection = commitGraphMemberSelection(
       pkg,
       type,
-      pending.target,
+      selectedTarget,
       staged);
     state.pendingGraphMemberDeepLink = null;
     state.graphMemberNavigationTitle = "";
@@ -7951,7 +7979,7 @@ async function restorePendingGraphMember() {
       true).includes(pending.section)
       ? pending.section
       : "overview";
-    state.selectedBodyTarget = pending.target;
+    state.selectedBodyTarget = selection.selectedBodyTarget;
     normalizeCurrentNavEntry();
     render();
     observeAsync(loadSelectionData(), "Loading restored graph member data");
@@ -8469,8 +8497,14 @@ function navigateToMember(
   bodyTarget: BodyTarget | null = null,
 ) {
   invalidateGraphMemberNavigation();
+  let selectedBodyTarget = bodyTarget;
   if (overloadIndex != null) {
-    retainGraphOnlyBodyTarget(group.overloads[overloadIndex], bodyTarget);
+    const overload = group.overloads[overloadIndex];
+    if (overload) {
+      selectedBodyTarget = retainGraphOnlyImplementationBody(
+        overload,
+        bodyTarget);
+    }
   }
   activatePackage(pkg);
   state.typeFilter = "";
@@ -8497,7 +8531,7 @@ function navigateToMember(
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
-  state.selectedBodyTarget = bodyTarget;
+  state.selectedBodyTarget = selectedBodyTarget;
   observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
 }
 
@@ -8515,8 +8549,11 @@ async function loadSelectedMemberFacts() {
     render();
     return;
   }
-  const signature = memberRequestSignature(type, overload);
+  const signature = memberRequestSignature(type, overload, true);
   const pkg = currentPackage();
+  const implementationBody = graphOnlyImplementationBody(overload);
+  const implementationMetadataToken = implementationBody?.token ?? 0;
+  const implementationBodySelected = implementationMetadataToken !== 0;
   return memberDetailInspection.loadFacts({
     signature,
     packageId: pkg.id,
@@ -8524,9 +8561,17 @@ async function loadSelectedMemberFacts() {
     framework: pkg.activeFramework,
     assembly: type.assembly,
     type: type.queryId ?? type.id,
-    member: overload.name,
+    typeIdentity: type.definitionId ?? type.id,
+    member: implementationBody?.memberName
+      ?? state.selectedBodyTarget?.memberName
+      ?? overload.name,
     memberSignature: overload.signature,
-    isCurrent: () => memberRequestIsCurrent(signature),
+    selectorKey: implementationBody?.selectorKey
+      ?? state.selectedBodyTarget?.selectorKey
+      ?? overload.graphSelectorKey,
+    metadataToken: implementationMetadataToken,
+    implementationBodySelected,
+    isCurrent: () => memberRequestIsCurrent(signature, true),
   });
 }
 
