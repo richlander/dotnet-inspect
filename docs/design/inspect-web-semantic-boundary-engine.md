@@ -108,7 +108,9 @@ BoundaryDescriptor
   guarded operation declarations
   operation-receiver type declarations
   transfer-root type or callable declarations
+  optional non-generic producer positions
   optional owner-issued literal-set declarations
+  exact authorized operation sites
   exact authorized transfer edges
 ```
 
@@ -123,17 +125,23 @@ to recognize a guarded operation. A transfer root is a value whose movement
 can conceal a later guarded operation. The capability owner chooses those
 roles. The engine does not promote every receiver to a transfer root.
 
+An authorized operation site identifies an exact product callable declaration
+and guarded operation declaration. It grants that analyzed callable authority
+to exercise that operation; it does not authorize carrier transfer or code
+outside the product program.
+
 An authorized transfer edge identifies an exact callable declaration,
-direction, and parameter, result, or yield position. The anchor may resolve to
-a free function or a member declaration; the engine does not require an
-exported free-function API. The capability owner remains responsible for
-issuing a statically resolvable anchor from its own component.
+direction, and parameter, result, yield, or callable-value position. The anchor
+may resolve to a free function or a member declaration; the engine does not
+require an exported free-function API. The capability owner remains responsible
+for issuing a statically resolvable anchor from its own component.
 
 The engine rejects duplicate capability identities, unresolved or ambiguous
-anchors, `any` or unknown authority positions, stale declarations, and
-authorization against a different overload or value position. It does not
-validate domain catalogs, grammar branches, decoder behavior, or runtime
-outputs.
+anchors, `any` or unknown authority positions, stale declarations, operation
+authority outside an analyzed product callable, and authorization against a
+different overload or value position. Operation and transfer authority are
+distinct and neither implies the other. The engine does not validate domain
+catalogs, grammar branches, decoder behavior, or runtime outputs.
 
 ### Diagnostic output
 
@@ -168,6 +176,9 @@ Only one tooling module imports `typescript/unstable/sync` or
   signatures, index results, tuple and array elements, and instantiated generic
   arguments;
 - resolving members required by a target type against a source type;
+- classifying a selected callable as analyzed product, configured platform, or
+  bodyless external code;
+- resolving captures from a callable to declarations outside its local scope;
 - identifying declaration ownership by configured library or product source;
 - enumerating the semantic conversion edges defined below; and
 - returning explicit unavailable or ambiguous results instead of `undefined`
@@ -197,8 +208,9 @@ configured declaration. Lexically shadowed names and structurally similar
 unrelated declarations are close negatives.
 
 The descriptor owner decides whether an operation is allowed in its module or
-through an exact authorized edge. The engine neither infers ownership from a
-file name nor grants authority to an importer or re-exporter.
+at an exact authorized operation site. Transfer authority is not operation
+authority. The engine neither infers ownership from a file name nor grants
+authority to an importer or re-exporter.
 
 ### Semantic conversion edges
 
@@ -210,14 +222,27 @@ produces a whole value:
 - arguments against selected parameter positions;
 - synchronous returns and async resolved returns;
 - call and construct results against contextual targets;
+- contextually typed conditional, logical, nullish, array, object, and concise
+  arrow-body operands;
+- `for...of` and `for await...of` produced values against their loop bindings;
+- `await` results against their contextual targets;
 - `yield` and `yield*` against represented generator positions;
 - type assertions and `satisfies` expressions;
 - object spread and destructuring rest; and
 - copy or reflection intrinsics whose selected declaration transports a value.
 
-The edge inventory is centralized and test-derived. A rule cannot maintain a
-private subset. Unsupported syntax or a missing source or target type produces
-an explicit diagnostic when the edge touches a configured identity.
+Closure capture and `throw` are explicit transport channels even though they
+have no ordinary contextual target type. A closure environment is modeled as a
+hidden aggregate owned by its callable value. Throwing a configured receiver
+lineage or transfer root is always rejected because JavaScript exception
+transport has no statically identifiable recipient or typed authorization
+position.
+
+The edge inventory is centralized and derived from one declared visitor table;
+characterization asserts that every declared edge kind is observed by a real
+fixture. A rule cannot maintain a private subset. Unsupported syntax or a
+missing source or target type produces an explicit diagnostic when the edge
+touches a configured identity.
 
 Property access that extracts a primitive or a newly created value is not a
 whole-value conversion of its receiver. The engine preserves identity, not
@@ -236,10 +261,13 @@ A whole receiver value may convert to:
 - an actual base type or interface reached through the receiver's semantic
   declaration hierarchy.
 
-It may not convert to a repository structural type, opaque type, unconstrained
-generic, or unrelated platform type that drops that identity. The engine
-rejects the first identity-erasing edge, even when the target does not yet
-expose a guarded operation.
+The configured receiver and its actual semantic bases form a conservative
+receiver-lineage closure. A whole value in that closure may move among those
+platform identities, including through selected platform call parameters. It
+may not convert to a repository structural type, opaque type, unconstrained
+generic, or unrelated platform type that drops the lineage. The engine rejects
+the first identity-erasing edge, even when the target does not yet expose a
+guarded operation.
 
 This immediate rejection closes multi-stage laundering without custom taint:
 
@@ -248,9 +276,21 @@ Element -> { nodeType: number } -> repository Reader
 ```
 
 The first edge fails because the structural target no longer represents the
-configured receiver. By contrast, `Element -> Node` is valid because `Node` is
-an actual semantic base. A TypeScript-recognized narrowing from that base back
-to `Element` restores the operation's exact declaration and remains valid.
+configured receiver. `Element -> Node` remains valid because `Node` is an
+actual semantic base, but `Node -> { nodeType: number }` fails for the same
+reason. This conservative rule applies even when a particular `Node` value is a
+different runtime subtype: the erased static type cannot prove that distinction.
+A TypeScript-recognized narrowing from `Node` back to `Element` restores the
+operation's exact declaration and remains valid.
+
+Calls into analyzed product functions bind arguments to parameters and inspect
+the implementation's internal and return edges. Passing a lineage-bearing value
+to bodyless non-platform code is rejected because the engine cannot prove how
+that code stores or returns the value. Configured platform calls remain valid
+when their selected signature represents the argument and result through the
+same platform lineage. This admits ordinary DOM calls such as
+`appendChild(HTMLElement)` without granting arbitrary external code receiver
+authority.
 
 This rule applies only to conversion of the whole receiver value. Reading
 `element.nodeType` into a number does not make that number receiver-bearing.
@@ -259,17 +299,13 @@ This rule applies only to conversion of the whole receiver value. Reading
 
 The same identity rule applies recursively to corresponding value positions.
 Repository-authored unions, intersections, properties, signatures, tuples,
-arrays, index results, constraints, and instantiated generic arguments are
-compared cycle-safely.
+arrays, index results, and constraints are compared cycle-safely. Every
+instantiated generic argument is compared regardless of whether its declaration
+is product or platform owned.
 
-Standard wrappers are characterized from the pinned library rather than
-recognized by text. Their value-producing positions include at least the
-resolved output positions of `Promise`, `Iterable`, `Iterator`, `Generator`,
-`AsyncIterable`, and `AsyncIterator`. Characterization, not this prose list, is
-the executable authority.
-
-When a non-generic platform source converts to a structural or generic target,
-the comparison is target-driven:
+When source and target generic declarations differ, their represented
+arguments do not correspond, or either side is non-generic, the comparison is
+target-driven:
 
 1. Identify target positions that drop or replace a configured receiver.
 2. Resolve only the source members required to satisfy those target positions.
@@ -278,11 +314,12 @@ the comparison is target-driven:
 4. Stop without enumerating unrelated source members.
 
 The target may itself be platform-authored. For example,
-`HTMLCollection -> Iterable<Reader>` and
-`HTMLCollection -> ArrayLike<Reader>` compare the target-required iterator or
-index output with the source output and reject `Element -> Reader`. This closes
-the mixed platform/repository path without recursively classifying every member
-reachable from `HTMLCollection`.
+`HTMLCollection -> Iterable<Reader>`,
+`HTMLCollection -> ArrayLike<Reader>`, and
+`NodeListOf<Element> -> Iterable<Reader>` compare the target-required iterator
+or index output with the source output and reject `Element -> Reader`. This
+closes non-generic and platform-generic paths without recursively classifying
+every member reachable from the source.
 
 Call, construct, callback, and method parameters are compared
 contravariantly. Results and readable values are compared covariantly. Every
@@ -300,17 +337,28 @@ type is carrier-bearing when it is:
 
 - a configured transfer root;
 - a repository-authored aggregate position containing a carrier-bearing type;
-  or
-- a characterized standard-wrapper output containing a carrier-bearing type.
+- any instantiated generic argument containing a carrier-bearing type,
+  regardless of declaration owner; or
+- a descriptor-characterized non-generic producer position containing a
+  carrier-bearing type.
 
 The engine does not recursively walk unrelated members of a platform type to
-discover carriers.
+discover carriers. A capability owner that relies on a non-generic platform
+container must name that container as a transfer root or issue its productive
+positions; the engine does not maintain a self-discovered standard-wrapper
+allow list.
 
 Every semantic conversion edge preserves a carrier's configured identity. A
 carrier-bearing value may cross a callable, module, result, or yield boundary
 only through an exact authorized transfer edge. This applies to the complete
 carrier-bearing type, including standard wrappers; returning
 `Promise<TransferRoot>` is an egress and requires explicit result authority.
+
+A callable value whose closure captures a carrier-bearing value is itself
+carrier-bearing, independent of its declared parameter and result types. The
+hidden closure aggregate follows the same call, storage, return, and export
+rules. Throwing a receiver-lineage or transfer-root value is categorically
+forbidden and cannot be authorized.
 
 No authority is inferred from matching parameter types, same-module spelling,
 generic constraints, rest parameters, or higher-order wrappers. A descriptor
@@ -344,32 +392,49 @@ The implementation adds an `inspect-web-semantic-boundaries` script and makes
 
 1. **Semantic characterization:** loads the real product project with the
    pinned TypeScript API and pins the repository-owned fact shapes, configured
-   library identities, wrapper output positions, and edge inventory.
+   library identities, generic argument positions, non-generic producer
+   positions, and edge inventory. Every characterized productive position has
+   a mutation that fails when it is removed.
 2. **Operation identity:** rejects direct, aliased, destructured, computed,
    extracted, bound, and reflective access to a test capability outside its
-   owner while accepting lexical shadows and unrelated declarations.
+   owner while accepting lexical shadows and unrelated declarations. Exact
+   operation authority passes only at its declared analyzed product callable
+   and does not authorize transfer.
 3. **Receiver preservation:** rejects direct and two-stage structural erasure,
-   opaque conversion, unconstrained generics, nested aggregates, callbacks,
-   method parameters, and generic results. It accepts type-preserving movement,
-   actual platform-base movement and restoration, primitive property reads,
-   and ordinary DOM composition such as `appendChild(HTMLElement)`.
+   base-to-structural erasure, opaque conversion, unconstrained generics, nested
+   aggregates, callbacks, method parameters, and generic results. It accepts
+   type-preserving movement, actual platform-base movement and restoration,
+   primitive property reads, and ordinary DOM composition such as
+   `appendChild(HTMLElement)`. A close case records the intentional conservative
+   rejection of structural projection from another runtime subtype represented
+   only as the configured base.
 4. **Mixed-wrapper comparison:** rejects the real TypeScript 7.0.2 conversions
    `HTMLCollection -> Iterable<Reader>` and
-   `HTMLCollection -> ArrayLike<Reader>`, plus repository wrappers, arrays,
-   tuples, promises, callbacks, and contravariant method positions. Close
-   negatives preserve actual DOM identities in the same shapes.
+   `HTMLCollection -> ArrayLike<Reader>`, plus
+   `NodeListOf<Element> -> Iterable<Reader>`, repository wrappers, arrays,
+   tuples, promises, maps, sets, callbacks, and contravariant method positions.
+   Close negatives preserve actual DOM identities in the same shapes.
 5. **Transfer preservation:** rejects identity erasure, unauthorized call
    boundaries, aggregates, async results, `Promise<TransferRoot>`, iterators,
-   generators, rest parameters, reflection, and higher-order wrappers for a
-   test transfer root. Exact descriptor-issued edges pass.
+   generators, rest parameters, reflection, generic platform containers,
+   closure capture followed by egress, and higher-order wrappers for a test
+   transfer root. Throwing a receiver-lineage or transfer-root value always
+   fails. Exact descriptor-issued edges pass.
 6. **Descriptor integrity:** rejects duplicate identities, unresolved and
    stale anchors, ambiguous overloads, unknown authority positions, wrong
-   value positions, and anchors whose declarations differ from the selected
-   operation.
+   value positions, operation authority outside analyzed product code, and
+   anchors whose declarations differ from the selected operation.
 7. **Diagnostics and service failure:** snapshots stable rule identifiers,
    locations, ordering, owner guidance, and explicit project or semantic
    failures.
-8. **Real-tree non-vacuity:** runs the engine over the real source graph with a
+8. **Contextual and external edges:** rejects conditional, logical, nullish,
+   loop-binding, `await`, concise-return, and opaque bodyless-call escapes.
+   Removing any edge kind from the central visitor table fails its witness.
+9. **Import and artifact isolation:** rejects a second import of either
+   TypeScript unstable API, builds the production site, and proves that the
+   semantic tool and TypeScript packages are absent from the shipped artifact
+   graph.
+10. **Real-tree non-vacuity:** runs the engine over the real source graph with a
    test-owned canary descriptor, introduces one forbidden operation and one
    identity-erasing edge in a temporary project copy, and proves both fail.
    Removing the script from `npm run analyze` also fails.
@@ -380,12 +445,13 @@ The implementation gate is:
 npx --yes node@24 npm run inspect-web-semantic-boundaries
 npx --yes node@24 npm run analyze
 npx --yes node@24 npm test
+npx --yes node@24 npm run build
 ```
 
 The first command proves the focused mechanism. The other commands prove its
-required wiring and compatibility with the existing frontend checks. No
-capability owner may cite this gate as proof of its domain inventory, runtime
-transformation, or behavioral semantics.
+required wiring, existing frontend compatibility, and absence from the shipped
+site. No capability owner may cite this gate as proof of its domain inventory,
+runtime transformation, or behavioral semantics.
 
 ## Adoption
 
@@ -418,8 +484,9 @@ object, callable, and wrapper identity only.
 ### Propagate a custom receiver taint after structural erasure
 
 Rejected. It requires a new interprocedural points-to and alias analysis and
-still leaves gaps at opaque or external calls. Rejecting the first whole-value
-identity-erasing edge is simpler, finite, and auditable.
+still leaves gaps at opaque or external calls. Conservatively retaining the
+configured receiver's actual base hierarchy as lineage and rejecting the first
+whole-value structural erasure is simpler, finite, and auditable.
 
 ### Treat every operation receiver as a transfer root
 
