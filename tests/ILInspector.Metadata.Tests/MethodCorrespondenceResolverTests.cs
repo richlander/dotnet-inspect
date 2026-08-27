@@ -521,6 +521,20 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
+    public void ResolveApiMember_EncodedGenericArityMismatchOnNonmatchingOverloadDoesNotPoisonExactCandidate()
+    {
+        MethodCorrespondenceResult result = ResolveApiMember(
+            BuildMethodDefinitionArityBoundaryImage(
+                genericParameterRowCount: 0,
+                encodedGenericArity: 0,
+                methodParameterIndex: null),
+            BuildNonmatchingMalformedGenericOverloadImage());
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Single(result.Candidates);
+    }
+
+    [Fact]
     public void ResolveApiMember_OutOfRangeParameterRowFails()
     {
         MethodCorrespondenceResult result = ResolveApiMember(
@@ -1198,6 +1212,124 @@ public sealed class MethodCorrespondenceResolverTests
         Assert.Single(result.Candidates);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(65_535)]
+    public void ResolveApiMember_MaximumTypeArityWithSignatureReferenceMatchesItself(
+        int typeParameterIndex)
+    {
+        byte[] source =
+            BuildTypeDefinitionArityBoundaryImage(
+                genericParameterCount: 65_536,
+                declareArity: true,
+                typeParameterIndex);
+        byte[] target =
+            BuildTypeDefinitionArityBoundaryImage(
+                genericParameterCount: 65_536,
+                declareArity: true,
+                typeParameterIndex);
+
+        MethodCorrespondenceResult result =
+            ResolveApiMember(source, target);
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Single(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_MaximumNestedTypeArityWithSignatureReferenceMatchesItself()
+    {
+        byte[] source =
+            BuildNestedTypeDefinitionArityBoundaryImage();
+        byte[] target =
+            BuildNestedTypeDefinitionArityBoundaryImage();
+
+        MethodCorrespondenceResult result =
+            ResolveApiMember(source, target);
+
+        Assert.True(
+            result.Status == MethodCorrespondenceStatus.Exact,
+            result.Failure);
+        Assert.Single(result.Candidates);
+    }
+
+    [Fact]
+    public void ResolveApiMember_NestedTypeRawContextUsesCumulativeRows()
+    {
+        byte[] source =
+            BuildNestedTypeDefinitionCorrespondenceImage();
+        byte[] target =
+            BuildNestedTypeDefinitionCorrespondenceImage();
+
+        MethodCorrespondenceResult result =
+            ResolveApiMember(source, target);
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Equal(
+            "Outer<T>+Inner<U>",
+            result.Anchor!.TypeFullName);
+    }
+
+    [Fact]
+    public void ResolveApiMember_HiddenMaximumMethodArityFailsInEitherDirection()
+    {
+        byte[] nonGeneric =
+            BuildMethodDefinitionArityBoundaryImage(
+                genericParameterRowCount: 0,
+                encodedGenericArity: 0,
+                methodParameterIndex: null);
+        byte[] hidden =
+            BuildMethodDefinitionArityBoundaryImage(
+                genericParameterRowCount: 65_536,
+                encodedGenericArity: 0,
+                methodParameterIndex: null);
+
+        Assert.Equal(
+            MethodCorrespondenceStatus.Failed,
+            ResolveApiMember(nonGeneric, hidden).Status);
+        Assert.Equal(
+            MethodCorrespondenceStatus.Failed,
+            ResolveApiMember(hidden, nonGeneric).Status);
+    }
+
+    [Fact]
+    public void ResolveApiMember_HiddenNearMaximumMethodArityFails()
+    {
+        MethodCorrespondenceResult result =
+            ResolveApiMember(
+                BuildMethodDefinitionArityBoundaryImage(
+                    genericParameterRowCount: 0,
+                    encodedGenericArity: 0,
+                    methodParameterIndex: null),
+                BuildMethodDefinitionArityBoundaryImage(
+                    genericParameterRowCount: 65_535,
+                    encodedGenericArity: 0,
+                    methodParameterIndex: null));
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+    }
+
+    [Fact]
+    public void ResolveApiMember_MaximumMethodArityWithSignatureReferenceMatchesItself()
+    {
+        byte[] source =
+            BuildMethodDefinitionArityBoundaryImage(
+                genericParameterRowCount: 65_536,
+                encodedGenericArity: 65_536,
+                methodParameterIndex: 65_535);
+        byte[] target =
+            BuildMethodDefinitionArityBoundaryImage(
+                genericParameterRowCount: 65_536,
+                encodedGenericArity: 65_536,
+                methodParameterIndex: 65_535);
+
+        MethodCorrespondenceResult result =
+            ResolveApiMember(source, target);
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.Single(result.Candidates);
+    }
+
     [Fact]
     public void MethodCorrespondenceContext_MaximumTypeArityChargeFailureIsNotCached()
     {
@@ -1247,7 +1379,7 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
-    public void MethodCorrespondenceContext_NoncontiguousTypeDefinitionGenericParametersFailOnce()
+    public void MethodCorrespondenceContext_UnsortedGenericParameterOwnersFailOnce()
     {
         using var pe =
             new PEReader(
@@ -1275,6 +1407,31 @@ public sealed class MethodCorrespondenceResolverTests
 
         Assert.Equal(-1, firstCount);
         Assert.Equal(firstCount, secondCount);
+        Assert.Equal(3, charged);
+    }
+
+    [Fact]
+    public void MethodCorrespondenceContext_InterleavedOwnersUseCodedIndexOrder()
+    {
+        using var pe =
+            new PEReader(
+                new MemoryStream(
+                    BuildInterleavedGenericParameterOwnersImage()));
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeDefinitionHandle type =
+            reader.TypeDefinitions.Last();
+        var context =
+            new ApiMemberIdentity.MethodCorrespondenceContext();
+        int charged = 0;
+
+        Assert.True(
+            context.TryGetTypeDefinitionGenericParameterCount(
+                reader,
+                type,
+                value => charged += value,
+                out int count));
+
+        Assert.Equal(1, count);
         Assert.Equal(3, charged);
     }
 
@@ -3693,7 +3850,8 @@ public sealed class MethodCorrespondenceResolverTests
 
     static byte[] BuildTypeDefinitionArityBoundaryImage(
         int genericParameterCount,
-        bool declareArity)
+        bool declareArity,
+        int? typeParameterIndex = null)
     {
         string typeName =
             declareArity
@@ -3716,7 +3874,15 @@ public sealed class MethodCorrespondenceResolverTests
         var signature = new BlobBuilder();
         signature.WriteByte(0x00);
         signature.WriteCompressedInteger(0);
-        signature.WriteByte(0x01);
+        if (typeParameterIndex is int index)
+        {
+            signature.WriteByte(0x13);
+            signature.WriteCompressedInteger(index);
+        }
+        else
+        {
+            signature.WriteByte(0x01);
+        }
         metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static,
             MethodImplAttributes.IL,
@@ -3724,6 +3890,181 @@ public sealed class MethodCorrespondenceResolverTests
             metadata.GetOrAddBlob(signature),
             bodyOffset: 0,
             MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[]
+        BuildNestedTypeDefinitionArityBoundaryImage()
+    {
+        MetadataBuilder metadata =
+            CreateSingleTypeMetadata(
+                "NestedTypeDefinitionArityBoundary",
+                "Outer`1",
+                out TypeDefinitionHandle outer);
+        TypeDefinitionHandle inner =
+            metadata.AddTypeDefinition(
+                TypeAttributes.NestedPublic,
+                default,
+                metadata.GetOrAddString("Inner`65535"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddNestedType(inner, outer);
+        metadata.AddGenericParameter(
+            outer,
+            GenericParameterAttributes.None,
+            default,
+            0);
+        for (int i = 0; i < 65_536; i++)
+        {
+            metadata.AddGenericParameter(
+                inner,
+                GenericParameterAttributes.None,
+                default,
+                i);
+        }
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(0);
+        signature.WriteByte(0x13);
+        signature.WriteCompressedInteger(65_535);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[]
+        BuildNestedTypeDefinitionCorrespondenceImage()
+    {
+        MetadataBuilder metadata =
+            CreateSingleTypeMetadata(
+                "NestedTypeDefinitionCorrespondence",
+                "Outer`1",
+                out TypeDefinitionHandle outer);
+        TypeDefinitionHandle inner =
+            metadata.AddTypeDefinition(
+                TypeAttributes.NestedPublic,
+                default,
+                metadata.GetOrAddString("Inner`1"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddNestedType(inner, outer);
+        StringHandle outerName =
+            metadata.GetOrAddString("T");
+        metadata.AddGenericParameter(
+            outer,
+            GenericParameterAttributes.None,
+            outerName,
+            0);
+        metadata.AddGenericParameter(
+            inner,
+            GenericParameterAttributes.None,
+            outerName,
+            0);
+        metadata.AddGenericParameter(
+            inner,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("U"),
+            1);
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(0);
+        signature.WriteByte(0x13);
+        signature.WriteCompressedInteger(1);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildMethodDefinitionArityBoundaryImage(
+        int genericParameterRowCount,
+        int encodedGenericArity,
+        int? methodParameterIndex)
+    {
+        MetadataBuilder metadata =
+            CreateSingleTypeMetadata(
+                "MethodDefinitionArityBoundary");
+        var signature = new BlobBuilder();
+        signature.WriteByte(
+            encodedGenericArity == 0
+                ? (byte)0x00
+                : (byte)0x10);
+        if (encodedGenericArity != 0)
+        {
+            signature.WriteCompressedInteger(
+                encodedGenericArity);
+        }
+        signature.WriteCompressedInteger(0);
+        if (methodParameterIndex is int index)
+        {
+            signature.WriteByte(0x1e);
+            signature.WriteCompressedInteger(index);
+        }
+        else
+        {
+            signature.WriteByte(0x01);
+        }
+        MethodDefinitionHandle method =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                metadata.GetOrAddBlob(signature),
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+        for (int i = 0;
+            i < genericParameterRowCount;
+            i++)
+        {
+            metadata.AddGenericParameter(
+                method,
+                GenericParameterAttributes.None,
+                default,
+                i);
+        }
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildNonmatchingMalformedGenericOverloadImage()
+    {
+        MetadataBuilder metadata =
+            CreateSingleTypeMetadata(
+                "NonmatchingMalformedGenericOverload");
+        MethodDefinitionHandle malformed =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x00, 0x00, 0x08 }),
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x00, 0x00, 0x01 }),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddGenericParameter(
+            malformed,
+            GenericParameterAttributes.None,
+            default,
+            0);
         return Serialize(metadata);
     }
 
@@ -3776,13 +4117,72 @@ public sealed class MethodCorrespondenceResolverTests
         }
 
         int secondOwnerOffset = tableOffset + rowSize + 4;
+        image[tableOffset + rowSize] = 0;
+        image[tableOffset + rowSize + 1] = 0;
         image[secondOwnerOffset] = 6;
         image[secondOwnerOffset + 1] = 0;
         int thirdOwnerOffset =
             tableOffset + (2 * rowSize) + 4;
+        image[tableOffset + (2 * rowSize)] = 1;
+        image[tableOffset + (2 * rowSize) + 1] = 0;
         image[thirdOwnerOffset] = 4;
         image[thirdOwnerOffset + 1] = 0;
         return image;
+    }
+
+    static byte[]
+        BuildInterleavedGenericParameterOwnersImage()
+    {
+        MetadataBuilder metadata =
+            CreateSingleTypeMetadata(
+                "InterleavedGenericParameterOwners",
+                "C",
+                out TypeDefinitionHandle firstType);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString("D"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle lastType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString("E"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        MethodDefinitionHandle method = default;
+        for (int i = 0; i < 3; i++)
+        {
+            method =
+                metadata.AddMethodDefinition(
+                    MethodAttributes.Public
+                        | MethodAttributes.Static,
+                    MethodImplAttributes.IL,
+                    metadata.GetOrAddString($"M{i}"),
+                    metadata.GetOrAddBlob(
+                        new byte[] { 0x00, 0x00, 0x01 }),
+                    bodyOffset: 0,
+                    MetadataTokens.ParameterHandle(1));
+        }
+        metadata.AddGenericParameter(
+            firstType,
+            GenericParameterAttributes.None,
+            default,
+            0);
+        metadata.AddGenericParameter(
+            method,
+            GenericParameterAttributes.None,
+            default,
+            0);
+        metadata.AddGenericParameter(
+            lastType,
+            GenericParameterAttributes.None,
+            default,
+            0);
+        return Serialize(metadata);
     }
 
     static byte[] BuildMethodComparisonNameImage(

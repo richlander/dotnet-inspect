@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 
 namespace ILInspector.Metadata;
 
@@ -69,6 +70,24 @@ public class GenericContext
             typeDef.GetGenericParameters(),
             beforeMaterialize);
         return new GenericContext(typeParameters.Names, [], typeParameters.ValueTypeConstraints, []);
+    }
+
+    internal static GenericContext ForType(
+        MetadataReader reader,
+        int firstGenericParameterRow,
+        int genericParameterCount,
+        Action<int> beforeMaterialize)
+    {
+        var typeParameters = ReadParameters(
+            reader,
+            firstGenericParameterRow,
+            genericParameterCount,
+            beforeMaterialize);
+        return new GenericContext(
+            typeParameters.Names,
+            [],
+            typeParameters.ValueTypeConstraints,
+            []);
     }
 
     /// <summary>
@@ -164,6 +183,26 @@ public class GenericContext
             methodParameters.ValueTypeConstraints);
     }
 
+    internal static GenericContext ForMethod(
+        MetadataReader reader,
+        GenericContext typeContext,
+        int firstGenericParameterRow,
+        int genericParameterCount,
+        Action<int> beforeMaterialize)
+    {
+        ArgumentNullException.ThrowIfNull(typeContext);
+        var methodParameters = ReadParameters(
+            reader,
+            firstGenericParameterRow,
+            genericParameterCount,
+            beforeMaterialize);
+        return new GenericContext(
+            typeContext.TypeParameters,
+            methodParameters.Names,
+            typeContext._typeValueTypeConstraints,
+            methodParameters.ValueTypeConstraints);
+    }
+
     static (List<string> Names, List<bool> ValueTypeConstraints) ReadParameters(
         MetadataReader reader,
         GenericParameterHandleCollection handles,
@@ -202,6 +241,65 @@ public class GenericContext
             names.Add(name);
             valueTypeConstraints.Add(
                 (parameter.Attributes & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0);
+        }
+        return (names, valueTypeConstraints);
+    }
+
+    static (List<string> Names, List<bool> ValueTypeConstraints)
+        ReadParameters(
+            MetadataReader reader,
+            int firstRow,
+            int count,
+            Action<int> beforeMaterialize)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(firstRow);
+        ArgumentOutOfRangeException.ThrowIfNegative(count);
+        if (count > MetadataSafetyPolicy.MaxSignatureTypeNodes)
+        {
+            throw new BadImageFormatException(
+                "The generic-parameter count exceeds the metadata safety limit.");
+        }
+
+        // The natural ECMA-335 limit is 65,536 zero-based ushort indices,
+        // which this safety ceiling intentionally admits.
+        beforeMaterialize(count);
+        var names = new List<string>(count);
+        var valueTypeConstraints = new List<bool>(count);
+        int totalNameLength = 0;
+        for (int i = 0; i < count; i++)
+        {
+            GenericParameter parameter =
+                reader.GetGenericParameter(
+                    MetadataTokens.GenericParameterHandle(
+                        firstRow + i));
+            if (parameter.Index != i)
+            {
+                throw new BadImageFormatException(
+                    "Generic parameter indices must be contiguous and ordered.");
+            }
+            int remainingNameLength =
+                MetadataSafetyPolicy.MaxStructuralSignatureChars
+                - totalNameLength;
+            int encodedNameLength =
+                reader.GetBlobReader(parameter.Name).Length;
+            if (encodedNameLength > remainingNameLength)
+            {
+                throw new BadImageFormatException(
+                    "The generic-parameter names exceed the metadata safety limit.");
+            }
+            beforeMaterialize(encodedNameLength);
+            string name = reader.GetString(parameter.Name);
+            if (name.Length > remainingNameLength)
+            {
+                throw new BadImageFormatException(
+                    "The generic-parameter names exceed the metadata safety limit.");
+            }
+            totalNameLength += name.Length;
+            names.Add(name);
+            valueTypeConstraints.Add(
+                (parameter.Attributes
+                    & GenericParameterAttributes
+                        .NotNullableValueTypeConstraint) != 0);
         }
         return (names, valueTypeConstraints);
     }

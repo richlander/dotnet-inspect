@@ -50,8 +50,15 @@ public static class MethodCorrespondenceResolver
     /// <c>ResolveApiMember_RenamedMethodGenericParameterRemainsExact</c>,
     /// <c>ResolveApiMember_RequiredReturnModifierMismatchIsAbsent</c>,
     /// <c>ResolveApiMember_FunctionPointerCallingConventionMismatchIsAbsent</c>,
-    /// and <c>ResolveApiMember_InstanceMismatchIsAbsent</c> gate the close
-    /// negatives.
+    /// <c>ResolveApiMember_InstanceMismatchIsAbsent</c>,
+    /// <c>ResolveApiMember_MaximumTypeArityWithSignatureReferenceMatchesItself</c>,
+    /// <c>ResolveApiMember_MaximumNestedTypeArityWithSignatureReferenceMatchesItself</c>,
+    /// <c>ResolveApiMember_NestedTypeRawContextUsesCumulativeRows</c>,
+    /// <c>ResolveApiMember_HiddenMaximumMethodArityFailsInEitherDirection</c>,
+    /// <c>ResolveApiMember_EncodedGenericArityMismatchOnNonmatchingOverloadDoesNotPoisonExactCandidate</c>,
+    /// and
+    /// <c>ResolveApiMember_MaximumMethodArityWithSignatureReferenceMatchesItself</c>
+    /// gate the close negatives and maximum encoded arity.
     /// </summary>
     public static MethodCorrespondenceResult ResolveApiMember(
         MetadataReader sourceReader,
@@ -117,13 +124,14 @@ public static class MethodCorrespondenceResolver
                     .CreateMethodAnchorDeclaringTypeContext(
                         sourceReader,
                         sourceTypeHandle,
-                        ref correspondenceWorkRemaining);
+                        ref correspondenceWorkRemaining,
+                        correspondenceContext);
             MethodCorrespondenceAnchorInfo sourceAnchor =
                 ApiMemberIdentity
                 .CreateMethodCorrespondenceAnchorInfo(
                     sourceReader,
                     sourceTypeHandle,
-                    sourceMethod,
+                    source.Handle,
                     sourceDeclaringType,
                     sourceMetadataName,
                     ref correspondenceWorkRemaining,
@@ -200,7 +208,8 @@ public static class MethodCorrespondenceResolver
                             .CreateMethodAnchorDeclaringTypeContext(
                                 targetReader,
                                 targetTypeHandle,
-                                ref correspondenceWorkRemaining);
+                                ref correspondenceWorkRemaining,
+                                correspondenceContext);
                     bool targetIsExtensionMethod =
                         IsExtensionMethod(
                             targetReader,
@@ -213,7 +222,7 @@ public static class MethodCorrespondenceResolver
                             .CreateMethodCorrespondenceAnchorInfo(
                                 targetReader,
                                 targetTypeHandle,
-                                targetMethod,
+                                targetHandle,
                                 targetDeclaringType,
                                 sourceMetadataName,
                                 ref correspondenceWorkRemaining,
@@ -638,9 +647,7 @@ public static class MethodCorrespondenceResolver
         MethodDefinition method,
         MethodCorrespondenceAnchorInfo anchor)
     {
-        GenericParameterHandleCollection genericParameters =
-            method.GetGenericParameters();
-        if (genericParameters.Count
+        if (anchor.MetadataGenericParameterCount
             != anchor.GenericParameterCount)
         {
             throw new BadImageFormatException(

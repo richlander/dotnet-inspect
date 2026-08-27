@@ -39,6 +39,7 @@ internal sealed record MethodCorrespondenceAnchorInfo(
     bool IsExtensionMethod,
     byte SignatureHeader,
     int GenericParameterCount,
+    int MetadataGenericParameterCount,
     int RequiredParameterCount,
     int ParameterCount,
     ApiMemberIdentity.MethodTypeCorrespondence CorrespondenceReturnType,
@@ -86,6 +87,18 @@ public static class ApiMemberIdentity
 {
     internal sealed class MethodCorrespondenceContext
     {
+        internal readonly record struct GenericParameterRange(
+            int FirstRow,
+            int Count);
+
+        readonly record struct GenericParameterProjection(
+            bool Success,
+            GenericParameterRange Range);
+
+        readonly record struct GenericParameterTableProjection(
+            bool Success,
+            int RowCount);
+
         readonly Dictionary<
             MetadataReader,
             IntrinsicCoreLibraryForwardedRootProjection>
@@ -104,10 +117,12 @@ public static class ApiMemberIdentity
             _failedAssemblyReferenceProjections = [];
         readonly Dictionary<
             MetadataReader,
-            Dictionary<
-                TypeDefinitionHandle,
-                (bool Success, int Count)>>
-            _typeDefinitionGenericParameterCounts = [];
+            GenericParameterTableProjection>
+            _genericParameterTables = [];
+        readonly Dictionary<
+            MetadataReader,
+            Dictionary<TypeDefinitionHandle, GenericParameterProjection>>
+            _typeDefinitionGenericParameters = [];
 
         internal IntrinsicCoreLibraryForwardedRootProjection
             GetOrAddIntrinsicCoreLibraryForwardedRoots(
@@ -130,48 +145,123 @@ public static class ApiMemberIdentity
             Action<int> charge,
             out int count)
         {
-            if (!_typeDefinitionGenericParameterCounts.TryGetValue(
-                    reader,
-                    out Dictionary<
-                        TypeDefinitionHandle,
-                        (bool Success, int Count)>? counts))
-            {
-                counts = [];
-                _typeDefinitionGenericParameterCounts.Add(
-                    reader,
-                    counts);
-            }
-            if (counts.TryGetValue(
-                    handle,
-                    out (bool Success, int Count) cached))
-            {
-                count = cached.Count;
-                return cached.Success;
-            }
-
-            // SRM's handle collection has a ushort count and hides an owner
-            // range of exactly 65,536 rows, so project the raw table instead.
-            int rowCount =
-                reader.GetTableRowCount(TableIndex.GenericParam);
-            charge(rowCount);
             bool success =
-                TryProjectTypeDefinitionGenericParameterCount(
+                TryGetTypeDefinitionGenericParameterRange(
                     reader,
-                    rowCount,
                     handle,
-                    out count);
-            counts.Add(handle, (success, count));
+                    charge,
+                    out GenericParameterRange range);
+            count = success
+                ? range.Count
+                : -1;
             return success;
         }
 
-        static bool TryProjectTypeDefinitionGenericParameterCount(
+        internal bool TryGetTypeDefinitionGenericParameterRange(
+            MetadataReader reader,
+            TypeDefinitionHandle handle,
+            Action<int> charge,
+            out GenericParameterRange range)
+        {
+            if (!_typeDefinitionGenericParameters.TryGetValue(
+                    reader,
+                    out Dictionary<
+                        TypeDefinitionHandle,
+                        GenericParameterProjection>? projections))
+            {
+                projections = [];
+                _typeDefinitionGenericParameters.Add(
+                    reader,
+                    projections);
+            }
+            if (projections.TryGetValue(
+                    handle,
+                    out GenericParameterProjection cached))
+            {
+                range = cached.Range;
+                return cached.Success;
+            }
+
+            bool success = TryGetGenericParameterRange(
+                reader,
+                handle,
+                charge,
+                out range);
+            projections.Add(
+                handle,
+                new GenericParameterProjection(
+                    success,
+                    range));
+            return success;
+        }
+
+        internal bool TryGetMethodDefinitionGenericParameterRange(
+            MetadataReader reader,
+            MethodDefinitionHandle handle,
+            Action<int> charge,
+            out GenericParameterRange range)
+            => TryGetGenericParameterRange(
+                reader,
+                handle,
+                charge,
+                out range);
+
+        bool TryGetGenericParameterRange(
+            MetadataReader reader,
+            EntityHandle owner,
+            Action<int> charge,
+            out GenericParameterRange range)
+        {
+            if (!_genericParameterTables.TryGetValue(
+                    reader,
+                    out GenericParameterTableProjection table))
+            {
+                // SRM's handle collection has a ushort count and hides an
+                // owner range of exactly 65,536 rows. Validate and project
+                // the raw sorted table with integer row numbers instead.
+                int rowCount =
+                    reader.GetTableRowCount(TableIndex.GenericParam);
+                charge(rowCount);
+                bool tableSuccess =
+                    TryProjectGenericParameterTable(
+                        reader,
+                        rowCount,
+                        owner,
+                        out GenericParameterProjection ownerProjection);
+                table =
+                    new GenericParameterTableProjection(
+                        tableSuccess,
+                        rowCount);
+                _genericParameterTables.Add(reader, table);
+                range = ownerProjection.Range;
+                return tableSuccess
+                    && ownerProjection.Success;
+            }
+            if (!table.Success)
+            {
+                range = default;
+                return false;
+            }
+
+            return TryFindGenericParameterRange(
+                reader,
+                table.RowCount,
+                owner,
+                charge,
+                out range);
+        }
+
+        static bool TryProjectGenericParameterTable(
             MetadataReader reader,
             int rowCount,
-            TypeDefinitionHandle handle,
-            out int count)
+            EntityHandle requestedOwner,
+            out GenericParameterProjection requestedProjection)
         {
-            count = 0;
-            int lastRow = 0;
+            int previousOwnerKey = 0;
+            bool hasPreviousOwner = false;
+            int firstRow = 0;
+            int count = 0;
+            bool requestedOwnerIsValid = true;
             try
             {
                 for (int row = 1; row <= rowCount; row++)
@@ -180,27 +270,135 @@ public static class ApiMemberIdentity
                         reader.GetGenericParameter(
                             MetadataTokens.GenericParameterHandle(
                                 row));
-                    if (parameter.Parent != handle)
-                        continue;
-
-                    if ((lastRow != 0 && row != lastRow + 1)
-                        || parameter.Index != count)
+                    int ownerKey =
+                        GetTypeOrMethodDefinitionKey(
+                            parameter.Parent);
+                    if (hasPreviousOwner
+                        && ownerKey < previousOwnerKey)
                     {
-                        count = -1;
+                        requestedProjection = default;
                         return false;
                     }
+                    previousOwnerKey = ownerKey;
+                    hasPreviousOwner = true;
+
+                    if (parameter.Parent
+                        != requestedOwner)
+                    {
+                        continue;
+                    }
+                    if (firstRow == 0)
+                        firstRow = row;
+                    if (parameter.Index != count)
+                    {
+                        requestedOwnerIsValid = false;
+                    }
                     count++;
-                    lastRow = row;
                 }
             }
             catch (Exception ex) when (
                 ex is BadImageFormatException
                     or ArgumentOutOfRangeException)
             {
-                count = -1;
+                requestedProjection = default;
                 return false;
             }
+
+            requestedProjection =
+                new GenericParameterProjection(
+                    requestedOwnerIsValid,
+                    new GenericParameterRange(
+                        firstRow,
+                        count));
             return true;
+        }
+
+        static bool TryFindGenericParameterRange(
+            MetadataReader reader,
+            int rowCount,
+            EntityHandle owner,
+            Action<int> charge,
+            out GenericParameterRange range)
+        {
+            int ownerKey =
+                GetTypeOrMethodDefinitionKey(owner);
+            int low = 1;
+            int high = rowCount + 1;
+            try
+            {
+                while (low < high)
+                {
+                    int middle =
+                        low + ((high - low) / 2);
+                    charge(1);
+                    GenericParameter parameter =
+                        reader.GetGenericParameter(
+                            MetadataTokens.GenericParameterHandle(
+                                middle));
+                    int middleOwnerKey =
+                        GetTypeOrMethodDefinitionKey(
+                            parameter.Parent);
+                    if (middleOwnerKey < ownerKey)
+                        low = middle + 1;
+                    else
+                        high = middle;
+                }
+
+                int firstRow = 0;
+                int count = 0;
+                for (int row = low;
+                    row <= rowCount;
+                    row++)
+                {
+                    charge(1);
+                    GenericParameter parameter =
+                        reader.GetGenericParameter(
+                            MetadataTokens.GenericParameterHandle(
+                                row));
+                    if (GetTypeOrMethodDefinitionKey(
+                            parameter.Parent) != ownerKey)
+                    {
+                        break;
+                    }
+                    if (parameter.Parent != owner
+                        || parameter.Index != count)
+                    {
+                        range = default;
+                        return false;
+                    }
+                    if (firstRow == 0)
+                        firstRow = row;
+                    count++;
+                }
+                range =
+                    new GenericParameterRange(
+                        firstRow,
+                        count);
+                return true;
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException
+                    or ArgumentOutOfRangeException)
+            {
+                range = default;
+                return false;
+            }
+        }
+
+        static int GetTypeOrMethodDefinitionKey(
+            EntityHandle owner)
+        {
+            int row = MetadataTokens.GetRowNumber(owner);
+            // TypeOrMethodDef is a one-bit coded index, not metadata-token or
+            // HandleKind order.
+            return owner.Kind switch
+            {
+                HandleKind.TypeDefinition => row << 1,
+                HandleKind.MethodDefinition =>
+                    (row << 1) | 1,
+                _ => throw new BadImageFormatException(
+                    "Generic parameters must be owned by a type or method definition."),
+            };
         }
 
         internal AssemblyReferenceIdentity ProjectAssemblyReference(
@@ -2048,7 +2246,8 @@ public static class ApiMemberIdentity
                     _workBudget,
                     _correspondenceContext
                         ?? throw new InvalidOperationException(
-                            "Correspondence construction requires an operation context."));
+                            "Correspondence construction requires an operation context."))
+                    .Count;
             Span<TypeDefinitionHandle> chain =
                 stackalloc TypeDefinitionHandle[
                     MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -2626,26 +2825,6 @@ public static class ApiMemberIdentity
         return CreateMethodAnchorInfo(shape);
     }
 
-    internal static MethodCorrespondenceAnchorInfo
-        CreateMethodCorrespondenceAnchorInfo(
-            MetadataReader reader,
-            TypeDefinitionHandle typeHandle,
-            MethodDefinition method,
-            bool isExtensionMethod = false)
-    {
-        var correspondenceContext =
-            new MethodCorrespondenceContext();
-        return CreateMethodCorrespondenceAnchorInfo(
-            CreateMethodAnchorShape(
-                reader,
-                typeHandle,
-                method,
-                isExtensionMethod,
-                includeCorrespondence: true,
-                correspondenceContext:
-                    correspondenceContext));
-    }
-
     /// <summary>
     /// Creates a method anchor while drawing from a caller-owned cumulative
     /// work remaining counter (classification scans). Each call is still capped
@@ -2697,7 +2876,8 @@ public static class ApiMemberIdentity
         CreateMethodAnchorDeclaringTypeContext(
             MetadataReader reader,
             TypeDefinitionHandle typeHandle,
-            ref int scanWorkRemaining)
+            ref int scanWorkRemaining,
+            MethodCorrespondenceContext correspondenceContext)
     {
         if (scanWorkRemaining <= 0)
         {
@@ -2714,16 +2894,25 @@ public static class ApiMemberIdentity
         {
             TypeDefinition type =
                 reader.GetTypeDefinition(typeHandle);
+            MethodCorrespondenceContext.GenericParameterRange
+                genericParameters =
+                    ValidateCorrespondenceTypeDefinitionGenericArity(
+                        reader,
+                        typeHandle,
+                        workBudget,
+                        correspondenceContext);
             GenericContext genericContext =
                 GenericContext.ForType(
                     reader,
-                    type,
+                    genericParameters.FirstRow,
+                    genericParameters.Count,
                     workBudget.Charge);
             string fullName =
                 FormatDefinitionName(
                     reader,
                     typeHandle,
-                    workBudget.Charge);
+                    workBudget.Charge,
+                    correspondenceContext);
             workBudget.Charge(fullName.Length);
             UpdateScanWorkRemaining(
                 ref scanWorkRemaining,
@@ -2745,7 +2934,7 @@ public static class ApiMemberIdentity
         CreateMethodCorrespondenceAnchorInfo(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
-        MethodDefinition method,
+        MethodDefinitionHandle methodHandle,
         MethodAnchorDeclaringTypeContext declaringType,
         string metadataName,
         ref int scanWorkRemaining,
@@ -2773,6 +2962,8 @@ public static class ApiMemberIdentity
             new AnchorSignatureWorkBudget(anchorAllowance);
         correspondenceContext ??=
             new MethodCorrespondenceContext();
+        MethodDefinition method =
+            reader.GetMethodDefinition(methodHandle);
         try
         {
             MethodAnchorShape shape =
@@ -2786,7 +2977,9 @@ public static class ApiMemberIdentity
                     metadataName,
                     includeCorrespondence: true,
                     correspondenceContext:
-                        correspondenceContext);
+                        correspondenceContext,
+                    correspondenceMethodHandle:
+                        methodHandle);
             UpdateScanWorkRemaining(
                 ref scanWorkRemaining,
                 anchorAllowance,
@@ -2831,6 +3024,7 @@ public static class ApiMemberIdentity
             shape.IsExtensionMethod,
             shape.SignatureHeader,
             shape.GenericParameterCount,
+            shape.MetadataGenericParameterCount,
             shape.RequiredParameterCount,
             shape.ParameterTypes.Length,
             shape.CorrespondenceReturnType!,
@@ -2944,6 +3138,7 @@ public static class ApiMemberIdentity
         bool IsExtensionMethod,
         byte SignatureHeader,
         int GenericParameterCount,
+        int MetadataGenericParameterCount,
         int RequiredParameterCount);
 
     static MethodAnchorShape CreateMethodAnchorShape(
@@ -2955,7 +3150,8 @@ public static class ApiMemberIdentity
         MethodAnchorDeclaringTypeContext? declaringType = null,
         string? knownMetadataName = null,
         bool includeCorrespondence = false,
-        MethodCorrespondenceContext? correspondenceContext = null)
+        MethodCorrespondenceContext? correspondenceContext = null,
+        MethodDefinitionHandle correspondenceMethodHandle = default)
     {
         var type = reader.GetTypeDefinition(typeHandle);
         workBudget ??= new AnchorSignatureWorkBudget();
@@ -2971,21 +3167,49 @@ public static class ApiMemberIdentity
                 reader,
                 type,
                 workBudget.Charge);
-        GenericContext context =
-            GenericContext.ForMethod(
-                reader,
-                typeContext,
-                method,
-                workBudget.Charge);
+        GenericContext context;
+        int metadataGenericParameterCount;
         if (includeCorrespondence)
         {
-            ValidateCorrespondenceTypeDefinitionGenericArity(
-                reader,
-                typeHandle,
-                workBudget,
+            MethodCorrespondenceContext operationContext =
                 correspondenceContext
-                    ?? throw new InvalidOperationException(
-                        "Correspondence construction requires an operation context."));
+                ?? throw new InvalidOperationException(
+                    "Correspondence construction requires an operation context.");
+            if (correspondenceMethodHandle.IsNil)
+            {
+                throw new InvalidOperationException(
+                    "Correspondence construction requires a method handle.");
+            }
+            if (!operationContext
+                    .TryGetMethodDefinitionGenericParameterRange(
+                        reader,
+                        correspondenceMethodHandle,
+                        workBudget.Charge,
+                        out MethodCorrespondenceContext
+                            .GenericParameterRange genericParameters))
+            {
+                throw new BadImageFormatException(
+                    "Generic parameter indices must be contiguous and ordered.");
+            }
+            metadataGenericParameterCount =
+                genericParameters.Count;
+            context =
+                GenericContext.ForMethod(
+                    reader,
+                    typeContext,
+                    genericParameters.FirstRow,
+                    genericParameters.Count,
+                    workBudget.Charge);
+        }
+        else
+        {
+            metadataGenericParameterCount = -1;
+            context =
+                GenericContext.ForMethod(
+                    reader,
+                    typeContext,
+                    method,
+                    workBudget.Charge);
         }
         var provider = new AnchorSignatureTypeProvider(
             workBudget,
@@ -3071,10 +3295,12 @@ public static class ApiMemberIdentity
             isExtensionMethod,
             signature.Header.RawValue,
             signature.GenericParameterCount,
+            metadataGenericParameterCount,
             signature.RequiredParameterCount);
     }
 
-    static int ValidateCorrespondenceTypeDefinitionGenericArity(
+    static MethodCorrespondenceContext.GenericParameterRange
+        ValidateCorrespondenceTypeDefinitionGenericArity(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
         AnchorSignatureWorkBudget workBudget,
@@ -3099,18 +3325,22 @@ public static class ApiMemberIdentity
         }
 
         int enclosingGenericCount = 0;
+        MethodCorrespondenceContext.GenericParameterRange
+            currentGenericParameters = default;
         for (int i = 0; i < consumed; i++)
         {
             if (!correspondenceContext
-                    .TryGetTypeDefinitionGenericParameterCount(
+                    .TryGetTypeDefinitionGenericParameterRange(
                     reader,
                     chain[i],
                     workBudget.Charge,
-                    out int cumulativeGenericCount))
+                    out currentGenericParameters))
             {
                 throw new BadImageFormatException(
                     "Generic parameter indices must be contiguous and ordered.");
             }
+            int cumulativeGenericCount =
+                currentGenericParameters.Count;
             int introducedGenericCount =
                 MetadataDeclarationQuery.GetIntroducedTypeParameterCount(
                     cumulativeGenericCount,
@@ -3133,7 +3363,7 @@ public static class ApiMemberIdentity
             }
             enclosingGenericCount = cumulativeGenericCount;
         }
-        return enclosingGenericCount;
+        return currentGenericParameters;
     }
 
     static string ReadStructuralString(
@@ -3377,7 +3607,8 @@ public static class ApiMemberIdentity
     static string FormatDefinitionName(
         MetadataReader reader,
         TypeDefinitionHandle handle,
-        Action<int>? beforeMaterialize = null)
+        Action<int>? beforeMaterialize = null,
+        MethodCorrespondenceContext? correspondenceContext = null)
     {
         Span<TypeDefinitionHandle> chain =
             stackalloc TypeDefinitionHandle[
@@ -3443,11 +3674,36 @@ public static class ApiMemberIdentity
             {
                 throw TypeNameBudgetExceeded();
             }
-            var genericParameters = type.GetGenericParameters();
-            if (!MetadataTypeDeclarationProbe.TryGetGenericParameterCount(
-                    reader,
-                    chain[i],
-                    out int cumulativeGenericCount))
+            GenericParameterHandleCollection genericParameters =
+                default;
+            MethodCorrespondenceContext.GenericParameterRange
+                correspondenceGenericParameters = default;
+            int cumulativeGenericCount;
+            bool hasValidGenericParameters;
+            if (correspondenceContext is null)
+            {
+                genericParameters =
+                    type.GetGenericParameters();
+                hasValidGenericParameters =
+                    MetadataTypeDeclarationProbe
+                        .TryGetGenericParameterCount(
+                            reader,
+                            chain[i],
+                            out cumulativeGenericCount);
+            }
+            else
+            {
+                hasValidGenericParameters =
+                    correspondenceContext
+                        .TryGetTypeDefinitionGenericParameterRange(
+                            reader,
+                            chain[i],
+                            beforeMaterialize!,
+                            out correspondenceGenericParameters);
+                cumulativeGenericCount =
+                    correspondenceGenericParameters.Count;
+            }
+            if (!hasValidGenericParameters)
             {
                 throw new BadImageFormatException(
                     "Generic parameter indices must be contiguous and ordered.");
@@ -3486,8 +3742,37 @@ public static class ApiMemberIdentity
 
             AppendAnchorName(builder, "<");
             int index = 0;
-            foreach (GenericParameterHandle parameter in
-                genericParameters.Skip(enclosingGenericCount))
+            if (correspondenceContext is null)
+            {
+                foreach (GenericParameterHandle parameter in
+                    genericParameters.Skip(
+                        enclosingGenericCount))
+                {
+                    AppendGenericParameter(parameter);
+                }
+            }
+            else
+            {
+                int firstIntroducedRow =
+                    correspondenceGenericParameters.FirstRow
+                    + enclosingGenericCount;
+                for (int parameterIndex = 0;
+                    parameterIndex
+                        < introducedGenericCount;
+                    parameterIndex++)
+                {
+                    AppendGenericParameter(
+                        MetadataTokens.GenericParameterHandle(
+                            firstIntroducedRow
+                                + parameterIndex));
+                }
+            }
+            AppendAnchorName(builder, ">");
+
+            enclosingGenericCount = cumulativeGenericCount;
+
+            void AppendGenericParameter(
+                GenericParameterHandle parameter)
             {
                 if (index++ > 0)
                     AppendAnchorName(builder, ",");
@@ -3506,8 +3791,6 @@ public static class ApiMemberIdentity
                     parameterName.Length,
                     escapeDot: true);
             }
-            AppendAnchorName(builder, ">");
-            enclosingGenericCount = cumulativeGenericCount;
         }
 
         return builder.ToString();

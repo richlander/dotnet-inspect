@@ -85,8 +85,15 @@ public static class MetadataSafetyPolicy
     /// <c>MethodCorrespondenceContext_MalformedTypeDefinitionGenericParametersAreChargedOnce</c>,
     /// <c>ResolveApiMember_HiddenMaximumTypeArityFails</c>,
     /// <c>ResolveApiMember_MaximumTypeArityMatchesItself</c>,
+    /// <c>ResolveApiMember_MaximumTypeArityWithSignatureReferenceMatchesItself</c>,
+    /// <c>ResolveApiMember_MaximumNestedTypeArityWithSignatureReferenceMatchesItself</c>,
+    /// <c>ResolveApiMember_NestedTypeRawContextUsesCumulativeRows</c>,
+    /// <c>ResolveApiMember_HiddenMaximumMethodArityFailsInEitherDirection</c>,
+    /// <c>ResolveApiMember_HiddenNearMaximumMethodArityFails</c>,
+    /// <c>ResolveApiMember_MaximumMethodArityWithSignatureReferenceMatchesItself</c>,
     /// <c>MethodCorrespondenceContext_MaximumTypeArityChargeFailureIsNotCached</c>,
-    /// <c>MethodCorrespondenceContext_NoncontiguousTypeDefinitionGenericParametersFailOnce</c>,
+    /// <c>MethodCorrespondenceContext_UnsortedGenericParameterOwnersFailOnce</c>,
+    /// <c>MethodCorrespondenceContext_InterleavedOwnersUseCodedIndexOrder</c>,
     /// and
     /// <c>ResolveApiMember_DistinctGenericAssemblyReferencesFailWithinOperationBudget</c>.
     /// </summary>
