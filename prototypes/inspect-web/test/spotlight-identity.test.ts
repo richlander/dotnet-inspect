@@ -5185,7 +5185,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /function toggleCreditsTheme\(\): "light" \| "dark" \{\s+setTheme\(state\.theme === "dark" \? "light" : "dark", false\);\s+return state\.theme === "light" \? "light" : "dark";\s+\}[\s\S]*onToggleTheme: toggleCreditsTheme/);
   assert.match(
     appSource,
-    /\(\) =>\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\)/);
+    /onRetry: \(\) => \{\s*if \(state\.retryAction === retryUnavailable\) return;\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\);\s*\}/);
   assert.match(
     appSource,
     /state\.retryAction = openRuntimePackFromHome/);
