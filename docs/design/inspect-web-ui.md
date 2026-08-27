@@ -539,8 +539,10 @@ The active library subject remains visible while the library list is filtered
 or collapsed. A lens heading distinguishes aggregate results from a
 single-library result.
 
-Package and Type navigation render the owner-issued Type and Member descriptors
-returned for the active Library subject. The type-navigation heading shows
+Package and Type navigation render producer-owned Type and Member inventory
+rows wrapped with the activation descriptors returned for the current
+snapshot. They submit the supplied action ID plus generation and do not derive
+actions from row identity or text. The type-navigation heading shows
 `All libraries` or the selected library as context and links back to the
 Library subject for changes. It is not a second library selector, and the UI
 does not recalculate eligibility or retention from assembly membership.
@@ -989,6 +991,9 @@ outcomes:
    menu-button invoker.
 6. Confirm that the trailing `Copy target` button remains visible and copies
    the product-issued canonical target rather than display text.
+7. Change version or TFM with an active Library, Type, or Member and confirm
+   that the UI supplies the prior navigation snapshot and renders the exactly
+   corresponding subject returned by product reconciliation.
 
 ### Workspace composition
 

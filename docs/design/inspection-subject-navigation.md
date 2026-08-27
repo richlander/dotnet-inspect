@@ -54,8 +54,8 @@ The owner consumes:
   root-lens capabilities;
 - admitted library identities, declaration order, primary-library preference,
   and library-level capability outcomes from workspace realization;
-- available API type inventories, their producer-issued deterministic
-  navigation order, and their scoped inspection failures;
+- available bounded API Type and Member inventories, their producer-issued
+  deterministic navigation order, and their scoped inspection failures;
 - product-owned accessibility descriptors;
 - exact type-definition identities and member anchors;
 - subject-scoped lens descriptors and availability;
@@ -74,6 +74,8 @@ The owner returns:
 - the active structured subject identity;
 - ordered applicable hierarchy descriptors;
 - ordered Library subject descriptors;
+- Type and Member navigation rows that wrap producer-owned inventory rows with
+  activation descriptors;
 - an effective owner-issued lens identity or a typed lens-unavailable outcome;
 - scoped diagnostics and partial-result evidence; and
 - a typed transition or reconciliation outcome.
@@ -193,6 +195,8 @@ InspectionSubjectNavigationSnapshot
   activeSubject
   hierarchyDescriptors
   libraryDescriptors
+  typeNavigationRows
+  memberNavigationRows
   lensOutcome
   diagnostics
 ```
@@ -252,6 +256,37 @@ assembly count, package kind, filename, or list position as selection policy.
 Library selection is single-select. Arbitrary subsets are result filters, not
 Library subject identities.
 
+### Type and Member activation descriptors
+
+The owner wraps every bounded Type or Member inventory row that an interactive
+consumer may render as selectable with the same discriminated activation
+shape:
+
+```text
+Available(target, Current | Activate(actionId), diagnostics)
+Unavailable(reason)
+Failed(diagnostic)
+```
+
+The inventory producer continues to own row identity, content, capabilities,
+ordering, truncation, and failure semantics. Subject navigation preserves that
+row and order verbatim inside the navigation wrapper. An available activation
+target must exactly equal the wrapped row's owner-issued identity. The owner
+never joins by label or ordinal and does not create another Type or Member
+inventory.
+
+The active Type or Member row carries `Current`; every other activatable row
+carries a generation-scoped action ID. An inventory refresh returns a
+replacement snapshot generation and invalidates actions from the prior
+inventory. Truncation diagnostics remain visible, and rows outside the bounded
+inventory have no implied action.
+
+These lists are navigation choices, not additional structural levels. The
+Type activation list covers the bounded inventory for the active Library
+scope; the Member activation list covers the bounded inventory for the current
+Type context. The hierarchy still contains at most one contextual Type and
+Member descriptor.
+
 ## Applicability and availability
 
 Applicability answers whether a subject kind belongs to the coordinate's
@@ -291,7 +326,7 @@ exact transition request and follows [Explicit transitions](#explicit-transition
 When a realized coordinate has no committed subject, the owner recommends:
 
 1. Type, when at least one trustworthy Type candidate exists;
-2. Library, when at least one Library subject exists; or
+2. Library, when at least one Library subject is available; or
 3. Root.
 
 Member is never implicitly recommended.
@@ -328,9 +363,10 @@ The initial Type lens is API.
 ### Library and Root recommendation
 
 When no Type candidate exists but a Library subject is available, the owner
-recommends `All libraries` when aggregate inspection is supported, otherwise
-the primary or first available Library. The initial Library lens is References
-when available.
+recommends `All libraries` only when its descriptor is available. Otherwise it
+chooses the primary or first available one-Library descriptor and retains any
+aggregate unavailability or failure evidence. The initial Library lens is
+References when available.
 
 When no Library is available, the owner recommends Root. A package coordinate
 uses Package Overview. Another coordinate uses its root owner's recommended
@@ -343,8 +379,8 @@ does not choose a lens fallback.
 
 ## Explicit transitions
 
-Activating a hierarchy or Library descriptor submits its opaque action ID
-against the snapshot generation that issued it.
+Activating a hierarchy, Library, Type, or Member descriptor submits its opaque
+action ID against the snapshot generation that issued it.
 
 Interactive consumers receive action IDs only for non-active available
 descriptors. Product peers such as canonical restoration may instead submit a
@@ -472,10 +508,10 @@ identities, order, and availability without defining them.
 
 - Preserve the committed current lens when the active subject identity is
   retained and that exact owner-issued lens identity remains available.
-- When the subject changes, select its recommended lens when available,
-  otherwise the first available lens in the subject owner's order.
-- When a retained subject's committed lens becomes unavailable, select the
-  first available lens in the subject owner's order.
+- Whenever no valid committed lens remains -- because the subject changed, the
+  lens became unavailable, no lens was previously committed, or the supplied
+  identity is not valid for this subject -- select the subject's recommendation
+  when available, then the first available lens in owner-issued order.
 - When no lens is available, return a typed lens-unavailable outcome while
   keeping the subject active.
 - Never carry a same-labelled lens across subject kinds by display text.
@@ -494,6 +530,8 @@ Inspect Web:
 - renders descriptor labels, order, active state, availability, reasons, and
   diagnostics verbatim;
 - submits opaque action IDs with their snapshot generation;
+- renders wrapped producer-owned Type and Member rows with their supplied
+  activation descriptor;
 - renders the returned active subject consistently in the command, hierarchy,
   Library selector, lens strip, and content;
 - does not use filters, package kind, assembly count, or display text to choose
@@ -544,6 +582,14 @@ add implicit session state to stateless CLI commands.
 3. Confirm that Type is unavailable with a valid-empty reason rather than
    failed.
 
+### Failed aggregate Library
+
+1. Supply failed `All libraries` availability and one available primary
+   Library.
+2. Confirm that the primary Library is recommended instead of the failed
+   aggregate subject.
+3. Confirm that the aggregate failure remains visible.
+
 ### Tools-v2 pointer package
 
 This scenario consumes the root-capable package realization tracked by
@@ -584,6 +630,15 @@ does not construct that acquisition result.
    confirm automatic reconciliation produces a consistent active descriptor,
    or failed reconciliation returns `Failed` with the prior snapshot.
 
+### Direct Type and Member activation
+
+1. Supply an active Type and another bounded Type inventory row.
+2. Activate the non-recommended Type using only its action ID and generation.
+3. Supply bounded Member rows for the active Type while no Member is committed.
+4. Activate one Member using only its action ID and generation.
+5. Confirm that each replacement snapshot marks the selected row `Current` and
+   invalidates the prior generation's actions.
+
 ### Reconciliation scenarios
 
 1. Retain a Member while the same exact Member resolves after a coordinate
@@ -605,8 +660,12 @@ does not construct that acquisition result.
 2. Change the subject to Library and confirm that the same `Metadata` display
    label does not carry the Type lens identity across subject kinds.
 3. Make the retained subject's committed lens unavailable and confirm selection
-   of the first available owner-ordered lens.
-4. Remove every lens and confirm a typed lens-unavailable outcome with the
+   of its available recommendation, then the first owner-ordered available lens
+   when the recommendation is unavailable.
+4. Start from a retained subject with no committed lens after a prior
+   lens-unavailable result and confirm the same recommendation-then-owner-order
+   selection when lenses become available.
+5. Remove every lens and confirm a typed lens-unavailable outcome with the
    subject still active.
 
 ### Stale action
@@ -626,8 +685,12 @@ covering at least:
 - `TypeRecommendation_IgnoresConsumerFiltersAndArrivalOrder`
 - `TypeRecommendation_UsesProducerOrderAcrossArrivalPermutations`
 - `LibraryDescriptors_PlaceAggregateThenPrimaryThenDeclarationOrder`
+- `InitialLibraryRecommendation_SkipsUnavailableAggregate`
 - `UnavailableDescriptor_HasNoTargetOrActionId`
 - `ActiveDescriptor_IsCurrentWithoutActionId`
+- `AvailableNavigationRow_TargetMatchesWrappedIdentity`
+- `TypeActivation_UsesActionIdForNonRecommendedRow`
+- `MemberActivation_UsesActionIdBeforeAnyMemberIsCommitted`
 - `ToolsV2WithoutLibraries_RecommendsPackageRoot`
 - `ValidEmptyTypes_DiffersFromTypeInspectionFailure`
 - `PartialTypeInventory_DeterministicallyRetainsCandidateAndFailure`
@@ -644,13 +707,17 @@ covering at least:
 - `ExplicitRoot_RemainsRootAcrossInventoryRefresh`
 - `LensReconciliation_PreservesExactCommittedIdentity`
 - `LensReconciliation_SubjectChangeUsesRecommendationThenOwnerOrder`
+- `LensReconciliation_RetainedSubjectWithoutValidLensUsesTotalFallback`
 - `LensRecommendation_DoesNotCrossSubjectKindsByLabel`
 - `InspectWeb_SubmitsActionIdAndGeneration`
+- `InspectWeb_CoordinateVariationSuppliesPriorNavigationSnapshot`
 - `InspectWeb_ConsumesSubjectOutcomeWithoutHostFallback`
 
 Product-side gates should live with the eventual subject-navigation query.
-Inspect-web needs one non-vacuity integration gate that fails when the host
-resumes choosing its own initial subject or fallback.
+Inspect-web needs non-vacuity integration gates that fail when the host resumes
+choosing its own initial subject or fallback, submits Type or Member identities
+instead of actions, or omits the prior navigation snapshot during coordinate
+variation.
 
 ## Non-goals
 
