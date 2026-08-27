@@ -937,9 +937,13 @@ Put it under `## Demo` above validation in the PR body.
 - Avoid high-level `gh` commands when they fail by querying deprecated GraphQL
   fields. In particular, `gh pr edit` may hit the removed Projects (classic)
   fields even when changing unrelated metadata. Do not retry it; use the
-  operation-specific REST endpoint through `gh api` instead, such as
-  `PATCH repos/{owner}/{repo}/pulls/{n}` for PR title, body, or base changes,
-  and the corresponding issue endpoint for labels, assignees, or milestones.
+  operation-specific REST endpoint through `gh api` instead. Use
+  `PATCH repos/{owner}/{repo}/pulls/<number>` for PR title, body, or base
+  changes; the issue labels POST and per-label DELETE endpoints for label
+  additions and removals; the issue assignees POST and DELETE endpoints for
+  assignee additions and removals; and
+  `PATCH repos/{owner}/{repo}/issues/<number>` for milestone changes. Do not
+  replace complete label or assignee arrays to perform an add or remove.
   Verify the resulting metadata after the REST update.
 - Treat CI as confirmation: run the focused local gate, then push promptly.
   Run eligible local suites, CI, and review concurrently.
