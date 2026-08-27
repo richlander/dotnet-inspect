@@ -291,11 +291,12 @@ listing, so verifying a known unlisted version reports it rather than
 "not found". When listing status is unknown (fail-open, or a non-nuget.org
 feed), versions are reported as listed.
 
-`--include-unlisted` composes with the other `--versions` lenses. With a limit
-(`--versions -n 1 --include-unlisted`) it takes the listing-aware path. A pinned
-`Name@Version` and `Name@latest` still emit a one-row tagged table rather than a
-bare version, so the result always carries the `listed`/`unlisted` column the
-flag requests.
+`--include-unlisted` composes with the other `--versions` lenses. The released
+explicit single-version lens takes the listing-aware path. The pending L3 and
+source designs must decide future semantic-selection syntax and pushdown
+without losing listing status. A pinned `Name@Version` and `Name@latest` still
+emit a one-row tagged table rather than a bare version, so the result always
+carries the `listed`/`unlisted` column the flag requests.
 (`Name@latest` resolves through the listing-aware latest path, so its single row
 is listed by construction.) With an addressable range (`Name@A..B --versions
 --include-unlisted`) the vector is resolved from the full listing set — unlisted
@@ -344,7 +345,7 @@ offline mode, and unsupported local feed URLs are not cached as misses.
 | Pinned package `.nupkg` extraction | Uses a global or app payload only when its recorded producer is eligible; downloads otherwise. |
 | Bare package version resolution | Uses the version-resolution cache with a 1-hour TTL, then NuGet. When producer-authorized local payloads exist, an uncached network lookup is bounded to one second and timeout diagnostics offer exact local pins; those diagnostic versions are never selected automatically, and package caches are still used only after a version is resolved. |
 | Bare package `--preview` resolution | Uses a separate prerelease-aware version-resolution cache with a 1-hour TTL, then NuGet. |
-| Single-version listing (`--version` or `--versions -n 1`) | Combines matching-flavor latest entries with uncached source listings. Without `--preview`, an empty stable listing stays empty rather than falling back to a prerelease. |
+| Explicit single-version listing (`--version`) | Combines matching-flavor latest entries with uncached source listings. Without `--preview`, an empty stable listing stays empty rather than falling back to a prerelease. Future semantic-selection syntax and acquisition are pending. |
 | Wildcard version resolution | Uses the same version-list cache as `--versions` with a 1-hour TTL for nuget.org-backed sources. |
 | Addressable package range | Uses the version-list cache to resolve the vector; package caches are consulted only after a caller selects a cell. |
 | `@latest` package resolution | Always checks NuGet and bypasses version/metadata caches. |

@@ -314,18 +314,18 @@ Invalid operators should name valid forms:
 Error: Field 'RootReach' supports numeric comparisons: =, !=, >=, <=.
 ```
 
-Unsortable sections should reject `--order-by` clearly:
+Unsortable sections should reject ordering clearly:
 
 ```text
-Error: Section 'Facts' does not declare sortable fields. Use -n N to limit its
-declared rows.
+Error: Section 'Facts' does not declare sortable fields.
 ```
 
 A stable but non-ranking default should reject bare `--top`:
 
 ```text
 Error: Section 'Files' has a sequence default, not a ranking default.
-Use --top N with --order-by, or use -n N for a positional limit.
+Supply an explicit ranking order, or use the positional selection gesture
+defined by the L3 design.
 ```
 
 ## Open questions

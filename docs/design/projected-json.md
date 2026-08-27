@@ -8,10 +8,11 @@ JSON contracts.
 **Lowered** names the point where this JSON path joins Markout. The command
 builds the same Markout view used by Markdown, TSV, and JSONL. Product-owned
 section/view adapters resolve section identities, construct Markout inline
-values, and supply stable table keys. The resolved writer plan is then passed
-to Markout, which mechanically applies its section/projection/window options
-while serializing the view. A JSON formatter receives the resulting field,
-table, list, and tree callbacks, renders semantic inline slots with Markout's
+values, supply stable table keys, and hand already-selected rows to the
+presentation boundary. The resolved writer plan is then passed to Markout,
+which mechanically applies its section and projection options while
+serializing the view. A JSON formatter receives the resulting field, table,
+list, and tree callbacks, renders semantic inline slots with Markout's
 plain-text semantics, and assembles them into one JSON document. It is a
 sibling formatter, not a projection over the typed JSON graph and not a parser
 for rendered Markdown or table text.
@@ -125,15 +126,10 @@ request into the normal lowered-document path.
 
 The focused owners in
 [Item and line selection composition](item-and-line-limits.md) must preserve
-three format requirements:
-
-- limit flags do not choose the typed or lowered dialect;
-- semantic item/range windows apply before JSON encoding; and
-- printable line windows clip each content string before encoding, preserving
-  one complete structured success/failure object per selected row.
-
-Non-print document JSON has no textual payload to line-window and rejects
-`--lines` before stdout.
+two format boundaries: item selection completes before JSON encoding, and any
+accepted payload/line operation produces complete encoded values rather than
+truncating serialized JSON. The pending L3 and payload/line designs own exact
+syntax, clipping, and rejection behavior.
 
 ## Ownership and pipeline
 
@@ -142,10 +138,11 @@ The dialect split does not change layer ownership.
 | Decision | Owner |
 | --- | --- |
 | Parse flags, select JSON format/dialect, commit stdout, choose exit code | L3 CLI |
-| Select ordered sections and apply row/field/column shape decisions | L2 section model |
+| Select ordered sections and apply field/column shape decisions | L2 section model |
+| Execute normalized semantic row-selection plans | `DotnetInspector.RowSelection`, orchestrated by the applicable product owner |
 | Resolve projection names against each selected section schema | L2 projection service |
 | Produce display strings, section identities, and stable table keys | L2 section/view adapters |
-| Apply the resolved writer plan and deliver formatter callbacks | Markout serialization |
+| Receive already-selected rows, apply the resolved presentation plan, and deliver formatter callbacks | Markout serialization |
 | Map a representable lowered document to JSON | Lowered JSON formatter |
 | Preserve the command's existing typed JSON schema | Typed command serializer |
 | Produce inspection facts and typed failures | Owning query/producer |
@@ -156,7 +153,8 @@ The normal lowered path is:
 parse request
   -> resolve selected sections
   -> resolve projection separately for each selected section
-  -> apply the resolved shape/window plan and lower display values
+  -> execute semantic row selection
+  -> apply the resolved shape plan and lower selected display values
   -> validate/buffer the complete JSON document
   -> commit the document to stdout once
 ```
@@ -566,9 +564,10 @@ Adopt one coherent command family at a time.
    combined-family composition, lens precedence, labeled-array preservation,
    Markout inline-to-plain rendering, pinned machine-key plans, graph-field
    parity, the pinned `vocabulary --fields` alias, representability preflight,
-   transactional stdout, and integration with the item/range/line limit
-   contract around the existing `find`/`vocabulary` formatter. Move or expose
-   projection decisions at the L2 boundary.
+   transactional stdout, the semantic-selection handoff, and the separate
+   complete-value boundary for future payload-line behavior around the existing
+   `find`/`vocabulary` formatter. Move or expose projection decisions at the L2
+   boundary.
 2. **Audit every projection-capable route.** Prove that each accepted
    `--json --fields/--columns` request is owned by a lens/payload, rendered as
    lowered JSON, or rejected visibly. Add fail-closed routing or an explicit
@@ -635,7 +634,7 @@ implemented:
 | `ProjectedJsonMachineKeyTests` | Every shipped or newly adopted root field, section, field, column, and labeled array has a unique pinned machine key independent of display-heading changes. |
 | `ProjectedJsonDiagnosticsTests` | Partial, unmatched, projected-away, all-`PassThrough`, empty, no-result, no-data, and unrepresentable requests have the documented output/stderr/exit behavior; unmatched-name failure requires at least one applicable `Project` section. |
 | `ProjectedJsonAtomicityTests` | Every pre-commit projection/formatter failure leaves stdout empty; removing the buffer fails the test. |
-| `ProjectedJsonWindowingTests` | Semantic item/range windows happen before encoding; multi-print line windows modify each content value; every structured result remains complete. |
+| `ProjectedJsonSelectionHandoffTests` | Once semantic selection is adopted, lowered JSON receives already-selected values and serializes one complete JSON document; the pending payload/line owner supplies its own clipping or rejection gates. |
 | `ProjectedJsonFormatParityTests` | Every adopted table section has decoded key/order/value parity with JSONL from the same `-S <section>` shape, including Markout semantic inline values and empty-string padding for short rows. |
 | `ProjectedJsonNativeAotSmoke` | A published NativeAOT CLI executes both dialects without reflection fallback or trim/AOT warnings on the emit path. |
 

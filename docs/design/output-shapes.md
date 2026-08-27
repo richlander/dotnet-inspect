@@ -103,8 +103,8 @@ of the ladder families contributes in one of four ways:
 
 - **Shape selectors** narrow the requested shape (`-S`, `--fields`/`--columns`,
   `--count`).
-- **Item/range selectors** narrow the rows without changing the shape rung
-  (`--where`, `--order-by`, `-n`, `--top`, `--rows`).
+- **Row query and semantic selection** narrow rows without changing the shape
+  rung. Their future CLI spellings belong to the focused L3 design.
 - **Presentation modifiers** change how a selected payload is rendered without
   changing the shape (`--bare`, `--markdown`, `--json`, `--table`, `--tsv`,
   `--jsonl`, `--plaintext`, `--no-headers`, and graph-supported `--tree` or
@@ -190,11 +190,12 @@ Formatters decide presentation, not content:
   thing or they do not (see [rendering-model.md](rendering-model.md)).
 
 Cardinality is observed at the structured row seam after section production,
-command-owned filtering, and accepted column/field source selection, but before
-ordering, row-window, or text projection. A formatter can observe those matched
-rows without writing text; rendered Markdown is never parsed back into rows.
-Producers outside Markout, such as metadata tables, expose cardinality from the
-same typed row builders their renderer consumes.
+command-owned filtering, and accepted column/field source selection. A
+formatter can observe those rows without writing text; rendered Markdown is
+never parsed back into rows. The pending L2 integration and L3 designs own
+where count reduction branches relative to semantic selection. Producers
+outside Markout, such as metadata tables, expose cardinality from the same
+typed row builders their renderer consumes.
 
 An incomplete comparison is not narrowed into a clean result. Diff document
 formats include typed inspection-failure rows. Single-shape diff formats
@@ -219,10 +220,10 @@ modifier changes how a selected payload is rendered.
 
 ### Count projection
 
-`--count` reduces selected structured table rows after filtering and accepted
-field/column source selection but before ordering or windows. It rejects
-`--row`, item or line `-n`, `--top`, `--rows`, `--head`, `--tail`, `--lines`,
-and `--tail-lines` rather than silently counting a selected window:
+`--count` reduces structured table rows to a Scalar. The pending L2 integration
+and L3 designs own where this reduction branches relative to semantic
+selection and which combinations reject; this shape document does not settle
+those interactions.
 
 - Every non-empty `--fields`/`--columns` request resolves against the selected
   sections before reduction. A field-set projection that filters entries
@@ -261,141 +262,21 @@ do for graph nodes.
 
 ### Printable payload projections
 
-The former umbrella design proposed making normal `--print` a batch projection
-over selected rows. The focused payload design listed in
-[Item and line selection composition](item-and-line-limits.md) must settle this
-contract before implementation:
+Printability is a producer-declared row capability, not a property implied by
+Table or Vector shape. Semantic item selection completes before printable,
+path, or URL projection, and projection code carries producer-owned identity
+rather than reconstructing it from rendered position.
 
-| Selected rows | `--print` | `--print --row N\|first\|last` |
-| ---: | --- | --- |
-| 0 | Error: the selected section has no rows. | Error. |
-| 1 | Print one framed or structured result. | Print one framed or structured result for the addressed row; any other number is an error. |
-| More than 1 | Print one framed or structured result per selected row. | Print one framed or structured result for the addressed row. |
+The focused payload design listed in
+[Item and line selection composition](item-and-line-limits.md) owns future
+print cardinality, preflight, framing, structured results, failures, Markdown
+scoping, line selection, acquisition, and destination publication. This shape
+document chooses none of those behaviors or their CLI spellings.
 
-`--where` filters rows; item-mode `-n`, `--rows`, and `--top` then narrow them
-before projection. `--row` is the mutually exclusive exactly-one alternative to
-the item/range windows; line-mode `-n` remains available under `--lines`.
-`--paths` and `--urls` project the same selected rows without acquiring their
-content.
-
-Numeric `--row N` addresses a row by its position after filtering and effective
-ordering, but before item/range windows or payload projection. Sections do not
-print a row-number column, so N is the number the reader arrives at by counting
-the unwindowed ordered rows top to bottom. Later windows and printability do not
-renumber anything. A row that declares no payload still occupies its number,
-and selecting it reports that it has no document rather than silently sliding
-to a neighbour. For projections that omit inapplicable rows, such as `--value`,
-`--urls`, and `--paths`, `first` and `last` remain the endpoints actually
-emitted by that projection, retaining their original numeric addresses.
-`--print` has no such gaps because every selected row emits a success or
-failure. Structured output makes the number explicit — `--jsonl` and `--json`
-emit it as `row` — and error messages name the available addresses, so a
-projection with gaps stays navigable.
-
-This is the one rule that makes the ordinal trustworthy. Renumbering after a
-payload projection or printability check is wrong in the worst way available:
-it returns a real row, so nothing looks broken, and the reader has no way to
-recover the sequence being indexed. Addressing the pre-projection ordered row
-can only ever hit the intended row or report a miss.
-
-A row set that declares no printable capability rejects `--print` once during
-preflight rather than emitting one failure per row. Per-row failures apply to a
-print-capable row set after that preflight, including heterogeneous rows that do
-not individually carry a payload.
-
-After successful preflight, every selected print row in normal framed or
-structured output emits a visible success or failure result. A heterogeneous
-row that does not declare a printable payload, or whose payload cannot be
-acquired, is not omitted. Other rows continue, and any failure makes the command
-exit non-zero. Normal text frames every result with typed row identity; JSONL
-and JSON-array output retain that identity in one complete object per row.
-Plain `--json` retains its unary one-object contract and rejects multiple
-selected rows. Unary `--bare` and unstructured `--out` report acquisition or
-transformation failures as diagnostics with no payload envelope.
-
-A printed document is the document the package shipped. Markdown conventions --
-YAML frontmatter scoping through `--frontmatter`/`--body`, and rewriting GitHub
-`blob` links to `raw` so the target is fetchable -- apply only to Markdown. A
-document's kind comes from its extension, except for the package README, whose
-kind comes from its role: the manifest declared it as the readme and NuGet
-renders it as Markdown, so an extensionless or unconventionally named README is
-still Markdown. That role follows the manifest declaration, not the file the
-README section displays. A package that ships `README.md` and also declares a
-different file has declared both readmes, and the declared one keeps its kind
-even though the section shows the conventional name. The role answers only where
-the extension is silent: a manifest can declare anything, and
-`<readme>logo.png</readme>` is malformed but shippable, so a declaration never
-overrides a name that says what the document is. Any dot in the file name counts
-as saying something: `logo.png` names a suffix, `logo.png.` names one with a
-stray dot after it, and `.png` spells one as a hidden basename. Telling a hidden
-suffix from a hidden word like `.README` would take a list of known suffixes that
-goes stale and still guesses wrong at the edges, so the tie goes to the
-conservative reading -- refusing a scope on `.README` is loud and leaves the
-document readable, while handing a declared PNG to the link rewriter returns a
-corrupted file and exit 0.
-Applied to anything else they are corruption rather than presentation: the link
-rewriter matches bare URLs anywhere in the text, so a URL inside an XML element
-or an MSBuild comment is rewritten and the printed manifest silently stops
-matching the one the feed serves. Asking for a Markdown scope on a document that
-is not Markdown is refused, because both other answers -- the whole document, or
-an empty one -- report success for a question that was never answered. The
-refusal belongs to the request, not to one flag, so `--content` refuses it on
-the same terms as `--print`.
-
-The refusal covers the whole request rather than skipping the documents it does
-not apply to. A selection that matches Markdown and non-Markdown alike --
-`--path "*" --frontmatter` -- is one request, and answering part of it while
-dropping the rest reports success for files that were never scoped. The refusal
-names the first such document so the selection can be narrowed, for example with
-`--path "*.md"`.
-
-This request-level scope preflight runs after filters and item, range, or
-single-row selection establish the selected documents, but before payload
-acquisition or output. It inspects only selected rows, so an unselected
-non-Markdown row does not reject the request. If any selected row is not
-Markdown, one preflight rejection preempts the per-row batch failure model; the
-requested transformation itself is invalid rather than one row's payload being
-missing or unavailable.
-
-Normal `--print` stdout is a framed, visually encoded projection, even for one
-row. Unary `--bare` removes the frame but remains terminal-safe rather than an
-exact byte-transfer contract. A caller printing a manifest in order to hash or
-diff it uses unary `--out`, which preserves the package bytes exactly,
-including any byte order mark.
-
-The former item/range grammar and independent-window text in this section is
-superseded. [Semantic row selection](semantic-row-selection.md) now defines a
-sequential, reindexing plan over complete logical sequences. The pending L3
-design will define its command spellings and its relationship to payload-line
-selection.
-
-In `package --all-libraries`, singular sections retain one table per library
-for windowing even when a row format flattens them with provenance; aggregate
-sections window the rolled-up table once. The paired
-`PackageCommand_AllLibraries_RowFormats_WindowPerLibraryLikeMarkdownCount` and
-`PackageCommand_AllLibraries_AggregateRowFormats_WindowAcrossRolledUpSection`
-tests gate both scopes and their count/row-format parity.
-`PackageCommand_AllLibraries_RowFormats_TailWindowMatchesMarkdownRows`,
-`PackageCommand_AllLibraries_AggregateRowFormats_WindowSameRowsAsMarkdown`,
-and `PackageCommand_AllLibraries_OpportunityRowFormat_WindowSameRowAsMarkdown`
-gate selected-row identity at the window boundary.
-
-Item selection must complete before this shape owner projects rows into values,
-addresses, or printable payloads. Rendered-line selection remains a separate
-L3 concern after report or payload text exists; it never changes the selected
-logical items.
-
-Printability is a row capability, not a property implied by Table or Vector
-shape. Multi-item `--print` may not:
-
-- reinterpret an address row as the artifact at that address;
-- evaluate an unevaluated address;
-- acquire content that the selected row did not declare.
-
-A version-address Vector is therefore not printable merely because each row
-could name a package. The explicit transition to that package artifact remains
-`package Package@version`. Likewise, printing a timeline may use only declared
-payloads on already evaluated rows; it cannot probe missing cells.
+A projection may consume only capabilities and payloads declared on already
+selected rows. It does not reinterpret an address as an artifact, evaluate an
+unevaluated row, or acquire content for an unselected row. Exact compatibility
+and failure behavior remain with the focused payload owner.
 
 ### A payload projection is never silently dropped
 
@@ -455,8 +336,8 @@ unchanged. Because the lens owns the shape, its answers are fixed:
 - An opaque lens payload refuses `--print`, `--value`, `--urls`, and `--paths`
   with the reason rather than inferring structure from rendered text. A lens
   that declares rows and their capabilities composes with ordinary projections:
-  for example, version rows may expose URLs. A version row set that declares no
-  printable capability rejects `--print` once during preflight.
+  for example, version rows may expose URLs. The pending payload design owns
+  print-capability preflight.
 - `-S`/`--select` is refused when the caller typed it, rather than ignored. A
   lens and a section selection are competing answers to *what am I looking at*,
   and silently honoring the lens hides that the selection did nothing.
@@ -483,23 +364,12 @@ explicit unary file operation: add `--out <path>` to a selection that resolves
 one payload. An unscoped file export preserves the package bytes exactly,
 including encoding, byte order mark, and line endings; a Markdown scope exports
 that projected text. Terminal-facing output never emits a live control or bidi
-scalar from package content. Multi-item `--print --out` and multi-file or
-multi-package `--content --out` are refused unless a structured JSON shape
-owns the destination; global selection cardinality is resolved before any
-selected payload is read, and a unique exact payload is read from the same
-retained package acquisition that supplied its selection metadata. Narrow it
-with row or path selectors for exact transfer.
-Unstructured exact `--out` rejects line windows because clipping would no
-longer be exact. Every refused export is decided before opening its destination:
-an absent path stays absent, and an existing file remains byte-for-byte
-unchanged.
+scalar from package content.
 
-Every command that exposes `--print` also exposes and wires unary `--bare` and
-`--out`; this makes the payload-only and exact-destination paths properties of
-the projection rather than accidents of its parent command. Structured
-multi-item `--out` is a different mode: after atomic preflight it may publish
-complete result records incrementally, including typed row failures, as
-the pending focused payload design must specify.
+The pending focused payload design owns future cardinality, structured output,
+line-selection compatibility, preflight, and destination-publication behavior.
+It must preserve terminal containment and ensure that any rejected export is
+decided before its destination is mutated.
 
 Tool-authored companion sections still use the stream split: for example,
 `package X -S "Package README file" --print --info` writes the framed, encoded
@@ -523,10 +393,8 @@ a package whose README carries bidi, ESC, and LS hazards and asserts encoded
 stdout, contained stderr, parsed JSON payload fidelity, and exact `--out`
 export. `PackageContentOutput_ContainsNoLiveControlsOnStdoutAndPreservesExplicitFileExport`
 gates both framed and `--bare` single-file content export with a UTF-16 payload
-that has no trailing newline. The target
-`MultiPrintFrameFieldsAreContained` gate applies the same adversarial coverage
-to every `--print` frame field, and `MultiPrintPayloadCannotForgeFrames` covers
-frame-shaped payload lines and line-ending edge cases.
+that has no trailing newline. Future multi-row containment gates belong to the
+pending payload design.
 
 Discovery (`-D`/`--discover`) is a lens for the projections above but not for
 `-S`, which legitimately narrows what discovery reports. Its own `--count` must
@@ -548,13 +416,12 @@ the caller made.
 | `--no-header` (`--no-headers`) | drop the Table header row |
 | Item-selection gestures | select logical values before this presentation layer; exact CLI spellings are pending |
 | Rendered-line gestures | select report or payload lines after text projection; exact CLI spellings are pending |
-| `--bare` | render the selected payload without document decoration; multi-item print rejects it because framing carries row identity |
+| `--bare` | render a selected payload without document decoration; future multi-item interaction is pending |
 | `--plaintext` | render a whole-document plain-text view; distinct from `--bare` |
 
 `--tsv`/`--jsonl`/`--table` render **one section at a time**, so they require a
 Table-or-narrower selection; multi-section (Document) output stays in Markdown or
-JSON. `--print` likewise requires exactly one declared row set, though it may
-project every selected row in that set.
+JSON. The pending payload design owns future `--print` row-set cardinality.
 
 ### URL-shape modifiers (orthogonal to the ladder)
 
@@ -744,22 +611,19 @@ for exact payload export.
 
 The stable shape vocabulary is:
 
-- `--count` is a shape-reduction selector: it collapses a selected table/vector to a
-  single scalar count. It rejects row addresses and item/line windows rather
-  than silently ignoring them.
+- `--count` is a shape-reduction selector: it collapses a table/vector to a
+  single scalar count. Its interaction with future semantic selection is
+  pending.
 - Semantic item selection consumes declared row values before projection.
   Its future CLI spellings are owned by the focused L3 design, not this shape
   document.
-- Normal `--print` projects every selected row to one framed or structured
-  success/failure result. Unary `--bare` and unstructured `--out` carry no
-  result envelope. None of these modes invents printability or evaluates new
-  addresses.
+- `--print` is a payload projection. The pending focused payload design owns
+  future multi-row framing, structured results, and unary alternatives.
 - Rendered-line selection is a presentation operation over report or payload
   text. It does not select rows.
-- `--row` addresses a rendered row by its position in the section, counting from
-  1. Any future selector that takes an ordinal joins this rule: the number a
-  reader arrives at by counting rows is the number that can be addressed, and no
-  later item/range window or projection may renumber it.
+- `--row` is the released exactly-one address gesture. The pending L2
+  integration and L3 designs own its relationship to stage-local positions and
+  semantic selection.
 - `--bare` is a presentation modifier: for one selected payload, it strips the
   surrounding frame and payload gutter.
 - `--raw` / `--blob` are URL-shape modifiers: they control the form of emitted
