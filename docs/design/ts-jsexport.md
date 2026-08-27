@@ -249,10 +249,13 @@ be used to reconstruct one of the other views.
 is not declared by the generic .NET JavaScript module. The generated module
 therefore treats its result as `unknown` and contains one explicit assertion to
 the internal managed-export structure generated from the same authenticated
-surface. Before publishing initialized state, it also verifies that every exact
-declaring-type path and runtime dispatch key resolves to a callable function.
-An absent or non-callable exact key is an initialization failure, not a later
-`undefined is not a function` error.
+surface. Before publishing initialized state, it walks every exact
+declaring-type path with own data-property descriptors and requires the final
+runtime dispatch key to be an own data property whose value is callable. It
+does not invoke accessors or accept inherited properties while validating.
+An absent, inherited, accessor-backed, or non-callable exact path is an
+initialization failure, not a later `undefined is not a function` error or
+cross-assembly dispatch through a shared prototype.
 
 `JSON.parse()` is another boundary. Its result is immediately treated as
 `unknown`; only an authenticated wire contract permits the generated wrapper
@@ -303,6 +306,13 @@ fulfilled without creating or acquiring again. Any creation or acquisition
 failure is terminal: later initialization calls preserve the same rejection,
 and a new module instance is required to retry. Runtime and export storage
 remain unpublished unless the whole operation succeeds.
+
+That single-flight guarantee is deliberately module-local. A consumer using
+several separately generated facade modules serializes their first
+initialization unless its runtime owner guarantees shared in-flight
+acquisition. A facade whose local acquisition or validation fails never exits
+or disposes the potentially shared runtime; cross-module coordination and
+runtime lifetime remain consumer and runtime policy.
 
 Managed operations and `runEntryPoint()` fail visibly until initialization has
 fulfilled, using one consistent module-owned not-initialized error across all
@@ -402,6 +412,12 @@ reserved-name collisions. Module infrastructure, runtime imports, helpers, and
 wrapper-local bindings are allocated first and are never renamed or displaced
 by a public declaration. A preferred public name is retained only when it is
 unique and unreserved.
+
+The allocator never rewrites an owner-issued declaring-type path or runtime
+dispatch key. TypeScript identifier legality is not evidence that a path is
+owned by the acquired assembly-export aggregate; generated runtime traversal
+uses the own-data-property checks above rather than ordinary dotted or bracket
+property lookup.
 
 On collision, an operation fallback derives from its complete managed operation
 identity: fully qualified declaring type, method name, and parameter types. An
@@ -589,9 +605,10 @@ The current implementation predates this decision:
 - `JsExportSurfaceBuilder` authenticates each generated registration's
   signature hash but omits that exact dispatch identity from
   `JsExportFunction`; and
-- the current emitter invokes a bare runtime method name, rejects same-spelling
-  managed operations, and rejects distinct enum or DTO identities with the
-  same simple name instead of allocating distinct public names.
+- the current emitter traverses declaring-type paths with ordinary property
+  lookup, invokes a bare runtime method name, rejects same-spelling managed
+  operations, and rejects distinct enum or DTO identities with the same simple
+  name instead of allocating distinct public names.
 
 Those are migration inputs, not compatibility requirements.
 
@@ -622,14 +639,17 @@ The implementation effort should:
 9. consume each exact owner-issued runtime dispatch identity after the
    `ILInspector.JsExportSurface` prerequisite in
    [#4791](https://github.com/richlander/dotnet-inspect/issues/4791) lands;
-10. remove `ValueTask` mapping branches, reject such a hand-composed input
+10. traverse owner-issued declaring-type paths and dispatch keys only through
+    own data-property descriptors, failing initialization before publication
+    for an inherited, accessor-backed, absent, or non-callable path;
+11. remove `ValueTask` mapping branches, reject such a hand-composed input
     visibly, and retain the SDK compile-time negative;
-11. allocate deterministic operation, enum, and DTO names from complete
+12. allocate deterministic operation, enum, and DTO names from complete
     managed identities, and route every typed reference through that
     allocation, instead of rejecting collisions; and
-12. preserve deterministic output and failure-before-publication behavior.
+13. preserve deterministic output and failure-before-publication behavior.
 
-Steps 9 and 11 are atomic for methods sharing one declaring-type path and
+Steps 9 and 12 are atomic for methods sharing one declaring-type path and
 managed name. Until the exact runtime dispatch identity from #4791 is consumed,
 such overloads remain a visible generation rejection; allocating two facade
 names that both call the ambiguous bare runtime key is never an intermediate
@@ -649,6 +669,12 @@ Issue #4792 records the required real-consumer async canary as independently
 reviewable inspect-web work. This design consumes its end-to-end result without
 restating or owning the consumer's build graph, runtime selection, canary
 operation, or browser-smoke policy.
+
+Issue #4842 separately records the multi-assembly browser canary. It proves
+that two generated facade modules attach to one consumer-coordinated runtime
+and retain assembly-specific dispatch without turning its fixture assemblies
+into a proposed production-layer split; #4497 remains the owner of any such
+product decision.
 
 ## Acceptance
 
@@ -700,13 +726,17 @@ The target remains unverified until all of these gates exist:
 - after #4791, an overloaded compiled fixture with distinct results proves each
   generated facade function indexes the owner-issued exact runtime key rather
   than the ambiguous bare method name;
+- runtime export-aggregate fixtures prove inherited and accessor-backed path
+  segments fail before publication without invoking a getter, two assembly
+  roots cannot cross-dispatch through a shared prototype, and an equivalent
+  own-data-property path succeeds;
 - runtime tests prove initialization failure, publication only after export
   acquisition and exact callable-path validation, no raw-object return, exact
   export dispatch, JSON parsing, and exception propagation;
-- initialization runtime tests prove concurrent single-flight behavior,
-  exactly one `dotnet.create()` and export acquisition, idempotence after
-  success, terminal failure without hidden retry, and preservation of the
-  original initialization rejection;
+- initialization runtime tests prove module-local concurrent single-flight
+  behavior, exactly one `dotnet.create()` and export acquisition, idempotence
+  after success, terminal failure without hidden retry or runtime exit, and
+  preservation of the original initialization rejection;
 - managed operations and `runEntryPoint()` use the same module-owned
   not-initialized error before initialization succeeds and preserve a terminal
   initialization failure afterward;
