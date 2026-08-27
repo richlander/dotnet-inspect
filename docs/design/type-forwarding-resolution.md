@@ -1982,11 +1982,19 @@ receive one closed outcome:
   through an entirely externally accessible declaring chain.
 - **Inaccessible** means the complete chain is readable but any required
   visibility is not externally accessible.
-- **Rejected** retains a cross-catalog or stale-generation key failure, or the
-  exact bounded declaring-chain rejection.
+- **Rejected** retains a cross-catalog, stale-generation, or catalog-lifetime
+  key failure, or the exact bounded declaring-chain rejection.
 
 The operation uses the catalog-owned inspection session and the existing
 iterative `TypeDef` declaring-chain traversal. It exposes no reader or handle.
+Resolution cannot issue a `ResolvedTypeDefinition` until that candidate's
+durable session has opened successfully, and the catalog caches that session by
+candidate. Accessibility reuses the exact retained session that produced the
+definition; it never calls the acquisition opener or demand-opens a second
+session after freeze. Candidate-open failure therefore remains a resolution
+outcome that prevents a resolved key from existing, not an accessibility
+outcome.
+
 The issuing context caches the closed outcome by its internal
 `(AssemblyCandidateId, TypeDefinitionToken)` coordinate within one catalog
 generation. Consumers neither hash nor compare the opaque public key. Distinct
@@ -3101,9 +3109,10 @@ generation-scoping gates named in
   required for all; external accessibility is ignored only for an
   optional-only modifier.
 - `SignatureSpellability_ResolvesNestedForwarderToAccessibleDefinition`
-  proves that a nested exported-type implementation chain reaches and
-  classifies the terminal nested `TypeDef`; removing the bounded chain walk
-  makes the gate fail.
+  uses an external-only signature and proves that a nested exported-type
+  implementation chain reaches an accessible terminal nested `TypeDef` and
+  produces `CanSpell: true`; removing the bounded chain walk or returning a
+  constant false verdict makes the gate fail.
 - `SignatureSpellability_RejectsMissingForwarderTarget` proves that a
   forwarding row without a bindable terminal assembly retains
   `UnboundBinding` and cannot produce `CanSpell: true`.
@@ -3116,6 +3125,9 @@ generation-scoping gates named in
 - `SignatureSpellability_RejectsInvalidAccessibilityKey` proves that a
   cross-catalog or stale-generation definition key cannot borrow an
   accessibility result.
+- `SignatureSpellability_AccessibilityReusesResolvedSession` configures the
+  terminal candidate opener to fail on a second invocation and proves that
+  accessibility succeeds with no additional source open after resolution.
 - `SignatureSpellability_RetainsResolutionFailureKinds` covers ambiguous
   binding/declaration, malformed nested chains, forwarding cycles, candidate
   open failure, and relationship/hop-budget exhaustion without collapsing
