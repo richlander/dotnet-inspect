@@ -11221,6 +11221,32 @@ public partial class CommandExecutionTests
             error);
     }
 
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchCountProjectionFailsBeforeNetwork()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "--count", "--columns", "NoSuchColumn",
+            "search", "ThisQueryMustNotReachTheNetwork",
+            "--source", "http://127.0.0.1:9/index.json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("No columns matched projection", error);
+        Assert.DoesNotContain("NuGet source", error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchCountProjectionCountsAfterPreflight()
+    {
+        var (exit, output, error) = await RunPackageSearchFixtureAsync(
+            "package", "--count", "--columns", "Package",
+            "search", "Fixture");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("4", output.Trim());
+        Assert.Empty(error);
+    }
+
     [Theory]
     [InlineData("--print")]
     [InlineData("--value")]
@@ -11290,6 +11316,20 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains($"{option} is not available with package search", error);
+        Assert.DoesNotContain("NuGet source", error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchParentTargetFailsBeforeNetwork()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "ParentTarget",
+            "search", "ThisQueryMustNotReachTheNetwork",
+            "--source", "http://127.0.0.1:9/index.json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("package target is not available with package search", error);
         Assert.DoesNotContain("NuGet source", error);
     }
 
@@ -11393,6 +11433,70 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Equal(2, output.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries).Length);
+        Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData("-n=abc", "Cannot parse value 'abc'")]
+    [InlineData("-n=0", "positive package search result limit")]
+    [InlineData("-n=-1", "positive package search result limit")]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchInvalidItemLimitFailsBeforeNetwork(
+        string limit,
+        string expected)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "search", "ThisQueryMustNotReachTheNetwork", limit,
+            "--source", "http://127.0.0.1:9/index.json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(expected, error);
+        Assert.DoesNotContain("NuGet source", error);
+        Assert.DoesNotContain("InvalidOperationException", error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchInheritedInvalidItemLimitFailsBeforeNetwork()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "-n=0",
+            "search", "ThisQueryMustNotReachTheNetwork",
+            "--source", "http://127.0.0.1:9/index.json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("positive package search result limit", error);
+        Assert.DoesNotContain("NuGet source", error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchMalformedLimitWithRowsIsContained()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "--rows", "2",
+            "search", "ThisQueryMustNotReachTheNetwork", "-n=abc",
+            "--source", "http://127.0.0.1:9/index.json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Cannot parse value 'abc'", error);
+        Assert.DoesNotContain("NuGet source", error);
+        Assert.DoesNotContain("InvalidOperationException", error);
+    }
+
+    [Theory]
+    [InlineData("--preview")]
+    [InlineData("--prerelease")]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchInheritsPrerelease(
+        string option)
+    {
+        var (exit, output, error) = await RunPackageSearchFixtureAsync(
+            "package", option, "search", "Fixture", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(4, output.Split(
             '\n',
             StringSplitOptions.RemoveEmptyEntries).Length);
         Assert.Empty(error);
@@ -11857,6 +11961,12 @@ public partial class CommandExecutionTests
         Assert.Empty(output);
         Assert.Contains(
             "--fields/--columns are not available with --shape",
+            error);
+        Assert.Contains(
+            "Replace --json --shape with --table, --tsv, or --jsonl",
+            error);
+        Assert.Contains(
+            "omit --fields/--columns to keep tree output",
             error);
         Assert.DoesNotContain("selection was ignored", error);
     }

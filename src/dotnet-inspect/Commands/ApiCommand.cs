@@ -2224,8 +2224,9 @@ public class ApiCommand
             {
                 CommandError.Write(
                     "--fields/--columns are not available with --shape, which "
-                    + "renders a tree rather than projected rows. Omit --shape "
-                    + "to use a projected table format.");
+                    + "renders a tree rather than projected rows. Replace "
+                    + "--json --shape with --table, --tsv, or --jsonl for "
+                    + "projected rows, or omit --fields/--columns to keep tree output.");
                 return 1;
             }
 

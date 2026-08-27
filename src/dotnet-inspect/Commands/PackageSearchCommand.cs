@@ -24,8 +24,18 @@ public class PackageSearchCommand
 
         try
         {
-            if (!options.Count
-                && LensProjection.TryProject(
+            if (options.Count)
+            {
+                if (!LensProjection.TryResolveColumns(
+                        options,
+                        "package search",
+                        ResultColumns,
+                        out _))
+                {
+                    return 1;
+                }
+            }
+            else if (LensProjection.TryProject(
                     options,
                     "package search",
                     rowCount: 0,
@@ -78,13 +88,14 @@ public class PackageSearchCommand
             // --count reduces the payload, so it is resolved before the format flags that
             // render it. Ordering these the other way lets --json answer a count request
             // with the full unprojected result set.
-            if (LensProjection.TryProject(
-                    options,
-                    "package search",
+            if (options.Count)
+            {
+                CountOutput.WriteCount(
                     results.Count,
-                    out var projectionExitCode,
-                    ResultColumns))
-                return Math.Max(exitCode, projectionExitCode);
+                    options.OutputPath,
+                    options.Rows);
+                return exitCode;
+            }
 
             if (!options.JsonOutput && results.Count == 0)
             {

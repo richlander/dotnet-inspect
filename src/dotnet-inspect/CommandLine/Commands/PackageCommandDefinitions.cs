@@ -1,5 +1,6 @@
 using DotnetInspector.Output;
 using System.CommandLine;
+using System.Globalization;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
@@ -107,6 +108,8 @@ public static class PackageCommandDefinitions
         var searchCommand = CreatePackageSearchCommand(
             opts,
             packageCommand,
+            packageNameArg,
+            prereleaseOption,
             outOption);
         packageCommand.Subcommands.Add(searchCommand);
 
@@ -162,6 +165,8 @@ public static class PackageCommandDefinitions
     public static Command CreatePackageSearchCommand(
         SharedOptions opts,
         Command packageCommand,
+        Argument<string[]> inheritedPackageArgument,
+        Option<bool> inheritedPrereleaseOption,
         Option<string?> inheritedOutOption)
     {
         var searchCommand = new Command(PackageSearchCommand.Name, "Search NuGet for packages by keyword");
@@ -193,22 +198,47 @@ public static class PackageCommandDefinitions
         opts.AddRowWindowValidators(searchCommand);
         searchCommand.Validators.Add(result =>
         {
+            int? resultLimit = null;
+            var limitResult = result.GetResult(opts.Limit);
+            if (limitResult is { Implicit: false }
+                && limitResult.Tokens.Count > 0)
+            {
+                if (!int.TryParse(
+                    limitResult.Tokens[^1].Value,
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out int parsedLimit))
+                {
+                    return;
+                }
+
+                resultLimit = parsedLimit;
+            }
+
+            if (resultLimit is <= 0)
+            {
+                result.AddError(
+                    "-n requires a positive package search result limit greater than zero.");
+            }
+
             bool hasDirection =
                 result.GetValue(opts.Head) || result.GetValue(opts.Tail);
             bool hasRows =
                 result.GetResult(opts.Rows) is { Implicit: false };
-            int? lineLimit = result.GetValue(opts.Limit);
-            if (hasDirection && !hasRows && lineLimit is null)
+            if (hasDirection && !hasRows && resultLimit is null)
             {
                 result.AddError(
                     "--head/--tail requires a carrier: use -n for result rows "
                     + "or --rows for data rows.");
             }
 
-            if (result.GetValue(opts.Count) && lineLimit is not null)
+            if (resultLimit is null)
+                return;
+
+            if (result.GetValue(opts.Count))
                 result.AddError("--count cannot be combined with -n.");
 
-            if (result.GetValue(opts.Tail) && lineLimit is not null)
+            if (result.GetValue(opts.Tail))
             {
                 result.AddError(
                     "--tail cannot be combined with -n for package search "
@@ -216,7 +246,7 @@ public static class PackageCommandDefinitions
             }
 
             if (result.GetResult(takeOption) is { Implicit: false }
-                && lineLimit is not null)
+                && resultLimit > 0)
             {
                 result.AddError(
                     "--take and -n both limit package search results; choose one.");
@@ -245,6 +275,7 @@ public static class PackageCommandDefinitions
                 opts.Tail,
                 opts.Fields,
                 opts.Columns,
+                inheritedPrereleaseOption,
                 inheritedOutOption,
             };
             var unsupportedParentOption = packageCommand.Options.FirstOrDefault(
@@ -254,6 +285,14 @@ public static class PackageCommandDefinitions
             {
                 CommandError.Write(
                     $"{unsupportedParentOption.Name} is not available with package search.");
+                return 1;
+            }
+
+            if (parseResult.GetValue(inheritedPackageArgument) is { Length: > 0 })
+            {
+                CommandError.Write(
+                    "A package target is not available with package search; "
+                    + "place 'search' immediately after 'package'.");
                 return 1;
             }
 
@@ -277,7 +316,9 @@ public static class PackageCommandDefinitions
                 Query = query,
                 Take = parseResult.GetValue(opts.Limit)
                     ?? parseResult.GetValue(takeOption),
-                Prerelease = parseResult.GetValue(prereleaseOption),
+                Prerelease =
+                    parseResult.GetValue(inheritedPrereleaseOption)
+                    || parseResult.GetValue(prereleaseOption),
                 JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                 CompactJson = parseResult.GetValue(compactOption),
                 Verbose = parseResult.GetValue(opts.Verbose),
