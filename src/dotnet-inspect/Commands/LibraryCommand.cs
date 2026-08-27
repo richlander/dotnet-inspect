@@ -611,14 +611,32 @@ public class LibraryCommand
 
                 logger.Log($"Using platform runtime library: {framework} {version}");
 
-                if (!string.IsNullOrWhiteSpace(options.ILOffsetsPath))
-                    return await WriteILCoordinateBatchAsync(resolvedPath!, null, null, isPlatformAssembly: true, options, context.HttpClient, logger);
-
                 AssemblyResolutionProvenance inspectionProvenance =
                     AssemblyResolutionProvenance.Platform(
                         framework!,
                         version,
                         "library --platform");
+                ResolvedAssemblyReference? inspectionAssemblyReference = null;
+                if (!string.IsNullOrWhiteSpace(options.ILOffsetsPath))
+                {
+                    (inspectionAssemblyReference, bool acquisitionFailed) =
+                        CreateInspectionReferenceOrReportFailure(
+                            resolvedPath!,
+                            inspectionProvenance);
+                    if (acquisitionFailed)
+                        return 1;
+
+                    return await WriteILCoordinateBatchAsync(
+                        resolvedPath!,
+                        inspectionAssemblyReference,
+                        null,
+                        null,
+                        isPlatformAssembly: true,
+                        options,
+                        context.HttpClient,
+                        logger);
+                }
+
                 AssemblyContextIntegrationsBatch? integrations =
                     AssemblyContextIntegrationsRunner.RunIfRequested(
                         queries,
@@ -629,7 +647,7 @@ public class LibraryCommand
                                 inspectionProvenance),
                         ],
                         trace);
-                ResolvedAssemblyReference? inspectionAssemblyReference =
+                inspectionAssemblyReference =
                     integrations?.AssemblyForInspection(resolvedPath!);
                 if (inspectionAssemblyReference is null)
                 {
@@ -741,7 +759,28 @@ public class LibraryCommand
                 packageVersion = resolvedPackageVersion;
 
                 if (!string.IsNullOrWhiteSpace(options.ILOffsetsPath))
-                    return await WriteILCoordinateBatchAsync(assemblyPaths[0], packageName, packageVersion, isPlatformAssembly: false, options, context.HttpClient, logger);
+                {
+                    (ResolvedAssemblyReference? assemblyReference, bool acquisitionFailed) =
+                        CreateInspectionReferenceOrReportFailure(
+                            assemblyPaths[0],
+                            PackageIntegrationProvenance(
+                                assemblyPaths[0],
+                                extractPath,
+                                packageName,
+                                packageVersion));
+                    if (acquisitionFailed)
+                        return 1;
+
+                    return await WriteILCoordinateBatchAsync(
+                        assemblyPaths[0],
+                        assemblyReference,
+                        packageName,
+                        packageVersion,
+                        isPlatformAssembly: false,
+                        options,
+                        context.HttpClient,
+                        logger);
+                }
 
                 var inspectionPaths = discoveryInspection && assemblyPaths.Count > 0
                     ? [assemblyPaths[0]]
@@ -929,11 +968,29 @@ public class LibraryCommand
                     return 1;
                 }
 
-                if (!string.IsNullOrWhiteSpace(options.ILOffsetsPath))
-                    return await WriteILCoordinateBatchAsync(assemblyPath!, null, null, isPlatformAssembly: false, options, context.HttpClient, logger);
-
                 AssemblyResolutionProvenance inspectionProvenance =
                     AssemblyResolutionProvenance.Designated("library path");
+                ResolvedAssemblyReference? inspectionAssemblyReference = null;
+                if (!string.IsNullOrWhiteSpace(options.ILOffsetsPath))
+                {
+                    (inspectionAssemblyReference, bool acquisitionFailed) =
+                        CreateInspectionReferenceOrReportFailure(
+                            assemblyPath!,
+                            inspectionProvenance);
+                    if (acquisitionFailed)
+                        return 1;
+
+                    return await WriteILCoordinateBatchAsync(
+                        assemblyPath!,
+                        inspectionAssemblyReference,
+                        null,
+                        null,
+                        isPlatformAssembly: false,
+                        options,
+                        context.HttpClient,
+                        logger);
+                }
+
                 AssemblyContextIntegrationsBatch? integrations =
                     AssemblyContextIntegrationsRunner.RunIfRequested(
                         queries,
@@ -944,7 +1001,7 @@ public class LibraryCommand
                                 inspectionProvenance),
                         ],
                         trace);
-                ResolvedAssemblyReference? inspectionAssemblyReference =
+                inspectionAssemblyReference =
                     integrations?.AssemblyForInspection(assemblyPath!);
                 if (inspectionAssemblyReference is null)
                 {
@@ -1158,6 +1215,7 @@ public class LibraryCommand
 
     private static async Task<int> WriteILCoordinateBatchAsync(
         string assemblyPath,
+        ResolvedAssemblyReference? assemblyReference,
         string? packageName,
         string? packageVersion,
         bool isPlatformAssembly,
@@ -1184,7 +1242,9 @@ public class LibraryCommand
         var rows = readErrors
             .Select(errorRow => new ILCoordinateBatchRow(null, errorRow.Label, null, null, "error", errorRow.Error))
             .ToList();
-        using var service = SourceLinkService.Open(assemblyPath, logger.Log);
+        using var service = assemblyReference is null
+            ? SourceLinkService.Open(assemblyPath, logger.Log)
+            : SourceLinkService.Open(assemblyReference, logger.Log);
         foreach (var coordinate in coordinates)
         {
             var queryOptions = options with

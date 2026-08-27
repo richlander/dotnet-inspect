@@ -19415,17 +19415,24 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData(true, false, true)]
-    [InlineData(false, false, true)]
-    [InlineData(false, true, false)]
+    [InlineData(true, false, true, false)]
+    [InlineData(false, false, true, false)]
+    [InlineData(false, true, false, false)]
+    [InlineData(true, false, true, true)]
+    [InlineData(false, false, true, true)]
+    [InlineData(false, true, false, true)]
     public async Task LibraryCommand_RejectedAcquisitionFailsClosed(
         bool isAssembly,
         bool blankModuleName,
-        bool nilMvid)
+        bool nilMvid,
+        bool useILOffsetsFile)
     {
         string path = Path.Combine(
             Path.GetTempPath(),
             $"rejected-library-{Guid.NewGuid():N}.dll");
+        string coordinatesPath = Path.Combine(
+            Path.GetTempPath(),
+            $"rejected-library-coordinates-{Guid.NewGuid():N}.txt");
         WriteRejectedManagedImage(
             path,
             isAssembly,
@@ -19433,11 +19440,24 @@ public partial class CommandExecutionTests
             nilMvid);
         try
         {
-            var (exit, output, error) = await RunAppAsync(
+            var arguments = new List<string>
+            {
                 "library",
                 path,
-                "--tips",
-                "q");
+            };
+            if (useILOffsetsFile)
+            {
+                await File.WriteAllTextAsync(
+                    coordinatesPath,
+                    "sample 0x06000001+0x0",
+                    TestContext.Current.CancellationToken);
+                arguments.AddRange(
+                    ["--il-offsets", coordinatesPath]);
+            }
+            arguments.AddRange(["--tips", "q"]);
+
+            var (exit, output, error) = await RunAppAsync(
+                [.. arguments]);
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -19449,6 +19469,67 @@ public partial class CommandExecutionTests
         finally
         {
             File.Delete(path);
+            File.Delete(coordinatesPath);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_PackageIlOffsetsFile_RejectedAcquisitionFailsClosed()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"rejected-package-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string assemblyDirectory = Path.Combine(
+            packageRoot,
+            "lib",
+            "net11.0");
+        string assemblyPath = Path.Combine(
+            assemblyDirectory,
+            "Rejected.dll");
+        string packagePath = Path.Combine(
+            tempDir,
+            "Rejected.Package.1.0.0.nupkg");
+        string coordinatesPath = Path.Combine(
+            tempDir,
+            "coordinates.txt");
+        Directory.CreateDirectory(assemblyDirectory);
+        WriteRejectedManagedImage(
+            assemblyPath,
+            isAssembly: true,
+            blankModuleName: false,
+            nilMvid: true);
+        ZipFile.CreateFromDirectory(
+            packageRoot,
+            packagePath);
+        await File.WriteAllTextAsync(
+            coordinatesPath,
+            "sample 0x06000001+0x0",
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "Rejected.dll",
+                "--package",
+                packagePath,
+                "--il-offsets",
+                coordinatesPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Could not acquire library",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(
+                tempDir,
+                recursive: true);
         }
     }
 

@@ -186,7 +186,7 @@ rejected acquisition into a participant.
 this bind-once rule across descriptor, retained-image, and prefetched PDB paths.
 `WorkspaceContextLoaderTests.ExactPin_SelectsAnUnlistedVersionWithoutDiscovery`
 gates exact package-version realization, and
-`LocalArtifactSourceTests.SourceMutationAfterAcquire_DoesNotChangePublishedContent`
+`LocalArtifactSourceTests.LocalArtifactSnapshot_MutationCannotChangeInspectionBytes`
 gates the operation-scoped local snapshot.
 
 Metadata tokens are acquisition-local addresses and never establish
