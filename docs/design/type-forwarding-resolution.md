@@ -2046,8 +2046,10 @@ not admit the signature.
 Resolution outcomes, including typed non-success arms, reuse the context's
 generation-scoped resolution cache. Terminal accessibility uses the separate
 definition-scoped cache above. There is no parallel cache of defined,
-forwarded, or non-public type-name strings, no cache outlives its catalog
-generation, and no result exposes a `MetadataReader`, handle, or borrowed
+forwarded, or non-public type-name strings. The resolution and accessibility
+result caches do not outlive their catalog generation; catalog-owned candidate
+sessions, declaration results, and frozen recipes retain the catalog lifetime
+defined earlier. No result exposes a `MetadataReader`, handle, or borrowed
 session.
 
 ### Analysis type provenance
@@ -3126,8 +3128,9 @@ generation-scoping gates named in
   cross-catalog or stale-generation definition key cannot borrow an
   accessibility result.
 - `SignatureSpellability_AccessibilityReusesResolvedSession` configures the
-  terminal candidate opener to fail on a second invocation and proves that
-  accessibility succeeds with no additional source open after resolution.
+  terminal candidate opener to fail after resolution records its completed
+  inventory and durable-session open count, then proves that accessibility
+  succeeds without increasing that count.
 - `SignatureSpellability_RetainsResolutionFailureKinds` covers ambiguous
   binding/declaration, malformed nested chains, forwarding cycles, candidate
   open failure, and relationship/hop-budget exhaustion without collapsing
