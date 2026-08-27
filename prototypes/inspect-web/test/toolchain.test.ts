@@ -459,8 +459,11 @@ test("the only JavaScript is the file the lint exemption names", () => {
 // So the question is inverted. Rather than enumerate what can run script, which is a list
 // HTML keeps extending, this says what a document here is allowed to contain and rejects
 // everything else. A document may *reference* script and may not *contain* any, which
-// leaves a file as the only place script can be -- and a file is what every other gate
-// here already reads. An element or attribute nobody has classified fails, so the next
+// leaves a file as the only place script can be. For a relative reference that file is a
+// module under `src/`, which every other gate here already reads. For an absolute one it
+// is remote code that no gate reads, so the check below requires `integrity`: the property
+// there is that the bytes are pinned to a hash, not that anything analyzed them. An
+// element or attribute nobody has classified fails, so the next
 // HTML feature that can run script is rejected on the grounds that it is unrecognized,
 // which is the one property a deny list cannot have.
 //
@@ -528,6 +531,177 @@ function urlScheme(value: string): string | undefined {
   return scheme?.[1]?.toLowerCase();
 }
 
+// Reading markup with a regular expression is how the previous two versions of this gate
+// failed, and the second failure was worse than the first. A pattern that matches whole
+// tags *skips* what it cannot match, so markup it does not understand becomes markup it
+// does not check. Round 1 (Gemini) landed exactly there: `<iframe src="..." attr=foo'bar>`
+// is well-formed HTML -- an unquoted value may contain a quote as long as it does not
+// start with one -- and the pattern's `'[^']*'` branch could not match it, so the tag
+// never appeared in the loop at all and the whole allow list was skipped with all four
+// commands green.
+//
+// A missing check that reports nothing is the worst failure available to a gate, so the
+// question here is not "did a tag match?" but "was every byte accounted for?". This
+// tokenizer walks the document once and consumes text and markup explicitly. Anything
+// tag-shaped that it cannot tokenize is reported rather than passed over, which is the
+// property the regex could not have: a construct nobody anticipated fails.
+//
+// This is deliberately not a spec-complete HTML parser, and it does not need to be. It
+// only needs to be exhaustive -- to have no path that silently drops input -- and to err
+// toward reporting. A false positive costs an author one comment; a false negative is
+// how unlinted code shipped for as long as `index.html` existed.
+interface MarkupAttribute { readonly name: string; readonly value: string }
+interface MarkupTag { readonly element: string; readonly attributes: readonly MarkupAttribute[] }
+
+// `script` and `style` hold raw text rather than markup, so a `<` inside them starts
+// nothing. Tokenizing their contents would invent tags out of `a < b`.
+const rawTextElements: ReadonlySet<string> = new Set(["script", "style", "textarea", "title"]);
+
+function isMarkupSpace(character: string): boolean {
+  return character === " " || character === "\t" || character === "\n"
+    || character === "\r" || character === "\f";
+}
+
+function scanMarkup(html: string, report: (problem: string) => void): MarkupTag[] {
+  const tags: MarkupTag[] = [];
+  let at = 0;
+
+  while (at < html.length) {
+    const open = html.indexOf("<", at);
+    if (open < 0) { break; }
+    at = open;
+
+    if (html.startsWith("<!--", at)) {
+      const close = html.indexOf("-->", at + 4);
+      if (close < 0) {
+        report("an unterminated `<!--` comment hides the rest of the document");
+        return tags;
+      }
+      // Commented-out markup is inert, so reporting it is a false positive -- but a
+      // comment is also the easiest place to hide something from a reader, and `<!-->`
+      // is a complete comment in HTML5 that parsers disagree about. Deleting dead markup
+      // is cheap; trusting a comment scanner is not.
+      if (/<[a-z]/i.test(html.slice(at + 4, close))) {
+        report("a comment contains markup. Commented-out markup is inert, but it is not "
+          + "reviewed either, so delete it rather than leaving it here");
+      }
+      at = close + 3;
+      continue;
+    }
+
+    // Doctypes, CDATA and processing instructions carry no attributes to check.
+    if (html.startsWith("<!", at) || html.startsWith("<?", at)) {
+      const close = html.indexOf(">", at);
+      if (close < 0) {
+        report("an unterminated `<!` or `<?` declaration hides the rest of the document");
+        return tags;
+      }
+      at = close + 1;
+      continue;
+    }
+
+    const isEnd = html.startsWith("</", at);
+    const nameAt = at + (isEnd ? 2 : 1);
+    const name = /^[a-z][^\s/>]*/i.exec(html.slice(nameAt))?.[0];
+    if (name === undefined) {
+      // Per HTML5 a `<` that begins nothing is literal text, as in `a < b`.
+      at += 1;
+      continue;
+    }
+
+    const element = name.toLowerCase();
+    const attributes: MarkupAttribute[] = [];
+    let cursor = nameAt + name.length;
+    let closed = false;
+
+    while (cursor < html.length) {
+      while (isMarkupSpace(html.charAt(cursor))) { cursor += 1; }
+      if (html.charAt(cursor) === ">") { cursor += 1; closed = true; break; }
+      if (html.charAt(cursor) === "/" && html.charAt(cursor + 1) === ">") {
+        cursor += 2;
+        closed = true;
+        break;
+      }
+
+      const attributeAt = cursor;
+      while (cursor < html.length && !isMarkupSpace(html.charAt(cursor))
+        && html.charAt(cursor) !== "=" && html.charAt(cursor) !== ">"
+        && html.charAt(cursor) !== "/") {
+        cursor += 1;
+      }
+      if (cursor === attributeAt) {
+        // No progress is possible from here, so stopping silently would drop the rest of
+        // the tag. Report instead.
+        report(`<${element}> could not be tokenized at offset ${cursor}, so its `
+          + "attributes were never checked");
+        return tags;
+      }
+      const attributeName = html.slice(attributeAt, cursor);
+
+      while (isMarkupSpace(html.charAt(cursor))) { cursor += 1; }
+      let value = "";
+      if (html.charAt(cursor) === "=") {
+        cursor += 1;
+        while (isMarkupSpace(html.charAt(cursor))) { cursor += 1; }
+        const quote = html.charAt(cursor);
+        if (quote === '"' || quote === "'") {
+          const close = html.indexOf(quote, cursor + 1);
+          if (close < 0) {
+            report(`<${element} ${attributeName}> has an unterminated quoted value, `
+              + "which hides the rest of the document");
+            return tags;
+          }
+          value = html.slice(cursor + 1, close);
+          cursor = close + 1;
+        } else {
+          // An unquoted value runs to whitespace or `>` and may contain a quote. This is
+          // the case the regex could not express.
+          const valueAt = cursor;
+          while (cursor < html.length && !isMarkupSpace(html.charAt(cursor))
+            && html.charAt(cursor) !== ">") {
+            cursor += 1;
+          }
+          value = html.slice(valueAt, cursor);
+        }
+      }
+      attributes.push({ name: attributeName, value });
+    }
+
+    if (!closed) {
+      report(`<${element}> is never closed by \`>\`, so the rest of the document was `
+        + "never checked");
+      return tags;
+    }
+
+    if (!isEnd) { tags.push({ element, attributes }); }
+    at = cursor;
+
+    if (!isEnd && rawTextElements.has(element)) {
+      // The end tag is `</name` followed by whitespace, `/` or `>` -- the terminators the
+      // tokenizer uses in its end-tag-name state. Round 1 (Opus) found that requiring
+      // `</script\s*>` misses `</script/>` and `</script foo="bar">`, both of which close
+      // the element and run the body. Accepting a bare `</script` prefix is the opposite
+      // error: `</scriptfoo>` closes nothing, and treating it as the end would put the
+      // real body outside the element, where nothing reads it.
+      const end = new RegExp(`</${element}(?=[\\t\\n\\f />]|$)`, "i")
+        .exec(html.slice(cursor));
+      if (end === null) {
+        report(`<${element}> is never closed, so the rest of the document is inside it `
+          + "and was never checked");
+        return tags;
+      }
+      const closeAt = cursor + end.index;
+      const body = html.slice(cursor, closeAt).trim();
+      if (element === "script" && body.length > 0) {
+        report(`<script> has a body of ${body.split("\n").length} line(s)`);
+      }
+      at = closeAt;
+    }
+  }
+
+  return tags;
+}
+
 test("no HTML document carries script the gates cannot read", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const documents = projectFiles([".html", ".htm", ".xhtml", ".svg"]);
@@ -543,41 +717,42 @@ test("no HTML document carries script the gates cannot read", () => {
   for (const file of documents) {
     const name = projectRelative(root, file);
     const html = readFileSync(file, "utf8");
+    const tags = scanMarkup(html, problem => findings.push(`${name}: ${problem}`));
 
-    // Quoted values are consumed whole so that a `>` inside one cannot end the tag early
-    // and hide the attributes after it.
-    for (const tag of html.matchAll(/<([a-z][\da-z-]*)((?:[^"'>]|"[^"]*"|'[^']*')*)>/gi)) {
-      const element = (tag[1] ?? "").toLowerCase();
-      if (!inertElements.has(element)) {
-        findings.push(`${name}: <${element}> is not a known inert element. If it cannot `
-          + "run script, add it to `inertElements` and say why here");
+    for (const tag of tags) {
+      if (!inertElements.has(tag.element)) {
+        findings.push(`${name}: <${tag.element}> is not a known inert element. If it `
+          + "cannot run script, add it to `inertElements` and say why here");
       }
-      for (const attribute of (tag[2] ?? "").matchAll(
-        /([a-z_:][\w.:-]*)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s"'<=>`]+))?/gi)) {
-        const spelled = (attribute[1] ?? "").toLowerCase();
+      // A `script` with an absolute `src` is the one construct the allow list permits that
+      // no gate here reads: it is remote code, not a module under a lint target. Round 1
+      // (Opus) found the prose claiming otherwise. `integrity` is what makes those bytes
+      // pinned to a hash, so require it rather than overstate what the gate buys.
+      // `index.html` already pins all three of its CDN scripts.
+      if (tag.element === "script") {
+        const source = tag.attributes.find(candidate =>
+          candidate.name.toLowerCase() === "src");
+        if (source !== undefined && urlScheme(source.value) !== undefined
+          && !tag.attributes.some(candidate =>
+            candidate.name.toLowerCase() === "integrity")) {
+          findings.push(`${name}: <script src="${source.value}"> loads remote code that `
+            + "no compiler or lint here reads, and pins it to no hash. Add `integrity`");
+        }
+      }
+      for (const attribute of tag.attributes) {
+        const spelled = attribute.name.toLowerCase();
         if (!inertAttributes.has(spelled)
           && !inertAttributePrefixes.some(prefix => spelled.startsWith(prefix))) {
-          findings.push(`${name}: <${element} ${spelled}> is not a known inert `
+          findings.push(`${name}: <${tag.element} ${spelled}> is not a known inert `
             + "attribute. Event handlers are spelled this way, and so are `srcdoc` and "
             + "`http-equiv`");
           continue;
         }
-        const raw = attribute[2] ?? "";
-        const scheme = urlScheme(/^["']/.test(raw) ? raw.slice(1, -1) : raw);
+        const scheme = urlScheme(attribute.value);
         if (scheme !== undefined && !inertSchemes.has(scheme)) {
-          findings.push(`${name}: <${element} ${spelled}> carries a \`${scheme}:\` URL, `
-            + "and that scheme is not one this project treats as inert");
+          findings.push(`${name}: <${tag.element} ${spelled}> carries a \`${scheme}:\` `
+            + "URL, and that scheme is not one this project treats as inert");
         }
-      }
-    }
-
-    // A script body cannot itself contain `</script`, because that ends the element
-    // whatever it is nested in, so this pairing is exact rather than a best effort.
-    for (const match of html.matchAll(/<script\b([^>]*)>([\S\s]*?)<\/script\s*>/gi)) {
-      const body = (match[2] ?? "").trim();
-      if (body.length > 0) {
-        findings.push(`${name}: <script${match[1] ?? ""}> has a body of ${
-          body.split("\n").length} line(s)`);
       }
     }
   }
@@ -858,9 +1033,11 @@ test("the lint covers every file the bundler reads", async () => {
   // `index.html` is the entry document. It is read by the bundler and gated by neither
   // half of the test below -- oxlint reads script, and the compiler has no account of a
   // document -- so it stays pinned here. What it may *contain* is a separate gate: it
-  // carried an unchecked `<script>` block until #4783, and a gate above now fails if any
-  // document this project owns carries a script body, an event handler attribute or a
-  // `javascript:` URL. So the only script it can reach is a module under a lint target.
+  // carried an unchecked `<script>` block until #4783, and a gate above now fails unless
+  // every element, attribute and URL scheme in a document this project owns is one it
+  // lists as inert. So the script it can reach is a module under a lint target, or a
+  // remote URL pinned by `integrity` -- which that gate requires precisely because no
+  // compiler or lint here reads it.
   //
   // `package.json` is read for dependency resolution rather than compiled, and the gates
   // above already assert its contents field by field.
