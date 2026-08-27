@@ -78,6 +78,8 @@ The owner returns:
 - ordered Library subject descriptors;
 - Type and Member navigation rows that wrap producer-owned inventory rows with
   activation descriptors;
+- owner-ordered lens descriptors with their owner-issued identity, labels, and
+  per-descriptor availability state;
 - an effective, unavailable, or failed typed lens outcome;
 - scoped diagnostics and partial-result evidence; and
 - a typed transition or reconciliation outcome.
@@ -200,6 +202,7 @@ InspectionSubjectNavigationSnapshot
   libraryDescriptors
   typeNavigationRows
   memberNavigationRows
+  lensDescriptors
   lensOutcome
   diagnostics
 ```
@@ -217,6 +220,22 @@ When at least one lens is available, the effective outcome retains any failed
 alternatives as diagnostics. When none is available, completed valid-empty
 availability produces `Unavailable`; any unresolved availability failure
 produces `Failed`.
+
+The snapshot returns the owner-issued lens descriptor collection verbatim in
+owner order. Each descriptor retains its lens identity, labels, capabilities,
+and one of:
+
+```text
+Available(diagnostics)
+Unavailable(reason)
+Failed(diagnostic)
+```
+
+An `Effective` lens identity must match exactly one returned `Available`
+descriptor. Failed alternatives remain identifiable in the descriptor
+collection as well as summarized in effective-outcome diagnostics. An empty
+descriptor collection is distinct from a non-empty collection whose entries
+are unavailable or failed.
 
 The Type-inventory Library context is a separate axis from the active subject:
 
@@ -774,6 +793,8 @@ covering at least:
 - `LensReconciliation_SubjectChangeUsesRecommendationThenOwnerOrder`
 - `LensReconciliation_RetainedSubjectWithoutValidLensUsesTotalFallback`
 - `LensOutcome_DistinguishesUnavailableFailedAndPartialFailure`
+- `EffectiveLens_MatchesExactlyOneReturnedAvailableDescriptor`
+- `LensDescriptors_PreserveOwnerOrderAndPerDescriptorState`
 - `LensRecommendation_DoesNotCrossSubjectKindsByLabel`
 - `InspectWeb_SubmitsActionIdAndGeneration`
 - `InspectWeb_CoordinateVariationSuppliesPriorNavigationSnapshot`
@@ -782,6 +803,7 @@ covering at least:
 - `InspectWeb_UnavailableLensOutcomeHasNoSelectedTabOrPanel`
 - `InspectWeb_FailedLensOutcomeHasNoSelectedTabOrPanel`
 - `InspectWeb_EffectiveLensRetainsPartialFailureDiagnostics`
+- `InspectWeb_DerivesLensTabsOnlyFromSnapshotDescriptors`
 - `InspectWeb_ConsumesSubjectOutcomeWithoutHostFallback`
 
 Product-side gates should live with the eventual subject-navigation query.

@@ -425,13 +425,14 @@ from display labels.
 
 ### Lens navigation semantics
 
-When a subject has one or more lens descriptors, its lens strip remains a
-tablist. Every lens or member section is a tab with `role="tab"` and
+Inspect Web derives the strip only from the current navigation snapshot's
+owner-ordered lens descriptors. When that collection is non-empty, the strip
+remains a tablist. Every lens or member section is a tab with `role="tab"` and
 `aria-selected`, including identically labelled tabs owned by different
 subjects. An effective lens is selected programmatically rather than conveyed
 by color alone. When no effective lens exists, every tab has
-`aria-selected="false"`. A subject with no lens descriptors omits the tablist
-and renders only the no-effective-lens status region.
+`aria-selected="false"`. An empty returned descriptor collection omits the
+tablist and renders only the no-effective-lens status region.
 
 Each tablist has the accessible name `<Subject> lenses`. The effective tab
 references its panel with `aria-controls`; the panel uses `role="tabpanel"` and
@@ -1037,6 +1038,9 @@ outcomes:
    and exposes its diagnostic.
 4. Supply no lens descriptors and confirm that the tablist is omitted while
    the typed no-effective-lens status remains visible.
+5. Permute or filter no descriptor state in the host and confirm that tab
+   identity, order, availability, reasons, and diagnostics come only from the
+   returned snapshot collection.
 
 ### Workspace composition
 
