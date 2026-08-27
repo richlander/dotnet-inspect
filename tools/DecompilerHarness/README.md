@@ -1436,8 +1436,8 @@ and store/load-only residuals). It then reports the product-owned
 veto histogram covering testimony, scope, rendering, fold, identity-recovery,
 and direct-copy-component gates. An exact-combination histogram shows which
 vetoes co-occur without double-counting slot webs. The census fails if those
-decisions do not account exactly for the webs that materialization removes or
-retains. This is C2 entry evidence, not a correctness gate; use
+scope-and-slot identities do not equal the web sets that materialization
+removes or retains. This is C2 entry evidence, not a correctness gate; use
 `--corpus-method-cap N` for a quick bounded read.
 
 **Slot unifier census** (`--slot-unifier-census`): the C2/#2209 burn-down view

@@ -20,6 +20,7 @@ public enum SlotMaterializationVeto
 }
 
 public readonly record struct SlotMaterializationDecision(
+    IrNode Scope,
     int Slot,
     TypeRef? Type,
     SlotMaterializationVeto Vetoes)
@@ -123,19 +124,25 @@ public sealed class SlotMaterializationPass : IIrPass
             nestedSlots.UnionWith(slots);
             nestedDecisions.AddRange(slots
                 .Order()
-                .Select(static slot => new SlotMaterializationDecision(
-                    slot, Type: null, SlotMaterializationVeto.NestedScope)));
+                .Select(slot => new SlotMaterializationDecision(
+                    nested, slot, Type: null, SlotMaterializationVeto.NestedScope)));
         }
 
         var testimony = CoercionSinks.AnalyzeSlotTypeTestimony(
             function.Body,
             function.Signature.ReturnType,
             function.TypeShapes);
-        var candidates = stores.Keys
+        // Materializable slots retain the prior first-testimony order so
+        // AddLocal preserves existing local indices and declaration order.
+        var candidates = testimony.Keys
+            .Concat(stores.Keys)
             .Concat(loads.Keys)
             .Distinct()
-            .Order()
-            .Select(slot => Candidate(slot, stores.GetValueOrDefault(slot) ?? [], loads.GetValueOrDefault(slot) ?? []))
+            .Select(slot => Candidate(
+                function,
+                slot,
+                stores.GetValueOrDefault(slot) ?? [],
+                loads.GetValueOrDefault(slot) ?? []))
             .ToList();
 
         foreach (var candidate in candidates)
@@ -194,10 +201,11 @@ public sealed class SlotMaterializationPass : IIrPass
             [.. candidates.Select(static candidate => candidate.Decision), .. nestedDecisions]);
 
         static MaterializationCandidate Candidate(
+            IrNode scope,
             int slot,
             List<StoreStackSlot> slotStores,
             List<LoadStackSlot> slotLoads)
-            => new(slot, slotStores, slotLoads);
+            => new(scope, slot, slotStores, slotLoads);
 
         static void MarkIncompleteCopyComponents(
             IReadOnlyDictionary<int, List<StoreStackSlot>> stores,
@@ -256,15 +264,17 @@ public sealed class SlotMaterializationPass : IIrPass
         IReadOnlyList<SlotMaterializationDecision> Decisions);
 
     sealed class MaterializationCandidate(
+        IrNode scope,
         int slot,
         List<StoreStackSlot> stores,
         List<LoadStackSlot> loads)
     {
+        public IrNode Scope { get; } = scope;
         public int Slot { get; } = slot;
         public TypeRef? Type { get; set; }
         public List<StoreStackSlot> Stores { get; } = stores;
         public List<LoadStackSlot> Loads { get; } = loads;
         public SlotMaterializationVeto Vetoes { get; set; }
-        public SlotMaterializationDecision Decision => new(Slot, Type, Vetoes);
+        public SlotMaterializationDecision Decision => new(Scope, Slot, Type, Vetoes);
     }
 }

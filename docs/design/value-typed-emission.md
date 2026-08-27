@@ -498,10 +498,11 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    `MaterializesCompleteDirectCopyComponent` and
    `DefersWholeDirectCopyComponentWhenOneSlotIsUndecided` gate both sides of
    that boundary. `SlotMaterializationPass.Analyze` owns the overlapping veto
-   attribution consumed by `--slot-residual-census`; the census fails unless
-   every post-F2 slot web is accounted for as materialized or retained. The C2
-   deletion and the invariant extension follow once the residual census reaches
-   the printer-owned floor.
+   attribution consumed by `--slot-residual-census`; each decision identifies
+   its exact body scope and slot number, and the census fails unless those
+   identities equal the post-F2 and retained web sets. The C2 deletion and the
+   invariant extension follow once the residual census reaches the
+   printer-owned floor.
 
 Each slice reports the standard decompiler-affecting-PR evidence: focused tests,
 the corpus quality-diff card, and improved/still-flat examples. As ReturnToSender

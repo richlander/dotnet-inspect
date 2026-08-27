@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.CompilerServices;
 
 using ILInspector.Decompiler.Pipeline;
 
@@ -227,17 +228,27 @@ static class SlotResidualCensus
                     throw new InvalidOperationException("Slot materialization was reached before the late F2 measurement.");
 
                 var decisions = SlotMaterializationPass.Analyze(function);
-                if (decisions.Count != afterF2.Slots.Count)
+                var decisionWebs = new HashSet<SlotWebIdentity>(SlotWebIdentityComparer.Instance);
+                foreach (var decision in decisions)
+                {
+                    if (!decisionWebs.Add(new(decision.Scope, decision.Slot)))
+                        throw new InvalidOperationException(
+                            $"Slot materialization issued duplicate decisions for scope {decision.Scope.GetType().Name} slot {decision.Slot}.");
+                }
+                if (!decisionWebs.SetEquals(afterF2.Slots.Keys))
                     throw new InvalidOperationException(
-                        $"Slot materialization attributed {decisions.Count} of {afterF2.Slots.Count} post-F2 slot webs.");
+                        $"Slot materialization decisions do not identify the exact {afterF2.Slots.Count} post-F2 slot webs.");
 
                 passes[i].Run(function, context);
                 function.CheckInvariant();
                 var afterMaterialization = SlotSnapshot.Capture(function);
-                int deferred = decisions.Count(static decision => !decision.WillMaterialize);
-                if (deferred != afterMaterialization.Slots.Count)
+                var deferredWebs = decisions
+                    .Where(static decision => !decision.WillMaterialize)
+                    .Select(static decision => new SlotWebIdentity(decision.Scope, decision.Slot))
+                    .ToHashSet(SlotWebIdentityComparer.Instance);
+                if (!deferredWebs.SetEquals(afterMaterialization.Slots.Keys))
                     throw new InvalidOperationException(
-                        $"Slot materialization predicted {deferred} residual webs but produced {afterMaterialization.Slots.Count}.");
+                        $"Slot materialization decisions do not identify the exact {afterMaterialization.Slots.Count} retained slot webs.");
                 return (before, afterF2, afterMaterialization, decisions);
             }
             passes[i].Run(function, context);
@@ -336,19 +347,20 @@ static class SlotResidualCensus
         IncrementTarget,
     }
 
-    sealed record SlotSnapshot(IReadOnlyDictionary<int, SlotWeb> Slots)
+    sealed record SlotSnapshot(IReadOnlyDictionary<SlotWebIdentity, SlotWeb> Slots)
     {
         public long StoreCount => Slots.Values.Sum(slot => slot.Stores.Count);
         public long LoadCount => Slots.Values.Sum(slot => slot.Loads.Count);
 
         public static SlotSnapshot Capture(IrFunction function)
         {
-            var slots = new Dictionary<(IrNode Scope, int Slot), SlotWeb>();
+            var slots = new Dictionary<SlotWebIdentity, SlotWeb>(SlotWebIdentityComparer.Instance);
             SlotWeb Slot(IrNode node, int index)
             {
                 var scope = SlotScope(function, node);
-                if (!slots.TryGetValue((scope, index), out var slot))
-                    slots[(scope, index)] = slot = new SlotWeb(index, scope != function);
+                var identity = new SlotWebIdentity(scope, index);
+                if (!slots.TryGetValue(identity, out var slot))
+                    slots[identity] = slot = new SlotWeb(index, scope != function);
                 return slot;
             }
 
@@ -364,19 +376,29 @@ static class SlotResidualCensus
                         break;
                 }
             }
-            return new SlotSnapshot(slots.Values.ToDictionary(slot => slot.Ordinal, slot => slot));
+            return new SlotSnapshot(slots);
         }
     }
 
     sealed class SlotWeb(int slot, bool isInsideNestedFunction)
     {
         public int Slot { get; } = slot;
-        public int Ordinal { get; } = s_nextOrdinal++;
         public List<SlotSite> Stores { get; } = [];
         public List<SlotSite> Loads { get; } = [];
         public bool IsInsideNestedFunction { get; } = isInsideNestedFunction;
+    }
 
-        static int s_nextOrdinal;
+    readonly record struct SlotWebIdentity(IrNode Scope, int Slot);
+
+    sealed class SlotWebIdentityComparer : IEqualityComparer<SlotWebIdentity>
+    {
+        public static SlotWebIdentityComparer Instance { get; } = new();
+
+        public bool Equals(SlotWebIdentity x, SlotWebIdentity y)
+            => ReferenceEquals(x.Scope, y.Scope) && x.Slot == y.Slot;
+
+        public int GetHashCode(SlotWebIdentity obj)
+            => HashCode.Combine(RuntimeHelpers.GetHashCode(obj.Scope), obj.Slot);
     }
 
     sealed record SlotSite(IrNode Node, Block? Block);
