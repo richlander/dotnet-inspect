@@ -426,6 +426,47 @@ test("newer explorer window requests suppress stale completions", async () => {
   assert.equal(scrolls, 1);
 });
 
+test("a focused retained window supersedes the pending range", async () => {
+  const explorer = explorerState({
+    windows: {
+      2: {
+        loading: false,
+        error: "",
+        data: tableResult(2, 1),
+        startRowId: 1,
+        maxRows: 50,
+      },
+    },
+  });
+  const nextPage = deferred<ExplorerTableData>();
+  const focusedPage = deferred<ExplorerTableData>();
+  const starts: number[] = [];
+  const state = inspectionState({ explorer });
+  const coordinator = createMetadataInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPackageTable: async (_requestExplorer, _index, startRowId) => {
+        starts.push(startRowId);
+        return startRowId === 51 ? nextPage.promise : focusedPage.promise;
+      },
+    }));
+
+  const nextPageLoad = coordinator.loadExplorerWindow(2, 51, 50);
+  assert.equal(explorer.windows[2]?.data?.startRowId, 1);
+
+  const focusLoad = coordinator.loadExplorerWindow(2, 1, 50);
+  assert.deepEqual(starts, [51, 1]);
+
+  nextPage.resolve(tableResult(2, 51));
+  await nextPageLoad;
+  assert.equal(explorer.windows[2]?.loading, true);
+  assert.equal(explorer.windows[2]?.startRowId, 1);
+
+  focusedPage.resolve(tableResult(2, 1));
+  await focusLoad;
+  assert.equal(explorer.windows[2]?.loading, false);
+  assert.equal(explorer.windows[2]?.data?.startRowId, 1);
+});
+
 test("explorer window cache requires the same row range", async () => {
   const explorer = explorerState({
     windows: {

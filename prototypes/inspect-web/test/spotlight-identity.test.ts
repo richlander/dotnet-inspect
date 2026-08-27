@@ -2795,6 +2795,9 @@ test("metadata explorer request coordination stays outside the composition root"
     focus,
     /const heapWindow = ex\.heapWindows\[entry\.heap\];\s*if \(!heapWindow \|\| \(!heapWindow\.loading && !heapWindow\.data\)\)\s*observeAsync\(loadExplorerHeap\(entry\.heap\), "Loading metadata heap rows"\);\s*else render\(\)/);
   assert.match(
+    focus,
+    /const onScreen = win && !win\.loading && win\.data &&/);
+  assert.match(
     appSource,
     /state\.explorer\.focusHeap && !state\.explorer\.heapWindows\[state\.explorer\.focusHeap\]/);
 });

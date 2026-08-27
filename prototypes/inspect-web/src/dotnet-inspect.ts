@@ -3485,7 +3485,7 @@ function applyExplorerFocus() {
     ex.detail = entry.rowId ? { index: entry.index, rowId: entry.rowId } : null;
     const start = entry.rowId ? Math.max(1, Math.floor((entry.rowId - 1) / explorerPageSize()) * explorerPageSize() + 1) : 1;
     const win = ex.windows[entry.index];
-    const onScreen = win?.data && (!entry.rowId
+    const onScreen = win && !win.loading && win.data && (!entry.rowId
       || (entry.rowId >= win.data.startRowId && entry.rowId < win.data.startRowId + (win.data.rows?.length || 0)));
     if (onScreen) render();
     else observeAsync(loadExplorerWindow(entry.index, start), "Loading metadata table rows");
