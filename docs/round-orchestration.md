@@ -153,9 +153,9 @@ detects conflicts early.
 | `MERGEABLE`, documentation-only | Treat it as the expected CI completion check. If CI is unexpectedly pending, wait 10 minutes plus jitter. |
 | `MERGEABLE`, not documentation-only | Expect CI at about 35 minutes from the push; schedule the next check about 30 minutes out. |
 
-Read the table top-down: the first matching row wins. A failed or cancelled
-check outranks every mergeability value, because `MERGEABLE` describes the merge
-path and never means green. The green row is the exit: every other row schedules
+Read the table top-down: the first matching row wins. A non-successful check
+outranks every mergeability value, because `MERGEABLE` describes the merge path
+and never means green. The green row is the exit: every other row schedules
 another check, so polling stops only by reaching it or by leaving for a recovery
 transition.
 
