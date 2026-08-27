@@ -601,7 +601,12 @@ test("runtime acquisition serializes and merges full-pack and assembly requests"
       calls.push(`pack:${framework}`);
       return fullPack.promise;
     },
-    loadRuntimePackAssembly: async (framework, assemblyName, pack) => {
+    loadRuntimePackAssembly: async (
+      framework,
+      _platformVersion,
+      assemblyName,
+      pack,
+    ) => {
       calls.push(`assembly:${framework}/${assemblyName}/${pack}`);
       const surface = runtimeSurface(
         "json",
@@ -727,7 +732,11 @@ test("multiple queued runtime assemblies execute one at a time", async () => {
       calls.push("pack");
       return fullPack.promise;
     },
-    loadRuntimePackAssembly: async (_framework, assemblyFileName) => {
+    loadRuntimePackAssembly: async (
+      _framework,
+      _platformVersion,
+      assemblyFileName,
+    ) => {
       calls.push(assemblyFileName);
       if (assemblyFileName === "System.B.dll") secondAssemblyStarted.resolve();
       return assemblyFileName === "System.A.dll"
@@ -901,6 +910,55 @@ test("resident runtime packs short-circuit without entering loading state", asyn
   assert.equal(loadingTransitions, 0);
 });
 
+test("an exact platform version bypasses a different resident patch", async () => {
+  const resident = createRuntimePackageModel(
+    runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"));
+  const calls: string[] = [];
+  const retainedVersions: string[] = [];
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    loadRuntimePack: async (framework, platformVersion) => {
+      calls.push(`${framework}@${platformVersion}`);
+      const surface =
+        runtimeSurface("corelib", "System.Private.CoreLib", "System.Object");
+      surface.version = platformVersion;
+      return JSON.stringify(surface);
+    },
+    runtimePackage: () => resident,
+    retainPackage: packageModel => {
+      retainedVersions.push(packageModel.version);
+    },
+  }));
+
+  const result = await acquisition.loadRuntimePack(
+    "net10.0",
+    () => true,
+    "10.0.1");
+
+  assert.deepEqual(calls, ["net10.0@10.0.1"]);
+  assert.equal(result.packageModel?.version, "10.0.1");
+  assert.deepEqual(retainedVersions, ["10.0.1"]);
+});
+
+test("the latest platform sentinel remains a floating acquisition", async () => {
+  const calls: string[] = [];
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    loadRuntimePack: async (framework, platformVersion) => {
+      calls.push(`${framework}@${platformVersion}`);
+      return JSON.stringify(
+        runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"));
+    },
+    runtimePackage: () => null,
+  }));
+
+  const result = await acquisition.loadRuntimePack(
+    "net10.0",
+    () => true,
+    "latest");
+
+  assert.deepEqual(calls, ["net10.0@"]);
+  assert.ok(result.packageModel);
+});
+
 test("platform assembly residency includes the requested pack", async () => {
   const resident = createRuntimePackageModel(
     runtimeSurface(
@@ -988,7 +1046,11 @@ test("assembly-specific CoreLib acquisition promotes an ASP.NET-first model", as
         "System.Private.CoreLib",
         "System.Object"));
     },
-    loadRuntimePackAssembly: async (_framework, assemblyName) =>
+    loadRuntimePackAssembly: async (
+      _framework,
+      _platformVersion,
+      assemblyName,
+    ) =>
       JSON.stringify(assemblyName.startsWith("System.Private.CoreLib")
         ? runtimeSurface(
           "corelib",
