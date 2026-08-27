@@ -102,6 +102,7 @@ public static class TypeResolutionEnumWidth
 
             if (context.Resolve(request)
                     is not TypeResolutionOutcome.Resolved resolved
+                || !SatisfiesExplicitUnsignedRequest(request, resolved)
                 || !context.TryGetEnumUnderlyingType(
                     resolved.Definition,
                     out PrimitiveTypeCode code))
@@ -116,6 +117,32 @@ public static class TypeResolutionEnumWidth
             widths.TryGetValue(name, out PrimitiveTypeCode code)
                 ? code
                 : PrimitiveTypeCode.Int32;
+    }
+
+    /// <summary>
+    /// Enforces an explicit <c>PublicKeyToken=null</c> after binding.
+    /// <see cref="AssemblyReferenceIdentity.MatchesCandidate"/> reads an empty
+    /// token as a wildcard, so a request that names an unsigned assembly can
+    /// still bind a signed candidate of the same name. Narrowing here keeps
+    /// the qualifier a constraint without changing that identity contract,
+    /// which <c>AssemblyDependencyResolver</c> and <c>MetadataSource</c> also
+    /// consume. Gated by
+    /// <c>TryCreateRequest_ExplicitNullPublicKeyToken_RejectsSignedDefinition</c>
+    /// and
+    /// <c>TryCreateRequest_ExplicitNullPublicKeyToken_ResolvesUnsignedDefinition</c>.
+    /// </summary>
+    static bool SatisfiesExplicitUnsignedRequest(
+        TypeResolutionRequest request,
+        TypeResolutionOutcome.Resolved resolved)
+    {
+        if (request.Start is not TypeResolutionStart.Reference reference
+            || reference.Value.PublicKeyToken is not { Length: 0 })
+        {
+            return true;
+        }
+
+        return string.IsNullOrEmpty(
+            resolved.Definition.Assembly.Assembly.Identity.PublicKeyToken);
     }
 
     static bool TryParseDefinitionName(
@@ -192,13 +219,13 @@ public static class TypeResolutionEnumWidth
         if (token.IsEmpty)
         {
             // An explicit `PublicKeyToken=null` names an unsigned assembly.
-            // AssemblyReferenceIdentity cannot express "must be unsigned" --
-            // it reads a null or empty token as a wildcard -- so accepting
-            // this would silently widen the request and could bind a signed
-            // assembly of the same name. Refuse the name instead and let the
-            // caller keep the safe Int32 default.
-            publicKeyToken = null;
-            return false;
+            // Keep it as a recorded constraint rather than refusing the name:
+            // refusing would leave every unsigned cross-assembly enum on the
+            // Int32 default. AssemblyReferenceIdentity reads an empty token as
+            // a wildcard during binding, so CreateResolver narrows the bound
+            // candidate afterwards and drops a signed one.
+            publicKeyToken = "";
+            return true;
         }
 
         if ((assemblyName.Flags & AssemblyNameFlags.PublicKey) != 0)

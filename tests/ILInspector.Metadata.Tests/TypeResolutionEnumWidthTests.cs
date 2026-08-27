@@ -175,22 +175,50 @@ public sealed class TypeResolutionEnumWidthTests
     }
 
     [Fact]
-    public void TryCreateRequest_ExplicitNullPublicKeyToken_IsRejected()
+    public void TryCreateRequest_ExplicitNullPublicKeyToken_IsPlanned()
     {
         ResolvedAssemblyReference requesting = Descriptor(
             BuildCrossAssemblyInt64NamedEnumImage());
 
-        // `PublicKeyToken=null` names an unsigned assembly, but
-        // AssemblyReferenceIdentity reads an empty token as a wildcard. If the
-        // request were accepted it could bind a signed assembly of the same
-        // name, so the adapter refuses it and keeps the Int32 default.
-        Assert.False(
+        // `PublicKeyToken=null` names an unsigned assembly. It stays a planned
+        // request carrying an empty token so the constraint survives to
+        // binding; CreateResolver then drops a signed candidate.
+        Assert.True(
             TypeResolutionEnumWidth.TryCreateRequest(
                 "Samples.E, Other, Version=1.0.0.0, Culture=neutral, "
                     + "PublicKeyToken=null",
                 requesting,
                 AssemblyResolutionScope.Any,
-                out _));
+                out TypeResolutionRequest? request));
+
+        var start = Assert.IsType<TypeResolutionStart.Reference>(request.Start);
+        Assert.Equal("", start.Value.PublicKeyToken);
+    }
+
+    [Fact]
+    public void ExplicitNullPublicKeyToken_ResolvesUnsignedDefinition()
+    {
+        // The regression this narrowing must not reintroduce: refusing the
+        // qualifier outright left every unsigned cross-assembly enum on the
+        // Int32 default, so an Int64 enum decoded four bytes short.
+        Assert.Equal(
+            PrimitiveTypeCode.Int64,
+            ResolveWidthFor(
+                "Samples.E, Other, PublicKeyToken=null",
+                BuildDefiningInt64EnumImage()));
+    }
+
+    [Fact]
+    public void ExplicitNullPublicKeyToken_RejectsSignedDefinition()
+    {
+        // An empty token is a wildcard to MatchesCandidate, so binding can
+        // still reach a signed assembly of the same name. The post-resolution
+        // narrowing drops it and keeps the Int32 default.
+        Assert.Equal(
+            PrimitiveTypeCode.Int32,
+            ResolveWidthFor(
+                "Samples.E, Other, PublicKeyToken=null",
+                BuildSignedDefiningInt64EnumImage()));
     }
 
     [Fact]
@@ -538,20 +566,157 @@ public sealed class TypeResolutionEnumWidthTests
             "Samples.E");
     }
 
+    [Fact]
+    public void MalformedEnumShapes_DoNotSupplyWidths()
+    {
+        // Each shape is sealed, extends System.Enum, and carries an Int64
+        // `value__`, but none is a CLI-valid enum. A width from any of them
+        // would let invalid metadata pick the decode width instead of the
+        // Int32 default.
+        Assert.Equal(
+            PrimitiveTypeCode.Int32,
+            ResolveWidth(BuildMalformedEnumImage(MalformedShape.PrivateValueField)));
+        Assert.Equal(
+            PrimitiveTypeCode.Int32,
+            ResolveWidth(BuildMalformedEnumImage(MalformedShape.NonLiteralStaticField)));
+        Assert.Equal(
+            PrimitiveTypeCode.Int32,
+            ResolveWidth(BuildMalformedEnumImage(MalformedShape.GenericParameter)));
+    }
+
+    [Fact]
+    public void WellFormedEnumWithLiteralConstant_StillSuppliesWidth()
+    {
+        // The negative case for the static-field rule: a real enum's named
+        // constants are literal static fields and must stay acceptable.
+        Assert.Equal(
+            PrimitiveTypeCode.Int64,
+            ResolveWidth(BuildMalformedEnumImage(MalformedShape.None)));
+    }
+
+    enum MalformedShape
+    {
+        None,
+        PrivateValueField,
+        NonLiteralStaticField,
+        GenericParameter,
+    }
+
+    static byte[] BuildMalformedEnumImage(MalformedShape shape)
+    {
+        var metadata = CreateMetadata("Other");
+        AssemblyReferenceHandle runtime = AddAssemblyReference(
+            metadata,
+            "System.Runtime");
+        TypeReferenceHandle systemEnum = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Enum"));
+
+        AddFieldWithAttributes(
+            metadata,
+            "value__",
+            (shape == MalformedShape.PrivateValueField
+                ? FieldAttributes.Private
+                : FieldAttributes.Public)
+                | FieldAttributes.SpecialName
+                | FieldAttributes.RTSpecialName);
+        AddFieldWithAttributes(
+            metadata,
+            "Named",
+            FieldAttributes.Public
+                | FieldAttributes.Static
+                | (shape == MalformedShape.NonLiteralStaticField
+                    ? default
+                    : FieldAttributes.Literal));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle type = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("E"),
+            systemEnum,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        if (shape == MalformedShape.GenericParameter)
+        {
+            metadata.AddGenericParameter(
+                type,
+                default,
+                metadata.GetOrAddString("T"),
+                0);
+        }
+        return Serialize(metadata);
+    }
+
+    static void AddFieldWithAttributes(
+        MetadataBuilder metadata,
+        string name,
+        FieldAttributes attributes)
+    {
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature).FieldSignature().Int64();
+        metadata.AddFieldDefinition(
+            attributes,
+            metadata.GetOrAddString(name),
+            metadata.GetOrAddBlob(signature));
+    }
+
+    static PrimitiveTypeCode ResolveWidthFor(
+        string requestName,
+        byte[] definingImage)
+    {
+        byte[] userImage = BuildCrossAssemblyInt64NamedEnumImage();
+        ResolvedAssemblyReference defining = Descriptor(definingImage);
+        ResolvedAssemblyReference user = Descriptor(userImage);
+        TypeResolutionRequest request = Request(requestName, user);
+        using TypeResolutionContext context = TypeResolutionContext.Create(
+            new RecordingPolicy(
+                current => current.Target
+                        is AssemblyBindingTarget.AssemblyReference reference
+                    && reference.Identity.Name == "Other"
+                        ? AssemblyBindingSelection.Found(defining)
+                        : AssemblyBindingSelection.NotFound()),
+            [user],
+            [request]);
+        return TypeResolutionEnumWidth.CreateResolver(context, [request])(
+            "Samples.E");
+    }
+
     static byte[] BuildDefiningInt64EnumImage() =>
         BuildDefiningTypeImage(
             "Other",
             PrimitiveTypeCode.Int64,
             DefinitionShape.Enum);
 
+    static byte[] BuildSignedDefiningInt64EnumImage() =>
+        BuildDefiningTypeImage(
+            "Other",
+            PrimitiveTypeCode.Int64,
+            DefinitionShape.Enum,
+            publicKey:
+            [
+                0x00, 0x24, 0x00, 0x00, 0x04, 0x80, 0x00, 0x00,
+                0x94, 0x00, 0x00, 0x00, 0x06, 0x02, 0x00, 0x00,
+                0x00, 0x24, 0x00, 0x00, 0x52, 0x53, 0x41, 0x31,
+                0x00, 0x04, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
+            ]);
+
     static byte[] BuildDefiningTypeImage(
         string assemblyName,
         PrimitiveTypeCode underlyingType,
         DefinitionShape shape,
         string typeName = "E",
-        string baseAssemblyName = "System.Runtime")
+        string baseAssemblyName = "System.Runtime",
+        byte[]? publicKey = null)
     {
-        var metadata = CreateMetadata(assemblyName);
+        var metadata = CreateMetadata(assemblyName, publicKey);
         AssemblyReferenceHandle runtime = AddAssemblyReference(
             metadata,
             baseAssemblyName);
@@ -818,7 +983,9 @@ public sealed class TypeResolutionEnumWidthTests
         return Serialize(metadata);
     }
 
-    static MetadataBuilder CreateMetadata(string assemblyName)
+    static MetadataBuilder CreateMetadata(
+        string assemblyName,
+        byte[]? publicKey = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -831,8 +998,10 @@ public sealed class TypeResolutionEnumWidthTests
             metadata.GetOrAddString(assemblyName),
             new Version(1, 0, 0, 0),
             default,
-            default,
-            default,
+            publicKey is null
+                ? default
+                : metadata.GetOrAddBlob(publicKey),
+            publicKey is null ? default : AssemblyFlags.PublicKey,
             default);
         return metadata;
     }

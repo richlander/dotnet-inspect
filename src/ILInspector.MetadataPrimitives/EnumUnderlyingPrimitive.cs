@@ -74,7 +74,8 @@ static class EnumUnderlyingPrimitive
             var definition = reader.GetTypeDefinition(handle);
             if ((definition.Attributes & TypeAttributes.Sealed) == 0
                 || TypeResolver.GetTypeName(reader, definition.BaseType)
-                    != "System.Enum")
+                    != "System.Enum"
+                || definition.GetGenericParameters().Count != 0)
             {
                 return false;
             }
@@ -84,13 +85,22 @@ static class EnumUnderlyingPrimitive
             {
                 var field = reader.GetFieldDefinition(fieldHandle);
                 if ((field.Attributes & FieldAttributes.Static) != 0)
+                {
+                    // Every static field of an enum is one of its named
+                    // constants, so it must be a literal. Anything else is a
+                    // shape the CLI does not admit for an enum.
+                    if ((field.Attributes & FieldAttributes.Literal) == 0)
+                        return false;
                     continue;
+                }
                 const FieldAttributes RequiredAttributes =
                     FieldAttributes.SpecialName
                     | FieldAttributes.RTSpecialName;
                 if (found
                     || (field.Attributes & RequiredAttributes)
                         != RequiredAttributes
+                    || (field.Attributes & FieldAttributes.FieldAccessMask)
+                        != FieldAttributes.Public
                     || reader.GetString(field.Name) != "value__")
                 {
                     return false;
