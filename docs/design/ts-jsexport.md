@@ -424,7 +424,8 @@ not browser implementations of the declared APIs.
 That is the general managed-API projection that `ts-jsexport` intentionally
 does not perform. `ts-jsexport` starts from the narrower runtime-publishable
 `[JSExport]` surface and emits an executable browser facade over
-`getAssemblyExports()`.
+`getAssemblyExports()`. Its distinct name also avoids presenting it as a
+variant of Tsonic's established `tsbindgen` product.
 
 ### Network client generators
 
