@@ -177,10 +177,11 @@ pane:
 - member kind, accessibility, and trait selectors expand together; and
 - collapsing the region never clears or changes a selection.
 
-The Type navigation pane does not retain a second library filter. The active
-Library subject controls whether Package and Type navigation show types from
-all libraries or one library. Library selection is subject context, not a hidden
-Type filter dimension.
+The Type navigation pane does not retain a second library filter. The
+product-issued Type-inventory Library context controls whether Package and Type
+navigation show types from all libraries or one library. It equals the active
+or defining Library when one exists and remains explicitly product-issued while
+Root is active. Library context is not a hidden Type filter dimension.
 
 The disclosure state is user-controlled after the pane first appears. It
 survives rerenders and selector changes while that pane remains active so
@@ -542,10 +543,10 @@ single-library result.
 Package and Type navigation render producer-owned Type and Member inventory
 rows wrapped with the activation descriptors returned for the current
 snapshot. They submit the supplied action ID plus generation and do not derive
-actions from row identity or text. The type-navigation heading shows
-`All libraries` or the selected library as context and links back to the
-Library subject for changes. It is not a second library selector, and the UI
-does not recalculate eligibility or retention from assembly membership.
+actions from row identity or text. The type-navigation heading shows the
+product-issued Type-inventory Library context and links back to the Library
+subject for changes. It is not a second library selector, and the UI does not
+recalculate context, eligibility, or retention from assembly membership.
 
 When the product surface identifies colliding types under `All libraries`, type
 navigation qualifies only those rows with their product-owned defining library.
@@ -994,6 +995,9 @@ outcomes:
 7. Change version or TFM with an active Library, Type, or Member and confirm
    that the UI supplies the prior navigation snapshot and renders the exactly
    corresponding subject returned by product reconciliation.
+8. Keep Root active in a multi-Library result and confirm that Package Type
+   navigation uses the product-issued Type-inventory Library context without
+   activating Library or deriving context from visible rows.
 
 ### Workspace composition
 

@@ -72,6 +72,8 @@ lifetime, correspondence, or failure semantics.
 The owner returns:
 
 - the active structured subject identity;
+- the Library context governing the Type inventory, or a typed unavailable or
+  failed outcome;
 - ordered applicable hierarchy descriptors;
 - ordered Library subject descriptors;
 - Type and Member navigation rows that wrap producer-owned inventory rows with
@@ -193,6 +195,7 @@ InspectionSubjectNavigationSnapshot
   generation
   coordinate
   activeSubject
+  typeInventoryLibraryContext
   hierarchyDescriptors
   libraryDescriptors
   typeNavigationRows
@@ -204,6 +207,19 @@ InspectionSubjectNavigationSnapshot
 The active subject is exactly one available structured identity. The lens
 outcome is either an effective available identity, marked as preserved or
 recommended, or a typed lens-unavailable result.
+
+The Type-inventory Library context is a separate axis from the active subject:
+
+- at Library, it is the active Library identity;
+- at Type or Member, it is the defining Library;
+- at Root, it is available `All libraries`, then the defining Library of the
+  highest-ranked trustworthy Type when aggregate inspection is unavailable,
+  then the primary or first available one-Library subject; and
+- when no Library context can be established, it is explicitly unavailable or
+  failed.
+
+This context scopes Type navigation without activating Library or promoting
+Root. It changes only through an owner-issued replacement snapshot.
 
 ### Hierarchy descriptors
 
@@ -229,8 +245,9 @@ or action tokens.
 
 The Library descriptor is the active Type or Member's defining Library when
 one exists. At Root, its available arm targets the recommended Library subject;
-when no such target exists, the descriptor is unavailable or failed. At
-Library, its available arm targets the active Library identity.
+that target is the Type-inventory Library context above. When no such target
+exists, the descriptor is unavailable or failed. At Library, its available arm
+targets the active Library identity.
 
 The Type descriptor is the active Type, the containing Type of an active
 Member, or the owner-recommended Type when no Type is active. When none can be
@@ -258,9 +275,8 @@ Library subject identities.
 
 ### Type and Member activation descriptors
 
-The owner wraps every bounded Type or Member inventory row that an interactive
-consumer may render as selectable with the same discriminated activation
-shape:
+The owner unconditionally wraps every bounded Type or Member inventory row with
+the same discriminated activation shape:
 
 ```text
 Available(target, Current | Activate(actionId), diagnostics)
@@ -272,8 +288,8 @@ The inventory producer continues to own row identity, content, capabilities,
 ordering, truncation, and failure semantics. Subject navigation preserves that
 row and order verbatim inside the navigation wrapper. An available activation
 target must exactly equal the wrapped row's owner-issued identity. The owner
-never joins by label or ordinal and does not create another Type or Member
-inventory.
+never omits a row based on consumer filters or current activatability, never
+joins by label or ordinal, and does not create another Type or Member inventory.
 
 The active Type or Member row carries `Current`; every other activatable row
 carries a generation-scoped action ID. An inventory refresh returns a
@@ -282,10 +298,10 @@ inventory. Truncation diagnostics remain visible, and rows outside the bounded
 inventory have no implied action.
 
 These lists are navigation choices, not additional structural levels. The
-Type activation list covers the bounded inventory for the active Library
-scope; the Member activation list covers the bounded inventory for the current
-Type context. The hierarchy still contains at most one contextual Type and
-Member descriptor.
+Type activation list covers the bounded inventory for the snapshot's
+Type-inventory Library context; the Member activation list covers the bounded
+inventory for the current Type context. The hierarchy still contains at most
+one contextual Type and Member descriptor.
 
 ## Applicability and availability
 
@@ -638,6 +654,20 @@ does not construct that acquisition result.
 4. Activate one Member using only its action ID and generation.
 5. Confirm that each replacement snapshot marks the selected row `Current` and
    invalidates the prior generation's actions.
+6. Include unavailable and failed bounded rows and confirm that each remains in
+   producer order with its non-activatable wrapper arm.
+
+### Explicit Root Type context
+
+1. Keep Root active in a multi-Library coordinate with available aggregate
+   inspection and confirm that `All libraries` scopes Type navigation.
+2. Remove aggregate availability while retaining a trustworthy Type only in a
+   non-primary Library and confirm that its defining Library becomes the
+   Type-inventory context.
+3. Remove every trustworthy Type and confirm that the primary or first
+   available one-Library subject becomes the context.
+4. Confirm throughout that Root remains active and the Library hierarchy
+   descriptor targets the same context without activating it.
 
 ### Reconciliation scenarios
 
@@ -689,8 +719,10 @@ covering at least:
 - `UnavailableDescriptor_HasNoTargetOrActionId`
 - `ActiveDescriptor_IsCurrentWithoutActionId`
 - `AvailableNavigationRow_TargetMatchesWrappedIdentity`
+- `EveryBoundedInventoryRow_IsWrappedInProducerOrder`
 - `TypeActivation_UsesActionIdForNonRecommendedRow`
 - `MemberActivation_UsesActionIdBeforeAnyMemberIsCommitted`
+- `ExplicitRoot_UsesProductIssuedTypeInventoryLibraryContext`
 - `ToolsV2WithoutLibraries_RecommendsPackageRoot`
 - `ValidEmptyTypes_DiffersFromTypeInspectionFailure`
 - `PartialTypeInventory_DeterministicallyRetainsCandidateAndFailure`
@@ -711,13 +743,14 @@ covering at least:
 - `LensRecommendation_DoesNotCrossSubjectKindsByLabel`
 - `InspectWeb_SubmitsActionIdAndGeneration`
 - `InspectWeb_CoordinateVariationSuppliesPriorNavigationSnapshot`
+- `InspectWeb_UsesProductTypeInventoryLibraryContextAtRoot`
 - `InspectWeb_ConsumesSubjectOutcomeWithoutHostFallback`
 
 Product-side gates should live with the eventual subject-navigation query.
 Inspect-web needs non-vacuity integration gates that fail when the host resumes
 choosing its own initial subject or fallback, submits Type or Member identities
-instead of actions, or omits the prior navigation snapshot during coordinate
-variation.
+instead of actions, omits the prior navigation snapshot during coordinate
+variation, or derives a Root Type-inventory Library context.
 
 ## Non-goals
 
