@@ -13,8 +13,8 @@ decoded from the retained image. This document owns only the image lifetime
 between those boundaries.
 
 Persistent derived-result cache keys remain owned by
-[inspection-space.md](../inspection-space.md#cache-correctness-contract) and
-[artifact acquisition](artifact-acquisition-and-workspaces.md#storage-boundary).
+[inspection-space.md](../inspection-space.md#corecache) and
+[artifact acquisition](artifact-acquisition-and-workspaces.md#artifactsetsession).
 This document neither replaces nor weakens their owner-computed digest rule.
 
 The target contract is **unverified** until the gates under
@@ -190,7 +190,7 @@ correspondence between artifacts.
 Reader-local and session-local caches end with their image generation.
 
 Persistent derived-result caches follow the contract in
-[inspection-space.md](../inspection-space.md#cache-correctness-contract): the
+[inspection-space.md](../inspection-space.md#corecache): the
 acquisition owner computes the content digest over retained immutable bytes,
 and the cold gate, producer, and publication use that same snapshot. The
 immutable nuget.org coordinate scopes reacquisition and provenance; it does not

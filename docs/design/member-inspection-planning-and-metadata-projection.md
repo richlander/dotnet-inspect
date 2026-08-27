@@ -1343,7 +1343,7 @@ the design authority.
 | Local selector finalization flags and provisional option mutation | Replace with parsed and resolved plan types |
 | Local source/PDB authorization checks derived from `IncludeSections` or the union of `Discover` selections into requested sections | Replace with producer-plan authorization |
 | Render-manifest effective discovery | Retain for post-producer field/column/empty observation; move every producer call into a declared probe plan |
-| `LibraryCommand`'s cross-process `effective-v*` successful catalog | Retain as the existing bare `library -D --effective` compatibility cache, but replace its resolved-path/content-hash/`sl0`-or-`sl1` predecessor key. The slice-5 successor subject freezes the resolved path, acquisition-owned immutable assembly-content digest, typed `LibraryCatalogRouteEvidence` for every route fact consumed by discovery, and typed `LocalSymbolDiscoveryEvidence`: `None`, or an owner-minted identity containing the retained identity-validated PDB digest, discovery-relevant provider/provenance, and SourceLink effectiveness. Lookup, cold production, and publication use that one subject; no post-production evidence may re-key it. Do not expose the catalog to the planned type/member executor or treat it as authorization. Apply the repository-wide persistent-cache cutover rule: classify retained assembly bytes before lookup and select a successor category so no pre-classifier, bracket-hash-mislabeled, route-aliased, or Boolean-PDB-keyed predecessor entry remains eligible; supported inputs recompute and repopulate that category. Replace the pre/post mutable-path hashing tracked by #3478, make every transitive assembly/PDB consumer in the cache-enabled cold path consume the corresponding retained content, and apply one finite 64 MiB portable-PDB retention budget before copy, hash, or reader work across every provider. A future library typed-preflight migration must convert the catalog to authorization-independent producer evidence or remove it |
+| `LibraryCommand`'s cross-process `effective-v*` successful catalog | Retain as the bare `library -D --effective` compatibility cache for package and platform routes, but make direct local-file routes bypass persistent lookup and publication and recompute from a fresh retained image in each tool run. Replace the persistent routes' resolved-path/content-hash/`sl0`-or-`sl1` predecessor key. The slice-5 successor subject freezes the resolved path, acquisition-owned immutable assembly-content digest, typed `LibraryCatalogRouteEvidence` for every route fact consumed by discovery, and typed `LocalSymbolDiscoveryEvidence`: `None`, or an owner-minted identity containing the retained identity-validated PDB digest, discovery-relevant provider/provenance, and SourceLink effectiveness. Lookup, cold production, and publication use that one subject; no post-production evidence may re-key it. Do not expose the catalog to the planned type/member executor or treat it as authorization. Apply the repository-wide persistent-cache cutover rule: classify retained assembly bytes before lookup and select a successor category so no pre-classifier, bracket-hash-mislabeled, route-aliased, or Boolean-PDB-keyed predecessor entry remains eligible; supported package/platform inputs recompute and repopulate that category. Replace the pre/post mutable-path hashing tracked by #3478, make every transitive assembly/PDB consumer in each cold path consume the corresponding retained content, and apply one finite 64 MiB portable-PDB retention budget before copy, hash, or reader work across every provider. A future library typed-preflight migration must convert the catalog to authorization-independent producer evidence or remove it |
 | `ArgumentPreprocessor`, `RouterCommandDefinition`, and `PackageCommand` structural routing | Retain syntactic routing, but replace command-only dispatch with the shared structural-view registry and move static classification before acquisition in slice 2 |
 | `ApiCommand.RunPreamble` and `ApiMemberSectionPipelines` static member catalog selection | Replace the provisional selectable-section union with explicit member type-view, inventory, and detail registry entries plus labeled dotted-tail alternatives in slice 2 |
 | `ApiSurfaceExtractor` and accessor-bearing `MetadataDeclarationQuery` calls to `GetAccessors()` | Replace every SRM convenience-accessor read in those files with the neutral `MethodSemanticsAssociationSession` and Metadata-owned semantic census, including non-admission compiler-generated-name heuristics; replace reader-only `GetProperty` and `GetTypeSurface` entry points with session-backed queries |
@@ -1535,14 +1535,16 @@ be consumed by the type/member plan before slice 4 lands.
   inherit the same gate; do not parse stream/table structure or add a projected
   WinMD reader, fallback, compatibility adapter, or correspondence gate.
 - In the same cutover, bump `LibraryCommand`'s `effective-v*` category before
-  any post-cutover cache lookup or write. Mint typed
+  any post-cutover package/platform cache lookup or write. Direct local-file
+  routes bypass both operations and recompute from a fresh retained image in
+  each tool run. Mint typed
   `LibraryCatalogRouteEvidence` from the owner-issued root route and every
   stable route fact consumed by discovery; do not infer it from the resolved
   path or use it as authorization. Acquire one bounded immutable
   artifact-content snapshot and its owner-computed SHA-256 digest, then open the
   acquisition-owned `PEReader` over those retained bytes and run the format
-  classifier before the local-symbol probe or catalog lookup on every
-  invocation. Charge retained assembly bytes and the one digest pass to the
+  classifier before the local-symbol probe or any catalog lookup. Charge
+  retained assembly bytes and any requested digest pass to the
   operation's finite image/work budgets; over-limit input fails visibly before
   cache access. Unsupported or malformed input performs no PDB probe, cache
   read, or current-category write.
@@ -1562,9 +1564,11 @@ be consumed by the type/member plan before slice 4 lands.
   probe constructs any PDB `MetadataReader` needed to mint that evidence before
   the catalog lookup. Bind the route evidence, retained assembly/digest,
   supported format result, and local-symbol evidence/snapshot into one immutable
-  `LibraryEffectiveCatalogSubject`; cache lookup, every cold producer, and
-  publication accept that subject rather than independently supplied key
-  components. A hit then returns without assembly identity decoding, an
+  `LibraryEffectiveCatalogSubject`; on package and platform routes, cache
+  lookup, every cold producer, and publication accept that subject rather than
+  independently supplied key components. Direct local-file discovery consumes
+  the retained evidence without persistent lookup or publication. A
+  package/platform hit then returns without assembly identity decoding, an
   assembly `MetadataReader`, or full discovery.
 - On a miss, make a new from-retained-content image/snapshot factory preserve
   the same bytes, digest, owner binding, and supported-format result while it
@@ -1572,20 +1576,22 @@ be consumed by the type/member plan before slice 4 lands.
   inspection session. Replace the current path-opening snapshot factory in this
   route rather than allowing it to call the mutable source opener again.
   Thread the retained reference through every transitive assembly consumer in
-  all three cache-enabled bare-library branches, including platform surface
-  classification, metadata inspection, scanners, and SourceLink/PDB
-  correlation; path remains provenance/presentation only. Carry
-  `LibraryCatalogRouteEvidence` to the producer and key rather than letting a
-  platform/direct/package distinction disappear after path resolution. The cold
-  inspection and successor publication use the same retained assembly and PDB
-  content and digests frozen in the subject; do not reopen, rehash, or re-key
-  from either mutable source inside the chain. Separately authorized source work
-  remains outside the catalog subject. If the owner observes a local-symbol
-  evidence-generation change before publication, decline the write rather than
-  filing the existing result under new evidence; a later invocation recomputes.
-  A catalog from the preceding category does not prove admission, and the
-  successor may be populated only after inspection succeeds. Preserve
-  subsequent cross-process hits for supported ECMA-335.
+  all three bare-library branches -- package/platform cache-enabled and direct
+  local-file cold-only -- including platform surface classification, metadata
+  inspection, scanners, and SourceLink/PDB correlation; path remains
+  provenance/presentation only. Carry `LibraryCatalogRouteEvidence` to every
+  producer and, on persistent routes, the key rather than letting a
+  platform/direct/package distinction disappear after path resolution. The
+  cold inspection and any successor publication use the same retained assembly
+  and PDB content and any digests frozen in the subject; do not reopen, rehash,
+  or re-key from either mutable source inside the chain. Separately authorized
+  source work remains outside the catalog subject. If the owner observes a
+  local-symbol evidence-generation change before publication, decline the
+  write rather than filing the existing result under new evidence; a later
+  invocation recomputes. A catalog from the preceding category does not prove
+  admission, and the successor may be populated only after inspection
+  succeeds. Preserve subsequent cross-process hits for supported
+  package/platform ECMA-335 inputs.
 - Add typed type, member, accessor, and `MethodImpl` validation results.
 - Replace the reader-only accessor-bearing
   `MetadataDeclarationQuery.GetProperty` and `GetTypeSurface` surfaces with
@@ -1743,10 +1749,12 @@ test method name, but the PR must map each test to its gate ID.
 The [assembly image lifetime](assembly-image-lifetime.md) decision narrows
 `MDP017`'s cache cutover: direct local-file routes still owe the retained
 snapshot, classification, bounded PDB, and cold-path rules, but they must not
-read or publish a persistent effective-catalog entry. Requirements above for
-direct-file separate-process hits, package/direct cache-sharing pairs, and
-direct-file successor keys are superseded. Platform and package routes retain
-the persistent-cache requirements. This target change is unverified pending
+read or publish a persistent effective-catalog entry. Every contrary
+direct-file persistence requirement in the `MDP017` row and the earlier
+migration and disposition text -- including separate-process hits,
+package/direct cache-sharing pairs, and direct-file successor keys -- is
+superseded. Platform and package routes retain the persistent-cache
+requirements. This target change is unverified pending
 `LocalAssemblyFacts_DoNotEnterACrossRunCache`.
 
 Contract tests should derive their cases from the declaration or section
