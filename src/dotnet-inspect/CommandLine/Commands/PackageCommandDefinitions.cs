@@ -194,6 +194,8 @@ public static class PackageCommandDefinitions
         searchCommand.Options.Add(opts.Verbose);
         searchCommand.Options.Add(opts.Limit);
         searchCommand.Options.Add(opts.Count);
+        searchCommand.Options.Add(opts.Fields);
+        searchCommand.Options.Add(opts.Columns);
         opts.AddNuGetOptionsTo(searchCommand);
         opts.AddRowWindowValidators(searchCommand);
         searchCommand.Validators.Add(result =>

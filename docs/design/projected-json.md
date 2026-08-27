@@ -653,6 +653,7 @@ Existing pilot coverage proves only the currently wired slice:
   `ProjectedJsonRoutingAudit_PackageSearchInvalidWindowFailsBeforeNetwork`,
   `ProjectedJsonRoutingAudit_PackageSearchOutputPathFailsBeforeNetwork`,
   `ProjectedJsonRoutingAudit_PackageSearchParentTargetFailsBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_PackageSearchProjectionListFailsBeforeNetwork`,
   `ProjectedJsonRoutingAudit_PackageSearchTailItemLimitFailsBeforeNetwork`,
   `ProjectedJsonRoutingAudit_PackageSearchWindowConflictsFailBeforeNetwork`,
   `ProjectedJsonRoutingAudit_TypeShapeFailsClosed`, and

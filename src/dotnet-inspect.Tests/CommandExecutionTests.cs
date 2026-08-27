@@ -11248,6 +11248,25 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("--columns=", "--columns requires at least one name")]
+    [InlineData("--columns=Package,package", "Duplicate --columns entry")]
+    [InlineData("--fields=Package;package", "Duplicate --fields entry")]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchProjectionListFailsBeforeNetwork(
+        string projection,
+        string expected)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "--count", projection,
+            "search", "ThisQueryMustNotReachTheNetwork",
+            "--source", "http://127.0.0.1:9/index.json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(expected, error);
+        Assert.DoesNotContain("NuGet source", error);
+    }
+
+    [Theory]
     [InlineData("--print")]
     [InlineData("--value")]
     [InlineData("--urls")]
