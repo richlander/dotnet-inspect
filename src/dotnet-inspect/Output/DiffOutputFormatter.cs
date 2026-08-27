@@ -293,7 +293,8 @@ public static class DiffOutputFormatter
         string name,
         IReadOnlyList<FindingTransitionRow> rows,
         string fromVersion,
-        string toVersion)
+        string toVersion,
+        RowWindow? window = null)
         => new(
             DiffViewText.Field($"Finding Transitions: {name}"),
             DiffViewText.Field($"{fromVersion} -> {toVersion}"))
@@ -301,7 +302,7 @@ public static class DiffOutputFormatter
             Status = rows.Count == 0
                 ? new Callout(CalloutSeverity.Note, "No selected Finding exists at either endpoint.")
                 : new Callout(CalloutSeverity.Note, $"{rows.Count} selected Finding transition{(rows.Count == 1 ? "" : "s")}."),
-            Rows = rows.Count > 0 ? rows.ToList() : null
+            Rows = WindowRows(rows.Count > 0 ? rows.ToList() : null, window)
         };
 
     public static string RenderFindingTransitionsView(FindingTransitionsView view, MarkoutWriterOptions? options = null)
@@ -448,7 +449,8 @@ public static class DiffOutputFormatter
         string summary,
         string fromVersion,
         string toVersion,
-        bool decorateMember = true)
+        bool decorateMember = true,
+        RowWindow? window = null)
         => new(
             DiffViewText.Field($"Analysis Diff: {name}"),
             DiffViewText.Field($"{fromVersion} -> {toVersion}"),
@@ -457,11 +459,13 @@ public static class DiffOutputFormatter
             Status = rows.Count == 0
                 ? new Callout(CalloutSeverity.Note, summary)
                 : new Callout(CalloutSeverity.Note, "Analysis signal changes are body-level evidence, not public API compatibility changes."),
-            Rows = rows.Count > 0
-                ? rows.Select(row => decorateMember
-                    ? row with { MemberText = MarkoutInline.CodeText(row.MemberText) }
-                    : row).ToList()
-                : null
+            Rows = WindowRows(
+                rows.Count > 0
+                    ? rows.Select(row => decorateMember
+                        ? row with { MemberText = MarkoutInline.CodeText(row.MemberText) }
+                        : row).ToList()
+                    : null,
+                window)
         };
 
     /// <summary>
@@ -484,7 +488,8 @@ public static class DiffOutputFormatter
         string name,
         ImplementationDiffResult diff,
         string fromVersion,
-        string toVersion)
+        string toVersion,
+        RowWindow? window = null)
     {
         List<ImplementationDiffRow> rows = [];
         foreach (var member in diff.Members)
@@ -567,7 +572,7 @@ public static class DiffOutputFormatter
                     hasSourceLane
                         ? "C# is decompiled evidence; PDB Source is checksum-verified PDB-mapped evidence; IL is shipped body evidence. These peer lanes do not replace one another and are not public API compatibility."
                         : "C# and IL implementation evidence is body-level evidence, not public API compatibility."),
-            Rows = rows.Count > 0 ? rows : null
+            Rows = WindowRows(rows.Count > 0 ? rows : null, window)
         };
     }
 
@@ -611,6 +616,15 @@ public static class DiffOutputFormatter
     }
 
     private static List<DiffChangeRow>? WindowChangeRows(List<DiffChangeRow>? rows, RowWindow? window)
+        => WindowRows(rows, window);
+
+    /// <summary>
+    /// Applies a declared-item window to a document-view row list, matching
+    /// <see cref="BuildDetailedChangesView"/>'s pattern of windowing at construction time so
+    /// that document-JSON serialization (which bypasses the Markout writer's own windowing)
+    /// still honors <c>-n</c>/<c>--top</c>.
+    /// </summary>
+    private static List<T>? WindowRows<T>(List<T>? rows, RowWindow? window)
     {
         if (rows is null)
             return null;

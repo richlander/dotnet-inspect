@@ -260,7 +260,9 @@ public class DiffCommand
                                         inspectionFailures),
                                     OutputFormatter.CreateWindowedOptions(
                                         options.Rows));
-                        Console.WriteLine(OutputFormatter.AddHumanRowWindowNote(output, options.HumanRowWindowNote));
+                        Console.WriteLine(view.Rows is { Count: > 0 }
+                            ? OutputFormatter.AddHumanRowWindowNote(output, options.HumanRowWindowNote)
+                            : output);
                     }
                     if (inspectionFailures.Count > 0
                         && (options.Tabular
@@ -318,7 +320,9 @@ public class DiffCommand
                                         inspectionFailures),
                                     OutputFormatter.CreateWindowedOptions(
                                         options.Rows));
-                        Console.WriteLine(OutputFormatter.AddHumanRowWindowNote(output, options.HumanRowWindowNote));
+                        Console.WriteLine(view.Rows is { Count: > 0 }
+                            ? OutputFormatter.AddHumanRowWindowNote(output, options.HumanRowWindowNote)
+                            : output);
                     }
                     if (options.Tabular || options.NameOnly)
                     {
@@ -369,7 +373,9 @@ public class DiffCommand
                                         inspectionFailures),
                                     OutputFormatter.CreateWindowedOptions(
                                         options.Rows));
-                        Console.WriteLine(OutputFormatter.AddHumanRowWindowNote(output, options.HumanRowWindowNote));
+                        Console.WriteLine(view.Rows is { Count: > 0 }
+                            ? OutputFormatter.AddHumanRowWindowNote(output, options.HumanRowWindowNote)
+                            : output);
                     }
                     if (options.Tabular
                         || options.NameOnly)
@@ -892,7 +898,8 @@ public class DiffCommand
                 analysis.Summary,
                 inputs.FromVersion,
                 inputs.ToVersion,
-                decorateMember: false);
+                decorateMember: false,
+                window: options.Rows);
         }
 
         ImplementationDiffView? implementationView = null;
@@ -909,7 +916,8 @@ public class DiffCommand
                 inputs.Name,
                 implementation,
                 inputs.FromVersion,
-                inputs.ToVersion);
+                inputs.ToVersion,
+                options.Rows);
         }
 
         FindingTransitionsView? findingTransitionsView = null;
@@ -920,7 +928,8 @@ public class DiffCommand
                 inputs.Name,
                 rows,
                 inputs.FromVersion,
-                inputs.ToVersion);
+                inputs.ToVersion,
+                options.Rows);
         }
 
         var view = DiffOutputFormatter.BuildDocumentView(
@@ -939,9 +948,14 @@ public class DiffCommand
             return inspectionFailures.Count > 0;
         }
 
-        Console.WriteLine(OutputFormatter.AddHumanRowWindowNote(
-            DiffOutputFormatter.RenderDocumentView(view, OutputFormatter.CreateWindowedOptions(options.Rows)),
-            options.HumanRowWindowNote));
+        bool hasContent = changesView?.Rows is { Count: > 0 }
+            || analysisView?.Rows is { Count: > 0 }
+            || implementationView?.Rows is { Count: > 0 }
+            || findingTransitionsView?.Rows is { Count: > 0 };
+        var rendered = DiffOutputFormatter.RenderDocumentView(view, OutputFormatter.CreateWindowedOptions(options.Rows));
+        Console.WriteLine(hasContent
+            ? OutputFormatter.AddHumanRowWindowNote(rendered, options.HumanRowWindowNote)
+            : rendered);
         return inspectionFailures.Count > 0;
     }
 

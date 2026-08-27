@@ -2217,6 +2217,126 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_AnalysisAndImplementationDiffJsonWithRows_WindowsBothSections()
+    {
+        // Round 9 finding: diff --json -S "Analysis Diff"/"Implementation Diff" -n N ignored
+        // the item window entirely (only Changes was fixed in Round 8), serializing every row
+        // while --table (same underlying view) windowed correctly.
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (unwindowedExitCode, unwindowedOutput, unwindowedError) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                Select = ["Analysis Diff", "Implementation Diff"],
+                JsonOutput = true,
+                TypeFilter = ["DiffSample"],
+            }));
+        var (windowedExitCode, windowedOutput, windowedError) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                Select = ["Analysis Diff", "Implementation Diff"],
+                JsonOutput = true,
+                TypeFilter = ["DiffSample"],
+                Rows = RowWindow.Head(1),
+            }));
+
+        Assert.Equal(0, unwindowedExitCode);
+        Assert.Empty(unwindowedError);
+        Assert.Equal(0, windowedExitCode);
+        Assert.Empty(windowedError);
+
+        using var unwindowedDocument = System.Text.Json.JsonDocument.Parse(unwindowedOutput);
+        using var windowedDocument = System.Text.Json.JsonDocument.Parse(windowedOutput);
+        var unwindowedAnalysisCount = unwindowedDocument.RootElement.GetProperty("analysis_diff").GetArrayLength();
+        var unwindowedImplementationCount = unwindowedDocument.RootElement.GetProperty("implementation_diff").GetArrayLength();
+        var windowedAnalysisCount = windowedDocument.RootElement.GetProperty("analysis_diff").GetArrayLength();
+        var windowedImplementationCount = windowedDocument.RootElement.GetProperty("implementation_diff").GetArrayLength();
+
+        Assert.True(unwindowedAnalysisCount > 1, "fixture must produce more than one analysis-diff row to prove windowing");
+        Assert.True(unwindowedImplementationCount > 1, "fixture must produce more than one implementation-diff row to prove windowing");
+        Assert.Equal(1, windowedAnalysisCount);
+        Assert.Equal(1, windowedImplementationCount);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AnalysisDiffMarkdownEmptyWithRows_DoesNotLeakRowWindowNote()
+    {
+        // Round 9 finding: standalone `diff -S "Analysis Diff" -n N` leaked "first N" above
+        // "No analysis signal changes detected." when the type filter matched nothing.
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                Select = ["Analysis Diff"],
+                TypeFilter = ["NoSuchType"],
+                Rows = RowWindow.Head(1),
+                HumanRowWindowNote = "first 1"
+            }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.DoesNotContain("first 1", output, StringComparison.Ordinal);
+        Assert.Contains("No analysis signal changes detected.", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ImplementationDiffMarkdownEmptyWithRows_DoesNotLeakRowWindowNote()
+    {
+        // Round 9 finding: standalone `diff -S "Implementation Diff" -n N` leaked "first N"
+        // above "No implementation differences detected." when the type filter matched
+        // nothing.
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                Select = ["Implementation Diff"],
+                TypeFilter = ["NoSuchType"],
+                Rows = RowWindow.Head(1),
+                HumanRowWindowNote = "first 1"
+            }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.DoesNotContain("first 1", output, StringComparison.Ordinal);
+        Assert.Contains("No implementation differences detected.", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_FindingTransitionsMarkdownEmptyWithRows_DoesNotLeakRowWindowNote()
+    {
+        // Round 9 finding: standalone `diff -S "Finding Transitions" -n N` leaked "first N"
+        // above "No selected Finding exists at either endpoint." when the type filter matched
+        // nothing.
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                Select = ["Finding Transitions"],
+                TypeFilter = ["NoSuchType"],
+                Finding = "api.type",
+                Rows = RowWindow.Head(1),
+                HumanRowWindowNote = "first 1"
+            }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.DoesNotContain("first 1", output, StringComparison.Ordinal);
+        Assert.Contains("No selected Finding exists at either endpoint.", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task CommandLine_MultipleSelectedSections_ComposesJson()
     {
         var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
