@@ -1249,25 +1249,48 @@ public sealed class LibraryBodyIndex
         ArgumentNullException.ThrowIfNull(assembly);
         string displayPath =
             assembly.Path ?? assembly.Identity.Name;
+        LibraryBodyAnalysisPlan plan =
+            LibraryBodyAnalysisPlan.Create(
+                features,
+                bodyScope,
+                bodyTypeScope);
+
+        if (!plan.IsScoped
+            || resolver is not null
+                && UsesReferenceResolution(plan))
+        {
+            LibraryBodyRootSnapshot rootSnapshot =
+                AcquireRootSnapshot(
+                    assembly,
+                    displayPath);
+            using var imageReader =
+                new PEReader(rootSnapshot.Snapshot.Content);
+            return BuildFromReader(
+                displayPath,
+                imageReader,
+                plan,
+                resolver,
+                imageReader.GetMetadataReader().IsAssembly
+                    && UsesReferenceResolution(plan)
+                        ? rootSnapshot
+                        : null);
+        }
+
         using Stream stream = assembly.OpenRead();
-        using var peReader = new PEReader(
-            stream,
-            PEStreamOptions.PrefetchEntireImage);
+        using var peReader = new PEReader(stream);
         if (!peReader.HasMetadata)
         {
             throw new BadImageFormatException(
                 "The selected image has no managed metadata.");
         }
-
         assembly.ValidateOpenedMetadata(
             peReader.GetMetadataReader());
-        return OpenFromPrefetchedImage(
+        return BuildFromReader(
             displayPath,
-            peReader.GetEntireImage().GetContent(),
-            features,
+            peReader,
+            plan,
             resolver,
-            bodyScope,
-            bodyTypeScope);
+            rootSnapshot: null);
     }
 
     /// <summary>
@@ -1468,6 +1491,32 @@ public sealed class LibraryBodyIndex
                     ready.Snapshot),
             AssemblyImageSnapshotResult.Rejected rejected =>
                 throw RootSnapshotFailure(path, rejected.Failure),
+            _ => throw new InvalidOperationException(
+                "Unknown root-image acquisition result."),
+        };
+    }
+
+    static LibraryBodyRootSnapshot AcquireRootSnapshot(
+        ResolvedAssemblyReference assembly,
+        string displayPath)
+    {
+        AssemblyImageSnapshotResult result =
+            AssemblyImageSnapshot.Open(
+                assembly,
+                length => length
+                    <= AssemblyImageSnapshot
+                        .DefaultMaxRetainedImageBytes,
+                _ => { });
+        return result switch
+        {
+            AssemblyImageSnapshotResult.Ready ready =>
+                new LibraryBodyRootSnapshot(
+                    assembly,
+                    ready.Snapshot),
+            AssemblyImageSnapshotResult.Rejected rejected =>
+                throw RootSnapshotFailure(
+                    displayPath,
+                    rejected.Failure),
             _ => throw new InvalidOperationException(
                 "Unknown root-image acquisition result."),
         };

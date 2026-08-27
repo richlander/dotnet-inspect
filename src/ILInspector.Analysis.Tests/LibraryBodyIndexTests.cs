@@ -6662,6 +6662,107 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void DescriptorOpen_RejectsOversizedFullImageBeforeReading()
+    {
+        int reads = 0;
+        var assembly = ResolvedAssemblyReference.Create(
+            new AssemblyReferenceIdentity(
+                "Oversized",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            path: null,
+            () => new OversizedReadRejectingStream(
+                AssemblyImageSnapshot.DefaultMaxRetainedImageBytes + 1,
+                () => reads++),
+            AssemblyResolutionProvenance.Local(
+                "LibraryBodyIndex oversized-image gate"));
+
+        InvalidOperationException exception =
+            Assert.Throws<InvalidOperationException>(
+                () => LibraryBodyIndex.Open(
+                    assembly,
+                    LibraryBodyAnalysisFeatures.MethodEvidence));
+
+        Assert.Contains(
+            "retained-image budget",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(0, reads);
+    }
+
+    [Fact]
+    public void DescriptorOpen_ScopedAnalysisDoesNotPrefetchImage()
+    {
+        string sourcePath =
+            typeof(CallSiteFixtures).Assembly.Location;
+        string paddedPath = Path.Combine(
+            Path.GetTempPath(),
+            $"DescriptorScopedPadded-{Guid.NewGuid():N}.dll");
+        const int OverlaySize = 32 * 1024 * 1024;
+        int sourceToken = typeof(CallSiteFixtures)
+            .GetMethod(nameof(CallSiteFixtures.CallsConsoleWriteLine))!
+            .MetadataToken;
+        var bodyScope = new HashSet<int> { sourceToken };
+
+        try
+        {
+            File.Copy(sourcePath, paddedPath);
+            using (var stream = new FileStream(
+                paddedPath,
+                FileMode.Open,
+                FileAccess.Write,
+                FileShare.Read))
+            {
+                stream.SetLength(
+                    stream.Length + OverlaySize);
+            }
+
+            ResolvedAssemblyReference source =
+                ResolvedAssemblyReference
+                    .CreateFromPathIfManaged(
+                        sourcePath,
+                        AssemblyResolutionProvenance.Local(
+                            "LibraryBodyIndex scoped descriptor gate"))!;
+            ResolvedAssemblyReference padded =
+                ResolvedAssemblyReference
+                    .CreateFromPathIfManaged(
+                        paddedPath,
+                        AssemblyResolutionProvenance.Local(
+                            "LibraryBodyIndex scoped descriptor gate"))!;
+
+            long baseline = AllocatedFor(source);
+            long withOverlay = AllocatedFor(padded);
+            long overlayAllocation =
+                withOverlay - baseline;
+
+            Assert.True(
+                overlayAllocation > -(OverlaySize / 2)
+                    && overlayAllocation < OverlaySize / 2,
+                $"Descriptor-scoped allocation delta {overlayAllocation:N0} fell outside the "
+                    + $"stable range for the file overlay (baseline {baseline:N0}; "
+                    + $"padded {withOverlay:N0}).");
+        }
+        finally
+        {
+            File.Delete(paddedPath);
+        }
+
+        long AllocatedFor(
+            ResolvedAssemblyReference assembly)
+        {
+            long before =
+                GC.GetAllocatedBytesForCurrentThread();
+            _ = LibraryBodyIndex.Open(
+                assembly,
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyScope: bodyScope);
+            return GC.GetAllocatedBytesForCurrentThread()
+                - before;
+        }
+    }
+
+    [Fact]
     public void OptimizationOpportunities_RootImageIsRetainedOnce()
     {
         string sourcePath = typeof(OptimizationOpportunityFixtures)
@@ -7146,6 +7247,61 @@ public class LibraryBodyIndexTests
             _cache.Add(key, retained);
             return retained;
         }
+    }
+
+    sealed class OversizedReadRejectingStream(
+        long length,
+        Action readAttempted)
+        : Stream
+    {
+        long _position;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => true;
+        public override bool CanWrite => false;
+        public override long Length => length;
+        public override long Position
+        {
+            get => _position;
+            set => _position = value;
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count)
+        {
+            readAttempted();
+            throw new InvalidOperationException(
+                "The oversized stream must be rejected before reading.");
+        }
+
+        public override long Seek(
+            long offset,
+            SeekOrigin origin)
+        {
+            _position = origin switch
+            {
+                SeekOrigin.Begin => offset,
+                SeekOrigin.Current => checked(_position + offset),
+                SeekOrigin.End => checked(length + offset),
+                _ => throw new ArgumentOutOfRangeException(nameof(origin)),
+            };
+            return _position;
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
     }
 
     [Fact]

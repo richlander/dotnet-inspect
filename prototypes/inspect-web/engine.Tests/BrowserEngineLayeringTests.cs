@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Reflection;
+using System.Text.Json;
 using System.Xml.Linq;
 using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
@@ -312,6 +314,110 @@ public sealed class BrowserEngineLayeringTests
     }
 
     [Fact]
+    public void EveryPublicDescriptorFactoryIsCompilerBanned()
+    {
+        IReadOnlyList<string> banned = BannedSymbols();
+        INamedTypeSymbol descriptor =
+            RequiredType(
+                "ILInspector.Metadata.ResolvedAssemblyReference");
+        IMethodSymbol[] factories =
+        [
+            .. descriptor
+                .GetMembers()
+                .OfType<IMethodSymbol>()
+                .Where(method =>
+                    method.DeclaredAccessibility
+                        == Accessibility.Public
+                    && method.IsStatic
+                    && (SymbolEqualityComparer.Default.Equals(
+                            method.ReturnType,
+                            descriptor)
+                        || method.Parameters.Any(parameter =>
+                            parameter.RefKind == RefKind.Out
+                            && SymbolEqualityComparer.Default.Equals(
+                                parameter.Type,
+                                descriptor))))
+                .OrderBy(
+                    method => method.GetDocumentationCommentId(),
+                    StringComparer.Ordinal),
+        ];
+
+        Assert.NotEmpty(factories);
+        Assert.All(
+            factories,
+            factory => Assert.Contains(
+                factory.GetDocumentationCommentId()!,
+                banned));
+    }
+
+    [Fact]
+    public async Task BrowserBanListIsEffectiveCompilerInput()
+    {
+        using var process = new Process
+        {
+            StartInfo = new ProcessStartInfo("dotnet")
+            {
+                ArgumentList =
+                {
+                    "msbuild",
+                    EngineProjectPath,
+                    "-getItem:AdditionalFiles,PackageReference",
+                    "-getProperty:WarningsAsErrors,NoWarn,OwnsItsOwnStderr",
+                    "-p:Configuration=Release",
+                },
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            },
+        };
+        process.Start();
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        Task<string> standardOutput =
+            process.StandardOutput.ReadToEndAsync(
+                cancellationToken);
+        Task<string> standardError =
+            process.StandardError.ReadToEndAsync(
+                cancellationToken);
+        await process.WaitForExitAsync(cancellationToken);
+        string output = await standardOutput;
+        string error = await standardError;
+        Assert.True(
+            process.ExitCode == 0,
+            $"MSBuild evaluation failed:{Environment.NewLine}{error}");
+
+        using JsonDocument evaluation =
+            JsonDocument.Parse(output);
+        JsonElement properties =
+            evaluation.RootElement.GetProperty("Properties");
+        JsonElement items =
+            evaluation.RootElement.GetProperty("Items");
+
+        Assert.Contains(
+            items.GetProperty("AdditionalFiles")
+                .EnumerateArray(),
+            item => Path.GetFullPath(
+                    item.GetProperty("FullPath").GetString()!)
+                .Equals(
+                    Path.GetFullPath(BanListPath),
+                    StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(
+            items.GetProperty("PackageReference")
+                .EnumerateArray(),
+            item => item.GetProperty("Identity").GetString()
+                == "Microsoft.CodeAnalysis.BannedApiAnalyzers");
+        Assert.Contains(
+            "RS0030",
+            SplitProperty(properties, "WarningsAsErrors"));
+        Assert.DoesNotContain(
+            "RS0030",
+            SplitProperty(properties, "NoWarn"));
+        Assert.NotEqual(
+            "true",
+            properties.GetProperty("OwnsItsOwnStderr")
+                .GetString());
+    }
+
+    [Fact]
     public void ReflectionOnlyAssemblyLoadingIsUnavailableToBrowser()
     {
         Assert.Null(
@@ -609,6 +715,16 @@ public sealed class BrowserEngineLayeringTests
             ? named.OriginalDefinition.GetDocumentationCommentId()
             : null;
     }
+
+    static string[] SplitProperty(
+        JsonElement properties,
+        string name) =>
+        properties.GetProperty(name)
+            .GetString()!
+            .Split(
+                ';',
+                StringSplitOptions.RemoveEmptyEntries
+                    | StringSplitOptions.TrimEntries);
 
     static bool IsBanned(ISymbol symbol, IReadOnlyList<string> banned) =>
         symbol.GetDocumentationCommentId() is { } symbolId
