@@ -224,6 +224,42 @@ containing:
 5. one exported facade function per supported `[JSExport]` method; and
 6. the exact JSON parse operation for each authenticated envelope.
 
+### Correspondence, not managed API translation
+
+The generated managed-operation surface is a one-to-one view of the supported
+runtime exports. Every managed-operation facade function corresponds to exactly
+one `[JSExport]` method with generated runtime publication glue, and every
+supported export corresponds to exactly one such function. Module
+infrastructure such as `initializeEngine` is identified separately and is not
+presented as a managed operation. The generator does not invent operations,
+combine several exports into one workflow, or expose a managed member that has
+no JavaScript export thunk.
+
+The correspondence preserves the declaring-type path, parameter order and
+types, synchronous or asynchronous invocation, and raw marshalled result.
+TypeScript naming, `Promise<T>` projection, and an authenticated JSON-envelope
+parse are defined facade transformations; they do not create another managed
+operation.
+
+Inspect-web intentionally presents its boundary as one managed type containing
+static `[JSExport]` methods. `ts-bindgen` can retain qualified declaring-type
+paths from another supported surface, but it does not project managed classes,
+instances, constructors, inheritance, properties, or overload resolution into
+a TypeScript object model. A rich C# implementation can sit behind an exported
+static method; that implementation remains managed code running in WebAssembly.
+
+`ts-bindgen` is not a C#-to-TypeScript compiler or an IL-to-TypeScript
+translator. It reads narrow IL evidence only to establish that generated
+runtime publication exists and that a specific JSON wire contract reaches an
+exported argument or result. It never translates the exported method body,
+dependencies, control flow, or managed object model into TypeScript.
+
+Applications that want a richer TypeScript API author that layer above the
+generated facade. Such a layer may group operations, introduce classes,
+normalize inputs, compose workflows, or add application policy without
+weakening the generated module's one-to-one correspondence with the runtime
+exports.
+
 The module imports only the generic .NET runtime JavaScript module at runtime.
 It does not import a sibling declaration module because its TypeScript source
 already contains the implementation and types. If a consumer emits
@@ -317,6 +353,8 @@ evidence.
 - generate or replace .NET's `[JSExport]` ABI thunks;
 - teach `dotnet.js` or `dotnet.runtime.js` new marshalling types;
 - generate bindings for arbitrary public C# APIs;
+- translate C# or IL implementations into TypeScript;
+- synthesize a richer object-oriented or workflow API from exported methods;
 - infer wire contracts from names, return-type display text, or nearby
   serializer metadata;
 - become a general JavaScript, C#, OpenAPI, or multi-language generator;
@@ -373,8 +411,13 @@ module handoff but does not decide those consumer contracts.
 
 The target remains unverified until all of these gates exist:
 
+- a set-equality gate proves that supported `[JSExport]` methods and generated
+  managed-operation facade functions have exact one-to-one correspondence,
+  excluding separately identified module infrastructure;
 - a generator test proves one TypeScript source contains both the runtime
   wrapper implementation and its public TypeScript types;
+- a close-negative fixture changes a managed implementation without changing
+  its export or wire contract and produces byte-identical TypeScript;
 - compiler tests reject mutations to raw managed-export parameter and return
   types;
 - compiler tests reject mutations to public wrapper parameter and return
