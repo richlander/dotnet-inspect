@@ -1522,7 +1522,10 @@ test("typed scope bar owns its rendered control bindings", () => {
   const packageLens = callbackProperty(actions, "onPackageLensSelect");
   assert.deepEqual(
     statementSignatures(packageLens.body.body),
-    ["call:selectPackageLens(lens)"]);
+    [
+      "assign:state.packageLens = lens",
+      "call:render()",
+    ]);
 
   const scope = callbackProperty(actions, "onScopeSelect");
   assert.deepEqual(
@@ -1831,7 +1834,7 @@ test("metadata viewer owns its rendered explorer control bindings", () => {
   assertIdentifierArgument(innerCall, 0, "document", "bindMetadataExplorer");
   assertIdentifierArgument(innerCall, 1, "ex", "bindMetadataExplorer");
   const actions = objectArgument(innerCall, 2, "bindMetadataExplorer");
-  assert.equal(actions.properties.length, 11);
+  assert.equal(actions.properties.length, 12);
   const rowFocus = callbackProperty(actions, "onRowFocus");
   assert.deepEqual(
     statementSignatures(rowFocus.body.body),
@@ -1856,13 +1859,13 @@ test("metadata viewer owns its rendered explorer control bindings", () => {
   const binding = sourceText(innerCall);
   assert.match(
     binding,
-    /bindMetadataExplorer\s*\(document, ex, \{[\s\S]*onClose: closeExplorer,[\s\S]*onHistoryBack: explorerHistoryBack,[\s\S]*onHistoryForward: explorerHistoryForward,[\s\S]*onHeapFocus: heap => pushExplorerFocus\(\{ heap \}\),[\s\S]*onJump: explorerJump,[\s\S]*onOpenHeap: openExplorerHeap,[\s\S]*onOpenTable: openExplorer,[\s\S]*onPage: \(index, startRowId\) =>\s*observeAsync\(\s*loadExplorerWindow\(index, startRowId\),\s*"Loading metadata table rows"\),[\s\S]*onRowFocus: \(index, rowId\) => \{[\s\S]*ex\.detail = already \? null : \{ index, rowId \};[\s\S]*ex\.highlight = already \? null : \{ index, rowId \};[\s\S]*onShowOverview: explorerShowOverview,[\s\S]*onTableFocus: \(index, rowId\) => pushExplorerFocus\(\{ index, rowId \}\),/);
+    /bindMetadataExplorer\s*\(document, ex, \{[\s\S]*onClose: closeExplorer,[\s\S]*onHistoryBack: explorerHistoryBack,[\s\S]*onHistoryForward: explorerHistoryForward,[\s\S]*onHeapFocus: heap => pushExplorerFocus\(\{ heap \}\),[\s\S]*onJump: explorerJump,[\s\S]*onOpenHeap: openExplorerHeap,[\s\S]*onOpenTable: openExplorer,[\s\S]*onPage: \(index, startRowId\) =>\s*observeAsync\(\s*loadExplorerWindow\(index, startRowId\),\s*"Loading metadata table rows"\),[\s\S]*onRetryPackageMetadata: \(\) =>\s*observeAsync\(loadPackageMetadata\(\), "Retrying package metadata"\),[\s\S]*onRowFocus: \(index, rowId\) => \{[\s\S]*ex\.detail = already \? null : \{ index, rowId \};[\s\S]*ex\.highlight = already \? null : \{ index, rowId \};[\s\S]*onShowOverview: explorerShowOverview,[\s\S]*onTableFocus: \(index, rowId\) => pushExplorerFocus\(\{ index, rowId \}\),/);
   assert.doesNotMatch(
     binding,
     /\b(?:getElementById|querySelector|querySelectorAll)\s*\(|\.addEventListener\s*\(/);
   assert.match(
     metadataViewerSource,
-    /export function bindMetadataExplorer\([\s\S]*#mde-exit[\s\S]*#mde-hist-back[\s\S]*#mde-hist-fwd[\s\S]*\[data-mde-open\][\s\S]*\[data-mde-open-heap\][\s\S]*\[data-mde-chip\][\s\S]*\[data-mde-jump\][\s\S]*\[data-mde-overview\][\s\S]*\[data-mde-page\][\s\S]*\[data-mde-heap-chip\][\s\S]*\.mde-wall \.mde-card\[data-mde-index\] \.mde-card-head[\s\S]*\.mde-wall \.mde-heap-card\[data-mde-heap\] \.mde-card-head[\s\S]*\.mde-wall \.mde-row\[data-mde-row\][\s\S]*#mde-canvas[\s\S]*\.mde-focus \.mde-row\[data-mde-row\]/);
+    /export function bindMetadataExplorer\([\s\S]*\[data-package-metadata-retry\][\s\S]*#mde-exit[\s\S]*#mde-hist-back[\s\S]*#mde-hist-fwd[\s\S]*\[data-mde-open\][\s\S]*\[data-mde-open-heap\][\s\S]*\[data-mde-chip\][\s\S]*\[data-mde-jump\][\s\S]*\[data-mde-overview\][\s\S]*\[data-mde-page\][\s\S]*\[data-mde-heap-chip\][\s\S]*\.mde-wall \.mde-card\[data-mde-index\] \.mde-card-head[\s\S]*\.mde-wall \.mde-heap-card\[data-mde-heap\] \.mde-card-head[\s\S]*\.mde-wall \.mde-row\[data-mde-row\][\s\S]*#mde-canvas[\s\S]*\.mde-focus \.mde-row\[data-mde-row\]/);
   for (const selector of [
     "#mde-exit",
     "#mde-hist-back",
@@ -2689,19 +2692,14 @@ test("lens-scoped Platform library changes reset type-specific member state", ()
     /function normalizeLibrarySelection\(\) \{[\s\S]*state\.selectedTypeId = first\?\.id \|\| "";[\s\S]*state\.selectedMemberKey = "";[\s\S]*state\.selectedOverloadIndex = null;[\s\S]*resetMemberFilters\(\)[\s\S]*function afterLibraryScopeChange\(\) \{\s*normalizeLibrarySelection\(\);\s*render\(\)/);
 });
 
-test("package Metadata retries failed scopes only on explicit lens selection", () => {
+test("package Metadata retries remain explicit rather than render-driven", () => {
   const autoLoad =
     appSource.match(/function maybeAutoLoadPackageMetadata\(\) \{[\s\S]*?\n}/)?.[0]
     ?? "";
   assert.match(
     autoLoad,
-    /if \(state\.packageMetadataKey === packageScopeSignature\(\)\) return;[\s\S]*observeAsync\(loadPackageMetadata\(\)/);
-  const selectLens =
-    appSource.match(/function selectPackageLens\(lens: PackageLens\) \{[\s\S]*?\n}/)?.[0]
-    ?? "";
-  assert.match(
-    selectLens,
-    /lens === "metadata"[\s\S]*state\.packageMetadataKey === packageScopeSignature\(\)[\s\S]*state\.packageMetadataError[\s\S]*!state\.packageMetadataLoading[\s\S]*observeAsync\(loadPackageMetadata\(\)/);
+    /state\.packageMetadataKey === packageScopeSignature\(\)\) return;[\s\S]*observeAsync\(loadPackageMetadata\(\)/);
+  assert.doesNotMatch(autoLoad, /packageMetadataError/);
 });
 
 test("Platform Spotlight distinguishes resident content from core readiness", () => {

@@ -92,6 +92,7 @@ function recordingActions(calls: string[]): MetadataExplorerBindingActions {
       calls.push(`open-table:${assemblyFileName}:${index}`),
     onPage: (index, startRowId) =>
       calls.push(`page:${index}:${startRowId}`),
+    onRetryPackageMetadata: () => calls.push("retry-metadata"),
     onRowFocus: (index, rowId) => calls.push(`row:${index}:${rowId}`),
     onShowOverview: () => calls.push("overview"),
     onTableFocus: (index, rowId) =>
@@ -185,6 +186,20 @@ test("overview bindings dispatch explorer navigation from the wall controls", ()
   assert.equal(
     root.queriedSelectors.has(".mde-focus .mde-row[data-mde-row]"),
     false);
+});
+
+test("metadata failure retry binds without an open explorer", () => {
+  const root = new FakeRoot();
+  const retry = root.add("[data-package-metadata-retry]", new FakeElement());
+  const calls: string[] = [];
+
+  bindMetadataExplorer(
+    fakeDom.parentNode(root),
+    null,
+    recordingActions(calls));
+  retry.dispatch("click");
+
+  assert.deepEqual(calls, ["retry-metadata"]);
 });
 
 test("focus bindings dispatch lightbox controls and keep inner clicks contained", () => {
@@ -444,6 +459,7 @@ test("the metadata lens reports loading and failure only for the current scope",
   const failed = renderPackageMetadata(lensOptions({ error: "boom & <bang>", metadata: null }));
   assert.match(failed, /Metadata read failed/);
   assert.match(failed, /boom &amp; &lt;bang&gt;/);
+  assert.match(failed, /data-package-metadata-retry/);
 
   // A stale key means the loaded image belongs to a different scope, so neither the error nor
   // the result may be shown as this scope's answer.

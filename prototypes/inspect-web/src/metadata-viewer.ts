@@ -208,6 +208,7 @@ export interface MetadataExplorerBindingActions {
   onOpenHeap: (assembly: string, heap: string) => void;
   onOpenTable: (assembly: string, index: number) => void;
   onPage: (index: number, startRowId: number) => void;
+  onRetryPackageMetadata: () => void;
   onRowFocus: (index: number, rowId: number) => void;
   onShowOverview: () => void;
   onTableFocus: (index: number, rowId: number) => void;
@@ -234,6 +235,8 @@ export function bindMetadataExplorer(
   explorer: Pick<ExplorerState, "overview"> | null,
   actions: MetadataExplorerBindingActions,
 ) {
+  root.querySelector("[data-package-metadata-retry]")
+    ?.addEventListener("click", actions.onRetryPackageMetadata);
   root.querySelector("#mde-exit")?.addEventListener("click", actions.onClose);
   root.querySelector("#mde-hist-back")?.addEventListener(
     "click",
@@ -421,7 +424,7 @@ export function renderPackageMetadata(options: PackageMetadataOptions): string {
     return `${picker}<section class="document-section source-progress"><span class="loader"></span><h2>Reading metadata…</h2><p>Describing the metadata image — heaps, tables, and headers.</p></section>`;
   }
   if (fresh && error) {
-    return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Metadata read failed</h2><p>${escapeHtml(error)}</p></section>`;
+    return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Metadata read failed</h2><p>${escapeHtml(error)}</p><button type="button" data-package-metadata-retry>retry</button></section>`;
   }
   const data = fresh ? metadata : null;
   if (!data) {

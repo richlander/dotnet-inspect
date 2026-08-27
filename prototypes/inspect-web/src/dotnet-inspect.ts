@@ -2047,7 +2047,10 @@ function scope(): WorkspaceScope {
 function selectScopeLensByIndex(index: number, workspaceScope: WorkspaceScope): void {
   if (workspaceScope === "package") {
     const selected = packageLensesFor(state.package)[index];
-    if (selected) selectPackageLens(selected[0]);
+    if (selected) {
+      state.packageLens = selected[0];
+      render();
+    }
   } else if (workspaceScope === "type") {
     const selected = typeLensesFor(state.package)[index];
     if (selected) {
@@ -2071,19 +2074,6 @@ function packageLensesFor(pkg: AppPackage | null) {
   if (!pkg?.isRuntimePack) return packageLenses;
   return packageLenses.filter(([id]) =>
     id === "overview" || id === "integrations" || id === "opportunities" || id === "analysis" || id === "metadata");
-}
-
-function selectPackageLens(lens: PackageLens) {
-  const retryMetadata = lens === "metadata"
-    && state.packageMetadataKey === packageScopeSignature()
-    && Boolean(state.packageMetadataError)
-    && !state.packageMetadataLoading;
-  state.packageLens = lens;
-  if (retryMetadata) {
-    observeAsync(loadPackageMetadata(), "Loading package metadata");
-  } else {
-    render();
-  }
 }
 
 // The single platform library the Integrations/Opportunities/Analysis lenses scan: whatever
@@ -2349,7 +2339,8 @@ function stepHorizontal(delta: number) {
     const index = strip.findIndex(([id]) => id === state.packageLens);
     const next = strip[(index + delta + strip.length) % strip.length];
     if (!next) return;
-    selectPackageLens(next[0]);
+    state.packageLens = next[0];
+    render();
     return;
   }
   const type = selectedType();
@@ -3580,6 +3571,8 @@ function bindMetadataViewerEvents() {
       observeAsync(
         loadExplorerWindow(index, startRowId),
         "Loading metadata table rows"),
+    onRetryPackageMetadata: () =>
+      observeAsync(loadPackageMetadata(), "Retrying package metadata"),
     onRowFocus: (index, rowId) => {
       if (!ex) return;
       const already =
@@ -4703,7 +4696,8 @@ function bindScopeBarEvents() {
       applyMemberSection(section);
     },
     onPackageLensSelect: lens => {
-      selectPackageLens(lens);
+      state.packageLens = lens;
+      render();
     },
     onScopeSelect: target => {
       if (target === "package") {
