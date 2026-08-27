@@ -130,6 +130,16 @@ public class LoweredFidelityGateTests
         "MergedTernaryDeclaration",
         "NullCoalescingAssignStaticProperty",
         "set_SlotMergedDateTimeFormat",
+        // #3924 binds the cross-method import seam for the actual lowered
+        // view. That makes these capturing-lambda bodies compile-back-checkable
+        // at this altitude and exposes the same display-class ordinal-only
+        // OperandDiffs already docketed on the raised rail. #3581 owns the
+        // safe two-sided correspondence needed to retire them.
+        "CapturingLambda",
+        "CapturingLocalBodyLambda",
+        "ClosureCapture",
+        "InvokeLocalCapture",
+        "TwoCaptureLambda",
         // Fidelity contract rebaseline: opcode names still match, but canonical
         // operands, symbolic targets, or branch targets differ.
         "DayNumber",
