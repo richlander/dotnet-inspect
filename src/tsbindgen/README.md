@@ -38,13 +38,21 @@ a C#-faithful object model of an assembly's `[JSExport]` surface built on
 target-language rewriting: a `Task<T>` return type is reported as `Task<T>`,
 not unwrapped to a target-language "promise" concept.
 
-All TypeScript-specific opinion — `Task<T>`/`ValueTask<T>` unwrapping to
+All reachable TypeScript-specific opinion — `Task<T>` unwrapping to
 `Promise<T>`, property naming based on the owning `JsonSerializerContext`'s
 `[JsonSourceGenerationOptions(PropertyNamingPolicy = ...)]`, array/nullable
 syntax, and `.d.ts` layout — lives entirely in this tool (`TsTypeMapper`,
 `CamelCase`, `DtsEmitter`). A future binding-generation target besides
 TypeScript would add its own "personality" layer here without needing to touch
-the OM.
+the OM. `TsTypeMapper` currently also contains legacy `ValueTask` mapping
+branches, but the authenticated surface rejects `ValueTask` signatures before
+they can reach those branches; the target architecture removes that
+unreachable code and its tests. Async JSON return authentication currently
+recognizes the compiler-async form whose physical result sink is in
+`MoveNext`; it does not yet recognize the equivalent runtime-async form whose
+physical body and return sink remain on the exported method. The target
+architecture requires both forms to issue the same `JsExportSurface` facts and
+generated TypeScript.
 
 Generated JSON-wire interfaces are producer-owned snapshots: their properties
 are `readonly`, arrays use `ReadonlyArray<T>`, and string-keyed dictionaries use

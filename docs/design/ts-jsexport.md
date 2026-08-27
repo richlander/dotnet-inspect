@@ -141,7 +141,7 @@ or prescribe a frontend source language.
 adds application-facing policy:
 
 - TypeScript names and syntax;
-- `Task<T>` and `ValueTask<T>` projection to `Promise<T>`;
+- `Task<T>` projection to `Promise<T>`;
 - public wrapper signatures distinct from raw interop signatures;
 - authenticated JSON parsing and exact wire-result types;
 - readonly producer-owned JSON snapshots;
@@ -260,11 +260,56 @@ containing:
 
 1. public enum and DTO declarations for reached wire contracts;
 2. one private structural type for the raw `getAssemblyExports()` object;
-3. private initialized-state storage and a narrowing accessor;
-4. `initializeEngine`, which creates one runtime, captures its exports, awaits
-   `runtime.runMain()`, and only then publishes initialized state;
-5. one exported facade function per supported `[JSExport]` method; and
-6. the exact JSON parse operation for each authenticated envelope.
+3. private runtime and narrowed managed-export storage plus accessors;
+4. `initializeRuntime()`, which creates one runtime, captures the inspected
+   assembly's exports, publishes both private values only after acquisition
+   succeeds, and returns no raw runtime or export object;
+5. `runEntryPoint(mainAssemblyName?, args?)`, which forwards to
+   `runtime.runMain()` on that same private runtime and returns its
+   `Promise<number>`;
+6. one exported facade function per supported `[JSExport]` method; and
+7. the exact JSON parse operation for each authenticated envelope.
+
+Runtime creation and managed entry-point execution are separate operations.
+`initializeRuntime()` never invokes `runMain()` implicitly. The consumer
+decides whether and when to call `runEntryPoint()`, whether to await its
+completion, and what its exit code means. This permits a consumer to call
+configuration exports before starting `Main`, to observe a bounded entry point,
+or to retain the promise for a long-running one without blocking facade
+publication.
+
+The optional `mainAssemblyName` identifies the runtime's configured entry-point
+assembly. It is never inferred from the inspected assembly identity passed to
+`getAssemblyExports()`; a generated facade may inspect a class library while
+the runtime hosts a different main assembly. Promise fulfillment, rejection,
+and nonzero exit codes pass through unchanged.
+
+### Async lowering compatibility
+
+Supported `Task` and `Task<T>` exports have one facade contract regardless of
+how the C# compiler represents their bodies. `ts-jsexport` supports both:
+
+- compiler async, where the physical serializer and result-sink evidence lives
+  in a generated state machine's `MoveNext` body and Analysis attributes it
+  back to the exported kickoff method; and
+- runtime async, where the exported method has
+  `MethodImplAttributes.Async`, has no compiler-generated state machine, and
+  retains its own physical body evidence.
+
+Both forms produce the same raw Promise shape and, given the same authenticated
+JSON flow, the same public TypeScript facade. The lowering mode is not exposed
+in generated TypeScript and does not change managed-operation correspondence.
+
+`ILInspector.JsExportSurface`, not `ts-jsexport`, owns authentication of both
+physical forms. It consumes Analysis-issued method identity, async
+classification, body ownership, and result-sink evidence rather than inferring
+an async form from display names or generated TypeScript types. Incomplete or
+contradictory evidence remains a visible generation failure.
+
+Inspect-web deliberately supplies both real-consumer canaries. Its normal Mono
+build uses compiler async; its isolated CoreCLR comparison build enables
+runtime async. Mono's lack of runtime-async support is a deployment distinction,
+not a second generated facade contract.
 
 ### Correspondence, not managed API translation
 
@@ -272,10 +317,10 @@ The generated managed-operation surface is a one-to-one view of the supported
 runtime exports. Every managed-operation facade function corresponds to exactly
 one `[JSExport]` method with generated runtime publication glue, and every
 supported export corresponds to exactly one such function. Module
-infrastructure such as `initializeEngine` is identified separately and is not
-presented as a managed operation. The generator does not invent operations,
-combine several exports into one workflow, or expose a managed member that has
-no JavaScript export thunk.
+infrastructure such as `initializeRuntime` and `runEntryPoint` is identified
+separately and is not presented as a managed operation. The generator does not
+invent operations, combine several exports into one workflow, or expose a
+managed member that has no JavaScript export thunk.
 
 The correspondence preserves the declaring-type path, parameter order and
 types, synchronous or asynchronous invocation, and raw marshalled result.
@@ -317,7 +362,12 @@ SDK's declaration for the runtime module.
 Generated identifiers must be valid, collision-free TypeScript bindings.
 Reserved module bindings, helper names, wrapper-local names, DTO names,
 function names, and nested managed-export paths are validated as one composed
-module before any output is published.
+module before any output is published. Infrastructure names are reserved first.
+When a managed operation's preferred TypeScript name collides with
+infrastructure, the operation receives a deterministic fully qualified
+declaring-type name, with stable identity-based disambiguation if that spelling
+also collides, rather than disappearing or making an otherwise supported export
+ungeneratable.
 
 The current exact `ConfigureHost(string)` browser bootstrap is consumer policy,
 not a general implication of `[JSExport]`. `ts-jsexport` emits it as an ordinary
@@ -480,8 +530,22 @@ The current implementation predates this decision:
 - `--emit-js` generates the runtime facade directly as JavaScript;
 - the JavaScript and declaration emitters spell parallel projections that must
   remain synchronized;
-- the runtime wrapper is untyped JavaScript; and
-- `ConfigureHost(string)` is an implicit name-and-signature convention.
+- the runtime wrapper is untyped JavaScript;
+- `ConfigureHost(string)` is an implicit name-and-signature convention;
+- initialization publishes individual export bindings, invokes
+  `ConfigureHost`, unconditionally awaits `runtime.runMain()`, and then returns
+  the raw export object;
+- `TsTypeMapper` contains `ValueTask` and `ValueTask<T>` branches and unit tests
+  even though `ILInspector.JsExportSurface` rejects those unsupported
+  `[JSExport]` signatures before TypeScript mapping; and
+- authenticated async return-wire discovery recognizes compiler-generated
+  `MoveNext` result sinks but not a runtime-async export's own physical body.
+
+The CoreCLR comparison deployment already compiles the real inspect-web engine
+with `runtime-async=on`, but the generated-surface drift gate inspects a separate
+compiler-async build and the deployment has no browser smoke that invokes a
+known genuinely awaited export. Enabling the compiler feature alone therefore
+does not gate lowering-independent surface generation or runtime execution.
 
 Those are migration inputs, not compatibility requirements.
 
@@ -500,19 +564,34 @@ The implementation effort should:
    model;
 4. emit only that TypeScript module;
 5. remove hidden `ConfigureHost` bootstrap semantics;
-6. preserve runtime initialization, including `runtime.runMain()` before
-   initialized state is published; and
-7. preserve deterministic output and failure-before-publication behavior.
+6. replace the current initializer with `initializeRuntime()`, which publishes
+   one private narrowed export aggregate only after runtime creation and export
+   acquisition succeed and does not return raw exports;
+7. expose `runEntryPoint()` as separately identified module infrastructure over
+   the same private runtime, without invoking it from initialization or leaking
+   `RuntimeAPI` into the public declaration;
+8. extend the owning `ILInspector.JsExportSurface` and Analysis path to
+   authenticate equivalent compiler-async and runtime-async result flows
+   without changing the issued surface model;
+9. remove unreachable `ValueTask` mapping branches and tests; and
+10. preserve deterministic output and failure-before-publication behavior.
 
 ## Consumer migration residual
 
 Adopting the generated TypeScript in inspect-web is a separate focused effort
 owned by inspect-web. That effort must decide compiler configuration, source
 and derived-artifact placement, application module resolution, Vite
-externalization, startup policy including `ConfigureHost`, build ordering,
-availability of the SDK-owned `dotnet.d.ts`, stale-output checks, and
-publication. This document supplies the TypeScript module handoff but does not
-decide those consumer contracts.
+externalization, startup policy including `ConfigureHost` and managed
+entry-point invocation, build ordering, availability of the SDK-owned
+`dotnet.d.ts`, stale-output checks, and publication. This document supplies the
+TypeScript module handoff but does not decide those consumer contracts.
+
+That effort also owns the real-consumer async canary. It should generate from
+the exact managed assemblies published for the Mono and CoreCLR variants, prove
+the expected compiler-async and runtime-async physical forms, and execute the
+same genuinely awaited `[JSExport]` operation in browser smoke tests. The
+consumer supplies deployment coverage; it must not teach `ts-jsexport` an
+inspect-web-specific async rule.
 
 ## Acceptance
 
@@ -523,7 +602,8 @@ The target remains unverified until all of these gates exist:
   `ILInspector.JsExportSurface`;
 - a set-equality gate proves that supported `[JSExport]` methods and generated
   managed-operation facade functions have exact one-to-one correspondence,
-  excluding separately identified module infrastructure;
+  excluding separately identified `initializeRuntime` and `runEntryPoint`
+  infrastructure;
 - a generator test proves one TypeScript source contains both the runtime
   wrapper implementation and its public TypeScript types;
 - a close-negative fixture changes a managed implementation without changing
@@ -534,6 +614,15 @@ The target remains unverified until all of these gates exist:
   types;
 - close-negative tests keep direct interop values distinct from authenticated
   JSON wire values;
+- paired compiled fixtures express the same genuinely awaited `Task<string>`
+  JSON export with compiler async and runtime async, prove their respective
+  `MoveNext` and source-body evidence, and produce structurally equal
+  `JsExportSurface` facts plus byte-identical generated TypeScript;
+- close-negative async fixtures prove forged, mixed, incomplete, or
+  misattributed async evidence cannot borrow another method's authenticated
+  wire result;
+- a close-negative fixture proves `ValueTask` and `ValueTask<T>` exports are
+  rejected by `ILInspector.JsExportSurface` before TypeScript mapping;
 - a compiler test resolves the generated runtime import against the
   SDK-owned `dotnet.d.ts`, with no generator-owned ambient or copied substitute,
   rejects an invalid use of the generic runtime API, and proves the
@@ -542,9 +631,24 @@ The target remains unverified until all of these gates exist:
   expose or import SDK runtime types;
 - a compiler test proves the generated TypeScript emits executable JavaScript
   without changing runtime import or public facade semantics;
-- runtime tests prove initialization failure, one-runtime reuse,
-  `runtime.runMain()` invocation before initialized state is published, exact
-  export dispatch, JSON parsing, and exception propagation; and
+- collision fixtures prove managed operations named `InitializeRuntime` or
+  `RunEntryPoint` retain one deterministic facade function without replacing
+  module infrastructure;
+- runtime tests prove initialization failure, publication only after export
+  acquisition, one-runtime reuse, no raw-object return, exact export dispatch,
+  JSON parsing, and exception propagation;
+- calling any managed operation or `runEntryPoint()` before successful
+  initialization fails visibly with the same module-owned initialization
+  error;
+- runtime tests prove initialization never invokes `runMain()`, while
+  `runEntryPoint(mainAssemblyName?, args?)` uses the same private runtime,
+  forwards both arguments, and preserves the returned exit code or rejection;
+- inspect-web publish gates run `ts-jsexport` against the exact Mono and
+  CoreCLR managed deployment assemblies, assert that a named canary export is
+  compiler async in the former and runtime async in the latter, and compare the
+  generated facade contract;
+- browser deployment smoke tests invoke that genuinely awaited canary through
+  the generated facade on both runtimes and require the same typed result; and
 - a command test proves failed generation does not publish partial TypeScript
   output.
 
