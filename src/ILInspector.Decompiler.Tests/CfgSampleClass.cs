@@ -4608,9 +4608,9 @@ public class CfgSampleClass
         return value;
     }
 
-    // A nested type whose leaf name (NestedSample) is shared with an unrelated
-    // top-level type below. Its full metadata name is the declaring chain
-    // (CfgSampleClass.NestedSample), not the leaf — the IR importer must
+    // A nested type whose leaf name (NestedSample) is shared with the top-level
+    // type in NestedTypeIdentitySamples.cs. Its full metadata name includes the
+    // declaring chain (CfgSampleClass.NestedSample), not the leaf — the IR importer must
     // qualify nested types or this body is unreachable (and collides with the
     // top-level NestedSample on its bare leaf name).
     public sealed class NestedSample
