@@ -329,15 +329,18 @@ IDN host, explicit port, and endpoint path. IPv6 hosts retain URI brackets,
 valid percent-escape hex digits use uppercase, and one optional trailing slash
 is folded. Path case and repeated trailing slashes remain distinct. Query and
 fragment are runtime transport data and do not enter producer identity. This
-preserves one producer across rotation of a signed query. A feed that serves
-distinct immutable content domains based on credentials is incompatible with
-this contract and requires a stable non-credential endpoint-path distinction.
+preserves one producer when a signed query is added or rotated and when a
+fragment is added or changed. A feed that serves distinct immutable content
+domains based on credentials is incompatible with this contract and requires a
+stable non-credential endpoint-path distinction.
 
 NuGet Gallery and the canonical NuGet.org v3 client intentionally share one
 producer identity while retaining different transport kinds. Paths that differ
 outside an owner-recognized credential slot remain distinct even when they
 share an origin. These properties are gated by
 `PackageSourceIdentity_SignedQueryRotationKeepsProducer`,
+`PackageSourceIdentity_QueryPresenceDoesNotChangeProducer`,
+`PackageSourceIdentity_FragmentRotationKeepsProducer`,
 `PackageSourceIdentity_DistinctNonCredentialPathsRemainDistinct`, and
 `PackageSourceIdentity_GalleryAndV3ShareNuGetOrgProducer`.
 
@@ -431,7 +434,11 @@ required inventory covers:
 - DNS case, IDN, IPv4, unscoped IPv6, and scoped IPv6 hosts;
 - empty/root, double-root, and optional trailing-slash paths;
 - valid percent escapes with alternate hex case;
-- an owner-recognized credential slot and its rotation; and
+- no query, one signed query, and a rotated signed query;
+- no fragment and multiple fragment spellings;
+- an owner-recognized credential slot and its rotation, including
+  case-insensitive `auth`, consecutive `auth` segments, and empty path segments
+  between `auth` and its credential; and
 - distinct canonical paths that full-URL display reconstruction folds,
   including encoded trailing whitespace after a non-ASCII segment.
 
@@ -525,6 +532,8 @@ behaviors redefined here.
 The following gates run in `src/NuGetFetch.Tests` in Release:
 
 - `PackageSourceIdentity_SignedQueryRotationKeepsProducer`;
+- `PackageSourceIdentity_QueryPresenceDoesNotChangeProducer`;
+- `PackageSourceIdentity_FragmentRotationKeepsProducer`;
 - `PackageSourceIdentity_DistinctNonCredentialPathsRemainDistinct`;
 - `PackageSourceIdentity_RootAndDoubleSlashRemainDistinct`;
 - `PackageSourceIdentity_ScopedIpv6ZonesRemainDistinct`;
