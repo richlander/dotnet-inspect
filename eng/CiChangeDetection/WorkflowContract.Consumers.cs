@@ -17,9 +17,6 @@ internal static partial class WorkflowContract
             ["test"] =
                 "needs.changes.outputs.code == 'true' && " +
                 "github.event_name != 'push'",
-            ["test-windows"] =
-                "needs.changes.outputs.code == 'true' && " +
-                "github.event_name != 'push'",
             ["build-net10"] =
                 "needs.changes.outputs.shipped == 'true' && " +
                 "github.event_name != 'push'",
@@ -155,27 +152,6 @@ internal static partial class WorkflowContract
                 "steps.iltools.outcome == 'failure'",
             ["test/Check GitHub Packages fixture result"] =
                 "steps.package_fixture.outcome == 'failure'",
-            ["test-windows/Run CLI tests (all)"] =
-                "${{ !cancelled() && steps.build.outcome == 'success' }}",
-            ["test-windows/Run CSharpText tests"] =
-                "${{ !cancelled() && steps.build.outcome == 'success' }}",
-            ["test-windows/Run artifact contract tests"] =
-                "${{ !cancelled() && steps.build.outcome == 'success' }}",
-            ["test-windows/Run decompiler unit tests (fast)"] =
-                "${{ !cancelled() && steps.build.outcome == 'success' }}",
-            ["test-windows/Run NuGetFetch tests (offline)"] =
-                "${{ !cancelled() && steps.build.outcome == 'success' }}",
-            ["test-windows/Run metadata tests"] =
-                "${{ !cancelled() && steps.build.outcome == 'success' }}",
-            ["test-windows/Run services tests"] =
-                "${{ !cancelled() && steps.build.outcome == 'success' }}",
-            ["test-windows/Run query tests"] =
-                "${{ !cancelled() && steps.build.outcome == 'success' }}",
-            ["test-windows/Run Research tests"] =
-                "${{ !cancelled() && steps.build.outcome == 'success' }}",
-            ["test-windows/Check ilasm/ildasm result"] =
-                "${{ !cancelled() && steps.build.outcome == 'success' && " +
-                "steps.iltools.outcome != 'success' }}",
             ["decompiler-gates/Upload gate report"] = "always()",
             ["csharp-diff-smoke/Upload C# Diff smoke artifact"] = "always()",
             ["il-diff-smoke/Upload IL Diff smoke artifact"] = "always()",
@@ -186,7 +162,6 @@ internal static partial class WorkflowContract
             "test/Run GitHub Packages fixture test",
             "test/Run PR decompiler corpus sensor",
             "test/Install ilasm/ildasm/mdv",
-            "test-windows/Install ilasm/ildasm",
             "decompiler-gates/Run decompiler gates",
         };
         var allowedShell = new Dictionary<string, string>(
@@ -195,8 +170,6 @@ internal static partial class WorkflowContract
             ["test/Run GitHub Packages fixture test"] = "bash",
             ["test/Run PR decompiler corpus sensor"] = "bash",
             ["test/Install ilasm/ildasm/mdv"] = "bash",
-            ["test-windows/Install ilasm/ildasm"] = "bash",
-            ["test-windows/Check ilasm/ildasm result"] = "bash",
             ["csharp-diff-smoke/Run C# Diff baseline smoke"] = "bash",
             ["il-diff-smoke/Run IL Diff baseline smoke"] = "bash",
             ["skill-gate/Run embedded skill tests"] = "bash",
@@ -209,14 +182,11 @@ internal static partial class WorkflowContract
             ["test/Run PR decompiler corpus sensor"] =
                 "decompiler_pr_corpus",
             ["test/Install ilasm/ildasm/mdv"] = "iltools",
-            ["test-windows/Build"] = "build",
-            ["test-windows/Install ilasm/ildasm"] = "iltools",
             ["decompiler-gates/Run decompiler gates"] = "gates",
         };
         var allowedTimeoutMinutes = new Dictionary<string, string>(
             StringComparer.Ordinal)
         {
-            ["test-windows/Install ilasm/ildasm"] = "5",
             ["decompiler-gates/Run decompiler gates"] = "45",
         };
         var seenIf = new HashSet<string>(StringComparer.Ordinal);
@@ -234,7 +204,6 @@ internal static partial class WorkflowContract
                 "steps",
                 $"jobs.{jobName}");
             var identities = new HashSet<string>(StringComparer.Ordinal);
-            bool windowsBuildSeen = false;
             foreach (YamlNode stepNode in steps.Children)
             {
                 YamlMappingNode step = RequireMapping(
@@ -249,24 +218,6 @@ internal static partial class WorkflowContract
                 }
 
                 string key = $"{jobName}/{identity}";
-                if (key == "test-windows/Build")
-                {
-                    windowsBuildSeen = true;
-                }
-                if (key == "test-windows/Run Research tests")
-                {
-                    if (!windowsBuildSeen)
-                    {
-                        throw new InvalidOperationException(
-                            $"{key} must run after test-windows/Build.");
-                    }
-                    RequireScalarValue(
-                        step,
-                        "run",
-                        "dotnet run --project " +
-                        "src/ILInspector.Research.Tests -c Release -- -failSkips",
-                        key);
-                }
                 ValidateOptionalStepValue(
                     step,
                     "if",
