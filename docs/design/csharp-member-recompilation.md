@@ -543,8 +543,10 @@ local declaration receipt. It completes only when the existing owner-issued
 correspondence for that generated construct uniquely relates it to a rebuilt
 definition. Different construct kinds may consume different owner-issued
 correspondence results; tools select by typed construct evidence, not generated
-name text. An unrecognized, forged, absent, or ambiguous generated shape makes
-the compile-context receipt unavailable.
+name text. Tools accept or refuse correspondence exactly within the issuing
+owner's documented threat boundary and make no stronger provenance-
+authentication claim. An absent, unsupported, or ambiguous correspondence
+makes the compile-context receipt unavailable.
 
 The external arm is local to the frozen compile context. It uses the selected
 descriptor ID and terminal type-definition token, not an opaque catalog key
@@ -742,23 +744,25 @@ must identify the legacy policy.
 
 ### Product-whole-member admission
 
-Creating a product-owned artifact is provisional selection, not admission.
-`ProductWholeMemberAdmission` is evaluated only after:
-
-1. the exact artifact and typed declaration plan were produced;
-2. the frozen reference set was selected without ambiguity;
-3. signature, declaration, and body closure are `Complete`;
-4. all Metadata `LocalRequirement` values have declaration receipts;
-5. its exact artifact-specific `CompileContextReceipt` is complete.
+Requesting the product-whole-member policy starts one progressive
+`ProductWholeMemberAdmission` transition. It may decline before an artifact is
+produced, fail after the product path is selected, or admit only after all
+prerequisites succeed.
 
 The closed result is:
 
-- `Admitted`, carrying artifact, compile-context digest, closure, compilation,
-  and rebuilt-binding receipts;
-- `Declined`, carrying typed pre-compilation closure or ambiguity reasons and
-  the selected legacy policy, when permitted;
-- `Failed`, carrying an artifact, compilation, rebuilt-resolution, or binding
-  failure after provisional selection.
+- `Declined` when reference selection, declaration planning, closure, or local
+  requirements fail before compilation. It carries the typed reasons and the
+  selected legacy policy, when permitted.
+- `Failed` when artifact production, compilation, rebuilt resolution, or
+  binding fails after the product path is selected. It retains every product
+  artifact and partial receipt that exists.
+- `Admitted` only after the exact artifact and typed declaration plan exist, the
+  frozen reference set is unambiguous, signature/declaration/body closure is
+  `Complete`, every Metadata `LocalRequirement` has a declaration receipt, and
+  the exact artifact-specific `CompileContextReceipt` is complete. It carries
+  artifact, compile-context digest, closure, compilation, and rebuilt-binding
+  receipts.
 
 The current `UsedProductWholeMember` boolean cannot represent these states. It
 may remain as a compatibility projection only if it means `Admission is
@@ -963,16 +967,28 @@ Issue #4810 adds these named gates:
     boundary for a type used only by the body.
 13. `RebuiltSynthesizedBindingUsesOwnerCorrespondence` uses compiler-produced
     async, iterator, and supported closure/local-function shapes to prove unique
-    correspondence can complete the receipt; an absent, forged, unsupported, or
-    ambiguous generated shape remains unavailable.
-14. `ExactRequiresNonVacuousCompileContextReceipts` removes each closure,
-    local-declaration, and rebuilt-binding check from each artifact policy in
-    turn and proves the fixture cannot report `Exact`.
-15. `CompleteNeighboringArtifactRemainsProductAdmitted` compiles an unambiguous
+    correspondence can complete the receipt; an absent, unsupported, or
+    ambiguous owner result remains unavailable. The gate makes no provenance
+    authentication claim beyond the issuing correspondence contract.
+14. `ExactRequiresNonVacuousCompileContextReceipts` uses the same product and
+    legacy fixtures for both arms. With complete closure, local-declaration, and
+    rebuilt-binding receipts each fixture reports `Exact`; withholding or
+    mismatching each required component in turn changes that result away from
+    `Exact`. Deleting the corresponding gating condition is mutation-verified
+    to make its negative arm fail by incorrectly reporting `Exact`.
+15. `ClusterConvergenceDiscardsSupersededReceipts` uses a compiled fixture whose
+    first iteration contributes a typed declaration root and whose replacement
+    plan converges. Its first-iteration artifact, closure, and failed-compilation
+    evidence is discarded; only receipts carrying the converged artifact digest
+    may survive. A typed seam separately injects a binding receipt carrying the
+    earlier digest. Reusing any earlier evidence produces a context mismatch and
+    cannot report `Exact`; bypassing invalidation is mutation-verified to fail
+    the gate.
+16. `CompleteNeighboringArtifactRemainsProductAdmitted` compiles an unambiguous
     neighboring member and proves `Admitted` plus the expected fidelity result.
-16. `TargetedAndBatchUseIdenticalCompileContextPlanning` proves equal reference
+17. `TargetedAndBatchUseIdenticalCompileContextPlanning` proves equal reference
     digests, closure outcomes, and admission outcomes for the same member.
-17. `CompileBackResultRetainsReceiptsAfterOwnerDisposal` proves all reference,
+18. `CompileBackResultRetainsReceiptsAfterOwnerDisposal` proves all reference,
     closure, admission, diagnostic, and binding evidence remains readable after
     disposable owners are gone.
 
