@@ -845,7 +845,12 @@ with all required reviewers.
 
 Give every reviewer the same self-contained prompt and a separate worktree.
 Review the whole head unless the user narrows scope. Reproduce findings before
-acting on them, wait for all locked-head reviews, and reconcile publicly. Follow
+acting on them, wait for all locked-head reviews, and reconcile publicly.
+
+Word the prompt as a description of the property under test, not as an attack
+brief. A prompt that reads as an exploit tutorial can trip a model's content
+filter, and it fails silently: the reviewer returns nothing and looks broken.
+Suspect the prompt before the model when a reviewer returns empty. Follow
 [running a round](docs/round-orchestration.md#running-a-round) for mechanics and
 reporting.
 
