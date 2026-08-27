@@ -330,6 +330,11 @@ The lifted-source-owner resolver owns acquisition-scoped local-function/lambda
 owner correlation, memoized owner-body reference evidence, top-level
 entry-point authentication, and classic async state-machine type-name
 resolution. It reuses primary metadata identity and generated-code judgments.
+`LibraryBodyDeclaredSourceResolver` composes that lifted ownership with async
+source mapping. It owns bounded ultimate-owner traversal, declared-method
+resolution, the async/lifted/async scoped-evidence expansion sequence, and
+final declared-source publication with recoverable diagnostics, without
+owning metadata lifetime.
 `OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce`,
 `OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies`, and
 `LiftedOwnerMemberIdentity_RetainsExactAssemblyReferenceScope` gate cache
