@@ -38,6 +38,24 @@ public class PackageSearchCommand
             if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
                 return 1;
 
+            if (!options.Count
+                && (options.Fields is { Length: > 0 }
+                    || options.Columns is { Length: > 0 }))
+            {
+                CommandError.Write(
+                    "--fields/--columns are not available with package search unless "
+                    + "--count is projecting the search rows.");
+                return 1;
+            }
+
+            if (!options.Count && options.OutputPath is not null)
+            {
+                CommandError.Write(
+                    "--out is not available with package search unless --count is "
+                    + "writing the count payload.");
+                return 1;
+            }
+
             var outcome = await NuGetSearchService.SearchAsync(
                 context.HttpClient,
                 options.Query,
@@ -83,7 +101,11 @@ public class PackageSearchCommand
 
             if (results.Count == 0)
             {
-                CommandError.WriteLine($"No packages found for \"{options.Query}\".");
+                if (outcome.Results.Count == 0)
+                    CommandError.WriteLine($"No packages found for \"{options.Query}\".");
+                else
+                    CommandError.WriteLine(
+                        $"No packages are in the requested row window for \"{options.Query}\".");
                 return exitCode;
             }
 

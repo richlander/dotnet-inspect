@@ -11241,26 +11241,15 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task ProjectedJsonRoutingAudit_PackageSearchInheritedWindowAndDestinationAreApplied()
     {
-        using var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-        var sourceUrl = $"http://127.0.0.1:{port}/index.json";
-        var searchUrl = $"http://127.0.0.1:{port}/query";
         var outputPath = Path.Combine(
             Path.GetTempPath(),
             $"package-search-count-{Guid.NewGuid():N}.txt");
-        var server = ServePackageSearchFixtureAsync(
-            listener,
-            searchUrl,
-            TestContext.Current.CancellationToken);
 
         try
         {
-            var (exit, output, error) = await RunAppAsync(
+            var (exit, output, error) = await RunPackageSearchFixtureAsync(
                 "package", "--rows", "1", "--out", outputPath,
-                "search", "Fixture", "--count", "--take", "2",
-                "--source", sourceUrl);
-            await server;
+                "search", "Fixture", "--count", "--take", "2");
 
             Assert.Equal(0, exit);
             Assert.Empty(output);
@@ -11268,6 +11257,85 @@ public partial class CommandExecutionTests
                 outputPath,
                 TestContext.Current.CancellationToken));
             Assert.Empty(error);
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Theory]
+    [InlineData("--jsonl", "--columns=Package")]
+    [InlineData("--plaintext", "--columns=Package")]
+    [InlineData("--layout", null)]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchInheritedModesFailBeforeNetwork(
+        string option,
+        string? secondOption)
+    {
+        var args = new List<string> { "package", option };
+        if (secondOption is not null)
+            args.Add(secondOption);
+        args.AddRange(
+        [
+            "search",
+            "ThisQueryMustNotReachTheNetwork",
+            "--source",
+            "http://127.0.0.1:9/index.json",
+        ]);
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains($"{option} is not available with package search", error);
+        Assert.DoesNotContain("NuGet source", error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchInheritedDiscoveryFailsBeforeNetwork()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "-D", "--rows", "1",
+            "search", "ThisQueryMustNotReachTheNetwork", "--count",
+            "--source", "http://127.0.0.1:9/index.json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("-D is not available with package search", error);
+        Assert.DoesNotContain("NuGet source", error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchEmptyWindowIsNotAnEmptySearch()
+    {
+        var (exit, output, error) = await RunPackageSearchFixtureAsync(
+            "package", "--rows", "3..4",
+            "search", "Fixture", "--take", "2");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output);
+        Assert.Contains("requested row window", error);
+        Assert.DoesNotContain("No packages found", error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchOutputPathFailsBeforeNetwork()
+    {
+        var outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"package-search-{Guid.NewGuid():N}.txt");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", "--out", outputPath,
+                "search", "ThisQueryMustNotReachTheNetwork",
+                "--source", "http://127.0.0.1:9/index.json");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("--out is not available with package search", error);
+            Assert.DoesNotContain("NuGet source", error);
+            Assert.False(File.Exists(outputPath));
         }
         finally
         {
@@ -11301,6 +11369,70 @@ public partial class CommandExecutionTests
         Assert.Empty(output);
         Assert.Contains($"{projection} is not available with {lens}", error);
         Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("--versions")]
+    [InlineData("--versions-with-feed")]
+    [InlineData("--latest-version")]
+    [InlineData("--tfms")]
+    [InlineData("--layout")]
+    [InlineData("--content")]
+    public async Task ProjectedJsonRoutingAudit_PackageLensFieldsFailBeforeAcquisition(
+        string lens)
+    {
+        var target = lens is "--versions" or "--versions-with-feed" or "--latest-version"
+            ? "ThisQueryMustNotReachTheNetwork"
+            : Path.Combine(
+                Path.GetTempPath(),
+                "ThisPackageMustNotBeAcquired.nupkg");
+        var args = new List<string>
+        {
+            "package",
+            target,
+            lens,
+            "--tsv",
+            "--columns=ZZZBogus",
+        };
+        if (lens == "--content")
+            args.Insert(2, "--path=README.md");
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"--fields/--columns are not available with {lens}",
+            error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task<(int Exit, string Output, string Error)>
+        RunPackageSearchFixtureAsync(params string[] args)
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var sourceUrl = $"http://127.0.0.1:{port}/index.json";
+        var searchUrl = $"http://127.0.0.1:{port}/query";
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        var server = ServePackageSearchFixtureAsync(
+            listener,
+            searchUrl,
+            timeout.Token);
+
+        try
+        {
+            var result = await RunAppAsync([.. args, "--source", sourceUrl]);
+            await server;
+            return result;
+        }
+        finally
+        {
+            timeout.Cancel();
+        }
     }
 
     private static async Task ServePackageSearchFixtureAsync(
@@ -11361,11 +11493,18 @@ public partial class CommandExecutionTests
                 "package", packagePath,
                 "--layout", "--json", "--columns", "Path", "--tips", "q");
 
-            foreach (var result in new[] { versions, tfms, layout })
+            foreach (var (lens, result) in new[]
+            {
+                ("--versions", versions),
+                ("--tfms", tfms),
+                ("--layout", layout),
+            })
             {
                 Assert.Equal(1, result.Exit);
                 Assert.Empty(result.Output);
-                Assert.Contains("requires lowered JSON", result.Error);
+                Assert.Contains(
+                    $"--fields/--columns are not available with {lens}",
+                    result.Error);
             }
         }
         finally

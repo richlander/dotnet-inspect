@@ -104,7 +104,10 @@ public static class PackageCommandDefinitions
         opts.AddNuGetOptionsTo(packageCommand);
 
         // Search subcommand
-        var searchCommand = CreatePackageSearchCommand(opts, outOption);
+        var searchCommand = CreatePackageSearchCommand(
+            opts,
+            packageCommand,
+            outOption);
         packageCommand.Subcommands.Add(searchCommand);
 
         var commandArgs = new PackageOptionsParser.PackageCommandArgs(
@@ -158,6 +161,7 @@ public static class PackageCommandDefinitions
     /// </summary>
     public static Command CreatePackageSearchCommand(
         SharedOptions opts,
+        Command packageCommand,
         Option<string?> inheritedOutOption)
     {
         var searchCommand = new Command(PackageSearchCommand.Name, "Search NuGet for packages by keyword");
@@ -189,6 +193,38 @@ public static class PackageCommandDefinitions
 
         searchCommand.SetAction(async (parseResult, ct) =>
         {
+            var acceptedParentOptions = new HashSet<Option>
+            {
+                opts.Json,
+                opts.Markdown,
+                opts.Verbose,
+                opts.Info,
+                opts.Limit,
+                opts.Count,
+                opts.Source,
+                opts.AddSource,
+                opts.NuGetConfig,
+                opts.Print,
+                opts.Value,
+                opts.Urls,
+                opts.Paths,
+                opts.Rows,
+                opts.Head,
+                opts.Tail,
+                opts.Fields,
+                opts.Columns,
+                inheritedOutOption,
+            };
+            var unsupportedParentOption = packageCommand.Options.FirstOrDefault(
+                option => !acceptedParentOptions.Contains(option)
+                    && parseResult.GetResult(option) is { Implicit: false });
+            if (unsupportedParentOption is not null)
+            {
+                CommandError.Write(
+                    $"{unsupportedParentOption.Name} is not available with package search.");
+                return 1;
+            }
+
             var query = parseResult.GetValue(queryArg);
 
             if (string.IsNullOrEmpty(query))

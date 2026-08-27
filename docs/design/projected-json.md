@@ -630,11 +630,16 @@ Existing pilot coverage proves only the currently wired slice:
   `ProjectedJsonRoutingAudit_IlOffsetsProjectionFailsClosed`,
   `ProjectedJsonRoutingAudit_MultiPackagePayloadProjectionsFailClosed`,
   `ProjectedJsonRoutingAudit_NarrowedDiscoveryOwnsProjectionValidation`,
+  `ProjectedJsonRoutingAudit_PackageLensFieldsFailBeforeAcquisition`,
   `ProjectedJsonRoutingAudit_PackageLensPayloadFailsBeforeAcquisition`,
   `ProjectedJsonRoutingAudit_PackageLensRoutesFailClosed`,
+  `ProjectedJsonRoutingAudit_PackageSearchEmptyWindowIsNotAnEmptySearch`,
+  `ProjectedJsonRoutingAudit_PackageSearchInheritedDiscoveryFailsBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_PackageSearchInheritedModesFailBeforeNetwork`,
   `ProjectedJsonRoutingAudit_PackageSearchInheritedPayloadFailsBeforeNetwork`,
   `ProjectedJsonRoutingAudit_PackageSearchInheritedProjectionFailsClosed`,
   `ProjectedJsonRoutingAudit_PackageSearchInheritedWindowAndDestinationAreApplied`,
+  `ProjectedJsonRoutingAudit_PackageSearchOutputPathFailsBeforeNetwork`,
   `ProjectedJsonRoutingAudit_TypeShapeFailsClosed`, and
   `ProjectedJsonRoutingAudit_TypeShapePayloadProjectionsFailClosed`
   tests, together with the existing `type`, `member`, `project`, `find`,

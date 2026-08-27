@@ -202,10 +202,14 @@ public class PackageCommand
                 return lensProjectionExit;
             }
 
-            // These lenses return before the typed-document guard and may acquire package data.
             if (packageLens is not null
-                && ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                && !options.Count
+                && (options.Fields is { Length: > 0 }
+                    || options.Columns is { Length: > 0 }))
             {
+                CommandError.Write(
+                    $"--fields/--columns are not available with {packageLens}, which "
+                    + "renders its own payload. Omit the projection to keep the lens output.");
                 return 1;
             }
 
