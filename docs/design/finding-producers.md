@@ -94,6 +94,67 @@ context, and projection failures such as `DEC0001`-`DEC0003` are inspection
 failures, while a method's `Full` or `Partial` fidelity is a fold over its cause
 census. Human diagnostic messages are not occurrence identity.
 
+### Admit body topology before native comparison
+
+**Status:** target producer-adoption contract for #4796; unimplemented until
+the Findings gates named in
+[Finding Nomenclature](finding-nomenclature.md#typed-inspection-topology) land.
+The adjacent producer obligations below are unverified pending focused
+migrations in each native owner.
+
+Body differs use the shared
+[typed inspection topology](finding-nomenclature.md#typed-inspection-topology)
+rather than encoding a missing endpoint as a pairwise diff failure.
+
+The producer-specific adapter evaluates each exact endpoint:
+
+- a successfully inspected body is `Complete`, including a valid empty
+  observation census;
+- a proven missing target is `Absent(SubjectAbsent)`;
+- an existing bodyless or non-method-like target is
+  `Absent(NoApplicableInput)`; and
+- unavailable acquisition, resolution, decode, or canonicalization evidence is
+  `Failed`.
+
+The adapter owns this classification and retains its typed target, body, and
+absence evidence in the producer-native result. `Absent.Detail` may explain the
+state but cannot authorize it. APIs must not interpret a null body, reader,
+handle, stream, or collection as absence; the caller supplies an explicit
+owner-issued endpoint or the adapter returns failure.
+
+For a Finding-backed producer, `FindingComparison.Compare` retains the endpoint
+transition and folds native observations. `Complete`/`Absent` can produce
+native added or removed observations, but that statement is not total:
+`Complete([])`/`Absent` has no observation pair while its inspection topology
+still differs. Consumers must inspect the transition rather than pair count
+when endpoint topology is user-visible.
+
+A native differ whose canonicalization genuinely requires both inputs may keep
+that two-body algorithm. Its outer result retains the corresponding native
+Finding comparison and shared inspection transition, and invokes the native
+algorithm only for `Complete`/`Complete`. Other non-failed combinations are
+terminal topology outcomes; any failed endpoint prevents native comparison.
+Pair-dependent canonicalization must not be recast as one-version Findings.
+
+Old-body-missing and new-body-missing are endpoint topology, not decode or
+comparison failures. Producer migrations retire bespoke missing-body failure
+kinds after their typed inspection path is wired. Consumers retain the native
+transition and result instead of translating a failure string or enum into an
+added/removed conclusion.
+
+These are producer-boundary obligations, not permission for a producer to
+resolve selectors or infer cross-version target correspondence. The caller
+supplies exact endpoints or typed absence evidence; the producer decides
+whether it can inspect them and owns its native observations, pair algorithm,
+and result.
+
+These adoption properties are **unverified** in #4796. Each producer migration
+must name owner-specific gates for explicit endpoint evidence, null rejection,
+skipping native comparison for non-`Complete` endpoints, retaining the topology
+transition, and retiring bespoke missing-body failures. The Findings gates
+prove the shared state and transition contract; they do not prove adjacent
+producer wiring.
+
 ## 5. Choose identity and ordering semantics
 
 The producer owns stable observation identity:
