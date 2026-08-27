@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
@@ -42,8 +42,15 @@ interface OxlintOverride {
   readonly rules?: Readonly<Record<string, unknown>>;
 }
 
+interface OxlintOptions {
+  readonly denyWarnings?: boolean;
+  readonly reportUnusedDisableDirectives?: string;
+  readonly typeAware?: boolean;
+}
+
 interface OxlintConfig {
   readonly ignorePatterns?: readonly string[];
+  readonly options?: OxlintOptions;
   readonly overrides?: readonly OxlintOverride[];
   readonly rules?: Readonly<Record<string, unknown>>;
 }
@@ -231,7 +238,24 @@ for (const [name, project] of [
 // (GPT-5.6 Sol) defeated the previous list-based version by putting an unchecked
 // JavaScript file in `public/`, which Vite copies verbatim into `dist/`: it shipped while
 // `npm test`, `npm run analyze`, and `npm run build` all stayed green.
-const generatedDirectories = new Set(["node_modules", "dist", "bin", "obj"]);
+//
+// Pruning by bare directory name was the next round's finding, from both reviewers: `bin`
+// and `obj` are MSBuild output next to a project file, and `dist` is Vite output at the
+// project root, but the name alone means nothing anywhere else. `public/bin/probe.js`
+// (Sol) and `public/dist/bypass.js` (Gemini 3.1 Pro) each shipped through that hole. A
+// directory is therefore pruned for what produced it, not for what it is called.
+function isGenerated(directory: string, name: string, root: string): boolean {
+  if (name === "node_modules") {
+    return true;
+  }
+  if (name === "dist") {
+    return resolve(directory) === resolve(root);
+  }
+  if (name === "bin" || name === "obj") {
+    return readdirSync(directory).some(sibling => sibling.endsWith(".csproj"));
+  }
+  return false;
+}
 
 // Converting this file from JavaScript put it inside its own scan. The suppression
 // directives below are therefore assembled from parts rather than spelled out: a literal
@@ -246,7 +270,7 @@ function projectFiles(extensions: readonly string[]): string[] {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const full = join(directory, entry.name);
       if (entry.isDirectory()) {
-        if (!generatedDirectories.has(entry.name)) {
+        if (!isGenerated(directory, entry.name, root)) {
           walk(full);
         }
       } else if (entry.isFile()
@@ -258,6 +282,15 @@ function projectFiles(extensions: readonly string[]): string[] {
   walk(root);
   return files;
 }
+
+// Every extension the TypeScript compiler and oxlint both recognise as source. Listing
+// them in one place is what lets the two coverage gates below ask "is every source file
+// checked?" instead of "is every file I remembered to think of checked?" -- `.mts` was
+// Sol's finding: `scripts/probe.mts` with a type error in it passed every gate, because
+// `tsconfig.node.json` included `scripts/**/*.ts` and nothing considered `.mts` at all.
+const typeScriptExtensions = [".ts", ".mts", ".cts", ".tsx"] as const;
+const javaScriptExtensions = [".js", ".mjs", ".cjs", ".jsx"] as const;
+
 
 test("no source file suppresses type checking", () => {
   const root = new URL("../", import.meta.url);
@@ -292,7 +325,7 @@ test("no source file suppresses type checking", () => {
 // deleted file fails too.
 test("the only JavaScript is the file the lint exemption names", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
-  const present = projectFiles([".js", ".jsx", ".mjs", ".cjs"])
+  const present = projectFiles(javaScriptExtensions)
     .map(file => file.slice(root.length))
     .sort();
   const exempted = (oxlintConfig.overrides ?? [])
@@ -305,6 +338,97 @@ test("the only JavaScript is the file the lint exemption names", () => {
       + "type-aware lint rules the rest of the project is held to");
   assert.deepEqual(exempted, present,
     "the lint exemption and the JavaScript it covers must name the same files");
+});
+
+// The gate above asks whether a file is TypeScript. It does not ask whether anything
+// compiles it, and those are different questions: `scripts/probe.mts` and a root-level
+// `bypass.ts` are both unimpeachably TypeScript, and both sailed through every gate in
+// round 1 because no `tsconfig` include glob happened to match them.
+//
+// Restating the globs here would reproduce the bug, so this asks the compiler instead.
+// `tsc --showConfig` resolves `include` against the disk and emits the concrete `files`
+// it will read, which is the actual answer to "what is checked?" -- the union across the
+// three projects must contain every TypeScript file the walk can find.
+// `tsc --showConfig` emits JSON, which parses as `any`; narrowing it through a guard
+// rather than asserting a shape keeps this file subject to the same `no-unsafe-*` rules
+// it exists to defend. An unrecognised shape yields no files, and the caller's emptiness
+// assertion turns that into a failure rather than a silently empty check.
+function resolvedProjectFiles(resolved: unknown): readonly string[] {
+  if (typeof resolved !== "object" || resolved === null || !("files" in resolved)) {
+    return [];
+  }
+  const { files } = resolved;
+  if (!Array.isArray(files)) {
+    return [];
+  }
+  return files.filter((file): file is string => typeof file === "string");
+}
+
+test("every TypeScript file belongs to a compiler project", () => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const projects = ["tsconfig.json", "test/tsconfig.json", "tsconfig.node.json"];
+  const checked = new Set<string>();
+
+  for (const project of projects) {
+    const shown = spawnSync(
+      "npx",
+      ["tsc", "--showConfig", "-p", project],
+      { cwd: root, encoding: "utf8" });
+    assert.equal(shown.status, 0,
+      `tsc --showConfig -p ${project} failed: ${shown.stderr}`);
+    const resolved: unknown = JSON.parse(shown.stdout);
+    const files = resolvedProjectFiles(resolved);
+    assert.ok(files.length > 0, `${project} resolved to no files at all`);
+    // `files` is emitted relative to the project file, not to the working directory.
+    const projectDirectory = dirname(resolve(root, project));
+    for (const file of files) {
+      checked.add(resolve(projectDirectory, file));
+    }
+  }
+
+  const authored = projectFiles(typeScriptExtensions);
+  assert.ok(authored.length > 50,
+    `expected the TypeScript sources, found ${authored.length}; a walk that finds `
+      + "nothing would satisfy the emptiness assertion below without checking anything");
+  const unchecked = authored
+    .filter(file => !checked.has(resolve(file)))
+    .map(file => relative(root, file))
+    .sort();
+
+  assert.deepEqual(unchecked, [],
+    "these TypeScript files are in no compiler project, so `npm run typecheck` reads "
+      + "neither their types nor their errors; add them to a tsconfig `include`");
+});
+
+// And the same question for the lint, which is invoked on an explicit list of paths
+// rather than on the project. A file outside every one of those paths is linted by
+// nothing, which is how a root-level script escaped the `no-unsafe-*` rules entirely.
+test("every source file is covered by a lint target", () => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const lint = packageJson.scripts?.lint ?? "";
+  const oxlintCall = lint.slice(lint.indexOf("oxlint "));
+  const targets = oxlintCall
+    .split(/\s+/u)
+    .slice(1)
+    .filter(argument => !argument.startsWith("-"));
+
+  assert.ok(targets.length > 0, "the lint script names no files to lint");
+
+  const sources = projectFiles([...typeScriptExtensions, ...javaScriptExtensions]);
+  assert.ok(sources.length > 50,
+    `expected the project sources, found ${sources.length}`);
+  const covered = (file: string): boolean => {
+    const path = relative(root, file);
+    return targets.some(target => path === target || path.startsWith(`${target}/`));
+  };
+  const unlinted = sources
+    .filter(file => !covered(file))
+    .map(file => relative(root, file))
+    .sort();
+
+  assert.deepEqual(unlinted, [],
+    "these files are outside every path the lint script passes to oxlint; add the path "
+      + "to the `lint` script rather than leaving the file unlinted");
 });
 
 // Sol also walked past the assertion above entirely by turning a rule off at the top
@@ -325,6 +449,38 @@ test("the unsafe-operation rules stay enabled for authored source", () => {
   assert.deepEqual(oxlintConfig.ignorePatterns ?? [], [],
     "an ignore pattern removes files from the lint run rather than from these rules");
 });
+
+// Every rule above is type-aware, and oxlint runs type-aware rules only when asked. Sol
+// found that `options.typeAware: false` left them all silently inert; the only thing that
+// caught it was incidental, existing `oxlint-disable` directives in the test suite
+// becoming "unused" and tripping `reportUnusedDisableDirectives`. Turning that off too
+// was completely green. Relying on an accident is not enforcement, so the switches are
+// pinned directly.
+test("the lint runs in the mode the unsafe-operation rules require", () => {
+  assert.equal(oxlintConfig.options?.typeAware, true,
+    "the no-unsafe-* rules are type-aware and do not run at all without this");
+  assert.equal(oxlintConfig.options?.reportUnusedDisableDirectives, "error",
+    "a stale disable directive is how a rule stops applying without anyone noticing");
+  assert.equal(oxlintConfig.options?.denyWarnings, true,
+    "a rule demoted to a warning does not fail the lint run");
+});
+
+// The config file the gates above read is not necessarily the config the lint obeys.
+// oxlint merges a nested `.oxlintrc.json` found beside the linted files, and honours
+// `.eslintignore`; either one re-opens every hole this file closes while `.oxlintrc.json`
+// still reads exactly as asserted. Both were verified: a nested config in `scripts/` and
+// an `.eslintignore` entry each returned `npm run analyze` to green with an unsafe `any`
+// file present. The invocation therefore refuses both, and this pins the refusal.
+test("the lint invocation refuses config and ignore files it did not declare", () => {
+  const lint = packageJson.scripts?.lint ?? "";
+
+  assert.match(lint, /\boxlint\b/u, "the lint script must run oxlint");
+  assert.ok(lint.includes("--no-ignore"),
+    "without this an .eslintignore file silently drops sources from the lint run");
+  assert.ok(lint.includes("--disable-nested-config"),
+    "without this a nested .oxlintrc.json silently overrides the rules pinned above");
+});
+
 
 test("static hosting serves credits links through the application entry point", () => {
   const creditsRoutes = staticWebAppConfig.routes
@@ -432,7 +588,8 @@ test("the analysis host check matches locked native packages and lint wiring", (
 
   assert.equal(
     packageJson.scripts.lint,
-    "node scripts/verify-analysis-host.ts && oxlint src test scripts "
+    "node scripts/verify-analysis-host.ts && "
+      + "oxlint --no-ignore --disable-nested-config src test scripts "
       + "engine/wwwroot/inspect-web-engine.js vite.config.ts",
   );
 });

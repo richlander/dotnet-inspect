@@ -164,12 +164,22 @@ public class BrowserStaticWebAppConfigTests
     // `node`. Only unexpanded literals are considered: a path built from an MSBuild
     // property cannot be resolved here, and claiming otherwise would make this pass by
     // finding nothing to check.
+    //
+    // Both round 1 reviewers noted that matching the segment exactly against "node" made
+    // the gate vacuous the moment anyone passed Node an option, because the segment then
+    // reads "node --experimental-strip-types". Matching on the leading word instead keeps
+    // such a command covered, and `Assert.NotEmpty` alone would not have caught the
+    // regression: the other command would have kept the set non-empty.
     private static IEnumerable<string> NodeScriptArguments(string command)
     {
         string[] tokens = command.Split('"', StringSplitOptions.RemoveEmptyEntries);
         for (int index = 0; index + 1 < tokens.Length; index++)
         {
-            if (tokens[index].Trim() == "node" && !tokens[index + 1].Contains("$("))
+            string[] words = tokens[index]
+                .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length > 0
+                && Path.GetFileNameWithoutExtension(words[0]) == "node"
+                && !tokens[index + 1].Contains("$("))
                 yield return tokens[index + 1];
         }
     }

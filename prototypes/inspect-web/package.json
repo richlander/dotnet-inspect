@@ -12,7 +12,7 @@
     "preview": "vite preview",
     "test": "npm run typecheck && node --test",
     "typecheck": "tsc --noEmit && tsc --noEmit -p test/tsconfig.json && tsc --noEmit -p tsconfig.node.json",
-    "lint": "node scripts/verify-analysis-host.ts && oxlint src test scripts engine/wwwroot/inspect-web-engine.js vite.config.ts",
+    "lint": "node scripts/verify-analysis-host.ts && oxlint --no-ignore --disable-nested-config src test scripts engine/wwwroot/inspect-web-engine.js vite.config.ts",
     "analyze": "npm run lint && knip"
   },
   "devDependencies": {
