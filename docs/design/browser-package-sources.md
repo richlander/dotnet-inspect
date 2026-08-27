@@ -180,10 +180,10 @@ to represent NuGet.org through its canonical v3 service index while sharing the
 same package-source identity and provenance label. Transport strategy is a
 host capability, not a second visible producer.
 
-The canonical producer identity for both transports is
-`https://api.nuget.org/v3/index.json`. The Gallery browser client uses that
-identity without requesting the URL. A registry ID is a user-interface handle,
-not a producer identity or cache key.
+The canonical producer locator for both transports is
+`https://api.nuget.org/v3/index.json`. The Gallery browser client derives the
+same producer identity without requesting the locator. A registry ID is a
+user-interface handle, not a producer identity or cache key.
 
 Candidate caches additionally identify the discovery contract and its version,
 such as complete listing-aware enumeration versus keyword search. A
@@ -330,8 +330,8 @@ valid percent-escape hex digits use uppercase, and one optional trailing slash
 is folded. Path case and repeated trailing slashes remain distinct. Query and
 fragment are runtime transport data and do not enter producer identity. This
 preserves one producer across rotation of a signed query. A feed that serves
-distinct immutable content domains based on query credentials is incompatible
-with this contract and requires distinct endpoint paths.
+distinct immutable content domains based on credentials is incompatible with
+this contract and requires a stable non-credential endpoint-path distinction.
 
 NuGet Gallery and the canonical NuGet.org v3 client intentionally share one
 producer identity while retaining different transport kinds. Other paths
@@ -343,42 +343,50 @@ remain distinct even when they share an origin. These properties are gated by
 ### Opaque key and safe display
 
 The identity retains no raw or credential-bearing producer locator.
-Construction derives two values and then discards the raw canonical locator:
+Construction redacts the canonical locator through
+`UrlRedaction.ForDiagnostics`, derives two values from that owner-issued safe
+result, and then discards the raw canonical locator:
 
-- `Key` is a versioned, fixed-width opaque digest of the canonical producer
-  locator. Equality, hashing, NuGetFetch-owned cache keys, and serialization
-  use this value.
-- `Display` is the `InertString` result of `UrlRedaction.ForDiagnostics` over
-  the canonical locator. Consumers may convert it to text for diagnostics; it
-  does not participate in equality or authorization.
+- `Display` is the resulting `InertString`. Consumers may convert it to text
+  for diagnostics but must not compare it or use it for authorization.
+- `Key` is a versioned, fixed-width opaque digest of the exact
+  `Display.ToString()` value. Equality, hashing, NuGetFetch-owned cache keys,
+  and serialization use this value.
 
 The HTTP key format is `p1-http-` followed by the lowercase hexadecimal
 SHA-256 digest. The version and source-kind namespace permit a future
-canonicalization change or a non-HTTP source to use a distinct key space
-instead of aliasing existing identities. The digest is computed over UTF-8
-bytes and is identical on desktop and Browser/Wasm. A consumer never parses
-the key to recover an endpoint.
+canonicalization or redaction-policy change, or a non-HTTP source, to use a
+distinct key space instead of aliasing existing identities. The digest is
+computed over the safe display's UTF-8 bytes and is identical on desktop and
+Browser/Wasm. A consumer never parses the key to recover an endpoint.
 
-A credential-bearing path such as `/auth/SECRET/` therefore contributes to the
-opaque key without retaining `SECRET` in the identity object, while `Display`
-uses the shared URL-redaction owner to replace the credential-bearing segment.
-Signed query text is absent from the canonical locator and can appear only as
-the redactor's fixed query marker when a runtime endpoint is displayed
-separately.
+A credential-bearing path such as `/auth/SECRET/` becomes
+`/auth/REDACTED/` before key derivation. Rotating that credential therefore
+changes neither display nor producer equality and leaves no secret-derived
+digest to test guesses against. Signed query text is absent from the canonical
+locator and can appear only as the redactor's fixed query marker when a runtime
+endpoint is displayed separately.
 
 `PackageSourceIdentity` defines equality and hashing from `Key` alone rather
 than from all stored record fields. `Display` is necessarily many-to-one:
-distinct credential-bearing paths can have the same redacted display while
-remaining distinct producers. That collision is why display text cannot
-participate in equality, cache keys, or authorization.
+rotated credential-bearing paths have the same redacted display and
+intentionally identify one producer. Non-credential path segments remain part
+of display and key derivation. A server that uses credential values to select
+distinct immutable content domains must expose a stable non-credential path
+distinction. Display text remains non-authoritative because a consumer's
+configured endpoint and credential scope are separate identities.
 
 `PackageSourceIdentity_KeyIsOpaqueStableAndPortable`,
+`PackageSourceIdentity_CredentialPathRotationKeepsProducer`,
 `PackageSourceIdentity_CredentialPathIsNotRetained`, and
 `PackageSourceIdentity_DisplayIsInertAndNonAuthoritative` gate these
 properties. The existing
 `HttpProducerIdentityFoldsIdnAndPercentEscapeSpelling` gate remains part of the
-canonicalization contract. Each gate includes a nearby non-secret path so an
-implementation that erases every path cannot pass.
+canonicalization contract. The opaque-key gate uses fixed expected vectors,
+including a credential-bearing path, so a canonicalization or redaction change
+fails until the key version and vectors change together. Each path gate
+includes a nearby non-secret path so an implementation that erases every path
+cannot pass.
 
 ### Typed result and failure contract
 
@@ -436,9 +444,19 @@ distinct. A new or omitted producer-bearing operation fails the gate.
 
 The current internal `Value` property is also consumed as a raw display value
 and as input to query-sensitive package credential and cache canonicalization.
-Replacing it with `Key` and `Display` is therefore a coordinated internal API
-migration, not a compatible representation change. The NuGetFetch
-implementation must not land until these consumer-owner prerequisites close:
+Replacing it with `Key` and `Display` is therefore a staged internal API
+migration, not one compatible representation change:
+
+1. NuGetFetch adds `Key` and `Display` alongside `Value`. Existing equality,
+   hashing, `Value`, and query-sensitive construction behavior remain
+   unchanged. This additive slice does not claim the safe-retention target.
+2. The consumer-owner prerequisites below migrate every `Value` use.
+3. NuGetFetch removes `Value`, retires query-sensitive identity construction,
+   and activates the target key-only equality, hashing, and safe-retention
+   contract.
+
+The final transition must not land until these consumer-owner prerequisites
+close:
 
 - #4797 preserves the package owner's query-sensitive configured-endpoint
   authority, stops package acquisition from feeding either new identity field
@@ -460,6 +478,7 @@ The following gates run in `src/NuGetFetch.Tests` in Release:
 - `PackageSourceIdentity_DistinctPathsRemainDistinct`;
 - `PackageSourceIdentity_GalleryAndV3ShareNuGetOrgProducer`;
 - `PackageSourceIdentity_KeyIsOpaqueStableAndPortable`;
+- `PackageSourceIdentity_CredentialPathRotationKeepsProducer`;
 - `PackageSourceIdentity_CredentialPathIsNotRetained`;
 - `PackageSourceIdentity_DisplayIsInertAndNonAuthoritative`;
 - `HttpProducerIdentityFoldsIdnAndPercentEscapeSpelling`;
