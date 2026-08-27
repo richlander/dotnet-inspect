@@ -172,16 +172,18 @@ Receiver erasure is compared recursively through corresponding positions in
 repository-authored wrappers. A wrapper position is receiver-bearing when it
 is the receiver itself or a repository-authored property, union constituent,
 tuple or array element, index result, callback result, generic constraint, or
-characterized standard wrapper output that is receiver-bearing. The comparison
-never discovers those positions by walking members declared on a DOM platform
-type.
+characterized standard wrapper output that is receiver-bearing. Every
+instantiated generic type argument is also compared, regardless of whether the
+generic declaration is product or platform owned. The comparison never
+discovers positions by walking members declared on a DOM platform type.
 
 For example, converting `{ value: HTMLElement }` to
 `{ value: Reader }`, `HTMLElement[]` to `Reader[]`, or
 `() => HTMLElement` to `() => Reader` compares the nested receiver position
-and rejects the capability-shaped structural target. The comparison is
-cycle-safe and uses the same characterized standard wrappers as transfer-root
-classification.
+and rejects the capability-shaped structural target. The same rule covers
+`NodeListOf<HTMLElement>` and `Map<string, Document>` through their instantiated
+type arguments. The comparison is cycle-safe and uses the same characterized
+standard wrappers as transfer-root classification.
 
 Call and construct parameters are compared contravariantly. When a callback or
 method accepting a capability-shaped structural parameter is assigned where a
@@ -345,12 +347,24 @@ contract and does not become trusted input merely because the verifier is
 clean.
 
 Selector ownership is based on cataloged selector and identifier constants, not
-every call to `querySelector`, `querySelectorAll`, or `getElementById`. Product
-modules may query DOM that they own. A covered selector used from any other
-module is rejected whether the receiver is `document`, an element, or another
-`ParentNode`. Extracting a DOM selector method outside a declared selector
-adapter is rejected because the later call can no longer be attributed safely
-to a selector owner.
+merely the call to `querySelector`, `querySelectorAll`, or `getElementById`.
+Every selector argument must resolve to one of:
+
+- a catalog constant owned by the calling adapter; or
+- the protected result of an exact dynamic-selector builder declared by that
+  adapter's descriptor.
+
+A dynamic descriptor owns the builder, its input grammar, and its output type.
+Only that builder may construct the output type. Widening either a catalog
+literal or a builder result to ordinary `string` loses owner identity and is
+rejected at the selector call; an unresolved selector argument has no implied
+owner.
+
+Product modules may query DOM that they own through those forms. A covered
+selector used from any other module is rejected whether the receiver is
+`document`, an element, or another `ParentNode`. Extracting a DOM selector
+method outside a declared selector adapter is rejected because the later call
+can no longer be attributed safely to a selector owner.
 
 ### Source scope and adapter identity
 
@@ -406,8 +420,8 @@ the verifier, initially:
 - resolve the signature and declaration selected for a call;
 - reduce a property expression to a TypeScript constant when available;
 - enumerate constituents, constraints, repository-authored aggregate
-  positions, signatures, and characterized wrapper outputs for cycle-safe
-  transfer-root classification;
+  positions, instantiated type arguments, signatures, and characterized wrapper
+  outputs for cycle-safe transfer-root classification;
 - compare source and contextual types at every binding or production edge;
 - resolve a call to its exact declaration and instantiated parameter and return
   types; and
@@ -447,6 +461,11 @@ A numeric descriptor also names:
 
 - the owner-issued decoder callable and validated output class; and
 - the DOM-facing action or controller parameter that consumes its value object.
+
+A selector descriptor may name an exact dynamic-selector builder, its accepted
+input grammar, and its protected result type. The builder and result owner must
+be declared in the descriptor's module. A generic `string` return is not
+selector authority.
 
 An entry-point reference must resolve to an exported callable declared in the
 same module as the descriptor. Its listed parameter must have a specific
@@ -502,9 +521,10 @@ The implementation adds an `inspect-web-boundaries` script and makes
    `yield`, `yield*`, aggregate storage, and adapter-return escape.
    Receiver-erasure cases include structural assignment, structural generic
    constraints, erased generic results, nested object, array, callback, and
-   standard-wrapper positions, contravariant callback and method parameters,
-   opaque conversions, structural type predicates and inferred narrowings, and
-   close type-preserving or platform-restoring transfers.
+   standard-wrapper positions, platform generic type arguments, contravariant
+   callback and method parameters, opaque conversions, structural type
+   predicates and inferred narrowings, and close type-preserving or
+   platform-restoring transfers.
 3. **Close-negative corpus:** accepts lexical shadows, same-named properties on
    unrelated types, unrelated intrinsic-like objects, type-preserving transfer
    of numeric-only operation receivers that contain no repository-authored
@@ -526,6 +546,10 @@ The implementation adds an `inspect-web-boundaries` script and makes
 8. **Independent numeric discovery:** retains the broad numeric-coercion gate
    and adds an uncataloged constant-key mutation. Removing or weakening that
    gate fails even when every declared descriptor remains valid.
+9. **Selector identity:** rejects catalog literals and protected builder results
+   widened to `string`, cross-owner catalog use, unregistered dynamic selector
+   arguments, and structurally similar builders. It accepts exact owner
+   constants and registered builder results.
 
 The implementation gate is:
 
