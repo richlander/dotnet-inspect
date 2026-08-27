@@ -141,6 +141,8 @@ internal static class ApiArtifactJson
         }
         else if (typeInfo.Type == typeof(TypeParameter))
         {
+            RemoveProperty(typeInfo, "structured_constraints");
+            RemoveProperty(typeInfo, "type_kind");
             SetCSharpStrings(
                 typeInfo,
                 "display_name");

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using CSharpText;
 using ILInspector.Metadata;
 using ILInspector.Text;
 
@@ -740,7 +741,9 @@ public sealed class CSharpTypePrinter
         string initializer = member.Body is CSharpFieldInitializer value
             ? $" = {value.Source}"
             : "";
-        return $"{pad}{CSharpFormatter.EscapeIdentifier(member.Member.Name)}{initializer}{(trailingComma ? "," : "")}";
+        string name = CSharpIdentifier.ContainIdentifierForDeclaration(
+            member.Member.Name);
+        return $"{pad}{name}{initializer}{(trailingComma ? "," : "")}";
     }
 
     static CSharpFormatter DeclarationFormatter(

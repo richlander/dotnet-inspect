@@ -4,6 +4,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Views;
 using CSharpText;
+using ILInspector.CSharp;
 using ILInspector.Metadata;
 using InertText;
 using Markout;
@@ -721,6 +722,131 @@ public sealed class SemanticTypeOutputContainmentTests
         Assert.Equal(
             @"Ns.Lit\u202EType",
             parameter.Constraints[1]);
+        Assert.False(parameterJson.TryGetProperty(
+            "structured_constraints",
+            out _));
+        Assert.False(parameterJson.TryGetProperty("type_kind", out _));
+    }
+
+    [Fact]
+    public void TypeParameterPersistence_RetainsPrinterProvenance()
+    {
+        var type = new ApiType
+        {
+            Name = "GlobalKeywordType`1",
+            Kind = "class",
+            TypeParameters =
+            [
+                new TypeParameter
+                {
+                    Name = "T",
+                    Constraints = ["struct", "struct"],
+                    StructuredConstraints =
+                    [
+                        new("struct", IsTypeName: false),
+                        new("struct", IsTypeName: true),
+                    ],
+                },
+            ],
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "M",
+                    Kind = "method",
+                    IsOverride = true,
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "T?",
+                        MemberName = "M",
+                        TypeParameters =
+                        [
+                            new TypeParameter
+                            {
+                                Name = "T",
+                                TypeKind =
+                                    TypeParameterTypeKind.ReferenceType,
+                            },
+                        ],
+                    },
+                },
+            ],
+        };
+
+        string json = JsonSerializer.Serialize(
+            type,
+            ApiTypeJsonContext.Default.ApiType);
+        using JsonDocument document = JsonDocument.Parse(json);
+        Assert.True(document.RootElement
+            .GetProperty("type_parameters")[0]
+            .TryGetProperty("structured_constraints", out _));
+        Assert.True(document.RootElement
+            .GetProperty("members")[0]
+            .GetProperty("signature_model")
+            .GetProperty("type_parameters")[0]
+            .TryGetProperty("type_kind", out _));
+
+        ApiType restored = JsonSerializer.Deserialize(
+            json,
+            ApiTypeJsonContext.Default.ApiType)!;
+        TypeParameter restoredTypeParameter =
+            Assert.Single(restored.TypeParameters);
+        Assert.Equal(
+            [
+                new TypeParameterConstraint("struct", IsTypeName: false),
+                new TypeParameterConstraint("struct", IsTypeName: true),
+            ],
+            restoredTypeParameter.StructuredConstraints);
+        TypeParameter restoredMethodParameter = Assert.Single(
+            Assert.Single(restored.Members)
+                .SignatureModel!
+                .TypeParameters);
+        Assert.Equal(
+            TypeParameterTypeKind.ReferenceType,
+            restoredMethodParameter.TypeKind);
+
+        var formatter = new CSharpFormatter();
+        Assert.Contains(
+            "where T : struct, @struct",
+            formatter.FormatTypeDeclaration(restored),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "where T : class",
+            formatter.FormatMember(
+                restored,
+                Assert.Single(restored.Members)),
+            StringComparison.Ordinal);
+
+        using JsonDocument artifact = JsonDocument.Parse(
+            JsonSerializer.Serialize(type, ApiArtifactJson.Type));
+        JsonElement artifactParameter = artifact.RootElement
+            .GetProperty("type_parameters")[0];
+        Assert.False(artifactParameter.TryGetProperty(
+            "structured_constraints",
+            out _));
+        Assert.False(artifactParameter.TryGetProperty("type_kind", out _));
+
+        using JsonDocument compactArtifact = JsonDocument.Parse(
+            JsonSerializer.Serialize(type, ApiArtifactJson.CompactType));
+        AssertImplementationProvenanceAbsent(
+            compactArtifact.RootElement.GetProperty("type_parameters")[0]);
+
+        var surface = new ApiSurface { Types = [type] };
+        using JsonDocument surfaceArtifact = JsonDocument.Parse(
+            JsonSerializer.Serialize(surface, ApiArtifactJson.Surface));
+        AssertImplementationProvenanceAbsent(
+            surfaceArtifact.RootElement
+                .GetProperty("types")[0]
+                .GetProperty("type_parameters")[0]);
+
+        static void AssertImplementationProvenanceAbsent(
+            JsonElement parameter)
+        {
+            Assert.False(parameter.TryGetProperty(
+                "structured_constraints",
+                out _));
+            Assert.False(parameter.TryGetProperty("type_kind", out _));
+        }
     }
 
     [Fact]

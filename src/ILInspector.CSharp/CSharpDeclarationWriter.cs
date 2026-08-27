@@ -1050,9 +1050,12 @@ internal static class CSharpDeclarationWriter
     {
         string signature;
         var renderedFromModel = false;
+        var memberNameAlreadyContained = false;
         if (member.Kind == "field" && member.Signature == null && !string.IsNullOrWhiteSpace(member.ReturnType))
         {
-            signature = $"{EscapeTypeKeywords(member.ReturnType)} {member.Name}";
+            signature =
+                $"{EscapeTypeKeywords(member.ReturnType)} {ContainMemberName(member.Name)}";
+            memberNameAlreadyContained = true;
         }
         else if (TryRenderSignatureModel(
             type,
@@ -1083,7 +1086,11 @@ internal static class CSharpDeclarationWriter
         if (string.IsNullOrWhiteSpace(signature))
         {
             if (member.Kind == "field" && !string.IsNullOrWhiteSpace(member.ReturnType))
-                signature = $"{EscapeTypeKeywords(member.ReturnType)} {member.Name}";
+            {
+                signature =
+                    $"{EscapeTypeKeywords(member.ReturnType)} {ContainMemberName(member.Name)}";
+                memberNameAlreadyContained = true;
+            }
             else
                 return "";
         }
@@ -1145,6 +1152,7 @@ internal static class CSharpDeclarationWriter
             signature = $"event {signature}";
         }
         if (!renderedFromModel
+            && !memberNameAlreadyContained
             && (member.Kind is "property" or "field" or "event"
                 || IsExplicitInterfaceEvent(member)))
         {

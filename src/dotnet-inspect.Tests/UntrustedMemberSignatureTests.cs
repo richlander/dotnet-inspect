@@ -177,6 +177,117 @@ public class UntrustedMemberSignatureTests
         }
     }
 
+    [Fact]
+    public void FieldAndEnumDeclarations_ContainNamesBeforeComposition()
+    {
+        const string Hazard = "\u202e";
+        const string LiteralEscape = "\\u202e";
+        string dir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-member-names-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var assemblyName = new AssemblyName("HostileDeclarationNames");
+            var assembly = new PersistedAssemblyBuilder(
+                assemblyName,
+                typeof(object).Assembly);
+            var module = assembly.DefineDynamicModule(assemblyName.Name!);
+            var holder = module.DefineType(
+                "Hostile.Holder",
+                TypeAttributes.Public | TypeAttributes.Class);
+            holder.DefineField(
+                $"Scalar({Hazard}INJECTED",
+                typeof(int),
+                FieldAttributes.Public);
+            holder.DefineField(
+                $"Literal({LiteralEscape}INJECTED",
+                typeof(int),
+                FieldAttributes.Public);
+            holder.CreateType();
+
+            var enumBuilder = module.DefineEnum(
+                "Hostile.Values",
+                TypeAttributes.Public,
+                typeof(int));
+            enumBuilder.DefineLiteral(
+                $"Scalar{Hazard}INJECTED",
+                1);
+            enumBuilder.DefineLiteral(
+                $"Literal{LiteralEscape}INJECTED",
+                2);
+            enumBuilder.CreateType();
+
+            string path = Path.Combine(dir, "HostileDeclarationNames.dll");
+            assembly.Save(path);
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            ApiSurface surface = ApiSurfaceExtractor.Extract(
+                peReader,
+                includeAll: true);
+            ApiType holderType = Assert.Single(
+                surface.Types,
+                type => type.Name == "Holder");
+            ApiType enumType = Assert.Single(
+                surface.Types,
+                type => type.Name == "Values");
+
+            ApiMember scalarFieldModel = Assert.Single(
+                holderType.Members,
+                member => member.Name.StartsWith(
+                    "Scalar",
+                    StringComparison.Ordinal));
+            ApiMember literalFieldModel = Assert.Single(
+                holderType.Members,
+                member => member.Name.StartsWith(
+                    "Literal",
+                    StringComparison.Ordinal));
+            Assert.Contains(Hazard, scalarFieldModel.Name);
+            Assert.Contains(LiteralEscape, literalFieldModel.Name);
+            Assert.Contains(
+                enumType.Members,
+                member => member.Name.Contains(
+                    Hazard,
+                    StringComparison.Ordinal));
+            Assert.Contains(
+                enumType.Members,
+                member => member.Name.Contains(
+                    LiteralEscape,
+                    StringComparison.Ordinal));
+
+            string scalarField = Formatter.FormatMember(
+                holderType,
+                scalarFieldModel);
+            string literalField = Formatter.FormatMember(
+                holderType,
+                literalFieldModel);
+            string enumSource = Assert.Single(
+                new CSharpTypePrinter()
+                    .Print(new CSharpTypePrintRequest(enumType))
+                    .Units)
+                .Source;
+
+            AssertContained(scalarField);
+            AssertContained(literalField);
+            Assert.DoesNotContain(
+                enumSource,
+                HostileOutputAssert.IsForbidden);
+            Assert.NotEqual(scalarField, literalField);
+            Assert.Contains(
+                @"Literal(\\u202eINJECTED",
+                literalField,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                @"Literal\\u202eINJECTED",
+                enumSource,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     /// <summary>
     /// The harness owns this predicate rather than calling
     /// <see cref="CSharpIdentifier.IsRenderingHazard"/>: a gate that asks the

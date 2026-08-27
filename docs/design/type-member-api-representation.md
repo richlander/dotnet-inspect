@@ -107,14 +107,18 @@ and interface type before composing the declaration; existing C# default-value
 escapes remain presentation syntax and are not doubled. Generic method syntax
 is composed only after the base name and each type-parameter name cross their
 own boundaries, so containment cannot collapse `<...>` into one identifier.
+Raw field and enum-member identifiers likewise cross the declaration-name
+boundary before composition, so punctuation inside a metadata name cannot
+truncate a later containment search.
 Raw attribute and named-argument identifiers likewise cross the raw-name
 boundary before composition with already-rendered argument values; enum-cast
 and `typeof` type slots cross the raw-type boundary. All member kinds with an
 `ApiSignature` use that structured provenance rather than reinterpreting their
 mixed-provenance compatibility text. Ordinary persistence retains the
-`ApiSignature`, while artifact JSON excludes that implementation model and
-preserves its established schema. The in-memory compatibility `Signature`
-contains every raw type and identifier slot before direct rendering.
+`ApiSignature` and its structured constraint-kind/type-kind provenance, while
+artifact JSON excludes those implementation fields and preserves its
+established schema. The in-memory compatibility `Signature` contains every raw
+type and identifier slot before direct rendering.
 
 Legacy or degraded model-free text uses conservative compatibility containment.
 Only a quote after `=` inside the terminal parameter list opens a rendered C#
@@ -137,8 +141,10 @@ rather than re-importing its visible spelling as clean text.
 `SemanticTypeOutputContainmentTests.CompatibilitySignature_PersistenceRoundTripIsPresentationIdempotent`,
 `SemanticTypeOutputContainmentTests.PreparedJsonSignature_MetadataEqualsQuoteRemainsContainedAndDegraded`,
 `SemanticTypeOutputContainmentTests.TypeParameterJson_PreservesSyntaxAndContainsRawTypes`,
+`SemanticTypeOutputContainmentTests.TypeParameterPersistence_RetainsPrinterProvenance`,
 `SemanticTypeOutputContainmentTests.CSharpCodeText_PreservesContainmentEvidence`,
 `UntrustedMemberSignatureTests.FieldPropertyAndEventSignatures_ContainHostileNames`,
+`UntrustedMemberSignatureTests.FieldAndEnumDeclarations_ContainNamesBeforeComposition`,
 `MetadataDeclarationQueryTests.TypeSurface_ContainsRawTypeSlotsInCompatibilitySignatures`,
 `DefaultValueRenderingTests.HostileEnumDefaults_ContainRawTypeAndMemberSlots`,
 `UntrustedLibraryViewContainmentTests.TypeJson_WithLiteralEscapeMetadataName_PreservesIdentity`,

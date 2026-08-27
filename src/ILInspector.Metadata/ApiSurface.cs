@@ -517,9 +517,10 @@ public class TypeParameter
     /// escape reserved-keyword type names (a type literally named <c>class</c>
     /// renders as <c>@class</c>) without misreading them as keyword constraints.
     /// Populated by metadata producers; <see langword="null"/> when unavailable, in
-    /// which case printers fall back to a token heuristic. Not serialized.
+    /// which case printers fall back to a token heuristic. Ordinary model
+    /// persistence retains this provenance; artifact JSON excludes it.
     /// </summary>
-    [JsonIgnore]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<TypeParameterConstraint>? StructuredConstraints { get; set; }
 
     /// <summary>
@@ -538,10 +539,11 @@ public class TypeParameter
     /// be classified — an external <see cref="System.Reflection.Metadata.TypeReference"/>
     /// whose interface flag this assembly cannot read, or a signature the blob guards
     /// refused to decode. Undetermined is the fail-closed default, so a producer that
-    /// does not populate it reads as "do not know" rather than as "neither". Not
-    /// serialized.
+    /// does not populate it reads as "do not know" rather than as "neither".
+    /// Ordinary model persistence retains this provenance; artifact JSON excludes
+    /// it.
     /// </remarks>
-    [JsonIgnore]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public TypeParameterTypeKind TypeKind { get; set; } = TypeParameterTypeKind.Undetermined;
 
     /// <summary>
