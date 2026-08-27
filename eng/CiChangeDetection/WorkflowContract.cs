@@ -33,6 +33,7 @@ internal static partial class WorkflowContract
             },
             "workflow.env");
         RequireAbsent(root, "defaults", "workflow");
+        ValidateWorkflowTriggers(root);
         YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "workflow");
         ValidateAggregateStructuralCheck(jobs);
         ValidateOutputConsumers(jobs);
@@ -156,6 +157,24 @@ internal static partial class WorkflowContract
     {
         YamlMappingNode inspectWeb =
             GetRequiredMapping(jobs, "inspect-web", "jobs");
+        RequireScalarValue(
+            inspectWeb,
+            "needs",
+            "changes",
+            "jobs.inspect-web");
+        RequireScalarValue(
+            inspectWeb,
+            "if",
+            "needs.changes.outputs.web == 'true'",
+            "jobs.inspect-web");
+        RequireAbsent(
+            inspectWeb,
+            "continue-on-error",
+            "jobs.inspect-web");
+        RequireAbsent(
+            inspectWeb,
+            "defaults",
+            "jobs.inspect-web");
         YamlSequenceNode inspectWebSteps = GetRequiredSequence(
             inspectWeb,
             "steps",
@@ -191,6 +210,62 @@ internal static partial class WorkflowContract
             "dotnet-quality",
             "preview",
             "jobs.inspect-web setup-dotnet.with");
+    }
+
+    private static void ValidateWorkflowTriggers(YamlMappingNode root)
+    {
+        YamlMappingNode triggers =
+            GetRequiredMapping(root, "on", "workflow");
+        RequireExactKeys(
+            triggers,
+            ["push", "pull_request", "merge_group"],
+            "workflow.on");
+
+        YamlMappingNode push =
+            GetRequiredMapping(triggers, "push", "workflow.on");
+        RequireExactKeys(push, ["branches"], "workflow.on.push");
+        YamlSequenceNode pushBranches =
+            GetRequiredSequence(push, "branches", "workflow.on.push");
+        if (pushBranches.Children.Count != 1 ||
+            RequireScalar(
+                pushBranches.Children[0],
+                "workflow.on.push.branches entry") != "main")
+        {
+            throw new InvalidOperationException(
+                "workflow.on.push.branches must contain only main.");
+        }
+
+        if (!TryGetNode(
+                triggers,
+                "pull_request",
+                out YamlNode pullRequest) ||
+            pullRequest is not YamlScalarNode { Value: null or "" })
+        {
+            throw new InvalidOperationException(
+                "workflow.on.pull_request must be unfiltered.");
+        }
+
+        YamlMappingNode mergeGroup =
+            GetRequiredMapping(triggers, "merge_group", "workflow.on");
+        RequireExactKeys(
+            mergeGroup,
+            ["types"],
+            "workflow.on.merge_group");
+        YamlSequenceNode mergeGroupTypes =
+            GetRequiredSequence(
+                mergeGroup,
+                "types",
+                "workflow.on.merge_group");
+        if (mergeGroupTypes.Children.Count != 1 ||
+            RequireScalar(
+                mergeGroupTypes.Children[0],
+                "workflow.on.merge_group.types entry") !=
+                "checks_requested")
+        {
+            throw new InvalidOperationException(
+                "workflow.on.merge_group.types must contain only " +
+                "checks_requested.");
+        }
     }
 
     private static void ValidateCheckoutStep(YamlSequenceNode steps)
@@ -383,7 +458,9 @@ internal static partial class WorkflowContract
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["BASH_ENV"] = "",
-                ["CI_BEFORE_SHA"] = "${{ github.event.before }}",
+                ["CI_BEFORE_SHA"] =
+                    "${{ github.event.merge_group.base_sha || " +
+                    "github.event.before }}",
                 ["CI_PR_NUMBER"] =
                     "${{ github.event.pull_request.number }}",
                 ["GH_TOKEN"] = "${{ github.token }}",
