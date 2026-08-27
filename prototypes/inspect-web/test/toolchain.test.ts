@@ -698,6 +698,25 @@ function oxlintFileCount(directory: string, args: readonly string[]): number {
 
 test("the lint reads every file this project owns", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
+
+  // The count equality below is only sound while no file can be read twice. oxlint does
+  // not deduplicate its inputs -- naming a file both directly and through its directory
+  // makes it count twice -- so an overlapping target list can offset a skipped file
+  // exactly and hide it. That is not hypothetical: adding one already-covered file as an
+  // extra target masked a `.min.` file here completely, and only the lint-script pin
+  // further down caught it. A pin over the script text is the wrong thing to rely on,
+  // because it is exactly what a developer updates when changing the lint legitimately.
+  // So the gate that depends on disjoint targets asserts it itself.
+  assert.deepEqual([...new Set(lintTargets)], [...lintTargets],
+    "the lint script names a target more than once, which makes oxlint read every file "
+      + "beneath it twice and lets the count below hide a skipped file");
+  const overlapping = lintTargets
+    .filter(target => lintTargets.some(other => target.startsWith(`${other}/`)))
+    .sort();
+  assert.deepEqual(overlapping, [],
+    "these lint targets sit inside another lint target, so oxlint reads them twice; "
+      + "remove the redundant target rather than leaving the count able to cancel out");
+
   const sources = projectFiles([...typeScriptExtensions, ...javaScriptExtensions]);
   const compiled = [...programFiles()].filter(file => isProjectOwned(file, root));
   const owned = [...new Set([...sources.map(file => resolve(file)), ...compiled])];
