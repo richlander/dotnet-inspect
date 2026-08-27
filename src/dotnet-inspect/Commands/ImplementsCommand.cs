@@ -93,7 +93,7 @@ public class ImplementsCommand
             }
             else if (options.JsonOutput)
             {
-                WriteJsonOutput(results, options.CompactJson);
+                WriteJsonOutput(results, options.Rows, options.CompactJson);
             }
             else
             {
@@ -150,9 +150,9 @@ public class ImplementsCommand
         }
     }
 
-    private static void WriteJsonOutput(List<ImplementerResult> results, bool compact)
+    private static void WriteJsonOutput(List<ImplementerResult> results, RowWindow? rows, bool compact)
     {
-        var jsonResults = results.Select(ImplementerJsonResult.From).ToList();
+        var jsonResults = RowWindow.Apply(rows, results).Select(ImplementerJsonResult.From).ToList();
         JsonOutputHelper.Write(jsonResults, ImplementsJsonContext.Default.ListImplementerJsonResult,
             ImplementsCompactJsonContext.Default.ListImplementerJsonResult, compact);
     }

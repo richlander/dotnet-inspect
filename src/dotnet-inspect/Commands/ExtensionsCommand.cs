@@ -61,7 +61,7 @@ public class ExtensionsCommand
             }
             else if (options.JsonOutput)
             {
-                WriteJsonOutput(results, options.CompactJson);
+                WriteJsonOutput(results, options.Rows, options.CompactJson);
             }
             else if (options.Tabular || options.Tsv || options.Jsonl || options.NoHeader)
             {
@@ -364,9 +364,9 @@ public class ExtensionsCommand
         return results;
     }
 
-    private static void WriteJsonOutput(List<ExtensionMethodResult> results, bool compact)
+    private static void WriteJsonOutput(List<ExtensionMethodResult> results, RowWindow? rows, bool compact)
     {
-        var jsonResults = results.Select(ExtensionMethodJsonResult.From).ToList();
+        var jsonResults = RowWindow.Apply(rows, results).Select(ExtensionMethodJsonResult.From).ToList();
         JsonOutputHelper.Write(jsonResults, ExtensionsJsonContext.Default.ListExtensionMethodJsonResult,
             ExtensionsCompactJsonContext.Default.ListExtensionMethodJsonResult, compact);
     }

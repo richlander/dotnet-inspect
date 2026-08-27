@@ -112,7 +112,7 @@ public class FindCommand
                 else
                 {
                     JsonOutputHelper.Write(
-                        results,
+                        RowWindow.Apply(options.Rows, results).ToList(),
                         TypeFindResultJsonContext.Default.ListTypeFindResult,
                         TypeFindResultCompactJsonContext.Default.ListTypeFindResult,
                         options.CompactJson);
@@ -362,7 +362,7 @@ public class FindCommand
             else
             {
                 JsonOutputHelper.Write(
-                    results,
+                    RowWindow.Apply(options.Rows, results).ToList(),
                     MemberFindResultJsonContext.Default.ListMemberFindResult,
                     MemberFindResultCompactJsonContext.Default.ListMemberFindResult,
                     options.CompactJson);

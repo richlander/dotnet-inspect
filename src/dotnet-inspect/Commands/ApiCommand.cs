@@ -103,6 +103,7 @@ public class ApiCommand
             ShapeOutput = options.ShapeOutput,
             ShapeExplicitlySet = options.ShapeExplicitlySet,
             Schema = options.Schema, Count = options.Count, Rows = options.Rows,
+            HumanRowWindowNote = options.HumanRowWindowNote,
             JsonArray = options.JsonArray,
             PerformanceTriage = options.PerformanceTriage,
             BodyKindQuery = options.BodyKindQuery,
@@ -2649,7 +2650,10 @@ public class ApiCommand
                             view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                             explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, markoutWriter);
                         markoutWriter.Flush();
-                    }, options.Rows);
+                    }, options.Rows,
+                    options.Verbosity != Verbosity.Quiet && !options.Tsv && !options.Jsonl
+                        ? options.HumanRowWindowNote
+                        : null);
             }
             else
             {

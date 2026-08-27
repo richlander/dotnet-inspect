@@ -34,8 +34,6 @@ public static class OutputFormatter
         RowWindow? maxRows = null,
         string? humanRowWindowNote = null)
     {
-        WriteHumanRowWindowNote(output, humanRowWindowNote);
-
         // Row-limiting operates on the rendered text, so the capped path must materialize
         // the table first. Without a cap, serialize straight to the destination writer and
         // skip the StringWriter + whole-table string allocation.
@@ -44,13 +42,22 @@ public static class OutputFormatter
         // so a single buffered Write(string) is not interchangeable with row-by-row writes
         // (it changes which trailing content survives the limit). Keep the buffered path for
         // those wrappers to preserve byte-identical output; their output is already small.
-        if (maxRows is null or { IsUnlimited: true } && output is not (LineLimitingTextWriter or TailLineLimitingTextWriter))
+        //
+        // A note is also buffered: whether the window actually applied to any data is only
+        // known after rendering, and an empty result must not gain a "first N"/"top N" note
+        // with nothing beneath it.
+        if (humanRowWindowNote is null
+            && maxRows is null or { IsUnlimited: true }
+            && output is not (LineLimitingTextWriter or TailLineLimitingTextWriter))
         {
             serialize(output, new TableFormatter(showHeader));
             return;
         }
 
-        output.Write(LimitRenderedTableRows(RenderTable(showHeader, serialize), maxRows, showHeader));
+        var rendered = LimitRenderedTableRows(RenderTable(showHeader, serialize), maxRows, showHeader);
+        if (!string.IsNullOrWhiteSpace(rendered))
+            WriteHumanRowWindowNote(output, humanRowWindowNote);
+        output.Write(rendered);
     }
 
     /// <summary>
@@ -145,8 +152,10 @@ public static class OutputFormatter
         RowWindow? maxRows = null,
         string? humanRowWindowNote = null)
     {
-        WriteHumanRowWindowNote(output, tsv || jsonl ? null : humanRowWindowNote);
-        output.Write(RenderProjectedTable(showHeader, tsv, jsonl, columns, fields, serialize, maxRows));
+        var rendered = RenderProjectedTable(showHeader, tsv, jsonl, columns, fields, serialize, maxRows);
+        if (!string.IsNullOrWhiteSpace(rendered))
+            WriteHumanRowWindowNote(output, tsv || jsonl ? null : humanRowWindowNote);
+        output.Write(rendered);
     }
 
     /// <summary>
@@ -266,7 +275,7 @@ public static class OutputFormatter
 
     internal static string AddHumanRowWindowNote(string rendered, string? humanRowWindowNote)
     {
-        if (string.IsNullOrWhiteSpace(humanRowWindowNote))
+        if (string.IsNullOrWhiteSpace(humanRowWindowNote) || string.IsNullOrWhiteSpace(rendered))
             return rendered;
 
         const string SectionHeadingPrefix = "\n## ";
