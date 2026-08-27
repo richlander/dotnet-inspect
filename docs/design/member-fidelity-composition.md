@@ -295,14 +295,18 @@ required by declared consumers, including typed semantic refusal.
 **Owning document:** [Metadata primitives](../metadata-primitives.md).
 
 **Supporting contract:**
-[Bounded metadata traversal](bounded-metadata-traversal.md) owns budget policy.
+[Bounded metadata traversal](bounded-metadata-traversal.md) owns budget policy;
+[Member inspection planning and Metadata projection](member-inspection-planning-and-metadata-projection.md)
+registers the composite `MDP016` proof.
 
-**Claim:** activate the already-registered lossless MethodSemantics row boundary
-and neutral budget, issuing typed rows or rejection to Metadata consumers
-without defining another row contract here.
+**Claim:** before adding the reader, land
+`LayeringTests.MetadataPrimitives_RemainsLeaf`, then activate and gate the
+primitive-local parts of the already-registered lossless MethodSemantics row
+boundary and neutral budget, issuing typed rows or rejection to Metadata
+consumers without defining another row contract here.
 
-**Non-claims:** `MDP016` boundary gating, Metadata projection receipt, semantic
-classification, and consumer presentation.
+**Non-claims:** `MDP016` Metadata receipt, operation wiring, consumer migration,
+semantic classification, and consumer presentation.
 
 ### 3. Metadata MethodSemantics and bounded-rejection receipt
 
@@ -311,13 +315,16 @@ classification, and consumer presentation.
 **Owning document:**
 [Member inspection planning and Metadata projection](member-inspection-planning-and-metadata-projection.md).
 
-**Claim:** land the `MDP016` boundary gate and activate Metadata projection
-receipt of the primitive's lossless MethodSemantics rows and typed rejection,
-without turning exhaustion into ordinary absence.
+**Claim:** activate Metadata projection receipt of the primitive's lossless
+MethodSemantics rows and typed rejection, gate that handoff with
+`MethodSemanticsReceipt_PreservesRowsAndTypedRejection`, and satisfy the
+Metadata-side operation wiring and consumer migration named by `MDP006`,
+`MDP009`, `MDP011`, and `MDP013`, without turning exhaustion into ordinary
+absence.
 
-**Non-claims:** primitive reader implementation, traversal mechanics, budget
-construction, filtering strategy, index implementation, and higher-consumer
-presentation.
+**Non-claims:** primitive reader implementation, primitive-local `MDP016`
+proof, traversal mechanics, budget construction, filtering strategy, index
+implementation, and higher-consumer presentation.
 
 ### 4. Analysis body and call-site operator evidence
 
@@ -472,7 +479,8 @@ per-row status is authoritative.
 | Selected-entry assembly identity matches candidate content before registration or session-backed use | `InspectionAcquisitionPlanTests.Register_DescriptorIdentityMismatch_IsTypedInvalidImage`, `InspectionAcquisitionPlanTests.Session_WhenSourceChangesAfterInventory_RejectsImage`, and `AssemblyContextSearchQueryTests.TypeInventory_CarriesRejectedParticipantBesideAvailableResult` | Enforced on `main` for Metadata's candidate-open/plan-owned session paths and the snapshot-backed workspace query path; the direct reference-to-session compatibility overload is ungated |
 | Artifact descriptors expose no unguarded content route | `ArtifactDescriptor_ExposesNoUnguardedContentRoute` | Enforced on `main` |
 | Target artifact identity, acquisition registration, and authorized access stay bound to admitted snapshot content | `ArtifactAdmission_ProjectsAssembliesThroughAuthorizedLease` and `ArtifactOpen_RejectsContentSubstitutionAfterAdmission` | Planned and unverified by [Artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md) |
-| Lossless MethodSemantics rows cross the primitive-to-Metadata boundary mechanically and within the neutral budget | None; `MDP016` must land its raw-oracle, malformed-row, budget, platform, and architecture-closure gates | Planned and unverified |
+| MetadataPrimitives publishes lossless MethodSemantics rows or rejection through its registered mechanical boundary | None; the primitive successor must land `LayeringTests.MetadataPrimitives_RemainsLeaf` and its owner-local `MDP016` proof | Planned and unverified |
+| Metadata receives lossless MethodSemantics rows and rejection without bypass or absence collapse | None; the Metadata successor must land `MethodSemanticsReceipt_PreservesRowsAndTypedRejection` and the Metadata-side wiring/migration gates named by `MDP006`, `MDP009`, `MDP011`, and `MDP013` | Planned and unverified |
 | Analysis operator evidence preserves unknown MemberRefs | `MetadataOperatorFactTests.CrossAssemblyMemberReferences_StayUnknown` | Candidate only; unverified on `main` |
 | Body operator identity and spelling stay separate | `UnresolvedKnownFrameworkOperatorDelegateTarget_DegradesToPartial`, `UnresolvedKnownFrameworkOperatorCall_StaysFull` | Candidate only; unverified on `main` |
 | CLI operator display consumes typed classification | `PopulateMemberSections_FormatsOnlyTypedOperatorsAsOperators` | Candidate only; unverified on `main` |
