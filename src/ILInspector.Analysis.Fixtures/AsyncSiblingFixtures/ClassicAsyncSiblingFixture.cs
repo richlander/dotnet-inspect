@@ -236,7 +236,7 @@ public static class ClassicAsyncSiblingFixture
         async Task<object> BuildAsync()
         {
             await Task.Yield();
-            return new object();
+            return new object[1];
         }
 
         try

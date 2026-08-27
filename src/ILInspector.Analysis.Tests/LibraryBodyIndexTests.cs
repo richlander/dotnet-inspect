@@ -5133,6 +5133,52 @@ public class LibraryBodyIndexTests
 
     [Fact]
     public void
+        OptimizationOpportunities_CompiledGenericAsyncLocalStateMachineIsScopeInvariant()
+    {
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        LibraryBodyIndex full = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures
+                .OptimizationOpportunities);
+        MethodIdentity moveNext = Assert.Single(
+            full.Methods,
+            method => method.Name == "MoveNext"
+                && method.DeclaringType.Name.Contains(
+                    "<ScopedGenericIteratorFinallyAsyncLocalAllocationOwner>",
+                    StringComparison.Ordinal)
+                && method.DeclaringType.Name.Contains(
+                    ">g__BuildAsync",
+                    StringComparison.Ordinal));
+        Assert.EndsWith(
+            ">d`1",
+            moveNext.DeclaringType.Name,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            full.OptimizationOpportunities,
+            opportunity => opportunity.Shape == "small-array"
+                && opportunity.Method.MetadataToken
+                    == moveNext.MetadataToken);
+
+        LibraryBodyIndex scoped = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures
+                .OptimizationOpportunities,
+            bodyTypeScope:
+                type => type.Equals(
+                    moveNext.DeclaringType));
+
+        Assert.DoesNotContain(
+            scoped.OptimizationOpportunities,
+            opportunity => opportunity.Method.MetadataToken
+                == moveNext.MetadataToken);
+        Assert.True(
+            CompilerGeneratedNames.RequiresDeclaredOwner(
+                moveNext));
+    }
+
+    [Fact]
+    public void
         OptimizationOpportunities_UnresolvedAsyncOwnerDoesNotProjectGenericBoxingAcrossScopes()
     {
         byte[] image = File.ReadAllBytes(
@@ -5265,6 +5311,50 @@ public class LibraryBodyIndexTests
             call => call.EvidenceMethod == moveNext
                 && call.Caller == moveNext
                 && call.Callee.Name == "Read");
+    }
+
+    [Fact]
+    public void
+        ResolveDeclaredMethod_RejectsMalformedLiftedOrdinalSuffix()
+    {
+        string fixturePath =
+            typeof(OptimizationOpportunityFixtures).Assembly.Location;
+        LibraryBodyIndex original =
+            LibraryBodyIndex.Open(fixturePath);
+        MethodIdentity originalLifted = Assert.Single(
+            original.Methods,
+            method => method.Name.StartsWith(
+                "<GenericObjectEqualsLocalFunction>g__EqualsCore|",
+                StringComparison.Ordinal));
+        Assert.Equal(
+            nameof(OptimizationOpportunityFixtures
+                .GenericObjectEqualsLocalFunction),
+            original.ResolveDeclaredMethod(
+                originalLifted)?.Name);
+        int separator = originalLifted.Name.LastIndexOf('|');
+        Assert.True(separator >= 0);
+        string malformedName =
+            originalLifted.Name[..(separator + 1)]
+            + new string(
+                'x',
+                originalLifted.Name.Length - separator - 1);
+        byte[] image = File.ReadAllBytes(fixturePath);
+        ReplaceAscii(
+            image,
+            originalLifted.Name,
+            malformedName,
+            expectedReplacements: 1);
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "MalformedLiftedOrdinal.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity malformedLifted = Assert.Single(
+            index.Methods,
+            method => method.Name == malformedName);
+
+        Assert.Null(
+            index.ResolveDeclaredMethod(malformedLifted));
     }
 
     [Fact]
@@ -5833,6 +5923,68 @@ public class LibraryBodyIndexTests
             resolution);
         Assert.True(
             owner?.IsAuthenticatedTopLevelEntryPoint);
+    }
+
+    [Fact]
+    public void
+        ResolveUltimateDeclaredMethod_PreservesRejectedFirstLiftedHop()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"RejectedFirstLiftedHop-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(
+                path,
+                BuildMalformedAsyncSourceAssembly(
+                    malformedNestedLiftedIntermediate: true));
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            MetadataReader reader = peReader.GetMetadataReader();
+            MethodDefinitionHandle methodHandle =
+                reader.MethodDefinitions.Single(handle =>
+                    reader.StringComparer.Equals(
+                        reader.GetMethodDefinition(handle).Name,
+                        "Noise>b__0_0"));
+            MethodDefinition method =
+                reader.GetMethodDefinition(methodHandle);
+            TypeDefinitionHandle typeHandle =
+                method.GetDeclaringType();
+            TypeDefinition type =
+                reader.GetTypeDefinition(typeHandle);
+            using var builder = new LibraryBodyAnalysisBuilder(
+                path,
+                reader,
+                peReader);
+            ILibraryMethodAnalysisInfrastructure infrastructure =
+                builder;
+            GenericScope scope = infrastructure.CreateScope(
+                type,
+                method);
+            MethodIdentity identity =
+                infrastructure.CreateMethodIdentity(
+                    typeHandle,
+                    methodHandle,
+                    method,
+                    scope);
+
+            DeclaredOwnerResolution resolution =
+                infrastructure.ResolveUltimateDeclaredMethod(
+                    methodHandle,
+                    method,
+                    identity,
+                    typeSourceGenerated: false,
+                    out _,
+                    out _);
+
+            Assert.Equal(
+                DeclaredOwnerResolution.Rejected,
+                resolution);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]

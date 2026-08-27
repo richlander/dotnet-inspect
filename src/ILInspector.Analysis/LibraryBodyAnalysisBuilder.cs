@@ -404,14 +404,17 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             out AuthenticatedSourceOwner? ultimateOwner)
     {
         immediateOwner = null;
-        if (_liftedSourceOwnerResolver.TryResolve(
+        LiftedSourceOwnerResolution liftedResolution =
+            _liftedSourceOwnerResolver.Resolve(
                 methodHandle,
                 methodDefinition,
                 method,
                 out AuthenticatedSourceOwner liftedOwner,
                 ownerMethodScope: null,
                 ownerTypeScope: null,
-                directlySelectedBody: false))
+                directlySelectedBody: false);
+        if (liftedResolution
+            == LiftedSourceOwnerResolution.Resolved)
         {
             immediateOwner = liftedOwner;
             DeclaredOwnerResolution resolution =
@@ -423,6 +426,12 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                     ? resolvedOwner
                     : null;
             return resolution;
+        }
+        if (liftedResolution
+            == LiftedSourceOwnerResolution.Rejected)
+        {
+            ultimateOwner = null;
+            return DeclaredOwnerResolution.Rejected;
         }
 
         AsyncSourceResolution asyncResolution =

@@ -7,13 +7,23 @@ public sealed class CompilerGeneratedNamesTests
 {
     [Theory]
     [InlineData("<Owner>b__0_0", true)]
+    [InlineData("<Owner>b__0", true)]
+    [InlineData("<Owner>b__0_0`1", true)]
     [InlineData("<Owner>g__Local|0_0", true)]
+    [InlineData("<Owner>g__Local|0_0`1", true)]
     [InlineData("<<Owner>b__0_0>b__0_1", true)]
     [InlineData("Noise>b__0_0", false)]
     [InlineData(">g__Local|0_0", false)]
     [InlineData("<Owner>b__", false)]
+    [InlineData("<Owner>b__x", false)]
+    [InlineData("<Owner>b__0_x", false)]
+    [InlineData("<Owner>b__00_0", false)]
+    [InlineData("<Owner>b__2147483648_0", false)]
+    [InlineData("<Owner>g__Local|x_0", false)]
+    [InlineData("<Owner>g__Local|0_0_0", false)]
+    [InlineData("<Owner>g__|0_0", false)]
     [InlineData("<>b__0_0", false)]
-    public void IsLocalFunctionOrLambda_RequiresOpeningDelimiter(
+    public void IsLocalFunctionOrLambda_RequiresCanonicalShape(
         string name,
         bool expected)
         => Assert.Equal(

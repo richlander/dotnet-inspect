@@ -362,6 +362,10 @@ Async execution sources and owner chains reject malformed generated-like names
 while ordinary compiler-generated owners, including async owners, retain
 established attribution. Rejected identities and incomplete lifted-owner
 chains cannot expand scoped acquisition.
+Lifted local-function and lambda names require canonical Roslyn ordinal tails
+before they can authenticate an owner. Generic metadata arity is removed before
+that grammar and before async-local or async-lambda state-machine leaves are
+classified as owner-required.
 Ultimate-owner traversal distinguishes an incomplete canonical chain
 (`Unresolved`) from malformed, ambiguous, cyclic, or invalid relationships
 (`Rejected`). Canonical generated bodies without an authenticated claimant,
@@ -378,10 +382,12 @@ gate fail-closed allocation-fanout and async-state-machine generic-box
 projection while retaining body-intrinsic opportunities, and
 `OptimizationOpportunities_OrphanGeneratedBodyFailsClosedAcrossScopes`,
 `OptimizationOpportunities_CompiledAsyncLambdaStateMachineIsScopeInvariant`,
+`OptimizationOpportunities_CompiledGenericAsyncLocalStateMachineIsScopeInvariant`,
 `OptimizationOpportunities_AuthoredIntrinsicRowsSurviveMalformedOwnershipAcrossScopes`,
 and `AllocationFanoutTests.Analyze_TreatsExcludedTargetsAsOpaque` gate the
-orphan-generated spelling parity, compiled async-lambda scope parity,
-authored-intrinsic, and transitive-fanout close negatives.
+orphan-generated spelling parity, compiled async-lambda and generic
+async-local scope parity, authored-intrinsic, and transitive-fanout close
+negatives.
 `OptimizationOpportunities_UnresolvedLiftedOwnerDoesNotProjectGeneratedBoxing`
 gates that boundary for generated generic-box recommendations,
 while
@@ -389,8 +395,12 @@ while
 `DirectCalls_RecoverableUltimateOwnerFailureRetainsPhysicalCaller` gate
 multi-hop caller projection for unresolved and recoverable-failure paths;
 `ResolveDeclaredMethod_MalformedLiftedSourceNameFailsClosed` and
+`ResolveDeclaredMethod_RejectsMalformedLiftedOrdinalSuffix`,
 `ResolveDeclaredMethod_MalformedNestedLiftedOwnerDoesNotBecomeUltimateOwner`
-gate canonical generated-name admission at immediate and intermediate hops.
+and
+`ResolveUltimateDeclaredMethod_PreservesRejectedFirstLiftedHop`
+gate canonical generated-name admission and typed rejection preservation at
+immediate and intermediate hops.
 `ResolveDeclaredMethod_CompilerGeneratedOwnersRetainAttribution`,
 `DirectCalls_CompilerGeneratedAsyncOwnerRetainsAttributionAcrossScopes`,
 `ResolveDeclaredMethod_TypeGeneratedMalformedAsyncSourceFailsClosedAcrossScopes`,

@@ -1,3 +1,4 @@
+using System.Globalization;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
@@ -48,18 +49,83 @@ public static class CompilerGeneratedNames
         string methodName,
         out string ownerName)
     {
-        int close = LastLiftedMethodMarker(methodName);
-        if (methodName.Length < 4
-            || methodName[0] != '<'
+        string simpleName =
+            MetadataNameArity.StripFromSegment(methodName);
+        int close = LastLiftedMethodMarker(simpleName);
+        if (simpleName.Length < 4
+            || simpleName[0] != '<'
             || close <= 1
-            || close + 4 >= methodName.Length)
+            || close + 4 >= simpleName.Length
+            || !HasCanonicalLiftedSuffix(
+                simpleName,
+                close))
         {
             ownerName = "";
             return false;
         }
 
-        ownerName = methodName[1..close];
+        ownerName = simpleName[1..close];
         return true;
+    }
+
+    static bool HasCanonicalLiftedSuffix(
+        string methodName,
+        int marker)
+    {
+        bool localFunction = methodName.AsSpan(marker)
+            .StartsWith(
+                GeneratedNameGrammar.LocalFunctionInfix,
+                StringComparison.Ordinal);
+        ReadOnlySpan<char> suffix =
+            methodName.AsSpan(marker + 4);
+        if (localFunction)
+        {
+            int separator = suffix.LastIndexOf('|');
+            if (separator <= 0)
+                return false;
+            suffix = suffix[(separator + 1)..];
+        }
+
+        int underscore = suffix.IndexOf('_');
+        if (underscore < 0)
+        {
+            return !localFunction
+                && IsCanonicalOrdinal(suffix);
+        }
+        if (underscore == 0
+            || underscore == suffix.Length - 1
+            || suffix[(underscore + 1)..]
+                .Contains('_'))
+        {
+            return false;
+        }
+
+        return IsCanonicalOrdinal(
+                suffix[..underscore])
+            && IsCanonicalOrdinal(
+                suffix[(underscore + 1)..]);
+    }
+
+    static bool IsCanonicalOrdinal(
+        ReadOnlySpan<char> value)
+    {
+        if (value.IsEmpty
+            || value.Length > 1 && value[0] == '0')
+        {
+            return false;
+        }
+
+        foreach (char c in value)
+        {
+            if (!char.IsAsciiDigit(c))
+                return false;
+        }
+
+        return int.TryParse(
+            value,
+            NumberStyles.None,
+            CultureInfo.InvariantCulture,
+            out _);
     }
 
     static int LastLiftedMethodMarker(string methodName) =>
@@ -138,11 +204,15 @@ public static class CompilerGeneratedNames
                     LeafName(method.DeclaringType));
 
     static bool IsStateMachineLeaf(string leafName)
-        => GeneratedNameGrammar.IsStateMachineLeaf(leafName)
-            || leafName.StartsWith('<')
-                && leafName.EndsWith(">d", StringComparison.Ordinal)
+    {
+        string simpleName =
+            MetadataNameArity.StripFromSegment(leafName);
+        return GeneratedNameGrammar.IsStateMachineLeaf(simpleName)
+            || simpleName.StartsWith('<')
+                && simpleName.EndsWith(">d", StringComparison.Ordinal)
                 && (GeneratedNameGrammar
-                        .IsLocalFunctionMethodName(leafName)
+                        .IsLocalFunctionMethodName(simpleName)
                     || GeneratedNameGrammar
-                        .IsLambdaMethodName(leafName));
+                        .IsLambdaMethodName(simpleName));
+    }
 }
