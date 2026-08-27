@@ -154,20 +154,20 @@ export async function initializeEngine(onStatus = () => {}) {
  * @returns {BrowserBuildIdentity}
  */
 export function buildIdentity() {
-  const exports = $requireManagedExports();
-  const result = exports.InspectionEngine.BuildIdentity();
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = $exports.InspectionEngine.BuildIdentity();
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {BrowserBuildIdentity} */ (parsed);
+  return /** @type {BrowserBuildIdentity} */ ($parsed);
 }
 
 /**
  * @returns {void}
  */
 export function cancelSourceQuery() {
-  const exports = $requireManagedExports();
-  return exports.InspectionEngine.CancelSourceQuery();
+  const $exports = $requireManagedExports();
+  return $exports.InspectionEngine.CancelSourceQuery();
 }
 
 /**
@@ -175,8 +175,8 @@ export function cancelSourceQuery() {
  * @returns {void}
  */
 export function configureHost(origin) {
-  const exports = $requireManagedExports();
-  return exports.InspectionEngine.ConfigureHost(origin);
+  const $exports = $requireManagedExports();
+  return $exports.InspectionEngine.ConfigureHost(origin);
 }
 
 /**
@@ -184,12 +184,12 @@ export function configureHost(origin) {
  * @returns {BrowserWorkspaceShareDecodeResult}
  */
 export function decodeWorkspaceShareState(encoded) {
-  const exports = $requireManagedExports();
-  const result = exports.InspectionEngine.DecodeWorkspaceShareState(encoded);
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = $exports.InspectionEngine.DecodeWorkspaceShareState(encoded);
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {BrowserWorkspaceShareDecodeResult} */ (parsed);
+  return /** @type {BrowserWorkspaceShareDecodeResult} */ ($parsed);
 }
 
 /**
@@ -197,12 +197,12 @@ export function decodeWorkspaceShareState(encoded) {
  * @returns {BrowserWorkspaceShareEncodeResult}
  */
 export function encodeWorkspaceShareState(stateJson) {
-  const exports = $requireManagedExports();
-  const result = exports.InspectionEngine.EncodeWorkspaceShareState(stateJson);
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = $exports.InspectionEngine.EncodeWorkspaceShareState(stateJson);
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {BrowserWorkspaceShareEncodeResult} */ (parsed);
+  return /** @type {BrowserWorkspaceShareEncodeResult} */ ($parsed);
 }
 
 /**
@@ -220,12 +220,12 @@ export function encodeWorkspaceShareState(stateJson) {
  * @returns {Promise<BrowserCallGraph>}
  */
 export async function expandPlatformCallGraph(targetFramework, platformVersion, assembly, pack, assemblyVersion, assemblyCulture, assemblyPublicKeyToken, typeFullName, memberName, selectorKey, metadataToken) {
-  const exports = $requireManagedExports();
-  const result = await exports.InspectionEngine.ExpandPlatformCallGraph(targetFramework, platformVersion, assembly, pack, assemblyVersion, assemblyCulture, assemblyPublicKeyToken, typeFullName, memberName, selectorKey, metadataToken);
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = await $exports.InspectionEngine.ExpandPlatformCallGraph(targetFramework, platformVersion, assembly, pack, assemblyVersion, assemblyCulture, assemblyPublicKeyToken, typeFullName, memberName, selectorKey, metadataToken);
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {BrowserCallGraph} */ (parsed);
+  return /** @type {BrowserCallGraph} */ ($parsed);
 }
 
 /**
@@ -235,36 +235,36 @@ export async function expandPlatformCallGraph(targetFramework, platformVersion, 
  * @returns {Promise<BrowserPackageDocumentContent>}
  */
 export async function getPackageDocument(packageId, version, path) {
-  const exports = $requireManagedExports();
-  const result = await exports.InspectionEngine.GetPackageDocument(packageId, version, path);
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = await $exports.InspectionEngine.GetPackageDocument(packageId, version, path);
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {BrowserPackageDocumentContent} */ (parsed);
+  return /** @type {BrowserPackageDocumentContent} */ ($parsed);
 }
 
 /**
  * @returns {BrowserHomeDemoCatalog}
  */
 export function listHomeDemos() {
-  const exports = $requireManagedExports();
-  const result = exports.InspectionEngine.ListHomeDemos();
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = $exports.InspectionEngine.ListHomeDemos();
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {BrowserHomeDemoCatalog} */ (parsed);
+  return /** @type {BrowserHomeDemoCatalog} */ ($parsed);
 }
 
 /**
  * @returns {BrowserVocabularyDocument}
  */
 export function listVocabulary() {
-  const exports = $requireManagedExports();
-  const result = exports.InspectionEngine.ListVocabulary();
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = $exports.InspectionEngine.ListVocabulary();
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {BrowserVocabularyDocument} */ (parsed);
+  return /** @type {BrowserVocabularyDocument} */ ($parsed);
 }
 
 /**
@@ -273,8 +273,8 @@ export function listVocabulary() {
  * @returns {Promise<string>}
  */
 export async function loadRuntimePack(targetFramework, platformVersion) {
-  const exports = $requireManagedExports();
-  return await exports.InspectionEngine.LoadRuntimePack(targetFramework, platformVersion);
+  const $exports = $requireManagedExports();
+  return await $exports.InspectionEngine.LoadRuntimePack(targetFramework, platformVersion);
 }
 
 /**
@@ -285,8 +285,8 @@ export async function loadRuntimePack(targetFramework, platformVersion) {
  * @returns {Promise<string>}
  */
 export async function loadRuntimePackAssembly(targetFramework, platformVersion, assemblyFileName, pack) {
-  const exports = $requireManagedExports();
-  return await exports.InspectionEngine.LoadRuntimePackAssembly(targetFramework, platformVersion, assemblyFileName, pack);
+  const $exports = $requireManagedExports();
+  return await $exports.InspectionEngine.LoadRuntimePackAssembly(targetFramework, platformVersion, assemblyFileName, pack);
 }
 
 /**
@@ -296,24 +296,24 @@ export async function loadRuntimePackAssembly(targetFramework, platformVersion, 
  * @returns {BrowserDependencyCoordinateMatch}
  */
 export function matchPackageDependencyCoordinate(packageId, declaredRange, candidatesJson) {
-  const exports = $requireManagedExports();
-  const result = exports.InspectionEngine.MatchPackageDependencyCoordinate(packageId, declaredRange, candidatesJson);
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = $exports.InspectionEngine.MatchPackageDependencyCoordinate(packageId, declaredRange, candidatesJson);
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {BrowserDependencyCoordinateMatch} */ (parsed);
+  return /** @type {BrowserDependencyCoordinateMatch} */ ($parsed);
 }
 
 /**
  * @returns {BrowserPackageCacheStats}
  */
 export function packageCacheStats() {
-  const exports = $requireManagedExports();
-  const result = exports.InspectionEngine.PackageCacheStats();
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = $exports.InspectionEngine.PackageCacheStats();
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {BrowserPackageCacheStats} */ (parsed);
+  return /** @type {BrowserPackageCacheStats} */ ($parsed);
 }
 
 /**
@@ -328,12 +328,12 @@ export function packageCacheStats() {
  * @returns {Promise<BrowserMemberSurface>}
  */
 export async function queryGraphMemberSurface(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken) {
-  const exports = $requireManagedExports();
-  const result = await exports.InspectionEngine.QueryGraphMemberSurface(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken);
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = await $exports.InspectionEngine.QueryGraphMemberSurface(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken);
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {BrowserMemberSurface} */ (parsed);
+  return /** @type {BrowserMemberSurface} */ ($parsed);
 }
 
 /**
@@ -351,12 +351,12 @@ export async function queryGraphMemberSurface(packageId, version, targetFramewor
  * @returns {Promise<BrowserAnnotatedSource>}
  */
 export async function queryMemberAnnotatedSource(packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson) {
-  const exports = $requireManagedExports();
-  const result = await exports.InspectionEngine.QueryMemberAnnotatedSource(packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson);
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = await $exports.InspectionEngine.QueryMemberAnnotatedSource(packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson);
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {BrowserAnnotatedSource} */ (parsed);
+  return /** @type {BrowserAnnotatedSource} */ ($parsed);
 }
 
 /**
@@ -374,12 +374,12 @@ export async function queryMemberAnnotatedSource(packageId, version, targetFrame
  * @returns {Promise<BrowserCallGraph>}
  */
 export async function queryMemberCallGraph(packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, workspaceJson) {
-  const exports = $requireManagedExports();
-  const result = await exports.InspectionEngine.QueryMemberCallGraph(packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, workspaceJson);
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = await $exports.InspectionEngine.QueryMemberCallGraph(packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, workspaceJson);
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {BrowserCallGraph} */ (parsed);
+  return /** @type {BrowserCallGraph} */ ($parsed);
 }
 
 /**
@@ -391,12 +391,12 @@ export async function queryMemberCallGraph(packageId, version, targetFramework, 
  * @returns {Promise<BrowserMemberDocumentation>}
  */
 export async function queryMemberDocumentation(packageId, version, framework, assemblyName, documentationId) {
-  const exports = $requireManagedExports();
-  const result = await exports.InspectionEngine.QueryMemberDocumentation(packageId, version, framework, assemblyName, documentationId);
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = await $exports.InspectionEngine.QueryMemberDocumentation(packageId, version, framework, assemblyName, documentationId);
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {BrowserMemberDocumentation} */ (parsed);
+  return /** @type {BrowserMemberDocumentation} */ ($parsed);
 }
 
 /**
@@ -410,8 +410,8 @@ export async function queryMemberDocumentation(packageId, version, framework, as
  * @returns {Promise<string>}
  */
 export async function queryMemberFacts(packageId, version, targetFramework, assemblyName, typeId, memberName, memberSignature) {
-  const exports = $requireManagedExports();
-  return await exports.InspectionEngine.QueryMemberFacts(packageId, version, targetFramework, assemblyName, typeId, memberName, memberSignature);
+  const $exports = $requireManagedExports();
+  return await $exports.InspectionEngine.QueryMemberFacts(packageId, version, targetFramework, assemblyName, typeId, memberName, memberSignature);
 }
 
 /**
@@ -427,12 +427,12 @@ export async function queryMemberFacts(packageId, version, targetFramework, asse
  * @returns {Promise<BrowserSource>}
  */
 export async function queryMemberSource(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson) {
-  const exports = $requireManagedExports();
-  const result = await exports.InspectionEngine.QueryMemberSource(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson);
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = await $exports.InspectionEngine.QueryMemberSource(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson);
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {BrowserSource} */ (parsed);
+  return /** @type {BrowserSource} */ ($parsed);
 }
 
 /**
@@ -442,12 +442,12 @@ export async function queryMemberSource(packageId, version, targetFramework, ass
  * @returns {Promise<BrowserPackageSurface>}
  */
 export async function queryPackage(packageId, version, targetFramework) {
-  const exports = $requireManagedExports();
-  const result = await exports.InspectionEngine.QueryPackage(packageId, version, targetFramework);
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = await $exports.InspectionEngine.QueryPackage(packageId, version, targetFramework);
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {BrowserPackageSurface} */ (parsed);
+  return /** @type {BrowserPackageSurface} */ ($parsed);
 }
 
 /**
@@ -458,12 +458,12 @@ export async function queryPackage(packageId, version, targetFramework) {
  * @returns {Promise<BrowserPackageDependencies>}
  */
 export async function queryPackageDependencies(packageId, version, targetFramework, assemblyId) {
-  const exports = $requireManagedExports();
-  const result = await exports.InspectionEngine.QueryPackageDependencies(packageId, version, targetFramework, assemblyId);
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = await $exports.InspectionEngine.QueryPackageDependencies(packageId, version, targetFramework, assemblyId);
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {BrowserPackageDependencies} */ (parsed);
+  return /** @type {BrowserPackageDependencies} */ ($parsed);
 }
 
 /**
@@ -475,8 +475,8 @@ export async function queryPackageDependencies(packageId, version, targetFramewo
  * @returns {Promise<string>}
  */
 export async function queryPackageHeapEntries(packageId, version, targetFramework, assemblyFileName, heap) {
-  const exports = $requireManagedExports();
-  return await exports.InspectionEngine.QueryPackageHeapEntries(packageId, version, targetFramework, assemblyFileName, heap);
+  const $exports = $requireManagedExports();
+  return await $exports.InspectionEngine.QueryPackageHeapEntries(packageId, version, targetFramework, assemblyFileName, heap);
 }
 
 /**
@@ -486,12 +486,12 @@ export async function queryPackageHeapEntries(packageId, version, targetFramewor
  * @returns {Promise<BrowserPackageIntegrations>}
  */
 export async function queryPackageIntegrations(packageId, version, targetFramework) {
-  const exports = $requireManagedExports();
-  const result = await exports.InspectionEngine.QueryPackageIntegrations(packageId, version, targetFramework);
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = await $exports.InspectionEngine.QueryPackageIntegrations(packageId, version, targetFramework);
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {BrowserPackageIntegrations} */ (parsed);
+  return /** @type {BrowserPackageIntegrations} */ ($parsed);
 }
 
 /**
@@ -501,8 +501,8 @@ export async function queryPackageIntegrations(packageId, version, targetFramewo
  * @returns {Promise<string>}
  */
 export async function queryPackageMetadata(packageId, version, targetFramework) {
-  const exports = $requireManagedExports();
-  return await exports.InspectionEngine.QueryPackageMetadata(packageId, version, targetFramework);
+  const $exports = $requireManagedExports();
+  return await $exports.InspectionEngine.QueryPackageMetadata(packageId, version, targetFramework);
 }
 
 /**
@@ -516,8 +516,8 @@ export async function queryPackageMetadata(packageId, version, targetFramework) 
  * @returns {Promise<string>}
  */
 export async function queryPackageMetadataTable(packageId, version, targetFramework, assemblyFileName, tableIndex, startRowId, maxRows) {
-  const exports = $requireManagedExports();
-  return await exports.InspectionEngine.QueryPackageMetadataTable(packageId, version, targetFramework, assemblyFileName, tableIndex, startRowId, maxRows);
+  const $exports = $requireManagedExports();
+  return await $exports.InspectionEngine.QueryPackageMetadataTable(packageId, version, targetFramework, assemblyFileName, tableIndex, startRowId, maxRows);
 }
 
 /**
@@ -527,12 +527,12 @@ export async function queryPackageMetadataTable(packageId, version, targetFramew
  * @returns {Promise<BrowserPackageOpportunities>}
  */
 export async function queryPackageOpportunities(packageId, version, targetFramework) {
-  const exports = $requireManagedExports();
-  const result = await exports.InspectionEngine.QueryPackageOpportunities(packageId, version, targetFramework);
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = await $exports.InspectionEngine.QueryPackageOpportunities(packageId, version, targetFramework);
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {BrowserPackageOpportunities} */ (parsed);
+  return /** @type {BrowserPackageOpportunities} */ ($parsed);
 }
 
 /**
@@ -542,12 +542,12 @@ export async function queryPackageOpportunities(packageId, version, targetFramew
  * @returns {Promise<BrowserPackagePerformance>}
  */
 export async function queryPackagePerformance(packageId, version, targetFramework) {
-  const exports = $requireManagedExports();
-  const result = await exports.InspectionEngine.QueryPackagePerformance(packageId, version, targetFramework);
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = await $exports.InspectionEngine.QueryPackagePerformance(packageId, version, targetFramework);
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {BrowserPackagePerformance} */ (parsed);
+  return /** @type {BrowserPackagePerformance} */ ($parsed);
 }
 
 /**
@@ -555,12 +555,12 @@ export async function queryPackagePerformance(packageId, version, targetFramewor
  * @returns {Promise<ReadonlyArray<string>>}
  */
 export async function queryPackageVersions(packageId) {
-  const exports = $requireManagedExports();
-  const result = await exports.InspectionEngine.QueryPackageVersions(packageId);
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = await $exports.InspectionEngine.QueryPackageVersions(packageId);
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {ReadonlyArray<string>} */ (parsed);
+  return /** @type {ReadonlyArray<string>} */ ($parsed);
 }
 
 /**
@@ -572,8 +572,8 @@ export async function queryPackageVersions(packageId) {
  * @returns {Promise<string>}
  */
 export async function queryPlatformHeapEntries(targetFramework, platformVersion, assemblyFileName, pack, heap) {
-  const exports = $requireManagedExports();
-  return await exports.InspectionEngine.QueryPlatformHeapEntries(targetFramework, platformVersion, assemblyFileName, pack, heap);
+  const $exports = $requireManagedExports();
+  return await $exports.InspectionEngine.QueryPlatformHeapEntries(targetFramework, platformVersion, assemblyFileName, pack, heap);
 }
 
 /**
@@ -584,12 +584,12 @@ export async function queryPlatformHeapEntries(targetFramework, platformVersion,
  * @returns {Promise<BrowserPackageIntegrations>}
  */
 export async function queryPlatformIntegrations(targetFramework, platformVersion, assemblyFileName, pack) {
-  const exports = $requireManagedExports();
-  const result = await exports.InspectionEngine.QueryPlatformIntegrations(targetFramework, platformVersion, assemblyFileName, pack);
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = await $exports.InspectionEngine.QueryPlatformIntegrations(targetFramework, platformVersion, assemblyFileName, pack);
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {BrowserPackageIntegrations} */ (parsed);
+  return /** @type {BrowserPackageIntegrations} */ ($parsed);
 }
 
 /**
@@ -600,8 +600,8 @@ export async function queryPlatformIntegrations(targetFramework, platformVersion
  * @returns {Promise<string>}
  */
 export async function queryPlatformMetadata(targetFramework, platformVersion, assemblyFileName, pack) {
-  const exports = $requireManagedExports();
-  return await exports.InspectionEngine.QueryPlatformMetadata(targetFramework, platformVersion, assemblyFileName, pack);
+  const $exports = $requireManagedExports();
+  return await $exports.InspectionEngine.QueryPlatformMetadata(targetFramework, platformVersion, assemblyFileName, pack);
 }
 
 /**
@@ -615,8 +615,8 @@ export async function queryPlatformMetadata(targetFramework, platformVersion, as
  * @returns {Promise<string>}
  */
 export async function queryPlatformMetadataTable(targetFramework, platformVersion, assemblyFileName, pack, tableIndex, startRowId, maxRows) {
-  const exports = $requireManagedExports();
-  return await exports.InspectionEngine.QueryPlatformMetadataTable(targetFramework, platformVersion, assemblyFileName, pack, tableIndex, startRowId, maxRows);
+  const $exports = $requireManagedExports();
+  return await $exports.InspectionEngine.QueryPlatformMetadataTable(targetFramework, platformVersion, assemblyFileName, pack, tableIndex, startRowId, maxRows);
 }
 
 /**
@@ -627,12 +627,12 @@ export async function queryPlatformMetadataTable(targetFramework, platformVersio
  * @returns {Promise<BrowserPackageOpportunities>}
  */
 export async function queryPlatformOpportunities(targetFramework, platformVersion, assemblyFileName, pack) {
-  const exports = $requireManagedExports();
-  const result = await exports.InspectionEngine.QueryPlatformOpportunities(targetFramework, platformVersion, assemblyFileName, pack);
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = await $exports.InspectionEngine.QueryPlatformOpportunities(targetFramework, platformVersion, assemblyFileName, pack);
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {BrowserPackageOpportunities} */ (parsed);
+  return /** @type {BrowserPackageOpportunities} */ ($parsed);
 }
 
 /**
@@ -643,8 +643,8 @@ export async function queryPlatformOpportunities(targetFramework, platformVersio
  * @returns {Promise<string>}
  */
 export async function queryPlatformPerformance(targetFramework, platformVersion, assemblyFileName, pack) {
-  const exports = $requireManagedExports();
-  return await exports.InspectionEngine.QueryPlatformPerformance(targetFramework, platformVersion, assemblyFileName, pack);
+  const $exports = $requireManagedExports();
+  return await $exports.InspectionEngine.QueryPlatformPerformance(targetFramework, platformVersion, assemblyFileName, pack);
 }
 
 /**
@@ -660,12 +660,12 @@ export async function queryPlatformPerformance(targetFramework, platformVersion,
  * @returns {Promise<BrowserSource>}
  */
 export async function queryTypeMemberSource(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson) {
-  const exports = $requireManagedExports();
-  const result = await exports.InspectionEngine.QueryTypeMemberSource(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson);
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = await $exports.InspectionEngine.QueryTypeMemberSource(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson);
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {BrowserSource} */ (parsed);
+  return /** @type {BrowserSource} */ ($parsed);
 }
 
 /**
@@ -677,12 +677,12 @@ export async function queryTypeMemberSource(packageId, version, targetFramework,
  * @returns {Promise<BrowserTypeMetadata>}
  */
 export async function queryTypeProjection(packageId, version, targetFramework, assemblyName, typeId) {
-  const exports = $requireManagedExports();
-  const result = await exports.InspectionEngine.QueryTypeProjection(packageId, version, targetFramework, assemblyName, typeId);
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = await $exports.InspectionEngine.QueryTypeProjection(packageId, version, targetFramework, assemblyName, typeId);
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {BrowserTypeMetadata} */ (parsed);
+  return /** @type {BrowserTypeMetadata} */ ($parsed);
 }
 
 /**
@@ -695,12 +695,12 @@ export async function queryTypeProjection(packageId, version, targetFramework, a
  * @returns {Promise<BrowserSource>}
  */
 export async function queryTypeSource(packageId, version, targetFramework, assemblyName, typeIdentity, styleOptionsJson) {
-  const exports = $requireManagedExports();
-  const result = await exports.InspectionEngine.QueryTypeSource(packageId, version, targetFramework, assemblyName, typeIdentity, styleOptionsJson);
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = await $exports.InspectionEngine.QueryTypeSource(packageId, version, targetFramework, assemblyName, typeIdentity, styleOptionsJson);
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {BrowserSource} */ (parsed);
+  return /** @type {BrowserSource} */ ($parsed);
 }
 
 /**
@@ -708,12 +708,12 @@ export async function queryTypeSource(packageId, version, targetFramework, assem
  * @returns {BrowserHomeDemoResolveResult}
  */
 export function resolveHomeDemo(scenarioId) {
-  const exports = $requireManagedExports();
-  const result = exports.InspectionEngine.ResolveHomeDemo(scenarioId);
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = $exports.InspectionEngine.ResolveHomeDemo(scenarioId);
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {BrowserHomeDemoResolveResult} */ (parsed);
+  return /** @type {BrowserHomeDemoResolveResult} */ ($parsed);
 }
 
 /**
@@ -722,8 +722,8 @@ export function resolveHomeDemo(scenarioId) {
  * @returns {Promise<string>}
  */
 export async function resolvePackageDependencyVersion(packageId, declaredRange) {
-  const exports = $requireManagedExports();
-  return await exports.InspectionEngine.ResolvePackageDependencyVersion(packageId, declaredRange);
+  const $exports = $requireManagedExports();
+  return await $exports.InspectionEngine.ResolvePackageDependencyVersion(packageId, declaredRange);
 }
 
 /**
@@ -731,12 +731,12 @@ export async function resolvePackageDependencyVersion(packageId, declaredRange) 
  * @returns {Promise<BrowserHomeDemoRunResult>}
  */
 export async function runHomeDemo(scenarioId) {
-  const exports = $requireManagedExports();
-  const result = await exports.InspectionEngine.RunHomeDemo(scenarioId);
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = await $exports.InspectionEngine.RunHomeDemo(scenarioId);
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {BrowserHomeDemoRunResult} */ (parsed);
+  return /** @type {BrowserHomeDemoRunResult} */ ($parsed);
 }
 
 /**
@@ -745,10 +745,10 @@ export async function runHomeDemo(scenarioId) {
  * @returns {ReadonlyArray<BrowserTypeSearchHit>}
  */
 export function searchTypes(query, candidatesJson) {
-  const exports = $requireManagedExports();
-  const result = exports.InspectionEngine.SearchTypes(query, candidatesJson);
-  const parsed = $parseJson(result);
+  const $exports = $requireManagedExports();
+  const $result = $exports.InspectionEngine.SearchTypes(query, candidatesJson);
+  const $parsed = $parseJson($result);
   // The authenticated serializer contract fixes this function's exact wire type.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  return /** @type {ReadonlyArray<BrowserTypeSearchHit>} */ (parsed);
+  return /** @type {ReadonlyArray<BrowserTypeSearchHit>} */ ($parsed);
 }

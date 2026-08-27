@@ -3318,9 +3318,9 @@ test("generated source wrappers parse their JSON envelopes", () => {
   ]) {
     assert.match(
       wrapper(name),
-      /const parsed = \$parseJson\(result\);[\s\S]*?return \/\*\* @type \{[^}]+} \*\/ \(parsed\);/);
+      /const \$parsed = \$parseJson\(\$result\);[\s\S]*?return \/\*\* @type \{[^}]+} \*\/ \(\$parsed\);/);
   }
-  assert.doesNotMatch(wrapper("queryMemberFacts"), /JSON\.parse\(result\)/);
+  assert.doesNotMatch(wrapper("queryMemberFacts"), /\$parseJson\(/);
 });
 
 test("MethodDef-only member sections are hidden for bodiless APIs", () => {

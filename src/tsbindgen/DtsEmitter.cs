@@ -455,14 +455,18 @@ static class DtsEmitter
     static void ValidateFunctionNames(IEnumerable<JsExportFunction> functions)
     {
         var moduleBindings = new HashSet<string>(
-            ["dotnet", "initializeEngine"],
+            [
+                "dotnet",
+                "initializeEngine",
+                "$managedExports",
+                "$parseJson",
+                "$requireManagedExports",
+            ],
             StringComparer.Ordinal);
         foreach (JsExportFunction function in functions)
         {
             string functionName = CamelCase.FromPascalCase(function.Name);
-            string exportSlotName = functionName + "Export";
             if (!TypeScriptIdentifier.IsStrictModeBindingIdentifier(functionName)
-                || !TypeScriptIdentifier.IsStrictModeBindingIdentifier(exportSlotName)
                 || !IsComposedIdentifierName(function.DeclaringType)
                 || !TypeScriptIdentifier.IsIdentifierName(function.Name))
             {
@@ -471,8 +475,7 @@ static class DtsEmitter
                     "export names must be TypeScript identifiers");
             }
 
-            if (!moduleBindings.Add(functionName)
-                || !moduleBindings.Add(exportSlotName))
+            if (!moduleBindings.Add(functionName))
             {
                 throw new UnsupportedWireContractException(
                     "JS-export function",
@@ -480,9 +483,14 @@ static class DtsEmitter
             }
 
             var parameterNames = new HashSet<string>(StringComparer.Ordinal);
-            bool reservesResult =
+            bool parsesJson =
                 function.ReturnWireType is not null
                 && TsTypeMapper.IsJsonEnvelopeReturnType(function.ReturnType);
+            var generatedLocals = new HashSet<string>(
+                parsesJson
+                    ? ["$exports", "$parsed", "$result"]
+                    : ["$exports"],
+                StringComparer.Ordinal);
             foreach (ApiParameter parameter in function.Parameters)
             {
                 string parameterName =
@@ -495,8 +503,7 @@ static class DtsEmitter
                 }
 
                 if (!parameterNames.Add(parameterName)
-                    || parameterName == exportSlotName
-                    || reservesResult && parameterName == "result")
+                    || generatedLocals.Contains(parameterName))
                 {
                     throw new UnsupportedWireContractException(
                         "JS-export parameter",

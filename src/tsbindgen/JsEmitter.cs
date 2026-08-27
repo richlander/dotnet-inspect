@@ -189,9 +189,10 @@ static class JsEmitter
         sb.Append(" */\n");
         sb.Append("export ").Append(isAsync ? "async " : "").Append("function ")
           .Append(function.Name).Append('(').Append(parameterList).Append(") {\n");
-        sb.Append("  const exports = $requireManagedExports();\n");
+        sb.Append("  const $exports = $requireManagedExports();\n");
 
-        string call = $"exports.{function.Function.DeclaringType}.{function.Function.Name}({parameterList})";
+        string call =
+            $"$exports.{function.Function.DeclaringType}.{function.Function.Name}({parameterList})";
         if (isAsync)
         {
             call = $"await {call}";
@@ -199,12 +200,12 @@ static class JsEmitter
 
         if (parsesJson)
         {
-            sb.Append("  const result = ").Append(call).Append(";\n");
-            sb.Append("  const parsed = $parseJson(result);\n");
+            sb.Append("  const $result = ").Append(call).Append(";\n");
+            sb.Append("  const $parsed = $parseJson($result);\n");
             sb.Append("  // The authenticated serializer contract fixes this function's exact wire type.\n");
             sb.Append("  // oxlint-disable-next-line typescript/no-unsafe-type-assertion\n");
             sb.Append("  return /** @type {").Append(function.WireReturnType)
-              .Append("} */ (parsed);\n");
+              .Append("} */ ($parsed);\n");
         }
         else
         {
