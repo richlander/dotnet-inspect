@@ -590,9 +590,16 @@ test("every source file is covered by a lint target", () => {
 // never consults the index, so it skips that file anyway. Round 4 (Sol) force-added a
 // file under an ignored path and the gate went green while the lint stayed blind.
 function ignoredFiles(directory: string, candidates: readonly string[]): string[] {
+  // `core.excludesFile` is the developer's own file, not the repository's, and oxlint does
+  // not read it. Round 5 (Sol) pointed out that leaving it in scope lets a global `*.ts`
+  // entry fail this gate over files the lint reads perfectly well, so git is asked about
+  // the repository's ignore rules alone. `.git/info/exclude` stays in scope deliberately:
+  // oxlint honours that one, so git and oxlint still agree about it.
+  //
   // `check-ignore` exits 0 when it ignored something, 1 when it ignored nothing, and
   // anything else is a real failure that must not read as "nothing ignored".
-  const checked = spawnSync("git", ["check-ignore", "--no-index", "--stdin"],
+  const checked = spawnSync("git",
+    ["-c", "core.excludesFile=", "check-ignore", "--no-index", "--stdin"],
     { cwd: directory, encoding: "utf8", input: candidates.join("\n") });
   assert.ok(checked.status === 0 || checked.status === 1,
     `git check-ignore failed: ${checked.stderr}`);
@@ -647,6 +654,78 @@ test("the ignore-rule gate reads ignore patterns rather than tracked status", ()
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
+});
+
+// Rounds 3, 4 and 5 each found a different reason oxlint declines to open a file that
+// every gate above counts as covered: `.gitignore` applied while walking, a force-added
+// file under an ignored path, and -- round 5 (Gemini 3.1 Pro) -- a filename heuristic
+// that refuses any path containing `.min.` or `-min.` as a minified asset, for every
+// extension oxlint otherwise reads. The pattern is the failure rather than the three
+// holes: the gates above predict which files oxlint will skip, and oxlint's skip rules
+// are its own and undocumented, so the prediction is always one rule out of date.
+//
+// This gate stops predicting. oxlint's JSON report states how many files it actually
+// read, so running the lint script's own arguments and comparing that count against the
+// files this project owns asks oxlint what it did instead of modelling what it will do.
+// A file skipped for any reason -- including a heuristic added by a future oxlint
+// release, which no amount of reading today's source could anticipate -- makes the two
+// counts disagree and fails here.
+function oxlintFileCount(directory: string, args: readonly string[]): number {
+  const run = spawnSync("npx", ["oxlint", ...args, "--format=json"],
+    { cwd: directory, encoding: "utf8" });
+  const output = run.stdout.trim();
+
+  // When every path it was given is one it refuses to open, oxlint answers in plain text
+  // rather than JSON -- which is exactly the case this gate exists to detect, so parsing
+  // it as JSON would kill the per-file diagnostic below on the one input it most needs to
+  // report. Only this specific answer counts as zero; anything else unparseable is a real
+  // failure and must not read as "oxlint skipped everything".
+  if (output.startsWith("No files found to lint")) {
+    return 0;
+  }
+  assert.ok(output.startsWith("{"),
+    `oxlint produced no usable report: ${run.stderr || output || "no output"}`);
+
+  const report: unknown = JSON.parse(output);
+  assert.ok(typeof report === "object" && report !== null && "number_of_files" in report,
+    "oxlint's JSON report no longer states how many files it read, which is the fact "
+      + "this gate depends on; re-establish the count before relaxing this assertion");
+  const counted = report.number_of_files;
+  assert.ok(typeof counted === "number",
+    `oxlint reported a non-numeric file count: ${String(counted)}`);
+  return counted;
+}
+
+test("the lint reads every file this project owns", () => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const sources = projectFiles([...typeScriptExtensions, ...javaScriptExtensions]);
+  const compiled = [...programFiles()].filter(file => isProjectOwned(file, root));
+  const owned = [...new Set([...sources.map(file => resolve(file)), ...compiled])];
+  assert.ok(owned.length > 50, `expected the project sources, found ${owned.length}`);
+
+  const read = oxlintFileCount(root, lintTokens);
+  if (read === owned.length) {
+    return;
+  }
+
+  // Naming a file explicitly defeats some skips but not others -- an ignored path linted
+  // when named directly is exactly round 3 -- so this identifies what it can and says so
+  // plainly rather than implying the list is complete.
+  const flags = lintTokens.filter(token => token.startsWith("-"));
+  const refused = owned
+    .filter(file => oxlintFileCount(root, [...flags, file]) === 0)
+    .map(file => projectRelative(root, file))
+    .sort();
+
+  assert.fail(
+    `the lint reads ${read} files but this project owns ${owned.length}; oxlint is `
+      + "skipping source that every coverage gate counts as linted"
+      + (refused.length > 0
+        ? `\noxlint refuses these outright:\n  ${refused.join("\n  ")}`
+        : "\nno single file is refused on its own, so the skip happens while walking; "
+          + "the ignore-rule gate above names that case")
+      + "\nrename or relocate the file so oxlint will read it, rather than relying on it "
+      + "being under a lint target");
 });
 
 // Sol also walked past the assertion above entirely by turning a rule off at the top
