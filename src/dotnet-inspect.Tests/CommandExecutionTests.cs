@@ -20388,7 +20388,7 @@ public partial class CommandExecutionTests
     /// so the assembling <c>TrimEnd</c> cannot be dropped. All of these have teeth on every
     /// platform. <see cref="PackageCommand_AllLibraries_MarkdownUsesLfThroughout"/> covers the
     /// complementary property, the line ending itself, over the per-library path; that assertion
-    /// has teeth only on the <c>test-windows</c> leg.
+    /// has teeth only on the nightly <c>platform-test (win-x64)</c> leg.
     /// </para>
     /// <para>
     /// Both producers are covered, because they fail differently. The aggregated path (#3951, which
