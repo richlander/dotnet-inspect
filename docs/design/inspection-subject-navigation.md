@@ -569,8 +569,10 @@ identities, order, and availability without defining them.
 Explicit lens activation is not a subject action-ID transition. A consumer
 submits the returned owner-issued lens identity through the lens owner's typed
 transition seam. A successful result becomes the committed lens identity input
-to the next navigation snapshot; rejection or failure does not reinterpret the
-active subject.
+to a complete replacement navigation snapshot, which the consumer installs
+atomically. The consumer never mutates effective lens state locally. An
+unavailable, rejected, or failed lens transition retains the prior navigation
+snapshot and active subject while surfacing the typed outcome.
 
 - Preserve the committed current lens when the active subject identity is
   retained and that exact owner-issued lens identity remains available.
@@ -816,6 +818,8 @@ covering at least:
 - `InspectWeb_DerivesLensTabsOnlyFromSnapshotDescriptors`
 - `InspectWeb_LibraryListboxCommitsOnlyAvailableAction`
 - `InspectWeb_LensActivationUsesOwnerIssuedLensIdentity`
+- `InspectWeb_AppliedLensActivationInstallsReplacementSnapshot`
+- `InspectWeb_NonAppliedLensActivationRetainsPriorSnapshot`
 - `InspectWeb_ConsumesSubjectOutcomeWithoutHostFallback`
 
 Product-side gates should live with the eventual subject-navigation query.

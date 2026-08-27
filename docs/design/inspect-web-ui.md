@@ -456,6 +456,13 @@ Lens tablists use one tab stop and manual activation:
 Roving `tabindex` keeps only the focused tab at `tabindex="0"`. Moving focus
 does not change `aria-selected` or start lens work until activation.
 
+An applied lens transition flows its committed lens identity into a complete
+replacement navigation snapshot. The UI installs that snapshot atomically and
+derives selected tab, panel, and diagnostics from it; it does not update local
+lens state ahead of the product result. An unavailable, rejected, or failed
+transition retains the prior snapshot and active subject while surfacing the
+typed outcome.
+
 An unavailable lens remains in its owning strip with `aria-disabled="true"`
 and an accessible description of the owner-issued reason. A failed lens is
 also disabled but exposes its owner-issued diagnostic distinctly from valid
@@ -1053,6 +1060,11 @@ outcomes:
 6. Activate an available non-effective tab and confirm that the UI submits its
    owner-issued lens identity through the lens transition seam, never a subject
    action ID.
+7. Return an applied result and confirm that the committed identity is supplied
+   to navigation and the complete replacement snapshot is installed before tab
+   or panel selection changes.
+8. Return unavailable, rejected, and failed results and confirm that the prior
+   snapshot and active subject remain installed while each outcome is visible.
 
 ### Library option availability
 
