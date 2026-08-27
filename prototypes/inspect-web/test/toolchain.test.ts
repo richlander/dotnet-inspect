@@ -23,6 +23,7 @@ import {
 } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
+import { failOnHtmlParseErrors, isHtmlParseFailure } from "../scripts/html-parse-gate.ts";
 import {
   supportedAnalysisHosts,
   verifyAnalysisHost,
@@ -701,6 +702,40 @@ function scanMarkup(html: string, report: (problem: string) => void): MarkupTag[
 
   return tags;
 }
+
+// The gate above reads markup with a tokenizer this project wrote. Vite reads the same
+// document with parse5, and until now it reported a document it could not parse and built
+// it anyway. `scripts/html-parse-gate.ts` makes that report fatal.
+//
+// Neither check subsumes the other. The tokenizer knows what this project considers inert
+// and parse5 does not; parse5 implements the HTML5 spec and the tokenizer does not. A
+// document has to satisfy both, and this test exists so that the wiring cannot die
+// quietly -- a `customLogger` that stopped throwing would leave every build green.
+test("the build fails on a document its own parser cannot parse", async () => {
+  assert.equal(isHtmlParseFailure(
+    "Unable to parse HTML; parse5 error code end-tag-with-trailing-solidus"), true);
+  assert.equal(isHtmlParseFailure("some other warning"), false);
+
+  const refusing = failOnHtmlParseErrors();
+  assert.throws(() => {
+    refusing.warn("Unable to parse HTML; parse5 error code end-tag-with-attributes");
+  }, /Unable to parse HTML/u);
+  assert.throws(() => {
+    refusing.warnOnce("Unable to parse HTML; parse5 error code end-tag-with-trailing-solidus");
+  }, /Unable to parse HTML/u);
+
+  // Wiring, not behavior in isolation: the config the build actually loads must install a
+  // logger that refuses. Asserting the helper alone would still pass with `customLogger`
+  // deleted from `vite.config.ts`, which is the way this gate would really die.
+  const configured = (await import("../vite.config.ts")).default.customLogger;
+  assert.ok(configured !== undefined,
+    "vite.config.ts installs no customLogger, so Vite would report an unparseable "
+      + "document and build it anyway");
+  assert.throws(() => {
+    configured.warn(
+      "Unable to parse HTML; parse5 error code end-tag-with-trailing-solidus");
+  }, /Unable to parse HTML/u, "the configured logger does not refuse a parse failure");
+});
 
 test("no HTML document carries script the gates cannot read", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
