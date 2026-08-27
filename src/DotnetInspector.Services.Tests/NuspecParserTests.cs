@@ -494,13 +494,16 @@ public class NuspecParserTests : IDisposable
             StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void ParseContent_ForeignDirectMetadataIsNotPackageMetadata()
+    [Theory]
+    [InlineData("https://example.test/extension")]
+    [InlineData(" ")]
+    public void ParseContent_ForeignDirectMetadataIsNotPackageMetadata(
+        string metadataNamespace)
     {
         NuspecData result = NuspecParser.ParseContent(
-            """
+            $$"""
             <package>
-              <metadata xmlns="https://example.test/extension">
+              <metadata xmlns="{{metadataNamespace}}">
                 <id>Foreign.Package</id>
                 <version>1.0.0</version>
               </metadata>
@@ -556,6 +559,8 @@ public class NuspecParserTests : IDisposable
         "<notpackage><metadata><id>Example.Package</id><version>1.0.0</version></metadata></notpackage>")]
     [InlineData(
         "<package xmlns=\"https://example.test/not-nuspec\"><metadata><id>Example.Package</id><version>1.0.0</version></metadata></package>")]
+    [InlineData(
+        "<package xmlns=\" \"><metadata><id>Example.Package</id><version>1.0.0</version></metadata></package>")]
     public void ParseContent_InvalidDocumentRootIsRejected(string xml)
     {
         InvalidDataException exception =

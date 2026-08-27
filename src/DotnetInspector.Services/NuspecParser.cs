@@ -268,7 +268,7 @@ public static class NuspecParser
     private static bool IsNuspecNamespace(XNamespace ns)
     {
         var uri = ns.NamespaceName;
-        if (string.IsNullOrWhiteSpace(uri))
+        if (uri.Length == 0)
             return true;
 
         const string prefix = "http://schemas.microsoft.com/packaging/";
