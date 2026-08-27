@@ -6,6 +6,7 @@ using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using ILInspector.CSharp;
 
 namespace DotnetInspector;
 
@@ -64,6 +65,11 @@ public static class CommandLineBuilder
     /// render path that drops <c>--print</c>/<c>--value</c>/<c>--urls</c>/<c>--paths</c>/
     /// <c>--count</c> fails loudly in tests rather than shipping unprojected output.
     ///
+    /// It also owns parse-error rendering. Router rewrites parse a second token
+    /// sequence, and
+    /// <c>CommandExecutionTests.Router_AttachedEmptyLibraryValue_PreservesBoundedParseError</c>
+    /// fails if that second parse escapes to System.CommandLine's help renderer.
+    ///
     /// It is also where an escaping exception is turned back into the CLI's error
     /// contract. System.CommandLine's own default handler would otherwise print
     /// <c>Unhandled exception: </c> and the raw exception to stderr at column 0, which
@@ -75,6 +81,9 @@ public static class CommandLineBuilder
     /// </summary>
     public static async Task<int> InvokeAsync(ParseResult parseResult)
     {
+        if (WriteParseErrors(parseResult))
+            return 1;
+
         // Two projections cannot both shape one payload, so reject the combination before
         // the command runs rather than letting one of them be discarded.
         if (!ProjectionAudit.ValidateExclusive(parseResult, message => CommandError.Write(message)))
@@ -123,6 +132,87 @@ public static class CommandLineBuilder
             CommandError.WriteUnhandled(ex);
             return 1;
         }
+    }
+
+    private static bool WriteParseErrors(ParseResult parseResult)
+    {
+        if (parseResult.Errors.Count == 0)
+            return false;
+
+        foreach (var error in parseResult.Errors)
+            CommandError.Write(FormatParseError(error.Message));
+        return true;
+    }
+
+    private static string FormatParseError(string message)
+    {
+        if (message.StartsWith("Cannot parse argument '", StringComparison.Ordinal)
+            && TryParseCannotParseArgument(
+                message,
+                out var value,
+                out var option,
+                out var type))
+        {
+            var expected = type switch
+            {
+                "System.Int32" or "System.Nullable`1[System.Int32]" =>
+                    "an integer",
+                _ => "a valid value",
+            };
+            return $"Cannot parse value '{Contain(value)}' for option "
+                + $"'{Contain(option)}' as {expected}.";
+        }
+
+        return message.StartsWith(
+                "Error:",
+                StringComparison.OrdinalIgnoreCase)
+            ? Contain(message["Error:".Length..].TrimStart())
+            : Contain(message);
+
+        static string Contain(string text) =>
+            CSharpIdentifier.ContainRenderedText(text);
+    }
+
+    private static bool TryParseCannotParseArgument(
+        string message,
+        out string value,
+        out string option,
+        out string type)
+    {
+        value = "";
+        option = "";
+        type = "";
+        const string prefix = "Cannot parse argument '";
+        int valueStart = prefix.Length;
+        int valueEnd = message.IndexOf('\'', valueStart);
+        const string middle = " for option '";
+        if (valueEnd < 0
+            || !message.AsSpan(valueEnd + 1).StartsWith(
+                middle,
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        int optionStart = valueEnd + 1 + middle.Length;
+        int optionEnd = message.IndexOf('\'', optionStart);
+        const string typeMarker = " as expected type '";
+        int typeStart = message.IndexOf(
+            typeMarker,
+            optionEnd + 1,
+            StringComparison.Ordinal);
+        if (optionEnd < 0 || typeStart < 0)
+            return false;
+
+        typeStart += typeMarker.Length;
+        int typeEnd = message.IndexOf('\'', typeStart);
+        if (typeEnd < 0)
+            return false;
+
+        value = message[valueStart..valueEnd];
+        option = message[optionStart..optionEnd];
+        type = message[typeStart..typeEnd];
+        return true;
     }
 
     // The default handler prints a raw stack trace for every escaping exception, including
@@ -178,6 +268,10 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(InspectionCommandDefinitions.CreateDiffCommand(opts));
         rootCommand.Subcommands.Add(InspectionCommandDefinitions.CreateTimelineCommand(opts));
 
+        // Inspection graph command
+        rootCommand.Subcommands.Add(
+            InspectionGraphCommandDefinitions.CreateGraphCommand(opts));
+
         // Depends command
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateDependsCommand(opts));
 
@@ -202,11 +296,18 @@ public static class CommandLineBuilder
         // Project command
         rootCommand.Subcommands.Add(ProjectCommandDefinitions.CreateProjectCommand(opts));
 
+        // Workspace share packet conversion
+        rootCommand.Subcommands.Add(
+            UtilityCommandDefinitions.CreateWorkspaceStateCommand());
+
         // Router command (hidden, implicit default for bare names)
         rootCommand.Subcommands.Add(RouterCommandDefinition.Create(rootCommand, opts));
 
         // Skill command
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateSkillCommand(opts));
+
+        // Product home demos (run closed section presets)
+        rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateDemoCommand(opts));
 
         // Override S.CL's built-in --help to use our own renderer
         var helpOption = rootCommand.Options.OfType<System.CommandLine.Help.HelpOption>().FirstOrDefault();

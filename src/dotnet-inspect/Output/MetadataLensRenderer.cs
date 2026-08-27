@@ -15,8 +15,8 @@ namespace DotnetInspector.Output;
 /// model binds a static row type per section. They are rendered imperatively instead, through
 /// <see cref="MetadataProjectionRenderer"/>, and composed into the same document. Composing rather
 /// than writing straight to the console is what keeps the rest of the output contract working
-/// unchanged: section ordering, <c>--rows</c> windowing, and <c>--count</c> all operate on the
-/// rendered Markdown, so they apply to metadata sections without knowing anything about them.
+/// unchanged. Count projection shares the same metadata row builders rather than recovering
+/// cardinality from the rendered Markdown.
 /// </summary>
 internal static class MetadataLensRenderer
 {
@@ -215,6 +215,66 @@ internal static class MetadataLensRenderer
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Captures selected metadata table cardinality from the same typed rows consumed by the
+    /// metadata renderer.
+    /// </summary>
+    internal static CountProjection CaptureCounts(
+        LibraryInspection inspection,
+        IReadOnlyCollection<string>? sections,
+        RowWindow? rows)
+    {
+        ArgumentNullException.ThrowIfNull(inspection);
+
+        var projection = new CountProjection();
+        if (!IsSelected(sections))
+            return projection;
+
+        var selected = sections!;
+
+        if (selected.Contains(MetadataSectionNames.Image, StringComparer.OrdinalIgnoreCase)
+            && inspection.MetadataOverview is { } overview)
+        {
+            projection.RecordTable(
+                MetadataSectionNames.Image,
+                WindowedCount(MetadataProjectionRenderer.CountImageFactRows(overview), rows));
+        }
+
+        if (selected.Contains(MetadataSectionNames.Heap, StringComparer.OrdinalIgnoreCase)
+            && inspection.MetadataHeap is not null)
+        {
+            projection.RecordTable(
+                MetadataSectionNames.Heap,
+                WindowedCount(1, rows));
+        }
+
+        foreach (var entries in ListSelectedHeaps(inspection, selected, TextWriter.Null))
+        {
+            projection.RecordTable(
+                MetadataSectionNames.ForHeap(entries.Heap),
+                WindowedCount(entries.Entries.Length, rows));
+        }
+
+        foreach (var table in ProjectSelected(
+            inspection, selected, TextWriter.Null, columns: null))
+        {
+            projection.RecordTable(
+                MetadataSectionNames.ForTable(table.Index),
+                WindowedCount(table.View.Rows.Length, rows));
+        }
+
+        return projection;
+    }
+
+    private static int WindowedCount(int count, RowWindow? rows)
+    {
+        if (rows is not { IsUnlimited: false } window)
+            return count;
+
+        var (start, end) = window.Resolve(count);
+        return end - start;
     }
 
     /// <summary>

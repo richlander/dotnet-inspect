@@ -108,6 +108,54 @@ public sealed class BodyShapesSectionTests
     }
 
     [Fact]
+    public async Task LibraryKindPredicate_CountAppliesTheRenderedRowWindow()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                    "--rows",
+                    "2..3",
+                    "--count",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("2", result.Output.Trim());
+    }
+
+    [Fact]
+    public async Task LibraryKindPredicate_CountValidatesTheColumnProjection()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                    "--columns",
+                    "NoSuchColumn",
+                    "--count",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "No columns matched projection: NoSuchColumn",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task LibraryKindPredicate_IncludesMatchesInStructuredJson()
     {
         var root = CommandLineBuilder.CreateRootCommand();
@@ -310,6 +358,37 @@ public sealed class BodyShapesSectionTests
             StringComparison.Ordinal);
         Assert.DoesNotContain("Performance:", result.Output, StringComparison.Ordinal);
         Assert.Contains(
+            OptimizationOpportunitiesQuery.Definition.Name,
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            BodyShapesQuery.Definition.Name,
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LibraryKindPredicate_DoesNotRunOptionalPerformanceQuery()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                    "--trace",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(
+            BodyShapesQuery.Definition.Name,
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
             OptimizationOpportunitiesQuery.Definition.Name,
             result.Error,
             StringComparison.Ordinal);

@@ -19,6 +19,7 @@
     <InternalsVisibleTo Include="analysis-harness" />
     <InternalsVisibleTo Include="ILInspector.CallGraph" />
     <InternalsVisibleTo Include="ILInspector.Analysis.Tests" />
+    <InternalsVisibleTo Include="ILInspector.JsExportSurface.Tests" />
     <InternalsVisibleTo Include="ILInspector.Research.Tests" />
     <!--
       The browser prototype's boundary tests build genuinely distinct declaring types — a nested

@@ -23,8 +23,28 @@ public static class TypeCommand
 {
     public const string Name = "type";
 
-    public static async Task<int> ExecuteAsync(TypeOptions options)
+    public static Task<int> ExecuteAsync(TypeOptions options)
+        => ExecuteCoreAsync(options);
+
+    internal static Task<int> ExecuteResolvedAsync(
+        TypeOptions options,
+        ApiSourceResult source,
+        ApiServices.LoadedApiSurface loaded)
+        => ExecuteCoreAsync(options, source, loaded);
+
+    private static async Task<int> ExecuteCoreAsync(
+        TypeOptions options,
+        ApiSourceResult? resolvedSource = null,
+        ApiServices.LoadedApiSurface? loadedSurface = null)
     {
+        if (!PerformanceTriageOptions.TryValidate(
+                options.PerformanceTriage,
+                out var performanceTriageError))
+        {
+            CommandError.Write(performanceTriageError);
+            return 1;
+        }
+
         // Shared preamble: section validation, discovery, verbosity promotion
         var (preamble, error) = ApiCommand.RunPreamble(options);
         if (error.HasValue) return error.Value;
@@ -46,11 +66,23 @@ public static class TypeCommand
             return 1;
         }
 
-        var (source, sourceError) = await ApiSourceResolver.ResolveAsync(options);
-        if (sourceError.HasValue)
+        bool ownsSource = resolvedSource is null;
+        ApiSourceResult source;
+        if (resolvedSource is null)
         {
-            NamespacePrefixHints.WriteIfLikelyBareTypeName(options.OriginalTypeQuery ?? options.PackagePath ?? options.TypeName ?? "");
-            return sourceError.Value;
+            var (acquiredSource, sourceError) =
+                await ApiSourceResolver.ResolveAsync(options);
+            if (sourceError.HasValue)
+            {
+                NamespacePrefixHints.WriteIfLikelyBareTypeName(options.OriginalTypeQuery ?? options.PackagePath ?? options.TypeName ?? "");
+                return sourceError.Value;
+            }
+
+            source = acquiredSource;
+        }
+        else
+        {
+            source = resolvedSource;
         }
 
         var searchPath = source.SearchPath;
@@ -80,21 +112,22 @@ public static class TypeCommand
             if (string.IsNullOrEmpty(typeName))
             {
                 // No type specified - list all types
-                var loaded = CanUsePlatformSummary(
-                    options,
-                    searchPath,
-                    runtimeAssemblyPath,
-                    platformFramework)
-                    ? ApiServices.LoadPlatformApiSummary(
-                        searchPath,
-                        runtimeAssemblyPath!,
-                        apiSource,
-                        apiVersion,
-                        selectedTfm,
-                        logger)
-                    : ApiServices.LoadFullApi(
-                        searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
-                        apiSource, apiVersion, selectedTfm, logger, options);
+                var loaded = loadedSurface
+                    ?? (CanUsePlatformSummary(
+                            options,
+                            searchPath,
+                            runtimeAssemblyPath,
+                            platformFramework)
+                        ? ApiServices.LoadPlatformApiSummary(
+                            searchPath,
+                            runtimeAssemblyPath!,
+                            apiSource,
+                            apiVersion,
+                            selectedTfm,
+                            logger)
+                        : ApiServices.LoadFullApi(
+                            searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
+                            apiSource, apiVersion, selectedTfm, logger, options));
                 if (loaded == null)
                 {
                     CommandError.Write("Could not extract API from library.");
@@ -122,9 +155,7 @@ public static class TypeCommand
                         verbosity: (int)options.Verbosity,
                         sectionCostAnnotations: typePipeline.GetCostAnnotations(),
                         sectionCategories: typePipeline.GetCategoryMap(),
-                        projection: options,
-                        tabularExplicitlySet:
-                            options.TabularExplicitlySet);
+                        projection: options);
                 }
 
                 var listExitCode = ApiCommand.WriteFullApiOutput(api, options, selectedTfm);
@@ -165,9 +196,10 @@ public static class TypeCommand
             }
             else
             {
-                var loaded = ApiServices.LoadFullApi(
-                    searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
-                    apiSource, apiVersion, selectedTfm, logger, options);
+                var loaded = loadedSurface
+                    ?? ApiServices.LoadFullApi(
+                        searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
+                        apiSource, apiVersion, selectedTfm, logger, options);
                 if (loaded == null)
                 {
                     CommandError.Write("Could not extract API from library.");
@@ -178,6 +210,11 @@ public static class TypeCommand
                 var apiDllPath = loaded.ApiDllPath;
 
                 var lookupResult = ApiTypeLookupService.LookupType(api, typeName);
+                if (lookupResult.ImpliedMember is not null)
+                {
+                    lookupResult.WriteNotFoundError();
+                    return 1;
+                }
 
                 if (lookupResult.Found)
                 {
@@ -282,14 +319,14 @@ public static class TypeCommand
                     }
 
                     bool hasProjection = effectiveOptions.Columns is { Length: > 0 } || effectiveOptions.Fields is { Length: > 0 };
-                    bool tabularProjection = hasProjection
-                        && !effectiveOptions.JsonOutput
-                        && !effectiveOptions.Count
+                    bool validatesProjection = hasProjection
+                        && (!effectiveOptions.JsonOutput || effectiveOptions.Count)
                         && effectiveOptions is not TypeOptions { ShapeOutput: true };
+                    bool tabularProjection = validatesProjection && !effectiveOptions.Count;
 
                     // Pre-render: validate --columns/--fields names against the section schema
                     // (catches typos) when a specific section is selected, mirroring the package path.
-                    if (tabularProjection && effectiveOptions.IncludeSections is { Count: > 0 })
+                    if (validatesProjection && effectiveOptions.IncludeSections is { Count: > 0 })
                     {
                         var projSchema = ApiCommand.GetTypeDocumentSchema(effectiveOptions);
                         if (!ProjectionDiagnostics.ValidateProjection(projSchema, effectiveOptions.IncludeSections, effectiveOptions.Fields, effectiveOptions.Columns))
@@ -391,9 +428,7 @@ public static class TypeCommand
                         tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
                         verbosity: (int)options.Verbosity,
                         sectionCostAnnotations: typePipeline.GetCostAnnotations(),
-                        sectionCategories: typePipeline.GetCategoryMap(),
-                        tabularExplicitlySet:
-                            options.TabularExplicitlySet);
+                        sectionCategories: typePipeline.GetCategoryMap());
                 }
                 else if (TryWritePrefixBrowse(
                     api,
@@ -424,7 +459,7 @@ public static class TypeCommand
 
                     if (lookupResult.Suggestions.Count > 0)
                     {
-                        bool isGlob = typeName.Contains('*') || typeName.Contains('?');
+                        bool isGlob = TypeMatcher.IsTypeGlobPattern(typeName);
                         if (isGlob)
                         {
                             // Glob matched multiple types — show types view with filter
@@ -463,7 +498,9 @@ public static class TypeCommand
         }
         finally
         {
-            if (tempDir != null && Directory.Exists(tempDir))
+            if (ownsSource
+                && tempDir != null
+                && Directory.Exists(tempDir))
             {
                 try { Directory.Delete(tempDir, recursive: true); } catch { }
             }
@@ -511,7 +548,7 @@ public static class TypeCommand
             || options.BodyKindQuery.HasFilter
             || string.IsNullOrWhiteSpace(originalTypeQuery))
             return Task.FromResult<int?>(null);
-        if (originalTypeQuery.Contains('*') || originalTypeQuery.Contains('?'))
+        if (TypeMatcher.IsTypeGlobPattern(originalTypeQuery))
             return Task.FromResult<int?>(null);
 
         return TryExecutePlatformPrefixBrowseAsync(options with
@@ -629,9 +666,7 @@ public static class TypeCommand
                 verbosity: (int)browseOptions.Verbosity,
                 sectionCostAnnotations: typePipeline.GetCostAnnotations(),
                 sectionCategories: typePipeline.GetCategoryMap(),
-                projection: browseOptions,
-                tabularExplicitlySet:
-                    browseOptions.TabularExplicitlySet);
+                projection: browseOptions);
         }
 
         return ApiCommand.WriteFullApiOutput(api, browseOptions);
@@ -878,7 +913,7 @@ public static class TypeCommand
     {
         if (options.BodyKindQuery.HasFilter || string.IsNullOrWhiteSpace(originalTypeQuery))
             return null;
-        if (originalTypeQuery.Contains('*') || originalTypeQuery.Contains('?'))
+        if (TypeMatcher.IsTypeGlobPattern(originalTypeQuery))
             return null;
 
         var matches = FindPrefixMatches(api.Types, originalTypeQuery);

@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Options;
@@ -26,18 +25,9 @@ public static class DiscoverOutput
         IReadOnlySet<string>? catalogHiddenSections = null,
         IReadOnlySet<string>? listedCategoryDoors = null,
         IProjectionOptions? projection = null,
-        string[]? columns = null,
-        string[]? fields = null,
-        RowWindow? rows = null,
-        string? outputPath = null,
-        bool applyLineWindow = false,
-        bool? showHeader = null,
-        bool tabularExplicitlySet = false,
         bool plainText = false)
     {
         sectionCategories = FilterCategories(sectionCategories, schema.SectionNames);
-
-        List<DiscoveryRow>? discoveryRows = null;
 
         // Discovery renders its own listing and returns, so the section pipeline's projection
         // dispatch never runs for it. Answer the projection here instead of dropping it. This
@@ -45,27 +35,22 @@ public static class DiscoverOutput
         // not the shape they would have been rendered in.
         if (LensProjection.IsRequested(projection))
         {
-            discoveryRows = GetDiscoveryRows(discover, schema, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
-            if (discoveryRows == null)
+            var projectedRows = GetDiscoveryRows(discover, schema, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
+            if (projectedRows == null)
                 return 1;
-            int rowCount = RowWindow.Apply(rows, discoveryRows).Count;
+            var visibleRows = RowWindow.Apply(projection?.Rows, projectedRows);
             return LensProjection.TryProject(
-                projection,
-                "-D/--discover",
-                rowCount,
-                out var projectionExitCode,
-                applyLineWindow)
+                    projection,
+                    "-D/--discover",
+                    visibleRows.Count,
+                    out var projectionExitCode,
+                    ["Name", "Kind"])
                 ? projectionExitCode
                 : 0;
         }
 
-        bool hasTabularProjection =
-            columns is { Length: > 0 } || fields is { Length: > 0 };
-        bool structuredOutput =
-            json || tsv || jsonl || plainText || tabularExplicitlySet;
-
         // Auto-promote to tree when discovering items from multiple sections
-        if (!tree && !structuredOutput && !hasTabularProjection && rows is null
+        if (!tree
             && discover is { Length: > 0 }
             && !discover.Any(value => SelectResolver.TryResolveCategory(
                 value, sectionCategories, schema.SectionNames, out _, out _))
@@ -73,83 +58,50 @@ public static class DiscoverOutput
             tree = true;
 
         // Auto-promote bare -D to tree at Detailed verbosity (sections → items)
-        if (!tree && !structuredOutput && !hasTabularProjection && rows is null
-            && discover is null or { Length: 0 } && verbosity >= 3)
+        if (!tree && discover is null or { Length: 0 } && verbosity >= 3)
             tree = true;
 
-        using var output = new StringWriter(CultureInfo.InvariantCulture)
-        {
-            NewLine = "\n",
-        };
-
         if (tree)
-        {
-            int treeExitCode = WriteTree(
+            return WriteTree(
                 discover,
                 schema,
-                output,
                 rootLabel,
                 sectionCostAnnotations,
                 sectionCategories,
                 catalogHiddenSections,
-                listedCategoryDoors);
-            if (treeExitCode == 0)
-                WriteOutput(output.ToString(), outputPath, applyLineWindow);
-            return treeExitCode;
-        }
+                listedCategoryDoors,
+                projection?.Rows);
 
-        discoveryRows ??= GetDiscoveryRows(discover, schema, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
-        if (discoveryRows == null)
+        var rows = GetDiscoveryRows(discover, schema, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
+        if (rows == null)
             return 1;
+        rows = [.. RowWindow.Apply(projection?.Rows, rows)];
 
-        discoveryRows = RowWindow.Apply(rows, discoveryRows).ToList();
-        var view = new DiscoveryListView { Items = discoveryRows };
-        string[]? projectedColumns = MergeProjectionNames(columns, fields);
+        var view = new DiscoveryListView { Items = rows };
+        var context = new DiscoveryContext();
 
         if (json)
         {
-            output.Write(
-                JsonSerializer.Serialize(
-                    discoveryRows,
-                    DiscoveryJsonContext.Default.ListDiscoveryRow)
-                + '\n');
+            Console.WriteLine(JsonSerializer.Serialize(rows, DiscoveryJsonContext.Default.ListDiscoveryRow));
         }
         else if (markdown)
         {
-            MarkoutSerializer.Serialize(
-                view,
-                output,
-                new MarkdownFormatter(),
-                DiscoveryContext.Default,
-                OutputFormatter.CreateProjectedWriterOptions(projectedColumns));
+            context.Serialize(view, Console.Out, new MarkdownFormatter());
         }
         else if (plainText)
         {
-            MarkoutSerializer.Serialize(
-                view,
-                output,
-                new PlainTextFormatter(),
-                DiscoveryContext.Default,
-                OutputFormatter.CreateProjectedWriterOptions(projectedColumns));
+            context.Serialize(view, Console.Out, new PlainTextFormatter());
         }
         else
         {
-            OutputFormatter.WriteProjectedTable(
-                output,
-                showHeader: showHeader ?? tsv,
-                tsv,
-                jsonl,
-                projectedColumns,
-                fields: null,
-                (writer, formatter, writerOptions) => MarkoutSerializer.Serialize(
+            OutputFormatter.WriteTable(Console.Out, showHeader: tsv,
+                (writer, formatter) => context.Serialize(
                     view,
                     writer,
                     formatter,
-                    DiscoveryContext.Default,
-                    writerOptions));
+                    OutputFormatter.CreateTableWriterOptions(tsv, jsonl)));
         }
 
-        WriteOutput(output.ToString(), outputPath, applyLineWindow);
         return 0;
     }
 
@@ -163,14 +115,7 @@ public static class DiscoverOutput
         IReadOnlyDictionary<string, string[]>? sectionCategories = null,
         IReadOnlySet<string>? catalogHiddenSections = null,
         IReadOnlySet<string>? listedCategoryDoors = null,
-        IProjectionOptions? projection = null,
-        string[]? columns = null,
-        string[]? fields = null,
-        RowWindow? rows = null,
-        string? outputPath = null,
-        bool applyLineWindow = false,
-        bool? showHeader = null,
-        bool tabularExplicitlySet = false)
+        IProjectionOptions? projection = null)
     {
         // Build a filtered schema with only effective sections
         var filtered = new DocumentSchema();
@@ -197,69 +142,20 @@ public static class DiscoverOutput
                 if (LensProjection.IsRequested(projection))
                 {
                     return LensProjection.TryProject(
-                        projection,
-                        "-D/--discover",
-                        0,
-                        out var emptyProjectionExitCode,
-                        applyLineWindow)
+                            projection,
+                            "-D/--discover",
+                            0,
+                            out var emptyProjectionExitCode,
+                            ["Name", "Kind"])
                         ? emptyProjectionExitCode
                         : 0;
                 }
-                WriteOutput(string.Empty, outputPath, applyLineWindow);
                 return 0;
             }
             discover = remaining;
         }
 
-        return Execute(
-            discover,
-            filtered,
-            tree,
-            markdown,
-            json,
-            tsv,
-            jsonl,
-            verbosity,
-            rootLabel,
-            sectionCostAnnotations,
-            sectionCategories,
-            catalogHiddenSections,
-            listedCategoryDoors,
-            projection,
-            columns,
-            fields,
-            rows,
-            outputPath,
-            applyLineWindow,
-            showHeader,
-            tabularExplicitlySet);
-    }
-
-    /// <summary>
-    /// Validates projections against the rows discovery actually renders.
-    /// </summary>
-    public static bool ValidateProjection(string[]? fields, string[]? columns)
-    {
-        if (fields is not { Length: > 0 } && columns is not { Length: > 0 })
-            return true;
-
-        var schema = new DocumentSchema();
-        schema.Add("Discovery", "column", "Name", "Kind");
-        return ProjectionDiagnostics.ValidateProjection(
-            schema,
-            "Discovery",
-            fields,
-            columns,
-            " Discovery output has Name and Kind columns.");
-    }
-
-    private static string[]? MergeProjectionNames(string[]? columns, string[]? fields)
-    {
-        if (columns is not { Length: > 0 } && fields is not { Length: > 0 })
-            return null;
-
-        return [.. (columns ?? []).Concat(fields ?? [])
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        return Execute(discover, filtered, tree, markdown, json, tsv, jsonl, verbosity, rootLabel, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors, projection);
     }
 
     /// <summary>
@@ -332,7 +228,7 @@ public static class DiscoverOutput
     /// <summary>
     /// Restricts effective section names to those the discovery schema can represent.
     /// The single-type member pipeline reports member-detail code sections (Decompiled Source,
-    /// Original Source, IL) as renderable whenever the type has methods, but these
+    /// PDB Source, IL) as renderable whenever the type has methods, but these
     /// are member-detail sections produced only for a specific member selection — they are
     /// not part of the type schema. Dropping them keeps effective discovery consistent
     /// with <c>-D</c> and ensures every listed section is queryable via <c>-D &lt;Section&gt;</c>.
@@ -705,15 +601,12 @@ public static class DiscoverOutput
         return 0;
     }
 
-    private static int WriteTree(
-        string[]? discover,
-        DocumentSchema schema,
-        TextWriter output,
-        string? rootLabel = null,
+    private static int WriteTree(string[]? discover, DocumentSchema schema, string? rootLabel = null,
         IReadOnlyDictionary<string, string>? sectionCostAnnotations = null,
         IReadOnlyDictionary<string, string[]>? sectionCategories = null,
         IReadOnlySet<string>? catalogHiddenSections = null,
-        IReadOnlySet<string>? listedCategoryDoors = null)
+        IReadOnlySet<string>? listedCategoryDoors = null,
+        RowWindow? rows = null)
     {
         var nodes = new List<TreeNode>();
 
@@ -847,24 +740,56 @@ public static class DiscoverOutput
             }
         }
 
+        nodes = ApplyTreeWindow(nodes, rows, discover is { Length: > 0 });
+
         // Wrap in root node when label is provided and showing full tree
         if (rootLabel != null && discover is null or { Length: 0 })
             nodes = [new TreeNode(rootLabel) { Children = nodes }];
 
         var view = new DiscoveryTreeView { Sections = nodes };
-        MarkoutSerializer.Serialize(view, output, DiscoveryContext.Default);
+        MarkoutSerializer.Serialize(view, Console.Out, DiscoveryContext.Default);
         return 0;
     }
 
-    private static void WriteOutput(
-        string output,
-        string? outputPath,
-        bool applyLineWindow)
+    private static List<TreeNode> ApplyTreeWindow(
+        List<TreeNode> nodes,
+        RowWindow? rows,
+        bool grouped)
     {
-        if (!string.IsNullOrWhiteSpace(outputPath))
-            OutputPathWriter.Write(outputPath, output, applyLineWindow);
-        else
-            Console.Write(output);
+        if (rows is not { IsUnlimited: false } window)
+            return nodes;
+
+        if (!grouped)
+            return [.. window.Apply(nodes)];
+
+        var rowAddresses = new List<(int Parent, int? Child)>();
+        for (var parent = 0; parent < nodes.Count; parent++)
+        {
+            if (nodes[parent].Children is { Count: > 0 } children)
+            {
+                for (var child = 0; child < children.Count; child++)
+                    rowAddresses.Add((parent, child));
+            }
+            else
+            {
+                rowAddresses.Add((parent, null));
+            }
+        }
+
+        var selected = window.Apply(rowAddresses);
+        var result = new List<TreeNode>();
+        foreach (var parentGroup in selected.GroupBy(address => address.Parent))
+        {
+            var source = nodes[parentGroup.Key];
+            var selectedChildren = parentGroup
+                .Where(address => address.Child.HasValue)
+                .Select(address => source.Children![address.Child!.Value])
+                .ToList();
+            result.Add(selectedChildren.Count == 0
+                ? source
+                : new TreeNode(source.Text) { Children = selectedChildren });
+        }
+        return result;
     }
 
     private static IReadOnlyDictionary<string, string[]>? FilterCategories(

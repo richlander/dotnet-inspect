@@ -13,28 +13,28 @@ internal static partial class WorkflowContract
             ["markdownlint"] = "needs.changes.outputs.docs == 'true'",
             ["skill-gate"] =
                 "needs.changes.outputs.skills == 'true' && " +
-                "github.event_name == 'pull_request'",
+                "github.event_name != 'push'",
             ["test"] =
                 "needs.changes.outputs.code == 'true' && " +
-                "github.event_name == 'pull_request'",
+                "github.event_name != 'push'",
             ["test-windows"] =
                 "needs.changes.outputs.code == 'true' && " +
-                "github.event_name == 'pull_request'",
+                "github.event_name != 'push'",
             ["build-net10"] =
                 "needs.changes.outputs.shipped == 'true' && " +
-                "github.event_name == 'pull_request'",
+                "github.event_name != 'push'",
             ["decompiler-gates"] =
-                "github.event_name == 'pull_request' && " +
-                "needs.changes.outputs.decompiler == 'true'",
+                "needs.changes.outputs.decompiler == 'true' && " +
+                "github.event_name != 'push'",
             ["csharp-diff-smoke"] =
-                "github.event_name == 'pull_request' && " +
-                "needs.changes.outputs.csharpdiff == 'true'",
+                "needs.changes.outputs.csharpdiff == 'true' && " +
+                "github.event_name != 'push'",
             ["il-diff-smoke"] =
-                "github.event_name == 'pull_request' && " +
-                "needs.changes.outputs.ildiff == 'true'",
+                "needs.changes.outputs.ildiff == 'true' && " +
+                "github.event_name != 'push'",
             ["pack"] =
-                "github.event_name == 'pull_request' && " +
-                "needs.changes.outputs.packaging == 'true'",
+                "needs.changes.outputs.packaging == 'true' && " +
+                "github.event_name != 'push'",
         };
         foreach ((string jobName, string condition) in conditions)
         {
@@ -153,9 +153,13 @@ internal static partial class WorkflowContract
                 "needs.changes.outputs.ilroundtrip == 'true'",
             ["test/Check ilasm/ildasm/mdv result"] =
                 "steps.iltools.outcome == 'failure'",
+            ["test/Check GitHub Packages fixture result"] =
+                "steps.package_fixture.outcome == 'failure'",
             ["test-windows/Run CLI tests (all)"] =
                 "${{ !cancelled() && steps.build.outcome == 'success' }}",
             ["test-windows/Run CSharpText tests"] =
+                "${{ !cancelled() && steps.build.outcome == 'success' }}",
+            ["test-windows/Run artifact contract tests"] =
                 "${{ !cancelled() && steps.build.outcome == 'success' }}",
             ["test-windows/Run decompiler unit tests (fast)"] =
                 "${{ !cancelled() && steps.build.outcome == 'success' }}",
@@ -179,6 +183,7 @@ internal static partial class WorkflowContract
         var allowedContinueOnError = new HashSet<string>(
             StringComparer.Ordinal)
         {
+            "test/Run GitHub Packages fixture test",
             "test/Run PR decompiler corpus sensor",
             "test/Install ilasm/ildasm/mdv",
             "test-windows/Install ilasm/ildasm",
@@ -187,6 +192,7 @@ internal static partial class WorkflowContract
         var allowedShell = new Dictionary<string, string>(
             StringComparer.Ordinal)
         {
+            ["test/Run GitHub Packages fixture test"] = "bash",
             ["test/Run PR decompiler corpus sensor"] = "bash",
             ["test/Install ilasm/ildasm/mdv"] = "bash",
             ["test-windows/Install ilasm/ildasm"] = "bash",
@@ -198,6 +204,8 @@ internal static partial class WorkflowContract
         var allowedId = new Dictionary<string, string>(
             StringComparer.Ordinal)
         {
+            ["test/Run GitHub Packages fixture test"] =
+                "package_fixture",
             ["test/Run PR decompiler corpus sensor"] =
                 "decompiler_pr_corpus",
             ["test/Install ilasm/ildasm/mdv"] = "iltools",

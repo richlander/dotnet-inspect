@@ -5,7 +5,6 @@ using System.Text;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
-using InspectWeb.Acquisition;
 using NuGetFetch;
 
 namespace InspectWeb.Engine;
@@ -16,10 +15,11 @@ namespace InspectWeb.Engine;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Acquisition mints typed <see cref="ResolvedAssemblyReference"/> participants; it never inspects
-/// one. Inspection happens only inside a <see cref="BrowserInspectionScope"/>, and only through a
-/// public product query that takes the scope's <see cref="AssemblyContextGroup"/>. Browser/Wasm is
-/// single-threaded, so both caches are deliberately lock-free.
+/// Product package realization mints typed <see cref="ResolvedAssemblyReference"/> participants
+/// from Browser-acquired content. Inspection happens only inside a
+/// <see cref="BrowserInspectionScope"/>, and only through a public product query that takes the
+/// scope's <see cref="AssemblyContextGroup"/>. Browser/Wasm is single-threaded, so both caches are
+/// deliberately lock-free.
 /// </para>
 /// <para>
 /// A workspace is keyed by its <em>complete</em> exact coordinate set, so the package surface, a
@@ -47,12 +47,19 @@ namespace InspectWeb.Engine;
 /// gates the final monotonic check before cache publication, and
 /// <c>BrowserEngineBoundaryTests.PackageOperation_LateFailureBecomesVisibleTimeout</c>
 /// gates timeout classification after synchronous work overruns the deadline.
+/// <c>BrowserEngineBoundaryTests.PackageOperation_LateSuccessDisposesOwnedResult</c>
+/// gates ownership when that final deadline check rejects a completed result.
 /// <c>BrowserEngineBoundaryTests.PackageAcquisition_ExactPinUsesGalleryCdnWithoutServiceIndex</c>
 /// and
 /// <c>BrowserEngineBoundaryTests.PackageAcquisition_FloatingRootUsesGallerySearchAndCdn</c>
 /// gate the service-index-free Gallery routes, while
 /// <c>BrowserEngineBoundaryTests.PackageAcquisition_RejectedReservationDisposesGalleryPayload</c>
 /// gates response ownership when Browser capacity policy rejects a transfer.
+/// <c>BrowserEngineBoundaryTests.BrowserGalleryDeadlineLeavesTimeForPartialRegistration</c>
+/// and
+/// <c>BrowserEngineBoundaryTests.VersionPickerRetainsFlatListWhenRegistrationTimesOut</c>
+/// gate the timeout margin that lets optional registration degrade to a partial
+/// version-picker result before the Browser operation ceiling.
 /// </para>
 /// </remarks>
 [SupportedOSPlatform("browser")]
@@ -60,9 +67,11 @@ internal static class BrowserPackageWorkspace
 {
     const int MaxCachedPackages = 12;
     const long MaxCachedPackageBytes = 128L * 1024 * 1024;
-    const int MaxOpenScopes = 4;
+    internal const int MaxOpenScopes = 4;
     internal static TimeSpan PackageOperationTimeout { get; } =
         TimeSpan.FromSeconds(30);
+    internal static TimeSpan GalleryOperationTimeout { get; } =
+        PackageOperationTimeout - TimeSpan.FromSeconds(5);
 
     static readonly BrowserMsdlProxyHandler MsdlProxyHandler =
         new(new HttpClientHandler());
@@ -72,12 +81,12 @@ internal static class BrowserPackageWorkspace
     };
     static readonly UniformPackageSourceAuthorization SourceAuthorization =
         new([PackageSource.NuGetOrg]);
-    static readonly IPackageSourceClient Gallery =
+    internal static readonly IPackageSourceClient Gallery =
         PackageSourceClientFactory.CreateGallery(
             new NuGetFetchOptions
             {
-                RequestTimeout = TimeSpan.FromMinutes(2),
-                OperationTimeout = TimeSpan.FromMinutes(2),
+                RequestTimeout = GalleryOperationTimeout,
+                OperationTimeout = GalleryOperationTimeout,
             });
     static readonly BrowserSessionPackageStore Store = new();
     static readonly PackagePayloadLimits PayloadLimits = new()
@@ -102,14 +111,20 @@ internal static class BrowserPackageWorkspace
         MsdlProxyHandler.Configure(origin);
     internal static IPackageSourceAuthorization PackageSourceAuthorization =>
         SourceAuthorization;
+    internal static IPackageStore SessionPackageStore => Store;
+    internal static IPackagePayloadTransferPolicy PackageTransferPolicy =>
+        Store;
+    internal static PackagePayloadLimits PackageLimits => PayloadLimits;
 
     sealed record CacheEntry(byte[] Bytes, string ProducerKey, long LastAccess);
 
     sealed record ScopeEntry(
-        BrowserInspectionScope Scope,
+        IDisposable Scope,
         ImmutableHashSet<string> PackageKeys,
         long LastAccess,
-        int ActiveLeases);
+        int ActiveLeases,
+        bool RemovalRequested,
+        Action<IDisposable>? OnDisposed);
 
     public static BrowserPackageCacheStats Stats() =>
         new(
@@ -255,10 +270,12 @@ internal static class BrowserPackageWorkspace
             packageId,
             version,
             cancellationToken);
-        PackageCompileAssetSelection selection = PackageCompileAssetSelector.Select(
+        var assemblyContext = new PackageAssemblyContextSelection(
             package.Content,
             packageId,
+            package.Version,
             targetFramework);
+        PackageCompileAssetSelection selection = assemblyContext.AssetSelection;
         return selection.Status switch
         {
             PackageCompileAssetSelectionStatus.NoCompileAssets =>
@@ -268,21 +285,16 @@ internal static class BrowserPackageWorkspace
             PackageCompileAssetSelectionStatus.EmptyCompileGroup =>
                 throw new InvalidOperationException(
                     $"{package.PackageId} {package.Version} declares an empty compile group for "
-                    + $"{selection.TargetFramework}, so it ships no API surface for that "
-                    + "framework. Available frameworks: "
-                    + string.Join(", ", selection.AvailableTargetFrameworks)
-                    + "."),
+                    + "the selected framework, so it ships no API surface for that framework."),
             PackageCompileAssetSelectionStatus.NoMatchingTargetFramework =>
                 throw new InvalidOperationException(
-                    $"Framework '{targetFramework}' is not present. Available frameworks: "
-                    + string.Join(", ", selection.AvailableTargetFrameworks)
-                    + "."),
+                    $"Framework '{targetFramework}' is not present in "
+                    + $"{package.PackageId} {package.Version}."),
             PackageCompileAssetSelectionStatus.InvalidImplementationAssets =>
                 throw new InvalidOperationException(
-                    selection.Message
-                    ?? "The package has an invalid implementation-asset layout."),
+                    "The package has an invalid implementation-asset layout."),
             PackageCompileAssetSelectionStatus.Selected when selection.IsSelected =>
-                new BrowserPackageCoordinate(package, selection),
+                new BrowserPackageCoordinate(package, assemblyContext),
             _ => throw new InvalidOperationException(
                 "Package compile-asset selection returned an unknown outcome."),
         };
@@ -306,18 +318,67 @@ internal static class BrowserPackageWorkspace
         if (coordinates.Count == 0)
             throw new ArgumentException("A workspace requires at least one package coordinate.");
 
-        string key = string.Join(
+        string key = "packages|" + string.Join(
             "|",
             coordinates.Select(coordinate => coordinate.Key).Order(StringComparer.Ordinal));
         if (Scopes.TryGetValue(key, out ScopeEntry? entry))
         {
+            if (entry.Scope is not BrowserInspectionScope retained)
+            {
+                throw new InvalidOperationException(
+                    "The browser scope registry key names a different scope kind.");
+            }
             Scopes[key] = entry with { LastAccess = ++_clock };
             TouchPackages(entry.PackageKeys);
-            return entry.Scope;
+            return retained;
         }
 
         ImmutableHashSet<string> packageKeys = RetainCoordinatePackages(coordinates);
         var scope = new BrowserInspectionScope(coordinates);
+        return RegisterScope(key, scope, packageKeys);
+    }
+
+    internal static T RegisterScope<T>(
+        string key,
+        T scope,
+        ImmutableHashSet<string> packageKeys,
+        Action<T>? onDisposed = null)
+        where T : class, IDisposable
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        ArgumentNullException.ThrowIfNull(scope);
+        ArgumentNullException.ThrowIfNull(packageKeys);
+        try
+        {
+            RetainPackageKeys(packageKeys);
+        }
+        catch
+        {
+            scope.Dispose();
+            throw;
+        }
+
+        if (Scopes.TryGetValue(key, out ScopeEntry? retained))
+        {
+            scope.Dispose();
+            if (retained.Scope is not T typed)
+            {
+                throw new InvalidOperationException(
+                    "The browser scope registry key names a different scope kind.");
+            }
+
+            Scopes[key] = retained with { LastAccess = ++_clock };
+            if (retained.RemovalRequested)
+            {
+                Scopes[key] = Scopes[key] with
+                {
+                    RemovalRequested = false,
+                };
+            }
+            TouchPackages(retained.PackageKeys);
+            return typed;
+        }
+
         while (Scopes.Count >= MaxOpenScopes)
         {
             string? oldest = Scopes
@@ -331,19 +392,70 @@ internal static class BrowserPackageWorkspace
                 throw new InvalidOperationException(
                     "The browser workspace limit cannot evict an active inspection.");
             }
-            Scopes[oldest].Scope.Dispose();
-            Scopes.Remove(oldest);
+            DisposeRegisteredScope(oldest, Scopes[oldest]);
         }
 
-        Scopes[key] = new ScopeEntry(scope, packageKeys, ++_clock, ActiveLeases: 0);
+        Scopes[key] = new ScopeEntry(
+            scope,
+            packageKeys,
+            ++_clock,
+            ActiveLeases: 0,
+            RemovalRequested: false,
+            onDisposed is null
+                ? null
+                : disposed => onDisposed((T)disposed));
         return scope;
+    }
+
+    internal static bool IsScopeRetained(IDisposable scope)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        return Scopes.Values.Any(entry => ReferenceEquals(entry.Scope, scope));
+    }
+
+    internal static void TouchScope(IDisposable scope)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        KeyValuePair<string, ScopeEntry> registered = Scopes
+            .SingleOrDefault(candidate => ReferenceEquals(candidate.Value.Scope, scope));
+        if (registered.Value is null)
+        {
+            throw new InvalidOperationException(
+                "The browser inspection scope is no longer retained.");
+        }
+
+        Scopes[registered.Key] = registered.Value with
+        {
+            LastAccess = ++_clock,
+        };
+        TouchPackages(registered.Value.PackageKeys);
+    }
+
+    internal static void RemoveScope(IDisposable scope)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        KeyValuePair<string, ScopeEntry> registered = Scopes
+            .SingleOrDefault(candidate => ReferenceEquals(candidate.Value.Scope, scope));
+        if (registered.Value is null)
+            return;
+        if (registered.Value.ActiveLeases != 0)
+        {
+            Scopes[registered.Key] = registered.Value with
+            {
+                RemovalRequested = true,
+            };
+            return;
+        }
+
+        DisposeRegisteredScope(registered.Key, registered.Value);
     }
 
     /// <summary>
     /// Pins a registry-owned scope and its package archives for one asynchronous inspection.
     /// </summary>
-    internal static BrowserInspectionScopeLease LeaseScope(
-        BrowserInspectionScope scope)
+    internal static BrowserScopeLease<TScope> LeaseScope<TScope>(
+        TScope scope)
+        where TScope : class, IDisposable
     {
         ArgumentNullException.ThrowIfNull(scope);
         KeyValuePair<string, ScopeEntry> registered = Scopes
@@ -361,14 +473,14 @@ internal static class BrowserPackageWorkspace
             LastAccess = ++_clock,
             ActiveLeases = registered.Value.ActiveLeases + 1,
         };
-        return new BrowserInspectionScopeLease(
+        return new BrowserScopeLease<TScope>(
             scope,
             () => ReleaseScopeLease(registered.Key, scope));
     }
 
     static void ReleaseScopeLease(
         string scopeKey,
-        BrowserInspectionScope scope)
+        IDisposable scope)
     {
         if (!Scopes.TryGetValue(scopeKey, out ScopeEntry? entry)
             || !ReferenceEquals(entry.Scope, scope)
@@ -378,10 +490,18 @@ internal static class BrowserPackageWorkspace
                 "The browser inspection scope lease is not active.");
         }
 
-        Scopes[scopeKey] = entry with
+        int activeLeases = entry.ActiveLeases - 1;
+        if (activeLeases == 0 && entry.RemovalRequested)
         {
-            ActiveLeases = entry.ActiveLeases - 1,
-        };
+            DisposeRegisteredScope(scopeKey, entry);
+        }
+        else
+        {
+            Scopes[scopeKey] = entry with
+            {
+                ActiveLeases = activeLeases,
+            };
+        }
         foreach (string packageKey in entry.PackageKeys)
             ReleasePackageLease(packageKey);
     }
@@ -509,14 +629,25 @@ internal static class BrowserPackageWorkspace
             timeout);
 
     internal static Task<string[]> GetVersionsAsync(string packageId) =>
+        GetVersionsAsync(
+            packageId,
+            Gallery,
+            PackageOperationTimeout);
+
+    internal static Task<string[]> GetVersionsAsync(
+        string packageId,
+        IPackageSourceClient source,
+        TimeSpan timeout) =>
         RunPackageOperationAsync(
             deadline => GetVersionsCoreAsync(
                 packageId,
+                source,
                 deadline.Token),
-            PackageOperationTimeout);
+            timeout);
 
     static async Task<string[]> GetVersionsCoreAsync(
         string packageId,
+        IPackageSourceClient source,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
@@ -527,7 +658,7 @@ internal static class BrowserPackageWorkspace
         }
 
         PackageVersionResult result = await GetVersionResultAsync(
-            Gallery,
+            source,
             packageId,
             cancellationToken).ConfigureAwait(false);
         return
@@ -560,16 +691,29 @@ internal static class BrowserPackageWorkspace
     internal static Task<string> ResolveDependencyVersionAsync(
         string packageId,
         string? declaredRange) =>
+        ResolveDependencyVersionAsync(
+            packageId,
+            declaredRange,
+            Gallery,
+            PackageOperationTimeout);
+
+    internal static Task<string> ResolveDependencyVersionAsync(
+        string packageId,
+        string? declaredRange,
+        IPackageSourceClient source,
+        TimeSpan timeout) =>
         RunPackageOperationAsync(
             deadline => ResolveDependencyVersionCoreAsync(
                 packageId,
                 declaredRange,
+                source,
                 deadline.Token),
-            PackageOperationTimeout);
+            timeout);
 
     static async Task<string> ResolveDependencyVersionCoreAsync(
         string packageId,
         string? declaredRange,
+        IPackageSourceClient source,
         CancellationToken cancellationToken)
     {
         if (PackageDependencyVersionRange.GetExactVersion(declaredRange)
@@ -578,13 +722,13 @@ internal static class BrowserPackageWorkspace
             PackageSourceCoordinate coordinate =
                 await ResolveCoordinateAsync(
                     new PackageCoordinate(packageId, exactVersion),
-                    Gallery,
+                    source,
                     cancellationToken).ConfigureAwait(false);
             return coordinate.Version;
         }
 
         PackageVersionResult result = await GetVersionResultAsync(
-            Gallery,
+            source,
             packageId,
             cancellationToken).ConfigureAwait(false);
         if (!result.HasAuthoritativeListingState)
@@ -628,7 +772,18 @@ internal static class BrowserPackageWorkspace
         try
         {
             T result = await operation(deadline).ConfigureAwait(false);
-            deadline.ThrowIfExpired();
+            try
+            {
+                deadline.ThrowIfExpired();
+            }
+            catch (Exception exception)
+                when (exception is OperationCanceledException
+                    or TimeoutException)
+            {
+                if (result is IDisposable owned)
+                    owned.Dispose();
+                throw;
+            }
             return result;
         }
         catch (OperationCanceledException)
@@ -782,8 +937,23 @@ internal static class BrowserPackageWorkspace
             }
         }
 
-        TouchPackages(packageKeys);
+        RetainPackageKeys(packageKeys);
         return packageKeys;
+    }
+
+    static void RetainPackageKeys(ImmutableHashSet<string> packageKeys)
+    {
+        foreach (string packageKey in packageKeys)
+        {
+            if (!Cache.ContainsKey(packageKey))
+            {
+                throw new InvalidOperationException(
+                    "A resolved browser package escaped aggregate cache accounting before its "
+                    + "workspace opened.");
+            }
+        }
+
+        TouchPackages(packageKeys);
     }
 
     static void MakeCacheRoom(
@@ -820,12 +990,24 @@ internal static class BrowserPackageWorkspace
                 .Select(entry => entry.Key),
         ];
         foreach (string scopeKey in retainedScopes)
-        {
-            Scopes[scopeKey].Scope.Dispose();
-            Scopes.Remove(scopeKey);
-        }
+            DisposeRegisteredScope(scopeKey, Scopes[scopeKey]);
 
         Cache.Remove(packageKey);
+    }
+
+    static void DisposeRegisteredScope(
+        string scopeKey,
+        ScopeEntry entry)
+    {
+        Scopes.Remove(scopeKey);
+        try
+        {
+            entry.OnDisposed?.Invoke(entry.Scope);
+        }
+        finally
+        {
+            entry.Scope.Dispose();
+        }
     }
 
     internal static PackageDownloadReservation ReservePackageDownload(
@@ -865,6 +1047,39 @@ internal static class BrowserPackageWorkspace
             Leases[packageKey] = count - 1;
     }
 
+    internal sealed class PackageLeaseSet : IDisposable
+    {
+        HashSet<string>? _packageKeys = new(StringComparer.Ordinal);
+
+        internal void Lease(string packageKey)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(packageKey);
+            ObjectDisposedException.ThrowIf(_packageKeys is null, this);
+            if (!_packageKeys.Add(packageKey))
+                return;
+
+            try
+            {
+                LeasePackage(packageKey);
+            }
+            catch
+            {
+                _packageKeys.Remove(packageKey);
+                throw;
+            }
+        }
+
+        public void Dispose()
+        {
+            if (_packageKeys is not { } packageKeys)
+                return;
+
+            _packageKeys = null;
+            foreach (string packageKey in packageKeys)
+                ReleasePackageLease(packageKey);
+        }
+    }
+
     internal static void RegisterAcquiredPackage(BrowserPackage package)
     {
         ArgumentNullException.ThrowIfNull(package);
@@ -894,7 +1109,7 @@ internal static class BrowserPackageWorkspace
     static string PackageKey(BrowserPackageCoordinate coordinate) =>
         PackageKey(coordinate.PackageId, coordinate.Version);
 
-    static string PackageKey(string packageId, string version) =>
+    internal static string PackageKey(string packageId, string version) =>
         $"{packageId.ToLowerInvariant()}@{version.ToLowerInvariant()}";
 
     internal static void ValidateArchive(byte[] archive)
@@ -1089,7 +1304,6 @@ internal sealed record BrowserScopeResolution(
 [SupportedOSPlatform("browser")]
 internal sealed class BrowserPackage
 {
-    const long MaxAssemblyEntryBytes = BrowserInspectionScope.MaxRetainedImageBytes;
     const long MaxTextEntryBytes = 16L * 1024 * 1024;
 
     public BrowserPackage(
@@ -1183,7 +1397,8 @@ internal sealed class BrowserPackage
     internal Stream OpenEntry(string path, long maxExpandedBytes)
         => Content.TryOpenEntry(path, maxExpandedBytes, out Stream? stream)
             ? stream
-            : throw new InvalidOperationException($"'{path}' was not found in {PackageId} {Version}.");
+            : throw new InvalidOperationException(
+                $"The requested package entry was not found in {PackageId} {Version}.");
 
     internal byte[] Read(string path, long maxExpandedBytes)
     {
@@ -1230,30 +1445,6 @@ internal sealed class BrowserPackage
     internal bool TryReadText(string path, out byte[] bytes) =>
         TryRead(path, MaxTextEntryBytes, out bytes);
 
-    /// <summary>
-    /// Mints one typed acquisition participant for a selected package entry. A healthy image uses
-    /// its real metadata identity. A malformed, native, or module image uses its selected asset
-    /// name only as a rejection carrier, so the workspace query reports that participant's typed
-    /// acquisition failure instead of silently shortening the selected assembly set.
-    /// </summary>
-    internal ResolvedAssemblyReference CreateReference(
-        string path,
-        AssemblyResolutionProvenance provenance)
-    {
-        AssemblyReferenceIdentity? identity =
-            BrowserAssemblyIdentityDecoder.Decode(Read(path, MaxAssemblyEntryBytes));
-
-        return ResolvedAssemblyReference.Create(
-            identity ?? new AssemblyReferenceIdentity(
-                Path.GetFileNameWithoutExtension(path),
-                Version: null,
-                Culture: null,
-                PublicKeyToken: null),
-            path: null,
-            () => OpenEntry(path, MaxAssemblyEntryBytes),
-            provenance);
-    }
-
     static bool IsUnderSkillsDirectory(string[] segments)
     {
         for (int index = 0; index < segments.Length - 1; index++)
@@ -1280,13 +1471,36 @@ internal sealed class BrowserPackage
 /// nothing.
 /// </summary>
 [SupportedOSPlatform("browser")]
-internal sealed class BrowserPackageCoordinate(
-    BrowserPackage package,
-    PackageCompileAssetSelection selection)
+internal sealed class BrowserPackageCoordinate
 {
-    public BrowserPackage Package { get; } = package;
+    public BrowserPackageCoordinate(
+        BrowserPackage package,
+        PackageAssemblyContextSelection assemblyContext)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+        ArgumentNullException.ThrowIfNull(assemblyContext);
+        if (!package.PackageId.Equals(
+                assemblyContext.PackageId,
+                StringComparison.OrdinalIgnoreCase)
+            || !package.Version.Equals(
+                assemblyContext.PackageVersion,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                "The product package selection must describe the acquired Browser package.",
+                nameof(assemblyContext));
+        }
 
-    public PackageCompileAssetSelection Selection { get; } = selection;
+        Package = package;
+        AssemblyContext = assemblyContext;
+    }
+
+    public BrowserPackage Package { get; }
+
+    public PackageAssemblyContextSelection AssemblyContext { get; }
+
+    public PackageCompileAssetSelection Selection =>
+        AssemblyContext.AssetSelection;
 
     public string PackageId => Package.PackageId;
 
@@ -1319,7 +1533,7 @@ internal sealed class BrowserPackageCoordinate(
             ?? Selection.Assets.FirstOrDefault(asset => MatchesAssembly(asset, assemblyIdOrName))
             ?? throw new InvalidOperationException(
                 $"'{assemblyIdOrName}' is not a selected compile assembly of "
-                + $"{PackageId} {Version} for {Framework}.");
+                + $"{PackageId} {Version}.");
     }
 
     /// <summary>
@@ -1335,8 +1549,8 @@ internal sealed class BrowserPackageCoordinate(
 
         return Selection.FindImplementationAsset(selected)
             ?? throw new InvalidOperationException(
-                $"{PackageId} {Version} ships {selected.AssemblyName} for {Framework} as a "
-                + "reference assembly only, so it carries no method bodies.");
+                $"The requested compile assembly in {PackageId} {Version} is a reference "
+                + "assembly only, so it carries no method bodies.");
     }
 
     internal static bool MatchesAssembly(PackageCompileAsset asset, string name) =>

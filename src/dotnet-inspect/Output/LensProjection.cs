@@ -1,4 +1,5 @@
 using DotnetInspector.Options;
+using Markout;
 
 namespace DotnetInspector.Output;
 
@@ -10,7 +11,8 @@ namespace DotnetInspector.Output;
 /// <para>
 /// Most projection dispatch happens inside the section pipeline, so a mode that produces its own
 /// payload and returns early — <c>--versions</c>, <c>--layout</c>, <c>--tfms</c>,
-/// <c>--il-offsets</c>, <c>-D</c>/<c>--discover</c> — never reaches it. Each such mode accepted
+/// <c>--dependencies</c>, <c>--il-offsets</c>, and <c>-D</c>/<c>--discover</c> — never
+/// reaches it. Each such mode accepted
 /// the projection flags and then rendered its own unprojected payload, which
 /// <see cref="ProjectionAudit"/> now reports as a bug. This is the dispatch those modes were
 /// missing.
@@ -40,25 +42,6 @@ public static class LensProjection
         && (options.Count || options.Print || options.Value || options.Urls || options.Paths);
 
     /// <summary>
-    /// Validates a lens projection before the lens resolves its input.
-    /// </summary>
-    public static bool Validate(IProjectionOptions? options, string lens)
-    {
-        if (!IsRequested(options) || options!.Count)
-            return true;
-
-        var flag = options.Print ? "--print"
-            : options.Value ? "--value"
-            : options.Urls ? "--urls"
-            : "--paths";
-
-        CommandError.Write(
-            $"{flag} is not available with {lens}, which renders its own payload rather " +
-            "than a section. Use --count to count that payload.");
-        return false;
-    }
-
-    /// <summary>
     /// Answers a projection request against a lens payload of <paramref name="rowCount"/> rows.
     /// </summary>
     /// <param name="options">The requesting command's options, or null when the caller has none.</param>
@@ -75,26 +58,81 @@ public static class LensProjection
         string lens,
         int rowCount,
         out int exitCode,
-        bool applyLineWindow = true)
+        IReadOnlyCollection<string>? columns = null)
     {
         exitCode = 0;
         if (!IsRequested(options))
             return false;
 
-        if (!Validate(options, lens))
+        if (options!.Count)
         {
-            exitCode = 1;
+            if ((options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 })
+                && !ValidateColumns(options, lens, columns))
+            {
+                exitCode = 1;
+                return true;
+            }
+
+            CountOutput.WriteCount(rowCount, options.OutputPath, options.Rows);
             return true;
         }
 
-        if (options!.Count)
+        var flag = options.Print ? "--print"
+            : options.Value ? "--value"
+            : options.Urls ? "--urls"
+            : "--paths";
+
+        CommandError.Write(
+            $"{flag} is not available with {lens}, which renders its own payload rather " +
+            "than a section. Use --count to count that payload.");
+        exitCode = 1;
+        return true;
+    }
+
+    private static bool ValidateColumns(
+        IProjectionOptions options,
+        string lens,
+        IReadOnlyCollection<string>? columns)
+    {
+        if (columns is not { Count: > 0 })
         {
-            CountOutput.WriteCount(
-                rowCount,
-                options.OutputPath,
-                applyLineWindow);
-            return true;
+            CommandError.Write(
+                $"--fields/--columns are not available with {lens}, which does not expose a tabular column projection.");
+            return false;
         }
+
+        var valid = true;
+        if (options.Fields is { Length: > 0 } fields)
+            valid &= ValidateNames(lens, columns, fields, "field");
+        if (options.Columns is { Length: > 0 } projectedColumns)
+            valid &= ValidateNames(lens, columns, projectedColumns, "column");
+        return valid;
+    }
+
+    private static bool ValidateNames(
+        string lens,
+        IReadOnlyCollection<string> available,
+        string[] names,
+        string kind)
+    {
+        const string LensSection = "Payload";
+        var schema = new DocumentSchema().Add(LensSection, "column", [.. available]);
+        var validation = schema.ValidateProjection(LensSection, names);
+        if (validation.IsValid)
+            return true;
+
+        foreach (var name in validation.Unresolved)
+        {
+            var message = $"{kind} '{name}' is not available with {lens}";
+            if (validation.Suggestions.TryGetValue(name, out var suggestions))
+                message += $" (did you mean: {string.Join(", ", suggestions)}?)";
+            CommandError.WriteWarning(message + ".");
+        }
+
+        if (validation.Resolved.Length > 0)
+            return true;
+
+        CommandError.Write($"No {kind}s matched projection: {string.Join(", ", names)}");
         return false;
     }
 }

@@ -50,8 +50,8 @@ public static class SearchCommandDefinitions
         var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete types" };
         var membersOption = new Option<bool>("--members") { Description = "Search member names instead of type names (auto-enabled when the pattern starts with '.', e.g. .Serialize)" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
-        var packagePrefixOption = new Option<string?>("--package-prefix") { Description = "Search all packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)" };
-        var typeFilterOption = new Option<string?>("-t") { Description = "Limit type count (-t 5) or filter by glob (-t *Json*)" };
+        var packagePrefixOption = new Option<string?>("--package-prefix") { Description = "Search a NuGet package ID prefix; without a pattern, inspect latest manifests only" };
+        var typeFilterOption = new Option<string?>("-t") { Description = "Limit result count (-t 5) or filter API types by glob (-t *Json*)" };
         typeFilterOption.Aliases.Add("--type");
 
         findCommand.Arguments.Add(patternArg);
@@ -99,12 +99,18 @@ public static class SearchCommandDefinitions
                         "find Chat* --extensions                   # Microsoft.Extensions packages",
                         "find Chat* --aspnetcore                   # ASP.NET Core packages",
                         "find Chat* --package Newtonsoft.Json       # specific package",
+                        "find --package-prefix Azure.AI            # stream package manifests",
                         "find Chat* --platform --extensions         # combine scopes");
 
                 case FindOptionsParser.Success success:
-                    var exitCode = await FindCommand.ExecuteAsync(success.Options);
+                    var exitCode = await FindCommand.ExecuteAsync(
+                        success.Options,
+                        ct);
 
-                    if (exitCode == 0 && !success.Options.FormatExplicitlySet && !success.Options.IsRawOutput)
+                    if (exitCode == 0
+                        && !success.Options.IsPackageProfile
+                        && !success.Options.FormatExplicitlySet
+                        && !success.Options.IsRawOutput)
                     {
                         var tips = FindOptionsParser.BuildTips(success.Options, success.Options.Pattern);
                         Hints.WriteTips(success.TipLevel, [.. tips]);

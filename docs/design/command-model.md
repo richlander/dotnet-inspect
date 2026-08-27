@@ -24,7 +24,7 @@ Use inspection commands for detailed exploration:
 | ------- | ----- |
 | `package` | Package metadata, versions, dependencies, files, TFMs. |
 | `library` | Library metadata, symbols, SourceLink, references, resources. |
-| `type`/`member` | API shape, docs, decompiled/lowered C#, SourceLink-backed original source, and IL. |
+| `type`/`member` | API shape, docs, decompiled/lowered C#, PDB-mapped source, and IL. |
 
 ### Signals
 
@@ -67,7 +67,8 @@ Start with a package, drill down into details:
 dotnet-inspect package Newtonsoft.Json             # metadata
 dotnet-inspect package Newtonsoft.Json -S Signals  # signals
 dotnet-inspect type JsonConvert --package Newtonsoft.Json --shape
-dotnet-inspect member JsonConvert --package Newtonsoft.Json -m SerializeObject
+dotnet-inspect member JsonConvert --package Newtonsoft.Json \
+  --member SerializeObject
 ```
 
 ### Platform-centric workflow
@@ -116,7 +117,7 @@ dotnet-inspect package Markout@0.1.4 -S Signals
 
 The following are considered stable and will not change without a major version bump:
 
-1. **Command names**: `package`, `library`, `type`, `member`, `find`, `diff`, `depends`, `extensions`, `implements`, `cache`, `skill`
+1. **Command names**: `package`, `library`, `type`, `member`, `find`, `diff`, `graph`, `depends`, `extensions`, `implements`, `cache`, `skill`
 2. **Input syntax**: Package references use `name@version` format
 3. **Exit codes**: Zero for success, non-zero for failure
 4. **JSON output**: Schema for `--json` output is stable per command
@@ -134,6 +135,12 @@ When commands or flags are deprecated:
 1. They continue to work but emit a warning to stderr
 2. Documentation is updated to show the new approach
 3. After two minor versions, deprecated items may be removed
+
+This is the default compatibility policy, not a requirement that every syntax
+change enter deprecation. The explicitly approved
+[#4677 result-limit migration](item-and-line-limits.md#compatibility-and-migration)
+is an exception: its low compatibility bar permits atomic removal of the named
+aliases and count grammars without a warning period.
 
 Current deprecations:
 

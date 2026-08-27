@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Net;
+using DotnetInspector.CommandLine;
 using DotnetInspector.CSharpBodySlicer;
 using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
@@ -34,32 +35,177 @@ public class ApiCommand
     {
         MemberOptions mo => MemberCommand.ExecuteAsync(mo),
         TypeOptions to => TypeCommand.ExecuteAsync(to),
-        _ => TypeCommand.ExecuteAsync(new TypeOptions
+        _ => TypeCommand.ExecuteAsync(ToTypeOptions(options))
+    };
+
+    internal static string? GetDeferredTypeIncompatibleOption(
+        MemberOptions options)
+    {
+        if (options.Focus is not null) return "--focus";
+        if (options.OverloadIndexExplicitlySet) return "--index";
+        if (options.CtorOnly) return "--ctor";
+        if (options.CallerScopeDirectories.Length > 0) return "--bin";
+        if (options.CallerScopePackages.Length > 0) return "--caller-package";
+        if (options.SourceRepositories.Length > 0) return "--repo";
+        if (options.MermaidOutput || options.EmbeddedMermaid) return "--mermaid";
+        return null;
+    }
+
+    internal static TypeOptions ToTypeOptions(ApiOptions options)
+    {
+        var (memberFilter, memberLimit) = options is MemberOptions
+            {
+                RouterDeferredTypeOrMember: true
+            } memberOptions
+            ? SharedParsers.ParseMemberFilter(
+                memberOptions.RouterDeferredTypeMemberValues)
+            : (options.MemberFilter, options.Limit);
+        return new()
         {
-            TypeName = options.TypeName, PackagePath = options.PackagePath, AssemblyPath = options.AssemblyPath,
+            TypeName = options.TypeName, PackagePath = options.PackagePath,
+            PackageRangeAddress = options.PackageRangeAddress,
+            AssemblyPath = options.AssemblyPath,
             PlatformAssembly = options.PlatformAssembly, PlatformFramework = options.PlatformFramework,
+            ProjectPath = options.ProjectPath, ProjectAssetsPath = options.ProjectAssetsPath,
+            SourceRepositories = options.SourceRepositories,
             Tfm = options.Tfm, IncludeAll = options.IncludeAll, Verbose = options.Verbose,
-            ShowDocs = options.ShowDocs, DocsExplicitlySet = options.DocsExplicitlySet,
+            ShowDocs = options is MemberOptions
+                {
+                    RouterDeferredTypeOrMember: true,
+                    DocsExplicitlySet: false
+                }
+                    ? false
+                    : options.ShowDocs,
+            DocsExplicitlySet = options.DocsExplicitlySet,
             UseLocalDocs = options.UseLocalDocs, ShowSamples = options.ShowSamples,
             BrowsableUrls = options.BrowsableUrls, Verbosity = options.Verbosity,
             JsonOutput = options.JsonOutput, CompactJson = options.CompactJson,
             Tabular = options.Tabular, Tsv = options.Tsv, Jsonl = options.Jsonl,
             TabularExplicitlySet = options.TabularExplicitlySet,
             FormatExplicitlySet = options.FormatExplicitlySet,
-            NoHeader = options.NoHeader, Limit = options.Limit, MemberLimit = options.Limit,
-            MemberFilter = options.MemberFilter,
+            FormatFlagExplicitlySet = options.FormatFlagExplicitlySet,
+            MarkdownExplicitlySet = options.MarkdownExplicitlySet,
+            Format = options.Format,
+            PlainText = options.PlainText,
+            MermaidOutput = options.MermaidOutput,
+            EmbeddedMermaid = options.EmbeddedMermaid,
+            Bare = options.Bare,
+            NoHeader = options.NoHeader, Limit = memberLimit, MemberLimit = memberLimit,
+            MemberFilter = memberFilter,
             KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
             IncludeSections = options.IncludeSections,
+            ExactIncludeSectionsOverride = options.ExactIncludeSectionsOverride,
             Print = options.Print, PrintRow = options.PrintRow,
             Value = options.Value, Urls = options.Urls, Paths = options.Paths,
             Select = options.Select, SelectDefault = options.SelectDefault,
             Columns = options.Columns, Fields = options.Fields,
-            Schema = options.Schema, Count = options.Count, SourceOptions = options.SourceOptions,
+            Discover = options.Discover, Tree = options.Tree,
+            ShapeOutput = options.ShapeOutput,
+            ShapeExplicitlySet = options.ShapeExplicitlySet,
+            Schema = options.Schema, Count = options.Count, Rows = options.Rows,
+            JsonArray = options.JsonArray,
+            PerformanceTriage = options.PerformanceTriage,
+            BodyKindQuery = options.BodyKindQuery,
+            SourceOptions = options.SourceOptions,
             TipLevel = options.TipLevel, RenderOptions = options.RenderOptions,
+            RenderConfigWarnings = options.RenderConfigWarnings,
             RequestAllTaste = options.RequestAllTaste,
-            RequestReadableLocalNames = options.RequestReadableLocalNames
-        })
-    };
+            RequestReadableLocalNames = options.RequestReadableLocalNames,
+            DllPath = options.DllPath,
+            PdbPath = options.PdbPath
+        };
+    }
+
+    internal static bool RejectUniversallyInvalidMemberSelect(
+        MemberOptions options)
+    {
+        if (!(options.RouterDeferredTypeOrMember
+                || RequiresMemberPipelineLookup(options))
+            || options.Discover is not null
+            || options.IncludeSections is not null
+            || options.Select is not { Length: > 0 })
+        {
+            return false;
+        }
+
+        var memberPipelines = new[]
+        {
+            ApiMemberSectionDescriptors.CreatePipeline(),
+            ApiMemberOverloadSectionDescriptors.CreatePipeline(),
+            ApiMemberDetailSectionDescriptors.CreatePipeline(),
+        };
+        var knownSections = memberPipelines.SelectMany(
+                static pipeline => pipeline.SelectableSectionNames)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        Dictionary<string, string[]> categories =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var pipeline in memberPipelines)
+            AddCategories(pipeline.GetCategoryMap());
+
+        var result = SelectResolver.ResolveSelectAsSections(
+            options.Select,
+            knownSections,
+            infoSections: [],
+            categories,
+            selectDefault: false);
+        bool totalFailure = result.Unresolved.Count > 0
+            && result.Sections is null or { Count: 0 };
+        if (totalFailure
+            && options.RouterDeferredTypeOrMember
+            && ResolvesAgainstListingPipeline(options.Select))
+        {
+            return false;
+        }
+
+        return totalFailure && SelectOutput.WriteUnresolved(result);
+
+        static bool ResolvesAgainstListingPipeline(string[] selectors)
+        {
+            var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
+            var listingResult = SelectResolver.ResolveSelectAsSections(
+                selectors,
+                pipeline.SelectableSectionNames,
+                infoSections: [],
+                pipeline.GetCategoryMap(),
+                selectDefault: false);
+            return listingResult.Sections is { Count: > 0 };
+        }
+
+        void AddCategories(
+            IReadOnlyDictionary<string, string[]> additions)
+        {
+            foreach (var (name, sections) in additions)
+            {
+                categories[name] = categories.TryGetValue(
+                    name,
+                    out var existing)
+                    ? existing.Concat(sections)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToArray()
+                    : sections;
+            }
+        }
+    }
+
+    private static bool RequiresMemberPipelineLookup(MemberOptions options) =>
+        options.MemberFilter.Count == 0
+        && options.TypeName is { } memberTypeName
+        && FqnParser.LastTopLevelDot(memberTypeName) > 0;
+
+    internal static bool RejectRouteIndependentOptionShape(
+        MemberOptions options)
+    {
+        if (!options.RouterDeferredTypeOrMember
+            || (options.Discover is not null
+                && !options.EffectiveDiscovery))
+        {
+            return false;
+        }
+
+        return !ValidateRouteIndependentOptionShape(options);
+    }
 
     /// <summary>
     /// True when bare <c>-S</c> was requested, carries no explicit section values to fall back on,
@@ -106,7 +252,12 @@ public class ApiCommand
             return null;
 
         var listingOptions = selectResult.Sections != null
-            ? options with { IncludeSections = selectResult.Sections, SelectDeferredToListing = false }
+            ? options with
+            {
+                IncludeSections = selectResult.Sections,
+                ExactIncludeSectionsOverride = selectResult.ExactSections,
+                SelectDeferredToListing = false
+            }
             : options with { SelectDeferredToListing = false };
 
         // The preamble skips the selection-arity checks for a deferred select because it cannot yet
@@ -116,10 +267,20 @@ public class ApiCommand
         if (options.SelectDeferredToListing)
         {
             if (listingOptions.Discover == null && listingOptions.Count
-                && !CountOutput.ValidateSingleSection(listingOptions.IncludeSections))
+                && (!CountOutput.ValidateSectionsSelected(
+                        listingOptions.IncludeSections, fixedOverview: false)
+                    || !CountOutput.ValidateMapFormat(
+                        listingOptions.Format,
+                        OutputFormatter.ResolveCountMapSections(
+                            typePipeline, listingOptions.IncludeSections, fixedOverview: false),
+                        listingOptions.Tree,
+                        listingOptions.EmbeddedMermaid)))
+            {
                 return null;
+            }
 
-            if (!OutputFormatResolver.ValidateSingleSectionForTabular(
+            if (!listingOptions.Count
+                && !OutputFormatResolver.ValidateSingleSectionForTabular(
                     listingOptions.TabularExplicitlySet, listingOptions.IncludeSections))
                 return null;
         }
@@ -206,13 +367,25 @@ public class ApiCommand
 
     internal static (PreambleResult Result, int? Error) RunPreamble(ApiOptions options)
     {
+        options = options with { UserVerbosityOverride = options.UserVerbosity };
+        if (options is MemberOptions { IncludeSections: not null } preResolvedMemberOptions)
+            options = preResolvedMemberOptions with { MemberSectionsPreResolved = true };
+
         var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
-        var memberPipeline = ApiMemberSectionPipelines.Create(options);
+        var structuralDetailOptions = options.Discover is not null
+                                      && !options.EffectiveDiscovery
+            ? TryGetDottedDetailDiscoveryOptions(options)
+            : null;
+        var memberPipeline = ApiMemberSectionPipelines.Create(
+            structuralDetailOptions ?? options);
         bool hasTypeName = !string.IsNullOrWhiteSpace(options.TypeName);
-        bool typeNameIsGlob = hasTypeName && (options.TypeName!.Contains('*') || options.TypeName!.Contains('?'));
+        bool typeNameIsGlob =
+            hasTypeName
+            && TypeMatcher.IsTypeGlobPattern(options.TypeName!);
         bool singleTypeMode = options is MemberOptions || (hasTypeName && !typeNameIsGlob);
         var knownSections = singleTypeMode ? memberPipeline.SelectableSectionNames : typePipeline.SelectableSectionNames;
-        if (options is MemberOptions memberOptions
+        if (structuralDetailOptions is null
+            && options is MemberOptions memberOptions
             && memberOptions.MemberFilter.Count == 0
             && MightPeelDottedGenericMemberSelector(memberOptions.TypeName))
         {
@@ -226,23 +399,24 @@ public class ApiCommand
         // default; --schema opts out to the cheap, offline static schema listing.
         if (options.Discover != null && !options.EffectiveDiscovery)
         {
+            var structuralOptions =
+                (ApiOptions?)structuralDetailOptions ?? options;
             var schema = singleTypeMode
-                ? GetTypeDocumentSchema(options)
+                ? GetTypeDocumentSchema(structuralOptions)
                 : ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
 
             // Restrict plain discovery to columns/sections queryable under the active options.
             if (singleTypeMode)
             {
                 schema = RestrictSchemaToSections(schema, knownSections);
-                schema = ToQueryableSchema(schema, options);
+                schema = ToQueryableSchema(schema, structuralOptions);
             }
 
             return (null!, DiscoverOutput.Execute(options.Discover, schema,
                 tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
                 sectionCostAnnotations: singleTypeMode ? memberPipeline.GetCostAnnotations() : null,
                 sectionCategories: singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
-                projection: options,
-                tabularExplicitlySet: options.TabularExplicitlySet));
+                projection: options));
         }
 
         // Bare -S renders the fixed overview: the sections whose length does not depend on which
@@ -285,25 +459,57 @@ public class ApiCommand
             return (null!, 1);
         }
 
-        // -S/--select with values: resolve as section filter for backpressure
-        var selectResult = SelectResolver.ResolveSelectAsSections(
-            options.Select,
-            knownSections,
-            bareSelectSections,
-            singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
-            selectDefault: options.SelectDefault);
-        if (ShouldDeferSelectToListing(options, singleTypeMode, selectResult, typePipeline))
+        // Resolve raw selectors unless member lookup already supplied the authoritative set.
+        // Both paths still enforce Body Shapes requirements before acquisition.
+        if (options is not MemberOptions { MemberSectionsPreResolved: true })
         {
-            // `-D` advertised these names and `-S` rejected them, on the same command line: the
-            // preamble was answering for the single-type pipeline while the render is a listing.
-            // Hold the rejection rather than resolving it here, because which pipeline is right is
-            // not known until the type lookup runs.
-            options = options with { SelectDeferredToListing = true };
+            var selectResult = SelectResolver.ResolveSelectAsSections(
+                options.Select,
+                knownSections,
+                bareSelectSections,
+                singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
+                selectDefault: options.SelectDefault);
+            if (ShouldDeferSelectToListing(options, singleTypeMode, selectResult, typePipeline))
+            {
+                // `-D` advertised these names and `-S` rejected them, on the same command line: the
+                // preamble was answering for the single-type pipeline while the render is a listing.
+                // Hold the rejection rather than resolving it here, because which pipeline is right is
+                // not known until the type lookup runs.
+                options = options with { SelectDeferredToListing = true };
+            }
+            else
+            {
+                if (SelectOutput.WriteUnresolved(selectResult))
+                    return (null!, 1);
+                if (ApplyBodyShapeSelectionRequirements(
+                        options,
+                        selectResult) is { } bodyShapeError)
+                {
+                    CommandError.Write(bodyShapeError);
+                    return (null!, 1);
+                }
+                if (selectResult.Sections != null)
+                {
+                    options = options with
+                    {
+                        IncludeSections = selectResult.Sections,
+                        ExactIncludeSectionsOverride = selectResult.ExactSections,
+                    };
+                }
+            }
         }
-        else
+        else if (options is MemberOptions { IncludeSections: { } preResolvedSections })
         {
-            if (SelectOutput.WriteUnresolved(selectResult))
-                return (null!, 1);
+            var selectResult = new SelectResult(
+                new HashSet<string>(
+                    preResolvedSections,
+                    StringComparer.OrdinalIgnoreCase),
+                [])
+            {
+                ExactSections = new HashSet<string>(
+                    options.ExactIncludeSections ?? [],
+                    StringComparer.OrdinalIgnoreCase)
+            };
             if (ApplyBodyShapeSelectionRequirements(
                     options,
                     selectResult) is { } bodyShapeError)
@@ -311,8 +517,11 @@ public class ApiCommand
                 CommandError.Write(bodyShapeError);
                 return (null!, 1);
             }
-            if (selectResult.Sections != null)
-                options = options with { IncludeSections = selectResult.Sections };
+            options = options with
+            {
+                IncludeSections = selectResult.Sections,
+                ExactIncludeSectionsOverride = selectResult.ExactSections,
+            };
         }
         if (options is
             {
@@ -335,16 +544,33 @@ public class ApiCommand
         // actionable, and judging the listing's sections preempts the single-type view's own, more
         // accurate rejection. ReresolveSectionsForListing re-runs them once the pipeline is known.
         var selectionSections = options.SelectDeferredToListing ? null : options.IncludeSections;
-        if (options.Discover == null && options.Count && !options.SelectDeferredToListing
-            && !CountOutput.ValidateSingleSection(selectionSections))
-            return (null!, 1);
-
-        var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
-        if (shapeCount > 1)
+        var countMapSelectionSections = selectionSections;
+        if (selectionSections is { Count: > 0 }
+            && options is MemberOptions { HasCallerScope: true })
         {
-            CommandError.Write("specify only one of --value, --urls, or --paths.");
+            countMapSelectionSections = new HashSet<string>(
+                selectionSections,
+                StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.Callers
+            };
+        }
+        var countMapSections = singleTypeMode
+            ? OutputFormatter.ResolveCountMapSections(
+                memberPipeline, countMapSelectionSections, fixedOverview: false)
+            : OutputFormatter.ResolveCountMapSections(
+                typePipeline, countMapSelectionSections, fixedOverview: false);
+        if (options.Discover == null && options.Count && !options.SelectDeferredToListing
+            && (!CountOutput.ValidateSectionsSelected(selectionSections, fixedOverview: false)
+                || !CountOutput.ValidateMapFormat(
+                    options.Format, countMapSections, options.Tree, options.EmbeddedMermaid)))
+        {
             return (null!, 1);
         }
+
+        var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
+        if (!ValidateActiveShapeCount(shapeCount))
+            return (null!, 1);
 
         if (shapeCount == 1)
         {
@@ -354,52 +580,25 @@ public class ApiCommand
             if (options.Discover == null && !options.SelectDeferredToListing
                 && !ShapeProjectionOutput.ValidateSingleSection(selectionSections, optionName))
                 return (null!, 1);
-            if (options.Count || options.Print)
-            {
-                CommandError.Write($"{optionName} cannot be combined with --count or --print.");
+            if (!ValidateShapeProjectionModifiers(options, optionName))
                 return (null!, 1);
-            }
-            if (options.Rows is not null)
-            {
-                CommandError.Write($"--rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N|first|last to select a projected row.");
-                return (null!, 1);
-            }
         }
 
-        if (options.JsonArray && shapeCount == 0 && !options.Print)
-        {
-            CommandError.Write("--json-array requires --value, --urls, --paths, or --print.");
+        if (!ValidateProjectionModifiers(options, shapeCount))
             return (null!, 1);
-        }
-
-        if (options.JsonArray && (options.JsonOutput || options.Jsonl))
-        {
-            CommandError.Write("--json-array cannot be combined with --json or --jsonl.");
-            return (null!, 1);
-        }
 
         if (options.Print && options.Discover == null && !options.SelectDeferredToListing
             && !ValidateApiPrintSelection(selectionSections))
             return (null!, 1);
 
-        if (options.Print && options.Rows is not null)
-        {
-            CommandError.Write("--rows cannot be combined with --print; use --row N|first|last to choose a printed row.");
-            return (null!, 1);
-        }
-
-        if (options.PrintRow is not null && !options.Print && shapeCount == 0)
-        {
-            CommandError.Write("--row requires --print, --value, --urls, or --paths.");
-            return (null!, 1);
-        }
-
         if (!options.SelectDeferredToListing
+            && !options.Count
             && !OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, selectionSections))
             return (null!, 1);
 
         if (options is MemberOptions memberFormat
-            && options.Discover is null)
+            && options.Discover is null
+            && !(options.Count && countMapSections is null))
         {
             memberFormat = NormalizeMemberGraphFormat(memberFormat, selectionSections);
             options = memberFormat;
@@ -487,7 +686,11 @@ public class ApiCommand
 
         const string required =
             "Section 'Body Shapes' requires --where \"Kind=<C# Body Kinds ID>\".";
-        if (TargetsBodyShapes(options, options.Select)
+        bool explicitlyTargetsBodyShapes =
+            options is MemberOptions { MemberSectionsPreResolved: true }
+                ? selectResult.ExactSections.Contains(SectionNames.BodyShapes)
+                : TargetsBodyShapes(options, options.Select);
+        if (explicitlyTargetsBodyShapes
             || sections.Count == 1)
         {
             return required;
@@ -527,15 +730,11 @@ public class ApiCommand
         MemberOptions options,
         IReadOnlyCollection<string>? sections)
     {
+        if (!ValidateMemberGraphFormatConflict(options))
+            return false;
+
         if (options.Tree)
         {
-            if (options.FormatFlagExplicitlySet)
-            {
-                CommandError.Write(
-                    "--tree is a standalone output format and cannot combine with another output format.");
-                return false;
-            }
-
             if (sections is not { Count: 1 }
                 || !sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase))
             {
@@ -567,6 +766,16 @@ public class ApiCommand
         }
 
         return true;
+    }
+
+    private static bool ValidateMemberGraphFormatConflict(MemberOptions options)
+    {
+        if (!options.Tree || !options.FormatFlagExplicitlySet)
+            return true;
+
+        CommandError.Write(
+            "--tree is a standalone output format and cannot combine with another output format.");
+        return false;
     }
 
     private static MemberOptions NormalizeMemberGraphFormat(
@@ -606,6 +815,142 @@ public class ApiCommand
             return false;
 
         return MemberTargetSelector.Parse(typeName[(lastDot + 1)..]).GenericArity.HasValue;
+    }
+
+    static MemberOptions? TryGetDottedDetailDiscoveryOptions(
+        ApiOptions options)
+    {
+        if (options is not MemberOptions
+            {
+                MemberFilter.Count: 0,
+                TypeName: { } typeName
+            } memberOptions)
+        {
+            return null;
+        }
+
+        var lastDot = FqnParser.LastTopLevelDot(typeName);
+        if (lastDot <= 0 || lastDot == typeName.Length - 1)
+            return null;
+
+        var selector =
+            MemberTargetSelector.Parse(typeName[(lastDot + 1)..]);
+        if (!selector.OverloadIndex.HasValue
+            && string.IsNullOrWhiteSpace(selector.DigestPrefix))
+        {
+            return null;
+        }
+
+        return memberOptions with
+        {
+            MemberFilter = new HashSet<string>(
+                [selector.Name],
+                StringComparer.OrdinalIgnoreCase),
+            OverloadIndex = selector.OverloadIndex,
+            MemberDigest = selector.DigestPrefix,
+            MemberGenericArity = selector.GenericArity,
+        };
+    }
+
+    private static bool ValidateRouteIndependentOptionShape(
+        ApiOptions options,
+        int? activeShapeCount = null)
+    {
+        if (options is MemberOptions memberOptions
+            && !ValidateMemberGraphFormatConflict(memberOptions))
+        {
+            return false;
+        }
+
+        var shapeCount = activeShapeCount
+            ?? ShapeProjectionOutput.ActiveShapeCount(
+                options.Value,
+                options.Urls,
+                options.Paths);
+        if (!ValidateActiveShapeCount(shapeCount))
+            return false;
+
+        if (shapeCount == 1)
+        {
+            var optionName = options.Value
+                ? "--value"
+                : options.Urls
+                    ? "--urls"
+                    : "--paths";
+            if (!ValidateShapeProjectionModifiers(options, optionName))
+                return false;
+        }
+
+        return ValidateProjectionModifiers(options, shapeCount);
+    }
+
+    private static bool ValidateActiveShapeCount(int shapeCount)
+    {
+        if (shapeCount > 1)
+        {
+            CommandError.Write(
+                "specify only one of --value, --urls, or --paths.");
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool ValidateShapeProjectionModifiers(
+        ApiOptions options,
+        string optionName)
+    {
+        if (options.Count || options.Print)
+        {
+            CommandError.Write(
+                $"{optionName} cannot be combined with --count or --print.");
+            return false;
+        }
+        if (options.Rows is not null)
+        {
+            CommandError.Write(
+                $"--rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N|first|last to select a projected row.");
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool ValidateProjectionModifiers(
+        ApiOptions options,
+        int shapeCount)
+    {
+        if (options.JsonArray && shapeCount == 0 && !options.Print)
+        {
+            CommandError.Write(
+                "--json-array requires --value, --urls, --paths, or --print.");
+            return false;
+        }
+
+        if (options.JsonArray && (options.JsonOutput || options.Jsonl))
+        {
+            CommandError.Write(
+                "--json-array cannot be combined with --json or --jsonl.");
+            return false;
+        }
+
+        if (options.Print && options.Rows is not null)
+        {
+            CommandError.Write(
+                "--rows cannot be combined with --print; use --row N|first|last to choose a printed row.");
+            return false;
+        }
+
+        if (options.PrintRow is not null
+            && !options.Print
+            && shapeCount == 0)
+        {
+            CommandError.Write(
+                "--row requires --print, --value, --urls, or --paths.");
+            return false;
+        }
+
+        return true;
     }
 
     private static bool ValidateApiPrintSelection(HashSet<string>? includeSections)
@@ -819,8 +1164,15 @@ public class ApiCommand
     {
         if (options.IncludeSections is not { Count: > 0 })
             return;
-        if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
-            || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
+        var sectionsPreResolved = options is MemberOptions { MemberSectionsPreResolved: true };
+        if (SelectResolver.IsActiveInfoSelector(
+                options.SelectDefault,
+                options.IncludeSections,
+                sectionsPreResolved)
+            || SelectResolver.IsActiveAllSelector(
+                options.Select,
+                options.IncludeSections,
+                sectionsPreResolved))
             return;
 
         var filtered = BuildFilteredTypeForSections(type, options);
@@ -1018,8 +1370,13 @@ public class ApiCommand
     internal static HashSet<string> GetRequestedMemberSections(ApiType type, ApiOptions options)
     {
         var pipeline = ApiMemberSectionPipelines.Create(options);
+        var explicitInclude = options is MemberOptions { MemberSectionsPreResolved: true };
         var sections = new HashSet<string>(
-            pipeline.GetEffectiveSections(type, options.Verbosity, options.IncludeSections),
+            pipeline.GetEffectiveSections(
+                type,
+                options.Verbosity,
+                options.IncludeSections,
+                explicitInclude: explicitInclude),
             StringComparer.OrdinalIgnoreCase);
         if (options.Discover is { Length: > 0 } discover)
         {
@@ -1148,10 +1505,16 @@ public class ApiCommand
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
             writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
-            var markdown = MarkoutSerializer.Serialize(view, ApiViewContext.Default, writerOptions);
-            if (!TryReportEmptyProjection(markdown, options))
+            var projection = CountProjectionFormatter.Capture(
+                view, ApiViewContext.Default, writerOptions);
+            if (!TryReportEmptyProjection(projection.WroteAnyContent, options))
                 return 1;
-            CountOutput.WriteCountFromMarkdown(markdown);
+            var ordered = OutputFormatter.ResolveCountMapSections(
+                ApiTypeSectionDescriptors.CreatePipeline(),
+                options.IncludeSections,
+                fixedOverview: false);
+            CountOutput.Write(
+                projection, ordered, options.Format, options.NoHeader);
         }
         else if (options.Tabular)
         {
@@ -1360,8 +1723,8 @@ public class ApiCommand
     }
 
     /// <summary>
-    /// Fails a projection that rendered nothing at all, rather than exiting 0 having printed
-    /// nothing. Returns false when the caller should stop.
+    /// Fails a projection whose names cannot apply to the selected shape, rather than exiting 0
+    /// with an empty or partially unrelated render. Returns false when the caller should stop.
     /// </summary>
     /// <remarks>
     /// This is the gate for "a projection that matches nothing must not look like success".
@@ -1387,22 +1750,69 @@ public class ApiCommand
     /// prevent.</item>
     /// </list>
     ///
-    /// The name check is deliberately a NARROWING condition on an already-empty render, never a
-    /// pre-check. Two earlier attempts validated names up front and both produced false negatives,
-    /// because the set of legitimately projectable names is wider than any one section's schema:
+    /// The name check is normally a narrowing condition on an already-empty render. When another
+    /// selected section writes content, it also runs if the selection contains a section of the
+    /// projected kind; otherwise unrelated rows can hide an invalid projection. It remains
+    /// disabled for a cross-kind projection such as <c>-S Classes --fields NoSuchField</c>, where
+    /// fields intentionally do not constrain the selected table.
+    ///
+    /// The candidates still come from every section, not only the selection. Two earlier attempts
+    /// validated against selected-section names and produced false negatives, because the set of
+    /// legitimately projectable names is wider than any one section's schema:
     /// <c>-S "API Info" --columns Field</c> names a column the fact-table renderer synthesizes and
     /// the schema never lists, and <c>-S Classes --fields Types</c> names a document-level field
-    /// that survives regardless of which section is selected. Both of those RENDER, so ordering
-    /// emptiness first puts the schema's blind spots out of reach.
+    /// that survives regardless of which section is selected. The candidates below include the
+    /// product-owned fact-table columns when API Info is selected.
     /// </remarks>
-    private static bool TryReportEmptyProjection(string rendered, ApiOptions options)
-    {
-        if (!string.IsNullOrWhiteSpace(rendered))
-            return true;
+    private static bool TryReportEmptyProjection(
+        string rendered,
+        ApiOptions options,
+        DocumentSchema? schema = null)
+        => TryReportEmptyProjection(!string.IsNullOrWhiteSpace(rendered), options, schema);
 
+    private static bool ProjectionIncludesSection(
+        DocumentSchema schema,
+        string section,
+        ApiOptions options)
+    {
+        if (options.Fields is not { Length: > 0 }
+            && options.Columns is not { Length: > 0 })
+        {
+            return true;
+        }
+
+        var sectionSchema = schema.GetSection(section);
+        return sectionSchema is not null
+            && ((options.Fields is { Length: > 0 } fields
+                    && sectionSchema.ItemKind.Equals(
+                        "field", StringComparison.OrdinalIgnoreCase)
+                    && schema.ValidateProjection(section, fields).Resolved.Length > 0)
+                || (options.Columns is { Length: > 0 } columns
+                    && sectionSchema.ItemKind.Equals(
+                        "column", StringComparison.OrdinalIgnoreCase)
+                    && schema.ValidateProjection(section, columns).Resolved.Length > 0));
+    }
+
+    private static bool TryReportEmptyProjection(
+        bool wroteAnyContent,
+        ApiOptions options,
+        DocumentSchema? schema = null)
+    {
         var names = options.Fields ?? options.Columns;
         if (names is not { Length: > 0 })
             return true;
+
+        var wantedKind = options.Fields is { Length: > 0 } ? "field" : "column";
+        schema ??= ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
+        if (wroteAnyContent
+            && options.IncludeSections is { Count: > 0 } sections
+            && !sections.Any(section =>
+                schema.GetSection(section)?.ItemKind.Equals(
+                    wantedKind,
+                    StringComparison.OrdinalIgnoreCase) == true))
+        {
+            return true;
+        }
 
         // Resolved by KIND across EVERY section, not against the selected sections. Two
         // independent corrections are folded in here, and dropping either one reopens a real
@@ -1419,9 +1829,17 @@ public class ApiCommand
         // and never a field, so `-S "API Info" --fields Type` would otherwise be validated by an
         // unrelated section's column and silently succeed while printing nothing. `--fields` can
         // only be satisfied by a field and `--columns` only by a column.
-        var wantedKind = options.Fields is { Length: > 0 } ? "field" : "column";
-        var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
         var candidates = new List<string>();
+        if (string.Equals(
+                wantedKind,
+                "column",
+                StringComparison.OrdinalIgnoreCase)
+            && options.IncludeSections?.Contains(SectionNames.ApiInfo) == true)
+        {
+            candidates.Add("Field");
+            candidates.Add("Value");
+        }
+
         foreach (var section in schema.SectionNames)
         {
             foreach (var item in schema.Discover(section) ?? [])
@@ -1463,9 +1881,9 @@ public class ApiCommand
     /// True when the member carries no IL body, so <paramref name="Source"/> is absent because
     /// there is nothing to show rather than because resolution failed (issue #3299).
     /// </param>
-    /// <param name="MemberHasNoAuthoredDeclaration">
-    /// True when the member has a body but its source range does not identify one vouched
-    /// authored declaration to isolate.
+    /// <param name="MemberHasNoPdbDeclaration">
+    /// True when the member has a body but its PDB source range does not identify one declaration
+    /// to isolate.
     /// </param>
     /// <param name="MemberSourceTooComplex">
     /// True when verified source exceeded the bounded lexical-complexity limit.
@@ -1473,21 +1891,50 @@ public class ApiCommand
     /// <param name="MemberSourceCoordinatesInvalid">
     /// True when portable-PDB sequence-point coordinates cannot address the verified source.
     /// </param>
+    /// <param name="PdbSourceUnavailableReason">
+    /// Visible explanation when PDB source acquisition failed for another reason.
+    /// </param>
     internal sealed record ResolvedMethodSource(
         MethodSourceContext? Source,
         string? PdbPath,
         bool MemberHasNoBody = false,
-        bool MemberHasNoAuthoredDeclaration = false,
+        bool MemberHasNoPdbDeclaration = false,
         bool MemberSourceTooComplex = false,
-        bool MemberSourceCoordinatesInvalid = false);
+        bool MemberSourceCoordinatesInvalid = false,
+        string? PdbSourceUnavailableReason = null);
 
     internal static async Task<ResolvedMethodSource> ResolveMethodSourceAsync(
         string dllPath, string typeName, string methodName, int overloadIndex,
         ApiOptions options, HttpClient httpClient, VerboseLogger logger, bool fetchSource = true,
-        bool publicOnly = true, int metadataToken = 0)
+        bool publicOnly = true, int sourceMetadataToken = 0,
+        string? memberMetadataAssemblyPath = null, int memberMetadataToken = 0)
     {
         try
         {
+            // A member with no IL body has no PDB source to resolve, whatever the PDB and
+            // SourceLink situation is. The selected MethodDef token belongs to the assembly that
+            // supplied the API member, which may differ from the runtime facade opened for PDB
+            // lookup. Preserve that identity instead of applying the token to the wrong image;
+            // only when no selected MethodDef identity is available, use the same name/overload
+            // fallback as source lookup
+            // (issue #3299).
+            bool? memberHasBody = ResolveMemberBodyState(
+                dllPath,
+                typeName,
+                methodName,
+                overloadIndex,
+                publicOnly,
+                memberMetadataAssemblyPath,
+                memberMetadataToken,
+                logger.Log);
+            if (memberHasBody == false)
+            {
+                return new ResolvedMethodSource(
+                    null,
+                    null,
+                    MemberHasNoBody: true);
+            }
+
             using var service = SourceLinkService.Open(dllPath, logger.Log);
             var context = service.Context;
 
@@ -1508,31 +1955,48 @@ public class ApiCommand
             // names even when SourceLink/source resolution below fails (PDB available, source not).
             string? pdbPath = context.PortablePdbPath;
 
-            // A member with no IL body has no authored source to resolve, whatever the PDB and
-            // SourceLink situation is. Ask metadata for that fact before the resolution attempt,
-            // so an empty result can say why instead of looking like a silent failure
-            // (issue #3299). Only a definite "no" counts; an unreadable token stays unknown.
-            bool memberHasNoBody = metadataToken != 0 && context.MethodHasBody(metadataToken) == false;
+            if (!fetchSource)
+                return new ResolvedMethodSource(null, pdbPath);
+            if (!service.HasPdb)
+            {
+                return new ResolvedMethodSource(
+                    null,
+                    pdbPath,
+                    PdbSourceUnavailableReason: NoPortablePdbReason);
+            }
 
-            if (!fetchSource || !service.HasPdb || !service.HasSourceLink)
-                return new ResolvedMethodSource(null, pdbPath, memberHasNoBody);
-
-            var methodInfo = service.ResolveMethodSource(typeName, methodName, overloadIndex, publicOnly, metadataToken);
+            var methodInfo = service.ResolveMethodSource(
+                typeName,
+                methodName,
+                overloadIndex,
+                publicOnly,
+                sourceMetadataToken);
             if (methodInfo == null)
-                return new ResolvedMethodSource(null, pdbPath, memberHasNoBody);
+            {
+                return new ResolvedMethodSource(
+                    null,
+                    pdbPath,
+                    PdbSourceUnavailableReason: NoPdbSourceMappingReason);
+            }
 
             // Honor the source the portable PDB records when it is present locally: a non-reproducible
             // (local dev) build keeps a real local path whose exact compiled bytes may exist only here,
             // so the remote SourceLink URL would 404 or differ. The checksum authenticates the on-disk
             // bytes against the portable PDB; remote SourceLink is the fallback for reproducible builds.
             string? content = null;
-            var localBytes = DotnetInspector.Services.AuthoredSourceAcquisition.TryReadVerifiedLocalSource(
+            SourceChecksumVerification checksumVerification =
+                SourceChecksumVerification.Unavailable;
+            var localBytes = DotnetInspector.Services.PdbSourceAcquisition.TryReadVerifiedLocalSource(
                 methodInfo.FilePath, methodInfo.ChecksumAlgorithm, methodInfo.Checksum);
             byte[]? repoBytes;
             if (localBytes != null)
             {
-                content = NormalizeAuthoredSourceLineEndings(
-                    DotnetInspector.Services.AuthoredSourceAcquisition.DecodeSourceText(localBytes));
+                checksumVerification = PdbSourceAcquisition.VerifyChecksum(
+                    methodInfo.ChecksumAlgorithm,
+                    methodInfo.Checksum,
+                    localBytes);
+                content = NormalizePdbSourceLineEndings(
+                    DotnetInspector.Services.PdbSourceAcquisition.DecodeSourceText(localBytes));
             }
             // Opt-in (--repo): read the committed blob at the SourceLink commit from a local clone,
             // authenticated by the same PDB checksum, before touching the network. Useful for a
@@ -1542,26 +2006,36 @@ public class ApiCommand
                     methodInfo.SourceUrl, methodInfo.ChecksumAlgorithm, methodInfo.Checksum,
                     options.SourceRepositories)) != null)
             {
-                content = NormalizeAuthoredSourceLineEndings(
-                    DotnetInspector.Services.AuthoredSourceAcquisition.DecodeSourceText(repoBytes));
+                checksumVerification = PdbSourceAcquisition.VerifyChecksum(
+                    methodInfo.ChecksumAlgorithm,
+                    methodInfo.Checksum,
+                    repoBytes);
+                content = NormalizePdbSourceLineEndings(
+                    DotnetInspector.Services.PdbSourceAcquisition.DecodeSourceText(repoBytes));
             }
             else if (methodInfo.SourceUrl != null)
             {
                 var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-                var fetch = await AuthoredSourceAcquisition.FetchVerifiedSourceTextAsync(
+                var fetch = await PdbSourceAcquisition.FetchVerifiedSourceTextAsync(
                     fetcher,
                     methodInfo.SourceUrl,
                     methodInfo.ChecksumAlgorithm,
                     methodInfo.Checksum);
                 content = fetch.Text is null
                     ? null
-                    : NormalizeAuthoredSourceLineEndings(fetch.Text);
+                    : NormalizePdbSourceLineEndings(fetch.Text);
+                checksumVerification = fetch.ChecksumVerification;
                 if (fetch.Failure is not null)
                     logger.LogWarning(fetch.Failure);
             }
 
             if (content == null)
-                return new ResolvedMethodSource(null, pdbPath, memberHasNoBody);
+            {
+                return new ResolvedMethodSource(
+                    null,
+                    pdbPath,
+                    PdbSourceUnavailableReason: NoMatchingPdbSourceReason);
+            }
 
             return SliceResolvedMethodSource(
                 content,
@@ -1570,16 +2044,61 @@ public class ApiCommand
                 methodName,
                 methodInfo.SourceUrl ?? methodInfo.FilePath,
                 pdbPath,
-                methodInfo.SequencePointStartLines);
+                methodInfo.SequencePointStartLines,
+                methodInfo.ChecksumAlgorithm,
+                methodInfo.Checksum,
+                checksumVerification);
         }
         catch (Exception ex)
         {
             logger.LogWarning($"Failed to resolve method source for {typeName}.{methodName}: {ex.Message}");
-            return new ResolvedMethodSource(null, null);
+            return new ResolvedMethodSource(
+                null,
+                null,
+                PdbSourceUnavailableReason: PdbSourceInspectionFailedReason);
         }
     }
 
-    internal static string NormalizeAuthoredSourceLineEndings(string content)
+    internal static bool? ResolveMemberBodyState(
+        string dllPath,
+        string typeName,
+        string methodName,
+        int overloadIndex,
+        bool publicOnly,
+        string? memberMetadataAssemblyPath,
+        int memberMetadataToken,
+        Action<string>? log)
+    {
+        bool hasMemberToken =
+            memberMetadataToken != 0
+            && memberMetadataAssemblyPath is { Length: > 0 };
+        bool tokenAddressesLookupImage =
+            hasMemberToken
+            && LibraryMetadataService
+                .ReferenceTreePathComparer(OperatingSystem.IsWindows())
+                .Equals(
+                    Path.GetFullPath(dllPath),
+                    Path.GetFullPath(memberMetadataAssemblyPath!));
+
+        if (hasMemberToken)
+        {
+            using var memberContext = PdbContext.OpenMetadataOnly(
+                tokenAddressesLookupImage
+                    ? dllPath
+                    : memberMetadataAssemblyPath!,
+                tokenAddressesLookupImage ? log : null);
+            return memberContext.MethodHasBody(memberMetadataToken);
+        }
+
+        using var lookupContext = PdbContext.OpenMetadataOnly(dllPath, log);
+        return lookupContext.MethodHasBody(
+            typeName,
+            methodName,
+            overloadIndex,
+            publicOnly);
+    }
+
+    internal static string NormalizePdbSourceLineEndings(string content)
         // Normalize only CR/LF forms. Other characters recognized by string.ReplaceLineEndings,
         // including form feed, are not C# physical line breaks and must not shift PDB coordinates.
         => content.Replace("\r\n", "\n").Replace('\r', '\n');
@@ -1591,7 +2110,11 @@ public class ApiCommand
         string methodName,
         string sourceLocation,
         string? pdbPath,
-        IReadOnlyList<int>? visibleSequencePointStartLines = null)
+        IReadOnlyList<int>? visibleSequencePointStartLines = null,
+        string? checksumAlgorithm = null,
+        byte[]? checksum = null,
+        SourceChecksumVerification checksumVerification =
+            SourceChecksumVerification.Unavailable)
     {
         try
         {
@@ -1602,15 +2125,20 @@ public class ApiCommand
                 methodName,
                 visibleSequencePointStartLines);
 
-            // The range does not identify one authored declaration: report no source rather than
+            // The PDB range does not identify one declaration: report no source rather than
             // a type header, initializer, or structurally unknown span.
             return sourceCode is null
                 ? new ResolvedMethodSource(
                     null,
                     pdbPath,
-                    MemberHasNoAuthoredDeclaration: true)
+                    MemberHasNoPdbDeclaration: true)
                 : new ResolvedMethodSource(
-                    new MethodSourceContext(sourceCode, sourceLocation),
+                    new MethodSourceContext(
+                        sourceCode,
+                        sourceLocation,
+                        checksumAlgorithm,
+                        checksum is null ? null : Convert.ToHexString(checksum),
+                        checksumVerification),
                     pdbPath);
         }
         catch (CSharpTextComplexityException)
@@ -1696,16 +2224,23 @@ public class ApiCommand
         bool sourceDocumentJson = IsAnnotatedSourceDocumentJson(options);
         bool barePayloadRenderer =
             options.Bare && !options.Count && !options.JsonOutput;
+        bool sourceSectionExplicitlySelected =
+            options.ExactIncludeSections?
+                .Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]) == true;
         if (options is MemberOptions memberOptions
+            && !memberOptions.MemberHasNoBody
             && (memberOptions.MemberSourceTooComplex
-                || memberOptions.MemberSourceCoordinatesInvalid)
+                || memberOptions.MemberSourceCoordinatesInvalid
+                || (sourceSectionExplicitlySelected
+                    && !memberOptions.MemberHasNoPdbDeclaration
+                    && memberOptions.PdbSourceUnavailableReason is { Length: > 0 }))
             && !IsProjectionRequested(options)
             && !barePayloadRenderer
             && (options.Count
                 || options.Tabular
                 || options.JsonOutput)
             && GetRequestedMemberSections(type, options)
-                .Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
+                .Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]))
         {
             string format = options.Count
                 ? "--count"
@@ -1717,13 +2252,15 @@ public class ApiCommand
                             ? "--table"
                             : "Document --json";
             string guidance = options.Count
-                ? "Remove --count to render the section failure."
+                ? "Use Markdown/plaintext without --count, or replace --count with --print."
                 : "Use Markdown/plaintext output, or add --print to project the section payload.";
             string failure = memberOptions.MemberSourceTooComplex
-                ? "Authored source extraction stopped because the source exceeds the lexical "
+                ? "PDB source extraction stopped because the source exceeds the lexical "
                     + "complexity limit."
-                : "Authored source extraction stopped because the portable-PDB sequence-point "
-                    + "coordinates cannot address the verified source.";
+                : memberOptions.MemberSourceCoordinatesInvalid
+                    ? "PDB source extraction stopped because the portable-PDB sequence-point "
+                        + "coordinates cannot address the verified source."
+                    : memberOptions.PdbSourceUnavailableReason!;
             CommandError.Write(
                 failure + $" {format} cannot represent this code-section "
                 + "failure. " + guidance);
@@ -1923,18 +2460,18 @@ public class ApiCommand
 
             // Source code (already resolved in command layer)
             if (options is MemberOptions mo5
-                && GetRequestedMemberSections(type, mo5).Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
+                && GetRequestedMemberSections(type, mo5).Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]))
             {
                 if (mo5.MethodSource is { } resolvedSource)
                 {
                     view.MemberCode ??= new MemberCodeView();
-                    view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", resolvedSource.SourceCode);
+                    view.MemberCode.PdbSourceCode = new Markout.CodeSection("csharp", resolvedSource.SourceCode);
                 }
-                else if (OriginalSourceUnavailableNote(mo5) is { } note)
+                else if (PdbSourceUnavailableNote(mo5) is { } note)
                 {
                     view.MemberCode ??= new MemberCodeView();
-                    view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", note);
-                    view.MemberCode.OriginalSourceUnavailable = true;
+                    view.MemberCode.PdbSourceCode = new Markout.CodeSection("csharp", note);
+                    view.MemberCode.PdbSourceUnavailable = true;
                 }
             }
 
@@ -1942,7 +2479,9 @@ public class ApiCommand
                 view,
                 GetRequestedMemberSections(type, options),
                 options is MemberOptions { MemberSourceTooComplex: true },
-                options is MemberOptions { MemberSourceCoordinatesInvalid: true });
+                options is MemberOptions { MemberSourceCoordinatesInvalid: true },
+                (options as MemberOptions)?.MethodSource,
+                options.UserVerbosity < Verbosity.Detailed);
 
         }
 
@@ -2004,27 +2543,36 @@ public class ApiCommand
 
         if (options.Count)
         {
-            // A call graph declares edge rows in its projection. Count those rows directly
-            // rather than scanning any rendered lowering, whose syntax cannot answer the
-            // row question.
-            if (options.IncludeSections is { Count: 1 } sections
-                && sections.Contains(SectionNames.CallGraph)
-                && view.MemberCode?.CallGraphRowCount is { } graphRows)
-            {
-                CountOutput.WriteCount(graphRows);
-                ApiOutputFormatter.WriteCallGraphWarning(view);
-                return 0;
-            }
-
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
             writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
-            var sw = new StringWriter { NewLine = "\n" };
-            var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
-            ApiOutputFormatter.SerializeTypeDocument(
-                view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
-                explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
-            writer.Flush();
-            CountOutput.WriteCountFromMarkdown(sw.ToString().TrimEnd());
+            var schema = GetTypeDocumentSchema(options);
+            var projection = CountProjectionFormatter.Capture(
+                writer => ApiOutputFormatter.SerializeTypeDocument(
+                    view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
+                    explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer),
+                writerOptions);
+            // A call graph declares directed edges as its row unit. The count formatter observes
+            // the graph as content but deliberately does not infer rows from a rendered lowering,
+            // so add the product-owned, already-windowed edge cardinality to the same projection
+            // used by scalar and multi-section reductions.
+            if (options.IncludeSections?.Contains(SectionNames.CallGraph) == true
+                && ProjectionIncludesSection(
+                    schema, SectionNames.CallGraph, options)
+                && view.MemberCode?.CallGraphRowCount is { } graphRows)
+            {
+                projection.RecordRows(SectionNames.CallGraph, graphRows);
+            }
+            if (!TryReportEmptyProjection(
+                    projection.WroteAnyContent,
+                    options,
+                    schema))
+                return 1;
+            var ordered = OutputFormatter.ResolveCountMapSections(
+                ApiMemberSectionPipelines.Create(options),
+                options.IncludeSections,
+                fixedOverview: false);
+            CountOutput.Write(
+                projection, ordered, options.Format, options.NoHeader);
             ApiOutputFormatter.WriteCallGraphWarning(view);
             return 0;
         }
@@ -2113,12 +2661,18 @@ public class ApiCommand
             }
             else
             {
-                if (SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
+                if (SelectResolver.IsActiveAllSelector(
+                    options.Select,
+                    options.IncludeSections,
+                    options is MemberOptions { MemberSectionsPreResolved: true }))
                 {
                     var pipeline = ApiMemberSectionPipelines.Create(options);
                     writerOptions.SectionOrder = pipeline.GetAllSelectorSections(type);
                 }
-                else if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections))
+                else if (SelectResolver.IsActiveInfoSelector(
+                    options.SelectDefault,
+                    options.IncludeSections,
+                    options is MemberOptions { MemberSectionsPreResolved: true }))
                 {
                     var pipeline = ApiMemberSectionPipelines.Create(options);
                     writerOptions.SectionOrder = pipeline.InfoSectionNames;
@@ -2170,16 +2724,16 @@ public class ApiCommand
 
         var documents = section switch
         {
-            SectionNames.OriginalSource => CodeSectionDocument(section, "Original Source", (options as MemberOptions)?.MethodSource?.SourceUrl, view.MemberCode?.OriginalSourceCode.Content),
+            SectionNames.PdbSource => CodeSectionDocument(section, SectionNames.PdbSource, (options as MemberOptions)?.MethodSource?.SourceUrl, view.MemberCode?.PdbSourceCode.Content),
             SectionNames.DecompiledSource => CodeSectionDocument(section, "Decompiled Source", null, view.MemberCode?.DecompiledSourceCode.Content),
             SectionNames.AnnotatedSource => CodeSectionDocument(section, "Annotated Source", null, view.MemberCode?.AnnotatedSourceCode.Content),
-            SectionNames.SourceDiff => CodeSectionDocument(section, "Source Diff", null, view.MemberCode?.SourceDiffCode.Content),
+            SectionNames.SourceDiff => CodeSectionDocument(section, "Source Diff", (options as MemberOptions)?.MethodSource?.SourceUrl, view.MemberCode?.SourceDiffCode.Content),
             SectionNames.IL => CodeSectionDocument(section, "IL", null, view.MemberCode?.ILCode.Content),
             _ => []
         };
 
         if (documents.Count == 0
-            && section is not (SectionNames.SourceFiles or SectionNames.SourceLocations or SectionNames.OriginalSource
+            && section is not (SectionNames.SourceFiles or SectionNames.SourceLocations or SectionNames.PdbSource
                 or SectionNames.DecompiledSource or SectionNames.AnnotatedSource or SectionNames.SourceDiff or SectionNames.IL))
         {
             CommandError.Write($"section '{section}' is not printable.");
@@ -2377,7 +2931,7 @@ public class ApiCommand
         var rawUrl = GitHubUrlResolver.ConvertBlobToRawUrl(selectedRow.Url!);
         var selectedSource = materialized.Single(row => row.Row == selectedRow.Row);
         var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-        var fetch = await AuthoredSourceAcquisition.FetchVerifiedSourceTextAsync(
+        var fetch = await PdbSourceAcquisition.FetchVerifiedSourceTextAsync(
             fetcher,
             rawUrl,
             selectedSource.ChecksumAlgorithm,
@@ -2427,7 +2981,7 @@ public class ApiCommand
             SectionNames.AnnotatedSource => view.MemberCode?.AnnotatedSourceCode.Content ?? "",
             SectionNames.CostOverlay => view.MemberCode?.CostOverlayCode.Content ?? "",
             SectionNames.SemanticsOverlay => view.MemberCode?.SemanticsOverlayCode.Content ?? "",
-            SectionNames.OriginalSource => view.MemberCode?.OriginalSourceCode.Content ?? "",
+            SectionNames.PdbSource => view.MemberCode?.PdbSourceCode.Content ?? "",
             SectionNames.SourceDiff => view.MemberCode?.SourceDiffCode.Content ?? "",
             SectionNames.IL => view.MemberCode?.ILCode.Content ?? "",
             SectionNames.SourceFiles => BareUrlColumn(view.SourceFileRows?.Select(row => row.Url), SectionNames.SourceFiles, out error),
@@ -2518,7 +3072,10 @@ public class ApiCommand
     {
         var fullSchema = GetTypeDocumentSchema(options);
         var filteredType = BuildFilteredTypeForSections(apiType, options);
-        var effective = memberPipeline.GetDiscoverableSections(filteredType, options.IncludeSections);
+        var effective = memberPipeline.GetDiscoverableSections(
+            filteredType,
+            options.IncludeSections,
+            explicitInclude: options is MemberOptions { MemberSectionsPreResolved: true });
         if (!options.BodyKindQuery.HasFilter)
         {
             effective = effective
@@ -2562,8 +3119,7 @@ public class ApiCommand
             verbosity: (int)options.Verbosity, fullSchema: fullSchema,
             sectionCostAnnotations: displayAnnotations,
             sectionCategories: memberPipeline.GetCategoryMap(),
-            projection: options,
-            tabularExplicitlySet: options.TabularExplicitlySet);
+            projection: options);
     }
 
     /// <summary>
@@ -2739,25 +3295,27 @@ public class ApiCommand
                         memberOptions.IncludeSections, memberOptions);
                 }
 
-                if (requestedSections.Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
+                if (requestedSections.Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]))
                 {
                     if (memberOptions.MethodSource is { } resolvedSource)
                     {
                         view.MemberCode ??= new MemberCodeView();
-                        view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", resolvedSource.SourceCode);
+                        view.MemberCode.PdbSourceCode = new Markout.CodeSection("csharp", resolvedSource.SourceCode);
                     }
-                    else if (OriginalSourceUnavailableNote(memberOptions) is { } note)
+                    else if (PdbSourceUnavailableNote(memberOptions) is { } note)
                     {
                         view.MemberCode ??= new MemberCodeView();
-                        view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", note);
-                        view.MemberCode.OriginalSourceUnavailable = true;
+                        view.MemberCode.PdbSourceCode = new Markout.CodeSection("csharp", note);
+                        view.MemberCode.PdbSourceUnavailable = true;
                     }
                 }
                 PopulateSourceDiff(
                     view,
                     requestedSections,
                     memberOptions.MemberSourceTooComplex,
-                    memberOptions.MemberSourceCoordinatesInvalid);
+                    memberOptions.MemberSourceCoordinatesInvalid,
+                    memberOptions.MethodSource,
+                    memberOptions.UserVerbosity < Verbosity.Detailed);
             }
 
             if (renderOptions is TypeOptions
@@ -2860,47 +3418,63 @@ public class ApiCommand
     }
 
     /// <summary>
-    /// Stands in for Original Source when the selected member carries no IL body. A C# comment
+    /// Stands in for PDB Source when the selected member carries no IL body. A C# comment
     /// so it reads naturally inside the section's <c>csharp</c> fence, mirroring how
     /// <see cref="SourceTextDiffRenderer"/> reports an unavailable diff input (issue #3299).
     /// </summary>
     internal const string BodylessMemberNote =
-        "// This member has no IL body, so it has no authored source to show.";
+        "// This member has no IL body, so it has no PDB source to show.";
 
     /// <summary>
-    /// Stands in for Original Source when the selected member has an IL body but its source range
-    /// does not identify one authored declaration that can be shown. Generated members may map to
+    /// Stands in for PDB Source when the selected member has an IL body but its source range
+    /// does not identify one declaration that can be shown. Generated members may map to
     /// a type header or initializer, and structurally unknown ranges are deliberately not guessed;
     /// saying so beats rendering unrelated or truncated source (issue #3299's principle, applied
     /// to a second cause).
     /// </summary>
-    internal const string NoAuthoredDeclarationNote =
-        "// This member's source range does not identify one authored declaration that can be shown.\n"
+    internal const string NoPdbDeclarationNote =
+        "// This member's PDB source range does not identify one declaration that can be shown.\n"
         + "// Generated members and ambiguous or structurally unknown source ranges can have this shape.";
 
     internal const string SourceTooComplexNote =
-        "// Authored source extraction stopped because the source exceeds the lexical complexity limit.";
+        "// PDB source extraction stopped because the source exceeds the lexical complexity limit.";
 
     internal const string SourceCoordinatesInvalidNote =
-        "// Authored source extraction stopped because the portable-PDB sequence-point coordinates "
+        "// PDB source extraction stopped because the portable-PDB sequence-point coordinates "
         + "cannot address the verified source.";
 
-    internal static string? OriginalSourceUnavailableNote(MemberOptions options) =>
+    internal const string NoPortablePdbReason =
+        "No portable PDB is available for the selected member.";
+
+    internal const string NoPdbSourceMappingReason =
+        "The selected member has no portable-PDB source mapping.";
+
+    internal const string NoMatchingPdbSourceReason =
+        "No checksum-matching PDB source could be acquired locally or through SourceLink.";
+
+    internal const string PdbSourceInspectionFailedReason =
+        "PDB source inspection failed.";
+
+    internal static string? PdbSourceUnavailableNote(MemberOptions options) =>
         options.MemberHasNoBody
             ? BodylessMemberNote
             : options.MemberSourceTooComplex
                 ? SourceTooComplexNote
                 : options.MemberSourceCoordinatesInvalid
                     ? SourceCoordinatesInvalidNote
-                    : options.MemberHasNoAuthoredDeclaration
-                        ? NoAuthoredDeclarationNote
-                        : null;
+                    : options.MemberHasNoPdbDeclaration
+                        ? NoPdbDeclarationNote
+                        : options.PdbSourceUnavailableReason is { Length: > 0 } reason
+                            ? $"// {reason}"
+                            : null;
 
     private static void PopulateSourceDiff(
         TypeView view,
         IReadOnlySet<string> requestedSections,
         bool sourceTooComplex,
-        bool sourceCoordinatesInvalid)
+        bool sourceCoordinatesInvalid,
+        MethodSourceContext? source,
+        bool reviewerSized)
     {
         if (!requestedSections.Contains(SectionNames.SourceDiff))
             return;
@@ -2910,7 +3484,7 @@ public class ApiCommand
         {
             view.MemberCode.SourceDiffCode = new Markout.CodeSection(
                 "diff",
-                "# Original Source unavailable because authored source extraction exceeded "
+                "# PDB Source unavailable because PDB source extraction exceeded "
                 + "the lexical complexity limit.");
             return;
         }
@@ -2918,20 +3492,42 @@ public class ApiCommand
         {
             view.MemberCode.SourceDiffCode = new Markout.CodeSection(
                 "diff",
-                "# Original Source unavailable because portable-PDB sequence-point coordinates "
+                "# PDB Source unavailable because portable-PDB sequence-point coordinates "
                 + "cannot address the verified source.");
             return;
         }
 
-        view.MemberCode.SourceDiffCode = new Markout.CodeSection(
-            "diff",
-            SourceTextDiffRenderer.CreateUnifiedDiff(
-                // The bodyless note is an explanation, not source text: leave the diff's
+        string diff = SourceTextDiffRenderer.CreateUnifiedDiff(
+                // The unavailable note is an explanation, not source text: leave the diff's
                 // "before" side unavailable so it reports that rather than diffing the note.
-                view.MemberCode.OriginalSourceUnavailable ? null : view.MemberCode.OriginalSourceCode.Content,
+                view.MemberCode.PdbSourceUnavailable ? null : view.MemberCode.PdbSourceCode.Content,
                 view.MemberCode.DecompiledSourceCode.Content,
-                "Original Source",
-                "Decompiled Source"));
+                SectionNames.PdbSource,
+                "Decompiled Source",
+                reviewerSized);
+        if (source is { HasChecksumEvidence: true })
+        {
+            string location = CSharpText.CSharpIdentifier.ContainRenderedText(
+                source.SourceUrl ?? "portable-PDB source document");
+            string algorithm = CSharpText.CSharpIdentifier.ContainRenderedText(
+                source.ChecksumAlgorithm!);
+            string checksum = CSharpText.CSharpIdentifier.ContainRenderedText(
+                source.Checksum!);
+            string integrity = source.ChecksumVerification switch
+            {
+                SourceChecksumVerification.Exact =>
+                    $"PDB source document bytes match portable-PDB {algorithm} checksum {checksum}.",
+                SourceChecksumVerification.LineEndingNormalized =>
+                    $"PDB source document matches portable-PDB {algorithm} checksum {checksum} "
+                    + "after CR/LF normalization.",
+                _ => throw new InvalidOperationException("Checksum evidence requires a successful verification."),
+            };
+            diff = $"# PDB source: {location}\n"
+                + $"# Integrity: {integrity}\n"
+                + diff;
+        }
+
+        view.MemberCode.SourceDiffCode = new Markout.CodeSection("diff", diff);
     }
 
     private static void WriteJsonTypeOutput(ApiType type, ApiOptions options)
@@ -2957,7 +3553,9 @@ public class ApiCommand
                 .ToList();
 
         // -S/--select scopes JSON to the requested sections, mirroring the markdown view.
-        if (options.IncludeSections is { Count: > 0 } sections)
+        if (options.IncludeSections is { } sections
+            && (sections.Count > 0
+                || options is MemberOptions { MemberSectionsPreResolved: true }))
         {
             outputType = ProjectTypeToSections(type, members, sections);
         }
@@ -3020,13 +3618,22 @@ public class ApiCommand
            && !IsProjectionRequested(options)
            && options.IncludeSections is { Count: > 0 } sections
            && sections.Contains(SectionNames.AnnotatedSourceDocument)
-           && options.Select?.Any(IsExplicitAnnotatedSourceDocumentSelector) == true
+           && HasExplicitAnnotatedSourceDocumentSelector(options)
            && (sections.Count != 1
                || !HasOnlyExplicitAnnotatedSourceDocumentSelectors(options));
 
     private static bool HasOnlyExplicitAnnotatedSourceDocumentSelectors(ApiOptions options)
-        => options.Select is { Length: > 0 } selectors
-           && selectors.All(IsExplicitAnnotatedSourceDocumentSelector);
+        => options is MemberOptions { MemberSectionsPreResolved: true }
+            ? options.ExactIncludeSections is { Count: 1 } exactSections
+              && exactSections.Contains(SectionNames.AnnotatedSourceDocument)
+            : options.Select is { Length: > 0 } selectors
+              && selectors.All(IsExplicitAnnotatedSourceDocumentSelector);
+
+    private static bool HasExplicitAnnotatedSourceDocumentSelector(ApiOptions options)
+        => options is MemberOptions { MemberSectionsPreResolved: true }
+            ? options.ExactIncludeSections?.Contains(
+                SectionNames.AnnotatedSourceDocument) == true
+            : options.Select?.Any(IsExplicitAnnotatedSourceDocumentSelector) == true;
 
     private static bool IsExplicitAnnotatedSourceDocumentSelector(string selector)
         => selector.Equals(
@@ -3034,13 +3641,16 @@ public class ApiCommand
             StringComparison.OrdinalIgnoreCase);
 
     private static bool HasExplicitPerformanceTriageSelector(ApiOptions options)
-        => options.Select?.Any(static selector =>
-               selector.Equals(
-                   SectionNames.PerformanceTriage,
-                   StringComparison.OrdinalIgnoreCase)
-               || selector.Equals(
-                   "Optimization Opportunities",
-                   StringComparison.OrdinalIgnoreCase)) == true;
+        => options is MemberOptions { MemberSectionsPreResolved: true }
+            ? options.ExactIncludeSections?.Contains(
+                SectionNames.PerformanceTriage) == true
+            : options.Select?.Any(static selector =>
+                   selector.Equals(
+                       SectionNames.PerformanceTriage,
+                       StringComparison.OrdinalIgnoreCase)
+                   || selector.Equals(
+                       "Optimization Opportunities",
+                       StringComparison.OrdinalIgnoreCase)) == true;
 
     private static bool ShouldRenderMemberIndex(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.MemberIndex) == true;

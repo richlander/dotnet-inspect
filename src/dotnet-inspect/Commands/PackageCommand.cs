@@ -103,11 +103,7 @@ public class PackageCommand
                 // without --schema keeps the curated top-level view.
                 catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections(),
                 listedCategoryDoors: pipeline.GetListedCategoryDoors(),
-                projection: options,
-                rows: options.Rows,
-                outputPath: options.OutputPath,
-                applyLineWindow: options.Rows is null,
-                tabularExplicitlySet: options.Tabular);
+                projection: options);
         }
 
         // Bare -S selects the network-free "fixed" overview: only sections whose declared growth
@@ -185,9 +181,20 @@ public class PackageCommand
             // #3448 aligns the package gate with the library one: a count over several selected
             // sections is meaningful now that the file family is disjoint, so require a selection
             // rather than exactly one section.
-            if (!rendersOwnPayload && options.Count
-                && !CountOutput.ValidateSectionsSelected(options.IncludeSections, options.FixedOverview))
-                return 1;
+            if (!rendersOwnPayload && options.Count)
+            {
+                if (!CountOutput.ValidateSectionsSelected(
+                        options.IncludeSections, options.FixedOverview))
+                {
+                    return 1;
+                }
+
+                var ordered = OutputFormatter.ResolveCountMapSections(
+                    pipeline, options.IncludeSections, options.FixedOverview);
+                if (!CountOutput.ValidateMapFormat(
+                        options.Format, ordered, options.Tree))
+                    return 1;
+            }
 
             var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
             if (shapeCount > 1)
@@ -238,7 +245,8 @@ public class PackageCommand
                 options.FixedOverview
                     ? pipeline.BareSelectSectionNames
                     : options.IncludeSections;
-            if (!OutputFormatResolver.ValidateSingleSectionForTabular(
+            if (!options.Count
+                && !OutputFormatResolver.ValidateSingleSectionForTabular(
                     options.TabularExplicitlySet,
                     tabularSections))
                 return 1;
@@ -275,12 +283,17 @@ public class PackageCommand
         if (options.PackageLibrary != null && !ValidatePackageLibraryMode(options))
             return 1;
 
+        InspectionOptions producerOptions = CreateProducerOptions(
+            options,
+            userVerbosity,
+            pipeline);
         var logger = context.Logger;
 
         if (packageArgs.Length > 1)
             return await ExecuteMultiPackageAsync(
                 packageArgs,
                 options,
+                producerOptions,
                 context,
                 pipeline,
                 queryRegistry);
@@ -328,9 +341,18 @@ public class PackageCommand
                         // Materialized once: counting a lazy sequence and then re-enumerating it
                         // for the render is how a count starts to disagree with its payload.
                         var rangeRows = unlistedVector.Take(options.Limit ?? int.MaxValue).ToList();
-                        if (LensProjection.TryProject(options, "--versions", rangeRows.Count, out var rangeListingExit))
+                        var visibleRangeRows = RowWindow.Apply(options.Rows, rangeRows);
+                        if (LensProjection.TryProject(
+                                options,
+                                "--versions",
+                                visibleRangeRows.Count,
+                                out var rangeListingExit,
+                                ["Version", "Listing"]))
                             return rangeListingExit;
-                        OutputFormatter.WriteVersionListings(rangeRows, options.Tsv, options.Jsonl, Console.Out);
+                        OutputFormatter.WriteVersionListings(
+                            visibleRangeRows,
+                            options,
+                            Console.Out);
                         return 0;
                     }
 
@@ -344,9 +366,15 @@ public class PackageCommand
                         .Take(options.Limit ?? int.MaxValue)
                         .Select(address => address.Version.ToNormalizedString())
                         .ToList();
-                    if (LensProjection.TryProject(options, "--versions", rangeVersions.Count, out var rangeProjectionExit))
+                    var visibleRangeVersions = RowWindow.Apply(options.Rows, rangeVersions);
+                    if (LensProjection.TryProject(
+                            options,
+                            "--versions",
+                            visibleRangeVersions.Count,
+                            out var rangeProjectionExit,
+                            ["Version"]))
                         return rangeProjectionExit;
-                    OutputFormatter.WriteStringList(rangeVersions, "Version", "Version", options.Tsv, options.Jsonl, Console.Out);
+                    OutputFormatter.WriteStringList(visibleRangeVersions, "Version", "Version", options.Tsv, options.Jsonl, Console.Out);
                     return 0;
                 }
                 catch (Exception ex) when (ex is HttpRequestException
@@ -385,9 +413,15 @@ public class PackageCommand
                             options.SourceOptions,
                             normalizedName)) != null)
                 {
-                    if (LensProjection.TryProject(options, "--versions", 1, out var cachedPinnedExit))
+                    var visiblePinned = RowWindow.Apply(options.Rows, new[] { versionQueryPinned });
+                    if (LensProjection.TryProject(
+                            options,
+                            "--versions",
+                            visiblePinned.Count,
+                            out var cachedPinnedExit,
+                            ["Version"]))
                         return cachedPinnedExit;
-                    WriteSingleVersion(versionQueryPinned, options);
+                    WriteVersions(visiblePinned, options);
                     return 0;
                 }
 
@@ -410,12 +444,23 @@ public class PackageCommand
                 {
                     // Either spelling renders a single version row, so the projection answers 1
                     // and returns before the render path chooses between them.
-                    if (LensProjection.TryProject(options, "--versions", 1, out var knownPinnedExit))
+                    var visiblePinned = RowWindow.Apply(options.Rows, new[] { pinnedMatch });
+                    if (LensProjection.TryProject(
+                            options,
+                            "--versions",
+                            visiblePinned.Count,
+                            out var knownPinnedExit,
+                            VersionListingColumns(options)))
                         return knownPinnedExit;
                     if (options.IncludeUnlisted)
-                        OutputFormatter.WriteVersionListings([pinnedMatch], options.Tsv, options.Jsonl, Console.Out);
+                        OutputFormatter.WriteVersionListings(
+                            visiblePinned,
+                            options,
+                            Console.Out);
                     else
-                        WriteSingleVersion(versionQueryPinned, options);
+                        WriteVersions(
+                            visiblePinned.Select(row => row.Version).ToArray(),
+                            options);
                     return 0;
                 }
 
@@ -456,7 +501,13 @@ public class PackageCommand
                 }
 
                 // A single resolved version is a one-row payload, so --count reports 1.
-                if (LensProjection.TryProject(options, "--latest-version", 1, out var latestProjectionExit))
+                var visibleLatest = RowWindow.Apply(options.Rows, new[] { latest });
+                if (LensProjection.TryProject(
+                        options,
+                        "--latest-version",
+                        visibleLatest.Count,
+                        out var latestProjectionExit,
+                        VersionListingColumns(options)))
                     return latestProjectionExit;
                 if (options.IncludeUnlisted)
                 {
@@ -464,11 +515,15 @@ public class PackageCommand
                     // listed by construction. Emit it as a one-row listing so the flag still
                     // produces the tagged column the user asked for.
                     OutputFormatter.WriteVersionListings(
-                        [new PackageVersionInfo(latest, Listed: true)], options.Tsv, options.Jsonl, Console.Out);
+                        visibleLatest
+                            .Select(version => new PackageVersionInfo(version, Listed: true))
+                            .ToArray(),
+                        options,
+                        Console.Out);
                     return 0;
                 }
 
-                WriteSingleVersion(latest, options);
+                WriteVersions(visibleLatest, options);
                 return 0;
             }
 
@@ -492,17 +547,19 @@ public class PackageCommand
                     return 1;
                 }
 
+                var visibleSingleVersions = RowWindow.Apply(options.Rows, singleVersions);
                 if (LensProjection.TryProject(
                         options,
                         "--versions",
-                        singleVersions.Count,
-                        out var cachedLatestExit))
+                        visibleSingleVersions.Count,
+                        out var cachedLatestExit,
+                        ["Version"]))
                 {
                     return cachedLatestExit;
                 }
 
                 OutputFormatter.WriteStringList(
-                    singleVersions,
+                    visibleSingleVersions,
                     "Version",
                     "Version",
                     options.Tsv,
@@ -524,9 +581,15 @@ public class PackageCommand
                     return 1;
                 }
 
-                if (LensProjection.TryProject(options, "--versions-with-feed", versionFeeds.Count, out var feedExit))
+                var visibleVersionFeeds = RowWindow.Apply(options.Rows, versionFeeds);
+                if (LensProjection.TryProject(
+                        options,
+                        "--versions-with-feed",
+                        visibleVersionFeeds.Count,
+                        out var feedExit,
+                        VersionFeedColumns(visibleVersionFeeds, options)))
                     return feedExit;
-                OutputFormatter.WriteVersionFeedTable(versionFeeds, options, Console.Out);
+                OutputFormatter.WriteVersionFeedTable(visibleVersionFeeds, options, Console.Out);
                 return 0;
             }
 
@@ -543,9 +606,18 @@ public class PackageCommand
                     return 1;
                 }
 
-                if (LensProjection.TryProject(options, "--versions", listings.Count, out var listingExit))
+                var visibleListings = RowWindow.Apply(options.Rows, listings);
+                if (LensProjection.TryProject(
+                        options,
+                        "--versions",
+                        visibleListings.Count,
+                        out var listingExit,
+                        ["Version", "Listing"]))
                     return listingExit;
-                OutputFormatter.WriteVersionListings(listings, options.Tsv, options.Jsonl, Console.Out);
+                OutputFormatter.WriteVersionListings(
+                    visibleListings,
+                    options,
+                    Console.Out);
                 return 0;
             }
 
@@ -558,10 +630,16 @@ public class PackageCommand
                 return 1;
             }
 
-            if (LensProjection.TryProject(options, "--versions", versions.Count, out var versionsProjectionExit))
+            var visibleVersions = RowWindow.Apply(options.Rows, versions);
+            if (LensProjection.TryProject(
+                    options,
+                    "--versions",
+                    visibleVersions.Count,
+                    out var versionsProjectionExit,
+                    ["Version"]))
                 return versionsProjectionExit;
 
-            OutputFormatter.WriteStringList(versions, "Version", "Version", options.Tsv, options.Jsonl, Console.Out);
+            OutputFormatter.WriteStringList(visibleVersions, "Version", "Version", options.Tsv, options.Jsonl, Console.Out);
 
             return 0;
         }
@@ -614,7 +692,10 @@ public class PackageCommand
             version.Length > 0 ? $"package {packageName}@{version}" : $"package {packageName}",
             "package inspect");
 
-        if (options.Tree && options.Discover == null && !packageLibraryMode)
+        if (options.Tree
+            && options.Discover == null
+            && !packageLibraryMode
+            && (!options.Count || options.ShowDependencies))
         {
             if (options.ShowDependencies)
                 CommandError.WriteLine("Tip: use 'depends --package' for dependency trees.");
@@ -673,8 +754,31 @@ public class PackageCommand
                 var packageId = nuspec?.PackageName ?? packageName;
                 var packageVersion = nuspec?.Version ?? version;
                 var packageReadme = PackageFileLister.ResolvePackageReadme(extractPath, nuspec?.ReadmeFile);
+                bool unaryPayload = RequiresUnaryPackageContent(options);
+                PackageFileContentSet content = ReadPackageFileContents(
+                    extractPath,
+                    packageId,
+                    packageVersion,
+                    packageReadme,
+                    nuspec?.ReadmeFile,
+                    options,
+                    suppressUnaryPayloadRead: unaryPayload);
+                if (unaryPayload
+                    && SelectUnaryPackageContent([content], options) is { } selectedFile)
+                {
+                    content = ReadPackageFileContents(
+                        extractPath,
+                        packageId,
+                        packageVersion,
+                        packageReadme,
+                        nuspec?.ReadmeFile,
+                        options,
+                        suppressUnaryPayloadRead: true,
+                        selectedFile.Path);
+                }
+
                 return PrintPackageFileContents(
-                    [ReadPackageFileContents(extractPath, packageId, packageVersion, packageReadme, nuspec?.ReadmeFile, options)],
+                    [content],
                     options);
             }
 
@@ -714,11 +818,30 @@ public class PackageCommand
                 packageSize = new FileInfo(resolution.NupkgPath).Length;
             }
 
-            bool wantsSignals = options.IncludeSections?.Contains(PackageSections.Signals) == true
-                || DiscoverRequestsSection(options.Discover, PackageSections.Signals, pipeline);
+            bool wantsSignals = RequestsSelectedOrDiscoveredSection(
+                producerOptions,
+                PackageSections.Signals,
+                pipeline);
+            bool wantsRidPackageAvailability =
+                RequestsRidPackageAvailability(
+                    producerOptions,
+                    target.IsLocalFile,
+                    pipeline);
+            bool enrichesSignals =
+                wantsSignals
+                && options.Discover is not { Length: 0 };
+            bool wantsIdentifierMetadata =
+                RequiresIdentifierMetadata(
+                    producerOptions,
+                    pipeline,
+                    includeSignals: enrichesSignals);
             bool wantsPackageMetadata =
-                RequiresPackageMetadata(options, pipeline);
-            using var vulnerabilityTrafficScope = AllowsVulnerabilityTraffic(options)
+                RequiresPackageMetadata(
+                    producerOptions,
+                    pipeline,
+                    includeSignals: enrichesSignals);
+            using var vulnerabilityTrafficScope = AllowsVulnerabilityTraffic(
+                producerOptions)
                 ? NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData)
                 : null;
 
@@ -726,9 +849,10 @@ public class PackageCommand
                 resolution, packageName, version, target.IsLocalFile,
                 target.IsLocalFile ? target.OriginalArgument : null,
                 nuspec, client, logger,
-                options.ForceLatest, options.Verbosity,
+                options.ForceLatest, producerOptions.Verbosity,
                 fetchMetadata: wantsPackageMetadata,
-                requireIdentifierMetadata: wantsPackageMetadata,
+                requireIdentifierMetadata: wantsIdentifierMetadata,
+                verifyRidPackageAvailability: wantsRidPackageAvailability,
                 sourceOptions: options.SourceOptions);
 
             // Apply package size (not cached in index — comes from nupkg file)
@@ -738,29 +862,31 @@ public class PackageCommand
             await PopulatePackageSignatureAsync(
                 result,
                 resolution.NupkgPath,
-                options,
-                wantsSignals,
-                logger);
+                ShouldVerifyPackageSignature(options, wantsSignals),
+                logger.Log);
 
             result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
 
             PopulatePackageFileSections(result, extractPath, options);
-            if (ShouldPopulatePackageContentAudit(options, pipeline))
+            if (ShouldPopulatePackageContentAudit(
+                    producerOptions,
+                    pipeline))
                 PopulatePackageContentAudit(result, extractPath);
             HashSet<InspectionQueryDefinition> sourceQueries =
                 pipeline.GetRequiredQueries(
-                    options.Verbosity,
-                    options.IncludeSections,
-                    options.FixedOverview,
+                    producerOptions.Verbosity,
+                    producerOptions.IncludeSections,
+                    producerOptions.FixedOverview,
                     excludeUnbounded: effectiveDiscovery);
-            if (ShouldPopulatePackageSourceFiles(options) || sourceQueries.Count > 0)
+            if (ShouldPopulatePackageSourceFiles(producerOptions)
+                || sourceQueries.Count > 0)
             {
                 await PopulatePackageSourceLinkAsync(
                     result,
                     extractPath,
                     packageName,
                     version,
-                    options,
+                    producerOptions,
                     context,
                     logger,
                     queryRegistry,
@@ -784,7 +910,7 @@ public class PackageCommand
                 CountOutput.WriteCountResult(
                     OutputFormatter.FormatResult(result, options, pipeline),
                     options.OutputPath,
-                    applyLineWindow: options.Rows is null);
+                    options.Rows);
                 return PackageIntegrityExitCode(result);
             }
 
@@ -814,7 +940,7 @@ public class PackageCommand
                     result);
             }
 
-            if (wantsSignals)
+            if (enrichesSignals)
             {
                 await PopulatePackageSignalsAsync(
                     result, extractPath, packageName, version, client, logger, options.SourceOptions);
@@ -884,24 +1010,19 @@ public class PackageCommand
                                     .GetCatalogHiddenSections(),
                         listedCategoryDoors:
                             pipeline.GetListedCategoryDoors(),
-                        projection: options,
-                        rows: options.Rows,
-                        outputPath: options.OutputPath,
-                        applyLineWindow: options.Rows is null,
-                        tabularExplicitlySet: options.Tabular),
+                        projection: options),
                     result);
             }
             WarnEmptySections(result, options, pipeline);
             bool hasProjection = options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
+            var diagnosticCandidates = hasProjection
+                ? GetPackageProjectionNames(options)
+                : null;
             if (options.Tabular)
             {
-                string rendered;
                 if (options.Jsonl && TryGetSingleFileSection(options, out var fileSection) && !hasProjection)
                 {
-                    using var output = CreateOutputBuffer();
-                    WritePackageFilesJsonl(output, result, fileSection);
-                    rendered = output.ToString();
-                    WritePackageCommandOutput(rendered, options);
+                    WritePackageFilesJsonl(result, fileSection, options.Rows);
                     return PackageIntegrityExitCode(result);
                 }
 
@@ -916,41 +1037,38 @@ public class PackageCommand
                 if (hasProjection)
                 {
                     // Capture output for projection diagnostics
+                    var sw = new StringWriter { NewLine = "\n" };
                     var writerOpts = OutputFormatter.BuildWriterOptions(result, options, pipeline);
+                    writerOpts.RowWindow = RowWindow.ToMarkout(options.Rows);
                     var view = new InspectionResultView(result);
-                    rendered = OutputFormatter.RenderTable(!options.NoHeader,
+                    var rendered = OutputFormatter.RenderTable(!options.NoHeader,
                         (writer, formatter) =>
                         {
                             OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
                             MarkoutSerializer.Serialize(view, writer, formatter, InspectionContext.Default, writerOpts);
                         });
-                    ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, rendered);
+                    ProjectionDiagnostics.DiagnoseRendered(
+                        options.Fields ?? options.Columns,
+                        rendered,
+                        diagnosticCandidates!);
+                    Console.Out.Write(rendered);
                 }
                 else
                 {
-                    using var output = CreateOutputBuffer();
-                    OutputFormatter.WritePackageTable(
-                        output,
-                        result,
-                        options,
-                        pipeline,
-                        showHeader: !options.NoHeader);
-                    rendered = output.ToString();
+                    OutputFormatter.WritePackageTable(result, options, pipeline, showHeader: !options.NoHeader);
                 }
-
-                WritePackageCommandOutput(rendered, options);
             }
             else
             {
                 var output = OutputFormatter.FormatResult(result, options, pipeline);
                 if (hasProjection)
-                    ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, output);
+                    ProjectionDiagnostics.DiagnoseRendered(
+                        options.Fields ?? options.Columns,
+                        output,
+                        diagnosticCandidates!);
                 if (!string.IsNullOrEmpty(options.OutputPath))
                 {
-                    OutputPathWriter.Write(
-                        options.OutputPath,
-                        output,
-                        applyLineWindow: options.Rows is null);
+                    File.WriteAllText(options.OutputPath, output);
                 }
                 else
                 {
@@ -994,11 +1112,11 @@ public class PackageCommand
         }
     }
 
-    private static void WriteSingleVersion(
-        string version,
+    private static void WriteVersions(
+        IEnumerable<string> versions,
         InspectionOptions options)
         => OutputFormatter.WriteStringList(
-            [version],
+            versions,
             "Version",
             "Version",
             options.Tsv,
@@ -1017,6 +1135,7 @@ public class PackageCommand
     private static async Task<int> ExecuteMultiPackageAsync(
         string[] packageArgs,
         InspectionOptions options,
+        InspectionOptions producerOptions,
         CommandContext context,
         SectionPipeline<InspectionResult> pipeline,
         InspectionQueryRegistry<SourceLinkQueryContext> queryRegistry)
@@ -1028,6 +1147,9 @@ public class PackageCommand
         if (!options.Count
             && !TryResolveMultiPackageRowSection(options, out rowSection))
             return 1;
+        var countSections = options.Count
+            ? ResolveMultiPackageCountSections(options, pipeline)
+            : null;
         bool wantsFilesSection = HasPathFilter(options)
             || IsPackageFileSection(rowSection)
             || options.IncludeSections?.Any(IsPackageFileSection) == true
@@ -1037,11 +1159,21 @@ public class PackageCommand
             || options.IncludeSections?.Contains(PackageSections.AuditArtifactText) == true
             || options.IncludeSections?.Contains(PackageSections.AuditFindings) == true
             || options.FixedOverview
-            || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
+            || SelectResolver.IsActiveAllSelector(
+                options.Select,
+                options.IncludeSections)
+            || countSections?.Any(IsPackageFileSection) == true;
         if (!options.Count && !options.JsonOutput && rowSection == null)
         {
             CommandError.Write("Multiple package output requires --json or a row format such as --table, --tsv, or --jsonl.");
             CommandError.WriteLine("For package surveys, try: dotnet-inspect package <pkg>... --path @readme --tsv");
+            return 1;
+        }
+        if (!ValidateMultiPackagePackageInfoColumns(
+                options,
+                countSections,
+                rowSection))
+        {
             return 1;
         }
 
@@ -1062,6 +1194,7 @@ public class PackageCommand
             var result = await InspectPackageAsync(
                 target,
                 options,
+                producerOptions,
                 context,
                 wantsFilesSection,
                 pipeline,
@@ -1072,24 +1205,19 @@ public class PackageCommand
         }
 
         if (options.Count)
-            return WriteMultiPackageCount(results, rowSection, options, pipeline);
+            return WriteMultiPackageCount(results, options, pipeline);
 
         if (options.JsonOutput)
         {
-            WritePackageCommandOutput(
-                JsonSerializer.Serialize(
-                    results.Select(PackageInspectionJson.Create).ToArray(),
-                    PackageInspectionJsonContext.Default.PackageInspectionJsonArray)
-                    + '\n',
-                options);
+            Console.WriteLine(JsonSerializer.Serialize(
+                results.Select(PackageInspectionJson.Create).ToArray(),
+                PackageInspectionJsonContext.Default.PackageInspectionJsonArray));
             return PackageIntegrityExitCode([.. results]);
         }
 
         try
         {
-            using var output = CreateOutputBuffer();
-            WriteMultiPackageTable(output, results, rowSection!, options);
-            WritePackageCommandOutput(output.ToString(), options);
+            WriteMultiPackageTable(results, rowSection!, options);
             return PackageIntegrityExitCode([.. results]);
         }
         catch (InvalidOperationException ex) when (
@@ -1141,28 +1269,163 @@ public class PackageCommand
                 : 0;
     }
 
+    private static bool IsUnmatchedColumnProjection(
+        InspectionOptions options,
+        InvalidOperationException exception)
+        => options.Columns is { Length: > 0 }
+            && exception.Message.StartsWith(
+                "No columns matched projection:",
+                StringComparison.Ordinal);
+
     internal static int WriteMultiPackageCount(
         IReadOnlyList<InspectionResult> results,
-        string? rowSection,
         InspectionOptions options,
         SectionPipeline<InspectionResult> pipeline)
     {
-        try
-        {
-            WriteMultiPackageCountResult(
-                results,
-                rowSection,
-                options,
-                pipeline);
-            return PackageIntegrityExitCode([.. results]);
-        }
-        catch (InvalidOperationException ex) when (
-            IsUnmatchedColumnProjection(options, ex))
-        {
-            CommandError.Write(ex.Message);
-            return 1;
-        }
+        var projection = CaptureMultiPackageCountProjection(results, options, pipeline);
+        var ordered = OutputFormatter.ResolveCountMapSections(
+            pipeline, options.IncludeSections, options.FixedOverview);
+        CountOutput.Write(
+            projection, ordered, options.Format, options.NoHeader, options.OutputPath, options.Rows);
+        return PackageIntegrityExitCode([.. results]);
     }
+
+    private static CountProjection CaptureMultiPackageCountProjection(
+        IReadOnlyList<InspectionResult> results,
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline)
+    {
+        var selectedSections = ResolveMultiPackageCountSections(options, pipeline);
+        var schema = PackageDiscoverySchema();
+
+        var projection = new CountProjection();
+        var documentSections = new HashSet<string>(
+            selectedSections,
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var section in selectedSections.Where(IsMultiPackageFieldSection))
+        {
+            documentSections.Remove(section);
+            if (ProjectionExcludesSection(
+                    schema, section, options, combinedRows: true))
+            {
+                projection.RecordRows(section, 0);
+            }
+            else
+            {
+                var rows = BuildMultiPackageFieldRows(
+                    results,
+                    section,
+                    options.Fields);
+                DiagnoseMissingPackageFieldSectionFields(
+                    section,
+                    options.Fields,
+                    rows.Select(row => row[1]));
+                projection.RecordRows(
+                    section,
+                    WindowedCount(rows.Length, options.Rows));
+            }
+        }
+
+        foreach (var section in selectedSections.Where(IsPackageFileSection))
+        {
+            documentSections.Remove(section);
+            int count = ProjectionExcludesSection(
+                    schema, section, options, combinedRows: true)
+                ? 0
+                : BuildMultiPackageFileRows(
+                    results, section, options.SkipEmpty).Count;
+            projection.RecordRows(
+                section,
+                WindowedCount(count, options.Rows));
+        }
+
+        foreach (var section in documentSections.ToArray())
+        {
+            if (!ProjectionExcludesSection(schema, section, options))
+                continue;
+
+            documentSections.Remove(section);
+            projection.RecordRows(section, 0);
+        }
+
+        if (documentSections.Count == 0)
+            return projection;
+
+        var documentOptions = options with
+        {
+            Select = null,
+            SelectDefault = false,
+            FixedOverview = false,
+            IncludeSections = documentSections,
+            Fields = HasMatchingProjection(
+                schema, documentSections, "field", options.Fields)
+                    ? options.Fields
+                    : null,
+            Columns = HasMatchingProjection(
+                schema, documentSections, "column", options.Columns)
+                    ? options.Columns
+                    : null,
+        };
+        foreach (var result in results)
+        {
+            projection.Merge(OutputFormatter.CapturePackageCountProjection(
+                result, documentOptions, pipeline));
+        }
+
+        return projection;
+    }
+
+    private static bool ProjectionExcludesSection(
+        DocumentSchema schema,
+        string section,
+        InspectionOptions options,
+        bool combinedRows = false)
+    {
+        var itemKind = schema.GetSection(section)?.ItemKind;
+        if (itemKind?.Equals("field", StringComparison.OrdinalIgnoreCase) == true
+            && options.Fields is { Length: > 0 }
+            && !ProjectionMatches(schema, section, options.Fields))
+        {
+            return true;
+        }
+
+        return options.Columns is { Length: > 0 }
+            && !ProjectionMatches(
+                PackageCountColumnSchema(schema, combinedRows),
+                section,
+                options.Columns);
+    }
+
+    private static bool HasMatchingProjection(
+        DocumentSchema schema,
+        IEnumerable<string> sections,
+        string itemKind,
+        string[]? selectors)
+        => selectors is { Length: > 0 }
+            && sections.Any(section =>
+                schema.GetSection(section)?.ItemKind.Equals(
+                    itemKind,
+                    StringComparison.OrdinalIgnoreCase) == true
+                && ProjectionMatches(schema, section, selectors));
+
+    private static bool ProjectionMatches(
+        DocumentSchema schema,
+        string section,
+        string[] selectors)
+        => schema.ValidateProjection(section, selectors).Resolved.Length > 0;
+
+    private static HashSet<string> ResolveMultiPackageCountSections(
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline)
+        => options.IncludeSections is { Count: > 0 } includeSections
+            ? new HashSet<string>(includeSections, StringComparer.OrdinalIgnoreCase)
+            : options.FixedOverview
+                ? new HashSet<string>(
+                    pipeline.BareSelectSectionNames,
+                    StringComparer.OrdinalIgnoreCase)
+                : throw new InvalidOperationException(
+                    "Multi-package count requires at least one selected section.");
 
     private static bool TryResolveMultiPackageRowSection(InspectionOptions options, out string? section)
     {
@@ -1197,6 +1460,54 @@ public class PackageCommand
 
         CommandError.Write($"Multiple package row output does not support section: {section}.");
         CommandError.WriteLine("Use --json, or select Package Info, Signature, Package files, or a package file section (see -D @Files).");
+        return false;
+    }
+
+    private static bool ValidateMultiPackagePackageInfoColumns(
+        InspectionOptions options,
+        IReadOnlySet<string>? countSections,
+        string? rowSection)
+    {
+        if (options.Columns is not { Length: > 0 }
+            || (countSections is null && rowSection is null))
+            return true;
+
+        var schema = PackageDiscoverySchema();
+        var columnSchema = PackageCountColumnSchema(
+            schema,
+            combinedRows: true);
+        IReadOnlyCollection<string> selectedSections =
+            countSections is { Count: > 0 }
+                ? countSections
+                : rowSection is not null
+                    ? [rowSection]
+                    : [];
+        bool anyColumnMatches = options.Columns.Any(pattern =>
+            selectedSections.Any(section =>
+            {
+                // "*" names the complete structural row. Narrower patterns that also
+                // select package fields remain wrong-kind projections.
+                if (IsMultiPackageFieldSection(section)
+                    && !string.Equals(
+                        pattern,
+                        "*",
+                        StringComparison.Ordinal)
+                    && ResolveProjectionNames(
+                        GetMultiPackageFieldNames(section),
+                        [pattern]).Length > 0)
+                {
+                    return false;
+                }
+
+                return columnSchema.ValidateProjection(
+                    section,
+                    [pattern]).Resolved.Length > 0;
+            }));
+        if (anyColumnMatches)
+            return true;
+
+        CommandError.Write(
+            $"No columns matched projection: {string.Join(", ", options.Columns)}");
         return false;
     }
 
@@ -1505,10 +1816,15 @@ public class PackageCommand
         return result;
     }
 
-    private static bool DiscoverRequestsSection(string[]? discover, string sectionName, SectionPipeline<InspectionResult> pipeline)
+    internal static bool DiscoverRequestsSection(
+        string[]? discover,
+        string sectionName,
+        SectionPipeline<InspectionResult> pipeline)
     {
-        if (discover is not { Length: > 0 })
+        if (discover is null)
             return false;
+        if (discover.Length == 0)
+            return true;
 
         var categories = pipeline.GetCategoryMap();
         foreach (var value in discover)
@@ -1525,6 +1841,90 @@ public class PackageCommand
         return false;
     }
 
+    internal static bool RequestsSelectedOrDiscoveredSection(
+        InspectionOptions options,
+        string sectionName,
+        SectionPipeline<InspectionResult> pipeline)
+    {
+        if (options.IncludeSections is { } selectedSections)
+        {
+            return selectedSections.Contains(sectionName)
+                && (options.Discover is null
+                    || DiscoverRequestsSection(
+                        options.Discover,
+                        sectionName,
+                        pipeline));
+        }
+
+        return DiscoverRequestsSection(
+            options.Discover,
+            sectionName,
+            pipeline);
+    }
+
+    internal static InspectionOptions CreateProducerOptions(
+        InspectionOptions options,
+        Verbosity userVerbosity,
+        SectionPipeline<InspectionResult> pipeline)
+    {
+        HashSet<string>? producerSections = options.IncludeSections;
+        if (options.Discover is not null)
+        {
+            HashSet<string> candidates;
+            if (options.Discover.Length == 0)
+            {
+                candidates = pipeline.GetCandidateSections(
+                    options.Verbosity,
+                    fixedOverview: options.FixedOverview);
+                if (options.IncludeSections is { } selectedSections)
+                    candidates.IntersectWith(selectedSections);
+            }
+            else
+            {
+                candidates = options.IncludeSections is { } selectedSections
+                    ? selectedSections.ToHashSet(
+                        StringComparer.OrdinalIgnoreCase)
+                    : pipeline.SelectableSectionNames.ToHashSet(
+                        StringComparer.OrdinalIgnoreCase);
+            }
+
+            producerSections = candidates
+                .Where(section => DiscoverRequestsSection(
+                    options.Discover,
+                    section,
+                    pipeline))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+
+        return options with
+        {
+            Verbosity = userVerbosity,
+            IncludeSections = producerSections,
+        };
+    }
+
+    internal static bool RequestsRidPackageAvailability(
+        InspectionOptions options,
+        bool isLocalFile,
+        SectionPipeline<InspectionResult> pipeline)
+    {
+        if (RequestsSelectedOrDiscoveredSection(
+                options,
+                PackageSections.Manifest,
+                pipeline))
+        {
+            return true;
+        }
+
+        return isLocalFile
+            && options.IncludeSections is null
+            && options.Discover is null
+            && pipeline.GetCandidateSections(
+                    options.Verbosity,
+                    fixedOverview: options.FixedOverview)
+                .Contains(PackageSections.Manifest);
+    }
+
     private static bool ValidateMultiPackageMode(InspectionOptions options)
     {
         List<string> conflicts = [];
@@ -1534,7 +1934,7 @@ public class PackageCommand
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.Print) conflicts.Add("--print");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
-        else if (options.Tree && options.Discover == null) conflicts.Add("--tree");
+        else if (options.Tree && options.Discover == null && !options.Count) conflicts.Add("--tree");
         if (options.PackageLibrary != null) conflicts.Add("--library");
         if (options.AllLibraries) conflicts.Add("--all-libraries");
         if (options.Discover != null) conflicts.Add("-D/--discover");
@@ -1651,11 +2051,17 @@ public class PackageCommand
 
     private static bool ValidateDependencyTreeProjection(InspectionOptions options)
     {
-        if (!options.Tree || options.Discover != null)
+        bool dependencyTreeProjection =
+            options.IncludeSections is { Count: 1 }
+            && options.IncludeSections.Contains(PackageSections.Dependencies);
+        if (!options.Tree
+            || options.Discover != null
+            || (options.Count
+                && !options.ShowDependencies
+                && !dependencyTreeProjection))
             return true;
 
-        if (options.IncludeSections is not { Count: 1 }
-            || !options.IncludeSections.Contains(PackageSections.Dependencies))
+        if (!dependencyTreeProjection)
         {
             CommandError.Write(
                 options.ShowDependencies
@@ -1664,23 +2070,25 @@ public class PackageCommand
             return false;
         }
 
-        if (options.Count
-            || options.Print
+        bool typedDependencyCount = options.ShowDependencies && options.Count;
+        if (options.Print
             || options.Value
             || options.Urls
             || options.Paths
             || options.Columns is { Length: > 0 }
             || options.Fields is { Length: > 0 }
-            || options.Rows is not null
-            || options.Bare
-            || options.JsonOutput
-            || options.Format != OutputFormat.Markdown
-            || options.Tabular
-            || options.Tsv
-            || options.Jsonl
-            || options.JsonArray
-            || options.NoHeader
-            || options.TabularExplicitlySet)
+            || (!typedDependencyCount
+                && (options.Count
+                    || options.Rows is not null
+                    || options.Bare
+                    || options.JsonOutput
+                    || options.Format != OutputFormat.Markdown
+                    || options.Tabular
+                    || options.Tsv
+                    || options.Jsonl
+                    || options.JsonArray
+                    || options.NoHeader
+                    || options.TabularExplicitlySet)))
         {
             var optionName = options.ShowDependencies ? "--dependencies" : "--tree";
             CommandError.Write($"{optionName} cannot be combined with row projections or non-Markdown formats.");
@@ -1753,13 +2161,7 @@ public class PackageCommand
         }
 
         return ShapeProjectionOutput.Write(rows,
-            new ShapeProjectionOptions(
-                kind,
-                options.PrintRow,
-                options.JsonOutput,
-                options.Jsonl,
-                options.JsonArray,
-                options.OutputPath));
+            new ShapeProjectionOptions(kind, options.PrintRow, options.JsonOutput, options.Jsonl, options.JsonArray));
     }
 
     /// <summary>
@@ -2027,7 +2429,8 @@ public class PackageCommand
     {
         public PackageFileContentSet Read(
             InspectionOptions options,
-            bool suppressUnaryPayloadRead)
+            bool suppressUnaryPayloadRead,
+            string? selectedPayloadPath = null)
             => ReadPackageFileContents(
                 resolution.ExtractPath,
                 packageName,
@@ -2035,7 +2438,8 @@ public class PackageCommand
                 readmeFile,
                 declaredReadmeFile,
                 options,
-                suppressUnaryPayloadRead);
+                suppressUnaryPayloadRead,
+                selectedPayloadPath);
 
         public void Dispose()
             => CleanupPackageExtraction(resolution);
@@ -2073,9 +2477,7 @@ public class PackageCommand
             return PrintPackageFileContents(results, options);
         }
 
-        PackageFileContentAcquisition? selectedAcquisition = null;
-        int selectedPackage = -1;
-        int selectedFiles = 0;
+        var acquisitions = new List<PackageFileContentAcquisition>();
         try
         {
             foreach (var target in targets)
@@ -2087,51 +2489,52 @@ public class PackageCommand
                         context);
                 if (acquisition == null)
                     return 1;
-                try
-                {
-                    PackageFileContentSet result =
-                        acquisition.Read(
-                            options,
-                            suppressUnaryPayloadRead: true);
-                    results.Add(result);
-                    int packageSelectedFiles =
-                        result.Files.Count(static file => file.Found);
-                    if (selectedFiles == 0
-                        && packageSelectedFiles == 1)
-                    {
-                        selectedAcquisition = acquisition;
-                        acquisition = null;
-                        selectedPackage = results.Count - 1;
-                    }
-                    selectedFiles += packageSelectedFiles;
-                    if (selectedFiles > 1
-                        && selectedAcquisition is not null)
-                    {
-                        selectedAcquisition.Dispose();
-                        selectedAcquisition = null;
-                        selectedPackage = -1;
-                    }
-                }
-                finally
-                {
-                    acquisition?.Dispose();
-                }
+                acquisitions.Add(acquisition);
+                results.Add(
+                    acquisition.Read(
+                        options,
+                        suppressUnaryPayloadRead: true));
             }
 
-            if (selectedFiles == 1)
+            if (SelectUnaryPackageContent(results, options) is { } selectedFile)
             {
+                int selectedPackage = results.FindIndex(
+                    result => result.Files.Any(
+                        file => ReferenceEquals(file, selectedFile)));
+                if (selectedPackage < 0)
+                    throw new InvalidOperationException(
+                        "The selected package content row has no owning package.");
+
                 results[selectedPackage] =
-                    selectedAcquisition!.Read(
+                    acquisitions[selectedPackage].Read(
                         options,
-                        suppressUnaryPayloadRead: false);
+                        suppressUnaryPayloadRead: true,
+                        selectedFile.Path);
             }
 
             return PrintPackageFileContents(results, options);
         }
         finally
         {
-            selectedAcquisition?.Dispose();
+            foreach (var acquisition in acquisitions)
+                acquisition.Dispose();
         }
+    }
+
+    private static PackageFileContent? SelectUnaryPackageContent(
+        IReadOnlyList<PackageFileContentSet> results,
+        InspectionOptions options)
+    {
+        List<PackageFileContent> visibleFiles =
+        [
+            .. RowWindow.Apply(
+                options.Rows,
+                FlattenPackageFileContentRows(results, options).ToList())
+                .Where(static file => file.Found),
+        ];
+        return visibleFiles is [var selectedFile]
+            ? selectedFile
+            : null;
     }
 
     private static async Task<PackageFileContentSet?> ReadPackageFileContentsAsync(
@@ -2235,6 +2638,7 @@ public class PackageCommand
     private static async Task<InspectionResult?> InspectPackageAsync(
         PackageReferenceTarget target,
         InspectionOptions options,
+        InspectionOptions producerOptions,
         CommandContext context,
         bool wantsFilesSection,
         SectionPipeline<InspectionResult> pipeline,
@@ -2274,14 +2678,21 @@ public class PackageCommand
             if (resolution.NupkgPath != null && File.Exists(resolution.NupkgPath))
                 packageSize = new FileInfo(resolution.NupkgPath).Length;
 
-            bool wantsSignals = options.IncludeSections?.Contains(PackageSections.Signals) == true
-                || DiscoverRequestsSection(
-                    options.Discover,
-                    PackageSections.Signals,
+            bool wantsSignals = RequestsSelectedOrDiscoveredSection(
+                producerOptions,
+                PackageSections.Signals,
+                pipeline);
+            bool wantsRidPackageAvailability =
+                RequestsRidPackageAvailability(
+                    producerOptions,
+                    target.IsLocalFile,
                     pipeline);
+            bool wantsIdentifierMetadata =
+                RequiresIdentifierMetadata(producerOptions, pipeline);
             bool wantsPackageMetadata =
-                RequiresPackageMetadata(options, pipeline);
-            using var vulnerabilityTrafficScope = AllowsVulnerabilityTraffic(options)
+                RequiresPackageMetadata(producerOptions, pipeline);
+            using var vulnerabilityTrafficScope = AllowsVulnerabilityTraffic(
+                producerOptions)
                 ? NetworkTelemetry.Allow(NetworkTrafficKind.VulnerabilityData)
                 : null;
             var result = await PackageInspector.InspectAsync(
@@ -2294,9 +2705,10 @@ public class PackageCommand
                 context.HttpClient,
                 logger,
                 options.ForceLatest,
-                options.Verbosity,
+                producerOptions.Verbosity,
                 fetchMetadata: wantsPackageMetadata,
-                requireIdentifierMetadata: wantsPackageMetadata,
+                requireIdentifierMetadata: wantsIdentifierMetadata,
+                verifyRidPackageAvailability: wantsRidPackageAvailability,
                 sourceOptions: options.SourceOptions);
 
             if (packageSize.HasValue)
@@ -2305,16 +2717,17 @@ public class PackageCommand
             await PopulatePackageSignatureAsync(
                 result,
                 resolution.NupkgPath,
-                options,
-                wantsSignals,
-                logger);
+                ShouldVerifyPackageSignature(options, wantsSignals),
+                logger.Log);
 
             result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
 
             if (wantsFilesSection)
                 PopulatePackageFileSections(result, extractPath, options);
 
-            if (ShouldPopulatePackageContentAudit(options, pipeline))
+            if (ShouldPopulatePackageContentAudit(
+                    producerOptions,
+                    pipeline))
             {
                 if (result.PackageFiles is null)
                     PopulatePackageFileSections(result, extractPath, options);
@@ -2323,18 +2736,19 @@ public class PackageCommand
 
             HashSet<InspectionQueryDefinition> sourceQueries =
                 pipeline.GetRequiredQueries(
-                    options.Verbosity,
-                    options.IncludeSections,
-                    options.FixedOverview,
+                    producerOptions.Verbosity,
+                    producerOptions.IncludeSections,
+                    producerOptions.FixedOverview,
                     excludeUnbounded: options.Discover != null && !options.Schema);
-            if (ShouldPopulatePackageSourceFiles(options) || sourceQueries.Count > 0)
+            if (ShouldPopulatePackageSourceFiles(producerOptions)
+                || sourceQueries.Count > 0)
             {
                 await PopulatePackageSourceLinkAsync(
                     result,
                     extractPath,
                     resolvedPackageName,
                     version,
-                    options,
+                    producerOptions,
                     context,
                     logger,
                     queryRegistry,
@@ -2385,6 +2799,65 @@ public class PackageCommand
         await AuditSignalBuilder.PopulatePackageAuditAsync(
             result, client, logger, sourceOptions);
     }
+
+    private static async Task PopulatePackageSignatureAsync(
+        InspectionResult result,
+        string? nupkgPath,
+        bool shouldVerify,
+        Action<string> log)
+    {
+        if (nupkgPath is null || !shouldVerify)
+            return;
+
+        log($"Verifying package signature: {Path.GetFileName(nupkgPath)}");
+        result.SignatureResult = await SignatureVerifier.VerifyAsync(nupkgPath);
+    }
+
+    private static bool ShouldVerifyPackageSignature(
+        InspectionOptions options,
+        bool wantsSignals)
+        => options.Verbosity >= Verbosity.Normal
+            || wantsSignals
+            || ProjectionRequestsSigned(options.Fields)
+            || options.Columns?.Contains(
+                "Signed",
+                StringComparer.OrdinalIgnoreCase) == true
+            || options.IncludeSections?.Contains(
+                PackageSections.Signature) == true;
+
+    private static bool ProjectionRequestsSigned(string[]? selectors)
+        => selectors is { Length: > 0 }
+            && new DocumentSchema()
+                .Add(PackageSections.PackageInfo, "field", "Signed")
+                .ValidateProjection(PackageSections.PackageInfo, selectors)
+                .Resolved.Length > 0;
+
+    private static string[] GetPackageProjectionNames(
+        InspectionOptions options)
+    {
+        string itemKind =
+            options.Fields is { Length: > 0 } ? "field" : "column";
+        var schema = PackageDiscoverySchema();
+        return schema.SectionNames
+            .Select(schema.GetSection)
+            .Where(section => section?.ItemKind.Equals(
+                itemKind, StringComparison.OrdinalIgnoreCase) == true)
+            .SelectMany(section => section!.Items.Select(item => item.Name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static string[] VersionListingColumns(InspectionOptions options)
+        => options.IncludeUnlisted
+            ? ["Version", "Listing"]
+            : ["Version"];
+
+    private static string[] VersionFeedColumns(
+        IReadOnlyList<PackageVersionSourceInfo> rows,
+        InspectionOptions options)
+        => options.JsonOutput || rows.Any(static row => !row.Listed)
+            ? ["Version", "Feed", "Listing"]
+            : ["Version", "Feed"];
 
     private static List<PackageFile> FilterPackageFiles(List<PackageFile> files, InspectionOptions options)
     {
@@ -2689,11 +3162,10 @@ public class PackageCommand
     private static bool ShouldPopulatePackageContentAudit(
         InspectionOptions options,
         SectionPipeline<InspectionResult> pipeline)
-        => options.IncludeSections?.Contains(PackageSections.AuditFindings) == true
-            || DiscoverRequestsSection(
-                options.Discover,
-                PackageSections.AuditFindings,
-                pipeline);
+        => RequestsSelectedOrDiscoveredSection(
+            options,
+            PackageSections.AuditFindings,
+            pipeline);
 
     private static void PopulatePackageContentAudit(
         InspectionResult result,
@@ -2711,7 +3183,8 @@ public class PackageCommand
         string? readmeFile,
         string? declaredReadmeFile,
         InspectionOptions options,
-        bool suppressUnaryPayloadRead = false)
+        bool suppressUnaryPayloadRead = false,
+        string? selectedPayloadPath = null)
     {
         var files = PackageFileLister.ListAll(extractPath, readmeFile);
         List<PackageFile> selectedFiles =
@@ -2720,15 +3193,15 @@ public class PackageCommand
                 .Select(file => WithDeclaredReadmeRole(file, declaredReadmeFile)),
         ];
         bool unaryPayload = RequiresUnaryPackageContent(options);
-        bool skipPayloadReads =
-            unaryPayload
-            && (suppressUnaryPayloadRead || selectedFiles.Count != 1);
         bool includeExactContent =
             unaryPayload
             && HasUnstructuredOutputPath(options)
             && options.ContentScope == PackageFileContentScope.Full;
         var contents = selectedFiles
-            .Select(file => skipPayloadReads
+            .Select(file => unaryPayload
+                && (selectedPayloadPath is { } selectedPath
+                    ? !file.Path.Equals(selectedPath, StringComparison.Ordinal)
+                    : suppressUnaryPayloadRead || selectedFiles.Count != 1)
                 ? new PackageFileContent(
                     packageName,
                     version,
@@ -2890,6 +3363,7 @@ public class PackageCommand
     private static int PrintPackageFileContents(IReadOnlyList<PackageFileContentSet> results, InspectionOptions options)
     {
         var rows = FlattenPackageFileContentRows(results, options).ToList();
+        var visibleRows = RowWindow.Apply(options.Rows, rows);
 
         // Same rule the print projection applies: a Markdown scope names a Markdown construct,
         // and non-Markdown documents are passed through verbatim. Without this the scope would
@@ -2897,7 +3371,7 @@ public class PackageCommand
         // whole document -- a projection answered from a different payload than the one asked
         // for, which is the defect class this command is being kept clear of.
         if (options.ContentScope != PackageFileContentScope.Full
-            && rows.FirstOrDefault(row => row.Found && !IsMarkdownDocument(row.Path, row.IsReadme)) is { } nonMarkdown)
+            && visibleRows.FirstOrDefault(row => row.Found && !IsMarkdownDocument(row.Path, row.IsReadme)) is { } nonMarkdown)
         {
             CommandError.Write(
                 $"--frontmatter/--yaml-header and --body apply to Markdown documents; '{nonMarkdown.Path}' is not Markdown. "
@@ -2908,16 +3382,17 @@ public class PackageCommand
         // A path that matches nothing still yields one row so the render can show it as absent.
         // Counting that row would answer "one file matched" when none did, so count found files,
         // as the bare writer below already does.
-        if (LensProjection.TryProject(options, "--content", rows.Count(row => row.Found), out var contentProjectionExit))
+        if (LensProjection.TryProject(options, "--content", visibleRows.Count(row => row.Found), out var contentProjectionExit))
             return contentProjectionExit;
 
         if (options.Bare)
-            return PrintBarePackageFileContentRows(rows, options.OutputPath);
+            return PrintBarePackageFileContentRows(visibleRows, options.OutputPath);
 
         if (HasUnstructuredOutputPath(options)
             && options.OutputPath is { } exactOutputPath)
         {
-            List<PackageFileContent> found = rows.Where(row => row.Found).ToList();
+            List<PackageFileContent> found =
+                visibleRows.Where(row => row.Found).ToList();
             if (found.Count != 1)
             {
                 CommandError.Write(
@@ -2929,13 +3404,15 @@ public class PackageCommand
             return 0;
         }
 
-        var textRows = rows.Select(PackageFileContentText.Create).ToList();
+        var textRows = visibleRows
+            .Select(PackageFileContentText.Create)
+            .ToList();
         var output = options.Jsonl
             ? RenderPackageFileContentJsonl(textRows)
             : RenderPackageFileContentBlocks(textRows);
 
         if (!string.IsNullOrEmpty(options.OutputPath))
-            OutputPathWriter.Write(options.OutputPath, output);
+            File.WriteAllText(options.OutputPath, output);
         else
             Console.Write(output);
 
@@ -3028,268 +3505,37 @@ public class PackageCommand
         return builder.ToString();
     }
 
-    private static void WriteMultiPackageCountResult(
-        IReadOnlyList<InspectionResult> results,
-        string? rowSection,
-        InspectionOptions options,
-        SectionPipeline<InspectionResult> pipeline)
-    {
-        string? selectedSection = rowSection;
-        if (selectedSection == null
-            && options.IncludeSections is { Count: 1 } includeSections)
-        {
-            selectedSection = includeSections.Single();
-        }
-
-        DocumentSchema packageSchema = PackageDiscoverySchema();
-        DocumentSchema? countColumnSchema =
-            options.Columns is { Length: > 0 }
-                ? PackageCountColumnSchema(
-                    packageSchema,
-                    combinedRows: true)
-                : null;
-        bool SelectedColumnsMatch(string section)
-            => countColumnSchema == null
-                || countColumnSchema
-                    .ValidateProjection(section, options.Columns!)
-                    .Resolved
-                    .Length > 0;
-        if (IsPackageFileSection(selectedSection))
-        {
-            int count = SelectedColumnsMatch(selectedSection!)
-                ? results.Sum(
-                    result =>
-                        options.SkipEmpty
-                            ? GetPackageFileRows(result, selectedSection!).Count
-                            : Math.Max(
-                                1,
-                                GetPackageFileRows(result, selectedSection!).Count))
-                : 0;
-            CountOutput.WriteCount(
-                ApplyRowWindow(count, options.Rows),
-                options.OutputPath,
-                applyLineWindow: options.Rows is null);
-            return;
-        }
-
-        bool countPackageFieldRows =
-            IsMultiPackageFieldSection(selectedSection)
-                || (selectedSection == null
-                    && options.IncludeSections is not { Count: > 0 }
-                    && !options.FixedOverview);
-        if (countPackageFieldRows)
-        {
-            string fieldSection =
-                selectedSection ?? PackageSections.PackageInfo;
-            string[]? selectedFields =
-                ResolvePackageFieldSectionFields(
-                    fieldSection,
-                    options.Fields);
-            int count = SelectedColumnsMatch(fieldSection)
-                ? results.Sum(
-                    result =>
-                        SelectPackageFieldSectionFields(
-                            new InspectionResultView(result),
-                            fieldSection,
-                            selectedFields).Count())
-                : 0;
-            CountOutput.WriteCount(
-                ApplyRowWindow(count, options.Rows),
-                options.OutputPath,
-                applyLineWindow: options.Rows is null);
-            return;
-        }
-
-        var renderOptions = options with
-        {
-            Count = false,
-            Columns = null,
-            JsonOutput = false,
-            OutputPath = null,
-            Rows = null,
-        };
-        var markdownDocuments = results
-            .Select(
-                result => OutputFormatter.FormatResult(
-                    result,
-                    renderOptions,
-                    pipeline))
-            .ToList();
-        var orderedSections = OutputFormatter.ResolveCountMapSections(
-            pipeline,
-            options.IncludeSections,
-            options.FixedOverview);
-        if (orderedSections != null)
-        {
-            var counts = new Dictionary<string, int>(
-                StringComparer.OrdinalIgnoreCase);
-            foreach (var markdown in markdownDocuments)
-            {
-                foreach (var (section, count) in
-                    CountOutput.CountMarkdownTableRowsBySection(markdown))
-                {
-                    counts[section] =
-                        counts.GetValueOrDefault(section) + count;
-                }
-            }
-
-            foreach (string section in orderedSections)
-            {
-                if (IsMultiPackageFieldSection(section))
-                {
-                    string[]? selectedFields =
-                        ResolvePackageFieldSectionFields(
-                            section,
-                            options.Fields);
-                    counts[section] =
-                        SelectedColumnsMatch(section)
-                            ? results.Sum(
-                                result => SelectPackageFieldSectionFields(
-                                    new InspectionResultView(result),
-                                    section,
-                                    selectedFields).Count())
-                            : 0;
-                }
-                else if (IsPackageFileSection(section))
-                {
-                    counts[section] =
-                        SelectedColumnsMatch(section)
-                            ? results.Sum(
-                                result =>
-                                    options.SkipEmpty
-                                        ? GetPackageFileRows(
-                                            result,
-                                            section).Count
-                                        : Math.Max(
-                                            1,
-                                            GetPackageFileRows(
-                                                result,
-                                                section).Count))
-                            : 0;
-                }
-                else if (!SelectedColumnsMatch(section))
-                {
-                    counts[section] = 0;
-                }
-            }
-
-            if (options.Rows != null)
-            {
-                foreach (string section in counts.Keys.ToArray())
-                {
-                    counts[section] =
-                        ApplyRowWindow(counts[section], options.Rows);
-                }
-            }
-
-            CountOutput.WriteCountMap(
-                counts,
-                orderedSections,
-                options.OutputPath,
-                applyLineWindow: options.Rows is null);
-            return;
-        }
-
-        CountOutput.WriteCount(
-            ApplyRowWindow(
-                markdownDocuments.Sum(CountOutput.CountMarkdownTableRows),
-                options.Rows),
-            options.OutputPath,
-            applyLineWindow: options.Rows is null);
-    }
-
-    private static int ApplyRowWindow(int count, RowWindow? rows)
-    {
-        if (rows == null)
-            return count;
-
-        var (keepStart, keepEnd) = rows.Value.Resolve(count);
-        return keepEnd - keepStart;
-    }
-
-    private static bool IsUnmatchedColumnProjection(
-        InspectionOptions options,
-        InvalidOperationException exception)
-        => options.Columns is { Length: > 0 }
-            && exception.Message.StartsWith(
-                "No columns matched projection:",
-                StringComparison.Ordinal);
-
-    private static async Task PopulatePackageSignatureAsync(
-        InspectionResult result,
-        string? nupkgPath,
-        InspectionOptions options,
-        bool wantsSignals,
-        VerboseLogger logger)
-    {
-        bool wantsSignedField =
-            options.Fields?.Contains("Signed", StringComparer.OrdinalIgnoreCase) == true
-            || options.Columns?.Contains("Signed", StringComparer.OrdinalIgnoreCase) == true;
-        if (nupkgPath == null
-            || (options.Verbosity < Verbosity.Normal
-                && !wantsSignals
-                && !wantsSignedField))
-        {
-            return;
-        }
-
-        logger.Log(
-            $"Verifying package signature: {Path.GetFileName(nupkgPath)}");
-        result.SignatureResult =
-            await SignatureVerifier.VerifyAsync(nupkgPath);
-    }
-
-    private static void WriteMultiPackageTable(
-        TextWriter output,
-        IReadOnlyList<InspectionResult> results,
-        string section,
-        InspectionOptions options)
+    private static void WriteMultiPackageTable(IReadOnlyList<InspectionResult> results, string section, InspectionOptions options)
     {
         if (IsPackageFileSection(section))
         {
-            WriteMultiPackageFilesTable(output, results, section, options);
+            WriteMultiPackageFilesTable(results, section, options);
             return;
         }
 
-        WriteMultiPackageFieldTable(output, results, section, options);
+        WriteMultiPackageFieldTable(results, section, options);
     }
 
-    private static void WriteMultiPackageFilesTable(
-        TextWriter output,
-        IReadOnlyList<InspectionResult> results,
-        string section,
-        InspectionOptions options)
+    private static void WriteMultiPackageFilesTable(IReadOnlyList<InspectionResult> results, string section, InspectionOptions options)
     {
         if (options.Jsonl)
         {
-            WriteMultiPackageFilesJsonl(output, results, section, options);
+            WriteMultiPackageFilesJsonl(results, section, options);
             return;
         }
 
-        var rows = results
-            .SelectMany(result =>
+        var rows = BuildMultiPackageFileRows(results, section, options.SkipEmpty)
+            .Select(row => new[]
             {
-                var text = new PackageInspectionText(result);
-                var files = GetPackageFileTextRows(result, text, section);
-                if (files.Count == 0)
-                {
-                    return options.SkipEmpty
-                        ? []
-                        : [[text.PackageName.ToString(), text.Version.ToString(), "", ""]];
-                }
-
-                return files.Select(file => new[]
-                {
-                    text.PackageName.ToString(),
-                    text.Version.ToString(),
-                    file.Path.ToString(),
-                    file.Size.ToString(CultureInfo.InvariantCulture),
-                });
+                row.Package,
+                row.Version,
+                row.Path,
+                row.Size?.ToString(CultureInfo.InvariantCulture) ?? "",
             })
             .ToArray();
         var windowedRows = RowWindow.Apply(options.Rows, rows).ToArray();
 
-        OutputFormatter.WriteTable(output, !options.NoHeader, (writer, formatter) =>
+        OutputFormatter.WriteTable(Console.Out, !options.NoHeader, (writer, formatter) =>
         {
             var writerOptions = OutputFormatter.CreateProjectedWriterOptions(
                 options.Columns,
@@ -3308,34 +3554,37 @@ public class PackageCommand
     }
 
     private static void WritePackageFilesJsonl(
-        TextWriter output,
         InspectionResult result,
-        string section)
+        string section,
+        RowWindow? rows)
     {
         var text = new PackageInspectionText(result);
         var files = GetPackageFileTextRows(result, text, section);
         if (files.Count == 0)
             return;
 
-        foreach (var file in files)
+        foreach (var file in RowWindow.Apply(rows, files))
         {
             var row = new PackageFileJsonRow(file.Path, file.Size);
-            output.WriteLine(
-                JsonSerializer.Serialize(
-                    row,
-                    PackageFileJsonRowContext.Default.PackageFileJsonRow));
+            Console.WriteLine(JsonSerializer.Serialize(row, PackageFileJsonRowContext.Default.PackageFileJsonRow));
         }
     }
 
-    private static void WriteMultiPackageFilesJsonl(
-        TextWriter output,
-        IReadOnlyList<InspectionResult> results,
-        string section,
-        InspectionOptions options)
+    private static void WriteMultiPackageFilesJsonl(IReadOnlyList<InspectionResult> results, string section, InspectionOptions options)
     {
-        string[] selectedColumns = ResolveMultiPackageFileColumns(
+        var rows = BuildMultiPackageFileRows(results, section, options.SkipEmpty);
+        var selectedColumns = ResolveMultiPackageFileColumns(
             section,
             options.Columns);
+        foreach (var row in RowWindow.Apply(options.Rows, rows))
+            WriteMultiPackageFileJsonRow(row, selectedColumns);
+    }
+
+    private static List<PackageFileMultiJsonRow> BuildMultiPackageFileRows(
+        IReadOnlyList<InspectionResult> results,
+        string section,
+        bool skipEmpty)
+    {
         var rows = new List<PackageFileMultiJsonRow>();
         foreach (var result in results)
         {
@@ -3343,7 +3592,7 @@ public class PackageCommand
             var files = GetPackageFileTextRows(result, text, section);
             if (files.Count == 0)
             {
-                if (!options.SkipEmpty)
+                if (!skipEmpty)
                 {
                     rows.Add(
                         new PackageFileMultiJsonRow(
@@ -3366,10 +3615,7 @@ public class PackageCommand
             }
         }
 
-        foreach (var row in RowWindow.Apply(options.Rows, rows))
-        {
-            WriteMultiPackageFileJsonRow(output, row, selectedColumns);
-        }
+        return rows;
     }
 
     private static string[] ResolveMultiPackageFileColumns(
@@ -3385,7 +3631,6 @@ public class PackageCommand
     }
 
     private static void WriteMultiPackageFileJsonRow(
-        TextWriter output,
         PackageFileMultiJsonRow row,
         IReadOnlyList<string> columns)
     {
@@ -3416,8 +3661,7 @@ public class PackageCommand
             }
             writer.WriteEndObject();
         }
-
-        output.WriteLine(Encoding.UTF8.GetString(buffer.WrittenSpan));
+        Console.WriteLine(Encoding.UTF8.GetString(buffer.WrittenSpan));
     }
 
     private static int PrintPackageBareSelection(
@@ -3501,7 +3745,7 @@ public class PackageCommand
     {
         var output = content.EndsWith('\n') ? content : content + '\n';
         if (!string.IsNullOrEmpty(outputPath))
-            OutputPathWriter.Write(outputPath, output);
+            File.WriteAllText(outputPath, output);
         else
             Console.Write(new InertString(TextPolicy.Prose, output));
         return 0;
@@ -3571,29 +3815,14 @@ public class PackageCommand
     }
 
     private static void WriteMultiPackageFieldTable(
-        TextWriter output,
         IReadOnlyList<InspectionResult> results,
         string section,
         InspectionOptions options)
     {
-        string[]? selectedFields =
-            ResolvePackageFieldSectionFields(section, options.Fields);
-        var rows = results
-            .SelectMany(result =>
-            {
-                var view = new InspectionResultView(result);
-                return SelectPackageFieldSectionFields(
-                        view,
-                        section,
-                        selectedFields)
-                    .Select(field => new[]
-                {
-                    view.PackageName,
-                    field.Key,
-                    field.Value?.ToString() ?? "",
-                });
-            })
-            .ToArray();
+        var rows = BuildMultiPackageFieldRows(
+            results,
+            section,
+            options.Fields);
 
         string rendered = OutputFormatter.RenderProjectedTable(
             !options.NoHeader,
@@ -3615,7 +3844,7 @@ public class PackageCommand
             section,
             options.Fields,
             rows.Select(row => row[1]));
-        output.Write(
+        Console.Out.Write(
             OutputFormatter.LimitRenderedTableRows(
                 rendered,
                 options.Rows,
@@ -3692,28 +3921,43 @@ public class PackageCommand
             .Select(field => byName[field]);
     }
 
-    private static StringWriter CreateOutputBuffer()
-        => new(CultureInfo.InvariantCulture)
-        {
-            NewLine = "\n",
-        };
-
-    private static void WritePackageCommandOutput(
-        string output,
-        InspectionOptions options)
+    private static string[][] BuildMultiPackageFieldRows(
+        IReadOnlyList<InspectionResult> results,
+        string section,
+        string[]? fields)
     {
-        if (!string.IsNullOrEmpty(options.OutputPath))
-        {
-            OutputPathWriter.Write(
-                options.OutputPath,
-                output,
-                applyLineWindow: options.Rows is null);
-        }
-        else
-        {
-            Console.Write(output);
-        }
+        var selectedFields = ResolvePackageFieldSectionFields(
+            section,
+            fields);
+
+        return results
+            .SelectMany(result =>
+            {
+                var view = new InspectionResultView(result);
+                return SelectPackageFieldSectionFields(
+                        view,
+                        section,
+                        selectedFields)
+                .Select(field => new[]
+                {
+                    view.PackageName,
+                    field.Key,
+                    field.Value?.ToString() ?? "",
+                });
+            })
+            .ToArray();
     }
+
+    private static int WindowedCount(int count, RowWindow? rows)
+    {
+        var (start, end) = ResolveRowWindow(count, rows);
+        return end - start;
+    }
+
+    private static (int Start, int End) ResolveRowWindow(int count, RowWindow? rows)
+        => rows is { IsUnlimited: false } window
+            ? window.Resolve(count)
+            : (0, count);
 
     private static void ApplyNuspec(NuspecData nuspec, InspectionResult result)
     {
@@ -3748,6 +3992,7 @@ public class PackageCommand
     private static bool ValidatePackageLibraryMode(InspectionOptions options)
     {
         if (options.Tree
+            && !options.Count
             && options.Discover == null
             && (options.Format != OutputFormat.Markdown
                 || options.Bare
@@ -3789,7 +4034,7 @@ public class PackageCommand
         if (options.Print) conflicts.Add("--print");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (options.Discover != null) conflicts.Add("-D/--discover");
-        if (options.Tree && options.Discover == null) conflicts.Add("--tree");
+        if (options.Tree && options.Discover == null && !options.Count) conflicts.Add("--tree");
         if (options.Columns != null) conflicts.Add("--columns");
         if (options.Fields != null) conflicts.Add("--fields");
 
@@ -3846,9 +4091,9 @@ public class PackageCommand
                 : packageName;
 
         var catalog = LibrarySections.CreateCatalog();
+        var sectionCatalog = catalog.Sections;
         var pipeline = catalog.Pipeline;
-        var scannerRegistry = catalog.ScannerRegistry;
-        var queryRegistry = catalog.QueryRegistry;
+        var queryCatalog = catalog.QueryCatalog;
         var libraryOptions = CreateLibraryOptions(assemblyName: null, packageReference, options);
 
         libraryOptions = LibraryCommand.NormalizeBareSelect(libraryOptions);
@@ -3859,9 +4104,9 @@ public class PackageCommand
 
         var selectResult = SelectResolver.ResolveSelectAsSections(
             libraryOptions.Select,
-            pipeline.SelectableSectionNames,
-            pipeline.InfoSectionNames,
-            pipeline.GetCategoryMap(),
+            sectionCatalog.SelectableSectionNames,
+            sectionCatalog.InfoSectionNames,
+            sectionCatalog.SelectionCategoryMap,
             selectDefault: libraryOptions.SelectDefault);
         if (SelectOutput.WriteUnresolved(selectResult)) return 1;
         if (selectResult.Sections != null)
@@ -3881,11 +4126,28 @@ public class PackageCommand
             };
         }
 
-        if (libraryOptions.Count
-            && !CountOutput.ValidateSectionsSelected(
-                libraryOptions.IncludeSections,
-                libraryOptions.FixedOverview))
+        if (!LibraryCommand.ValidateReferenceTreeCount(
+                libraryOptions.Tree,
+                libraryOptions.Count,
+                libraryOptions.IncludeSections))
+        {
             return 1;
+        }
+
+        if (libraryOptions.Count)
+        {
+            if (!CountOutput.ValidateSectionsSelected(
+                    libraryOptions.IncludeSections, libraryOptions.FixedOverview))
+            {
+                return 1;
+            }
+
+            var ordered = OutputFormatter.ResolveCountMapSections(
+                pipeline, libraryOptions.IncludeSections, libraryOptions.FixedOverview);
+            if (!CountOutput.ValidateMapFormat(
+                    libraryOptions.Format, ordered, libraryOptions.Tree))
+                return 1;
+        }
 
         var requiredVerbosity = pipeline.GetRequiredVerbosity(libraryOptions.IncludeSections);
         if (requiredVerbosity > libraryOptions.Verbosity)
@@ -3901,24 +4163,31 @@ public class PackageCommand
                 candidates.Contains(SectionNames.IdentifierConfusion),
         };
 
-        var scanners = pipeline.GetRequiredScanners(
+        SectionQueryPlan sectionPlan = sectionCatalog.PlanQueries(
             libraryOptions.Verbosity,
             libraryOptions.IncludeSections,
             libraryOptions.FixedOverview);
         List<(string Reason, InspectionQueryDefinition Query)> commandQueryDemand = [];
         if (libraryOptions.CollectReferenceTree)
             commandQueryDemand.Add(("reference tree", AssemblyReferencesQuery.Definition));
-        var queries = pipeline.GetRequiredQueries(
-            libraryOptions.Verbosity,
-            libraryOptions.IncludeSections,
-            libraryOptions.FixedOverview,
-            commandDemand: commandQueryDemand);
+        if (sectionPlan.Queries.Contains(BodyShapesQuery.Definition)
+            && libraryOptions.BodyKindQuery.HasFilter
+            && libraryOptions.PerformanceTriage.HasCandidateFilters)
+        {
+            commandQueryDemand.Add(
+                ("Body Shapes performance predicates",
+                    OptimizationOpportunitiesQuery.Definition));
+        }
+        HashSet<InspectionQueryDefinition> queries =
+            sectionPlan.Activate(commandDemand: commandQueryDemand);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         bool requiresGroupedIntegrations =
             RequiresGroupedIntegrations(
                 queries,
                 out bool includeIntegrationOpportunities);
+        InspectionQueryPlan<InspectionQueryContext> queryPlan =
+            queryCatalog.Plan(queries);
         using PackageIntegrationsWorkspace? integrationsWorkspace =
             requiresGroupedIntegrations
                 ? PackageIntegrationsWorkspace.Create(
@@ -3959,10 +4228,7 @@ public class PackageCommand
                     packageName,
                     version,
                     context.HttpClient,
-                    scanners: scanners,
-                    scannerRegistry: scannerRegistry,
-                    queries: queries,
-                    queryRegistry: queryRegistry,
+                    queryPlan: queryPlan,
                     assemblyReference: assemblyReference,
                     integrationsEntry: integrations,
                     integrationOpportunitiesEntry: opportunities);
@@ -4053,8 +4319,8 @@ public class PackageCommand
             && libraryOptions.Select?.Any(
                 value => SelectResolver.TryResolveCategory(
                     value,
-                    pipeline.GetCategoryMap(),
-                    pipeline.SelectableSectionNames,
+                    sectionCatalog.SelectionCategoryMap,
+                    sectionCatalog.SelectableSectionNames,
                     out _,
                     out _)) == true)
         {
@@ -4080,41 +4346,35 @@ public class PackageCommand
             }
         }
 
+        if (libraryOptions.Count)
+        {
+            if (sections.Count == 0)
+                CommandError.WriteNote("matched sections have no data across all libraries.");
+
+            var projection = CaptureAllLibrariesCounts(
+                inspections,
+                sections,
+                libraryOptions,
+                pipeline);
+            var ordered = OutputFormatter.ResolveCountMapSections(
+                pipeline, libraryOptions.IncludeSections, libraryOptions.FixedOverview);
+            CountOutput.Write(
+                projection,
+                ordered,
+                libraryOptions.Format,
+                libraryOptions.NoHeader,
+                libraryOptions.OutputPath,
+                libraryOptions.Rows);
+            return completionExitCode;
+        }
+
         if (sections.Count == 0)
         {
             CommandError.WriteNote("matched sections have no data across all libraries.");
-            // An empty match is still an answer to --count, and returning without projecting
-            // would report the absence as unprojected output.
-            if (libraryOptions.Count)
-            {
-                var ordered = OutputFormatter.ResolveCountMapSections(
-                    pipeline,
-                    libraryOptions.IncludeSections,
-                    libraryOptions.FixedOverview);
-                if (ordered != null)
-                {
-                    CountOutput.WriteCountMap(
-                        new Dictionary<string, int>(
-                            StringComparer.OrdinalIgnoreCase),
-                        ordered,
-                        options.OutputPath,
-                        applyLineWindow: options.Rows is null);
-                }
-                else
-                {
-                    CountOutput.WriteCount(
-                        0,
-                        options.OutputPath,
-                        applyLineWindow: options.Rows is null);
-                }
-            }
-            else
-            {
-                OutputDestination.Write(
-                    libraryOptions.OutputPath,
-                    libraryOptions.Rows,
-                    static _ => { });
-            }
+            OutputDestination.Write(
+                libraryOptions.OutputPath,
+                libraryOptions.Rows,
+                static _ => { });
             return completionExitCode;
         }
 
@@ -4132,47 +4392,11 @@ public class PackageCommand
             return completionExitCode;
         }
 
-        Dictionary<string, int>? sectionCounts = libraryOptions.Count
-            ? new Dictionary<string, int>(
-                StringComparer.OrdinalIgnoreCase)
-            : null;
-        var markdown = RenderAllLibrariesMarkdown(
-            packageName,
-            version,
-            inspections,
-            sections,
-            libraryOptions,
-            pipeline,
-            sectionCounts);
-        if (libraryOptions.Count)
-        {
-            var ordered = OutputFormatter.ResolveCountMapSections(
-                pipeline,
-                libraryOptions.IncludeSections,
-                libraryOptions.FixedOverview);
-            if (ordered != null)
-            {
-                CountOutput.WriteCountMap(
-                    sectionCounts!,
-                    ordered,
-                    options.OutputPath,
-                    applyLineWindow: options.Rows is null);
-            }
-            else
-            {
-                CountOutput.WriteCountFromMarkdown(
-                    markdown,
-                    options.OutputPath,
-                    applyLineWindow: options.Rows is null);
-            }
-        }
-        else
-        {
-            OutputDestination.Write(
-                libraryOptions.OutputPath,
-                libraryOptions.Rows,
-                writer => OutputFormatter.WriteLfLine(writer, markdown));
-        }
+        var markdown = RenderAllLibrariesMarkdown(packageName, version, inspections, sections, libraryOptions, pipeline);
+        OutputDestination.Write(
+            libraryOptions.OutputPath,
+            libraryOptions.Rows,
+            writer => OutputFormatter.WriteLfLine(writer, markdown));
         return completionExitCode;
     }
 
@@ -4319,22 +4543,43 @@ public class PackageCommand
 
     internal static bool RequiresPackageMetadata(
         InspectionOptions options,
-        SectionPipeline<InspectionResult> pipeline)
+        SectionPipeline<InspectionResult> pipeline,
+        bool includeSignals = true)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(pipeline);
 
-        return options.IncludeSections?.Contains(PackageSections.Signals) == true
-            || options.IncludeSections?.Contains(
-                PackageSections.AuditIdentifierConfusion) == true
-            || DiscoverRequestsSection(
-                options.Discover,
-                PackageSections.Signals,
-                pipeline)
-            || DiscoverRequestsSection(
-                options.Discover,
-                PackageSections.AuditIdentifierConfusion,
-                pipeline);
+        return RequiresIdentifierMetadata(
+                   options,
+                   pipeline,
+                   includeSignals)
+               || RequestsSelectedOrDiscoveredSection(
+                   options,
+                   PackageSections.Statistics,
+                   pipeline)
+               || RequestsSelectedOrDiscoveredSection(
+                   options,
+                   PackageSections.Vulnerabilities,
+                   pipeline);
+    }
+
+    internal static bool RequiresIdentifierMetadata(
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline,
+        bool includeSignals = true)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(pipeline);
+
+        return (includeSignals
+                && RequestsSelectedOrDiscoveredSection(
+                    options,
+                    PackageSections.Signals,
+                    pipeline))
+               || RequestsSelectedOrDiscoveredSection(
+                   options,
+                   PackageSections.AuditIdentifierConfusion,
+                   pipeline);
     }
 
     private static LibraryOptions CreateLibraryOptions(string? assemblyName, string packageReference, InspectionOptions options)
@@ -4486,15 +4731,16 @@ public class PackageCommand
             return false;
         }
 
+        string section = sections[0];
         var table = BuildAllLibrariesTable(
             packageName,
             version,
             inspections,
-            sections[0],
+            section,
             options.Rows);
         if (table == null)
         {
-            CommandError.Write($"--all-libraries row output does not support section: {sections[0]}.");
+            CommandError.Write($"--all-libraries row output does not support section: {section}.");
             CommandError.WriteLine("Use Markdown output, or select Library Info, Switches, Integration: Opportunities, or a focused Integration: section.");
             return false;
         }
@@ -4737,8 +4983,7 @@ public class PackageCommand
         List<LibraryInspection> inspections,
         List<string> sections,
         LibraryOptions options,
-        SectionPipeline<LibraryInspection> pipeline,
-        Dictionary<string, int>? sectionCounts)
+        SectionPipeline<LibraryInspection> pipeline)
     {
         var sb = new StringBuilder();
         var title = string.IsNullOrWhiteSpace(version) ? packageName : $"{packageName} {version}";
@@ -4746,19 +4991,10 @@ public class PackageCommand
 
         foreach (var section in sections)
         {
-            var sectionStart = sb.Length;
             if (IsAggregatedAllLibrariesSection(section))
                 AppendAggregatedSection(sb, section, inspections, options.Rows);
             else
                 AppendPerLibrarySections(sb, section, inspections, options, pipeline);
-            if (sectionCounts is not null)
-            {
-                sectionCounts[section] =
-                    CountOutput.CountMarkdownTableRows(
-                        sb.ToString(
-                            sectionStart,
-                            sb.Length - sectionStart));
-            }
         }
 
         return sb.ToString().TrimEnd();
@@ -4791,12 +5027,16 @@ public class PackageCommand
     /// Renders one runtime-named, runtime-column section through the serializer so its rows reach
     /// the writer, which is what applies <c>--rows</c>.
     /// </summary>
-    private static void AppendAggregatedTable(StringBuilder sb, string section, MarkoutTable table, RowWindow? rows)
+    private static void AppendAggregatedSection(
+        StringBuilder sb,
+        string section,
+        List<LibraryInspection> inspections,
+        RowWindow? rows)
     {
-        var document = new AggregatedSectionDocument
-        {
-            Sections = [new AggregatedSectionView { Name = section, Body = table }]
-        };
+        var document = BuildAggregatedSection(section, inspections);
+        if (document is null)
+            return;
+
         var output = new StringWriter { NewLine = "\n" };
         MarkoutSerializer.Serialize(
             document, output, InspectionContext.Default, OutputFormatter.CreateWindowedOptions(rows));
@@ -4812,7 +5052,9 @@ public class PackageCommand
            || section.Equals("Switches", StringComparison.OrdinalIgnoreCase)
            || LibraryIntegrationCatalog.All.Any(descriptor => descriptor.SectionName.Equals(section, StringComparison.OrdinalIgnoreCase));
 
-    private static void AppendAggregatedSection(StringBuilder sb, string section, List<LibraryInspection> inspections, RowWindow? rows)
+    private static AggregatedSectionDocument? BuildAggregatedSection(
+        string section,
+        List<LibraryInspection> inspections)
     {
         if (section.Equals(IntegrationSectionNames.Opportunities, StringComparison.OrdinalIgnoreCase))
         {
@@ -4831,9 +5073,9 @@ public class PackageCommand
                 .ThenBy(row => row.Api, StringComparer.Ordinal)
                 .ToList();
             if (opportunityRows.Count == 0)
-                return;
+                return null;
 
-            AppendAggregatedTable(sb, section, new MarkoutTable(
+            return CreateAggregatedSection(section, new MarkoutTable(
                 ["Library", "TFM", "Integration", "API", "Integration Type", "Look For"],
                 opportunityRows.Select(row => new[]
                 {
@@ -4843,8 +5085,7 @@ public class PackageCommand
                     row.Api,
                     row.IntegrationType,
                     row.LookFor
-                }).ToList()), rows);
-            return;
+                }).ToList()));
         }
 
         if (section.Equals("Switches", StringComparison.OrdinalIgnoreCase))
@@ -4863,9 +5104,9 @@ public class PackageCommand
                 .ThenBy(row => row.Switch, StringComparer.Ordinal)
                 .ToList();
             if (switchRows.Count == 0)
-                return;
+                return null;
 
-            AppendAggregatedTable(sb, section, new MarkoutTable(
+            return CreateAggregatedSection(section, new MarkoutTable(
                 ["Library", "TFM", "Kind", "Switch", "API"],
                 switchRows.Select(row => new[]
                 {
@@ -4874,14 +5115,13 @@ public class PackageCommand
                     row.Kind,
                     row.Switch,
                     row.Api
-                }).ToList()), rows);
-            return;
+                }).ToList()));
         }
 
         var descriptor = LibraryIntegrationCatalog.All.FirstOrDefault(d =>
             d.SectionName.Equals(section, StringComparison.OrdinalIgnoreCase));
         if (descriptor == null)
-            return;
+            return null;
 
         var signals = inspections
             .SelectMany(inspection => descriptor.GetSignals(inspection)
@@ -4893,7 +5133,7 @@ public class PackageCommand
                 }))
             .ToList();
         if (signals.Count == 0)
-            return;
+            return null;
 
         var hasApis = signals.Any(row => row.Signal.Shape == IntegrationSignalShape.Api);
         var includeTypes = descriptor.IncludeTypesWhenApisPresent;
@@ -4903,7 +5143,7 @@ public class PackageCommand
             .ThenBy(row => row.Signal.Name, StringComparer.Ordinal)
             .ToList();
         if (focusedRows.Count == 0)
-            return;
+            return null;
 
         var includeKindColumn = focusedRows.Select(row => row.Signal.Kind).Distinct(StringComparer.Ordinal).Count() > 1;
         var valueColumn = hasApis ? "API" : "Type";
@@ -4912,13 +5152,71 @@ public class PackageCommand
         if (includeKindColumn) headers.Add("Kind");
         headers.Add(valueColumn);
 
-        AppendAggregatedTable(sb, section, new MarkoutTable(headers, focusedRows.Select(row =>
+        return CreateAggregatedSection(section, new MarkoutTable(headers, focusedRows.Select(row =>
         {
             List<string> values = [CodeCell(row.Library), CodeCell(row.Tfm)];
             if (includeKindColumn) values.Add(row.Signal.Kind);
             values.Add(CodeCell(row.Signal.Name));
             return values.ToArray();
-        }).ToList()), rows);
+        }).ToList()));
+    }
+
+    private static AggregatedSectionDocument CreateAggregatedSection(
+        string section,
+        MarkoutTable table)
+        => new()
+        {
+            Sections = [new AggregatedSectionView { Name = section, Body = table }]
+        };
+
+    private static CountProjection CaptureAllLibrariesCounts(
+        List<LibraryInspection> inspections,
+        List<string> sections,
+        LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline)
+    {
+        var projection = new CountProjection();
+
+        foreach (var section in sections)
+        {
+            if (IsAggregatedAllLibrariesSection(section))
+            {
+                if (BuildAggregatedSection(section, inspections) is { } document)
+                {
+                    projection.Merge(CountProjectionFormatter.Capture(
+                        document,
+                        InspectionContext.Default,
+                        OutputFormatter.CreateWindowedOptions(options.Rows)));
+                }
+                continue;
+            }
+
+            foreach (var inspection in inspections)
+            {
+                if (!pipeline.GetEffectiveSections(
+                        inspection, options.Verbosity, options.IncludeSections, options.FixedOverview)
+                    .Contains(section, StringComparer.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (MetadataSectionNames.IsMetadataSection(section))
+                {
+                    projection.Merge(MetadataLensRenderer.CaptureCounts(
+                        inspection,
+                        [section],
+                        options.Rows));
+                    continue;
+                }
+
+                projection.Merge(CountProjectionFormatter.Capture(
+                    new LibraryInspectionView(inspection),
+                    InspectionContext.Default,
+                    CreateAllLibrariesWriterOptions(section, options)));
+            }
+        }
+
+        return projection;
     }
 
     private static void AppendPerLibrarySections(
@@ -4991,6 +5289,17 @@ public class PackageCommand
 
         return string.Join('\n', lines).Trim();
     }
+
+    private static MarkoutWriterOptions CreateAllLibrariesWriterOptions(
+        string section,
+        LibraryOptions options)
+        => new()
+        {
+            IncludeSections = [section],
+            Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields),
+            // Windowed before both count reduction and the aggregate heading rewrite above.
+            RowWindow = RowWindow.ToMarkout(options.Rows)
+        };
 
     /// <summary>
     /// Marks a cell as code using markout's semantic inline tag rather than literal backticks, so
@@ -5116,11 +5425,12 @@ public class PackageCommand
         var results = options.Limit.HasValue 
             ? relativePaths.Take(options.Limit.Value).ToList()
             : relativePaths.ToList();
+        var visibleResults = RowWindow.Apply(options.Rows, results);
 
-        if (LensProjection.TryProject(options, "--layout", results.Count, out var projectionExitCode))
+        if (LensProjection.TryProject(options, "--layout", visibleResults.Count, out var projectionExitCode))
             return projectionExitCode;
 
-        PackageOutputFormatter.WriteFileTree(results);
+        PackageOutputFormatter.WriteFileTree([.. visibleResults]);
         WriteFileLayoutTips(extractPath, options, packageName, tipLevel, isLayout: true);
         return 0;
     }
@@ -5148,11 +5458,17 @@ public class PackageCommand
     private static int ListPackageTfms(string extractPath, InspectionOptions options)
     {
         var tfms = TfmSelector.GetPackageTfms(extractPath);
+        var visibleTfms = RowWindow.Apply(options.Rows, tfms);
 
-        if (LensProjection.TryProject(options, "--tfms", tfms.Count, out var projectionExit))
+        if (LensProjection.TryProject(
+                options,
+                "--tfms",
+                visibleTfms.Count,
+                out var projectionExit,
+                ["TFM"]))
             return projectionExit;
 
-        OutputFormatter.WriteStringList(tfms, "TFM", "Tfm", options.Tsv, options.Jsonl, Console.Out);
+        OutputFormatter.WriteStringList(visibleTfms, "TFM", "Tfm", options.Tsv, options.Jsonl, Console.Out);
         return 0;
     }
 
@@ -5179,9 +5495,17 @@ public class PackageCommand
                 error.Detail is null ? [] : [error.Detail]);
             return 1;
         }
-
         if (result is PackageDependencyGraphResult.Empty empty)
         {
+            if (LensProjection.TryProject(
+                    options,
+                    "--dependencies",
+                    rowCount: 0,
+                    out var projectionExit,
+                    ["Package", "Version", "Author"]))
+            {
+                return projectionExit;
+            }
             var packageName =
                 new InertString(
                     TextPolicy.Field,
@@ -5210,6 +5534,24 @@ public class PackageCommand
         }
 
         var graph = (PackageDependencyGraphResult.Graph)result;
+        var visibleCount = WindowedCount(
+            TreeRowWindow.Count(graph.Dependencies, node => node.Children),
+            options.Rows);
+        if (LensProjection.TryProject(
+                options,
+                "--dependencies",
+                visibleCount,
+                out var countExit,
+                ["Package", "Version", "Author"]))
+        {
+            return countExit;
+        }
+
+        var visibleNodes = TreeRowWindow.Apply(
+            graph.Dependencies,
+            options.Rows,
+            node => node.Children,
+            (node, children) => node with { Children = children });
         var packageText =
             new InertString(
                 TextPolicy.Field,
@@ -5223,7 +5565,7 @@ public class PackageCommand
             Title = InertString.Format(
                 TextPolicy.Field,
                 $"{packageText} {versionText}").ToString(),
-            Dependencies = ToTreeNodes(graph.Dependencies)
+            Dependencies = ToTreeNodes(visibleNodes)
         };
 
         OutputDestination.Write(

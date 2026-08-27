@@ -5,6 +5,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.CommandLine;
 
@@ -145,6 +146,11 @@ public static class TypeOptionsParser
 
         // Parse member filter
         var memberValues = parseResult.GetValue(args.MemberOption) ?? [];
+        if (memberValues.Any(value => MemberTargetSelector.Parse(value).GenericArity.HasValue))
+        {
+            return new VersionError(
+                "The type command's -m filter does not support generic arity selectors; use the member command.");
+        }
         var (memberFilter, memberLimit) = SharedParsers.ParseMemberFilter(memberValues);
 
         var kindValues = parseResult.GetValue(args.KindOption) ?? [];
@@ -215,6 +221,7 @@ public static class TypeOptionsParser
             Jsonl = opts.ResolveJsonl(parseResult),
             TabularExplicitlySet = opts.IsTableExplicitlySet(parseResult),
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
+            Format = opts.ResolveFormat(parseResult),
             MarkdownExplicitlySet = parseResult.GetResult(opts.Markdown) is { Implicit: false },
             PlainText = parseResult.GetValue(opts.PlainText),
             Bare = parseResult.GetValue(opts.Bare),

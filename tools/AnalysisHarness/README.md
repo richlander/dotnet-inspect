@@ -91,6 +91,61 @@ the exact-only comparator path, so near cases in the population remain outside
 exact clusters. Seeded fuzzy retrieval is independently graded and does not
 establish a relation.
 
+The cross-assembly corpus grades product retrieval over the authored
+`DiffFixtures.V1` and `DiffFixtures.V2` version pair:
+
+```bash
+dotnet "$DLL" --clone-cross-assembly-corpus \
+  artifacts/bin/DiffFixtures.V1/release/DiffFixtureSample.dll \
+  artifacts/bin/DiffFixtures.V2/release/DiffFixtureSample.dll
+dotnet "$DLL" --clone-cross-assembly-corpus old.dll new.dll --json
+```
+
+The committed `corpus/structural-clone-cross-assembly.json` ledger declares
+each side's assembly, type, and source project, independently labels every
+reviewed right-side row, and keeps a relevant rank-three candidate as an
+explicit peer beyond the reviewed depth of two. The two assembly paths passed
+on the command line select the A and A-prime artifacts; they do not select one
+method. For each ledger query, the harness resolves the named method in the
+left artifact and calls the product's cross-image `RetrieveSimilar` overload
+with every method in the ledger-declared right-side type as the submitted
+candidate population. The product ranks the subset with completed body
+analysis and a query-compatible signature. The harness requires distinct MVIDs
+and resolves methods through SRM. It does not reconstruct portable operand
+categories or claim that a score proves a relationship; cross-reader `Compare`
+remains a separate future producer.
+
+The text report uses standard information-retrieval terms where they fit:
+
+- **query method** is the ledger-selected left-side method;
+- **submitted candidate population** is every method in the declared right-side
+  type, while the ranked population is the supported, signature-compatible
+  subset;
+- **precision over labeled results within reviewed depth** is relevant peers
+  divided by independently labeled results within K;
+- **recall@K over declared peers** is declared relevant peers recovered within
+  the reviewed depth, divided by all relevant peers declared for that query;
+- **hard negative** is a deliberately plausible but unrelated candidate.
+
+Harness-specific terms are spelled out rather than abbreviated. **Expectations
+met** means the observed ranking matched the ledger's declared rank, contrast,
+precision, and recall bounds; it does not mean retrieval was perfect.
+**Semantic lookalike** means structural evidence ranked a behaviorally
+different candidate highly. **Declared peer not recovered within reviewed
+depth** means a relevant ledger candidate ranked below K or was not ranked.
+The aggregate count is unavailable when retrieval does not complete for a
+query with declared relevant peers.
+
+The seven-query evaluation meets all ledger expectations with six relevant
+peers among 14 reviewed results (42.85% precision) and recovers six of seven
+declared peers at the reviewed depth (85.71% recall). It includes six hard
+negatives, two semantic lookalikes, and one declared peer beyond the reviewed
+depth. `StructuralCloneCrossAssemblyCorpusTests.CommittedCorpus_GradesVersionPair`
+gates the fixture run, exact metrics, distinct artifact identities, and text
+report. `CommittedCorpus_PinsNonVacuousReviewCoverage` always gates the
+declared projects, type, query count, reviewed K, label count, and
+relevant-label count.
+
 The real-artifact corpus grades retrieval against independently source-reviewed
 CoreLib labels:
 

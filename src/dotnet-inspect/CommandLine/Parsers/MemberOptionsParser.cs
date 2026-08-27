@@ -36,7 +36,9 @@ public static class MemberOptionsParser
         Option<string[]> ProjectOption,
         Option<string[]> CallerPackageOption,
         Option<string[]> RepoOption,
-        Option<string?> AtOption);
+        Option<string?> AtOption,
+        Option<bool> ShapeOption,
+        Option<string?> RouterDeferredTargetOption);
 
     /// <summary>
     /// Result of parsing member command options.
@@ -94,6 +96,20 @@ public static class MemberOptionsParser
             ? projectValues[0]
             : null;
         var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
+        var deferredRouteValue =
+            parseResult.GetValue(args.RouterDeferredTargetOption);
+        if (deferredRouteValue is not null
+            && !RouterCommandDefinition.IsDeferredTypeOrMemberCapability(
+                deferredRouteValue))
+        {
+            return new VersionError("Invalid internal router state.");
+        }
+
+        bool routerDeferredTypeOrMember = deferredRouteValue is not null;
+        bool shapeExplicitlySet =
+            parseResult.GetResult(args.ShapeOption) is { Implicit: false };
+        if (shapeExplicitlySet && !routerDeferredTypeOrMember)
+            return new VersionError("--shape is only valid for type targets.");
 
         // Handle projection discovery or help
         if (sourceInputs.Args.Length == 0 && !sourceInputs.HasExplicitSource && projectSourcePath is null)
@@ -218,9 +234,12 @@ public static class MemberOptionsParser
         // Plain explicit-source dotted names are left whole so the type/member boundary is
         // resolved against real metadata in ApiTypeLookupService, because "System.String" is a
         // type while "System" is only a namespace.
+        // Router-deferred targets also stay whole so overload, digest, and special-member syntax
+        // crosses that same metadata boundary instead of forcing a syntactic type/member guess.
         // Skip if the right part contains '<' — that's a generic type name (e.g., Generic.List<T>),
         // not a type.member pair.
-        bool explicitSourceSelectorSplit = sourceInputs.HasExplicitSource
+        bool explicitSourceSelectorSplit = !routerDeferredTypeOrMember
+            && sourceInputs.HasExplicitSource
             && sourceInputs.Args.Length == 1
             && typeName != null
             && HasMemberSelectorSuffix(typeName);
@@ -246,10 +265,17 @@ public static class MemberOptionsParser
 
         // Combine -m option with positional members
         var allMembers = optionMembers.Concat(positionalMembers).ToArray();
+        string[] routerDeferredTypeMemberValues = routerDeferredTypeOrMember
+            ? [.. allMembers]
+            : [];
         var ctorOnly = parseResult.GetValue(args.CtorOption);
 
         // Process dotted syntax and overload shorthand
-        var (dottedTypeFilter, shorthandIndex, memberDigest, memberGenericArity, memberKindFilter) = SharedParsers.ProcessMemberArguments(allMembers);
+        var (dottedTypeFilter, shorthandIndex, memberDigest, memberGenericArity, memberGenericArityConflict, memberKindFilter) =
+            SharedParsers.ProcessMemberArguments(
+                allMembers,
+                inferDottedTypeFilter: string.IsNullOrEmpty(typeName),
+                suppliedTypeName: typeName);
 
         // Use extracted type name if no explicit type was provided
         if (dottedTypeFilter != null && string.IsNullOrEmpty(typeName))
@@ -259,6 +285,10 @@ public static class MemberOptionsParser
         var (memberFilter, memberLimit) = BuildMemberFilter(allMembers, ctorOnly, out var clearShorthand);
         if (clearShorthand)
             shorthandIndex = null;
+        if (memberGenericArityConflict)
+            return new VersionError("A member selection cannot combine different generic arities.");
+        if (memberGenericArity.HasValue && memberFilter.Count != 1)
+            return new VersionError("A generic arity selector requires exactly one member name.");
 
         var kindValues = parseResult.GetValue(args.KindOption) ?? [];
         var kindFilter = SharedParsers.ParseKindFilter(kindValues);
@@ -333,6 +363,9 @@ public static class MemberOptionsParser
             TabularExplicitlySet = opts.IsTableExplicitlySet(parseResult),
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             FormatFlagExplicitlySet = opts.IsFormatFlagExplicitlySet(parseResult),
+            Format = outputFormat,
+            MarkdownExplicitlySet =
+                parseResult.GetResult(opts.Markdown) is { Implicit: false },
             PlainText = parseResult.GetValue(opts.PlainText),
             MermaidOutput = outputFormat == OutputFormat.Mermaid,
             EmbeddedMermaid = embeddedMermaid,
@@ -350,6 +383,8 @@ public static class MemberOptionsParser
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
             CtorOnly = ctorOnly,
             OverloadIndex = parseResult.GetValue(args.IndexOption) ?? shorthandIndex,
+            OverloadIndexExplicitlySet =
+                parseResult.GetResult(args.IndexOption) is { Implicit: false },
             MemberDigest = memberDigest,
             MemberGenericArity = memberGenericArity,
             CallerScopeDirectories = parseResult.GetValue(args.BinOption) ?? [],
@@ -360,6 +395,8 @@ public static class MemberOptionsParser
             SourceRepositories = parseResult.GetValue(args.RepoOption) ?? [],
             Discover = opts.ParseDiscover(parseResult),
             Tree = parseResult.GetValue(opts.Tree),
+            ShapeOutput = parseResult.GetValue(args.ShapeOption),
+            ShapeExplicitlySet = shapeExplicitlySet,
             Select = select,
             SelectDefault = selectDefault,
             Columns = opts.ParseColumns(parseResult),
@@ -371,7 +408,9 @@ public static class MemberOptionsParser
             Schema = opts.ParseSchema(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
-            SourceOptions = sourceOptions
+            SourceOptions = sourceOptions,
+            RouterDeferredTypeOrMember = routerDeferredTypeOrMember,
+            RouterDeferredTypeMemberValues = routerDeferredTypeMemberValues
         };
 
         options = options with

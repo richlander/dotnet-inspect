@@ -17,20 +17,20 @@ carried forward.
 
 The rule is enforced by the compiler, not by a convention.
 `engine/BannedSymbols.txt` bans `AssemblyInspectionSession`, `MetadataSource`,
-`LibraryBodyIndex`, `AssemblyImageSnapshot`, raw metadata readers, and the group's image and
-retained-descriptor accessors in this project, and `Directory.Build.targets`
-already escalates `RS0030` to an error for every project.
+`LibraryBodyIndex`, `AssemblyImageSnapshot`, raw metadata readers, descriptor
+factories, and the group's image and retained-descriptor accessors in this
+project, and `Directory.Build.targets` already escalates `RS0030` to an error
+for every project.
 `BrowserEngineLayeringTests` in `engine.Tests` pins that wiring and
 resolves every complete banned documentation id, including generic arity and
 parameter types — a renamed or malformed entry bans nothing and fails the gate.
-It also bans opening a retained descriptor or invoking `AssemblyReader` in the
-host; descriptors may carry typed identity into a product query, but their image
-content remains query-owned.
-The narrow `acquisition` project decodes a healthy entry's real metadata identity;
-the engine receives only that typed identity and cannot open a raw reader.
-A selected malformed entry receives a path-derived identity only as a rejection
-carrier, so the workspace returns its typed failure instead of silently
-shortening the selected assembly set.
+It also bans opening a retained descriptor, minting one, or invoking
+`AssemblyReader` in the host; descriptors may carry typed identity into a
+product query, but package selection, identity decoding, descriptor creation,
+and image content remain product-owned. A selected malformed entry receives an
+artifact-neutral, role-unique identity only as a rejection carrier, so the
+workspace returns its typed failure instead of silently shortening the
+selected assembly set.
 
 ## How a workspace is opened
 
@@ -40,31 +40,68 @@ shortening the selected assembly set.
    stable result. Neither path requests the NuGet.org v3 service index. The
    Browser adapter then selects one target framework — never "whatever the
    package happens to ship".
-2. **Mint typed participants.** `PackagePayloadAcquisition` downloads and
+2. **Select and realize typed roles.** `PackagePayloadAcquisition` downloads and
    admits the package from the Gallery package CDN through the shared typed
    source, transport, and archive policy. The Gallery payload carries its
    advertised length into the Browser reservation policy before body
    materialization.
-   `PackageCompileAssetSelector` adds reference-group semantics around the
-   implementation universe selected by `PackageAssetSelector`, decodes each
-   healthy entry's real metadata identity, and creates one
-   `ResolvedAssemblyReference` per selected compile asset and, when the roles
-   differ, per matching implementation asset. Malformed selected entries remain
-   participants so queries report their rejection. Acquisition never inspects
-   one.
+   `PackageAssemblyContextSelection` applies
+   `PackageCompileAssetSelector`'s reference-group semantics around the
+   implementation universe selected by `PackageAssetSelector`.
+   `InspectionWorkspace.RealizePackageAssemblyContextRoles` decodes each
+   healthy entry's real metadata identity, mints the descriptors, retains
+   malformed/native/module entries as rejection carriers, applies the
+   Browser-supplied admission policy, and creates the coordinated surface and
+   implementation roles. It owns equivalent-identity rejection,
+   reference-only surfaces, exact asset/participant associations, and exact
+   surface-to-implementation correspondence. Browser retains transport,
+   cache/deadline/lifetime policy, the 64 MB and 256-assembly limit values, and
+   its coordinate/asset provenance adapter; it does not select package assets,
+   decode identities, mint descriptors, or compose groups.
    The Browser adapter places one 30-second operation deadline around coordinate
    resolution and payload acquisition. The deadline token flows through the
    shared resolver, retry, response-body, archive-validation, and store paths;
    expiry is surfaced as a visible timeout instead of leaving the page behind
    an unbounded loading indicator.
-   Gallery version enumeration currently exposes raw flat-container versions
-   with unknown listing state. The version picker may display that partial
-   enumeration, but dependency wildcard and range selection fails closed until
-   registration-backed listing state is implemented; exact dependency pins
-   remain available.
-3. **Hand the group to a query.** The participants open one `InspectionWorkspace`
-   and one binding-consistent `AssemblyContextGroup`. `BrowserInspectionScope`
-   exposes exactly two hand-offs — `Use(group => query(group))` and
+   Gallery version enumeration joins the flat-container list with bounded
+   SemVer2 registration metadata. Listed and unlisted versions remain visible
+   to the version picker, while dependency wildcard and range selection uses
+   listed versions only. A registration outage returns a typed partial list
+   with unknown state, keeps the picker available, and makes range selection
+   fail closed; exact dependency pins remain available.
+   `GalleryEnumerationJoinsAuthoritativeListingState`,
+   `GalleryExternalRegistrationPageIsValidatedAndRebased`,
+   `GalleryExternalPagesUseBoundedConcurrency`,
+   `GalleryRegistrationParserRetainsOnlyFlatCandidates`,
+   `GalleryRegistrationAggregateByteLimitIsTypedPartialEnumeration`,
+   `GalleryRegistrationDefaultAggregateCoversMeasuredMassTransitCanary`,
+   `GalleryRegistrationDefaultBatchExceedsPerResponseLimit`,
+   `GalleryRegistrationReservationWaitsForReturnedCapacity`,
+   `GalleryRegistrationMaterializationBudgetReturnsFailedAttemptCapacity`,
+   `GalleryLatePageDeadlineReturnsMaterializationCapacity`,
+   `GalleryCleanupFailureReturnsMaterializationCapacity`,
+   `GalleryRegistrationAggregateCountsFailedAttemptBytes`,
+   `GalleryRegistrationLeafLimitIsTypedPartialEnumeration`,
+   `GalleryRegistrationPageLimitIsTypedPartialEnumeration`,
+   `GalleryRegistrationTraversalHonorsCallerCancellation`,
+   `GalleryRegistrationTraversalUsesMonotonicDeadline`,
+   `RegistrationResourceLimitsMapToResponseRejected`,
+   `GalleryMalformedRegistrationIsTypedPartialEnumeration`,
+   `GalleryCorruptEncodedRegistrationIsTypedPartialEnumeration`,
+   `GalleryIncompleteRegistrationIsTypedPartialEnumeration`, and
+   `GalleryFinalListingProjectionExpiresToPartial` gate the source contract.
+   `GalleryCallerCancellationDuringRegistrationRemainsCancellation` and
+   `GalleryCallerCancellationOutranksConcurrentRegistrationFault` distinguish
+   actual caller cancellation from optional-registration fallback.
+   `DependencyRangeUsesAuthoritativeGalleryListingState`,
+   `DependencyRangeFailsClosedWhenGalleryRegistrationTimesOut`,
+   `BrowserGalleryDeadlineLeavesTimeForPartialRegistration`, and
+   `VersionPickerRetainsFlatListWhenRegistrationTimesOut` gate Browser
+   consumption.
+3. **Hand a role group to a query.** The participants open one
+   `InspectionWorkspace` and one or two binding-consistent
+   `AssemblyContextGroup` instances. `BrowserInspectionScope` exposes exactly
+   two hand-offs — `Use(group => query(group))` and
    `UseParticipant(participant, (group, participant) => query(...))` — and no
    accessor for a session, an image, or a descriptor.
 
@@ -78,10 +115,63 @@ A scope carries a 64 MB aggregate retained-image budget. Two distinct
 compile/implementation groups receive 32 MB each; a shared or reference-only
 single group receives the full 64 MB. Before decoding any identity, the host
 rejects a role whose declared expanded assembly total exceeds its group budget
-or whose selected set exceeds 256 assemblies. This keeps acquisition itself
-inside the same bound rather than relying on the later retained-snapshot check.
+or whose selected set exceeds 256 assemblies. Product realization enforces
+those Browser-supplied values, keeping identity decoding itself inside the same
+bound rather than relying on the later retained-snapshot check.
 Failures after the role passes that preflight remain typed participant outcomes
 beside healthy results.
+
+`BrowserPlatformWorkspace` uses the same package cache, aggregate byte
+accounting, operation deadline, and four-scope registry. The first selected
+assembly for a target framework and platform family records the exact pack
+version and producer. Later lazy selections re-acquire from that pin and
+replace the old scope with one cumulative binding-consistent group, so runtime
+and ASP.NET Core libraries never drift across versions or feeds and call
+graphs can lazily acquire a selected target and see every resident platform
+assembly. Surfaces and graph targets carry the pack membership recorded from
+those acquired implementation archives from the product loader's
+metadata-derived identities in its selected asset universe, so navigation does
+not depend on archive filenames or on the optional static index knowing the
+active framework. One graph expansion submits its complete missing assembly set
+as one batch, so the cumulative workspace is rebuilt once under one package
+operation deadline rather than once per assembly. Browser models qualify
+assembly residency by platform pack, and one target cannot select the same
+simple assembly name from both runtime and ASP.NET Core families; ambiguous
+pack inference fails visibly rather than routing by first match. Reuse updates
+both the shared scope LRU and its archive recency. Eviction severs the disposed
+scope's loaded context, removes its scope reference, and removes it from the
+registry, releasing the package content closures whose archives leave cache
+accounting. Exact coordinates remain in a lightweight four-target LRU so an
+evicted cumulative workspace can be re-acquired without version drift or lost
+participants. Every archive is temporarily leased as soon as acquisition
+returns it and until the cumulative candidate is registered or abandoned, so a
+later family download cannot evict bytes that the unregistered candidate still
+holds. Shared links carry the canonical `:Platform` group version and selected library
+identity. An exact version bypasses discovery, keys retained Platform state
+separately from floating acquisition, and follows every later assembly and
+query operation; a different resident patch cannot satisfy it. A missing pin or
+the Browser `latest` sentinel remains floating and uses version discovery.
+`PlatformWorkspace_ExactVersionSkipsDiscoveryAndDoesNotReuseLatestState` and
+`PlatformWorkspace_LatestSentinelUsesVersionDiscovery` gate those behaviors.
+Initial member graphs use the same escaped definition identity
+as subsequent graph descent. Platform graph loads and descents also carry the target's complete
+assembly identity and reject an acquired root that is not binding-equivalent,
+rather than applying a valid selector to a different assembly version or
+public-key token. A selected Platform coordinate that matches multiple full
+metadata identities fails typed rather than choosing by archive order. The
+Platform workspace admits at most 256 realized assemblies and retains at most
+64 MB of opened images.
+`BrowserEngineBoundaryTests.PlatformWorkspace_PinsAndAccumulatesSelectedAssemblies`,
+`PlatformWorkspace_BatchesCumulativeAssemblyExpansion`,
+`PlatformWorkspace_RejectsOneNameAcrossPackFamilies`,
+`PlatformWorkspace_UsesMetadataIdentityForPackMembership`,
+`PlatformWorkspace_LeasesArchivesUntilCandidateRegistration`,
+`PlatformWorkspace_ReuseTouchesTheSharedScopeLru`,
+`PlatformWorkspace_EvictionRemovesRetainedTargetState`,
+`PlatformWorkspace_CanceledQueueEntryPreservesSerialization`,
+`PlatformWorkspace_RejectsInvalidSelectionsBeforeNetwork`, and
+`PlatformWorkspace_RejectsAssemblyCountAboveBrowserBound` gate those host
+contracts.
 
 Because a scope is reused, nothing here runs the terminal participant-streaming
 forms of `AssemblyContextIntegrationsQuery` or
@@ -108,10 +198,22 @@ withholds it otherwise — `CallGraphMemberResolver.UnambiguousMetadataIdentity`
 owns that decision, and `DefinitionIdentity` is the injective identity the same
 resolver matches on the other side.
 `CallGraphTargets_DistinguishNestedFromLiteralPlusDeclaringTypes` gates the
-distinction at the browser boundary. Constructed generic nodes recover assembly
-identity from their definition. Synthetic array and function-pointer nodes remain visible but carry
+distinction at the browser boundary. A graph click on a non-public member of a
+public type lazily projects that exact member through the same product resolver
+and opens the ordinary member page; the shared URL retains the opaque target so
+refresh does not fall back to a source modal. `graph-only members open through
+the typed member surface` and `graph-only member targets round-trip through
+shared URLs` gate that path. Projected non-public rows remain separately labeled
+as graph-discovered implementation members rather than entering the Public API
+count. Constructed generic nodes recover assembly identity from their
+definition. Synthetic array and function-pointer nodes remain visible but carry
 no navigable definition identity. Accessor nodes resolve through their opaque
-body selector even when the graph has no `MethodDef` token.
+body selector even when the graph has no `MethodDef` token. That exact body
+enables Call graph, Annotated source, and Facts; whole-member Source remains
+hidden because its product query intentionally rejects accessor bodies.
+The call-graph legend explains the independent border vocabulary: solid nodes
+receive no platform lookup, while dashed nodes are unresolved external
+assemblies that receive a .NET platform lookup on click.
 
 [#3932]: https://github.com/richlander/dotnet-inspect/pull/3932
 
@@ -119,18 +221,20 @@ body selector even when the graph has no `MethodDef` token.
 
 | File | Owns |
 | --- | --- |
-| `acquisition/BrowserAssemblyIdentityDecoder.cs` | the isolated raw metadata read needed to mint an exact participant identity |
 | `engine/Program.cs` | the entry point, and nothing else |
 | `engine/BannedSymbols.txt` | the compiler-enforced workspace rule |
 | `engine/BrowserContracts.cs` | the transport records and their source-generated JSON context |
-| `engine/BrowserPackageWorkspace.cs` | the Browser adapter over shared package acquisition, the session cache/capacity policy, reference-role selection, participant minting, and the bounded workspace registry |
+| `engine/BrowserWorkspaceShareOperations.cs` | typed Browser adaptation over the product-owned workspace packet codec and transposer |
+| `engine/BrowserPackageWorkspace.cs` | the Browser adapter over shared package acquisition, the session cache/capacity policy, and the bounded workspace registry |
+| `engine/BrowserPlatformWorkspace.cs` | content-backed platform acquisition, exact family pins, cumulative group replacement, and shared package/workspace accounting |
 | `engine/BrowserApiSurfacePolicy.cs` | the explicit participant/type/member bounds every API-surface projection runs under |
-| `engine/BrowserInspectionScope.cs` | the `InspectionWorkspace` lifetime and its compile/implementation group hand-offs |
+| `engine/BrowserInspectionScope.cs` | Browser coordinate/asset provenance over product-realized surface/implementation roles, the `InspectionWorkspace` lifetime, and query hand-offs |
 | `engine/BrowserSurfaceProjection.cs` | adapting typed query models into transport records |
 | `engine/BrowserStyleOptions.cs` | resolving the client's style ids through `StyleOptionCatalog` |
 | `engine/BrowserXmlDocumentation.cs` | reading one member's package-shipped XML documentation |
 | `engine/InspectionEngine.cs` | the supported `[JSExport]` operations |
-| `engine/BrowserSourceOperations.cs` | pathless authored-or-decompiled type/member source and Browser source capabilities |
+| `engine/BrowserPlatformOperations.cs` | the supported Platform acquisition, Integrations, Opportunities, and call-graph exports |
+| `engine/BrowserSourceOperations.cs` | pathless PDB-mapped-or-decompiled type/member source and Browser source capabilities |
 | `engine/BrowserUnsupportedOperations.cs` | the `[JSExport]` operations this engine refuses |
 
 Inspected assemblies are read with System.Reflection.Metadata only, are never
@@ -198,11 +302,13 @@ case gate those boundaries.
 Each retained scope has an explicit compile role and implementation role. The
 compile group uses the selector's reference-preferred assets for API and type
 views; the implementation group uses matching `lib/` assets for bodies,
-Integrations, and call graphs. Opportunities use the compile group because they
-classify the package's reference-preferred public surface. Packages without
-`ref/` assets share one group for both roles. When both roles exist and differ, they split the scope's 64 MB retained image
-budget rather than doubling it. A reference-only package has one group and uses
-the full budget.
+Integrations, call graphs, and whole-assembly performance analysis.
+Opportunities use the compile group because they classify the package's
+reference-preferred public surface. Packages without `ref/` assets share one
+group for both roles. When both roles exist and differ, they split the scope's
+64 MB retained image budget rather than doubling it. A reference-only package
+has one group and uses the full budget; performance analysis falls back to that
+surface group when no implementation participant exists.
 
 ## Supported
 
@@ -215,7 +321,12 @@ the full budget.
 | `QueryPackageDependencies` | one package/version/framework | `PackageDependencyGroupsQuery.ExecuteAsync(content, ...)` and `AssemblyContextReferencesQuery.ExecuteParticipant(...)` |
 | `QueryPackageIntegrations` | one package/version/framework | `AssemblyContextIntegrationsQuery.Execute(group)` |
 | `QueryPackageOpportunities` | one package/version/framework | `AssemblyContextIntegrationOpportunitiesQuery.Execute(group, prerequisites)` |
+| `QueryPackagePerformance` | one package/version/framework, implementation group | `AssemblyContextOptimizationOpportunitiesQuery.Execute(group)` |
 | `QueryMemberCallGraph` | every open package coordinate, implementation group | `MemberCallGraphSession` |
+| `LoadRuntimePack`, `LoadRuntimePackAssembly` | selected platform assemblies accumulated per target framework | `AssemblyContextApiSurfaceQuery.ExecuteBounded(group, scope, limits, participants)` |
+| `QueryPlatformIntegrations` | one selected participant in the cumulative platform group | `AssemblyContextIntegrationsQuery.ExecuteParticipant(...)` |
+| `QueryPlatformOpportunities` | one selected participant in the cumulative platform group | `AssemblyContextIntegrationOpportunitiesQuery.ExecuteParticipant(...)` |
+| `ExpandPlatformCallGraph` | lazily acquired target in the cumulative runtime and ASP.NET Core platform group | `MemberCallGraphSession` |
 
 `QueryPackage` is the site's default path. It runs against the product-selected
 compile assets, so `ref/` assemblies remain authoritative when the package ships
@@ -269,7 +380,7 @@ visible failure, not a silently ignored selection.
 
 The three source exports resolve the exact structured type identity and opaque
 member body selector against the implementation participant before calling
-`AssemblyContextSourceQuery`. The query tries checksum-verified authored source
+`AssemblyContextSourceQuery`. The query tries checksum-verified PDB source
 through Browser HTTP and explicit nuget.org authorization, then falls back to
 pathless decompilation under the workspace binding policy. Symbol-package
 responses are capped at 24 MiB, expanded PDBs at 8 MiB, and archives at 2,048
@@ -305,10 +416,12 @@ bounded cache operation for other consumers; `CancelledWait_ReleasesSharedPackag
 gates that separation. Source lookup therefore adds no ambient filesystem
 dependency or unbounded retained cache. Typed rejection and unavailable
 outcomes become visible failures; only an `Available` result crosses the
-bridge. Decompiled results disclose why the authored attempt was unavailable.
+bridge. Decompiled results disclose why the PDB-source attempt was unavailable.
+`BrowserEngineBoundaryTests.DecompiledSources_CarryPdbAttemptLimitation` gates
+that adapter wiring.
 Reference-only type source is refused rather than presented as a body-free
 decompilation. Printer options apply to decompiled fallback and never rewrite
-authored source. Whole-member source remains MethodDef-scoped: a
+PDB source. Whole-member source remains MethodDef-scoped: a
 call-graph accessor body reports that limitation rather than returning its owner
 property or the whole type as a success-shaped substitute, and bodiless API
 groups do not offer a Source section.
@@ -353,6 +466,57 @@ query, which runs its declared Integrations prerequisite over the same retained
 surface group. The product owns opportunity classification, existing-integration
 suppression, and participant failures. The browser only deduplicates identical
 rows and groups them by the returned integration name.
+
+`QueryPackagePerformance` runs the product's group-scoped optimization query
+over implementation participants, falling back to the surface group only for a
+reference-only package. Analysis owns opportunity priority, semantic loop
+classification, generated-framework suppression, member aggregation, and
+deterministic order. The query owns body-index lifetime, binding-contained
+sibling resolution, public API attribution, and typed failures. Lifted evidence
+aggregates under its source owner. Exact metadata type identity and stable member
+selectors bridge implementation evidence to the exact rendered
+reference-preferred surface without treating MethodDef tokens as cross-image
+identities. The browser removes rows absent from that surface, emits the surface
+assembly identity, and applies its 200-member display bound afterward while
+preserving product order. Extra implementation-only assemblies are omitted
+rather than making the lens fail, and any bounded-surface notice remains visible
+beside the Analysis result. A 201st navigable ranked member produces a visible
+truncation notice instead of making the top 200 look complete. Accessor evidence
+is aggregated under its owning property or event with every body token retained.
+Rows open the supported member Overview. Non-public opportunities remain visible
+in the aggregate count.
+
+`QueryMemberFacts` resolves the selected reference-preferred member to its exact
+implementation body through the product's opaque member correspondence, then
+invokes `AssemblyContextMethodAnalysisQuery` for that participant and physical
+MethodDef token. The query owns retained-image, metadata-context, and Analysis
+index lifetime. The browser only formats signals, allocation and call
+occurrences, unsafe evidence, exception regions, opportunities, and visible
+diagnostics. Allocation occurrences retain the product's heap-counting
+discriminator, and safety rows use the product's deduplicated semantic
+projection. Call rows use qualified type spelling and retain constructed
+generic method type arguments. Selected graph-only accessor bodies use their
+body selector and token, and ref/lib MethodDef row numbers are validated rather
+than treated as cross-image identities. Surface selections use structural
+correspondence without offering their reference-image token as an implementation
+fallback; only a graph-only member surface returned by the product authorizes
+fallback, using the graph response's exact selected body name, selector, and
+implementation MethodDef token rather than fields restored from a shared
+target. Owning property and event surfaces retain that selected accessor
+separately from navigation state. The selected body coordinates overlay rather
+than replace the full graph target, preserving its assembly and type identity
+for history restoration; `selected graph bodies preserve the full navigation
+identity` gates that round trip.
+`BrowserEngineBoundaryTests.MemberFacts_DistinguishesSurfaceAndBodyTokenResolution`
+gates token and accessor provenance, heap classification, unsafe-operation
+deduplication, and constructed generic call identity. The frontend retains at
+most one in-flight Facts Analysis request per member signature and lets a
+returning selection reattach to that work; `same member facts request does not
+duplicate in-flight analysis` and `returning to in-flight member facts reuses
+work and owns publication` gate that single-threaded Browser/Wasm protection.
+`graph-only implementation bodies select, switch, and clear` gates the mutable
+application projection that authorizes accessor fallback and removes that
+authorization when the selected target no longer matches a product body.
 
 `QueryPackageDependencies` asks the package-content query for every dependency
 group in manifest order and an exact-framework selection outcome. A missing
@@ -405,16 +569,26 @@ rather than fixture results or success-shaped empty output.
 
 | Unsupported export | Missing product query |
 | --- | --- |
-| `QueryMemberFacts` | method-scoped Analysis evidence over a group participant |
 | `QueryPackageMetadata`, `QueryPackageMetadataTable`, `QueryPackageHeapEntries` | metadata image, table, and heap projections over a group (`MetadataImageQuery` binds to a host-opened session today) |
-| `QueryPackagePerformance` | assembly-wide Analysis ranking over a group |
-| every `QueryPlatform*`, `ExpandPlatformCallGraph`, `LoadRuntimePack`, `LoadRuntimePackAssembly` | `WorkspaceContextLoader` now produces runtime-pack participants from content; the Browser host still needs platform scope caching, typed-result adaptation, and the missing group-scoped metadata/performance queries named above |
+| `QueryPlatformMetadata`, `QueryPlatformMetadataTable`, `QueryPlatformHeapEntries` | the same missing group-scoped metadata image, table, and heap projections as the package exports |
+| `QueryPlatformPerformance` | assembly-wide Analysis ranking over a platform group |
+
+Package-backed type Metadata/Source and member Source/Annotated Source exports
+do not accept platform coordinates. The Platform UI therefore withholds those
+type lenses and member sections rather than routing `Microsoft.NETCore.App`
+through NuGet package acquisition. Platform call graphs remain available;
+method Facts remains package-backed.
 
 `ResolvedAssemblyReference.CreateFromStreamIfManaged` owns pathless identity
 decoding, so Browser acquisition does not reconstruct assembly identity.
 
+Platform workspace acquisition and the supported adapters are tracked by
+[#4401].
+
 Each gap has a tracking issue; the pull request that introduced this rebuild
 lists them.
+
+[#4401]: https://github.com/richlander/dotnet-inspect/issues/4401
 
 ## Annotated source
 
@@ -454,7 +628,10 @@ Open `http://127.0.0.1:5198`. Create a deployable static bundle with
 `npm run build && dotnet publish -c Release` from the same directories shown
 above. The TypeScript check is part of both `npm run build` and `npm test`.
 Remote addresses require HTTPS because the .NET loader uses secure-context
-browser APIs.
+browser APIs. For private cross-machine demos, follow
+[`docs/runbooks/inspect-web-demo-hosting.md`](../../docs/runbooks/inspect-web-demo-hosting.md);
+the preferred SSH-forwarding pattern preserves a browser-loopback URL without
+exposing an application port.
 
 On a bare visit, `dotnet-inspect.ts` waits for the home page's first contentful paint
 before dynamically importing `inspect-web-engine.js`. Search and demo controls
@@ -463,16 +640,124 @@ and shared-workspace deep links retain the full loading interstitial. The `bare
 home paints before wasm engine download` JavaScript test gates this startup
 boundary.
 
+The home page identifies the browser stack below its search surface and links
+to the client-rendered `/credits` route. `src/credits-panel.ts` owns that page's
+markup, route recognition, and rendered control bindings. Azure Static Web Apps
+rewrites direct Credits requests to the non-cacheable `index.html`; the
+document's root base keeps SDK-generated framework imports valid on both
+`/credits` and `/credits/`. `scripts/verify-site-artifact.ts` gates that base
+and its ordering in the Vite bundle and SDK-published site. Other application
+routes use the navigation fallback, while API, asset, and framework requests
+remain excluded.
+
 The .NET 11 preview Emscripten wrapper currently mishandles an SDK packs path
 that contains whitespace. If that applies to the local SDK installation, pass
 `EmscriptenSdkToolsPath` pointing to a no-whitespace link to the installed
 Emscripten `tools` directory.
+
+## Static analysis
+
+Run both frontend analysis gates locally with:
+
+```bash
+cd prototypes/inspect-web
+npm run typecheck
+npm run analyze
+```
+
+The TypeScript gate checks product and test projects with `strict`,
+`exactOptionalPropertyTypes`, and `noImplicitReturns`. `npm run analyze` then
+runs Oxlint with its tsgolint backend against the same TypeScript 7.0.2
+toolchain used to build the product. Correctness and suspicious diagnostics,
+type-aware promise and unsafe-operation checks, warnings, and unused
+suppression directives all fail the gate. Browser/background promises must
+either preserve sequencing or surface unexpected rejection visibly. The exact
+`node:test` `test` call is the only configured safe promise-returning call
+because the test runner owns and observes that returned promise.
+
+Closed workspace scopes, type and package lenses, member sections, and
+Spotlight scopes are literal unions derived from their UI catalogs. DOM and URL
+tokens are decoded before they reach typed state or actions; the scope-bar and
+workspace-navigation tests gate rejection of unknown values.
+
+Oxlint checks both checked-in tsbindgen outputs as consumer contracts:
+`src/inspect-web-engine.d.ts` receives the TypeScript rules, while
+`engine/wwwroot/inspect-web-engine.js` receives the JavaScript correctness and
+suspicious rules described below. TypeScript compilation and the generated
+surface drift gate provide independent declaration coverage. The toolchain
+test pins both generated lint inputs so a generator change cannot silently
+leave analysis coverage. The configuration disables four non-correctness
+rules: underscore spelling, function relocation, listener API preference, and
+`Array.prototype.sort`. Those rules prescribe naming/layout churn or, for
+sorting, the ES2023 `toSorted` API while this project targets ES2022.
+
+Existing JavaScript tests and verification scripts remain covered by Oxlint's
+correctness and suspicious rules, but not by its unsafe-operation type rules:
+adding a shadow type model or migrating those files to TypeScript is outside
+this analysis change. Their dependency and reachability graph remains covered
+by Knip.
+
+Knip checks authored source, every TypeScript and JavaScript test, and
+build/verification scripts for unused files, exports, and dependencies.
+`knip.json` excludes only `engine/wwwroot/inspect-web-engine.js`: that generated
+publish artifact imports `./_framework/dotnet.js`, which exists only after Wasm
+publish. The exclusion is specific to Knip reachability; Oxlint still checks
+the generated module.
+
+The tsgolint semantic backend publishes native binaries for x64 and arm64 hosts
+running macOS, Linux (glibc or musl), or Windows. Those are the supported
+development-analysis hosts; `npm run lint` fails before launching the analyzer
+on other operating-system or architecture combinations, including Linux
+ppc64le and s390x. Oxlint itself supports additional hosts, but type-aware
+analysis is the limiting capability. This approved development-tool exception
+does not affect the browser/Wasm product runtime or artifact. The host-matrix
+unit test derives the supported intersection from the locked Oxlint and
+tsgolint package metadata, requires both Linux libc variants, and pins the npm
+preflight wiring; `npm run analyze` on macOS arm64 and the Linux x64 CI host
+gates the supported paths.
+
+`noUncheckedIndexedAccess` is enabled in the shared configuration and therefore
+applies to both product and test projects. Indexed and lookup values are checked
+at their use sites, with malformed decoded coordinates ignored and missing
+decoded assembly descriptors reported through the existing visible failure
+paths. Close-negative tests cover those boundaries rather than relying on
+non-null assertions.
+
+The scope, lens, and member-section vocabularies are closed union types derived
+from the catalogs that render them. `data.ts` and `spotlight.ts` own those
+catalogs; narrower typed subsets such as the platform library picker may repeat
+only the values that surface exposes, with assignment back to catalog-derived
+state checked by TypeScript. Values arriving from `dataset` attributes, URL
+query parameters, hashes, and share packets are admitted through `isTypeLens`,
+`isPackageLens`, `isMemberSection`, `isWorkspaceScope`, and `availableScope`;
+an unrecognized value is rejected at that boundary rather than cast into typed
+state.
+
+Because those catalogs also render the choices a user can pick, adding an entry
+widens the union *and* immediately offers the new value. Every dispatch named by
+the exhaustiveness gate therefore ends in `assertNever`, so adding a catalog
+entry fails compilation until each such dispatch says what the new value does.
+The gate derives its vocabulary roster from every exported type alias in
+`data.ts` and `spotlight.ts` that queries a catalog; it is not tied to one
+formatting or indexing shape.
+
+Nothing at runtime can observe that property — an unhandled value would simply
+take whichever branch the consumer fell through to — so the gate is the compiler, and
+`widening a UI vocabulary catalog fails compilation until every consumer handles it`
+in `test/vocabulary-exhaustiveness.test.ts` is that gate. It widens each catalog
+in a throwaway copy of the real TypeScript source graph and asserts `tsc`
+reports the expected `assertNever` location in every named dispatch, with no
+unrelated diagnostic. Deleting any one exhaustive dispatch turns it red.
+`packageLensBody` is exhaustive too: an unwired package lens used to render a
+placeholder that was indistinguishable from an empty lens, but now fails
+compilation until its behavior is explicit.
 
 ## Test
 
 ```bash
 cd prototypes/inspect-web
 npm ci
+npm run analyze
 npm run build
 npm test
 cd ../..
@@ -514,9 +799,9 @@ above on every browser-engine CI run.
 Pull requests that change the browser prototype, its shared annotated-source
 viewer, product dependencies, or repository build inputs run the `inspect-web`
 CI job. That job installs the locked Node dependencies, checks and bundles the
-TypeScript/JavaScript frontend, compiles the platform-index generator, publishes
-the Release Wasm bundle, runs the browser-engine tests, and runs both frontend
-test suites.
+TypeScript/JavaScript frontend, rejects unused authored files, exports, and
+dependencies, compiles the platform-index generator, publishes the Release Wasm
+bundle, runs the browser-engine tests, and runs both frontend test suites.
 The `eng/CiChangeDetection` gate, invoked through
 `eng/test-ci-change-detection.cs`, gates the path classification, and
 `ci-required` includes the job's result.
@@ -528,24 +813,126 @@ state: changing either resolves a different workspace. Lenses this engine does
 not answer report the engine's failure rather than fixture results.
 
 `src/workspace-navigation.ts` owns the in-memory view history, monotonic
-navigation generation, share-packet encoding and decoding, URL parsing and
-building, and the browser-history port. `dotnet-inspect.ts` remains the sole
-mutable application-state owner: it supplies typed snapshots and explicit
-transition callbacks, and retains asynchronous workspace restoration and DOM
-event binding. `test/workspace-navigation.test.ts` gates history traversal,
-stale-entry removal, navigation cancellation, rich and legacy URL
-compatibility, visible invalid-state failures, and sandboxed history errors;
-`test/spotlight-identity.test.js` gates the composition-root wiring.
+navigation generation, URL routing and building, typed adaptation to the
+generated workspace-state bridge, the browser-history port, and the single delegated click listener
+that intercepts same-origin in-app anchor clicks
+(`bindWorkspaceLinkNavigation`/`shouldInterceptLinkClick`) — a modified click,
+`target`-scoped link, `download` link, or cross-origin href keeps native
+browser behavior. Initial routing records the opaque `w=` value without decoding
+it, which preserves the bare-home paint before WebAssembly while allowing shared
+workspace resolution to run only after the engine is ready.
+`BrowserWorkspaceShareOperations` then routes decode through
+`WorkspaceSharePacketCodec` and `WorkspaceSharePacketTransposer`; encoding
+reverses the same path. TypeScript neither understands compact packet fields nor
+owns base64url. Packet-local tabs, independent navigation focus and selected
+binding context, portable member anchors/signatures, section, and sorted library
+scope cross the generated bridge as long-form records. The selected context,
+not every open tab, bounds package Call Graph expansion. Browser-created Call
+Graph state composes only package tabs with the active tab's framework and RID;
+incompatible tabs remain separate contexts. Product-run Call Graph demos install
+their exact executed package order as the selected context, and expanded queries
+send that complete ordered context to the product engine.
+
+Browser activation supports package tabs and one exact or floating `:Platform`
+group tab without RIDs. Canonical activation is atomic: any unavailable tab,
+library, type, member, applicable member section, or many-to-one or
+coordinate-changing tab resolution leaves the original URL intact, retains the
+prior workbench when one exists, and reports the failed restore rather than
+activating a partial workspace.
+Unsupported groups, multiple Platform tabs, runtime identifiers,
+multiple selected libraries, unknown lenses or sections, package-root facets,
+unresolved graph targets,
+ambiguous overloads, graph-discovered members, accessor-specific bodies, and
+members without a portable product identity fail visibly rather than producing
+lossy state. These boundaries are gated by `canonical tabs must remain distinct
+and ordered after resolution`, `missing Platform reacquisition retains only an
+aligned canonical pin`, and `canonical restoration is atomic and history adopts
+the active packet basis`. A present `w=` remains authoritative even when
+decoding or Browser adaptation rejects it; the visible package label is never a
+fallback workspace, and malformed courtesy paths cannot preempt packet handling.
+Failed packet URLs survive automatic nested renders until the projected
+workspace changes. Successful packet activation discards any prior graph-source
+modal, and explicit version or framework changes discard a floating packet basis
+before URL capture only after acquisition succeeds. A failed Platform switch
+retains its resident workspace. A selected Call Graph context containing a
+Platform participant fails visibly because the Browser transport realizes only
+package participants. `an empty workspace parameter remains authoritative`,
+`authoritative packets bypass malformed courtesy paths`, `failed URL retention
+survives automatic renders until navigation changes`, `Browser Call Graph
+contexts reject Platform participants`, `explicit coordinate changes discard a
+floating canonical basis`, and `canonical commit clears a settled graph source
+without rendering` gate those boundaries.
+`canonical transitions cancel visible source work before snapshot` and
+`canonical transitions settle annotated source before snapshot` specifically
+gate source-request settlement. Filters and browse presentation stay
+session-local. A package-root view drops stale `w=` state and uses the ordinary
+Browser package route for address-bar synchronization and explicit Share until
+product facet ids exist. Other transient,
+non-projectable views retain the last valid canonical URL; explicit Share
+reports the refusal.
+`test/workspace-navigation.test.ts` gates that the route preflight cannot decode
+the packet and that later resolution invokes exactly one decoder.
+`dotnet-inspect.ts` remains the sole mutable
+application-state owner: it supplies typed snapshots and explicit transition
+callbacks, calls the one link-navigation binder instead of adding its own
+click listener, and registers application-level gestures and context
+predicates with the shared keybinding dispatcher.
+
+`src/keybinding-registry.ts` is a dependency-free general component with no
+inspect-web imports. A registration declares keys, exact modifiers by default,
+priority, an optional event-path scope and context predicate, and a handler
+whose Boolean result distinguishes "matched" from "handled". The registry
+orders active matches by priority and nearest event-path scope, stops at the
+first handled result, and centrally applies `preventDefault()`. A false result
+falls through to the next candidate. Equal-precedence matches produce a
+structured conflict callback while retaining deterministic registration order.
+Event-scoped registrations live in a `WeakMap`; registration also returns an
+explicit disposer.
+
+`src/workbench-keybindings.ts` is the inspect-web adapter: it defines the
+workspace, element, and modal priority policy and reports conflicts. Local
+owners including Spotlight, type/member filters, package tabs, and graph
+interactions register their gestures against the rendered element. The
+composition root registers workspace and modal gestures, then attaches the
+registry's only raw `keydown` listener to `document`. Alt+←/→ and Shift+←/→
+drive `navBack()`/`navForward()`; element-scoped gestures arbitrate in the same
+dispatcher instead of relying on bubbling order or `defaultPrevented`
+cooperation. Shift+←/→ remain gated by the shared typing check so they never
+steal native text selection inside an input or filter field; Shift+↑/↓ stay
+unclaimed globally.
+
+`test/keybinding-registry.test.ts` gates precedence, scoped arbitration,
+handled fallthrough, exact modifiers, conflict reporting, disposal, and the
+original stack-navigation collision. `test/spotlight-identity.test.js` gates
+the single-listener wiring and the complete workbench priority order.
+`test/workspace-navigation.test.ts` gates
+history traversal, stale-entry removal, navigation cancellation, generated
+codec delegation, canonical topology and identity adaptation, visible typed
+failures, sandboxed history errors, and the link-interception rule.
 
 `src/package-acquisition.ts` owns NuGet and runtime-pack engine invocation,
 surface-to-workspace-model projection, serialized runtime-pack loading, and
 stale-result checks at the publication boundary. `dotnet-inspect.ts` supplies
 the engine and state ports and retains mutable loading/error state, package
 activation, workspace restoration, notices, retries, and rendering.
+The generated engine declarations expose JSON-wire values as readonly
+snapshots. Package acquisition therefore creates explicit application-owned
+package, type, member, and parameter models only for the paths the client
+mutates: runtime package aggregation, graph-member retention, and documentation
+hydration. Immutable assembly, accessibility, document, and exception values
+remain shared where their identity is useful; their containing application
+collections are copied before mutation. The
+`generatedPackageSurfaceRejectsMutation` and
+`generatedMemberSurfaceRejectsMutation` TypeScript canaries keep direct wire
+mutation red, while `package projection copies only application-owned mutable
+collections` and `documentation hydration mutates only the application
+projection` gate the copy boundary and wire-object isolation.
 `test/package-acquisition.test.ts` gates package projection, publication
 ordering, runtime request serialization and merging, cancellation after queued
 or in-flight work, request-local failure reporting, replacement-slot
 preservation, retry after failure, and resident-pack reuse;
+exact Platform pins additionally gate version-aware resident reuse and engine
+invocation;
 `test/spotlight-identity.test.js` gates provenance, failure adaptation, and
 composition-root wiring.
 
@@ -627,9 +1014,10 @@ removal, and both silent transient-failure paths; the composition-root gate
 checks that network and DOM authority remain outside the coordinator.
 
 The typed `src/status-bar.ts` component renders both the full-width workspace
-data bar and the home readiness bar. The workspace bar occupies the bottom row
-formerly used by the persistent command prompt, giving the bar the full
-viewport width. By default the bar shows a compact, single-line summary in
+data bar and the home readiness bar and owns their rendered toggle binding.
+The workspace bar occupies the bottom row formerly used by the persistent
+command prompt, giving the bar the full viewport width. By default the bar
+shows a compact, single-line summary in
 priority order: app version/commit, package provenance, build date, and a
 one-line performance summary. A dedicated toggle button at the end of the bar
 (so it never overlaps the commit link) expands and collapses the view,
@@ -646,113 +1034,161 @@ Symbol/PDB acquisition status is not yet surfaced here — no backend contract
 reports it today — and is a tracked fast-follow.
 
 `src/type-panel.ts` owns the type selector (the "PUBLIC TYPES" / "MEMBERS" nav
-pane) and the type viewer (the type heading, metadata, and source sections
-shown for the "type" scope) as pure, dependency-injected render functions.
+pane), its rendered DOM control bindings (including member filters,
+composition jumps, member navigation, and member/type copy controls), and the
+type viewer (the type heading, metadata, and source sections shown for the
+"type" scope).
 `dotnet-inspect.ts` still owns the type index, filtering, member grouping, and
-click/keyboard navigation, and passes each computed slice in explicitly; the
+navigation state transitions, and supplies them through typed callbacks; the
 shared text helpers used well beyond the type panel (`kindIcon`, `shortKind`,
 `typeDisplayName`, `highlight`, `highlightCSharp`, `factRows`,
 `relatedTypeChip`) stay in `dotnet-inspect.ts` and are injected the same way.
-`test/type-panel.test.ts` gates namespace grouping and selection in the type
-list, active-group and overload selection in the member list, the type
-heading's package/library fields, the metadata- and source-signature cache
-keys, and the metadata/source panels' loading, error, and loaded states.
+`test/type-panel.test.ts` gates every rendered control binding, type-filter
+keyboard behavior, namespace grouping and selection in the type list,
+active-group and overload selection in the member list, the type heading's
+package/library fields, the metadata- and source-signature cache keys, and the
+metadata/source panels' loading, error, and loaded states.
 
 `src/package-bar.ts` owns the package tab strip (including the always-present
-Platform tab), the open-package query form, and their keyboard/mouse/wheel
-interaction. `dotnet-inspect.ts` supplies the workspace effects — selecting, closing, and
-opening a package or the runtime pack — so the component acquires no engine or
-workspace authority. `test/package-bar.test.ts` gates tab markup, active/close
-state, escaping, and open-package query parsing.
+Platform tab), the open-package query form, package framework/version controls,
+and their keyboard/mouse/wheel interaction. `dotnet-inspect.ts` supplies the
+workspace effects — selecting, closing, opening, or changing a package or the
+runtime pack — so the component acquires no engine or workspace authority.
+`test/package-bar.test.ts` gates tab markup, active/close state, escaping,
+open-package query parsing, and package selection dispatch.
+
+`src/package-view.ts` owns package-level dependency, overview, type-graph, and
+performance navigation bindings. `dotnet-inspect.ts` still owns package and
+filter state, in-place dependency updates, navigation effects, and member
+inspection effects behind typed callbacks. `test/package-view.test.ts` gates
+dataset decoding, missing values, replacement dependency-list binding, inactive
+surfaces, and no eager dispatch.
+
+`src/library-controls.ts` owns library/accessibility filters, the primary
+Platform library selector, and the lens-scoped Platform library selectors.
+`dotnet-inspect.ts` still owns filter mutation, runtime-pack acquisition,
+generation checks, visible retry state, and lens reload effects behind typed
+callbacks. `test/library-controls.test.ts` gates selector mapping, pack
+provenance/defaults, empty selections, inactive surfaces, and no eager
+dispatch.
+
+`src/shell-controls.ts` owns the rendered workbench chrome, home demo/theme
+controls, and load-error retry/query/detail bindings. It reuses the package
+query grammar from `package-bar.ts`; `dotnet-inspect.ts` still owns notice and
+package state, navigation/history, sharing, theme effects, demo orchestration,
+retry selection, and package loading behind typed callbacks.
+`test/shell-controls.test.ts` gates every selector, valid and invalid home demo
+identities, replacement-package parsing, local error-detail state, inactive
+surfaces, and no eager dispatch.
+
+`src/graph-interactions.ts` owns graph-back, pan/zoom, pointer, keyboard, zoom
+button, and rendered Mermaid node bindings for type, dependency, and call
+graphs. `dotnet-inspect.ts` still owns typed graph-target resolution, package
+and member navigation, platform descent, graph rendering, and stale-render
+suppression behind callback resolvers. `test/graph-interactions.test.ts` gates
+stable Mermaid node identity decoding, navigable and informational nodes,
+drag-click suppression, every pan/zoom input, inactive surfaces, and no eager
+dispatch.
 
 `src/settings-panel.ts` owns the Settings page and the decompiler "taste"
-popover it shares its style catalog with, as pure, dependency-injected render
-functions. `dotnet-inspect.ts` still owns `state`, localStorage persistence for theme and
-taste, and event wiring (`setTheme`, `toggleTaste`, `clearTaste`), and passes
-each computed slice in explicitly. `test/settings-panel.test.ts` gates the
-style catalog's tier grouping, byte-divergent badges, and checked state; the
-taste popover's active/default states; and the Settings page's theme segment,
-close-button label, and active-style-count states.
+popover it shares its style catalog with, including each surface's rendered DOM
+bindings and the home/workbench controls that open them. `dotnet-inspect.ts`
+still owns `state`, localStorage persistence, and the
+theme/taste/open/close effects, supplying those actions through typed callbacks.
+`test/settings-panel.test.ts` gates the mutually exclusive Settings and popover
+binding shapes, input validation, the style catalog's tier grouping,
+byte-divergent badges and checked state, the taste popover's active/default
+states, and the Settings page's theme, close, and active-style-count states.
 
 `src/scope-bar.ts` owns the scope switcher and lens strip (the segmented
 Package/Types/Member control and the buttons beside it for the active scope's
-lenses or member sections) as a pure, dependency-injected render function.
+lenses or member sections), including their rendered DOM bindings.
 `dotnet-inspect.ts` still owns the current scope, the package/type/member lens
-definitions, and the active lens/section per scope, and passes each computed
-slice in explicitly. `test/scope-bar.test.ts` gates the active scope segment,
-the active lens/section marking per scope, keyboard-shortcut indices, and
-label escaping.
+definitions, and each navigation state transition, supplying those effects
+through typed callbacks. `test/scope-bar.test.ts` gates each mutually exclusive
+binding shape, the active scope segment, active lens/section marking,
+keyboard-shortcut indices, and label escaping.
 
 `src/metadata-viewer.ts` owns the Metadata lens (the image-level summary of each
 assembly — format stamp, heap sizes, ECMA-335 table row counts, and PE/CLI
 headers) and the Metadata Explorer (the spatial table/heap drill-down laid over
-it) as pure, dependency-injected render functions; both describe the metadata
+it), including the explorer's rendered DOM bindings. Both describe the metadata
 image rather than the API surface within it, so they share one module the way
 `type-panel.ts` combines the type selector and the type viewer.
 `package-inspection.ts` coordinates the package-level image request, while
 `metadata-inspection.ts` coordinates type metadata and the explorer's
 table-window and heap-listing requests. `dotnet-inspect.ts` still owns `state`,
-the explorer's focus/history stack, the DOM event binding, the
-`IntersectionObserver` that hydrates cards lazily, the resize listener, and
-the global keydown handler, and passes each computed slice in explicitly; the
-shared helpers used well beyond these views (`escapeHtml`, `fmtBytes`,
+the explorer's focus/history stack, lazy `IntersectionObserver` hydration,
+resize coordination, and global gesture effects, supplying those effects
+through typed callbacks and registry declarations; the shared helpers used
+well beyond these views
+(`escapeHtml`, `fmtBytes`,
 `platformLensPicker`, `scopedPlatformLibrary`, `packageScopeSignature`) stay
 in `dotnet-inspect.ts` and are injected the same way.
 `test/metadata-viewer.test.ts` gates the lens's picker, loading, failure,
 stale-scope, partial-read, and empty-image states and its heap/table ordering;
-the explorer's chips, history-button
-enablement, overview versus focus lightbox, lazy-load hooks, pager bounds, row
-highlight and selection, ref->def jump targets, cell escaping, heap addressing
-and coverage notes, and the row inspector.
+the Metadata-lens table/heap entry controls, the explorer's mutually exclusive
+overview/focus binding shapes, chips, history-button enablement, overview
+versus focus lightbox, lazy-load hooks, pager bounds, row highlight and
+selection, ref->def jump targets, cell escaping, heap addressing and coverage
+notes, and the row inspector.
 
 `src/doc-viewer.ts` owns the package document modal (the Markdown reader
-opened from a package's documents list) as a pure, dependency-injected render
-function. `src/document-inspection.ts` owns its sequence-guarded async
-load/close lifecycle, visible failure, and frontmatter projection.
+opened from a package's documents list) and that list's markup, including its
+open, close, and bare-backdrop bindings. `src/document-inspection.ts` owns its
+sequence-guarded async load/close lifecycle, visible failure, and frontmatter
+projection.
 `dotnet-inspect.ts` validates the selected package document and supplies the
 engine, sanitized Markdown-rendering, state, and render ports.
 `test/doc-viewer.test.ts` gates the closed/no-document fallback, loading and
 error presentation, the
 frontmatter card's presence and fields, and title/subtitle/frontmatter-name
-escaping; `test/document-inspection.test.ts` gates exact request coordinates,
+escaping, package-document list output, open dispatch, and button/backdrop
+close dispatch;
+`test/document-inspection.test.ts` gates exact request coordinates,
 frontmatter projection, stale-stage suppression, visible failures, and close
 invalidation (the rendered document body is trusted, pre-sanitized Markdown
 HTML and is not escaped).
 
 `src/graph-source.ts` owns the member source modal (the code viewer opened
-from a call graph node) as a pure, dependency-injected render function.
+from a call graph node), including its rendered close and bare-backdrop
+bindings.
 `source-inspection.ts` owns its sequence-guarded async lifecycle;
 `dotnet-inspect.ts` supplies `state`, the typed engine port, and the
 `highlightCSharp` Prism wrapper, and passes each computed slice explicitly.
 `test/graph-source.test.ts` gates the loading state, the
 original-versus-decompiled provenance labels, the open-source link's presence
 only when a `url` is provided, the error state's fallback message, and title
-escaping in both the header and loading status.
+escaping in both the header and loading status, plus button/backdrop close
+dispatch.
 
 `src/annotated-source.ts` owns the annotated source result (the
-fact-annotated C#/IL dual view shown for a member overload) as a pure,
-dependency-injected render function; it composes `annotated-source-view.ts`'s
-`buildAnnotatedView` projection into markup. `member-detail-inspection.ts` owns
-the sequence-guarded async load lifecycle; `dotnet-inspect.ts` still owns
-`state` and the medium-toggle/fact-selection event handlers, and passes each
-computed slice in explicitly.
+fact-annotated C#/IL dual view shown for a member overload), including its
+rendered copy, medium, fact, source-offset, and clear-selection bindings; it
+composes `annotated-source-view.ts`'s `buildAnnotatedView` projection into
+markup. `member-detail-inspection.ts` owns the sequence-guarded async load
+lifecycle; `dotnet-inspect.ts` still owns `state`, document interpretation,
+copy/render effects, and the selection transitions, supplying them through
+typed callbacks.
 `test/annotated-source.test.ts` gates the rejected-document fallback, the
 medium toggles and hidden-line count, the context-limitation notice, anchored
-versus unanchored fact rendering, selection state, and source-text escaping.
+versus unanchored fact rendering, selection state, binding dispatch and
+malformed dataset behavior, and source-text escaping.
 
 `src/package-opportunities.ts` owns the package/platform "Integration
 opportunities" lens (the ecosystem auth/cloud/config/database/AI-client
-integration suggestions for a package or platform library) as a pure,
-dependency-injected render function, including its opportunity-row API-name
-splitting, package-chip detection, and "look for" chip rendering. `dotnet-inspect.ts`
-still owns `state` and the platform library picker, `package-inspection.ts`
-owns the scan-scope-keyed async load lifecycle, and the root passes each
-computed slice into the renderer explicitly.
+integration suggestions for a package or platform library), including its
+rendered DOM bindings, opportunity-row API-name splitting, package-chip
+detection, and "look for" chip rendering. `dotnet-inspect.ts` still owns
+`state`, target resolution, navigation effects, and the platform library
+picker, `package-inspection.ts` owns the scan-scope-keyed async load lifecycle,
+and the root supplies behavior through typed callbacks.
 `test/package-opportunities.test.ts` gates the platform pick-a-library prompt,
 the scanning/loading/error states (fresh versus stale scope), the
 no-opportunities and inspection-error banners, the category summary counts,
 API name splitting, package-chip versus plain-text kind rendering, look-for
-chip/wildcard/empty rendering, and text escaping.
+chip/wildcard/empty rendering, binding dispatch and empty-value behavior, and
+text escaping.
 
 - `Cmd/Ctrl+K` opens Spotlight in the Commands scope.
 - `Cmd/Ctrl+P` opens Spotlight in the All scope.
@@ -773,9 +1209,12 @@ archives the resulting `wwwroot` and prebuilt managed API as the run-scoped
 `inspect-web-site` GitHub artifact, then uses a fresh environment-gated job to
 download that artifact by ID with digest mismatch configured as an error and
 deploy it to the public staging site at `https://dotnet-inspect.ca`. The upload
-includes the managed API's hidden `.azurefunctions` dependencies, and the
-post-download gate requires its extension loader before deployment. Candidate
-build code never runs in the staging deployment job. The separate
+includes the managed API's hidden `.azurefunctions` dependencies and overwrites
+the same-name artifact on a rerun, so a cancelled attempt can be retried without
+leaving multiple artifacts that promotion rejects.
+`PromotionWorkflowContract` gates both properties. The post-download gate
+requires the extension loader before deployment. Candidate build code never
+runs in the staging deployment job. The separate
 `inspect-web-staging` GitHub environment accepts only `main` and holds a
 deployment token scoped to the staging Azure Static Web App.
 
@@ -797,18 +1236,20 @@ hook before and after artifact transfer.
 `.github/workflows/promote-inspect-web.yml` intentionally promotes one
 successful staging run to production at `https://dotnet-inspect.net`. The
 operator supplies the staging run ID and types `promote`; the workflow verifies
-that the run was a successful `main` push through the staging workflow, that
+that the run was a successful `main` build through the staging workflow, that
 its `Publish staging` job succeeded, and that it produced one unexpired,
-nonempty `inspect-web-site` artifact. After production approval it revalidates
-the run attempt, commit, artifact identity, and digest, downloads the exact
-artifact ID with digest mismatch configured as an error, and deploys the
-archived staging files. `validate-inspect-web-promotion.cs --self-test`, run
-by inspect-web CI, gates the evidence discriminator and close negative cases;
+nonempty `inspect-web-site` artifact. Main-push staging is the default. An
+operator-dispatched staging run is accepted only when the promotion dispatch
+explicitly enables `allow_manual_staging`; the validator rejects it otherwise.
+After production approval the workflow revalidates that same override, run
+attempt, commit, artifact identity, and digest, downloads the exact artifact ID
+with digest mismatch configured as an error, and deploys the archived staging
+files. `validate-inspect-web-promotion.cs --self-test`, run by inspect-web CI,
+gates the default rejection, explicit exception, and other close negative cases;
 the CI change-detection workflow contract gate keeps all deployment jobs free
 of candidate code, closes the CoreCLR runtime and credential contract, keeps
 production revalidation on the trusted dispatch revision, and orders each
-artifact download before only verification and deployment. Manual staging runs
-remain useful for recovery but are deliberately not promotable.
+artifact download before only verification and deployment.
 
 Production promotion uses the distinct `inspect-web-production-promotion`
 environment and `AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_PRODUCTION`

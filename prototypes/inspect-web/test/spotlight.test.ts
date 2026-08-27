@@ -7,8 +7,15 @@ import {
   nextSpotlightSelection,
   visibleSpotlightPackageHits,
 } from "../src/spotlight.ts";
-import type { SpotlightResult, SpotlightState } from "../src/spotlight.ts";
+import type {
+  SpotlightResult,
+  SpotlightScope,
+  SpotlightState,
+} from "../src/spotlight.ts";
 import type { CommandContext } from "../src/command-bar.ts";
+import { KeybindingRegistry } from "../src/keybinding-registry.ts";
+import { fakeDom } from "./fake-dom.ts";
+import type { TypeLens } from "../src/data.ts";
 
 function escapeHtml(value: unknown) {
   return String(value)
@@ -19,11 +26,12 @@ function escapeHtml(value: unknown) {
 }
 
 interface HarnessOptions {
-  scope?: string;
+  scope?: SpotlightScope;
   query?: string;
   commandContext?: CommandContext | null;
   focusAfterDismiss?: () => void;
   searchResults?: () => SpotlightResult[];
+  lenses?: () => readonly (readonly [string, string])[];
 }
 
 // The library owns the real DOM event/element contract; this harness models only the
@@ -63,6 +71,7 @@ function createHarness({
   commandContext = null,
   focusAfterDismiss = () => {},
   searchResults = () => [],
+  lenses = () => [["api", "API"], ["metadata", "Metadata"]],
 }: HarnessOptions = {}) {
   const state: SpotlightState = {
     spotlightOpen: false,
@@ -72,15 +81,18 @@ function createHarness({
     spotlightFocus: "input",
     spotlightChipIndex: 0,
   };
+  const keybindings = new KeybindingRegistry();
   const spotlight = createSpotlight({
+    keybindings,
     state,
-    lenses: [["api", "API"], ["metadata", "Metadata"]],
+    lenses,
     escapeHtml,
     highlightRanges: (value) => escapeHtml(value),
     kindIcon: () => "C",
     searchResults,
     pickResult: () => {},
-    executeCommand: () => {},
+    executeCommand: () => undefined,
+    reportCommandError: () => {},
     commandContext: () => commandContext,
     schedulePackageFetch: () => {},
     resetPackageSearch: () => {},
@@ -90,7 +102,36 @@ function createHarness({
     render: () => {},
     focusAfterDismiss,
   });
-  return { spotlight, state };
+  return { keybindings, spotlight, state };
+}
+
+// open() ends by scheduling input focus through the real DOM. These tests are about
+// scope admission, so they install the minimal focus target and restore it after.
+function withStubbedFocusTarget(body: () => void): void {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  const globals = globalThis as unknown as {
+    document?: Document;
+    requestAnimationFrame?: (callback: FrameRequestCallback) => number;
+  };
+  const previousDocument = globals.document;
+  const previousRequestAnimationFrame = globals.requestAnimationFrame;
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  globals.document = { querySelector: () => null } as unknown as Document;
+  globals.requestAnimationFrame = (callback: FrameRequestCallback) => {
+    callback(0);
+    return 0;
+  };
+  try {
+    body();
+  } finally {
+    if (previousDocument === undefined) delete globals.document;
+    else globals.document = previousDocument;
+    if (previousRequestAnimationFrame === undefined) {
+      delete globals.requestAnimationFrame;
+    } else {
+      globals.requestAnimationFrame = previousRequestAnimationFrame;
+    }
+  }
 }
 
 const packageContext: CommandContext["package"] = {
@@ -167,7 +208,7 @@ test("modal arrow navigation reuses rendered results", () => {
     ranges: [],
   }));
   let searchCount = 0;
-  const { spotlight, state } = createHarness({
+  const { keybindings, spotlight, state } = createHarness({
     query: "Example",
     searchResults: () => {
       searchCount++;
@@ -182,7 +223,7 @@ test("modal arrow navigation reuses rendered results", () => {
     selectionStart: 7,
     selectionEnd: 7,
     addEventListener: (name, listener) => {
-      listeners.set(name, listener as (event: MockKeyboardEvent) => void);
+      listeners.set(name, listener);
     },
     focus: () => {},
     setAttribute: () => {},
@@ -201,12 +242,15 @@ test("modal arrow navigation reuses rendered results", () => {
     querySelector: selector => selector === "#spotlight-input" ? input : null,
     querySelectorAll: () => [],
   };
+  // The harness temporarily installs its minimal DOM globals and restores them below.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const globals = globalThis as unknown as {
     document?: Document;
     requestAnimationFrame?: (callback: FrameRequestCallback) => number;
   };
   const previousDocument = globals.document;
   const previousRequestAnimationFrame = globals.requestAnimationFrame;
+  // oxlint-disable typescript/no-unsafe-type-assertion
   globals.document = {
     querySelector: (selector: string) => {
       if (selector === "#spotlight-input") return input;
@@ -214,19 +258,29 @@ test("modal arrow navigation reuses rendered results", () => {
       return null;
     },
   } as unknown as Document;
+  // oxlint-enable typescript/no-unsafe-type-assertion
   globals.requestAnimationFrame = (callback: FrameRequestCallback) => {
     callback(0);
     return 0;
   };
 
   try {
+    // The root implements the exact ParentNode query surface Spotlight consumes.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     spotlight.bind(root as unknown as ParentNode, "modal");
+    const target = fakeDom.eventTarget(input);
     for (let index = 0; index < 4; index++) {
-      listeners.get("keydown")!({
+      keybindings.dispatch(fakeDom.keyboardEvent({
+        altKey: false,
+        ctrlKey: false,
+        defaultPrevented: false,
         key: "ArrowDown",
-        currentTarget: input,
+        metaKey: false,
+        shiftKey: false,
+        target,
+        composedPath: () => [target],
         preventDefault: () => {},
-      });
+      }));
     }
   } finally {
     if (previousDocument === undefined) delete globals.document;
@@ -274,16 +328,61 @@ test("workspace Spotlight exposes commands as a dedicated scope", () => {
   assert.doesNotMatch(html, /data-sl-pkg-load/);
 });
 
+test("workspace command lenses are resolved from the current package", () => {
+  let lenses: readonly (readonly [TypeLens, string])[] =
+    [["api", "API"], ["metadata", "Metadata"]];
+  const harness = createHarness({
+    scope: "commands",
+    query: "show ",
+    commandContext: { command: "show ", package: packageContext },
+    lenses: () => lenses,
+  });
+
+  assert.match(harness.spotlight.modalHtml(), />show metadata</);
+  lenses = [["api", "API"]];
+  assert.doesNotMatch(harness.spotlight.modalHtml(), />show metadata</);
+  assert.match(harness.spotlight.modalHtml(), />show api</);
+});
+
+test("Spotlight rejects a scope the current context does not offer", () => {
+  const { spotlight, state } = createHarness();
+
+  // "commands" is a well-typed SpotlightScope, but scopes() only offers it when a
+  // command context exists. Without one, open() must fall back rather than seat a
+  // scope whose results() branch can only ever return an empty list.
+  withStubbedFocusTarget(() => spotlight.open("", "commands"));
+
+  assert.equal(state.spotlightScope, "all");
+  assert.doesNotMatch(spotlight.modalHtml(), /data-sl-scope="commands"/);
+});
+
+test("Spotlight accepts a scope the current context does offer", () => {
+  const { spotlight, state } = createHarness({
+    commandContext: { command: "", package: packageContext },
+  });
+
+  withStubbedFocusTarget(() => spotlight.open("", "commands"));
+
+  assert.equal(state.spotlightScope, "commands");
+});
+
 test("home Spotlight keeps the shared typed UI without workspace commands", () => {
   const { spotlight } = createHarness();
 
-  const html = spotlight.inlineHtml(true);
-  assert.match(html, /class="home-search-content" inert/);
-  assert.match(html, /id="spotlight-input"/);
-  assert.match(html, /package, type, or member…/);
-  assert.doesNotMatch(html, /or command/);
-  assert.match(html, /data-sl-scope="runtime"[^>]*>Platform/);
-  assert.doesNotMatch(html, /data-sl-scope="commands"/);
+  const pendingHtml = spotlight.inlineHtml(true);
+  assert.match(pendingHtml, /class="home-search-content" inert/);
+  assert.match(pendingHtml, /id="spotlight-input"/);
+  assert.match(pendingHtml, /package, type, or member…/);
+  assert.doesNotMatch(pendingHtml, /or command/);
+  assert.match(pendingHtml, /data-sl-scope="runtime"[^>]*>Platform/);
+  assert.doesNotMatch(pendingHtml, /data-sl-scope="commands"/);
+  assert.doesNotMatch(pendingHtml, /home-search-glint/);
+
+  const readyHtml = spotlight.inlineHtml(false, true);
+  assert.match(readyHtml, /class="home-search-glint" aria-hidden="true"/);
+  assert.match(readyHtml, /class="home-search-glint-glow" pathLength="1"/);
+  assert.match(readyHtml, /class="home-search-glint-line" pathLength="1"/);
+  assert.doesNotMatch(spotlight.inlineHtml(false), /home-search-glint/);
 });
 
 test("command queries and command metadata are escaped in Spotlight markup", () => {
@@ -300,4 +399,3 @@ test("command queries and command metadata are escaped in Spotlight markup", () 
   assert.doesNotMatch(html, /<script/);
   assert.match(html, /find &lt;script class=&quot;x&quot;&gt;/);
 });
-

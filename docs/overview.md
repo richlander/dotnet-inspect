@@ -18,7 +18,7 @@ optimization-opportunity,
 switch, SourceLink, Integrations, implementation relationships, type/member search,
 extension reachability, API-comparison, Analysis body-signal comparison, and
 Implementation comparison inspection, plus group-scoped
-authored-or-decompiled type/member source. The `diff` Changes, Analysis Diff,
+PDB-mapped-or-decompiled type/member source. The `diff` Changes, Analysis Diff,
 and Implementation Diff sections consume producer-owned comparison results
 over host-resolved surfaces, body indexes, and retained assembly content.
 The library CLI, package `--all-libraries`, `extensions`, `implements`, and
@@ -46,7 +46,7 @@ substrates, and inspection producers that will extend that space.
   compares already-acquired Analysis body indexes, and compares retained
   implementation assembly content, returning typed results without pulling
   Research into the core query assembly.
-- `src/ILInspector.Metadata/` reads PE metadata and portable-PDB structure: named documents, checksums, sequence-point relationships/ranges, raw custom-debug-information blobs, API surfaces, method classification, and assembly details. `MetadataFindings` projects API and portable-PDB build-context observations onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.
+- `src/ILInspector.Metadata/` reads PE metadata and portable-PDB structure: named documents, checksums, sequence-point relationships/ranges, raw custom-debug-information blobs, API surfaces, method classification, authenticated [state-machine relationships](design/state-machine-relationship-index.md), and assembly details. `MetadataFindings` projects API and portable-PDB build-context observations onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.
 - `src/ILInspector.SourceLink/` sits above Metadata and SourceLinkFetch. It owns SourceLink map extraction, canonical document paths, URL decoration, provenance, high-level type/member/IL-offset resolution, source-document/member-source Findings, and SourceLink-aware debug audits.
 - `src/SourceLinkFetch/` owns the dependency-free SourceLink map matcher and provenance grammar.
 - `src/ILInspector.MetadataPrimitives/` is the dependency-free leaf for shared
@@ -65,6 +65,9 @@ substrates, and inspection producers that will extend that space.
 - `src/ILInspector.Instructions/` is the shared IL decode + EH-aware basic-block substrate (one decoder the analyzer and decompiler converge onto); see [instruction substrate](design/instruction-substrate.md).
 - `src/ILInspector.Text/` provides the reusable `TextFindings` API for exact, ordered line inspection and generic text comparison on the shared Finding spine.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction, package/source caches, feeds, symbol package acquisition, and version resolution.
+- `src/DotnetInspector.Artifacts/` is the package- and Metadata-free contract
+  floor for generation-scoped artifact identity, typed provenance and
+  diagnostics, acquisition outcomes, and owner-issued guarded access.
 - `src/DotnetInspector.Services/` contains shared services such as assembly-set
   and PDB acquisition, platform/package resolution, dependency resolution,
   signatures, SourceLink availability/integrity operations, source fetching,
@@ -79,6 +82,10 @@ substrates, and inspection producers that will extend that space.
   for `AnnotatedSourceDocument`: it derives lines from the canonical text buffer,
   resolves facts through targets to multi-span nodes, filters the stable node-kind
   vocabulary, and keeps unanchored facts visible without inventing coordinates.
+- `prototypes/inspect-web/` is the browser/Wasm product host. Its
+  [UI design](design/inspect-web-ui.md) owns the website's shared presentation
+  and interaction language while individual components retain rendering,
+  binding, and state-transition responsibilities.
 - `tools/DecompilerHarness/` owns ReturnToSender closure discovery and type-cluster planning. RTS specifies the required Metadata/CSharp request shape; `ILInspector.CSharp` owns rendering it.
 
 ## Engineering guidance
@@ -95,6 +102,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   workspace lifetimes, packages, and assembly inspection.
 - [Architecture](architecture.md): command and metadata architecture.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
+- [Member inspection planning and metadata projection](design/member-inspection-planning-and-metadata-projection.md):
+  proposed separation of type/member intent, section resolution, producer
+  authorization, shared declaration validation, and C# representability.
 - [Inspection graph document](design/inspection-graph-document.md): typed
   multi-subject graph projection for calls, metadata relationships,
   integrations, Findings, characteristics, and package/type lenses.
@@ -105,6 +115,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   call-specific mapping from current topology, signals, loop state, and
   physical occurrences into the inspection-graph descriptor model.
 - [Type, member, and API representation](design/type-member-api-representation.md): authoritative currency map for lookup, shape, identity, correspondence, location, selectors, and display.
+- [State-machine relationship index](design/state-machine-relationship-index.md):
+  Metadata-owned kickoff, state-machine type, implementation-method, and typed
+  structural-failure relationships shared by higher layers.
 - [Structured type-forwarding resolution](design/type-forwarding-resolution.md): typed reference-to-definition resolution, forwarding evidence, binding policy, outcomes, and consumer migration.
 - [Signals](assembly-audit.md): package/library signal semantics and network scope.
 - [PDB acquisition](pdb-acquisition.md): symbols and SourceLink acquisition.
@@ -113,9 +126,14 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Rendering model](design/rendering-model.md): output mode and verbosity design.
 - [Progressive disclosure](design/progressive-disclosure.md): base/domain scope,
   discovery budgets, `-D`/`-S`, capabilities, and limiter behavior.
+- [Item and line limits](design/item-and-line-limits.md): target `-n`,
+  range-only `--rows`, ranked `--top`, line windows, and multi-item printable
+  payload behavior.
 - [Command transitions](design/command-transition-model.md): when source, focus, operation arity, lens, traversal, or rendering changes should switch commands versus stay within one command.
 - [Row query and ordering](design/row-query-order.md): proposed field-scoped row predicates, ordering, `--top`, and schema-discoverable defaults.
 - [Product vocabulary](design/vocabulary.md): sectioned, host-neutral legal query values shared by CLI and browser/WASM.
+- [Inspect Web UI](design/inspect-web-ui.md): shared website control states,
+  interaction grammar, and visual composition rules.
 - [Analysis UX scopes](design/analysis-ux-scopes.md): shared analysis vocabulary across offset, member, type, and library scopes.
 - [IL coordinate workflows](design/il-coordinate-workflows.md): prototype workflows for explaining sparse runtime coordinates from debugger, profiler, or analyzer artifacts.
 - [IL Diff canonicalization](design/il-diff-canonicalization.md): current `CanonicalIlOperation` guarantees, boundaries, and extension points.

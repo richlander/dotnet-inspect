@@ -35,10 +35,23 @@ public enum LibraryBodyAnalysisFeatures
     /// Produce compact body-scoped ArrayPool ownership-flow summaries.
     /// </summary>
     OwnershipFlow = 1 << 4,
+    /// <summary>
+    /// Produce sync-call-in-async opportunities; implies
+    /// <see cref="MethodEvidence"/>.
+    /// </summary>
+    AsyncSiblingOpportunities = 1 << 5,
+    /// <summary>
+    /// Produce call argument provenance and return-sink value flow required to
+    /// authenticate source-generated System.Text.Json wire contracts.
+    /// </summary>
+    JsonWireContractFlow = 1 << 6,
     /// <summary>The body-analysis features used by the general index.</summary>
-    Default = MethodEvidence | Allocations | OptimizationOpportunities,
+    Default = MethodEvidence
+        | Allocations
+        | OptimizationOpportunities
+        | AsyncSiblingOpportunities,
     /// <summary>All available body-analysis producers.</summary>
-    All = Default | LeakTriage | OwnershipFlow,
+    All = Default | LeakTriage | OwnershipFlow | JsonWireContractFlow,
 }
 
 /// <summary>
@@ -63,6 +76,10 @@ public sealed class LibraryBodyIndex
         DeclaredMethods = analysis.Methods.DeclaredMethods;
         Methods = analysis.Methods.Methods;
         DirectCalls = analysis.Methods.DirectCalls;
+        ResultSinks = analysis.Methods.ResultSinks;
+        FieldStores = analysis.Methods.FieldStores;
+        FieldLoads = analysis.Methods.FieldLoads;
+        ReturnFlows = analysis.Methods.ReturnFlows;
         _physicalDirectCalls =
         [
             .. DirectCalls.Select(static call =>
@@ -77,6 +94,11 @@ public sealed class LibraryBodyIndex
         Diagnostics = analysis.Diagnostics;
         _rawOpportunities = analysis.Optimizations.Opportunities;
         _opportunitiesComputed =
+            (features
+                & (LibraryBodyAnalysisFeatures.OptimizationOpportunities
+                    | LibraryBodyAnalysisFeatures
+                        .AsyncSiblingOpportunities)) != 0;
+        _allocationOpportunitiesComputed =
             (features
                 & LibraryBodyAnalysisFeatures.OptimizationOpportunities) != 0;
         _unsafeLeverageMethods = analysis.Safety.LeverageMethods;
@@ -120,6 +142,40 @@ public sealed class LibraryBodyIndex
     /// contract and its iterator non-action boundary.
     /// </summary>
     public ImmutableArray<DirectCall> DirectCalls { get; }
+    /// <summary>
+    /// Conservative physical return and single-argument call sinks, with
+    /// reaching-definition-backed direct-call provenance for their values,
+    /// when <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is
+    /// requested.
+    /// </summary>
+    public ImmutableArray<MethodResultSink> ResultSinks { get; }
+
+    /// <summary>
+    /// Every physical <c>stsfld</c>/<c>stfld</c> site with the resolved
+    /// provenance of the value it stores, when
+    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is
+    /// requested. Unproven stores are present with an unresolved value so a
+    /// consumer asking "is this the only write to this field?" fails closed.
+    /// </summary>
+    public ImmutableArray<FieldStoreFact> FieldStores { get; }
+
+    /// <summary>
+    /// Every physical <c>ldsfld</c>/<c>ldfld</c> site, with the receiver
+    /// argument Analysis proved for an instance load, when
+    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is
+    /// requested. The load counterpart of <see cref="FieldStores"/>, needed
+    /// where a cached read never reaches a resolvable stack slot.
+    /// </summary>
+    public ImmutableArray<FieldLoadFact> FieldLoads { get; }
+
+    /// <summary>
+    /// The union of proven producers each non-void body can return, when
+    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is
+    /// requested. Present with an unresolved value whenever any reachable
+    /// return went unproven, so a consumer asking "can this method return
+    /// anything else?" fails closed.
+    /// </summary>
+    public ImmutableArray<MethodReturnFlow> ReturnFlows { get; }
     readonly ImmutableArray<DirectCall> _physicalDirectCalls;
     public ImmutableArray<UnsafeEvidence> UnsafeEvidence { get; }
     public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }
@@ -149,6 +205,7 @@ public sealed class LibraryBodyIndex
 
     readonly ImmutableArray<OptimizationOpportunity> _rawOpportunities;
     readonly bool _opportunitiesComputed;
+    readonly bool _allocationOpportunitiesComputed;
     readonly ImmutableArray<MethodIdentity> _unsafeLeverageMethods;
     ImmutableArray<OptimizationOpportunity> _opportunities;
     ImmutableArray<OptimizationOpportunity> _allocationFanoutOpportunities;
@@ -203,12 +260,19 @@ public sealed class LibraryBodyIndex
             if (_opportunities.IsDefault)
             {
                 var reachByToken = RootReachByToken;
-                _opportunities = AttachCallerLoopEvidence(AttachFindingProvenance(
+                ImmutableArray<OptimizationOpportunity> raw =
                 [
                     .. _rawOpportunities.Select(opportunity =>
                     {
-                        int reach = reachByToken.TryGetValue(opportunity.Method.MetadataToken, out int r) ? r : opportunity.RootReach;
-                        var adjusted = reach != opportunity.RootReach ? opportunity with { RootReach = reach } : opportunity;
+                        int reach = reachByToken.TryGetValue(
+                            opportunity.Method.MetadataToken,
+                            out int r)
+                                ? r
+                                : opportunity.RootReach;
+                        var adjusted =
+                            reach != opportunity.RootReach
+                                ? opportunity with { RootReach = reach }
+                                : opportunity;
                         adjusted = MarkAmortizedSetup(adjusted);
                         var confidence = IsLowFrequencyOpportunity(adjusted)
                             ? "low"
@@ -218,25 +282,49 @@ public sealed class LibraryBodyIndex
                                     adjusted.InLoop,
                                     adjusted.Confidence,
                                     reach);
-                        adjusted = confidence != adjusted.Confidence ? adjusted with { Confidence = confidence } : adjusted;
+                        adjusted =
+                            confidence != adjusted.Confidence
+                                ? adjusted with
+                                {
+                                    Confidence = confidence,
+                                }
+                                : adjusted;
                         return OptimizationOpportunityAnalysis
                             .AddFallbackMetadata(adjusted);
                     }),
-                    .. AllocationHotspots(reachByToken, new HashSet<int>(_rawOpportunities
-                        .Where(o => o.Shape != "sync-call-in-async"
-                            && !(o.Shape == "async-state-machine" && o.Amortized))
-                        .Select(o => o.Method.MetadataToken)))
-                        .Select(OptimizationOpportunityAnalysis
-                            .AddFallbackMetadata),
-                    .. RepeatedScanAnalysis.Collect(
-                            Methods,
-                            _physicalDirectCalls,
-                            _rawOpportunities,
-                            _suppressedOpportunityTokens,
-                            reachByToken)
-                        .Select(OptimizationOpportunityAnalysis
-                            .AddFallbackMetadata),
-                ]), DirectCallerLoops);
+                ];
+                ImmutableArray<OptimizationOpportunity> opportunities =
+                    _allocationOpportunitiesComputed
+                        ?
+                        [
+                            .. raw,
+                            .. AllocationHotspots(
+                                    reachByToken,
+                                    new HashSet<int>(
+                                        _rawOpportunities
+                                            .Where(o =>
+                                                o.Shape
+                                                    != "sync-call-in-async"
+                                                && !(o.Shape
+                                                        == "async-state-machine"
+                                                    && o.Amortized))
+                                            .Select(o =>
+                                                o.Method.MetadataToken)))
+                                .Select(OptimizationOpportunityAnalysis
+                                    .AddFallbackMetadata),
+                            .. RepeatedScanAnalysis.Collect(
+                                    Methods,
+                                    _physicalDirectCalls,
+                                    _rawOpportunities,
+                                    _suppressedOpportunityTokens,
+                                    reachByToken)
+                                .Select(OptimizationOpportunityAnalysis
+                                    .AddFallbackMetadata),
+                        ]
+                        : raw;
+                _opportunities = AttachCallerLoopEvidence(
+                    AttachFindingProvenance(opportunities),
+                    DirectCallerLoops);
             }
             return _opportunities;
         }
@@ -777,7 +865,16 @@ public sealed class LibraryBodyIndex
     /// throw/catch/finally, evidence offsets), keyed by metadata token. Computed once
     /// from the call index and the body-scan signals, reused by the call-graph builders.
     /// </summary>
-    Dictionary<int, MethodSignals> Signals => _signals ??= MethodSignalAnalysis.Collect(_physicalDirectCalls, UnsafeEvidence, _bodySignals, _allocationOccurrences, _inAssemblyTypeIsException, _nonHeapNewObjOperandTokens);
+    Dictionary<int, MethodSignals> Signals =>
+        _signals ??= MethodSignalAnalysis.Collect(
+            _physicalDirectCalls,
+            UnsafeEvidence,
+            _bodySignals,
+            Features.HasFlag(LibraryBodyAnalysisFeatures.Allocations)
+                ? _allocationOccurrences
+                : null,
+            _inAssemblyTypeIsException,
+            _nonHeapNewObjOperandTokens);
 
     /// <summary>
     /// Returns per-method body/call signals keyed by metadata token.
@@ -977,14 +1074,24 @@ public sealed class LibraryBodyIndex
         ImmutableArray<MethodIdentity> methods,
         ImmutableArray<UnsafeEvidence> unsafeEvidence,
         IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>>? allocationOccurrences = null,
-        IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>>? unsafetyOccurrences = null)
+        IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>>? unsafetyOccurrences = null,
+        ImmutableArray<AnalysisDiagnostic> diagnostics = default,
+        ImmutableArray<DirectCall> directCalls = default,
+        ImmutableArray<MethodResultSink> resultSinks = default,
+        ImmutableArray<FieldStoreFact> fieldStores = default,
+        ImmutableArray<FieldLoadFact> fieldLoads = default,
+        ImmutableArray<MethodReturnFlow> returnFlows = default)
         => new(
             path: "",
             analysis: new(
                 Methods: new(
                     DeclaredMethods: methods,
                     Methods: methods,
-                    DirectCalls: [],
+                    DirectCalls: directCalls.IsDefault ? [] : directCalls,
+                    ResultSinks: resultSinks.IsDefault ? [] : resultSinks,
+                    FieldStores: fieldStores.IsDefault ? [] : fieldStores,
+                    FieldLoads: fieldLoads.IsDefault ? [] : fieldLoads,
+                    ReturnFlows: returnFlows.IsDefault ? [] : returnFlows,
                     BodySignals: new Dictionary<int, BodySignals>(),
                     InAssemblyTypeIsException:
                         new Dictionary<(string Namespace, string Name), bool>(),
@@ -1021,7 +1128,7 @@ public sealed class LibraryBodyIndex
                         new HashSet<string>(StringComparer.Ordinal)),
                 OwnershipFlow: new(Methods: []),
                 Resources: new(LeakTriage: null),
-                Diagnostics: []),
+                Diagnostics: diagnostics.IsDefault ? [] : diagnostics),
             features: LibraryBodyAnalysisFeatures.MethodEvidence
                 | (allocationOccurrences is null
                     ? LibraryBodyAnalysisFeatures.None
@@ -1130,6 +1237,64 @@ public sealed class LibraryBodyIndex
             rootSnapshot);
     }
 
+    /// <summary>
+    /// Determines whether an opened metadata context contains any unsafe
+    /// declaration or body evidence, stopping after the first finding instead
+    /// of materializing a whole-assembly body index or PE image.
+    /// </summary>
+    /// <remarks>
+    /// Gates:
+    /// <c>Discover_UnsafeMembers_UsesPresenceProbeWithoutExecutingFullQuery</c> and
+    /// <c>UnsafeEvidencePresenceQuery_ConsumesBorrowedNonPrefetchedContext</c>.
+    /// </remarks>
+    public static bool HasUnsafeEvidence(
+        string path,
+        PdbContext context)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(context);
+
+        return context.InspectImage(
+            peReader => HasUnsafeEvidence(
+                path,
+                peReader));
+    }
+
+    /// <summary>
+    /// Determines whether an immutable PE image contains unsafe evidence.
+    /// Prefer the context overload when an owning metadata context is already
+    /// open.
+    /// </summary>
+    public static bool HasUnsafeEvidence(
+        string path,
+        ImmutableArray<byte> image)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        if (image.IsDefaultOrEmpty)
+        {
+            throw new ArgumentException(
+                "A PE image is required.",
+                nameof(image));
+        }
+
+        using var peReader = new PEReader(image);
+        return HasUnsafeEvidence(path, peReader);
+    }
+
+    static bool HasUnsafeEvidence(
+        string path,
+        PEReader peReader)
+    {
+        if (!peReader.HasMetadata)
+            return false;
+
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            peReader.GetMetadataReader(),
+            peReader);
+        return builder.HasUnsafeEvidence();
+    }
+
     static LibraryBodyIndex BuildFromReader(
         string path,
         PEReader peReader,
@@ -1144,6 +1309,9 @@ public sealed class LibraryBodyIndex
             plan.Includes(
                 LibraryBodyAnalysisFeatures
                     .OptimizationOpportunities)
+            || plan.Includes(
+                LibraryBodyAnalysisFeatures
+                    .AsyncSiblingOpportunities)
             || plan.Includes(
                 LibraryBodyAnalysisFeatures
                     .OwnershipFlow)
@@ -1166,6 +1334,8 @@ public sealed class LibraryBodyIndex
         LibraryBodyAnalysisPlan plan) =>
         plan.Includes(
             LibraryBodyAnalysisFeatures.OptimizationOpportunities)
+        || plan.Includes(
+            LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities)
         || plan.Includes(
             LibraryBodyAnalysisFeatures.OwnershipFlow);
 

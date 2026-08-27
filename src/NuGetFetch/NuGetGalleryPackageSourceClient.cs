@@ -4,15 +4,20 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
 {
     private const string SearchEndpoint =
         "https://azuresearch-usnc.nuget.org/query";
+    private const int MaximumSearchSkip = 3000;
     private const string FlatContainer =
         "https://globalcdn.nuget.org/v3-flatcontainer/";
+    private const string Registration =
+        "https://globalcdn.nuget.org/v3/registration5-gz-semver2/";
     private const string PackageEndpoint =
         "https://globalcdn.nuget.org/packages/";
     private const string SymbolEndpoint =
         "https://globalcdn.nuget.org/symbol-packages/";
+    private const int RegistrationPageBatchSize = 8;
 
     private readonly HttpClient _client;
     private readonly NuGetFetchOptions _options;
+    private readonly NuGetClient _nuget;
     private readonly SearchService _search;
 
     public NuGetGalleryPackageSourceClient(
@@ -21,6 +26,7 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
     {
         _client = client;
         _options = NuGetFetchOptions.Validate(options);
+        _nuget = new NuGetClient(client, _options);
         _search = new SearchService(
             client,
             SearchEndpoint,
@@ -31,9 +37,12 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
     public PackageSourceIdentity Identity => PackageSourceIdentity.NuGetOrg;
     public PackageSourceKind Kind => PackageSourceKind.NuGetGallery;
     internal TimeSpan TransportTimeout => _client.Timeout;
+    internal TimeSpan RequestTimeout => _options.RequestTimeout;
+    internal TimeSpan OperationTimeout => _options.OperationTimeout;
     public PackageSourceCapabilities Capabilities =>
         PackageSourceCapabilities.Search
         | PackageSourceCapabilities.VersionEnumeration
+        | PackageSourceCapabilities.Manifest
         | PackageSourceCapabilities.PackagePayload
         | PackageSourceCapabilities.SymbolPayload;
 
@@ -62,6 +71,8 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                         .ConfigureAwait(false);
                 }
                 catch (InvalidOperationException exception)
+                    when (exception.GetType()
+                        == typeof(InvalidOperationException))
                 {
                     throw new NuGetSourceResponseException(
                         "The NuGet Gallery search response did not satisfy the search contract.",
@@ -71,7 +82,65 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                 return PackageSourceProjection.ProjectSearch(
                     results,
                     Identity,
-                    operation);
+                    operation,
+                    results.Count == take
+                        ? PackageSearchTruncationReason.RequestedLimit
+                        : PackageSearchTruncationReason.None);
+            },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<PackageSourceOperationResult<PackageSearchResult>> SearchByPrefixAsync(
+        string prefix,
+        int take = 100,
+        bool prerelease = false,
+        CancellationToken cancellationToken = default)
+    {
+        return await PackageSourceOperation.CaptureAsync(
+            Identity,
+            Kind,
+            PackageSourceCapabilities.Search,
+            async () =>
+            {
+                using var operation = CreateOperation(cancellationToken);
+                PrefixSearchResult result;
+                try
+                {
+                    result = await _search.SearchByPrefixWithStateAsync(
+                            prefix,
+                            take,
+                            prerelease,
+                            auth: null,
+                            maximumSkip: MaximumSearchSkip,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (InvalidOperationException exception)
+                    when (exception.GetType()
+                        == typeof(InvalidOperationException))
+                {
+                    throw new NuGetSourceResponseException(
+                        "The NuGet Gallery prefix-search response did not satisfy the search contract.",
+                        exception);
+                }
+
+                return PackageSourceProjection.ProjectSearch(
+                    result.Matches,
+                    Identity,
+                    operation,
+                    result.Completion switch
+                    {
+                        PrefixSearchCompletion.Complete =>
+                            PackageSearchTruncationReason.None,
+                        PrefixSearchCompletion.TakeReached =>
+                            PackageSearchTruncationReason.RequestedLimit,
+                        PrefixSearchCompletion.SourcePageLimitReached =>
+                            PackageSearchTruncationReason.SourcePageLimit,
+                        PrefixSearchCompletion.ClientPageLimitReached =>
+                            PackageSearchTruncationReason.ClientPageLimit,
+                        _ => throw new InvalidOperationException(
+                            "Unknown prefix-search completion state."),
+                    });
             },
             cancellationToken).ConfigureAwait(false);
     }
@@ -123,13 +192,14 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                 {
                     return new PackageVersionResult(
                         [],
-                        hasAuthoritativeListingState: false);
+                        hasAuthoritativeListingState: true);
                 }
 
                 IReadOnlyList<string> versions = index?.Versions
                     ?? throw new NuGetSourceResponseException(
                         "The NuGet Gallery version response was not a valid version document.");
-                return PackageSourceProjection.ProjectVersions(
+                PackageVersionResult partial =
+                    PackageSourceProjection.ProjectVersions(
                     packageId,
                     versions,
                     Identity,
@@ -137,9 +207,434 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                     PackageListingState.Unknown,
                     hasAuthoritativeListingState: false,
                     operation);
+                IReadOnlyDictionary<string, PackageListingState>? listings =
+                    await TryGetRegistrationListingsAsync(
+                        normalizedId,
+                        partial.Candidates,
+                        operation,
+                        cancellationToken).ConfigureAwait(false);
+                if (listings is null)
+                    return partial;
+
+                return ApplyRegistrationListingsOrPartial(
+                    partial,
+                    listings,
+                    operation,
+                    cancellationToken);
             },
             cancellationToken).ConfigureAwait(false);
     }
+
+    private async Task<IReadOnlyDictionary<string, PackageListingState>?>
+        TryGetRegistrationListingsAsync(
+            string normalizedId,
+            IReadOnlyList<PackageCandidateObservation> candidates,
+            NuGetOperationDeadline operation,
+            CancellationToken callerCancellation)
+    {
+        string indexUrl =
+            $"{Registration}{EscapeSegment(normalizedId)}/index.json";
+        try
+        {
+            var candidateVersions = new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase);
+            foreach (PackageCandidateObservation candidate in candidates)
+            {
+                operation.ThrowIfExpired();
+                candidateVersions.Add(candidate.Coordinate.Version);
+            }
+
+            var budget =
+                new NuGetGalleryRegistrationBudget(
+                    candidateVersions.Count,
+                    _options.MaxRegistrationMetadataBytes);
+            NuGetGalleryRegistrationIndex? index =
+                await ReadRegistrationDocumentAsync(
+                    indexUrl,
+                    async (json, cancellationToken) =>
+                    {
+                        using Stream limitedJson =
+                            budget.LimitBytes(json);
+                        return await NuGetGalleryRegistration
+                            .DeserializeIndexAsync(
+                                limitedJson,
+                                candidateVersions,
+                                budget,
+                                operation,
+                                cancellationToken).ConfigureAwait(false);
+                    },
+                    operation).ConfigureAwait(false);
+            if (index is null)
+                return null;
+
+            var listings =
+                new Dictionary<string, PackageListingState>(
+                    candidates.Count,
+                    StringComparer.OrdinalIgnoreCase);
+            var externalPages = new List<string>();
+            foreach (NuGetGalleryRegistrationPage page in index.Pages)
+            {
+                if (page.Items is { } inlineItems)
+                {
+                    AddRegistrationListings(
+                        inlineItems,
+                        listings,
+                        operation);
+                }
+                else
+                {
+                    externalPages.Add(
+                        RebaseRegistrationPage(
+                            page.ExternalId!,
+                            normalizedId));
+                }
+            }
+
+            for (int offset = 0;
+                 offset < externalPages.Count;
+                 offset += RegistrationPageBatchSize)
+            {
+                var materializationBudget =
+                    new NuGetGalleryRegistrationByteBudget(
+                        _options.MaxRegistrationPageBatchBytes);
+                Task<MemoryStream?>[] requests =
+                [
+                    .. externalPages
+                        .Skip(offset)
+                        .Take(RegistrationPageBatchSize)
+                        .Select(pageUrl =>
+                            ReadRegistrationPageAsync(
+                                pageUrl,
+                                budget,
+                                materializationBudget,
+                                operation)),
+                ];
+                MemoryStream?[] pages;
+                try
+                {
+                    pages = await Task.WhenAll(requests)
+                        .ConfigureAwait(false);
+                }
+                catch
+                {
+                    foreach (Task<MemoryStream?> request in requests)
+                    {
+                        if (request.IsCompletedSuccessfully)
+                            request.Result?.Dispose();
+                    }
+
+                    throw;
+                }
+
+                try
+                {
+                    if (pages.Any(page => page is null))
+                        return null;
+
+                    foreach (MemoryStream page in pages!)
+                    {
+                        IReadOnlyDictionary<string, PackageListingState>
+                            pageListings = await operation.RunRequestAsync(
+                                cancellationToken =>
+                                    NuGetGalleryRegistration
+                                        .DeserializePageAsync(
+                                            page,
+                                            candidateVersions,
+                                            budget,
+                                            operation,
+                                            cancellationToken).AsTask())
+                                .ConfigureAwait(false);
+                        AddRegistrationListings(
+                            pageListings,
+                            listings,
+                            operation);
+                    }
+                }
+                finally
+                {
+                    foreach (MemoryStream? page in pages)
+                        page?.Dispose();
+                }
+            }
+
+            foreach (PackageCandidateObservation candidate in candidates)
+            {
+                operation.ThrowIfExpired();
+                if (!listings.ContainsKey(
+                        candidate.Coordinate.Version))
+                {
+                    return null;
+                }
+            }
+
+            operation.ThrowIfExpired();
+            return listings;
+        }
+        catch (OperationCanceledException)
+            when (callerCancellation.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+            when (RegistrationIsUnavailable(exception))
+        {
+            callerCancellation.ThrowIfCancellationRequested();
+            return null;
+        }
+    }
+
+    internal static PackageVersionResult
+        ApplyRegistrationListingsOrPartial(
+            PackageVersionResult partial,
+            IReadOnlyDictionary<string, PackageListingState> listings,
+            NuGetOperationDeadline operation,
+            CancellationToken callerCancellation)
+    {
+        try
+        {
+            var candidates =
+                new PackageCandidateObservation[partial.Candidates.Count];
+            for (int i = 0; i < candidates.Length; i++)
+            {
+                operation.ThrowIfExpired();
+                PackageCandidateObservation candidate =
+                    partial.Candidates[i];
+                candidates[i] = candidate with
+                {
+                    ListingState =
+                        listings[candidate.Coordinate.Version],
+                };
+            }
+
+            operation.ThrowIfExpired();
+            return new PackageVersionResult(
+                candidates,
+                hasAuthoritativeListingState: true);
+        }
+        catch (OperationCanceledException)
+            when (callerCancellation.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+            when (RegistrationIsUnavailable(exception))
+        {
+            callerCancellation.ThrowIfCancellationRequested();
+            return partial;
+        }
+    }
+
+    private static void AddRegistrationListings(
+        IReadOnlyDictionary<string, PackageListingState> items,
+        Dictionary<string, PackageListingState> listings,
+        NuGetOperationDeadline operation)
+    {
+        foreach ((string version, PackageListingState listingState) in items)
+        {
+            operation.ThrowIfExpired();
+            if (listings.TryGetValue(
+                    version,
+                    out PackageListingState prior)
+                && prior != listingState)
+            {
+                throw new NuGetSourceResponseException(
+                    "The NuGet Gallery registration response reported conflicting listing states.");
+            }
+
+            listings[version] = listingState;
+        }
+    }
+
+    private async Task<T?> ReadRegistrationDocumentAsync<T>(
+        string url,
+        Func<Stream, CancellationToken, ValueTask<T>> deserialize,
+        NuGetOperationDeadline operation)
+        where T : class
+    {
+        return await NuGetHttpRetry.RunRequestAsync(
+            operation,
+            async requestToken =>
+            {
+                using HttpRequestMessage request =
+                    NuGetHttpRequest.CreateGet(url);
+                using HttpResponseMessage response =
+                    await _client.SendAsync(
+                        request,
+                        HttpCompletionOption.ResponseHeadersRead,
+                        requestToken).ConfigureAwait(false);
+                if (response.StatusCode
+                    == System.Net.HttpStatusCode.NotFound)
+                {
+                    return null;
+                }
+
+                response.EnsureSuccessStatusCode();
+                return await NuGetMetadataReader.ReadResponseAsync(
+                    response,
+                    deserialize,
+                    _options,
+                    _client.Timeout,
+                    requestToken).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+    }
+
+    private async Task<MemoryStream?> ReadRegistrationPageAsync(
+        string url,
+        NuGetGalleryRegistrationBudget aggregateBudget,
+        NuGetGalleryRegistrationByteBudget materializationBudget,
+        NuGetOperationDeadline operation)
+    {
+        NuGetGalleryRegistrationByteBudget.Materialization?
+            materialization = await NuGetHttpRetry.RunRequestAsync(
+            operation,
+            async requestToken =>
+            {
+                NuGetGalleryRegistrationByteBudget.Materialization?
+                    result = null;
+                bool hasResult = false;
+                try
+                {
+                    using HttpRequestMessage request =
+                        NuGetHttpRequest.CreateGet(url);
+                    using HttpResponseMessage response =
+                        await _client.SendAsync(
+                            request,
+                            HttpCompletionOption.ResponseHeadersRead,
+                            requestToken).ConfigureAwait(false);
+                    if (response.StatusCode
+                        == System.Net.HttpStatusCode.NotFound)
+                    {
+                        return null;
+                    }
+
+                    response.EnsureSuccessStatusCode();
+                    result = await NuGetMetadataReader.ReadResponseAsync(
+                        response,
+                        async (json, cancellationToken) =>
+                        {
+                            using Stream aggregateLimitedJson =
+                                aggregateBudget.LimitBytes(json);
+                            return await materializationBudget
+                                .MaterializeAsync(
+                                    aggregateLimitedJson,
+                                    cancellationToken).ConfigureAwait(false);
+                        },
+                        _options,
+                        _client.Timeout,
+                        requestToken).ConfigureAwait(false);
+                    hasResult = true;
+                    return result;
+                }
+                catch
+                {
+                    if (hasResult)
+                        NuGetRejectedResult.RejectIfOwned(result);
+                    throw;
+                }
+            }).ConfigureAwait(false);
+        if (materialization is null)
+            return null;
+
+        using (materialization)
+            return materialization.Commit();
+    }
+
+    private static string RebaseRegistrationPage(
+        string externalId,
+        string normalizedId)
+    {
+        if (!NuGetHttpRequest.TryCreatePreservingPathAndQuery(
+                externalId,
+                out _)
+            || !Uri.TryCreate(
+                externalId,
+                UriKind.Absolute,
+                out Uri? parsed)
+            || parsed.Scheme != Uri.UriSchemeHttps
+            || parsed.UserInfo.Length > 0
+            || parsed.Query.Length > 0
+            || parsed.Fragment.Length > 0)
+        {
+            throw new NuGetSourceResponseException(
+                "The NuGet Gallery registration page ID was not an eligible HTTPS path.");
+        }
+
+        int schemeSeparator = externalId.IndexOf(
+            "://",
+            StringComparison.Ordinal);
+        int pathStart = externalId.IndexOf(
+            '/',
+            schemeSeparator + 3);
+        string path = pathStart >= 0
+            ? externalId[(pathStart + 1)..]
+            : "";
+        string[] segments = path.Split('/');
+        if (segments.Length != 6
+            || segments[0] != "v3"
+            || segments[1] != "registration5-gz-semver2"
+            || !IsCanonicalSegment(segments[2], normalizedId)
+            || segments[3] != "page"
+            || !TryNormalizeVersionSegment(
+                segments[4],
+                out string lower)
+            || !segments[5].EndsWith(
+                ".json",
+                StringComparison.Ordinal)
+            || !TryNormalizeVersionSegment(
+                segments[5][..^5],
+                out string upper))
+        {
+            throw new NuGetSourceResponseException(
+                "The NuGet Gallery registration page ID did not match the expected package page path.");
+        }
+
+        return $"{Registration}{EscapeSegment(normalizedId)}/page/"
+            + $"{EscapeSegment(lower)}/{EscapeSegment(upper)}.json";
+    }
+
+    private static bool IsCanonicalSegment(
+        string encoded,
+        string expected) =>
+        Uri.UnescapeDataString(encoded).Equals(
+            expected,
+            StringComparison.Ordinal)
+        && encoded.Equals(
+            EscapeSegment(expected),
+            StringComparison.OrdinalIgnoreCase);
+
+    private static bool TryNormalizeVersionSegment(
+        string encoded,
+        out string normalized)
+    {
+        normalized = "";
+        string decoded;
+        try
+        {
+            decoded = Uri.UnescapeDataString(encoded);
+            normalized =
+                PackageCoordinateValidation.NormalizeVersion(
+                    decoded,
+                    "version");
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+
+        return encoded.Equals(
+            EscapeSegment(normalized),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool RegistrationIsUnavailable(
+        Exception exception) =>
+        exception is HttpRequestException
+            or IOException
+            or InvalidDataException
+            or TimeoutException
+            or OperationCanceledException
+            or System.Text.Json.JsonException
+            or NuGetSourceResponseException;
 
     public async Task<PackageSourceOperationResult<PackageSourcePayload>> GetPackageAsync(
         string packageId,
@@ -169,6 +664,30 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                     content,
                     advertisedLength);
             },
+            cancellationToken,
+            coordinate).ConfigureAwait(false);
+    }
+
+    public async Task<PackageSourceOperationResult<PackageSourceManifest>> GetManifestAsync(
+        string packageId,
+        string version,
+        CancellationToken cancellationToken = default)
+    {
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(packageId, version);
+        return await PackageSourceOperation.CaptureAsync(
+            Identity,
+            Kind,
+            PackageSourceCapabilities.Manifest,
+            async () => new PackageSourceManifest(
+                coordinate,
+                Identity,
+                Kind,
+                await _nuget.GetManifestFromBaseAddressAsync(
+                    coordinate.PackageId,
+                    coordinate.Version,
+                    FlatContainer,
+                    cancellationToken).ConfigureAwait(false)),
             cancellationToken,
             coordinate).ConfigureAwait(false);
     }

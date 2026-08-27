@@ -88,8 +88,7 @@ public class ProjectCommand
             return 1;
         }
         bool validProjection = options.Discover is not null
-            ? DiscoverOutput.ValidateProjection(options.Fields, options.Columns)
-            : ProjectionDiagnostics.ValidateProjection(
+            || ProjectionDiagnostics.ValidateProjection(
                 schema,
                 candidateSections,
                 options.Fields,
@@ -100,11 +99,6 @@ public class ProjectCommand
                 options,
                 candidateSections,
                 selectedSections))
-        {
-            return 1;
-        }
-        if (options.Discover is not null
-            && !LensProjection.Validate(options, "-D/--discover"))
         {
             return 1;
         }
@@ -245,8 +239,7 @@ public class ProjectCommand
             WriteCounts(
                 inspection,
                 renderedSections,
-                options.Rows,
-                options.OutputPath);
+                options);
             outputExitCode = 0;
         }
         else if (options.Print || ShouldPrintBareDocument(options))
@@ -606,14 +599,7 @@ public class ProjectCommand
                 ? null
                 : pipeline.GetCatalogHiddenSections(),
             listedCategoryDoors: pipeline.GetListedCategoryDoors(),
-            projection: options,
-            columns: options.Columns,
-            fields: options.Fields,
-            rows: options.Rows,
-            outputPath: options.OutputPath,
-            applyLineWindow: options.Rows is null,
-            showHeader: !options.NoHeader,
-            tabularExplicitlySet: options.Tabular);
+            projection: options);
     }
 
     static bool ShouldReadDocumentMetadata(
@@ -1585,41 +1571,50 @@ public class ProjectCommand
     static void WriteCounts(
         ProjectInspection inspection,
         HashSet<string> renderedSections,
-        RowWindow? rows,
-        string? outputPath)
+        ProjectOptions options)
     {
-        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var projection = new CountProjection();
         foreach (string section in renderedSections)
         {
-            counts[section] = section switch
+            int count = section switch
             {
                 ProjectSectionNames.Skills =>
                     CountRows<ProjectSkillData>(
                         inspection.Skills?.Skills,
-                        rows),
+                        options.Rows),
                 ProjectSectionNames.AgentGuidance =>
                     CountRows<ProjectAgentGuidanceData>(
                         inspection.AgentGuidance?.Guidance,
-                        rows),
+                        options.Rows),
                 ProjectSectionNames.PackageDocs =>
                     CountRows<ProjectPackageDocumentData>(
                         inspection.PackageDocuments?.Documents,
-                        rows),
+                        options.Rows),
                 _ => 0,
             };
+            projection.SetRows(section, count);
         }
 
-        if (renderedSections.Count == 1)
-            CountOutput.WriteCount(
-                counts[renderedSections.Single()],
-                outputPath,
-                applyLineWindow: rows is null);
-        else
-            CountOutput.WriteCountMap(
-                counts,
-                renderedSections.ToArray(),
-                outputPath,
-                applyLineWindow: rows is null);
+        IReadOnlyList<string>? orderedSections =
+            renderedSections.Count > 1
+                ? renderedSections.ToArray()
+                : null;
+        OutputFormat format = options.JsonOutput
+            ? OutputFormat.Json
+            : options.Jsonl
+                ? OutputFormat.Jsonl
+                : options.Tsv
+                    ? OutputFormat.Tsv
+                    : options.Tabular
+                        ? OutputFormat.Table
+                        : OutputFormat.Markdown;
+        CountOutput.Write(
+            projection,
+            orderedSections,
+            format,
+            options.NoHeader,
+            options.OutputPath,
+            options.Rows);
     }
 
     static int CountRows<T>(IReadOnlyList<T>? source, RowWindow? rows) =>

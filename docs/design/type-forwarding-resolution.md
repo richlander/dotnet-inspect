@@ -18,6 +18,16 @@ by `InertString` in
 [#3636](https://github.com/richlander/dotnet-inspect/pull/3636): establish each
 value, its invariants, and its gates before asking consumers to depend on it.
 
+Browser platform call graphs resolve exact graph-target type identities through
+`AssemblyContextTypeResolutionQuery`. The query retains the cumulative
+workspace's immutable participant snapshots, applies its participant-only
+binding policy, and returns Metadata's typed resolution outcome. The Browser
+host may realize a missing terminal assembly only when the selected platform
+pack already authorizes that assembly, then it rebuilds the bounded graph
+before transport. It does not probe the host filesystem.
+`PlatformCallGraph_ResolvesDefinitionsBehindFacadesWithoutHostProbing` gates
+this consumer boundary.
+
 ## The problem
 
 Type forwarding is one metadata relationship:

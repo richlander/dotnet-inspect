@@ -1,38 +1,49 @@
 import {
   packageIdentityKey,
   type DependencyGroupData,
+  type PackageLens,
   type PackageIdentity,
 } from "./data.ts";
 import type {
   BrowserPackageDependencies,
   BrowserPackageIntegrations,
   BrowserPackageOpportunities,
+  BrowserPackagePerformance,
+  BrowserPerformanceMember,
 } from "./inspect-web-engine.d.ts";
 import type { PackageMetadata } from "./metadata-viewer.ts";
-import type { AppPackage } from "./package-acquisition.ts";
+import type {
+  AppMemberSurface,
+  AppPackage,
+  AppTypeSurface,
+} from "./package-acquisition.ts";
 
-export interface PackagePerformanceMember {
-  assembly: string;
-  typeId: string;
-  memberName: string;
-  metadataToken: number;
-  opportunityCount: number;
-  inLoopCount: number;
-  shapes: string[];
-  confidence: string;
+export type PackagePerformance = BrowserPackagePerformance;
+
+export interface ResolvedPackagePerformanceMember {
+  type: AppTypeSurface;
+  member: AppMemberSurface;
 }
 
-export interface PackagePerformance {
-  members: PackagePerformanceMember[];
-  inspectionError?: string;
-  nonPublicOpportunities: number;
-  totalOpportunities: number;
+export function resolvePackagePerformanceMember(
+  packageModel: AppPackage,
+  performanceMember: Pick<
+    BrowserPerformanceMember,
+    "assembly" | "typeId" | "stableSelector"
+  >,
+): ResolvedPackagePerformanceMember | null {
+  const type = packageModel.types.find(candidate =>
+    candidate.assembly === performanceMember.assembly
+    && candidate.definitionId === performanceMember.typeId);
+  const member = type?.api.find(candidate =>
+    candidate.stableSelector === performanceMember.stableSelector);
+  return type && member ? { type, member } : null;
 }
 
 export interface PackageInspectionState {
   packages: AppPackage[];
   atPackageRoot: boolean;
-  packageLens: string;
+  packageLens: PackageLens;
   packageDependencies: BrowserPackageDependencies | null;
   packageDependenciesLoading: boolean;
   packageDependenciesError: string;
@@ -68,6 +79,7 @@ export interface PackageInspectionDependencies {
   ): Promise<BrowserPackageIntegrations>;
   queryPlatformIntegrations(
     framework: string,
+    platformVersion: string,
     assemblyFileName: string,
     pack: string,
   ): Promise<BrowserPackageIntegrations>;
@@ -76,6 +88,7 @@ export interface PackageInspectionDependencies {
   ): Promise<BrowserPackageOpportunities>;
   queryPlatformOpportunities(
     framework: string,
+    platformVersion: string,
     assemblyFileName: string,
     pack: string,
   ): Promise<BrowserPackageOpportunities>;
@@ -84,12 +97,14 @@ export interface PackageInspectionDependencies {
   ): Promise<PackagePerformance>;
   queryPlatformPerformance(
     framework: string,
+    platformVersion: string,
     assemblyFileName: string,
     pack: string,
   ): Promise<PackagePerformance>;
   queryPackageMetadata(packageModel: AppPackage): Promise<PackageMetadata>;
   queryPlatformMetadata(
     framework: string,
+    platformVersion: string,
     assemblyFileName: string,
     pack: string,
   ): Promise<PackageMetadata>;
@@ -97,7 +112,7 @@ export interface PackageInspectionDependencies {
   describeError(error: unknown): string;
   refreshPackageStats(): void;
   render(): void;
-  renderDependencyGraph(): void;
+  renderDependencyGraph(): Promise<void>;
 }
 
 export interface PackageInspectionCoordinator {
@@ -154,6 +169,7 @@ export function createPackageInspectionCoordinator(
     scopedLibrary: string,
   ) => ({
     framework: packageModel.activeFramework,
+    platformVersion: packageModel.version,
     assemblyFileName: `${scopedLibrary}.dll`,
     pack: dependencies.platformPackForAssembly(scopedLibrary),
   });
@@ -167,7 +183,7 @@ export function createPackageInspectionCoordinator(
       && !state.workspaceDependencyLoads.has(
         workspaceDependencyKey(packageModel)));
     if (!missing.length) {
-      dependencies.renderDependencyGraph();
+      await dependencies.renderDependencyGraph();
       return;
     }
     for (const packageModel of missing) {
@@ -253,7 +269,7 @@ export function createPackageInspectionCoordinator(
         }
         dependencies.refreshPackageStats();
         dependencies.render();
-        void ensureWorkspaceDependencies();
+        await ensureWorkspaceDependencies();
       }
     },
 
@@ -278,6 +294,7 @@ export function createPackageInspectionCoordinator(
         const result = coordinates
           ? await dependencies.queryPlatformIntegrations(
               coordinates.framework,
+              coordinates.platformVersion,
               coordinates.assemblyFileName,
               coordinates.pack)
           : await dependencies.queryPackageIntegrations(packageModel);
@@ -315,6 +332,7 @@ export function createPackageInspectionCoordinator(
         const result = coordinates
           ? await dependencies.queryPlatformOpportunities(
               coordinates.framework,
+              coordinates.platformVersion,
               coordinates.assemblyFileName,
               coordinates.pack)
           : await dependencies.queryPackageOpportunities(packageModel);
@@ -352,6 +370,7 @@ export function createPackageInspectionCoordinator(
         const result = coordinates
           ? await dependencies.queryPlatformPerformance(
               coordinates.framework,
+              coordinates.platformVersion,
               coordinates.assemblyFileName,
               coordinates.pack)
           : await dependencies.queryPackagePerformance(packageModel);
@@ -389,6 +408,7 @@ export function createPackageInspectionCoordinator(
         const result = coordinates
           ? await dependencies.queryPlatformMetadata(
               coordinates.framework,
+              coordinates.platformVersion,
               coordinates.assemblyFileName,
               coordinates.pack)
           : await dependencies.queryPackageMetadata(packageModel);

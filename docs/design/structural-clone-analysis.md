@@ -235,14 +235,24 @@ malformed-input boundaries.
 ## Seeded fuzzy retrieval
 
 `StructuralCloneAnalysis.RetrieveSimilar` ranks likely peers for one seed over
-a caller-supplied same-PE population. Retrieval is a separate evidence plane:
-it emits no `Exact`, `Near`, or `Different` relation and never establishes
-correspondence. Callers use `Compare` to verify a selected pair.
+a caller-supplied population. The same-image overload ranks one PE; the
+cross-image overload accepts a seed PE and one candidate PE and retains each
+side's MVID-scoped method identity. Retrieval is a separate evidence plane: it
+emits no `Exact`, `Near`, or `Different` relation and never establishes
+correspondence. The current `Compare` contract remains same-PE; cross-reader
+relationship verification requires a separate metadata-correspondence owner
+and is not inferred from a retrieval score.
 
 The product produces each admitted body once and compares compact feature
-multisets. Only candidates with the same normalized method-signature shape as
-the seed enter the ranking, including candidates that share no scored features
-and therefore score zero. The integer score ranges from zero through 10,000 and
+multisets. Same-image retrieval retains reader-local metadata, user-string, and
+signature-token values. Cross-image retrieval cannot compare those tokens
+directly, so it uses their portable operand categories while retaining
+immediates, argument positions, local types, block shapes, and typed edge
+roles. That deliberate loss of discrimination remains visible through corpus
+hard negatives and semantic hazards rather than guessed cross-reader identity.
+Only candidates with the same normalized method-signature shape as the seed
+enter either ranking, including candidates that share no scored features and
+therefore score zero. The integer score ranges from zero through 10,000 and
 combines:
 
 - normalized operation identity, including same-reader operands and local type;
@@ -254,8 +264,8 @@ combines:
 The components carry weights of 35%, 20%, 20%, 20%, and 5%, respectively.
 Block order and local slot numbers do not participate. Scores select and order
 candidates only; a high score can intentionally describe a hard negative.
-Ties resolve by component scores and then full MethodDef token, so input order
-cannot move a candidate.
+Ties resolve by component scores and then full MethodDef token within the
+candidate image, so input order cannot move a candidate.
 
 Method admission is atomic. Unsupported non-seed methods remain explicit
 method outcomes and do not make an otherwise complete ranking partial.
@@ -271,8 +281,9 @@ separate retrieval dispositions.
 `StructuralCloneRetrievalTests` gates exact and near recall, contrastive
 ordering, input-order determinism, visible top-K suppression, partial-ranking
 disposition, atomic admission, seed-independent populations, duplicate caller
-errors, unsupported seeds, and the separation between ranking score and
-relationship.
+errors, unsupported seeds, cross-image artifact-scoped identities, candidate
+metadata failure, same-MVID collision handling across separate readers, and the
+separation between ranking score and relationship.
 
 ## Correspondence and automorphisms
 
@@ -321,6 +332,47 @@ two-operation hard negatives, exact parameter-type and return-type semantic
 hazards, and the EH unsupported boundary. Exact discovery still finds four
 families and does not cluster near pairs. Three seeded fixture queries gate one
 exact and two near peers against hard negatives.
+
+## Cross-assembly version-pair corpus
+
+`tools/AnalysisHarness/corpus/structural-clone-cross-assembly.json` grades the
+cross-image retrieval overload over the authored `DiffFixtures.V1` and
+`DiffFixtures.V2` pair. The harness verifies assembly/type declarations,
+requires distinct MVIDs, resolves declared members independently on each side,
+and passes the entire right-side type population to the product. It consumes
+product ranks, similarity evidence, blockers, receipts, and artifact-scoped
+method addresses without reconstructing portable features.
+
+The two assembly paths passed on the command line select the A and A-prime
+artifacts, while each ledger entry selects one left-side query method.
+The harness submits every method in the ledger-declared right-side type to
+`RetrieveSimilar`; the product ranks the subset with completed body analysis
+and a query-compatible signature.
+
+The seven-query ledger labels every actual top-two result and includes stable,
+multi-edit, user-string, call-target, branch-target, type-token, and allocation
+regression cases. Its 14 reviewed results contain six relevant peers, six hard
+negatives, and two semantic lookalikes whose behavior differs. Six of seven
+declared relevant peers are recovered at K for 42.85% precision over reviewed
+labeled results and 85.71% recall at the reviewed depth over declared peers;
+the evolved allocation-loop member remains an explicit relevant peer at rank
+three, beyond the reviewed depth of two.
+
+The text report says **expectations met** when a query satisfies the ledger's
+declared rank, contrast, precision, and recall bounds. That harness result does
+not mean retrieval was perfect. **Hard negative** retains its standard
+information-retrieval meaning: a deliberately plausible but unrelated
+candidate. **Semantic lookalike** and **declared peer not recovered within
+reviewed depth** are harness descriptions of visible retrieval limitations.
+The latter includes a relevant ledger candidate ranked below K or not ranked
+at all; its aggregate count is unavailable when retrieval does not complete
+for a query with declared relevant peers. These figures describe only the
+authored version-pair ledger. They establish retrieval behavior, not
+cross-reader clone relations or semantic equivalence.
+`StructuralCloneCrossAssemblyCorpusTests.CommittedCorpus_GradesVersionPair`
+gates the real fixture run and exact text report, while
+`CommittedCorpus_PinsNonVacuousReviewCoverage` gates the project/type
+declarations and review-set counts on every host.
 
 ## Source-reviewed CoreLib corpus
 

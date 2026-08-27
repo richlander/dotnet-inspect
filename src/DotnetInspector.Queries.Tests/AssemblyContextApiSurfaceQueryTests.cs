@@ -711,7 +711,7 @@ public sealed class AssemblyContextApiSurfaceQueryTests
             assemblyName: "First");
         byte[] secondImage = BuildBoundedSurfaceImage(
             typeCount: 1,
-            assemblyName: "Second");
+            assemblyName: "Third");
         int retainedTextCharacters = RetainedTextCharacters(firstImage);
         Assert.Equal(
             retainedTextCharacters,

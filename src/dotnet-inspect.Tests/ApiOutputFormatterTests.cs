@@ -14,6 +14,8 @@ using DotnetInspector.Views;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Metadata;
+using InertText;
+using Markout;
 using Xunit;
 
 namespace DotnetInspector.Tests;
@@ -2336,6 +2338,286 @@ public class ApiOutputFormatterTests
         Assert.Equal([0, 0], restored.IntroducedTypeParameterCounts);
     }
 
+    /// <summary>
+    /// The production API-type JSON context persists the directional
+    /// <c>JsonIgnore</c> evidence instead of relying on the legacy derived
+    /// <c>has_json_ignore</c> boolean, which cannot identify the retained
+    /// direction. The serialization contract is gated here because the
+    /// context, rather than a reflection serializer, owns the shipped format.
+    /// </summary>
+    [Fact]
+    public void ApiTypeJson_RoundTripsDirectionalAndMalformedJsonIgnoreEvidence()
+    {
+        var type = new ApiType
+        {
+            Name = "Widget",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    JsonIgnoreConditions =
+                    [
+                        JsonWireIgnoreCondition.Always,
+                        JsonWireIgnoreCondition.Never,
+                        JsonWireIgnoreCondition.WhenWritingDefault,
+                        JsonWireIgnoreCondition.WhenWritingNull,
+                        JsonWireIgnoreCondition.WhenWriting,
+                        JsonWireIgnoreCondition.WhenReading,
+                        null,
+                    ],
+                },
+                new ApiMember
+                {
+                    Name = "Unannotated",
+                    Kind = "property",
+                },
+            ],
+        };
+
+        string json = JsonSerializer.Serialize(
+            type,
+            ApiTypeJsonContext.Default.ApiType);
+        ApiType restored = JsonSerializer.Deserialize(
+            json,
+            ApiTypeJsonContext.Default.ApiType)!;
+        ApiMember evidence = Assert.Single(
+            restored.Members,
+            member => member.Name == "Value");
+        ApiMember unannotated = Assert.Single(
+            restored.Members,
+            member => member.Name == "Unannotated");
+
+        Assert.Contains("\"has_json_ignore\": true", json, StringComparison.Ordinal);
+        Assert.Contains("\"json_ignore_conditions\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"Always\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"Never\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"WhenWritingDefault\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"WhenWritingNull\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"WhenWriting\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"WhenReading\"", json, StringComparison.Ordinal);
+        Assert.Equal(
+            type.Members[0].JsonIgnoreConditions,
+            evidence.JsonIgnoreConditions);
+        Assert.True(evidence.HasJsonIgnore);
+        Assert.Empty(unannotated.JsonIgnoreConditions);
+        Assert.False(unannotated.HasJsonIgnore);
+    }
+
+    [Fact]
+    public void ApiTypeJson_RoundTripsEnumWireNameEvidence()
+    {
+        var type = new ApiType
+        {
+            Name = "State",
+            Kind = "enum",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Ready",
+                    Kind = "field",
+                    JsonStringEnumMemberNameAttributeValues =
+                    [
+                        "wire-ready",
+                    ],
+                },
+                new ApiMember
+                {
+                    Name = "Malformed",
+                    Kind = "field",
+                    JsonStringEnumMemberNameAttributeValues = [null],
+                },
+            ],
+        };
+
+        string json = JsonSerializer.Serialize(
+            type,
+            ApiTypeJsonContext.Default.ApiType);
+        ApiType restored = JsonSerializer.Deserialize(
+            json,
+            ApiTypeJsonContext.Default.ApiType)!;
+        ApiMember ready = Assert.Single(
+            restored.Members,
+            member => member.Name == "Ready");
+        ApiMember malformed = Assert.Single(
+            restored.Members,
+            member => member.Name == "Malformed");
+
+        Assert.Contains(
+            "\"json_string_enum_member_names\"",
+            json,
+            StringComparison.Ordinal);
+        Assert.Equal(["wire-ready"], ready.JsonStringEnumMemberNameAttributeValues);
+        Assert.Equal("wire-ready", ready.JsonStringEnumMemberName);
+        Assert.Equal([null], malformed.JsonStringEnumMemberNameAttributeValues);
+        Assert.Null(malformed.JsonStringEnumMemberName);
+    }
+
+    [Fact]
+    public void ApiTypeJson_RoundTripsRuntimeJsExportFailureEvidence()
+    {
+        var type = new ApiType
+        {
+            Name = "Exports",
+            HasSystemTextJsonSourceGenerationMarker = true,
+            FilteredRuntimeJsExportFacts =
+            [
+                new(
+                    "<Run>g__Local|0_0",
+                    0x06000002,
+                    AttributeCount: 1,
+                    HasValidRow: true,
+                    HasMalformedRow: false),
+            ],
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Run",
+                    Kind = "method",
+                    GenericArity = 1,
+                    HasMethodBody = false,
+                    HasRuntimeJsExportWrapperCandidate = false,
+                    RuntimeJsExportWrapperCandidates =
+                    [
+                        new(
+                            0x06000003,
+                            0x06000004,
+                            2)
+                        {
+                            ModuleVersionId =
+                                new Guid(
+                                    "01020304-0506-0708-090a-0b0c0d0e0f10"),
+                        },
+                    ],
+                    HasRuntimeJsExport = true,
+                    RuntimeJsExportAttributeCount = 2,
+                    HasMalformedRuntimeJsExportAttribute = true,
+                },
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    IndexParameterCount = 0,
+                },
+            ],
+        };
+
+        string json = JsonSerializer.Serialize(
+            type,
+            ApiTypeJsonContext.Default.ApiType);
+        ApiType restored = JsonSerializer.Deserialize(
+            json,
+            ApiTypeJsonContext.Default.ApiType)!;
+        ApiMember evidence = Assert.Single(
+            restored.Members,
+            member => member.Name == "Run");
+        ApiMember property = Assert.Single(
+            restored.Members,
+            member => member.Name == "Value");
+        FilteredRuntimeJsExportFact filtered = Assert.Single(
+            restored.FilteredRuntimeJsExportFacts);
+
+        Assert.Contains("\"has_runtime_js_export\": true", json, StringComparison.Ordinal);
+        Assert.Contains(
+            "\"runtime_js_export_attribute_count\": 2",
+            json,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"has_runtime_js_export_wrapper_candidate\": false",
+            json,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"runtime_js_export_wrapper_candidates\":",
+            json,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"module_version_id\": "
+                + "\"01020304-0506-0708-090a-0b0c0d0e0f10\"",
+            json,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"has_malformed_runtime_js_export_attribute\": true",
+            json,
+            StringComparison.Ordinal);
+        Assert.Contains("\"generic_arity\": 1", json, StringComparison.Ordinal);
+        Assert.Contains("\"has_method_body\": false", json, StringComparison.Ordinal);
+        Assert.Contains(
+            "\"has_system_text_json_source_generation_marker\": true",
+            json,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"index_parameter_count\": 0",
+            json,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"filtered_runtime_js_export_facts\":",
+            json,
+            StringComparison.Ordinal);
+        Assert.True(evidence.HasRuntimeJsExport);
+        Assert.Equal(2, evidence.RuntimeJsExportAttributeCount);
+        Assert.True(evidence.HasMalformedRuntimeJsExportAttribute);
+        Assert.Equal(1, evidence.GenericArity);
+        Assert.False(evidence.HasMethodBody);
+        Assert.False(
+            evidence.HasRuntimeJsExportWrapperCandidate);
+        Assert.Equal(
+            new RuntimeJsExportWrapperCandidate(
+                0x06000003,
+                0x06000004,
+                2)
+            {
+                ModuleVersionId =
+                    new Guid(
+                        "01020304-0506-0708-090a-0b0c0d0e0f10"),
+            },
+            Assert.Single(
+                evidence.RuntimeJsExportWrapperCandidates!));
+        Assert.True(restored.HasSystemTextJsonSourceGenerationMarker);
+        Assert.Equal(0, property.IndexParameterCount);
+        Assert.Equal("<Run>g__Local|0_0", filtered.MethodName);
+        Assert.Equal(1, filtered.AttributeCount);
+        Assert.True(filtered.HasValidRow);
+        Assert.False(filtered.HasMalformedRow);
+    }
+
+    [Fact]
+    public void ApiSurfaceJson_RoundTripsSurfaceScopedJsExportFailureEvidence()
+    {
+        var surface = new ApiSurface
+        {
+            Name = "Fixtures",
+            FilteredRuntimeJsExportFacts =
+            [
+                new(
+                    "<Create>b__0_0",
+                    0x06000002,
+                    AttributeCount: 1,
+                    HasValidRow: true,
+                    HasMalformedRow: false),
+            ],
+        };
+
+        string json = JsonSerializer.Serialize(
+            surface,
+            ApiJsonContext.Default.ApiSurface);
+        ApiSurface restored = JsonSerializer.Deserialize(
+            json,
+            ApiJsonContext.Default.ApiSurface)!;
+        FilteredRuntimeJsExportFact fact = Assert.Single(
+            restored.FilteredRuntimeJsExportFacts);
+
+        Assert.Contains(
+            "\"filtered_runtime_js_export_facts\"",
+            json,
+            StringComparison.Ordinal);
+        Assert.Equal("<Create>b__0_0", fact.MethodName);
+        Assert.Equal(0x06000002, fact.MetadataToken);
+        Assert.True(fact.HasValidRow);
+    }
+
     [Fact]
     public void ApplySurfaceFilters_ProjectsConstraintFailuresToRetainedTypes()
     {
@@ -2443,6 +2725,15 @@ public class ApiOutputFormatterTests
         HostileOutputAssert.NoRenderingHazard(
             row.DependencyAssembly!,
             "inspection failure dependency assembly");
+        Assert.Equal(
+            TextConcern.Control,
+            row.OperationText.Concerns);
+        Assert.Equal(
+            TextConcern.Control | TextConcern.Format,
+            row.DetailText.Concerns);
+        Assert.Equal(
+            TextConcern.Control | TextConcern.Format,
+            row.DependencyAssemblyText!.Value.Concerns);
     }
 
     [Fact]
@@ -2486,6 +2777,373 @@ public class ApiOutputFormatterTests
                         version,
                         null,
                         null));
+    }
+
+    [Fact]
+    public void ApiPresentationRows_CarryConcernProvenance()
+    {
+        const string Hostile = "value\u202E\nINJECTED";
+        const TextConcern Concerns =
+            TextConcern.Control | TextConcern.Format;
+
+        InertString Text() => new(TextPolicy.Field, Hostile);
+
+        var surface = new CliApiSurface(
+            Text(),
+            Text(),
+            Text(),
+            Text(),
+            Text(),
+            Text());
+        var info = new ApiInfoSection(
+            Text(),
+            types: 1,
+            methods: 2,
+            properties: 3,
+            Text(),
+            Text(),
+            Text());
+        var failure = new ApiInspectionFailureRow(
+            Hostile,
+            Hostile,
+            Hostile,
+            Hostile,
+            Hostile,
+            Hostile,
+            Hostile);
+        var summary = new TypeSummaryRow(
+            Hostile,
+            Hostile,
+            Hostile,
+            Hostile);
+        var member = new ApiTableRow(
+            Hostile,
+            Hostile,
+            Hostile,
+            Hostile);
+        var type = new ApiSurfaceTableRow(
+            Hostile,
+            Hostile,
+            Hostile,
+            Hostile);
+
+        InertString[] texts =
+        [
+            surface.NameText!.Value,
+            surface.DescriptionText!.Value,
+            surface.LibraryText!.Value,
+            surface.SourceText!.Value,
+            surface.VersionText!.Value,
+            surface.TfmText!.Value,
+            info.AssemblyText!.Value,
+            info.VersionText!.Value,
+            info.TfmText!.Value,
+            info.SourceText!.Value,
+            failure.OperationText,
+            failure.SubjectText,
+            failure.MechanismText,
+            failure.KindText,
+            failure.DetailText,
+            failure.AssemblyText!.Value,
+            failure.DependencyAssemblyText!.Value,
+            summary.KindText,
+            summary.TypeText,
+            summary.MembersText,
+            member.KindText,
+            member.NameText,
+            member.ReturnTypeText,
+            member.DetailText,
+            type.KindText,
+            type.TypeText,
+            type.MembersText,
+        ];
+
+        Assert.Equal(27, texts.Length);
+        Assert.All(
+            texts,
+            text => Assert.Equal(Concerns, text.Concerns));
+    }
+
+    [Fact]
+    public void ApiPresentationBuilders_PreserveConcernProvenance()
+    {
+        const string Hostile = "value\u202E\nINJECTED";
+        const TextConcern Concerns =
+            TextConcern.Control | TextConcern.Format;
+
+        var api = new ApiSurface
+        {
+            Name = Hostile,
+            Library = Hostile,
+            Source = Hostile,
+            Version = Hostile,
+            Tfm = Hostile,
+            Types =
+            [
+                new ApiType
+                {
+                    Name = Hostile,
+                    Kind = "class",
+                    Documentation = new DocComment
+                    {
+                        Summary = Hostile,
+                    },
+                    Members =
+                    [
+                        new ApiMember
+                        {
+                            Accessibility = Hostile,
+                            Kind = "method",
+                            Name = Hostile,
+                            ReturnType = Hostile,
+                            Signature = $"void M({Hostile})",
+                        },
+                    ],
+                },
+                new ApiType
+                {
+                    Name = Hostile,
+                    Kind = Hostile,
+                    Documentation = new DocComment
+                    {
+                        Summary = Hostile,
+                    },
+                },
+            ],
+        };
+
+        var (compact, _) = ApiOutputFormatter.BuildFullApiView(
+            api,
+            new ApiOptions
+            {
+                Verbosity = Verbosity.Quiet,
+            });
+        Assert.Equal(Concerns, compact.NameText!.Value.Concerns);
+        Assert.Equal(Concerns, compact.LibraryText!.Value.Concerns);
+        Assert.Equal(Concerns, compact.SourceText!.Value.Concerns);
+        Assert.Equal(Concerns, compact.VersionText!.Value.Concerns);
+        Assert.Equal(Concerns, compact.TfmText!.Value.Concerns);
+
+        var (document, _) = ApiOutputFormatter.BuildFullApiView(
+            api,
+            new ApiOptions
+            {
+                Verbosity = Verbosity.Normal,
+                ShowDocs = true,
+            });
+        Assert.Equal(Concerns, document.NameText!.Value.Concerns);
+        Assert.Equal(
+            Concerns,
+            document.ApiInfo!.AssemblyText!.Value.Concerns);
+        TypeSummaryRow summary = Assert.Single(
+            document.ClassesWithDocs!);
+        Assert.Equal(Concerns, summary.TypeText.Concerns);
+        Assert.Equal(
+            api.Types[0].Documentation.Summary,
+            summary.Description);
+
+        var (memberTable, _) = ApiOutputFormatter.BuildTypeTableView(
+            api.Types[0],
+            new ApiOptions());
+        ApiTableRow member = Assert.Single(memberTable.Rows!);
+        Assert.Equal(Concerns, member.KindText.Concerns);
+        Assert.Equal(Concerns, member.NameText.Concerns);
+        Assert.Equal(Concerns, member.ReturnTypeText.Concerns);
+        Assert.Equal(Concerns, member.DetailText.Concerns);
+
+        var (surfaceTable, _) =
+            ApiOutputFormatter.BuildSurfaceTableView(
+                api,
+                new ApiOptions
+                {
+                    ShowDocs = true,
+                });
+        ApiSurfaceTableRow type = Assert.Single(
+            surfaceTable.RowsWithDescription!,
+            row => row.Kind.Contains("INJECTED", StringComparison.Ordinal));
+        Assert.Equal(Concerns, type.KindText.Concerns);
+        Assert.Equal(Concerns, type.TypeText.Concerns);
+        Assert.Equal(
+            api.Types[1].Documentation.Summary,
+            type.Description);
+    }
+
+    [Fact]
+    public void ApiPresentationTypedText_RendersAcrossMarkdownTsvAndJsonl()
+    {
+        const string Hostile = "value\u200D\uFEFF\t\u202E\nINJECTED";
+
+        InertString Text() => new(TextPolicy.Field, Hostile);
+
+        var document = new CliApiSurface(
+            Text(),
+            Text(),
+            Text(),
+            Text(),
+            Text(),
+            Text())
+        {
+            Types = 1,
+            Methods = 2,
+            Properties = 3,
+            ApiInfo = new ApiInfoSection(
+                Text(),
+                types: 1,
+                methods: 2,
+                properties: 3,
+                Text(),
+                Text(),
+                Text()),
+            InspectionFailures =
+            [
+                new ApiInspectionFailureRow(
+                    Hostile,
+                    Hostile,
+                    Hostile,
+                    Hostile,
+                    Hostile,
+                    Hostile,
+                    Hostile),
+            ],
+            ClassesWithDocs =
+            [
+                new TypeSummaryRow(
+                    Hostile,
+                    Hostile,
+                    Hostile,
+                    "description"),
+            ],
+        };
+        var memberTable = new ApiTypeTableView
+        {
+            Rows =
+            [
+                new ApiTableRow(
+                    Hostile,
+                    Hostile,
+                    Hostile,
+                    Hostile),
+            ],
+        };
+        var surfaceTable = new ApiSurfaceTableView
+        {
+            RowsWithDescription =
+            [
+                new ApiSurfaceTableRow(
+                    Hostile,
+                    Hostile,
+                    Hostile,
+                    "description"),
+            ],
+        };
+
+        string markdown = MarkoutSerializer.Serialize(
+            document,
+            ApiViewContext.Default);
+        string memberTsv = RenderApiTable(
+            memberTable,
+            tsv: true,
+            jsonl: false);
+        string memberJsonl = RenderApiTable(
+            memberTable,
+            tsv: false,
+            jsonl: true);
+        string summaryJsonl = RenderApiTable(
+            document,
+            tsv: false,
+            jsonl: true,
+            includeSections: ["Classes"]);
+        string surfaceTsv = RenderApiTable(
+            surfaceTable,
+            tsv: true,
+            jsonl: false);
+        string surfaceJsonl = RenderApiTable(
+            surfaceTable,
+            tsv: false,
+            jsonl: true);
+
+        foreach (string output in new[]
+        {
+            markdown,
+            memberTsv,
+            memberJsonl,
+            summaryJsonl,
+            surfaceTsv,
+            surfaceJsonl,
+        })
+        {
+            HostileOutputAssert.MarkersRendered(
+                output,
+                "API presentation",
+                "INJECTED");
+            HostileOutputAssert.NoRenderingHazard(
+                output,
+                "API presentation");
+            HostileOutputAssert.NoLineSplit(
+                output,
+                ["INJECTED"]);
+            Assert.Contains(@"\u200D", output, StringComparison.Ordinal);
+            Assert.Contains(@"\uFEFF", output, StringComparison.Ordinal);
+            Assert.Contains(@"\^I", output, StringComparison.Ordinal);
+            Assert.Contains(@"\u202E", output, StringComparison.Ordinal);
+            Assert.Contains(@"\^J", output, StringComparison.Ordinal);
+        }
+
+        AssertJsonlSchema(
+            memberJsonl,
+            ["kind", "name", "return_type", "detail"]);
+        string summaryJsonlRecord = Assert.Single(
+            summaryJsonl.Split('\n', StringSplitOptions.RemoveEmptyEntries),
+            line => line.StartsWith('{'));
+        AssertJsonlSchema(
+            summaryJsonlRecord,
+            ["kind", "type", "members", "description"]);
+        AssertJsonlSchema(
+            surfaceJsonl,
+            ["kind", "type", "members", "description"]);
+    }
+
+    private static string RenderApiTable<T>(
+        T view,
+        bool tsv,
+        bool jsonl,
+        HashSet<string>? includeSections = null)
+        where T : class =>
+        OutputFormatter.RenderTable(
+            showHeader: true,
+            (writer, formatter) => MarkoutSerializer.Serialize(
+                view,
+                writer,
+                formatter,
+                ApiViewContext.Default,
+                OutputFormatter.ConfigureTableWriterOptions(
+                    new MarkoutWriterOptions
+                    {
+                        IncludeSections = includeSections,
+                    },
+                    tsv,
+                    jsonl)));
+
+    private static void AssertJsonlSchema(
+        string jsonl,
+        string[] expectedProperties)
+    {
+        using JsonDocument document = JsonDocument.Parse(
+            Assert.Single(
+                jsonl.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries)));
+        Assert.Equal(
+            expectedProperties,
+            document.RootElement
+                .EnumerateObject()
+                .Select(property => property.Name)
+                .ToArray());
+        Assert.DoesNotContain(
+            document.RootElement.EnumerateObject(),
+            property => property.Name.EndsWith(
+                "_text",
+                StringComparison.Ordinal));
     }
 
     // --- Extraction: non-nested type with a literal '+' (requires ilasm) ---

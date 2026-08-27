@@ -3,8 +3,11 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Views;
 using Markout;
+using NuGetFetch;
 
 namespace DotnetInspector.Commands;
 
@@ -14,7 +17,9 @@ namespace DotnetInspector.Commands;
 public class FindCommand
 {
     public const string Name = "find";
-    public static async Task<int> ExecuteAsync(FindOptions options)
+    public static async Task<int> ExecuteAsync(
+        FindOptions options,
+        CancellationToken cancellationToken = default)
     {
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
@@ -24,6 +29,26 @@ public class FindCommand
             // Discovery mode: -D/--discover lists schema
             if (options.Discover != null)
             {
+                if (options.IsPackageProfile)
+                {
+                    PackageProfileSectionCatalog catalog =
+                        PackageProfileSections.CreateCatalog();
+                    SectionPipeline<PackageProfileView> pipeline =
+                        catalog.Pipeline;
+                    return DiscoverOutput.Execute(
+                        options.Discover,
+                        PackageProfileSections.CreateSchema(),
+                        tree: options.Tree,
+                        json: options.JsonOutput,
+                        tsv: options.Tsv,
+                        jsonl: options.Jsonl,
+                        sectionCostAnnotations:
+                            pipeline.GetCostAnnotations(),
+                        sectionCategories:
+                            pipeline.GetCategoryMap(),
+                        projection: options);
+                }
+
                 var schema = options.Members
                     ? new DocumentSchema()
                         .Add("Members", "column", "Pattern", "Member", "Kind", "Type", "Signature", "Library", "Source")
@@ -31,9 +56,15 @@ public class FindCommand
                         .Add("Results", "column", "Pattern", "Type", "Namespace", "Kind", "Library", "Source", "Match", "Sim");
                 return DiscoverOutput.Execute(options.Discover, schema,
                     tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl,
-                    projection: options,
-                    tabularExplicitlySet:
-                        options.FormatExplicitlySet && options.Tabular);
+                    projection: options);
+            }
+
+            if (options.IsPackageProfile)
+            {
+                return await ExecutePackageProfileAsync(
+                    options,
+                    context,
+                    cancellationToken);
             }
 
             var patterns = options.Pattern.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -65,7 +96,8 @@ public class FindCommand
             // with the full unprojected result set.
             if (options.Count)
             {
-                WriteCount(results, title);
+                if (!WriteCount(results, title, options))
+                    return 1;
             }
             else if (options.JsonOutput)
             {
@@ -100,6 +132,199 @@ public class FindCommand
         }
     }
 
+    private static async Task<int> ExecutePackageProfileAsync(
+        FindOptions options,
+        CommandContext context,
+        CancellationToken cancellationToken)
+    {
+        if (options.Packages.Length > 0
+            || options.Assemblies.Length > 0
+            || options.PlatformAssemblies.Length > 0
+            || options.PlatformFrameworks.Length > 0
+            || options.Projects.Length > 0
+            || options.BinPaths.Length > 0
+            || options.Members
+            || options.IncludeAll
+            || options.Tfm is not null)
+        {
+            CommandError.Write(
+                "Patternless --package-prefix cannot be combined with API search scopes, --all, or --tfm.");
+            return 1;
+        }
+
+        if (options.SourceOptions is { } sourceOptions
+            && (sourceOptions.Sources.Length > 0
+                || sourceOptions.AdditionalSources.Length > 0
+                || sourceOptions.ConfigFile is not null))
+        {
+            CommandError.Write(
+                "Package-prefix manifest profiles currently use the NuGet Gallery source and cannot be combined with source overrides.");
+            return 1;
+        }
+
+        if (!PackageProfileQuery.IsValidPrefix(options.PackagePrefix))
+        {
+            CommandError.Write(
+                "--package-prefix must be 1 to 100 characters without surrounding whitespace or control characters.");
+            return 1;
+        }
+
+        if (options.TypeFilter is not null
+            && !int.TryParse(options.TypeFilter, out _))
+        {
+            CommandError.Write(
+                $"-t must be an integer between 1 and {PackageProfileQuery.MaximumPackageLimit} for a package-prefix profile.");
+            return 1;
+        }
+
+        int maximumPackages = options.Limit ?? 100;
+        if (maximumPackages is <= 0
+            or > PackageProfileQuery.MaximumPackageLimit)
+        {
+            CommandError.Write(
+                $"-t must be between 1 and {PackageProfileQuery.MaximumPackageLimit} for a package-prefix profile (got {maximumPackages}).");
+            return 1;
+        }
+
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(
+                DotnetInspector.Core.HttpClientFactory
+                    .CreateCredentialFreeHandler(),
+                NuGetFetchOptions.FromRequestTimeout(
+                    context.HttpClient.Timeout));
+        var request = new PackagePrefixProfileRequest(
+            options.PackagePrefix!,
+            maximumPackages);
+        PackageProfileSectionCatalog catalog =
+            PackageProfileSections.CreateCatalog();
+        HashSet<string> includeSections =
+            [PackageProfileSections.Packages];
+        HashSet<InspectionQueryDefinition> requestedQueries =
+            catalog.Pipeline.GetRequiredQueries(
+                Verbosity.Normal,
+                includeSections);
+        InspectionQueryResults queryResults =
+            await catalog.QueryRegistry.RunAsync(
+                requestedQueries,
+                new PackageProfileQueryContext(source, request),
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        var events = queryResults.Get(PackageProfileQuery.Definition);
+
+        PackageProfileSummary summary = events
+            .OfType<PackageProfileEvent.Completed>()
+            .Single()
+            .Value;
+        var view = PackageProfileSections.CreateDocument(
+            request.Prefix,
+            events,
+            options.Rows);
+        WritePackageProfileOutput(view, options);
+
+        foreach (PackageProfileEvent.Failure failure
+            in events.OfType<PackageProfileEvent.Failure>())
+        {
+            string subject = failure.Value.PackageId is { Length: > 0 } id
+                ? $"{id}: "
+                : "";
+            CommandError.WriteWarning(
+                $"{subject}{failure.Value.Message}");
+        }
+
+        if (summary.Truncated)
+        {
+            CommandError.WriteWarning(
+                summary.TruncationReason
+                    == PackageSearchTruncationReason.RequestedLimit
+                        ? "Package discovery reached the requested package limit."
+                        : "Package discovery was truncated by a pagination limit; narrow the prefix.");
+        }
+
+        return PackageProfileExitCode(summary);
+    }
+
+    internal static void WritePackageProfileOutput(
+        PackageProfileView view,
+        FindOptions options)
+    {
+        SectionPipeline<PackageProfileView> pipeline =
+            PackageProfileSections.CreatePipeline();
+        HashSet<string> includeSections =
+            pipeline.GetCandidateSections(
+                Verbosity.Normal,
+                [PackageProfileSections.Packages]);
+
+        if (options.Count)
+        {
+            CountOutput.WriteCount(
+                PackageProfileSections.CountRows(view));
+        }
+        else if (options.JsonOutput)
+        {
+            OutputFormatter.WriteProjectedJson(
+                Console.Out,
+                options.Columns,
+                options.Fields,
+                (writer, formatter, writerOptions) =>
+                {
+                    writerOptions.IncludeSections = includeSections;
+                    MarkoutSerializer.Serialize(
+                        view,
+                        writer,
+                        formatter,
+                        SearchViewContext.Default,
+                        writerOptions);
+                },
+                !options.CompactJson,
+                maxRows: null);
+        }
+        else if (options.Tabular)
+        {
+            OutputFormatter.WriteProjectedTable(
+                Console.Out,
+                !options.NoHeader,
+                options.Tsv,
+                options.Jsonl,
+                options.Columns,
+                options.Fields,
+                (writer, formatter, writerOptions) =>
+                {
+                    writerOptions.IncludeSections = includeSections;
+                    MarkoutSerializer.Serialize(
+                        view,
+                        writer,
+                        formatter,
+                        SearchViewContext.Default,
+                        writerOptions);
+                },
+                maxRows: null);
+        }
+        else
+        {
+            OutputFormatter.WriteWindowedMarkdown(
+                Console.Out,
+                rows: null,
+                writerOptions =>
+                {
+                    writerOptions.IncludeSections = includeSections;
+                    return MarkoutSerializer.Serialize(
+                        view,
+                        SearchViewContext.Default,
+                        writerOptions);
+                },
+                options.Columns,
+                options.Fields);
+        }
+    }
+
+    internal static int PackageProfileExitCode(
+        PackageProfileSummary summary) =>
+        summary.Failures == 0
+        && summary.TruncationReason
+            is PackageSearchTruncationReason.None
+                or PackageSearchTruncationReason.RequestedLimit
+            ? 0
+            : 1;
+
     private static async Task<int> ExecuteMemberSearchAsync(
         FindOptions options,
         string[] patterns,
@@ -124,7 +349,8 @@ public class FindCommand
 
         if (options.Count)
         {
-            WriteMemberCount(results, title);
+            if (!WriteMemberCount(results, title, options))
+                return 1;
         }
         else if (options.JsonOutput)
         {
@@ -219,10 +445,16 @@ public class FindCommand
         }
     }
 
-    private static void WriteCount(List<TypeFindResult> rawData, string title)
+    private static bool WriteCount(List<TypeFindResult> rawData, string title, FindOptions options)
     {
         var view = FindOutputFormatter.BuildView(rawData, title);
-        CountOutput.WriteCount(view.Results?.Count ?? 0);
+        return CountOutput.TryWriteProjected(
+            view,
+            SearchViewContext.Default,
+            "Results",
+            options.Columns,
+            options.Fields,
+            options.Rows);
     }
 
     private static void WriteMemberOutput(List<MemberFindResult> rawData, string title, FindOptions options)
@@ -250,10 +482,16 @@ public class FindCommand
         }
     }
 
-    private static void WriteMemberCount(List<MemberFindResult> rawData, string title)
+    private static bool WriteMemberCount(List<MemberFindResult> rawData, string title, FindOptions options)
     {
         var view = FindOutputFormatter.BuildMemberView(rawData, title);
-        CountOutput.WriteCount(view.Results?.Count ?? 0);
+        return CountOutput.TryWriteProjected(
+            view,
+            SearchViewContext.Default,
+            "Members",
+            options.Columns,
+            options.Fields,
+            options.Rows);
     }
 }
 

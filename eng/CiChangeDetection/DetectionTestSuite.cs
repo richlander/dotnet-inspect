@@ -287,6 +287,19 @@ internal static class DetectionTestSuite
                 $"{FormatValues(source)}");
         }
 
+        Dictionary<string, string> windowsInstaller = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "install.ps1",
+            outputs);
+        if (windowsInstaller["code"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Windows installer canary did not select code: " +
+                FormatValues(windowsInstaller));
+        }
+
         Dictionary<string, string> webDependency = RunDetection(
             repository,
             body,
@@ -339,6 +352,70 @@ internal static class DetectionTestSuite
         {
             throw new InvalidOperationException(
                 $"Web canary did not select only web: {FormatValues(web)}");
+        }
+        foreach (string webDocumentation in new[]
+        {
+            "prototypes/inspect-web/README.md",
+            "prototypes/inspect-web/docs/hosting.md",
+        })
+        {
+            Dictionary<string, string> webDocs = RunDetection(
+                repository,
+                body,
+                "pull_request",
+                webDocumentation,
+                outputs);
+            if (webDocs["code"] != "false"
+                || webDocs["docs"] != "true"
+                || webDocs["web"] != "false")
+            {
+                throw new InvalidOperationException(
+                    $"Web documentation {webDocumentation} selected the wrong " +
+                    $"lanes: {FormatValues(webDocs)}");
+            }
+        }
+        Dictionary<string, string> webDocsAndSource = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            """
+            prototypes/inspect-web/README.md
+            prototypes/inspect-web/src/dotnet-inspect.ts
+            """,
+            outputs);
+        if (webDocsAndSource["docs"] != "true"
+            || webDocsAndSource["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Mixed web documentation and source did not select both lanes: "
+                + FormatValues(webDocsAndSource));
+        }
+        Dictionary<string, string> webSourceRenamedToDocs = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "prototypes/inspect-web/archived-design.md",
+            outputs,
+            previousFiles: "prototypes/inspect-web/src/archived-design.ts");
+        if (webSourceRenamedToDocs["docs"] != "true"
+            || webSourceRenamedToDocs["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Web source renamed to documentation escaped the web lane: "
+                + FormatValues(webSourceRenamedToDocs));
+        }
+        Dictionary<string, string> webTextFixture = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "prototypes/inspect-web/test/fixture.txt",
+            outputs);
+        if (webTextFixture["docs"] != "true"
+            || webTextFixture["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Non-Markdown web fixture escaped the web lane: "
+                + FormatValues(webTextFixture));
         }
         Dictionary<string, string> webGenerator = RunDetection(
             repository,
@@ -568,6 +645,50 @@ internal static class DetectionTestSuite
             selected: "packaging",
             notSelected: "docs");
 
+        Dictionary<string, string> packageFixture = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/package-fixtures/tool-v2/1.0.0/pointer.nuspec",
+            outputs);
+        AssertRouting(
+            packageFixture,
+            selected: "code",
+            notSelected: "packaging");
+
+        Dictionary<string, string> metadataPackageFixture = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/package-fixtures/metadata-confusion/1.0.0/metadata-confusion.nuspec",
+            outputs);
+        AssertRouting(
+            metadataPackageFixture,
+            selected: "code",
+            notSelected: "packaging");
+
+        Dictionary<string, string> packageManifestCorpus = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/package-manifest-corpus.json",
+            outputs);
+        AssertRouting(
+            packageManifestCorpus,
+            selected: "code",
+            notSelected: "docs");
+
+        Dictionary<string, string> packageManifestCorpusVerifier = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/verify-package-manifest-corpus.cs",
+            outputs);
+        AssertRouting(
+            packageManifestCorpusVerifier,
+            selected: "code",
+            notSelected: "docs");
+
         Dictionary<string, string> workflow = RunDetection(
             repository,
             body,
@@ -659,6 +780,38 @@ internal static class DetectionTestSuite
             throw new InvalidOperationException(
                 $"Pushed source canary did not select code: " +
                 $"{FormatValues(pushedSource)}");
+        }
+
+        Dictionary<string, string> pushedWebDependency = RunDetection(
+            repository,
+            body,
+            "push",
+            "src/DotnetInspector.Queries/AssemblyContextApiSurfaceQuery.cs",
+            outputs);
+        if (pushedWebDependency["code"] != "true" ||
+            pushedWebDependency["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Pushed web dependency did not select code and web: " +
+                FormatValues(pushedWebDependency));
+        }
+
+        Dictionary<string, string> mergeGroupWebDependency = RunDetection(
+            repository,
+            body,
+            "merge_group",
+            "src/DotnetInspector.Queries/AssemblyContextApiSurfaceQuery.cs",
+            outputs);
+        if (mergeGroupWebDependency.Count != webDependency.Count ||
+            mergeGroupWebDependency.Any(item =>
+                !webDependency.TryGetValue(
+                    item.Key,
+                    out string? expected) ||
+                item.Value != expected))
+        {
+            throw new InvalidOperationException(
+                "Merge-group web dependency did not match PR routing: " +
+                FormatValues(mergeGroupWebDependency));
         }
 
         Dictionary<string, string> unicodeSource = RunDetection(

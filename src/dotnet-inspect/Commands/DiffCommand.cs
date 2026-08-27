@@ -59,8 +59,7 @@ public class DiffCommand
             return DiscoverOutput.ExecuteEffective(options.Discover, discoverable, schemaMap,
                 tree: options.Tree, json: false, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular,
                 sectionCostAnnotations: pipeline.GetCostAnnotations(),
-                sectionCategories: pipeline.GetCategoryMap(),
-                tabularExplicitlySet: options.TabularExplicitlySet);
+                sectionCategories: pipeline.GetCategoryMap());
         }
 
         if (!OutputFormatResolver.ValidateSingleSectionForTabular(
@@ -68,10 +67,10 @@ public class DiffCommand
                 options.IncludeSections))
             return 1;
 
-        if (options.IncludeAuthoredSource && !SelectsImplementationDiff(options))
+        if (options.IncludePdbSource && !SelectsImplementationDiff(options))
         {
             CommandError.Write(
-                "--authored-source requires the Implementation Diff section.");
+                "PDB source acquisition requires the Implementation Diff section.");
             return 1;
         }
 
@@ -1133,20 +1132,20 @@ public class DiffCommand
             VerboseLogger logger)
     {
         ArgumentNullException.ThrowIfNull(result);
-        if (!options.IncludeAuthoredSource || result.Members.Count == 0)
+        if (!options.IncludePdbSource || result.Members.Count == 0)
             return result;
 
         var subjects = result.Members
             .Select(member => member.Subject)
             .ToDictionary(subject => subject.Id, StringComparer.Ordinal);
-        var from = await AcquireAuthoredSourceInspectionsAsync(
+        var from = await AcquirePdbSourceInspectionsAsync(
             fromPaths,
             subjects,
             options,
             oldSide: true,
             httpClient,
             logger);
-        var to = await AcquireAuthoredSourceInspectionsAsync(
+        var to = await AcquirePdbSourceInspectionsAsync(
             toPaths,
             subjects,
             options,
@@ -1154,7 +1153,7 @@ public class DiffCommand
             httpClient,
             logger);
         var comparisons = subjects.Values.Select(subject =>
-            new AuthoredSourceComparisonInput(
+            new PdbSourceComparisonInput(
                 subject,
                 from.GetValueOrDefault(subject.Id)
                     ?? new FindingInspection<string>.Absent(
@@ -1162,7 +1161,7 @@ public class DiffCommand
                 to.GetValueOrDefault(subject.Id)
                     ?? new FindingInspection<string>.Absent(
                         "The member is unavailable in the new endpoint.")));
-        return ImplementationDiff.WithAuthoredSourceComparisons(
+        return ImplementationDiff.WithPdbSourceComparisons(
             result,
             comparisons,
             new ImplementationDiffOptions(
@@ -1170,7 +1169,7 @@ public class DiffCommand
                 MemberTargetIdentities: subjects.Keys.ToHashSet(StringComparer.Ordinal)));
     }
 
-    static async Task<Dictionary<string, FindingInspection<string>>> AcquireAuthoredSourceInspectionsAsync(
+    static async Task<Dictionary<string, FindingInspection<string>>> AcquirePdbSourceInspectionsAsync(
         IReadOnlyList<string> paths,
         IReadOnlyDictionary<string, ResearchSubjectKey> subjects,
         DiffOptions options,
@@ -1198,7 +1197,7 @@ public class DiffCommand
                 or BadImageFormatException
                 or InvalidOperationException)
             {
-                logger.Log($"Could not index authored-source targets in '{path}': {ex.Message}");
+                logger.Log($"Could not index PDB-source targets in '{path}': {ex.Message}");
                 continue;
             }
 
@@ -1230,7 +1229,7 @@ public class DiffCommand
                 foreach (var target in targets)
                 {
                     var subject = subjects[target.Subject.Id];
-                    var inspection = await AuthoredSourceAcquisition.AcquireMemberAsync(
+                    var inspection = await PdbSourceAcquisition.AcquireMemberAsync(
                         source,
                         target.Method.MetadataToken,
                         target.Method.Name,
@@ -1253,7 +1252,7 @@ public class DiffCommand
                         new InspectionError(
                             new FindingSubject(subject.Id, subject.Display),
                             ILInspector.Text.TextFindings.LineDescriptor,
-                            $"Authored-source acquisition failed ({ex.GetType().Name}): {ex.Message}"));
+                            $"PDB-source acquisition failed ({ex.GetType().Name}): {ex.Message}"));
                 }
             }
         }
@@ -2297,7 +2296,7 @@ public record DiffOptions
     public bool Additive { get; init; }
     public bool ChangedOnly { get; init; }
     public bool AllocRegressionsOnly { get; init; }
-    public bool IncludeAuthoredSource { get; init; }
+    public bool IncludePdbSource { get; init; }
     public string? Finding { get; init; }
     public bool Legend { get; init; }
     public string[]? Discover { get; init; }
@@ -2317,7 +2316,7 @@ public record DiffOptions
     public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>
-    /// Local git clone paths consulted for authored source (Implementation Diff), by SourceLink
+    /// Local git clone paths consulted for PDB source (Implementation Diff), by SourceLink
     /// commit + PDB checksum, before the network. Empty = network only. Set via <c>--repo</c>.
     /// </summary>
     public string[] SourceRepositories { get; init; } = [];

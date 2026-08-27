@@ -9,6 +9,8 @@ public sealed class MethodCallAnalysisTests
     const int FirstToken = 0x0A000001;
     const int SecondToken = 0x0A000002;
     const int SignatureToken = 0x11000001;
+    const int FirstUserStringToken = 0x70000001;
+    const int SecondUserStringToken = 0x70000002;
 
     static readonly TypeRef s_void =
         TypeRef.CoreLib("System", "Void");
@@ -307,6 +309,323 @@ public sealed class MethodCallAnalysisTests
         Assert.Equal(0, item.ILOffset);
     }
 
+    [Fact]
+    public void CollectsFirstArgumentStringLiteral()
+    {
+        var userStrings = new Dictionary<int, string>
+        {
+            [FirstUserStringToken] = "direct",
+            [SecondUserStringToken] = "local",
+        };
+        byte[] il =
+        [
+            0x72, 0x01, 0x00, 0x00, 0x70,
+            0x28, 0x01, 0x00, 0x00, 0x0A,
+            0x72, 0x02, 0x00, 0x00, 0x70,
+            0x0A,
+            0x06,
+            0x28, 0x01, 0x00, 0x00, 0x0A,
+            0x2A,
+        ];
+        var calls = ImmutableArray.CreateBuilder<DirectCall>();
+        var evidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
+        var resultSinks =
+            ImmutableArray.CreateBuilder<MethodResultSink>();
+
+        MethodCallAnalysis.Collect(
+            Context(il),
+            new Resolver(
+                stringParameterFirst: true,
+                userStrings: userStrings),
+            _ => AllocationMultiplicity.Once,
+            calls,
+            evidence,
+            includeIndirectOpcodes: false,
+            resultSinks: resultSinks);
+
+        Assert.Equal(
+            ["direct", "local"],
+            calls.Select(call =>
+                call.FirstArgumentStringLiteral));
+    }
+
+    [Fact]
+    public void DoesNotGuessFirstArgumentStringLiteralAcrossMerge()
+    {
+        var userStrings = new Dictionary<int, string>
+        {
+            [FirstUserStringToken] = "left",
+            [SecondUserStringToken] = "right",
+        };
+        byte[] il =
+        [
+            0x16,
+            0x2D, 0x08,
+            0x72, 0x01, 0x00, 0x00, 0x70,
+            0x0A,
+            0x2B, 0x06,
+            0x72, 0x02, 0x00, 0x00, 0x70,
+            0x0A,
+            0x06,
+            0x28, 0x01, 0x00, 0x00, 0x0A,
+            0x2A,
+        ];
+
+        var calls = ImmutableArray.CreateBuilder<DirectCall>();
+        var evidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
+        var resultSinks =
+            ImmutableArray.CreateBuilder<MethodResultSink>();
+        MethodCallAnalysis.Collect(
+            Context(il),
+            new Resolver(
+                stringParameterFirst: true,
+                userStrings: userStrings),
+            _ => AllocationMultiplicity.Once,
+            calls,
+            evidence,
+            includeIndirectOpcodes: false,
+            resultSinks: resultSinks);
+
+        Assert.Null(
+            Assert.Single(calls)
+                .FirstArgumentStringLiteral);
+    }
+
+    [Fact]
+    public void ClassifiesReturnedAndDiscardedCallResults()
+    {
+        DirectCall returned = CollectSingle(
+            [
+                0x28, 0x01, 0x00, 0x00, 0x0A,
+                0x2A,
+            ]);
+        DirectCall discarded = CollectSingle(
+            [
+                0x28, 0x01, 0x00, 0x00, 0x0A,
+                0x26,
+                0x2A,
+            ]);
+
+        Assert.Equal(
+            DirectCallResultUse.MethodReturn,
+            returned.ResultUse);
+        Assert.Equal(5, returned.ResultConsumerOffset);
+        Assert.Equal(
+            DirectCallResultUse.Discarded,
+            discarded.ResultUse);
+        Assert.Equal(5, discarded.ResultConsumerOffset);
+    }
+
+    [Fact]
+    public void ClassifiesSingleLocalUseAsCallArgument()
+    {
+        byte[] il =
+        [
+            0x28, 0x01, 0x00, 0x00, 0x0A,
+            0x0A,
+            0x06,
+            0x28, 0x02, 0x00, 0x00, 0x0A,
+            0x2A,
+        ];
+        var calls = ImmutableArray.CreateBuilder<DirectCall>();
+        var evidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
+
+        MethodCallAnalysis.Collect(
+            Context(il),
+            new Resolver(returningFirst: true),
+            _ => AllocationMultiplicity.Once,
+            calls,
+            evidence,
+            includeIndirectOpcodes: false);
+
+        DirectCall producer = calls[0];
+        Assert.Equal(
+            DirectCallResultUse.CallArgument,
+            producer.ResultUse);
+        Assert.Equal(7, producer.ResultConsumerOffset);
+    }
+
+    [Fact]
+    public void CollectsInstanceReceiverCallSources()
+    {
+        byte[] directReceiver =
+        [
+            0x28, 0x01, 0x00, 0x00, 0x0A,
+            0x6F, 0x02, 0x00, 0x00, 0x0A,
+            0x2A,
+        ];
+        byte[] rawReceiver =
+        [
+            0x14,
+            0x6F, 0x02, 0x00, 0x00, 0x0A,
+            0x2A,
+        ];
+
+        DirectCall direct = CollectCallsWithInstanceSecond(
+            directReceiver)[1];
+        DirectCall raw = Assert.Single(
+            CollectCallsWithInstanceSecond(rawReceiver));
+
+        Assert.NotNull(direct.ReceiverSource);
+        Assert.Equal([0], direct.ReceiverSource.SourceCallOffsets);
+        Assert.True(direct.ReceiverSource.IsComplete);
+        Assert.NotNull(raw.ReceiverSource);
+        Assert.Empty(raw.ReceiverSource.SourceCallOffsets);
+        Assert.False(raw.ReceiverSource.IsComplete);
+    }
+
+    [Fact]
+    public void ClassifiesReturnSinkSourcesAndIncompleteCoverage()
+    {
+        byte[] sharedLocalReturn =
+        [
+        0x16,
+        0x2C, 0x08,
+        0x28, 0x01, 0x00, 0x00, 0x0A,
+        0x0A,
+        0x2B, 0x06,
+        0x72, 0x02, 0x00, 0x00, 0x70,
+        0x0A,
+        0x06,
+        0x2A,
+        ];
+        byte[] serializedBranches = (byte[])sharedLocalReturn.Clone();
+        serializedBranches[11] = 0x28;
+        serializedBranches[12] = 0x01;
+        serializedBranches[13] = 0x00;
+        serializedBranches[14] = 0x00;
+        serializedBranches[15] = 0x0A;
+
+        MethodResultSink incomplete = Assert.Single(
+        CollectResultSinks(sharedLocalReturn));
+        MethodResultSink complete = Assert.Single(
+        CollectResultSinks(serializedBranches));
+
+        Assert.Equal(MethodResultSinkKind.MethodReturn, incomplete.Kind);
+        Assert.Equal(18, incomplete.ILOffset);
+        Assert.Empty(incomplete.SourceCallOffsets);
+        Assert.False(incomplete.IsComplete);
+        Assert.Equal([3, 11], complete.SourceCallOffsets);
+        Assert.True(complete.IsComplete);
+    }
+
+    [Fact]
+    public void RejectsMergedEvaluationStackResultSources()
+    {
+        byte[] directReturn =
+        [
+            0x28, 0x01, 0x00, 0x00, 0x0A,
+            0x2A,
+        ];
+        byte[] localReturn =
+        [
+            0x28, 0x01, 0x00, 0x00, 0x0A,
+            0x0A,
+            0x06,
+            0x2A,
+        ];
+        byte[] rawStackMerge =
+        [
+            0x02,
+            0x25,
+            0x2D, 0x06,
+            0x26,
+            0x28, 0x01, 0x00, 0x00, 0x0A,
+            0x2A,
+        ];
+        byte[] rawLocalStore =
+        [
+            0x02,
+            0x25,
+            0x2D, 0x06,
+            0x26,
+            0x28, 0x01, 0x00, 0x00, 0x0A,
+            0x0A,
+            0x06,
+            0x2A,
+        ];
+        byte[] addressTakenLocal =
+        [
+            0x28, 0x01, 0x00, 0x00, 0x0A,
+            0x0A,
+            0x12, 0x00,
+            0x26,
+            0x06,
+            0x2A,
+        ];
+
+        MethodResultSink direct = Assert.Single(
+            CollectResultSinks(directReturn));
+        MethodResultSink local = Assert.Single(
+            CollectResultSinks(localReturn));
+        MethodResultSink rawMerged = Assert.Single(
+            CollectResultSinks(rawStackMerge));
+        MethodResultSink rawStored = Assert.Single(
+            CollectResultSinks(rawLocalStore));
+        MethodResultSink addressTaken = Assert.Single(
+            CollectResultSinks(addressTakenLocal));
+
+        Assert.Equal([0], direct.SourceCallOffsets);
+        Assert.True(direct.IsComplete);
+        Assert.Equal([0], local.SourceCallOffsets);
+        Assert.True(local.IsComplete);
+        Assert.Empty(rawMerged.SourceCallOffsets);
+        Assert.False(rawMerged.IsComplete);
+        Assert.Empty(rawStored.SourceCallOffsets);
+        Assert.False(rawStored.IsComplete);
+        Assert.Empty(addressTaken.SourceCallOffsets);
+        Assert.False(addressTaken.IsComplete);
+    }
+
+    static DirectCall CollectSingle(byte[] il)
+    {
+        var calls = ImmutableArray.CreateBuilder<DirectCall>();
+        var evidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
+        MethodCallAnalysis.Collect(
+            Context(il),
+            new Resolver(returningFirst: true),
+            _ => AllocationMultiplicity.Once,
+            calls,
+            evidence,
+            includeIndirectOpcodes: false);
+        return Assert.Single(calls);
+    }
+
+    static ImmutableArray<MethodResultSink> CollectResultSinks(byte[] il)
+    {
+        var calls = ImmutableArray.CreateBuilder<DirectCall>();
+        var evidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
+        var resultSinks = ImmutableArray.CreateBuilder<MethodResultSink>();
+        MethodCallAnalysis.Collect(
+            Context(il),
+            new Resolver(returningFirst: true),
+            _ => AllocationMultiplicity.Once,
+            calls,
+            evidence,
+            includeIndirectOpcodes: false,
+            resultSinks: resultSinks);
+        return resultSinks.ToImmutable();
+    }
+
+    static ImmutableArray<DirectCall> CollectCallsWithInstanceSecond(
+        byte[] il)
+    {
+        var calls = ImmutableArray.CreateBuilder<DirectCall>();
+        var evidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
+        var resultSinks = ImmutableArray.CreateBuilder<MethodResultSink>();
+        MethodCallAnalysis.Collect(
+            Context(il),
+            new Resolver(
+                returningFirst: true,
+                instanceSecond: true),
+            _ => AllocationMultiplicity.Once,
+            calls,
+            evidence,
+            includeIndirectOpcodes: false,
+            resultSinks: resultSinks);
+        return calls.ToImmutable();
+    }
+
     static void AssertCall(
         DirectCall call,
         int offset,
@@ -369,7 +688,11 @@ public sealed class MethodCallAnalysisTests
         bool throwOnSecondMember = false,
         bool throwOnDefinition = false,
         bool throwOnIndirectCall = false,
-        List<string>? events = null)
+        bool returningFirst = false,
+        bool instanceSecond = false,
+        List<string>? events = null,
+        bool stringParameterFirst = false,
+        IReadOnlyDictionary<int, string>? userStrings = null)
         : IMethodCallResolver
     {
         public MemberRef ResolveMember(int token)
@@ -384,14 +707,21 @@ public sealed class MethodCallAnalysisTests
                     "Fixtures",
                     "Target"),
                 "Target",
-                unsafeMember
-                    ? [TypeRef.Pointer(
-                        TypeRef.CoreLib(
-                            "System",
-                            "Int32"))]
-                    : [],
-                s_void,
-                MemberKind.Method);
+                stringParameterFirst && token == FirstToken
+                    ? [TypeRef.CoreLib("System", "String")]
+                    : unsafeMember
+                        ? [TypeRef.Pointer(
+                            TypeRef.CoreLib(
+                                "System",
+                                "Int32"))]
+                        : [],
+                returningFirst && token == FirstToken
+                    ? TypeRef.CoreLib("System", "String")
+                    : s_void,
+                MemberKind.Method)
+            {
+                HasThis = instanceSecond && token == SecondToken,
+            };
         }
 
         public MemberRef ResolveIndirectCall(int signatureToken)
@@ -420,5 +750,13 @@ public sealed class MethodCallAnalysisTests
                 _ => operandToken,
             };
         }
+
+        public string? ResolveUserString(int token) =>
+            userStrings is not null
+                && userStrings.TryGetValue(
+                    token,
+                    out string? value)
+                    ? value
+                    : null;
     }
 }

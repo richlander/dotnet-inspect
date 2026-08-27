@@ -48,6 +48,13 @@ public class MemberOptionsParserTests
         var callerProjectOption = new Option<string[]>("--project") { AllowMultipleArgumentsPerToken = true };
         var callerPackageOption = new Option<string[]>("--caller-package") { AllowMultipleArgumentsPerToken = true };
         var repoOption = new Option<string[]>("--repo") { AllowMultipleArgumentsPerToken = true };
+        var shapeOption = new Option<bool>("--shape") { Hidden = true };
+        var routerDeferredTargetOption =
+            new Option<string?>(
+                RouterCommandDefinition.DeferredTypeOrMemberOptionName)
+            {
+                Hidden = true
+            };
 
         memberCommand.Arguments.Add(argsArg);
         memberCommand.Options.Add(packageOption);
@@ -70,6 +77,8 @@ public class MemberOptionsParserTests
         memberCommand.Options.Add(callerProjectOption);
         memberCommand.Options.Add(callerPackageOption);
         memberCommand.Options.Add(repoOption);
+        memberCommand.Options.Add(shapeOption);
+        memberCommand.Options.Add(routerDeferredTargetOption);
         opts.AddSectionOptionsTo(memberCommand);
         memberCommand.Options.Add(opts.Mermaid);
         memberCommand.Options.Add(opts.Markdown);
@@ -86,7 +95,8 @@ public class MemberOptionsParserTests
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
             allOption, memberOption, ctorOption, compactOption, opts.NoHeaders,
             unsafeOption, indexOption, kindOption,
-            binOption, callerProjectOption, callerPackageOption, repoOption, atOption);
+            binOption, callerProjectOption, callerPackageOption, repoOption, atOption,
+            shapeOption, routerDeferredTargetOption);
 
         return (root, opts, args);
     }
@@ -260,6 +270,7 @@ public class MemberOptionsParserTests
         Assert.True(options.TabularExplicitlySet);
         Assert.True(options.FormatExplicitlySet);
         Assert.True(options.FormatFlagExplicitlySet);
+        Assert.Equal(OutputFormat.Table, options.Format);
     }
 
     [Fact]
@@ -272,6 +283,7 @@ public class MemberOptionsParserTests
         Assert.False(options.EmbeddedMermaid);
         Assert.True(options.IsRawOutput);
         Assert.True(options.FormatFlagExplicitlySet);
+        Assert.Equal(OutputFormat.Mermaid, options.Format);
     }
 
     [Fact]
@@ -321,6 +333,7 @@ public class MemberOptionsParserTests
             Assert.True(options.TabularExplicitlySet);
             Assert.True(options.FormatExplicitlySet);
             Assert.False(options.FormatFlagExplicitlySet);
+            Assert.Equal(OutputFormat.Table, options.Format);
         }
         finally
         {
@@ -824,6 +837,47 @@ public class MemberOptionsParserTests
 
         Assert.Contains("Deserialize", options.MemberFilter);
         Assert.Equal(2, options.OverloadIndex);
+        Assert.Equal(1, options.MemberGenericArity);
+    }
+
+    [Fact]
+    public async Task GenericArityWithMultipleMemberNames_IsRejected()
+    {
+        var (root, opts, cmdArgs) = CreateTestCommand();
+        var parseResult = root.Parse(
+            ["member", "MemoryExtensions", "--platform", "System.Memory",
+             "-m", "AsSpan`1", "-m", "Contains"]);
+        Assert.Empty(parseResult.Errors);
+
+        var result = await MemberOptionsParser.ParseAsync(parseResult, opts, cmdArgs);
+
+        var error = Assert.IsType<MemberOptionsParser.VersionError>(result);
+        Assert.Contains("requires exactly one member name", error.Error.Message);
+    }
+
+    [Fact]
+    public async Task ConflictingGenericAritiesForOneMemberName_AreRejected()
+    {
+        var (root, opts, cmdArgs) = CreateTestCommand();
+        var parseResult = root.Parse(
+            ["member", "MemoryExtensions", "--platform", "System.Memory",
+             "-m", "AsSpan`1", "-m", "AsSpan`2"]);
+        Assert.Empty(parseResult.Errors);
+
+        var result = await MemberOptionsParser.ParseAsync(parseResult, opts, cmdArgs);
+
+        var error = Assert.IsType<MemberOptionsParser.VersionError>(result);
+        Assert.Contains("cannot combine different generic arities", error.Error.Message);
+    }
+
+    [Fact]
+    public async Task RepeatedMatchingGenericAritiesForOneMemberName_AreAccepted()
+    {
+        var options = await ParseSuccessAsync(
+            "member", "MemoryExtensions", "--platform", "System.Memory",
+            "-m", "AsSpan`1", "-m", "AsSpan<T>");
+
+        Assert.Equal(["AsSpan"], options.MemberFilter);
         Assert.Equal(1, options.MemberGenericArity);
     }
 

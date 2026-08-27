@@ -20,13 +20,163 @@ internal static class BrowserSurfaceProjection
     internal static BrowserAccessibilityDescriptor Descriptor(ApiAccessibilityBucket bucket) =>
         new(bucket.Id, bucket.Label, bucket.Order, bucket.IsDefault, bucket.Count);
 
+    internal sealed record Participant(
+        AssemblyContextParticipant Context,
+        string Assembly,
+        string Id,
+        string Asset);
+
+    internal sealed record Surface(
+        BrowserAssemblySurface[] Assemblies,
+        BrowserTypeSurface[] Types,
+        BrowserAccessibilityDescriptor[] Accessibility,
+        int TotalMembers,
+        string[] InspectionErrors,
+        string? InspectionError,
+        bool IsTruncated);
+
+    internal static Surface Project(
+        AssemblyContextApiSurfaceResult surfaces,
+        IReadOnlyList<Participant> requested,
+        bool qualifyTypeIds = false,
+        string? platformPack = null)
+    {
+        ArgumentNullException.ThrowIfNull(surfaces);
+        ArgumentNullException.ThrowIfNull(requested);
+        if (surfaces.Assemblies.Assemblies.Length > requested.Count)
+        {
+            throw new InvalidOperationException(
+                "The API surface query returned more entries than the workspace selected "
+                + "participants, so per-assembly attribution cannot be trusted.");
+        }
+
+        var assemblies = new List<BrowserAssemblySurface>();
+        var types = new List<BrowserTypeSurface>();
+        HashSet<TypeCollisionKey> duplicateTypeKeys =
+        [
+            .. surfaces.Assemblies.Assemblies
+                .OfType<AssemblyContextEntry<AssemblyApiSurface>.Available>()
+                .SelectMany(entry => entry.Value.Surface.Types)
+                .GroupBy(TypeCollisionKey.Create)
+                .Where(group => group.Count() > 1)
+                .Select(group => group.Key),
+        ];
+        var transportTextBudget =
+            new BrowserSurfaceTextBudget(
+                BrowserApiSurfacePolicy.MaxRetainedTextCharacters);
+        string? transportTruncation = null;
+        int noticeEntryCount = surfaces.Assemblies.Assemblies.Length;
+        for (int index = 0;
+            index < surfaces.Assemblies.Assemblies.Length;
+            index++)
+        {
+            if (surfaces.Assemblies.Assemblies[index]
+                is not AssemblyContextEntry<AssemblyApiSurface>.Available available)
+            {
+                continue;
+            }
+
+            Participant participant = requested[index];
+            if (!ReferenceEquals(
+                    available.Subject.Registration,
+                    participant.Context.Assembly.Registration))
+            {
+                throw new InvalidOperationException(
+                    "The API surface query's entry order does not match the workspace's "
+                    + "participant order, so per-assembly attribution cannot be trusted.");
+            }
+
+            BrowserTypeSurface[] assemblyTypes;
+            transportTextBudget.BeginParticipant();
+            try
+            {
+                assemblyTypes =
+                [
+                    .. available.Value.Surface.Types
+                        .Select(type => Type(
+                            type,
+                            participant.Assembly,
+                            participant.Id,
+                            participant.Context.Assembly.Identity.Name,
+                            transportTextBudget,
+                            qualifyTypeIds
+                            || duplicateTypeKeys.Contains(
+                                TypeCollisionKey.Create(type)),
+                            platformPack)),
+                ];
+                transportTextBudget.CommitParticipant();
+            }
+            catch (BrowserSurfaceTextBoundExceededException)
+            {
+                transportTextBudget.AbandonParticipant();
+                transportTruncation =
+                    BrowserApiSurfacePolicy.TransportTruncationNotice(
+                        assemblies.Count,
+                        requested.Count - index,
+                        transportTextBudget.CommittedCharacters);
+                noticeEntryCount = index;
+                break;
+            }
+
+            BrowserTypeSurface[] publicTypes =
+            [
+                .. assemblyTypes.Where(type =>
+                    IsDefaultBucket(surfaces, type)),
+            ];
+            AssemblyReferenceIdentity identity =
+                participant.Context.Assembly.Identity;
+            assemblies.Add(new BrowserAssemblySurface(
+                participant.Id,
+                identity.Name,
+                identity.Version?.ToString() ?? "",
+                identity.Culture,
+                identity.PublicKeyToken,
+                participant.Asset,
+                publicTypes.Length,
+                publicTypes.Sum(type => type.Members),
+                platformPack));
+            types.AddRange(assemblyTypes);
+        }
+
+        string? extractionTruncation =
+            BrowserApiSurfacePolicy.TruncationNotice(surfaces.Truncation);
+        string? truncation = (extractionTruncation, transportTruncation) switch
+        {
+            (null, null) => null,
+            ({ } only, null) => only,
+            (null, { } only) => only,
+            var (left, right) => $"{left}; {right}",
+        };
+        string[] noticeEntries = NoticeEntries(
+            [.. surfaces.Assemblies.Assemblies.Take(noticeEntryCount)],
+            truncation);
+        string? notice = Notice(noticeEntries);
+        BrowserTypeSurface[] identified =
+        [
+            .. types
+                .OrderBy(type => type.Namespace, StringComparer.Ordinal)
+                .ThenBy(type => type.Name, StringComparer.Ordinal),
+        ];
+        return new Surface(
+            [.. assemblies],
+            identified,
+            [.. surfaces.Accessibility.Select(Descriptor)],
+            identified
+                .Where(type => IsDefaultBucket(surfaces, type))
+                .Sum(type => type.Members),
+            noticeEntries,
+            notice,
+            truncation is not null);
+    }
+
     internal static BrowserTypeSurface Type(
         ApiType type,
         string assembly,
         string assemblyId,
         string assemblyName,
         BrowserSurfaceTextBudget? textBudget = null,
-        bool qualifyId = false)
+        bool qualifyId = false,
+        string? platformPack = null)
     {
         textBudget?.EnsureCanProject(
             type,
@@ -70,7 +220,8 @@ internal static class BrowserSurfaceProjection
             assemblyName,
             members.Length,
             string.Join(' ', modifiers),
-            members);
+            members,
+            platformPack);
         textBudget?.Retain(projected);
         return projected;
     }
@@ -129,6 +280,29 @@ internal static class BrowserSurfaceProjection
             ]);
         textBudget?.Retain(projected);
         return projected;
+    }
+
+    static bool IsDefaultBucket(
+        AssemblyContextApiSurfaceResult surfaces,
+        BrowserTypeSurface type) =>
+        surfaces.Accessibility.Any(
+            bucket => bucket.IsDefault
+                && bucket.Id.Equals(
+                    type.AccessibilityId,
+                    StringComparison.Ordinal));
+
+    readonly record struct TypeCollisionKey(
+        MetadataTypeDefinitionName? DefinitionName,
+        string Namespace,
+        string MetadataName)
+    {
+        internal static TypeCollisionKey Create(ApiType type) =>
+            type.DefinitionName is { } definitionName
+                ? new(definitionName, "", "")
+                : new(
+                    null,
+                    type.Namespace ?? "",
+                    type.MetadataName ?? type.Name);
     }
 
     /// <summary>
@@ -306,14 +480,14 @@ internal static class BrowserSurfaceProjection
 
     /// <summary>
     /// The failure text for one participant outcome, or null when the participant projected. A
-    /// rejected or failed participant is named beside the results rather than dropped.
+    /// rejected or failed participant remains visible without carrying artifact-authored fields.
     /// </summary>
     internal static string? Failure<TValue>(AssemblyContextEntry<TValue> entry) => entry switch
     {
         AssemblyContextEntry<TValue>.Rejected rejected =>
-            $"{rejected.Subject.Identity.Name}: {rejected.Failure.Kind} ({rejected.Failure.Detail})",
+            RejectedAssembly(rejected.Failure),
         AssemblyContextEntry<TValue>.Failed failed =>
-            $"{failed.Subject.Identity.Name}: {failed.Error.Message}",
+            FailedAssembly(failed.Error),
         _ => null,
     };
 
@@ -321,7 +495,7 @@ internal static class BrowserSurfaceProjection
     /// Participant failures plus partial API extraction from otherwise available participants.
     /// The latter is summarized without echoing artifact-authored metadata into the notice.
     /// </summary>
-    internal static string? ApiSurfaceFailures(
+    internal static string[] ApiSurfaceFailureEntries(
         ImmutableArray<AssemblyContextEntry<AssemblyApiSurface>> entries)
     {
         var failures = new List<string>();
@@ -333,33 +507,48 @@ internal static class BrowserSurfaceProjection
                 && available.Value.InspectionFailures.Length > 0)
             {
                 failures.Add(
-                    $"{available.Subject.Identity.Name}: API surface omitted "
-                    + $"{available.Value.InspectionFailures.Length} metadata row(s).");
+                    PartialApiSurface(
+                        available.Value.InspectionFailures.Length));
             }
         }
 
-        return failures.Count == 0 ? null : string.Join("; ", failures);
+        return [.. failures];
     }
 
+    internal static string RejectedAssembly(CandidateOpenFailure failure) =>
+        $"Assembly unavailable: {failure.Kind}.";
+
+    internal static string FailedAssembly(Exception error) =>
+        $"Assembly inspection failed ({error.GetType().Name}).";
+
+    internal static string PartialApiSurface(int omittedRows) =>
+        $"An assembly API surface omitted {omittedRows} metadata row(s).";
+
     /// <summary>
-    /// The response's visible notice: participant failures, partial extraction, and an explicit
-    /// bounded-projection truncation, or null when there is nothing to report. A truncation is
-    /// carried beside the failures rather than instead of them, so a bounded response never reads
-    /// as a complete one.
+    /// The response's structured notice entries: participant failures, partial extraction, and an
+    /// explicit bounded-projection truncation. Keeping these boundaries beside the rendered
+    /// notice lets cumulative consumers deduplicate whole entries without parsing their text.
+    /// <c>BrowserEngineBoundaryTests.QueryPackage_FirstTransportTruncationReturnsTypedNotice</c>
+    /// verifies that the transport emits both forms consistently.
     /// </summary>
-    internal static string? Notice(
+    internal static string[] NoticeEntries(
         ImmutableArray<AssemblyContextEntry<AssemblyApiSurface>> entries,
         string? truncation)
     {
-        string? failures = ApiSurfaceFailures(entries);
-        return (failures, truncation) switch
-        {
-            (null, null) => null,
-            (null, { } only) => only,
-            ({ } only, null) => only,
-            var (left, right) => $"{left}; {right}",
-        };
+        string[] failures = ApiSurfaceFailureEntries(entries);
+        return truncation is null ? failures : [.. failures, truncation];
     }
+
+    internal static string? Notice(IEnumerable<string> entries)
+    {
+        string[] notices = [.. entries];
+        return notices.Length == 0 ? null : string.Join("; ", notices);
+    }
+
+    internal static string? Notice(
+        ImmutableArray<AssemblyContextEntry<AssemblyApiSurface>> entries,
+        string? truncation) =>
+        Notice(NoticeEntries(entries, truncation));
 
     /// <summary>
     /// The value an available entry produced, or a visible failure naming why the participant

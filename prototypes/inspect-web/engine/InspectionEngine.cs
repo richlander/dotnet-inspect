@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
 using ILInspector.CallGraph;
 using ILInspector.Decompiler;
 using ILInspector.Metadata;
@@ -55,8 +56,24 @@ public static partial class InspectionEngine
             packageId,
             version,
             targetFramework);
-        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        BrowserPackageSurface surface =
+            ProjectPackageSurface(scope, scope.Coordinates[0]);
+        return JsonSerializer.Serialize(
+            surface,
+            BrowserJsonContext.Default.BrowserPackageSurface);
+    }
 
+    internal static BrowserPackageSurface ProjectPackageSurface(
+        BrowserInspectionScope scope,
+        BrowserPackageCoordinate coordinate) =>
+        ProjectPackage(scope, coordinate).Surface;
+
+    static BrowserPackageProjection ProjectPackage(
+        BrowserInspectionScope scope,
+        BrowserPackageCoordinate coordinate)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        ArgumentNullException.ThrowIfNull(coordinate);
         // Only this coordinate's assemblies are projected. A composite workspace may hold several
         // packages, and projecting all of them here materialized every other package's surface
         // only to discard it.
@@ -76,163 +93,55 @@ public static partial class InspectionEngine
                 ApiSurfaceScope.PublicWithNonPublicTypes,
                 BrowserApiSurfacePolicy.Limits,
                 [.. requested.Select(participant => participant.Participant)]));
-
-        // The query walks the selected participants in order and returns one entry each until a
-        // bound stops it, so entry i is selected participant i. Assert that rather than assume
-        // it: a correlation that silently slipped would attribute one assembly's types to another.
-        if (surfaces.Assemblies.Assemblies.Length > requested.Length)
-        {
-            throw new InvalidOperationException(
-                "The API surface query returned more entries than the workspace selected "
-                + "participants, so per-assembly attribution cannot be trusted.");
-        }
-
-        var assemblies = new List<BrowserAssemblySurface>();
-        var types = new List<BrowserTypeSurface>();
-        HashSet<TypeCollisionKey> duplicateTypeKeys =
-        [
-            .. surfaces.Assemblies.Assemblies
-                .OfType<AssemblyContextEntry<AssemblyApiSurface>.Available>()
-                .SelectMany(entry => entry.Value.Surface.Types)
-                .GroupBy(TypeCollisionKey.Create)
-                .Where(group => group.Count() > 1)
-                .Select(group => group.Key),
-        ];
-        var transportTextBudget =
-            new BrowserSurfaceProjection.BrowserSurfaceTextBudget(
-                BrowserApiSurfacePolicy.MaxRetainedTextCharacters);
-        string? transportTruncation = null;
-        int noticeEntryCount = surfaces.Assemblies.Assemblies.Length;
-        for (int index = 0; index < surfaces.Assemblies.Assemblies.Length; index++)
-        {
-            if (surfaces.Assemblies.Assemblies[index]
-                is not AssemblyContextEntry<AssemblyApiSurface>.Available available)
-            {
-                continue;
-            }
-
-            BrowserWorkspaceParticipant participant = requested[index];
-            if (!ReferenceEquals(
-                    available.Subject.Registration,
-                    participant.Assembly.Registration))
-            {
-                throw new InvalidOperationException(
-                    "The API surface query's entry order does not match the workspace's "
-                    + "participant order, so per-assembly attribution cannot be trusted.");
-            }
-
-            BrowserTypeSurface[] assemblyTypes;
-            transportTextBudget.BeginParticipant();
-            try
-            {
-                assemblyTypes =
+        BrowserSurfaceProjection.Surface projected =
+            BrowserSurfaceProjection.Project(
+                surfaces,
                 [
-                    .. available.Value.Surface.Types
-                        .Select(type => BrowserSurfaceProjection.Type(
-                            type,
+                    .. requested.Select(participant =>
+                        new BrowserSurfaceProjection.Participant(
+                            participant.Participant,
                             participant.Asset.AssemblyName,
                             participant.Asset.Id,
-                            participant.Assembly.Identity.Name,
-                            transportTextBudget,
-                            duplicateTypeKeys.Contains(
-                                TypeCollisionKey.Create(type)))),
-                ];
-                transportTextBudget.CommitParticipant();
-            }
-            catch (BrowserSurfaceProjection.BrowserSurfaceTextBoundExceededException)
-            {
-                transportTextBudget.AbandonParticipant();
-                transportTruncation =
-                    BrowserApiSurfacePolicy.TransportTruncationNotice(
-                        assemblies.Count,
-                        requested.Length - index,
-                        transportTextBudget.CommittedCharacters);
-                noticeEntryCount = index;
-                break;
-            }
-            BrowserTypeSurface[] publicTypes =
-            [
-                .. assemblyTypes.Where(type => IsDefaultBucket(surfaces, type)),
-            ];
-            AssemblyReferenceIdentity identity = participant.Assembly.Identity;
-            assemblies.Add(new BrowserAssemblySurface(
-                participant.Asset.Id,
-                identity.Name,
-                identity.Version?.ToString() ?? "",
-                identity.Culture,
-                identity.PublicKeyToken,
-                participant.Asset.Path,
-                publicTypes.Length,
-                publicTypes.Sum(type => type.Members)));
-            types.AddRange(assemblyTypes);
-        }
-
-        string? extractionTruncation =
-            BrowserApiSurfacePolicy.TruncationNotice(surfaces.Truncation);
-        string? truncation = (extractionTruncation, transportTruncation) switch
-        {
-            (null, null) => null,
-            ({ } only, null) => only,
-            (null, { } only) => only,
-            var (left, right) => $"{left}; {right}",
-        };
-        string? notice = BrowserSurfaceProjection.Notice(
-            [.. surfaces.Assemblies.Assemblies.Take(noticeEntryCount)],
-            truncation);
-        if (assemblies.Count == 0 && truncation is null)
+                            participant.Asset.Path)),
+                ]);
+        if (projected.Assemblies.Length == 0
+            && !projected.IsTruncated)
         {
             throw new InvalidOperationException(
-                $"No assembly of {coordinate.PackageId} {coordinate.Version} for "
-                + $"{coordinate.Framework} produced an API surface. "
-                + (notice ?? "The workspace reported no failure."));
+                $"No assembly of {coordinate.PackageId} {coordinate.Version} "
+                + "produced an API surface. "
+                + (projected.InspectionError
+                    ?? "The workspace reported no failure."));
         }
 
-        BrowserTypeSurface[] identified =
-        [
-            .. types
-                .OrderBy(type => type.Namespace, StringComparer.Ordinal)
-                .ThenBy(type => type.Name, StringComparer.Ordinal),
-        ];
-
-        string defaultAssemblyId = assemblies.FirstOrDefault(
+        string defaultAssemblyId = projected.Assemblies.FirstOrDefault(
                 assembly => assembly.Id.Equals(
                     coordinate.DefaultAsset.Id,
                     StringComparison.Ordinal))
             ?.Id
-            ?? assemblies.FirstOrDefault()?.Id
+            ?? projected.Assemblies.FirstOrDefault()?.Id
             ?? coordinate.DefaultAsset.Id;
 
-        return JsonSerializer.Serialize(
+        return new BrowserPackageProjection(
             new BrowserPackageSurface(
                 coordinate.PackageId,
                 coordinate.Version,
                 [.. coordinate.Selection.AvailableTargetFrameworks],
                 coordinate.Framework,
                 defaultAssemblyId,
-                [.. assemblies],
-                identified,
-                [.. surfaces.Accessibility.Select(BrowserSurfaceProjection.Descriptor)],
-                identified
-                    .Where(type => IsDefaultBucket(surfaces, type))
-                    .Sum(type => type.Members),
+                projected.Assemblies,
+                projected.Types,
+                projected.Accessibility,
+                projected.TotalMembers,
                 [.. coordinate.Package.Documents()],
-                notice),
-            BrowserJsonContext.Default.BrowserPackageSurface);
+                projected.InspectionErrors,
+                projected.InspectionError),
+            surfaces);
     }
 
-    readonly record struct TypeCollisionKey(
-        MetadataTypeDefinitionName? DefinitionName,
-        string Namespace,
-        string MetadataName)
-    {
-        public static TypeCollisionKey Create(ApiType type) =>
-            type.DefinitionName is { } definitionName
-                ? new(definitionName, "", "")
-                : new(
-                    null,
-                    type.Namespace ?? "",
-                    type.MetadataName ?? type.Name);
-    }
+    sealed record BrowserPackageProjection(
+        BrowserPackageSurface Surface,
+        AssemblyContextApiSurfaceResult ApiSurfaces);
 
     /// <summary>
     /// One type's metadata projection, produced by
@@ -400,6 +309,191 @@ public static partial class InspectionEngine
                 AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument));
 
     /// <summary>
+    /// Exact method-body Analysis and metadata evidence for one implementation
+    /// participant. The product query owns the retained snapshot and Analysis
+    /// index; this adapter only resolves ref/lib identity and formats the wire
+    /// model.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryMemberFacts(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string memberName,
+        string memberSignature,
+        string selectorKey,
+        int metadataToken,
+        bool implementationBodySelected)
+    {
+        _ = memberSignature;
+        (
+            BrowserInspectionScope scope,
+            BrowserWorkspaceParticipant participant,
+            Analysis.CallGraphMemberResolution resolution
+        ) = await ImplementationMemberAsync(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            memberName,
+            selectorKey,
+            implementationBodySelected ? metadataToken : 0);
+
+        AssemblyMethodAnalysis analysis = BrowserSurfaceProjection.Require(
+            scope.UseImplementationParticipant(
+                participant,
+                (group, member) =>
+                    AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
+                        group,
+                        member,
+                        resolution.BodyToken)),
+            $"Facts for '{typeIdentity}.{memberName}'");
+
+        var result = new BrowserMemberFacts(
+            analysis.Method.MetadataToken,
+            new BrowserMethodSignals(
+                analysis.Signals.Allocations,
+                analysis.Signals.Copies,
+                analysis.Signals.Unsafe,
+                analysis.Signals.Reflection,
+                analysis.Signals.Throws,
+                analysis.Signals.Catches,
+                analysis.Signals.Finallys,
+                analysis.Signals.AllocInLoop,
+                [.. analysis.Signals.Evidence.Select(FormatOffset)],
+                [.. analysis.Signals.ExceptionTypes]),
+            [
+                .. analysis.Allocations.Select(
+                    allocation => new BrowserAllocationFact(
+                        allocation.Kind.ToString(),
+                        allocation.AllocatedType?.ToDisplayString()
+                            ?? allocation.RuntimeAllocationType,
+                        FormatOffset(allocation.ILOffset),
+                        allocation.CountsAsHeapAllocation,
+                        allocation.Frequency.ToString(),
+                        allocation.Multiplicity.ToString(),
+                        allocation.PathContext.ToString(),
+                        allocation.EscapeKind
+                            != Analysis.AllocationEscapeKind.None
+                                ? allocation.EscapeKind.ToString()
+                                : allocation.Escape.ToString(),
+                        allocation.InLoop,
+                        allocation.EstimatedSizeBytes,
+                        allocation.Detail)),
+            ],
+            [
+                .. analysis.DirectCalls.Select(
+                    call =>
+                    {
+                        string typeArguments =
+                            call.Callee.TypeArguments.Length == 0
+                                ? ""
+                                : $"<{string.Join(
+                                    ", ",
+                                    call.Callee.TypeArguments.Select(
+                                        argument =>
+                                            argument
+                                                .ToQualifiedDisplayString()))}>";
+                        return new BrowserCallFact(
+                            $"{call.Callee.DeclaringType.ToQualifiedDisplayString()}."
+                            + $"{call.Callee.Name}{typeArguments}("
+                            + string.Join(
+                                ", ",
+                                call.Callee.ParameterTypes.Select(
+                                    parameter =>
+                                        parameter
+                                            .ToQualifiedDisplayString()))
+                            + ")",
+                            FormatOffset(call.ILOffset),
+                            string.IsNullOrEmpty(call.Opcode)
+                                ? FormatCallKind(call.Kind)
+                                : call.Opcode,
+                            call.Kind.ToString(),
+                            call.Multiplicity.ToString(),
+                            call.InLoop);
+                    }),
+            ],
+            [
+                .. Analysis.SemanticFactProjection.SafetyFacts(
+                    analysis.UnsafeEvidence,
+                    analysis.UnsafetyOccurrences)
+                    .Select(
+                        fact => new BrowserSafetyFact(
+                            fact.SafetyKind,
+                            fact.ILOffset is int offset
+                                ? FormatOffset(offset)
+                                : null,
+                            fact.Operation,
+                            fact.Requirement,
+                            fact.Evidence)),
+            ],
+            [
+                .. analysis.ExceptionRegions.Select(
+                    region => new BrowserExceptionRegion(
+                        region.Region,
+                        region.Clause,
+                        FormatRange(region.TryStart, region.TryEnd),
+                        FormatRange(
+                            region.HandlerStart,
+                            region.HandlerEnd),
+                        region.FilterStart is int filterStart
+                            && region.FilterEnd is int filterEnd
+                                ? FormatRange(filterStart, filterEnd)
+                                : null,
+                        region.CaughtType)),
+            ],
+            [
+                .. analysis.OptimizationOpportunities.Select(
+                    opportunity =>
+                        new BrowserPerformanceOpportunity(
+                            opportunity.Shape,
+                            opportunity.Evidence,
+                            opportunity.SafeFixDirection,
+                            opportunity.Confidence,
+                            opportunity.ILOffset is int offset
+                                ? FormatOffset(offset)
+                                : null,
+                            opportunity.InLoop,
+                            opportunity.Caveat,
+                            opportunity.SourceFinding,
+                            opportunity.Provenance.ToString()
+                                .ToLowerInvariant())),
+            ],
+            [
+                .. analysis.Diagnostics.Select(
+                    diagnostic =>
+                        $"{diagnostic.Method}: {diagnostic.Message}"),
+            ]);
+
+        return JsonSerializer.Serialize(
+            result,
+            BrowserJsonContext.Default.BrowserMemberFacts);
+    }
+
+    static string FormatOffset(int offset) => $"IL_{offset:X4}";
+
+    static string FormatRange(int start, int end) =>
+        $"{FormatOffset(start)}..{FormatOffset(end)}";
+
+    static string FormatCallKind(Analysis.CallKind kind) =>
+        kind switch
+        {
+            Analysis.CallKind.Call => "call",
+            Analysis.CallKind.CallVirtual => "callvirt",
+            Analysis.CallKind.NewObject => "newobj",
+            Analysis.CallKind.LoadFunction => "ldftn",
+            Analysis.CallKind.LoadVirtualFunction => "ldvirtftn",
+            Analysis.CallKind.CallIndirect => "calli",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(kind),
+                kind,
+                "Unknown direct-call kind."),
+        };
+
+    /// <summary>
     /// Declared NuGet dependency groups plus the selected compile assembly's direct references.
     /// Package parsing and exact-framework selection belong to
     /// <see cref="PackageDependencyGroupsQuery"/>; the assembly-context query owns the metadata
@@ -554,50 +648,12 @@ public static partial class InspectionEngine
             ]);
         }
 
-        var failures = new List<string>();
-        var signals = new List<EcosystemIntegrationSignalInfo>();
-        foreach (AssemblyIntegrationsEntry entry in result.Assemblies)
-        {
-            switch (entry)
-            {
-                case AssemblyIntegrationsEntry.Available available:
-                    signals.AddRange(available.EcosystemSignals);
-                    break;
-                case AssemblyIntegrationsEntry.Rejected rejected:
-                    failures.Add(
-                        $"{rejected.Subject.Identity.Name}: {rejected.Failure.Kind} "
-                        + $"({rejected.Failure.Detail})");
-                    break;
-                case AssemblyIntegrationsEntry.Failed failed:
-                    failures.Add($"{failed.Subject.Identity.Name}: {failed.Error.Message}");
-                    break;
-            }
-        }
-
         return JsonSerializer.Serialize(
-            new BrowserPackageIntegrations(
+            CreateIntegrations(
                 coordinate.PackageId,
                 coordinate.Version,
                 coordinate.Framework,
-                [
-                    .. signals
-                        .GroupBy(signal => signal.Integration, StringComparer.Ordinal)
-                        .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
-                        .Select(group => new BrowserIntegrationCategory(
-                            group.Key,
-                            [
-                                .. group
-                                    .Select(signal => new BrowserIntegrationSignal(
-                                        signal.Kind,
-                                        signal.Name,
-                                        signal.Shape))
-                                    .DistinctBy(signal => (signal.Kind, signal.Name, signal.Shape))
-                                    .OrderBy(signal => signal.Name, StringComparer.OrdinalIgnoreCase),
-                            ])),
-                ],
-                signals.Count,
-                result.IsComplete,
-                failures.Count == 0 ? null : string.Join("; ", failures)),
+                result.Assemblies),
             BrowserJsonContext.Default.BrowserPackageIntegrations);
     }
 
@@ -633,61 +689,356 @@ public static partial class InspectionEngine
                         group)
                     .Get(AssemblyContextIntegrationOpportunitiesQuery.Definition));
 
+        return JsonSerializer.Serialize(
+            CreateOpportunities(
+                coordinate.PackageId,
+                coordinate.Version,
+                coordinate.Framework,
+                result.Assemblies),
+            BrowserJsonContext.Default.BrowserPackageOpportunities);
+    }
+
+    internal static BrowserPackageIntegrations CreateIntegrations(
+        string package,
+        string version,
+        string framework,
+        IEnumerable<AssemblyIntegrationsEntry> entries)
+    {
+        AssemblyIntegrationsEntry[] materialized = [.. entries];
         var failures = new List<string>();
-        var opportunities = new List<IntegrationOpportunityInfo>();
-        foreach (AssemblyIntegrationOpportunitiesEntry entry in result.Assemblies)
+        var signals = new List<EcosystemIntegrationSignalInfo>();
+        foreach (AssemblyIntegrationsEntry entry in materialized)
+        {
+            switch (entry)
+            {
+                case AssemblyIntegrationsEntry.Available available:
+                    signals.AddRange(available.EcosystemSignals);
+                    break;
+                case AssemblyIntegrationsEntry.Rejected rejected:
+                    failures.Add(
+                        BrowserSurfaceProjection.RejectedAssembly(
+                            rejected.Failure));
+                    break;
+                case AssemblyIntegrationsEntry.Failed failed:
+                    failures.Add(
+                        BrowserSurfaceProjection.FailedAssembly(failed.Error));
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        $"Unknown assembly integrations entry '{entry.GetType().Name}'.");
+            }
+        }
+
+        return new BrowserPackageIntegrations(
+                package,
+                version,
+                framework,
+                [
+                    .. signals
+                        .GroupBy(
+                            signal => signal.Integration,
+                            StringComparer.Ordinal)
+                        .OrderBy(
+                            group => group.Key,
+                            StringComparer.OrdinalIgnoreCase)
+                        .Select(group => new BrowserIntegrationCategory(
+                            group.Key,
+                            [
+                                .. group
+                                    .Select(signal =>
+                                        new BrowserIntegrationSignal(
+                                            signal.Kind,
+                                            signal.Name,
+                                            signal.Shape))
+                                    .DistinctBy(signal =>
+                                        (signal.Kind,
+                                            signal.Name,
+                                            signal.Shape))
+                                    .OrderBy(
+                                        signal => signal.Name,
+                                        StringComparer.OrdinalIgnoreCase),
+                            ])),
+                ],
+                signals.Count,
+                materialized.All(
+                    entry => entry
+                        is AssemblyIntegrationsEntry.Available),
+                failures.Count == 0
+                    ? null
+                    : string.Join("; ", failures));
+    }
+
+    internal static BrowserPackageOpportunities CreateOpportunities(
+        string package,
+        string version,
+        string framework,
+        IEnumerable<AssemblyIntegrationOpportunitiesEntry> entries)
+    {
+        AssemblyIntegrationOpportunitiesEntry[] materialized =
+            [.. entries];
+        var failures = new List<string>();
+        var opportunities =
+            new List<(
+                AssemblyReferenceIdentity Source,
+                IntegrationOpportunityInfo Opportunity)>();
+        foreach (AssemblyIntegrationOpportunitiesEntry entry in materialized)
         {
             switch (entry)
             {
                 case AssemblyIntegrationOpportunitiesEntry.Available available:
-                    opportunities.AddRange(available.Opportunities);
+                    opportunities.AddRange(
+                        available.Opportunities.Select(
+                            opportunity =>
+                                (available.Subject.Identity, opportunity)));
                     break;
                 case AssemblyIntegrationOpportunitiesEntry.Rejected rejected:
                     failures.Add(
-                        $"{rejected.Subject.Identity.Name}: {rejected.Failure.Kind} "
-                        + $"({rejected.Failure.Detail})");
+                        BrowserSurfaceProjection.RejectedAssembly(
+                            rejected.Failure));
                     break;
                 case AssemblyIntegrationOpportunitiesEntry.Failed failed:
-                    failures.Add($"{failed.Subject.Identity.Name}: {failed.Error.Message}");
+                    failures.Add(
+                        BrowserSurfaceProjection.FailedAssembly(failed.Error));
                     break;
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown assembly integration-opportunities entry "
+                        + $"'{entry.GetType().Name}'.");
             }
         }
 
-        IntegrationOpportunityInfo[] distinctOpportunities =
+        (AssemblyReferenceIdentity Source, IntegrationOpportunityInfo Opportunity)[]
+            distinctOpportunities =
         [
-            .. opportunities.DistinctBy(opportunity =>
-                (opportunity.Integration,
-                    opportunity.Api,
-                    opportunity.IntegrationType)),
+            .. opportunities.DistinctBy(item =>
+                (item.Source,
+                    item.Opportunity.Integration,
+                    item.Opportunity.Api,
+                    item.Opportunity.IntegrationType)),
         ];
-        return JsonSerializer.Serialize(
-            new BrowserPackageOpportunities(
-                coordinate.PackageId,
-                coordinate.Version,
-                coordinate.Framework,
+        return new BrowserPackageOpportunities(
+                package,
+                version,
+                framework,
                 [
                     .. distinctOpportunities
                         .GroupBy(
-                            opportunity => opportunity.Integration,
+                            item => item.Opportunity.Integration,
                             StringComparer.Ordinal)
-                        .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(
+                            group => group.Key,
+                            StringComparer.OrdinalIgnoreCase)
                         .Select(group => new BrowserOpportunityCategory(
                             group.Key,
                             [
                                 .. group
                                     .OrderBy(
-                                        opportunity => opportunity.Api,
+                                        item => item.Opportunity.Api,
                                         StringComparer.OrdinalIgnoreCase)
-                                    .Select(opportunity => new BrowserOpportunityItem(
-                                        opportunity.Api,
-                                        opportunity.IntegrationType,
-                                        opportunity.LookFor)),
+                                    .Select(item =>
+                                        new BrowserOpportunityItem(
+                                            item.Opportunity.Api,
+                                            item.Opportunity.IntegrationType,
+                                            item.Opportunity.LookFor,
+                                            item.Opportunity
+                                                .GetSourceTypeDefinition()?
+                                                .ToEscapedFullName(),
+                                            item.Source.Name,
+                                            item.Source.Version?.ToString()
+                                                ?? "",
+                                            item.Source.Culture,
+                                            item.Source.PublicKeyToken)),
                             ])),
                 ],
                 distinctOpportunities.Length,
-                result.IsComplete,
-                failures.Count == 0 ? null : string.Join("; ", failures)),
-            BrowserJsonContext.Default.BrowserPackageOpportunities);
+                materialized.All(
+                    entry => entry
+                        is AssemblyIntegrationOpportunitiesEntry.Available),
+                failures.Count == 0
+                    ? null
+                    : string.Join("; ", failures));
+    }
+
+    /// <summary>
+    /// Product-ranked optimization-opportunity members for one package workspace. Analysis owns
+    /// opportunity and member order; the query owns index lifetime and public-API attribution;
+    /// this host only maps the typed rows to the existing browser wire contract.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPackagePerformance(
+        string packageId,
+        string version,
+        string targetFramework)
+    {
+        BrowserInspectionScope scope =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework);
+        ImmutableArray<BrowserWorkspaceParticipant> participants =
+            scope.ImplementationParticipants.Length > 0
+                ? scope.ImplementationParticipants
+                : scope.SurfaceParticipants;
+
+        var registry =
+            new InspectionQueryRegistry<AssemblyContextGroup>()
+                .Add(
+                    AssemblyContextOptimizationOpportunitiesQuery.Definition,
+                    AssemblyContextOptimizationOpportunitiesQuery.Execute);
+        AssemblyContextOptimizationOpportunitiesResult result =
+            scope.UseImplementationOrSurface(
+                group =>
+                    registry.Run(
+                            [
+                                AssemblyContextOptimizationOpportunitiesQuery
+                                    .Definition,
+                            ],
+                            group)
+                        .Get(
+                            AssemblyContextOptimizationOpportunitiesQuery
+                                .Definition));
+        BrowserPackageSurface surface =
+            ProjectPackageSurface(scope, scope.Coordinates[0]);
+        HashSet<(
+            string Assembly,
+            string Type,
+            string Selector)> navigableMembers =
+        [
+            .. surface.Types.SelectMany(type =>
+                type.Api.Select(member => (
+                    type.Assembly,
+                    type.DefinitionId,
+                    member.StableSelector))),
+        ];
+
+        var failures = new List<string>();
+        if (!string.IsNullOrWhiteSpace(surface.InspectionError))
+            failures.Add($"API surface: {surface.InspectionError}");
+        foreach (AssemblyContextEntry<
+            AssemblyOptimizationOpportunityRanking> entry
+            in result.Assemblies.Assemblies)
+        {
+            switch (entry)
+            {
+                case AssemblyContextEntry<
+                    AssemblyOptimizationOpportunityRanking>.Rejected
+                    rejected:
+                    failures.Add(
+                        $"{rejected.Subject.Identity.Name}: "
+                        + $"{rejected.Failure.Kind} "
+                        + $"({rejected.Failure.Detail})");
+                    break;
+                case AssemblyContextEntry<
+                    AssemblyOptimizationOpportunityRanking>.Failed failed:
+                    failures.Add(
+                        $"{failed.Subject.Identity.Name}: "
+                        + failed.Error.Message);
+                    break;
+                case AssemblyContextEntry<
+                    AssemblyOptimizationOpportunityRanking>.Available
+                    available:
+                    failures.AddRange(
+                        available.Value.Diagnostics.Select(
+                            diagnostic =>
+                                $"{available.Subject.Identity.Name}: "
+                                + $"performance analysis incomplete for "
+                                + $"{diagnostic.Method}: "
+                                + diagnostic.Message));
+                    failures.AddRange(
+                        available.Value.ApiSurfaceInspectionFailures
+                            .Select(
+                                failure =>
+                                    $"{available.Subject.Identity.Name}: "
+                                    + $"{failure.Operation}: "
+                                    + failure.Detail));
+                    break;
+            }
+        }
+
+        BrowserPerformanceMember[] members =
+            ApplyPerformanceMemberLimit(
+                PerformanceMembers(
+                    result,
+                    participants,
+                    scope,
+                    navigableMembers),
+                failures);
+
+        return JsonSerializer.Serialize(
+            new BrowserPackagePerformance(
+                members,
+                failures.Count == 0
+                    ? null
+                    : string.Join("; ", failures),
+                result.NonPublicOpportunities,
+                result.TotalOpportunities),
+            BrowserJsonContext.Default.BrowserPackagePerformance);
+    }
+
+    static IEnumerable<BrowserPerformanceMember> PerformanceMembers(
+        AssemblyContextOptimizationOpportunitiesResult result,
+        ImmutableArray<BrowserWorkspaceParticipant> participants,
+        BrowserInspectionScope scope,
+        HashSet<(
+            string Assembly,
+            string Type,
+            string Selector)> navigableMembers)
+    {
+        foreach (AssemblyContextOptimizationOpportunityMember member
+            in result.RankedMembers)
+        {
+            if (member.Member.PublicMember is not { } publicMember)
+                continue;
+
+            BrowserWorkspaceParticipant analysisParticipant =
+                participants.Single(candidate =>
+                    ReferenceEquals(
+                        candidate.Assembly.Registration,
+                        member.Subject.Registration));
+            BrowserWorkspaceParticipant? surfaceParticipant =
+                scope.TryGetSurfaceParticipant(analysisParticipant);
+            if (surfaceParticipant is null
+                || !navigableMembers.Contains((
+                    surfaceParticipant.Asset.AssemblyName,
+                    publicMember.Type,
+                    publicMember.StableSelector)))
+            {
+                continue;
+            }
+
+            yield return new BrowserPerformanceMember(
+                surfaceParticipant.Asset.AssemblyName,
+                publicMember.Type,
+                publicMember.Member,
+                publicMember.StableSelector,
+                [.. publicMember.BodyTokens],
+                member.Member.Ranking.Opportunities.Length,
+                member.Member.Ranking.InLoopCount,
+                [.. member.Member.Ranking.Shapes],
+                member.Member.Ranking.Confidence);
+        }
+    }
+
+    internal static BrowserPerformanceMember[] ApplyPerformanceMemberLimit(
+        IEnumerable<BrowserPerformanceMember> candidates,
+        ICollection<string> failures)
+    {
+        const int MemberLimit = 200;
+        var members = new List<BrowserPerformanceMember>(MemberLimit);
+        foreach (BrowserPerformanceMember candidate in candidates)
+        {
+            if (members.Count == MemberLimit)
+            {
+                failures.Add(
+                    $"Performance ranking truncated after the top "
+                    + $"{MemberLimit} navigable public members.");
+                break;
+            }
+
+            members.Add(candidate);
+        }
+
+        return [.. members];
     }
 
     /// <summary>
@@ -712,31 +1063,25 @@ public static partial class InspectionEngine
     {
         _ = memberSignature;
         _ = typeQueryId;
-        if (metadataToken == 0)
-        {
-            throw new InvalidOperationException(
-                "A call graph needs the selected overload's method-body token.");
-        }
 
-        var requests = new List<BrowserPackageRequest>
-        {
-            new(packageId, version, targetFramework),
-        };
-        foreach (BrowserWorkspacePackage entry in JsonSerializer.Deserialize(
-            workspaceJson,
-            BrowserJsonContext.Default.BrowserWorkspacePackageArray) ?? [])
-        {
-            requests.Add(new BrowserPackageRequest(
-                entry.Package,
-                entry.Version,
-                string.IsNullOrWhiteSpace(entry.Framework) ? null : entry.Framework));
-        }
+        (BrowserPackageRequest[] requests, int rootIndex) =
+            MemberCallGraphRequests(
+                packageId,
+                version,
+                targetFramework,
+                workspaceJson);
 
         BrowserScopeResolution resolution =
             await BrowserPackageWorkspace.ResolveAndOpenScopeAsync(requests);
+        if (resolution.RequestedCoordinates.Length != requests.Length)
+        {
+            throw new InvalidOperationException(
+                "The selected Call Graph context did not preserve its "
+                + "distinct package coordinates.");
+        }
         BrowserInspectionScope scope = resolution.Scope;
         BrowserPackageCoordinate rootCoordinate =
-            scope.Coordinate(resolution.RequestedCoordinates[0]);
+            scope.Coordinate(resolution.RequestedCoordinates[rootIndex]);
         (
             BrowserWorkspaceParticipant participant,
             Analysis.CallGraphMemberResolution memberResolution
@@ -758,6 +1103,73 @@ public static partial class InspectionEngine
             return session.HasCrossLibraryScope ? session.CrossLibrary() : session.Callers();
         });
 
+        BrowserCallGraph graph =
+            ProjectCallGraph(scope, view);
+        return JsonSerializer.Serialize(
+            graph,
+            BrowserJsonContext.Default.BrowserCallGraph);
+    }
+
+    internal static (BrowserPackageRequest[] Requests, int RootIndex)
+        MemberCallGraphRequests(
+            string packageId,
+            string version,
+            string targetFramework,
+            string workspaceJson)
+    {
+        BrowserWorkspacePackage[] workspace =
+            JsonSerializer.Deserialize(
+                workspaceJson,
+                BrowserJsonContext.Default.BrowserWorkspacePackageArray) ?? [];
+        if (workspace.Length == 0)
+        {
+            return (
+                [new BrowserPackageRequest(packageId, version, targetFramework)],
+                0);
+        }
+
+        BrowserPackageRequest[] requests =
+        [
+            .. workspace.Select(entry => new BrowserPackageRequest(
+                entry.Package,
+                entry.Version,
+                string.IsNullOrWhiteSpace(entry.Framework)
+                    ? null
+                    : entry.Framework)),
+        ];
+        int[] rootIndexes =
+        [
+            .. requests.Select((request, index) => (request, index))
+                .Where(entry =>
+                    string.Equals(
+                        entry.request.PackageId,
+                        packageId,
+                        StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(
+                        entry.request.Version,
+                        version,
+                        StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(
+                        entry.request.TargetFramework ?? "",
+                        targetFramework,
+                        StringComparison.OrdinalIgnoreCase))
+                .Select(entry => entry.index),
+        ];
+        if (rootIndexes.Length != 1)
+        {
+            throw new InvalidOperationException(
+                "The selected Call Graph context must contain the active "
+                + "package coordinate exactly once.");
+        }
+        return (requests, rootIndexes[0]);
+    }
+
+    internal static BrowserCallGraph ProjectCallGraph(
+        BrowserInspectionScope scope,
+        MemberCallGraphView view)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        ArgumentNullException.ThrowIfNull(view);
         CallGraphProjection projection = CallGraphProjection.Create(
             view.CallerRoot,
             view.CalleeRoot);
@@ -766,26 +1178,70 @@ public static partial class InspectionEngine
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Count();
 
+        return new BrowserCallGraph(
+            Mermaid(projection),
+            Tree(view.CallerRoot),
+            Tree(view.CalleeRoot),
+            new BrowserCallGraphScope(
+                scope.Coordinates.Length,
+                scope.ImplementationParticipants.Length,
+                callerAssemblies,
+                view.Tier.ToString()),
+            Targets(
+                projection.Nodes,
+                scope.ImplementationParticipants.Select(
+                    participant => participant.Assembly.Identity)),
+            Diagnostics(
+                view.Diagnostics,
+                projection.HasUnexploredTraversalBoundary,
+                projection.HasAnalysisFailureBoundary),
+            NoBody: view.CalleeRoot is null && view.CallerRoot is null);
+    }
+
+    /// <summary>
+    /// The exact API member selected by a call-graph target. Package surfaces keep public types
+    /// lean by omitting their non-public members; a graph click is the explicit gesture that
+    /// projects one such member from the already bounded implementation surface.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryGraphMemberSurface(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string memberName,
+        string selectorKey,
+        int metadataToken)
+    {
+        (_, _, Analysis.CallGraphMemberResolution resolution) =
+            await ImplementationMemberAsync(
+                packageId,
+                version,
+                targetFramework,
+                assemblyName,
+                typeIdentity,
+                memberName,
+                selectorKey,
+                metadataToken);
+        var textBudget = new BrowserSurfaceProjection.BrowserSurfaceTextBudget(
+            BrowserApiSurfacePolicy.MaxRetainedTextCharacters);
+        textBudget.BeginParticipant();
+        BrowserMemberSurface member =
+            BrowserSurfaceProjection.Member(
+                resolution.Type,
+                resolution.Member,
+                textBudget);
+        BrowserMemberBodySelector selectedBody =
+            member.BodySelectors.SingleOrDefault(
+                body => body.Token == resolution.BodyToken)
+            ?? throw new InvalidOperationException(
+                $"The projected member '{member.Name}' does not retain "
+                + $"body 0x{resolution.BodyToken:X8}.");
+        textBudget.CommitParticipant();
         return JsonSerializer.Serialize(
-            new BrowserCallGraph(
-                Mermaid(projection),
-                Tree(view.CallerRoot),
-                Tree(view.CalleeRoot),
-                new BrowserCallGraphScope(
-                    scope.Coordinates.Length,
-                    scope.ImplementationParticipants.Length,
-                    callerAssemblies,
-                    view.Tier.ToString()),
-                Targets(
-                    projection.Nodes,
-                    scope.ImplementationParticipants.Select(
-                        participant => participant.Assembly.Identity)),
-                Diagnostics(
-                    view.Diagnostics,
-                    projection.HasUnexploredTraversalBoundary,
-                    projection.HasAnalysisFailureBoundary),
-                NoBody: view.CalleeRoot is null && view.CallerRoot is null),
-            BrowserJsonContext.Default.BrowserCallGraph);
+            new BrowserGraphMemberSurface(member, selectedBody),
+            BrowserJsonContext.Default.BrowserGraphMemberSurface);
     }
 
     /// <summary>
@@ -990,6 +1446,228 @@ public static partial class InspectionEngine
                     DotnetInspector.Vocabulary.VocabularyCatalog.Document)),
             BrowserJsonContext.Default.BrowserVocabularyDocument);
 
+    // Home demos are product-owned closed presets. Catalog listing is metadata-only; resolve
+    // allocates one demo's definition graph. The browser builds share links / runners from the
+    // projected coordinates rather than a hand-maintained TypeScript twin.
+    [JSExport]
+    public static string ListHomeDemos() =>
+        JsonSerializer.Serialize(
+            BrowserProductHomeDemos.ToCatalog(ProductInspectionDemos.Entries),
+            BrowserJsonContext.Default.BrowserHomeDemoCatalog);
+
+    /// <summary>
+    /// Resolves one product home demo. <c>found</c> is false when the id is unknown.
+    /// </summary>
+    [JSExport]
+    public static string ResolveHomeDemo(string scenarioId)
+    {
+        if (!ProductInspectionDemos.TryResolveHomeScenario(scenarioId, out var resolved))
+        {
+            return JsonSerializer.Serialize(
+                new BrowserHomeDemoResolveResult(false, null),
+                BrowserJsonContext.Default.BrowserHomeDemoResolveResult);
+        }
+
+        return JsonSerializer.Serialize(
+            new BrowserHomeDemoResolveResult(true, BrowserProductHomeDemos.ToResolved(resolved)),
+            BrowserJsonContext.Default.BrowserHomeDemoResolveResult);
+    }
+
+    /// <summary>
+    /// Runs one supported home demo from its product definition.
+    /// The browser supplies only the scenario id: workspace coordinates,
+    /// navigation focus, section selection, optional member selection, and
+    /// query execution remain on the engine side.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> RunHomeDemo(string scenarioId)
+    {
+        if (!ProductInspectionDemos.TryResolveHomeScenario(scenarioId, out var resolved))
+        {
+            return JsonSerializer.Serialize(
+                new BrowserHomeDemoRunResult(false, [], null, null),
+                BrowserJsonContext.Default.BrowserHomeDemoRunResult);
+        }
+
+        BrowserHomeDemoRunPlan plan =
+            BrowserProductHomeDemos.ToRunPlan(resolved);
+        BrowserScopeResolution resolution =
+            await BrowserPackageWorkspace.RunPackageOperationAsync(
+                deadline => BrowserPackageWorkspace.ResolveAndOpenScopeAsync(
+                    plan.Requests,
+                    deadline.Token),
+                BrowserPackageWorkspace.PackageOperationTimeout);
+        BrowserHomeDemoRunResult result =
+            RunHomeDemoCore(plan, resolution);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserJsonContext.Default.BrowserHomeDemoRunResult);
+    }
+
+    internal static BrowserHomeDemoRunResult RunHomeDemoCore(
+        BrowserHomeDemoRunPlan plan,
+        BrowserScopeResolution resolution)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(resolution);
+
+        BrowserInspectionScope scope = resolution.Scope;
+        BrowserPackageProjection[] projections =
+        [
+            .. resolution.RequestedCoordinates.Select(requested =>
+                ProjectPackage(scope, scope.Coordinate(requested))),
+        ];
+        if (resolution.RequestedCoordinates.Length != plan.Requests.Length)
+        {
+            throw new InvalidOperationException(
+                "The product home demo workspace did not preserve its distinct request ordering.");
+        }
+        if ((uint)plan.FocusRequestIndex >= (uint)resolution.RequestedCoordinates.Length)
+        {
+            throw new InvalidOperationException(
+                "The product home demo focus is outside its resolved browser workspace.");
+        }
+
+        BrowserPackageCoordinate focusCoordinate =
+            scope.Coordinate(
+                resolution.RequestedCoordinates[plan.FocusRequestIndex]);
+        BrowserPackageProjection focusProjection =
+            projections[plan.FocusRequestIndex];
+        BrowserPackageSurface focusPackage = focusProjection.Surface;
+        BrowserTypeSurface[] types =
+        [
+            .. focusPackage.Types.Where(type =>
+                string.Equals(
+                    type.Id,
+                    plan.TypeId,
+                    StringComparison.Ordinal)),
+        ];
+        if (types.Length != 1)
+        {
+            throw new InvalidOperationException(
+                $"The product home demo type '{plan.TypeId}' resolved to "
+                + $"{types.Length} browser surface rows.");
+        }
+
+        BrowserTypeSurface type = types[0];
+        BrowserHomeDemoRunMember? memberPlan = plan.Member;
+        if (memberPlan is null)
+        {
+            return new BrowserHomeDemoRunResult(
+                true,
+                [.. projections.Select(projection => projection.Surface)],
+                new BrowserHomeDemoRunActivation(
+                    focusCoordinate.PackageId,
+                    focusCoordinate.Version,
+                    focusCoordinate.Framework,
+                    type.Id,
+                    plan.Section,
+                    MemberName: null,
+                    MemberKind: null,
+                    MemberAnchorDigest: null,
+                    MemberSection: null),
+                null);
+        }
+
+        (ApiType Type, AssemblyContextSubject Subject)[] apiTypes =
+        [
+            .. focusProjection.ApiSurfaces.Assemblies.Assemblies
+                .OfType<AssemblyContextEntry<AssemblyApiSurface>.Available>()
+                .SelectMany(entry => entry.Value.Surface.Types
+                    .Where(candidate => string.Equals(
+                        AssemblyContextApiSurfaceQuery.MetadataTypeIdentity(
+                            candidate),
+                        type.DefinitionId,
+                        StringComparison.Ordinal))
+                    .Select(candidate => (candidate, entry.Subject))),
+        ];
+        if (apiTypes.Length != 1)
+        {
+            throw new InvalidOperationException(
+                $"The product home demo type '{plan.TypeId}' resolved to "
+                + $"{apiTypes.Length} product API rows.");
+        }
+
+        (ApiType apiType, AssemblyContextSubject subject) = apiTypes[0];
+        var selector = new MemberTargetSelector(
+            $"{memberPlan.Name}~{memberPlan.AnchorDigest}",
+            memberPlan.Name,
+            DigestPrefix: memberPlan.AnchorDigest,
+            Kind: memberPlan.MemberKind);
+        MemberTargetResolution target =
+            MemberTargetResolver.Resolve(apiType, selector);
+        if (target.Diagnostic is { } diagnostic)
+        {
+            throw new InvalidOperationException(
+                $"The product home demo member could not be selected: {diagnostic.Message}");
+        }
+
+        BrowserMemberSurface projectedMember =
+            BrowserSurfaceProjection.Member(
+                apiType,
+                target.Target!.ApiMember.Member);
+        BrowserMemberSurface[] transportedMembers =
+        [
+            .. type.Api.Where(member =>
+                string.Equals(
+                    member.AnchorDigest,
+                    projectedMember.AnchorDigest,
+                    StringComparison.OrdinalIgnoreCase)),
+        ];
+        if (transportedMembers.Length != 1)
+        {
+            throw new InvalidOperationException(
+                $"The selected product home demo member projected to "
+                + $"{transportedMembers.Length} browser surface rows.");
+        }
+
+        BrowserMemberSurface member = transportedMembers[0];
+        if (!string.Equals(
+                type.AssemblyName,
+                subject.Identity.Name,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "The product home demo type projection lost its owning assembly identity.");
+        }
+        (
+            BrowserWorkspaceParticipant participant,
+            Analysis.CallGraphMemberResolution memberResolution
+        ) = ResolveImplementationMember(
+            scope,
+            focusCoordinate,
+            type.Assembly,
+            type.DefinitionId,
+            member.Name,
+            member.GraphSelectorKey,
+            member.MetadataToken ?? 0);
+        MemberCallGraphView view = scope.UseImplementation(group =>
+        {
+            using var session = new MemberCallGraphSession(
+                group,
+                participant.Assembly,
+                memberResolution.BodyToken);
+            return session.HasCrossLibraryScope
+                ? session.CrossLibrary()
+                : session.Callers();
+        });
+
+        return new BrowserHomeDemoRunResult(
+            true,
+            [.. projections.Select(projection => projection.Surface)],
+            new BrowserHomeDemoRunActivation(
+                focusCoordinate.PackageId,
+                focusCoordinate.Version,
+                focusCoordinate.Framework,
+                type.Id,
+                plan.Section,
+                member.Name,
+                member.Kind,
+                member.AnchorDigest,
+                memberPlan.MemberSection),
+            ProjectCallGraph(scope, view));
+    }
+
     /// <summary>
     /// Resolves one exact package/version/framework coordinate, reuses its workspace, and returns
     /// the reference-preferred participant for one product-selected compile asset.
@@ -1031,12 +1709,12 @@ public static partial class InspectionEngine
             int metadataToken,
             CancellationToken cancellationToken = default)
     {
-            BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
-                packageId,
-                version,
-                targetFramework,
-                cancellationToken);
-            cancellationToken.ThrowIfCancellationRequested();
+        BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
+            packageId,
+            version,
+            targetFramework,
+            cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
         (
             BrowserWorkspaceParticipant participant,
@@ -1104,17 +1782,6 @@ public static partial class InspectionEngine
                 + "API body.");
         return (participant, resolution);
     }
-
-    /// <summary>
-    /// Whether a type falls in the accessibility bucket the product marked as the default one.
-    /// The host does not decide which bucket that is.
-    /// </summary>
-    static bool IsDefaultBucket(
-        AssemblyContextApiSurfaceResult surfaces,
-        BrowserTypeSurface type)
-        => surfaces.Accessibility.Any(
-            bucket => bucket.IsDefault
-                && bucket.Id.Equals(type.AccessibilityId, StringComparison.Ordinal));
 
     // Presentation over the neutral projection. docs/design/call-graph-projection.md makes
     // rendering host-owned on purpose: the projection carries identity, direction, cycles, and
@@ -1210,11 +1877,16 @@ public static partial class InspectionEngine
 
     static BrowserCallGraphTarget Target(
         CallGraphNode node,
-        IReadOnlyList<AssemblyReferenceIdentity> loadedIdentities)
+        IReadOnlyList<AssemblyReferenceIdentity> loadedIdentities,
+        Func<string, string?>? platformPackForAssembly)
     {
         Analysis.TypeRef? definition = DeclaringTypeDefinition(node.Member.DeclaringType);
+        // The metadata origin may be a facade; the resolved definition identifies the browsable
+        // assembly and must win when the catalog established it.
         AssemblyReferenceIdentity? identity =
-            (definition?.Resolution?.Origin as Analysis.TypeReferenceOrigin.AssemblyReference)
+            node.DefinitionAssemblyIdentity
+            ?? (definition?.Resolution?.Origin
+                    as Analysis.TypeReferenceOrigin.AssemblyReference)
                 ?.Assembly;
         if (identity is null && definition is not null)
         {
@@ -1229,9 +1901,14 @@ public static partial class InspectionEngine
                 identity = matches[0];
             }
         }
+        string assembly =
+            identity?.Name
+            ?? definition?.Assembly
+            ?? node.Member.DeclaringType.Assembly
+            ?? "";
         return new BrowserCallGraphTarget(
             $"n{node.Id}",
-            identity?.Name ?? definition?.Assembly ?? node.Member.DeclaringType.Assembly ?? "",
+            assembly,
             identity?.Version?.ToString(),
             identity?.Culture,
             identity?.PublicKeyToken,
@@ -1244,7 +1921,8 @@ public static partial class InspectionEngine
             node.Member.GenericArity,
             null,
             Analysis.CallGraphMemberResolver.CreateSelector(node.Member).Key,
-            node.Kind.ToString().ToLowerInvariant());
+            node.Kind.ToString().ToLowerInvariant(),
+            platformPackForAssembly?.Invoke(assembly));
     }
 
     /// <summary>
@@ -1276,11 +1954,19 @@ public static partial class InspectionEngine
 
     internal static BrowserCallGraphTarget[] Targets(
         IEnumerable<CallGraphNode> nodes,
-        IEnumerable<AssemblyReferenceIdentity>? loadedIdentities = null)
+        IEnumerable<AssemblyReferenceIdentity>? loadedIdentities = null,
+        Func<string, string?>? platformPackForAssembly = null)
     {
         ArgumentNullException.ThrowIfNull(nodes);
         AssemblyReferenceIdentity[] identities = [.. loadedIdentities ?? []];
-        return [.. nodes.Select(node => Target(node, identities))];
+        return
+        [
+            .. nodes.Select(node =>
+                Target(
+                    node,
+                    identities,
+                    platformPackForAssembly)),
+        ];
     }
 
     internal static BrowserCallGraphDiagnostics Diagnostics(

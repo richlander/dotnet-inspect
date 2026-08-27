@@ -24,8 +24,8 @@ export interface DocumentInspectionDependencies {
   state: DocumentInspectionState;
   queryDocument:
     (request: PackageDocumentRequest) => Promise<BrowserPackageDocumentContent>;
-  renderMarkdown: (text: unknown) => Promise<string>;
-  renderMarkdownInline: (text: unknown) => Promise<string>;
+  renderMarkdown: (text: string) => Promise<string>;
+  renderMarkdownInline: (text: string) => Promise<string>;
   describeError: (error: unknown) => string;
   render: () => void;
 }
@@ -39,28 +39,42 @@ interface DocumentFrontmatter {
 
 // Skill files carry YAML frontmatter whose folded/literal descriptions need
 // projecting separately before the remaining body is rendered as Markdown.
-function splitFrontmatter(text: unknown) {
-  const source = String(text ?? "");
+function splitFrontmatter(text: string) {
+  const source = text;
   const match = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(source);
   if (!match) return { meta: null, body: source };
+  const frontmatter = match[1];
+  const matchedText = match[0];
+  if (frontmatter === undefined || matchedText === undefined)
+    return { meta: null, body: source };
   const meta: DocumentFrontmatter = {};
-  const lines = match[1].split(/\r?\n/);
+  const lines = frontmatter.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
-    const kv = /^([A-Za-z0-9_-]+):\s?(.*)$/.exec(lines[i]);
+    const line = lines[i];
+    if (line === undefined) continue;
+    const kv = /^([A-Za-z0-9_-]+):\s?(.*)$/.exec(line);
     if (!kv) continue;
-    let value = kv[2];
+    const key = kv[1];
+    const rawValue = kv[2];
+    if (key === undefined || rawValue === undefined) continue;
+    let value = rawValue;
     if (value === ">" || value === ">-" || value === "|" || value === "|-") {
       const folded = value.startsWith(">");
       const buffer = [];
-      while (i + 1 < lines.length
-        && (/^\s+\S/.test(lines[i + 1]) || lines[i + 1].trim() === "")) {
-        buffer.push(lines[++i].trim());
+      while (i + 1 < lines.length) {
+        const continuation = lines[i + 1];
+        if (continuation === undefined
+          || (!/^\s+\S/.test(continuation) && continuation.trim() !== "")) {
+          break;
+        }
+        i++;
+        buffer.push(continuation.trim());
       }
       value = buffer.join(folded ? " " : "\n").trim();
     }
-    meta[kv[1]] = value.trim();
+    meta[key] = value.trim();
   }
-  return { meta, body: source.slice(match[0].length) };
+  return { meta, body: source.slice(matchedText.length) };
 }
 
 export function createDocumentInspectionCoordinator(
@@ -81,6 +95,8 @@ export function createDocumentInspectionCoordinator(
       try {
         const content = await dependencies.queryDocument(request);
         if (sequence !== state.docViewerSeq) return;
+        if (typeof content.text !== "string")
+          throw new TypeError("The document content did not contain text.");
         const { meta, body } = splitFrontmatter(content.text);
         const html = await dependencies.renderMarkdown(body);
         if (sequence !== state.docViewerSeq) return;
@@ -101,9 +117,10 @@ export function createDocumentInspectionCoordinator(
         if (sequence !== state.docViewerSeq) return;
         state.docViewerError = dependencies.describeError(error);
       } finally {
-        if (sequence !== state.docViewerSeq) return;
-        state.docViewerLoading = false;
-        dependencies.render();
+        if (sequence === state.docViewerSeq) {
+          state.docViewerLoading = false;
+          dependencies.render();
+        }
       }
     },
 
