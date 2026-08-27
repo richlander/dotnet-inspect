@@ -109,10 +109,12 @@ own boundaries, so containment cannot collapse `<...>` into one identifier.
 Raw attribute and named-argument identifiers likewise cross the raw-name
 boundary before composition with already-rendered argument values. All member
 kinds with an `ApiSignature` use that structured provenance rather than
-reinterpreting their mixed-provenance compatibility text. Persisted
-compatibility signatures keep raw method and parameter name slots (while
-retaining ordinary keyword escapes), so losing the non-persisted `ApiSignature`
-cannot add a second containment layer.
+reinterpreting their mixed-provenance compatibility text. The model retains an
+untreated compatibility-signature source for ordinary persistence while keeping
+the in-memory `Signature` safe for direct rendering. Artifact JSON excludes
+that provenance field and reconstructs presentation from it only after ordinary
+persistence loses the non-persisted `ApiSignature`, so no second containment
+layer is added.
 
 Legacy or degraded model-free text uses conservative compatibility containment.
 Only a quote where a default value may begin opens a rendered C# literal;

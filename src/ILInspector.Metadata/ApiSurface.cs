@@ -1029,12 +1029,24 @@ public class ApiMember
     /// Legacy compatibility spelling of the member signature.
     /// </summary>
     /// <remarks>
-    /// This string combines raw metadata slots and rendered C# default literals.
-    /// Consumers must not infer a single provenance for the whole value: use
-    /// <see cref="SignatureModel"/> when present and treat a model-free fallback
-    /// as degraded.
+    /// This string combines raw metadata type slots, contained identifier
+    /// spellings, and rendered C# default literals. Consumers must not infer a
+    /// single provenance for the whole value: use <see cref="SignatureModel"/>
+    /// when present and <see cref="UntreatedSignature"/> after ordinary
+    /// persistence.
     /// </remarks>
     public string? Signature { get; set; }
+
+    /// <summary>
+    /// Untreated compatibility-signature text retained for ordinary model
+    /// persistence when <see cref="SignatureModel"/> is not serialized.
+    /// </summary>
+    /// <remarks>
+    /// This is provenance for reconstructing <see cref="Signature"/> at an
+    /// output boundary, not presentation text. Artifact JSON excludes it.
+    /// </remarks>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? UntreatedSignature { get; set; }
 
     /// <summary>
     /// Durable 10-char digest for this overload — the same value shown in the Markdown

@@ -50,6 +50,18 @@ internal static class ApiArtifactJson
                 continue;
             }
 
+            if (member.SignatureModel is null
+                && member.UntreatedSignature is { } untreatedSignature)
+            {
+                PreparedMembers.Add(
+                    member,
+                    new PreparedMember(
+                        CSharpFormatter.ContainCompatibilitySignature(
+                            untreatedSignature),
+                        member.SignatureDecodeStatus));
+                continue;
+            }
+
             var formatter = new CSharpFormatter();
             string signature = formatter.FormatCompatibilityMemberSignature(
                 type,
@@ -69,6 +81,10 @@ internal static class ApiArtifactJson
         ApiType type,
         ApiMember member)
     {
+        if (member.SignatureModel is null
+            && member.UntreatedSignature is not null)
+            return true;
+
         // Whole signatures already contain C# literal escapes, so re-importing
         // them as raw text would double valid syntax. Recompose only when a raw
         // metadata slot carries a literal backslash that must be distinguished
@@ -155,6 +171,7 @@ internal static class ApiArtifactJson
         }
         else if (typeInfo.Type == typeof(ApiMember))
         {
+            RemoveProperty(typeInfo, "untreated_signature");
             SetRawTypeStrings(
                 typeInfo,
                 "return_type",
@@ -192,6 +209,17 @@ internal static class ApiArtifactJson
         {
             SetCSharpStringLists(typeInfo, "return_attributes");
         }
+    }
+
+    private static void RemoveProperty(
+        JsonTypeInfo typeInfo,
+        string propertyName)
+    {
+        JsonPropertyInfo property = typeInfo.Properties.Single(
+            property => WireNamesEqual(
+                property.Name,
+                propertyName));
+        typeInfo.Properties.Remove(property);
     }
 
     private static void SetCSharpStrings(

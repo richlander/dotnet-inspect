@@ -1102,6 +1102,7 @@ public static class ApiSurfaceExtractor
                     IsSealed = isOverride && (methodAttributes & MethodAttributes.Final) != 0,
                     IsFinalizer = isFinalizer,
                     Signature = signature.Text,
+                    UntreatedSignature = signature.UntreatedText,
                     SignatureModel = signature.Model,
                     SignatureDecodeStatus = signature.IsDegraded
                         ? SignatureDecodeStatus.Degraded
@@ -1320,6 +1321,8 @@ public static class ApiSurfaceExtractor
                     DeclarationMetadataToken =
                         MetadataTokens.GetToken(propHandle),
                     Signature = propertySignature.Text,
+                    UntreatedSignature =
+                        propertySignature.UntreatedText,
                     SignatureModel = propertySignature.Model,
                     IndexParameterCount =
                         propertySignature.Model?.ParameterCount,
@@ -1762,6 +1765,8 @@ public static class ApiSurfaceExtractor
                     Kind = "event",
                     ReturnType = eventType,
                     Signature =
+                        $"{eventType} {SanitizeIdentifier(eventName)}",
+                    UntreatedSignature =
                         $"{eventType} {EscapeIdentifierUntreated(eventName)}",
                     SignatureModel = new ApiSignature
                     {
@@ -2901,6 +2906,7 @@ public static class ApiSurfaceExtractor
                     Kind = "extension-method",
                     ReturnType = extension.ReturnType,
                     Signature = extension.Signature,
+                    UntreatedSignature = extension.UntreatedSignature,
                     SignatureModel = extension.SignatureModel,
                     SignatureDecodeStatus = extension.SignatureDecodeStatus,
                     MetadataToken = extension.MetadataToken,
@@ -3264,7 +3270,11 @@ public static class ApiSurfaceExtractor
         }
     }
 
-    private static (string Text, ApiSignature Model, bool IsDegraded) GetMethodSignature(
+    private static (
+        string Text,
+        string UntreatedText,
+        ApiSignature Model,
+        bool IsDegraded) GetMethodSignature(
         MetadataReader reader,
         GenericContext typeContext,
         MethodDefinitionHandle methodHandle,
@@ -3342,6 +3352,7 @@ public static class ApiSurfaceExtractor
         }
 
         List<string> parameters = [];
+        List<string> untreatedParameters = [];
         List<ApiParameter> parameterModels = [];
         for (int i = 0; i < paramTypes.Length; i++)
         {
@@ -3408,6 +3419,13 @@ public static class ApiSurfaceExtractor
                 hasDefault,
                 defaultValue,
                 defaultValueText);
+            var untreatedParamStr = FormatParameterUntreated(
+                type,
+                paramName,
+                modifier,
+                hasDefault,
+                defaultValue,
+                defaultValueText);
 
             beforeRetainText?.Invoke(paramStr);
             var parameterModel = new ApiParameter
@@ -3427,6 +3445,7 @@ public static class ApiSurfaceExtractor
             };
             ObserveText(parameterModel, beforeRetainText);
             parameters.Add(paramStr);
+            untreatedParameters.Add(untreatedParamStr);
             parameterModels.Add(parameterModel);
         }
 
@@ -3459,29 +3478,39 @@ public static class ApiSurfaceExtractor
         var methodName = context.MethodParameters.Count > 0
             ? $"{name}<{string.Join(", ", methodTypeParameters.Select(parameter => parameter.Name))}>"
             : name;
-        // Signature remains a persistence/compatibility model. Its metadata
-        // slots stay raw; typed presentation contains them at the output seam.
-        return ($"{returnType} {methodName}({paramStr2})", new ApiSignature
-        {
-            ExtensionReceiverType = extensionReceiverType,
-            ReturnType = returnType,
-            CanonicalReturnType = canonicalReturnType,
-            StructuralReturnType = treeSignature.ReturnType.HasStructuralPayload
-                ? treeSignature.ReturnType.StructuralIdentity()
-                : null,
-            ReturnTypeReferences =
-                [.. treeSignature.ReturnType.ReferencedTypes().Distinct()],
-            ReturnTypeDefinitionReference =
-                treeSignature.ReturnType.DefinitionReference(),
-            ReturnTypeShape =
-                ApiTypeShapeFactory.FromTypeNode(
-                    treeSignature.ReturnType),
-            ReturnAttributes = returnAttributes,
-            MemberName = methodName,
-            TypeParameters = methodTypeParameters,
-            Parameters = parameterModels
-        }, treeSignature.ReturnType.IsDegraded
-            || treeSignature.ParameterTypes.Any(parameter => parameter.IsDegraded));
+        var displayName = context.MethodParameters.Count > 0
+            ? $"{SanitizeMemberDisplayName(name)}<{string.Join(", ", methodTypeParameters.Select(parameter => SanitizeIdentifier(parameter.Name)))}>"
+            : SanitizeMemberDisplayName(name);
+        string untreatedParamStr2 = string.Join(
+            ", ",
+            untreatedParameters);
+        return (
+            $"{returnType} {displayName}({paramStr2})",
+            $"{returnType} {methodName}({untreatedParamStr2})",
+            new ApiSignature
+            {
+                ExtensionReceiverType = extensionReceiverType,
+                ReturnType = returnType,
+                CanonicalReturnType = canonicalReturnType,
+                StructuralReturnType =
+                    treeSignature.ReturnType.HasStructuralPayload
+                        ? treeSignature.ReturnType.StructuralIdentity()
+                        : null,
+                ReturnTypeReferences =
+                    [.. treeSignature.ReturnType.ReferencedTypes().Distinct()],
+                ReturnTypeDefinitionReference =
+                    treeSignature.ReturnType.DefinitionReference(),
+                ReturnTypeShape =
+                    ApiTypeShapeFactory.FromTypeNode(
+                        treeSignature.ReturnType),
+                ReturnAttributes = returnAttributes,
+                MemberName = methodName,
+                TypeParameters = methodTypeParameters,
+                Parameters = parameterModels
+            },
+            treeSignature.ReturnType.IsDegraded
+                || treeSignature.ParameterTypes.Any(
+                    parameter => parameter.IsDegraded));
     }
 
     private static List<string> ReturnParameterAttributes(
@@ -3908,7 +3937,7 @@ public static class ApiSurfaceExtractor
         object? defaultValue,
         string? defaultValueText)
     {
-        var escapedName = EscapeIdentifierUntreated(name);
+        var escapedName = SanitizeIdentifier(name);
         var parameter = modifier is null ? $"{type} {escapedName}" : $"{modifier} {type} {escapedName}";
         if (!hasDefault)
             return parameter;
@@ -3921,6 +3950,38 @@ public static class ApiSurfaceExtractor
 
         return $"{parameter} = {defaultValueText}";
     }
+
+    private static string FormatParameterUntreated(
+        string type,
+        string name,
+        string? modifier,
+        bool hasDefault,
+        object? defaultValue,
+        string? defaultValueText)
+    {
+        string escapedName = EscapeIdentifierUntreated(name);
+        string parameter = modifier is null
+            ? $"{type} {escapedName}"
+            : $"{modifier} {type} {escapedName}";
+        if (!hasDefault)
+            return parameter;
+
+        if (defaultValue is DateTimeConstantDefault dateTime)
+        {
+            string ticks = FormatInt64Literal(dateTime.Ticks);
+            return $"[{OptionalAttributeName}, {DateTimeConstantAttributeName}({ticks})] {parameter}";
+        }
+
+        return $"{parameter} = {defaultValueText}";
+    }
+
+    private static string SanitizeMemberDisplayName(string name)
+        => CSharpIdentifierCore.ContainRawComposedName(name);
+
+    private static string SanitizeIdentifier(string name)
+        => CSharpIdentifierCore.ContainIdentifier(
+            name,
+            CSharpKeywords.RequiresDeclarationEscape);
 
     /// <summary>
     /// Applies C# keyword syntax without importing a raw metadata name into a
@@ -4276,7 +4337,11 @@ public static class ApiSurfaceExtractor
         }
     }
 
-    private static (string Text, ApiSignature Model, bool IsDegraded) GetPropertySignature(
+    private static (
+        string Text,
+        string UntreatedText,
+        ApiSignature Model,
+        bool IsDegraded) GetPropertySignature(
         MetadataReader reader,
         GenericContext context,
         PropertyDefinition prop,
@@ -4501,6 +4566,7 @@ public static class ApiSurfaceExtractor
                 ?? typeNullableContext;
         var paramTypes = treeSignature.ParameterTypes;
         List<string> indexerParameters = [];
+        List<string> untreatedIndexerParameters = [];
         List<ApiParameter> parameterModels = [];
         for (var i = 0; i < paramTypes.Length; i++)
         {
@@ -4563,6 +4629,13 @@ public static class ApiSurfaceExtractor
                 hasDefault,
                 defaultValue,
                 defaultValueText);
+            var untreatedParameter = FormatParameterUntreated(
+                paramType,
+                paramName,
+                modifier,
+                hasDefault,
+                defaultValue,
+                defaultValueText);
             beforeRetainText?.Invoke(parameter);
             var parameterModel = new ApiParameter
             {
@@ -4581,6 +4654,7 @@ public static class ApiSurfaceExtractor
             };
             ObserveText(parameterModel, beforeRetainText);
             indexerParameters.Add(parameter);
+            untreatedIndexerParameters.Add(untreatedParameter);
             parameterModels.Add(parameterModel);
         }
 
@@ -4617,11 +4691,13 @@ public static class ApiSurfaceExtractor
         if (indexerParameters.Count > 0)
             return (
                 $"{requiredPrefix}{returnType} this[{string.Join(", ", indexerParameters)}] {accessorStr}",
+                $"{requiredPrefix}{returnType} this[{string.Join(", ", untreatedIndexerParameters)}] {accessorStr}",
                 model,
                 treeSignature.ReturnType.IsDegraded
                     || treeSignature.ParameterTypes.Any(parameter => parameter.IsDegraded));
 
         return (
+            $"{requiredPrefix}{returnType} {SanitizeIdentifier(name)} {accessorStr}",
             $"{requiredPrefix}{returnType} {EscapeIdentifierUntreated(name)} {accessorStr}",
             model,
             treeSignature.ReturnType.IsDegraded

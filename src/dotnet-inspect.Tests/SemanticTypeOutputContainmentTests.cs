@@ -552,6 +552,8 @@ public sealed class SemanticTypeOutputContainmentTests
                     Name = rawName,
                     Kind = "method",
                     Signature =
+                        @"void Run\\u202E(string arg\\u202E)",
+                    UntreatedSignature =
                         $"void {rawName}(string {rawParameterName})",
                     SignatureModel = new ApiSignature
                     {
@@ -579,6 +581,9 @@ public sealed class SemanticTypeOutputContainmentTests
 
         Assert.Equal(type.Members[0].Signature, restored.Members[0].Signature);
         Assert.Equal(
+            type.Members[0].UntreatedSignature,
+            restored.Members[0].UntreatedSignature);
+        Assert.Equal(
             PreparedSignature(type),
             PreparedSignature(restored));
 
@@ -587,6 +592,12 @@ public sealed class SemanticTypeOutputContainmentTests
             ApiArtifactJson.Prepare(value);
             using JsonDocument document = JsonDocument.Parse(
                 JsonSerializer.Serialize(value, ApiArtifactJson.Type));
+            Assert.False(
+                document.RootElement
+                    .GetProperty("members")[0]
+                    .TryGetProperty(
+                        "untreated_signature",
+                        out _));
             return document.RootElement
                 .GetProperty("members")[0]
                 .GetProperty("signature")

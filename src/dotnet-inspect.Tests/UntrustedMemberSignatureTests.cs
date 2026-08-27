@@ -103,7 +103,13 @@ public class UntrustedMemberSignatureTests
                 // The signature the extractor itself produces, which the type
                 // tree renders directly without going through the formatter.
                 if (member.Signature is { Length: > 0 } extracted)
+                {
                     AssertContained(extracted);
+                    Assert.Contains(
+                        hazard,
+                        Assert.IsType<string>(
+                            member.UntreatedSignature));
+                }
 
                 // The signature cell, which is also what the decompiled and
                 // annotated source blocks render.
