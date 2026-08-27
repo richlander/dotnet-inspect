@@ -448,7 +448,9 @@ Lens tablists use one tab stop and manual activation:
 - Home and End move focus to the first and last tab.
 - Arrow navigation includes `aria-disabled` lens tabs so unavailable lenses
   remain discoverable.
-- Enter or Space activates a focused available tab.
+- Enter or Space activates a focused available tab by submitting its
+  owner-issued lens identity through the lens owner's typed transition seam;
+  it does not submit a subject action ID.
 - Activating an `aria-disabled` tab has no effect.
 
 Roving `tabindex` keeps only the focused tab at `tabindex="0"`. Moving focus
@@ -1048,6 +1050,9 @@ outcomes:
 5. Permute or filter no descriptor state in the host and confirm that tab
    identity, order, availability, reasons, and diagnostics come only from the
    returned snapshot collection.
+6. Activate an available non-effective tab and confirm that the UI submits its
+   owner-issued lens identity through the lens transition seam, never a subject
+   action ID.
 
 ### Library option availability
 

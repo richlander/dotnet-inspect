@@ -40,9 +40,10 @@ Inspection Subject Navigation owns:
 - reconciliation after coordinate, Library, or inventory changes.
 
 The owner returns one internally consistent snapshot. Consumers render that
-snapshot and submit opaque action IDs from it. They do not choose a default,
-infer a parent, substitute another subject after failure, or reconstruct
-identity from labels.
+snapshot and submit opaque action IDs from it for subject activation. Lens
+activation uses the lens owner's identity and transition seam. Consumers do not
+choose a default, infer a parent, substitute another subject after failure, or
+reconstruct identity from labels.
 
 ## Boundaries
 
@@ -174,9 +175,10 @@ projected.
 ### Action IDs
 
 Each navigation snapshot issues opaque action IDs for its non-active available
-descriptors. An active available descriptor is marked `Current` rather than
-receiving a no-op action. An action ID is scoped to the snapshot generation and
-coordinate. A UI retains and submits it without parsing.
+Root, Library, Type, and Member subject descriptors. An active available
+subject descriptor is marked `Current` rather than receiving a no-op action.
+An action ID is scoped to the snapshot generation and coordinate. A UI retains
+and submits it without parsing.
 
 Action IDs are deliberately separate from structured identity:
 
@@ -564,6 +566,12 @@ Subject and lens are separate axes, but subject navigation owns the lens
 outcome attached to its subject transition. It consumes owner-issued lens
 identities, order, and availability without defining them.
 
+Explicit lens activation is not a subject action-ID transition. A consumer
+submits the returned owner-issued lens identity through the lens owner's typed
+transition seam. A successful result becomes the committed lens identity input
+to the next navigation snapshot; rejection or failure does not reinterpret the
+active subject.
+
 - Preserve the committed current lens when the active subject identity is
   retained and that exact owner-issued lens identity remains available.
 - Whenever no valid committed lens remains -- because the subject changed, the
@@ -590,6 +598,8 @@ Inspect Web:
 - renders descriptor labels, order, active state, availability, reasons, and
   diagnostics verbatim;
 - submits opaque action IDs with their snapshot generation;
+- submits owner-issued lens identities through the lens owner's transition
+  seam rather than treating them as subject actions;
 - renders wrapped producer-owned Type and Member rows with their supplied
   activation descriptor;
 - renders the returned active subject consistently in the command, hierarchy,
@@ -805,6 +815,7 @@ covering at least:
 - `InspectWeb_EffectiveLensRetainsPartialFailureDiagnostics`
 - `InspectWeb_DerivesLensTabsOnlyFromSnapshotDescriptors`
 - `InspectWeb_LibraryListboxCommitsOnlyAvailableAction`
+- `InspectWeb_LensActivationUsesOwnerIssuedLensIdentity`
 - `InspectWeb_ConsumesSubjectOutcomeWithoutHostFallback`
 
 Product-side gates should live with the eventual subject-navigation query.
