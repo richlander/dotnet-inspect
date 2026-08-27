@@ -82,22 +82,25 @@ import {
 } from "./member-filtering.ts";
 import {
   bindWorkspaceLinkNavigation,
+  bindWorkspaceRetryToUrl,
   browserCreatedCallGraphTabIds,
   buildPackageRootStateUrl,
   callGraphCaptureTopology,
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
+  recoverWorkspaceRouteFailure,
   retainedMissingPlatformTarget,
   retainedPlatformTargetVersion,
   selectedBrowserCallGraphPackageTabIds,
-  workspaceUrlPreservationApplies,
+  retainWorkspaceUrlPreservation,
   workspaceShareTabsMatchResolved,
   workspaceShareCaptureTopology,
   workspaceViewSignature,
   type NavigationHistorySnapshot,
   type ParsedWorkspaceLocation,
   type WorkspaceDeepLink,
+  type WorkspaceUrlPreservation,
   type WorkspaceUrlState,
   type WorkspaceView,
 } from "./workspace-navigation.ts";
@@ -479,7 +482,9 @@ function loadPlatformRecent() {
   }
 }
 
+const retryUnavailable = "unavailable" as const;
 type RetryAction = (() => void | Promise<unknown>) | null;
+type ErrorRetryAction = RetryAction | typeof retryUnavailable;
 
 interface SpotlightCache {
   signature: string;
@@ -744,7 +749,7 @@ interface StateOverrides {
   styleTiers: StyleTier[] | null;
   styleOptions: StyleOption[] | null;
   history: string[];
-  retryAction: RetryAction;
+  retryAction: ErrorRetryAction;
   diag: Diagnostics | null;
   buildIdentity: BrowserBuildIdentity | null;
   packageCacheStats: BrowserPackageCacheStats | null;
@@ -753,10 +758,17 @@ interface StateOverrides {
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
 
 const state: AppState = initialState;
-let failedWorkspaceUrlPreservation: {
-  url: string;
-  projection: string;
-} | null = null;
+type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
+  | { kind: "canonical" }
+  | {
+    kind: "route";
+    notice: string;
+    pathname: string;
+    search: string;
+    recoveryUrl: string;
+  }
+);
+let failedWorkspaceUrlState: FailedWorkspaceUrlState | null = null;
 
 interface CanonicalWorkspaceRestoreSnapshot {
   state: AppState;
@@ -1230,7 +1242,9 @@ const initialLocation = initialWorkspace.visible;
 // its workspace directly.
 state.credits = isCreditsPath(location.pathname);
 state.home = state.credits
-  || (!initialLocation.package && !initialWorkspace.hasWorkspaceState);
+  || (!initialLocation.package
+    && !initialWorkspace.hasWorkspaceState
+    && !initialLocation.routeFailure);
 state.queryNotice = "";
 if (initialLocation.package) {
   state.requestedPackage = initialLocation.package;
@@ -1738,6 +1752,10 @@ function selectPackageTab(pkg: PackageBarPackage | null) {
 function closePackageTab(packageKey: string) {
   const removal = removeWorkspacePackage(state.packages, state.package, packageKey);
   if (!removal.closed) return;
+  if (!removal.active && !clearWorkspaceRouteFailure()) {
+    render();
+    return;
+  }
 
   state.packages = removal.packages;
   releasePackageModelCaches(removal.closed);
@@ -2438,6 +2456,7 @@ function render() {
     renderLoading();
     return;
   }
+  retainFailedWorkspaceUrl();
   if (state.home) {
     renderHomeView();
     return;
@@ -2489,11 +2508,11 @@ function render() {
         </div>
       </header>
 
-      ${state.queryNotice
+      ${visibleQueryNotice()
         ? `<div class="query-notice" role="alert">
             <span class="query-notice-glyph">⚠</span>
-            <span class="query-notice-text">${escapeHtml(state.queryNotice)}</span>
-            ${state.queryNoticeRetryAction
+            <span class="query-notice-text">${escapeHtml(visibleQueryNotice())}</span>
+            ${state.queryNotice && state.queryNoticeRetryAction
               ? '<button id="retry-notice" type="button">retry</button>'
               : ""}
             <button id="dismiss-notice" type="button" aria-label="Dismiss">×</button>
@@ -4826,12 +4845,7 @@ function bindAnnotatedSourceEvents() {
 }
 
 const workbenchShellActions: WorkbenchShellBindingActions = {
-  onDismissNotice: () => {
-    state.queryNotice = "";
-    state.queryNoticeRetryAction = null;
-    failedWorkspaceUrlPreservation = null;
-    render();
-  },
+  onDismissNotice: dismissQueryNotice,
   onDismissPackageNotice: () => {
     const pkg = currentPackage();
     pkg.inspectionErrors = [];
@@ -6202,13 +6216,7 @@ function workspaceUrlProjection() {
 }
 
 function syncUrl() {
-  if (workspaceUrlPreservationApplies(
-      failedWorkspaceUrlPreservation,
-      location.href,
-      workspaceUrlProjection())) {
-    return;
-  }
-  failedWorkspaceUrlPreservation = null;
+  if (retainFailedWorkspaceUrl()) return;
   try {
     if (state.atPackageRoot && state.package && !state.loading) {
       document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
@@ -6622,6 +6630,59 @@ function appendQueryNotice(message: string, retryAction: RetryAction = null) {
   state.queryNoticeRetryAction = retryAction;
 }
 
+function visibleQueryNotice() {
+  const routeNotice = failedWorkspaceUrlState?.kind === "route"
+    ? failedWorkspaceUrlState.notice
+    : null;
+  return [state.queryNotice, routeNotice]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function retainFailedWorkspaceUrl() {
+  const failedState = failedWorkspaceUrlState;
+  const retainedState = retainWorkspaceUrlPreservation(
+    failedState,
+    location.href,
+    workspaceUrlProjection());
+  if (retainedState) return true;
+  if (failedState?.kind === "route"
+    && !recoverWorkspaceRouteFailure(
+      failedState,
+      location,
+      url => workspaceLocation.replace(url))) {
+    return true;
+  }
+  failedWorkspaceUrlState = null;
+  return false;
+}
+
+function clearWorkspaceRouteFailure(recoveryUrl?: string) {
+  if (failedWorkspaceUrlState?.kind !== "route") return true;
+  if (!recoverWorkspaceRouteFailure(
+    failedWorkspaceUrlState,
+    location,
+    url => workspaceLocation.replace(url),
+    recoveryUrl)) {
+    return false;
+  }
+  failedWorkspaceUrlState = null;
+  return true;
+}
+
+function dismissQueryNotice() {
+  const routeFailureOnHome =
+    failedWorkspaceUrlState?.kind === "route" && state.home;
+  state.queryNotice = "";
+  state.queryNoticeRetryAction = null;
+  if (!clearWorkspaceRouteFailure(routeFailureOnHome ? "/" : undefined)) {
+    render();
+    return;
+  }
+  failedWorkspaceUrlState = null;
+  render();
+}
+
 async function copyText(value: string, confirmation: string) {
   try {
     await navigator.clipboard.writeText(value);
@@ -6657,10 +6718,10 @@ function renderHomeView() {
           <button id="home-theme" aria-label="Switch theme">${state.theme === "dark" ? "light" : "dark"}</button>
         </div>
       </header>
-      ${state.queryNotice
+      ${visibleQueryNotice()
         ? `<div class="query-notice" role="alert">
             <span class="query-notice-glyph">⚠</span>
-            <span class="query-notice-text">${escapeHtml(state.queryNotice)}</span>
+            <span class="query-notice-text">${escapeHtml(visibleQueryNotice())}</span>
             <button id="dismiss-notice" type="button" aria-label="Dismiss">×</button>
           </div>`
         : ""}
@@ -6710,12 +6771,7 @@ function homeArtSvg() {
 
 const homeShellActions: HomeShellBindingActions = {
   onDemo: runHomeDemo,
-  onDismissNotice: () => {
-    state.queryNotice = "";
-    state.queryNoticeRetryAction = null;
-    failedWorkspaceUrlPreservation = null;
-    render();
-  },
+  onDismissNotice: dismissQueryNotice,
   onOpenCredits: openCredits,
   onToggleTheme: toggleTheme,
 };
@@ -6765,6 +6821,11 @@ function goHome() {
   state.memberCallGraphSeq++;
   state.memberCallGraphExpanding = false;
   invalidateGraphMemberNavigation();
+  clearNavigationError();
+  if (!clearWorkspaceRouteFailure()) {
+    render();
+    return;
+  }
   state.credits = false;
   state.home = true;
   spotlight.reset();
@@ -6773,6 +6834,10 @@ function goHome() {
 }
 
 function openCredits() {
+  if (!clearWorkspaceRouteFailure()) {
+    render();
+    return;
+  }
   state.credits = true;
   state.home = true;
   spotlight.reset();
@@ -6888,10 +6953,12 @@ function openPackageQuery(query: ParsedPackageQuery) {
 
 const loadErrorShellActions: LoadErrorShellBindingActions = {
   onOpenPackage: openPackageQuery,
-  onRetry: () =>
+  onRetry: () => {
+    if (state.retryAction === retryUnavailable) return;
     observeAction(
       state.retryAction ?? bootstrap,
-      "Retrying the inspection"),
+      "Retrying the inspection");
+  },
 };
 
 function renderLoading() {
@@ -6907,7 +6974,9 @@ function renderLoading() {
                <button type="submit">open</button>
              </form>
              <div class="load-error-actions">
-               <button id="retry-load" type="button">retry</button>
+               ${state.retryAction === retryUnavailable
+                 ? ""
+                 : `<button id="retry-load" type="button">retry</button>`}
                ${state.errorDetail ? `<button id="toggle-error-detail" type="button">details</button>` : ""}
              </div>
              ${state.errorDetail ? `<pre class="load-error-detail" hidden>${escapeHtml(state.errorDetail)}</pre>` : ""}
@@ -9029,6 +9098,14 @@ async function restoreWorkspaceFromLocation(
     : null,
 ) {
   if (!navigationSequence.isCurrent(navigationSeq)) return;
+  if (loc.routeFailure) {
+    failWorkspaceRoute(loc.routeFailure.message);
+    return;
+  }
+  if (!clearWorkspaceRouteFailure()) {
+    render();
+    return;
+  }
   if (loc.hasWorkspaceState && !loc.shareState) {
     failCanonicalWorkspaceRestore(
       loc,
@@ -9221,6 +9298,42 @@ async function restoreWorkspaceFromLocation(
   }
 }
 
+function failWorkspaceRoute(message: string) {
+  if (state.package) {
+    state.credits = false;
+    state.loading = false;
+    state.error = "";
+    state.errorTitle = "";
+    state.errorDetail = "";
+    state.retryAction = null;
+    failedWorkspaceUrlState = {
+      kind: "route",
+      notice: `Package route failed: ${message}`,
+      url: location.href,
+      projection: workspaceUrlProjection(),
+      pathname: location.pathname,
+      search: location.search,
+      recoveryUrl: buildPackageRootStateUrl(location.href, {
+        package: state.package.id,
+        version: state.package.version,
+        framework: state.package.activeFramework,
+        lens: state.packageLens,
+      }).toString(),
+    };
+    render();
+    return;
+  }
+  clearWorkspacePackages();
+  state.credits = false;
+  state.loading = false;
+  state.home = false;
+  state.errorTitle = "Package route failed";
+  state.error = message;
+  state.errorDetail = "";
+  state.retryAction = retryUnavailable;
+  render();
+}
+
 function failCanonicalWorkspaceRestore(
   loc: ParsedLocation,
   deep: DeepLink,
@@ -9229,6 +9342,14 @@ function failCanonicalWorkspaceRestore(
   retryAction: RetryAction =
     () => restoreWorkspaceFromLocation(loc, deep),
 ) {
+  const failedUrl = location.href;
+  const ownedRetryAction = retryAction
+    ? bindWorkspaceRetryToUrl(
+      failedUrl,
+      () => location.href,
+      url => workspaceLocation.replace(url),
+      retryAction)
+    : null;
   if (snapshot?.hasWorkspace) {
     restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
     state.credits = false;
@@ -9239,9 +9360,10 @@ function failCanonicalWorkspaceRestore(
     state.retryAction = null;
     appendQueryNotice(
       `Workspace restore failed: ${message}`,
-      retryAction);
-    failedWorkspaceUrlPreservation = {
-      url: location.href,
+      ownedRetryAction);
+    failedWorkspaceUrlState = {
+      kind: "canonical",
+      url: failedUrl,
       projection: workspaceUrlProjection(),
     };
     render();
@@ -9253,7 +9375,7 @@ function failCanonicalWorkspaceRestore(
   state.home = false;
   state.errorTitle = "Workspace restore failed";
   state.error = message;
-  state.retryAction = retryAction;
+  state.retryAction = ownedRetryAction;
   render();
 }
 
@@ -9268,6 +9390,10 @@ function applyLocationView(loc: ParsedLocation) {
 // cross-package dependency edges come back. Only the focused target restores its deep-link.
 async function restoreInitialWorkspace() {
   const loc = initialWorkspace.resolve();
+  if (loc.routeFailure) {
+    await restoreWorkspaceFromLocation(loc, deepLinkFromLocation(loc));
+    return;
+  }
   if (loc.hasWorkspaceState && !loc.shareState) {
     await restoreWorkspaceFromLocation(loc, deepLinkFromLocation(loc));
     return;
@@ -9845,19 +9971,33 @@ window.addEventListener("popstate", () => {
   invalidateGraphMemberNavigation();
   state.loading = false;
   const loc = parseLocation();
-  const canonicalSnapshot = loc.hasWorkspaceState
-    ? captureCanonicalWorkspaceRestoreSnapshot()
-    : null;
-  state.queryNotice = loc.workspaceNotice || "";
-  state.queryNoticeRetryAction = null;
   if (isCreditsPath(location.pathname)) {
     clearNavigationError();
+    if (!clearWorkspaceRouteFailure()) {
+      render();
+      return;
+    }
+    state.queryNotice = "";
+    state.queryNoticeRetryAction = null;
     state.credits = true;
     state.home = true;
     spotlight.reset();
     render();
     return;
   }
+  if (loc.routeFailure) {
+    failWorkspaceRoute(loc.routeFailure.message);
+    return;
+  }
+  if (!clearWorkspaceRouteFailure()) {
+    render();
+    return;
+  }
+  const canonicalSnapshot = loc.hasWorkspaceState
+    ? captureCanonicalWorkspaceRestoreSnapshot()
+    : null;
+  state.queryNotice = loc.workspaceNotice || "";
+  state.queryNoticeRetryAction = null;
   if (loc.hasWorkspaceState && !loc.shareState) {
     failCanonicalWorkspaceRestore(
       loc,
