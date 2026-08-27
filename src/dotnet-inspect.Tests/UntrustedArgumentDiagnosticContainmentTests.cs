@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Reflection;
@@ -161,6 +162,36 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
         const string InjectedSeverity = "Error: INJECTEDARG";
         HostileOutputAssert.MarkersRendered(injected, "message-line-injection", InjectedSeverity);
         HostileOutputAssert.NoLineSplit(injected, InjectedSeverity);
+    }
+
+    [Fact]
+    public void ChildTimeoutDiagnostic_ReportsStateWithoutRenderingCapturedText()
+    {
+        var snapshot = new ChildProcessSnapshot(
+            42,
+            TimeSpan.FromSeconds(120),
+            TimeSpan.FromSeconds(3),
+            16_384,
+            32_768,
+            7,
+            null);
+
+        string diagnostic = CreateChildFailureDiagnostic(
+            "did not exit after 120 seconds",
+            "dotnet-inspect",
+            ["depends", $"HOSTILE{"\n"}Error: INJECTEDARG"],
+            snapshot,
+            $"progress{"\n"}Error: FORGEDOUTPUT",
+            $"warning{"\n"}Error: FORGEDERROR",
+            "diagnostic-containment-cache");
+
+        Assert.Contains("\"ProcessId\":42", diagnostic, StringComparison.Ordinal);
+        Assert.Contains(@"HOSTILE\nError: INJECTEDARG", diagnostic, StringComparison.Ordinal);
+        Assert.Contains(@"progress\nError: FORGEDOUTPUT", diagnostic, StringComparison.Ordinal);
+        Assert.Contains(@"warning\nError: FORGEDERROR", diagnostic, StringComparison.Ordinal);
+        Assert.DoesNotContain("HOSTILE\nError: INJECTEDARG", diagnostic, StringComparison.Ordinal);
+        Assert.DoesNotContain("progress\nError: FORGEDOUTPUT", diagnostic, StringComparison.Ordinal);
+        Assert.DoesNotContain("warning\nError: FORGEDERROR", diagnostic, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -434,6 +465,7 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
 
         using var process = Process.Start(psi)
             ?? throw new InvalidOperationException($"Could not start {executable}.");
+        var elapsed = Stopwatch.StartNew();
 
         // Drain both pipes before waiting; a synchronous read of one blocks
         // until EOF and lets the child deadlock filling the other.
@@ -442,14 +474,118 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
         if (!process.WaitForExit(120_000))
         {
             _deleteCacheOnDispose = false;
+            var snapshot = CaptureProcessSnapshot(process, elapsed.Elapsed);
             OutOfProcessCliProcess.KillAndWaitForExit(process, TimeSpan.FromSeconds(10));
-            throw new TimeoutException(
-                $"{executable} did not exit; preserved its test cache at {_cacheDirectory}.");
+            WaitForOutputCapture(stdout, stderr);
+            throw new TimeoutException(CreateChildFailureDiagnostic(
+                "did not exit after 120 seconds",
+                executable,
+                args,
+                snapshot,
+                CapturedText(stdout),
+                CapturedText(stderr),
+                _cacheDirectory));
         }
 
-        Task.WaitAll([stdout, stderr], 10_000);
+        if (!Task.WaitAll([stdout, stderr], 10_000))
+        {
+            _deleteCacheOnDispose = false;
+            throw new TimeoutException(CreateChildFailureDiagnostic(
+                "exited but its redirected output did not close after 10 seconds",
+                executable,
+                args,
+                CaptureProcessSnapshot(process, elapsed.Elapsed),
+                CapturedText(stdout),
+                CapturedText(stderr),
+                _cacheDirectory));
+        }
+
         return (stdout.Result, stderr.Result);
     }
+
+    private static ChildProcessSnapshot CaptureProcessSnapshot(Process process, TimeSpan elapsed)
+    {
+        try
+        {
+            process.Refresh();
+            return new ChildProcessSnapshot(
+                process.Id,
+                elapsed,
+                process.TotalProcessorTime,
+                process.WorkingSet64,
+                process.PrivateMemorySize64,
+                process.Threads.Count,
+                null);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return SnapshotCaptureFailure(process.Id, elapsed, ex);
+        }
+        catch (Win32Exception ex)
+        {
+            return SnapshotCaptureFailure(process.Id, elapsed, ex);
+        }
+    }
+
+    private static ChildProcessSnapshot SnapshotCaptureFailure(
+        int processId,
+        TimeSpan elapsed,
+        Exception exception)
+        => new(
+            processId,
+            elapsed,
+            null,
+            null,
+            null,
+            null,
+            $"{exception.GetType().Name}: {exception.Message}");
+
+    private static void WaitForOutputCapture(Task<string> stdout, Task<string> stderr)
+        => Task.WhenAny(Task.WhenAll(stdout, stderr), Task.Delay(10_000))
+            .GetAwaiter()
+            .GetResult();
+
+    private static string CapturedText(Task<string> capture)
+    {
+        if (capture.IsCompletedSuccessfully)
+        {
+            return capture.Result;
+        }
+
+        if (capture.IsFaulted)
+        {
+            return $"<capture failed: {capture.Exception.GetBaseException().Message}>";
+        }
+
+        return $"<capture incomplete: {capture.Status}>";
+    }
+
+    private static string CreateChildFailureDiagnostic(
+        string failure,
+        string executable,
+        string[] args,
+        ChildProcessSnapshot snapshot,
+        string stdout,
+        string stderr,
+        string cacheDirectory)
+        => $"""
+            Child CLI {failure}.
+            Executable: {JsonSerializer.Serialize(executable)}
+            Arguments: {JsonSerializer.Serialize(args)}
+            Process state before termination: {JsonSerializer.Serialize(snapshot)}
+            Captured stdout: {JsonSerializer.Serialize(stdout)}
+            Captured stderr: {JsonSerializer.Serialize(stderr)}
+            Preserved test cache: {JsonSerializer.Serialize(cacheDirectory)}
+            """;
+
+    private sealed record ChildProcessSnapshot(
+        int ProcessId,
+        TimeSpan Elapsed,
+        TimeSpan? TotalProcessorTime,
+        long? WorkingSetBytes,
+        long? PrivateMemoryBytes,
+        int? ThreadCount,
+        string? CaptureError);
 
     private static string ProductAssemblyPath()
     {
