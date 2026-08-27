@@ -99,6 +99,8 @@ census. Human diagnostic messages are not occurrence identity.
 **Status:** target producer-adoption contract for #4796; unimplemented until
 the Findings gates named in
 [Finding Nomenclature](finding-nomenclature.md#typed-inspection-topology) land.
+The adjacent producer obligations below are unverified pending focused
+migrations in each native owner.
 
 Body differs use the shared
 [typed inspection topology](finding-nomenclature.md#typed-inspection-topology)
@@ -145,6 +147,13 @@ resolve selectors or infer cross-version target correspondence. The caller
 supplies exact endpoints or typed absence evidence; the producer decides
 whether it can inspect them and owns its native observations, pair algorithm,
 and result.
+
+These adoption properties are **unverified** in #4796. Each producer migration
+must name owner-specific gates for explicit endpoint evidence, null rejection,
+skipping native comparison for non-`Complete` endpoints, retaining the topology
+transition, and retiring bespoke missing-body failures. The Findings gates
+prove the shared state and transition contract; they do not prove adjacent
+producer wiring.
 
 ## 5. Choose identity and ordering semantics
 

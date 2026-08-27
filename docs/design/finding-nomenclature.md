@@ -225,11 +225,12 @@ the Finding layer.
 
 `FindingCensusCorrelation<T>` is the whole-census tier. It preserves each
 evaluated inspection, so `Complete([])` remains distinguishable from
-`SubjectAbsent` and `Failed` even when there is no observation identity from
-which to construct an exact track. This is the appropriate operation outcome
-for a type-focused member or attribute timeline: the focus selects a subject
-and producer, not one member or attribute key. `Complete` is therefore a census
-inspection state, not a fifth exact-identity correlation state.
+`SubjectAbsent`, `NoApplicableInput`, and `Failed` even when there is no
+observation identity from which to construct an exact track. This is the
+appropriate operation outcome for a type-focused member or attribute timeline:
+the focus selects a subject and producer, not one member or attribute key.
+`Complete` is therefore a census inspection state, not an exact-identity
+correlation state.
 
 `FindingCorrelation<T>` selects one `FindingCorrelationKey` from those same
 version-labelled inspections. `FindingCensusCorrelation<T>.Correlate` is the
