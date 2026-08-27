@@ -318,8 +318,10 @@ shift as subjects are selected:
 - Package is available whenever a package workspace is active.
 - Library is available when the product supplies a validated, non-empty Library
   subject descriptor set for the active coordinate.
-- Type is available when the workspace has a current type selection.
-- Member is available when the current type has a current member selection.
+- Type is available when Library is available and the workspace has a current
+  type selection.
+- Member is available when Type is available and the current type has a current
+  member selection.
 
 An unavailable view is `aria-disabled`, not natively disabled. It is not hidden,
 does not activate, and does not retain stale content. Native disabled semantics
@@ -329,23 +331,25 @@ Reconciliation first computes subjects, then decides whether navigation must
 move:
 
 1. The product supplies the validated Library subject descriptor set for the
-   new coordinate. A non-empty set has exactly one owner-issued default.
-2. If the previous Library subject is absent, the UI selects that default. The
-   default may be `All libraries` or one library. An empty or malformed set
-   makes Library unavailable; the UI surfaces the producer failure and does not
-   guess a subject.
-3. The host asks the owning product model to resolve the existing Type within
+   new coordinate.
+2. If the set is empty or malformed, the UI clears the Library, Type, and Member
+   subjects, makes all three dependent views unavailable, surfaces the producer
+   failure, and stops subject reconciliation. It does not guess a subject.
+3. A validated non-empty set has exactly one owner-issued default. If the
+   previous Library subject is absent, the UI selects that default. The default
+   may be `All libraries` or one library.
+4. The host asks the owning product model to resolve the existing Type within
    both the active coordinate and active Library subject.
-4. It resolves Member only when the retained Type still owns that Member.
-5. A missing Type or Member selection is cleared. Reconciliation does not
+5. It resolves Member only when the retained Type still owns that Member.
+6. A missing Type or Member selection is cleared. Reconciliation does not
    silently substitute another Type or Member.
 
 Subject invalidation in a non-active view only disables that view's tab. It
 does not move the user away from Package or Library.
 
-Initial workspace activation may accept an owner-issued default Type. That
-initial choice is distinct from replacing a user's invalidated selection after
-a coordinate or Library-subject change.
+Initial workspace activation may accept an owner-issued default Type only after
+a valid Library subject exists. That initial choice is distinct from replacing
+a user's invalidated selection after a coordinate or Library-subject change.
 
 Navigation changes only when the active view becomes unavailable:
 
@@ -405,9 +409,19 @@ native `select`; a visible library list uses `role="listbox"` with
 
 The custom listbox has the accessible name `Libraries` and one tab stop. Focus
 remains on the listbox while `aria-activedescendant` identifies the active
-option. Up and Down Arrow move the active option and selection, Home and End
-move to the first and last option, and printable input performs prefix
-typeahead. Native `select` uses the platform's equivalent behavior.
+option; `aria-selected` identifies the committed Library subject.
+
+Library selection uses manual commit:
+
+- Up and Down Arrow move only the active option.
+- Home and End move the active option to the first and last option.
+- Printable input moves the active option through prefix typeahead.
+- Enter or Space commits the active option as the Library subject and starts
+  the selected lens work.
+- Escape or focus leaving the listbox without a commit restores the active
+  option to the committed selection.
+
+Native `select` uses the platform's equivalent selection and commit behavior.
 
 The selected subject controls every Library lens:
 
@@ -417,7 +431,9 @@ The selected subject controls every Library lens:
   Opportunities, Analysis, and Metadata.
 - Changing package version or TFM retains the individual selection only when
   the same library identity is present in the new coordinate; otherwise it uses
-  the new coordinate's owner-issued default Library subject.
+  the new coordinate's owner-issued default Library subject. An invalid
+  descriptor set follows the reconciliation failure branch and clears the
+  dependent subjects.
 
 The active library subject remains visible while the library list is filtered
 or collapsed. A lens heading distinguishes aggregate results from a
