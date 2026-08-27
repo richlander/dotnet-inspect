@@ -293,14 +293,31 @@ tab with `role="tab"` and `aria-selected`, including identically labelled tabs
 owned by different views. The active lens must therefore be available
 programmatically rather than conveyed by color alone.
 
+Each tablist has an accessible name: `Primary view` for the view control and
+`<View> lenses` for its lens strip. A tab references its panel with
+`aria-controls`; the panel uses `role="tabpanel"` and `aria-labelledby`.
+
+Tablists use one tab stop and manual activation:
+
+- `Tab` enters on the tab with `tabindex="0"`, initially the active tab, and
+  leaves the tablist from the focused tab.
+- Left and Right Arrow move focus through the horizontal tabs.
+- Home and End move focus to the first and last tab.
+- Arrow navigation includes `aria-disabled` tabs so they remain discoverable.
+- Enter or Space activates a focused available tab.
+- Activating an `aria-disabled` tab has no effect.
+
+Roving `tabindex` keeps only the focused tab at `tabindex="0"`. Moving focus
+does not change `aria-selected` or start lens work until activation.
+
 ### View availability and reconciliation
 
 The four view controls remain visible so the information architecture does not
 shift as subjects are selected:
 
 - Package is available whenever a package workspace is active.
-- Library is available when the active coordinate contains at least one
-  admitted library.
+- Library is available when the product supplies a validated, non-empty Library
+  subject descriptor set for the active coordinate.
 - Type is available when the workspace has a current type selection.
 - Member is available when the current type has a current member selection.
 
@@ -311,14 +328,16 @@ remain appropriate for unavailable selector pills outside the tablist.
 Reconciliation first computes subjects, then decides whether navigation must
 move:
 
-1. If a version or TFM change removes the selected Library subject, the product
-   supplies a default valid subject for the new coordinate. That subject may be
-   `All libraries` or one library. If it supplies none, Library becomes
-   unavailable.
-2. The host asks the owning product model to resolve the existing Type within
+1. The product supplies the validated Library subject descriptor set for the
+   new coordinate. A non-empty set has exactly one owner-issued default.
+2. If the previous Library subject is absent, the UI selects that default. The
+   default may be `All libraries` or one library. An empty or malformed set
+   makes Library unavailable; the UI surfaces the producer failure and does not
+   guess a subject.
+3. The host asks the owning product model to resolve the existing Type within
    both the active coordinate and active Library subject.
-3. It resolves Member only when the retained Type still owns that Member.
-4. A missing Type or Member selection is cleared. Reconciliation does not
+4. It resolves Member only when the retained Type still owns that Member.
+5. A missing Type or Member selection is cleared. Reconciliation does not
    silently substitute another Type or Member.
 
 Subject invalidation in a non-active view only disables that view's tab. It
@@ -333,7 +352,8 @@ Navigation changes only when the active view becomes unavailable:
 - Member moves to Type when Type remains available, otherwise to Library when
   Library remains available, otherwise to Package.
 - Type moves to Library when Library remains available, otherwise to Package.
-- Library moves to Package only when no libraries remain.
+- Library moves to Package when no valid Library subject descriptor set is
+  available.
 - Package remains active through coordinate reconciliation.
 
 Resolving a missing Library subject to the owner-issued default happens before
@@ -382,6 +402,12 @@ The Library subject control is single-select. A compact population may use a
 native `select`; a visible library list uses `role="listbox"` with
 `role="option"` and `aria-selected`. It is not a selector-pill group with
 `aria-pressed` and is not a lens tablist.
+
+The custom listbox has the accessible name `Libraries` and one tab stop. Focus
+remains on the listbox while `aria-activedescendant` identifies the active
+option. Up and Down Arrow move the active option and selection, Home and End
+move to the first and last option, and printable input performs prefix
+typeahead. Native `select` uses the platform's equivalent behavior.
 
 The selected subject controls every Library lens:
 
