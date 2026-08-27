@@ -89,9 +89,12 @@ and identity materialization draws from one operation-wide work budget;
 repeated target-name and assembly-reference projections reuse their charged
 result. Declaring-type traversal charges each cycle-detection comparison before
 performing it, so deep nonmatching target chains cannot amplify relationship
-work outside the operation budget. Raw assembly public-key material is charged
-once per reader; repeated signature occurrences account only for the normalized
-token they retain, including the token derived from a non-nil empty full key.
+work outside the operation budget. Signature TypeDef and TypeRef walks apply
+the same charge before every relationship-cycle comparison during estimation,
+materialization, validation, and identity projection. Raw assembly public-key
+material is charged once per reader; repeated signature occurrences account
+only for the normalized token they retain, including the token derived from a
+non-nil empty full key.
 Deterministic
 assembly-reference projection failures are cached as well, so repeated malformed
 rows cannot multiply work already charged to the operation. Storage successfully

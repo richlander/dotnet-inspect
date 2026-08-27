@@ -96,6 +96,7 @@ public static class MetadataSafetyPolicy
     /// <c>MethodCorrespondenceContext_InterleavedOwnersUseCodedIndexOrder</c>,
     /// <c>MethodCorrespondenceContext_LaterOwnerChargeFailureIsNotCached</c>,
     /// <c>ResolveApiMember_DeepDeclaringTypeCycleChecksRespectOperationBudget</c>,
+    /// <c>ResolveApiMember_RepeatedDeepSignatureRelationshipsRespectOperationBudget</c>,
     /// and
     /// <c>ResolveApiMember_DistinctGenericAssemblyReferencesFailWithinOperationBudget</c>.
     /// </summary>
@@ -284,6 +285,23 @@ public static class MetadataRelationshipTraversal
             handle,
             rootToLeaf,
             beforeCycleComparisons: null,
+            out consumedNodes,
+            out terminal,
+            out rejection);
+
+    internal static bool TryWalkTypeReferenceResolutionScope(
+        MetadataReader reader,
+        TypeReferenceHandle handle,
+        Span<TypeReferenceHandle> rootToLeaf,
+        Action<int>? beforeCycleComparisons,
+        out int consumedNodes,
+        out EntityHandle terminal,
+        out RelationshipTraversalRejection? rejection)
+        => TryWalk<TypeReferenceHandle, TypeReferenceRelationship>(
+            reader,
+            handle,
+            rootToLeaf,
+            beforeCycleComparisons,
             out consumedNodes,
             out terminal,
             out rejection);

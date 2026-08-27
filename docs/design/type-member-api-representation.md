@@ -113,10 +113,14 @@ once per reader across signature and forwarder projection, each target method
 name is compared at most once, and each target type name is compared at most
 once per expected source segment. Declaring-type cycle checks charge every
 handle comparison before performing it, so many deep nonmatching chains cannot
-multiply relationship traversal outside that budget. Raw public-key material
-contributes only to that one-time operation charge; each signature occurrence
-accounts for the normalized token that correspondence actually retains,
-including a non-nil empty full-key blob whose SHA-1-derived token is non-empty.
+multiply relationship traversal outside that budget. Signature TypeDef and
+TypeRef relationship walks use the same charge-before-comparison callback for
+every estimate, materialization, validation, and identity projection, so many
+methods cannot amplify a shared deep signature chain outside the budget either.
+Raw public-key material contributes only to that one-time operation charge; each
+signature occurrence accounts for the normalized token that correspondence
+actually retains, including a non-nil empty full-key blob whose SHA-1-derived
+token is non-empty.
 Deterministic
 projection failures are replayed without repeating completed charges. Storage
 successfully read before a later malformed field is charged before the failure
@@ -181,6 +185,7 @@ identity.
 `MethodCorrespondenceContext_InterleavedOwnersUseCodedIndexOrder`,
 `MethodCorrespondenceContext_LaterOwnerChargeFailureIsNotCached`,
 `ResolveApiMember_DeepDeclaringTypeCycleChecksRespectOperationBudget`,
+`ResolveApiMember_RepeatedDeepSignatureRelationshipsRespectOperationBudget`,
 `ResolveApiMember_ReusedGenericAssemblyReferenceIsProjectedOnceBeforeBudgetFailure`,
 `ResolveApiMember_DistinctGenericAssemblyReferencesFailWithinOperationBudget`,
 `ResolveApiMember_InvalidCurrentModuleScopeFails`,

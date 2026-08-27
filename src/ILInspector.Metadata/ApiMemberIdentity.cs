@@ -1595,9 +1595,11 @@ public static class ApiMemberIdentity
     /// names and nested compositions cannot amplify past
     /// <see cref="MetadataSafetyPolicy.MaxAnchorSignatureWorkChars"/> before
     /// rejection. Gated by
-    /// <c>CreateMethodAnchor_RepeatedTypeNamesFailBeforeLargeAllocation</c>
+    /// <c>CreateMethodAnchor_RepeatedTypeNamesFailBeforeLargeAllocation</c>,
+    /// <c>CreateMethodAnchor_NestedArrayModoptsFailBeforeLargeAllocation</c>,
+    /// <c>ResolveApiMember_MaximumDepthSignatureRelationshipsRemainExact</c>,
     /// and
-    /// <c>CreateMethodAnchor_NestedArrayModoptsFailBeforeLargeAllocation</c>.
+    /// <c>ResolveApiMember_RepeatedDeepSignatureRelationshipsRespectOperationBudget</c>.
     /// </summary>
     sealed class AnchorSignatureWorkBudget
     {
@@ -1924,6 +1926,7 @@ public static class ApiMemberIdentity
                     reader,
                     handle,
                     chain,
+                    _workBudget.Charge,
                     out int consumed,
                     out EntityHandle terminal,
                     out var rejection)
@@ -1964,6 +1967,7 @@ public static class ApiMemberIdentity
                     reader,
                     handle,
                     chain,
+                    _workBudget.Charge,
                     out int consumed,
                     out _,
                     out var rejection)
@@ -2000,6 +2004,7 @@ public static class ApiMemberIdentity
                     reader,
                     handle,
                     chain,
+                    _workBudget.Charge,
                     out int consumed,
                     out EntityHandle terminal,
                     out var rejection)
@@ -2040,6 +2045,7 @@ public static class ApiMemberIdentity
                     reader,
                     handle,
                     chain,
+                    _workBudget.Charge,
                     out int consumed,
                     out EntityHandle terminal,
                     out var rejection)
@@ -2182,6 +2188,7 @@ public static class ApiMemberIdentity
                     reader,
                     handle,
                     chain,
+                    _workBudget.Charge,
                     out int consumed,
                     out EntityHandle terminal,
                     out var rejection)
@@ -2224,6 +2231,7 @@ public static class ApiMemberIdentity
                     reader,
                     handle,
                     chain,
+                    _workBudget.Charge,
                     out int consumed,
                     out _,
                     out var rejection)
@@ -2276,6 +2284,7 @@ public static class ApiMemberIdentity
                     reader,
                     handle,
                     chain,
+                    _workBudget.Charge,
                     out int consumed,
                     out EntityHandle terminal,
                     out var rejection)
@@ -2322,6 +2331,7 @@ public static class ApiMemberIdentity
                     reader,
                     handle,
                     chain,
+                    _workBudget.Charge,
                     out int consumed,
                     out EntityHandle terminal,
                     out var rejection)
@@ -3334,6 +3344,7 @@ public static class ApiMemberIdentity
                 reader,
                 typeHandle,
                 chain,
+                workBudget.Charge,
                 out int consumed,
                 out EntityHandle terminal,
                 out var rejection)
@@ -3638,6 +3649,7 @@ public static class ApiMemberIdentity
                 reader,
                 handle,
                 chain,
+                beforeMaterialize,
                 out int consumed,
                 out EntityHandle terminal,
                 out var rejection)

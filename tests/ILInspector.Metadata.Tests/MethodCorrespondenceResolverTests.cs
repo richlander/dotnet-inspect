@@ -2031,6 +2031,56 @@ public sealed class MethodCorrespondenceResolverTests
             result.Failure);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ResolveApiMember_RepeatedDeepSignatureRelationshipsRespectOperationBudget(
+        bool useTypeReference)
+    {
+        byte[] source =
+            BuildRepeatedSignatureRelationshipImage(
+                methodCount: 1,
+                nestingDepth: MetadataSafetyPolicy.MaxRelationshipNodes,
+                useTypeReference);
+        byte[] target =
+            BuildRepeatedSignatureRelationshipImage(
+                methodCount:
+                    MetadataSafetyPolicy.MaxCorrespondenceCandidates + 1,
+                nestingDepth: MetadataSafetyPolicy.MaxRelationshipNodes,
+                useTypeReference);
+
+        MethodCorrespondenceResult result =
+            ResolveApiMember(source, target);
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains(
+            "correspondence anchor work budget",
+            result.Failure);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ResolveApiMember_MaximumDepthSignatureRelationshipsRemainExact(
+        bool useTypeReference)
+    {
+        byte[] source =
+            BuildRepeatedSignatureRelationshipImage(
+                methodCount: 1,
+                nestingDepth: MetadataSafetyPolicy.MaxRelationshipNodes,
+                useTypeReference);
+        byte[] target =
+            BuildRepeatedSignatureRelationshipImage(
+                methodCount: 1,
+                nestingDepth: MetadataSafetyPolicy.MaxRelationshipNodes,
+                useTypeReference);
+
+        MethodCorrespondenceResult result =
+            ResolveApiMember(source, target);
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+    }
+
     [Fact]
     public void ResolveApiMember_MethodExtensionAttributesRespectOperationBudget()
     {
@@ -4341,6 +4391,119 @@ public sealed class MethodCorrespondenceResolverTests
         StringHandle methodName =
             metadata.GetOrAddString("M");
         for (int i = 0; i < typeCount; i++)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                methodName,
+                signatureBlob,
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+        }
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildRepeatedSignatureRelationshipImage(
+        int methodCount,
+        int nestingDepth,
+        bool useTypeReference)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("SignatureRelationships.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("SignatureRelationships"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Probe"),
+            metadata.GetOrAddString("S"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        int signatureTypeRow;
+        int signatureTypeTag;
+        if (useTypeReference)
+        {
+            EntityHandle scope =
+                MetadataTokens.EntityHandle(1);
+            TypeReferenceHandle signatureType = default;
+            for (int depth = 0; depth < nestingDepth; depth++)
+            {
+                signatureType =
+                    metadata.AddTypeReference(
+                        scope,
+                        depth == 0
+                            ? metadata.GetOrAddString("Probe")
+                            : default,
+                        metadata.GetOrAddString(
+                            depth == nestingDepth - 1
+                                ? "T"
+                                : "N"));
+                scope = signatureType;
+            }
+            signatureTypeRow =
+                MetadataTokens.GetRowNumber(signatureType);
+            signatureTypeTag = 1;
+        }
+        else
+        {
+            TypeDefinitionHandle parent = default;
+            TypeDefinitionHandle signatureType = default;
+            for (int depth = 0; depth < nestingDepth; depth++)
+            {
+                signatureType =
+                    metadata.AddTypeDefinition(
+                        depth == 0
+                            ? TypeAttributes.Public
+                            : TypeAttributes.NestedPublic,
+                        depth == 0
+                            ? metadata.GetOrAddString("Probe")
+                            : default,
+                        metadata.GetOrAddString(
+                            depth == nestingDepth - 1
+                                ? "T"
+                                : "N"),
+                        default,
+                        MetadataTokens.FieldDefinitionHandle(1),
+                        MetadataTokens.MethodDefinitionHandle(
+                            methodCount + 1));
+                if (!parent.IsNil)
+                    metadata.AddNestedType(signatureType, parent);
+                parent = signatureType;
+            }
+            signatureTypeRow =
+                MetadataTokens.GetRowNumber(signatureType);
+            signatureTypeTag = 0;
+        }
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(0);
+        signature.WriteByte(0x12);
+        signature.WriteCompressedInteger(
+            (signatureTypeRow << 2) | signatureTypeTag);
+        BlobHandle signatureBlob =
+            metadata.GetOrAddBlob(signature);
+        StringHandle methodName =
+            metadata.GetOrAddString("M");
+        for (int i = 0; i < methodCount; i++)
         {
             metadata.AddMethodDefinition(
                 MethodAttributes.Public | MethodAttributes.Static,
