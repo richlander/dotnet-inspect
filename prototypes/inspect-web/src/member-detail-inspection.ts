@@ -3,13 +3,11 @@ import type { AnnotatedSourceResult } from "./annotated-source.ts";
 import type {
   BrowserMemberDocumentation,
   BrowserMemberFacts,
-  BrowserMemberSurface,
 } from "./inspect-web-engine.d.ts";
 import type { MemberFocusSnapshot } from "./member-focus.ts";
+import type { AppMemberSurface } from "./package-acquisition.ts";
 
-export interface DocumentableMemberSurface extends BrowserMemberSurface {
-  documentationLoaded?: boolean;
-}
+export type DocumentableMemberSurface = AppMemberSurface;
 
 export type MemberFacts = BrowserMemberFacts;
 
@@ -144,7 +142,7 @@ export function createMemberDetailInspectionCoordinator(
         if (!request.isCurrent()) return;
         overload.summary = documentation.summary;
         overload.returns = documentation.returns;
-        overload.exceptions = documentation.exceptions ?? [];
+        overload.exceptions = [...(documentation.exceptions ?? [])];
         overload.parameters = (overload.parameters ?? []).map(parameter => ({
           ...parameter,
           description: documentation.parameters?.[parameter.name] ?? null,

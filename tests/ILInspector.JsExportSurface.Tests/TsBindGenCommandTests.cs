@@ -52,8 +52,8 @@ public sealed class TsBindGenCommandTests
 
         Assert.Equal(1, exitCode);
         Assert.Contains("export interface InternalContextPascalWidget {", output.ToString(), StringComparison.Ordinal);
-        Assert.Contains("  Name: string;", output.ToString(), StringComparison.Ordinal);
-        Assert.Contains("  Count: number;", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("  readonly Name: string;", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("  readonly Count: number;", output.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -121,7 +121,10 @@ public sealed class TsBindGenCommandTests
 
             Assert.Equal(1, exitCode);
             Assert.Contains("drift detected", error.ToString(), StringComparison.Ordinal);
-            Assert.Contains("tags: number[];", error.ToString(), StringComparison.Ordinal);
+            Assert.Contains(
+                "readonly tags: ReadonlyArray<number>;",
+                error.ToString(),
+                StringComparison.Ordinal);
         }
         finally
         {

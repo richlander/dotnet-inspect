@@ -16,10 +16,17 @@ import {
   type MemberFactsRequest,
 } from "../src/member-detail-inspection.ts";
 import type { MemberFocusSnapshot } from "../src/member-focus.ts";
+import {
+  createAppMemberSurface,
+  type AppMemberSurface,
+} from "../src/package-acquisition.ts";
+import type {
+  BrowserMemberSurface,
+} from "../src/inspect-web-engine.d.ts";
 
-function memberSurface(
-  overrides: Partial<DocumentableMemberSurface> = {},
-): DocumentableMemberSurface {
+function wireMemberSurface(
+  overrides: Partial<BrowserMemberSurface> = {},
+): BrowserMemberSurface {
   return {
     name: "Run",
     kind: "Method",
@@ -55,6 +62,30 @@ function memberSurface(
     ...overrides,
   };
 }
+
+function memberSurface(
+  overrides: Partial<AppMemberSurface> = {},
+): DocumentableMemberSurface {
+  return {
+    ...createAppMemberSurface(wireMemberSurface()),
+    ...overrides,
+  };
+}
+
+function generatedMemberSurfaceRejectsMutation(
+  surface: BrowserMemberSurface,
+): void {
+  // @ts-expect-error Generated wire properties are producer-owned snapshots.
+  surface.summary = "application state";
+  // @ts-expect-error Nested generated wire records are readonly.
+  surface.parameters[0]!.description = "application state";
+  // @ts-expect-error Generated wire collections are readonly.
+  surface.exceptions[0] = {
+    type: "System.InvalidOperationException",
+    description: "application state",
+  };
+}
+void generatedMemberSurfaceRejectsMutation;
 
 function factsResult(): MemberFacts {
   return {
@@ -414,6 +445,26 @@ test("documentation completion updates the current overload and restores focus",
   assert.equal(overload.exceptions[0]?.type, "System.ArgumentException");
   assert.equal(state.memberDocumentationLoading, false);
   assert.deepEqual(focusCalls, [undefined, preservedFocus]);
+});
+
+test("documentation hydration mutates only the application projection", async () => {
+  const wire = wireMemberSurface();
+  const overload = createAppMemberSurface(wire);
+  const state = inspectionState();
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state));
+
+  assert.notEqual(overload.parameters, wire.parameters);
+  assert.notEqual(overload.parameters[0], wire.parameters[0]);
+  assert.notEqual(overload.exceptions, wire.exceptions);
+
+  await coordinator.loadDocumentation(documentationRequest(overload));
+
+  assert.equal(overload.summary, "Runs the widget.");
+  assert.equal(overload.parameters[0]?.description, "The value to run.");
+  assert.equal(wire.summary, null);
+  assert.equal(wire.parameters[0]?.description, null);
+  assert.deepEqual(wire.exceptions, []);
 });
 
 test("current documentation failure remains visible", async () => {
