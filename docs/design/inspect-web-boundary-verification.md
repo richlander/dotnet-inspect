@@ -84,7 +84,7 @@ TypeScript assigns to an operation. The initial capability set is:
 
 | Capability | Semantic evidence | Owning adapter |
 | --- | --- | --- |
-| Numeric DOM payload acquisition | A cataloged key read from `DOMStringMap`, or its corresponding `data-*` attribute read through `Element` or `NamedNodeMap` APIs | The planned numeric DOM adapter |
+| Numeric DOM payload acquisition | A cataloged key read from `DOMStringMap`, or its corresponding `data-*` attribute read through `Element` or `NamedNodeMap` APIs | The product binding module whose descriptor owns that key; decoder and output contracts come from the planned numeric DOM owner |
 | Owned DOM selector lookup | A call to a characterized DOM selector declaration with a constant selector or identifier from an owner-issued catalog | The product module that declares that selector catalog |
 
 Catalogs may add capabilities, but every row needs all three parts: semantic
@@ -146,39 +146,58 @@ Lexically shadowed locals remain valid close negatives. A local named
 `document`, `Reflect`, `Object`, `window`, or `self` is not a browser capability
 unless TypeScript resolves it to the corresponding platform declaration.
 
-### Carrier-bearing types
+### Operation receivers and transfer roots
 
-Transfer policy applies to a recursive type closure, not only to a raw platform
-type. A type is carrier-bearing when any of these is true:
+Each capability distinguishes two semantic roles:
 
-- it is a configured platform carrier or a callable whose signature resolves
-  to a covered platform method declaration;
-- a union, intersection, type parameter, base type, or apparent type contains a
-  carrier-bearing constituent or constraint;
-- a readable property, tuple element, array element, or index result is
-  carrier-bearing;
-- its call or construct signature returns a carrier-bearing type; or
+- An **operation receiver** is a platform type on which the covered operation
+  can be exercised. `Element` is a numeric receiver because it exposes
+  attribute APIs, for example.
+- A **transfer root** is a reference whose movement can hide the identity
+  needed to recognize a later covered operation.
+
+The numeric capability's initial transfer roots are `DOMStringMap`,
+`NamedNodeMap`, `Attr`, and callable values resolved from covered attribute
+methods. `Element`, `HTMLElement`, and `Document` are numeric operation
+receivers, not numeric transfer roots.
+
+The selector capability's transfer roots include the characterized DOM receiver
+types that expose covered selectors and callable values resolved from those
+selector declarations. Moving those receivers can hide selector authority, so
+their cross-module transfer remains controlled by selector adapter entry
+points.
+
+Transfer policy also applies to repository-authored wrappers around a transfer
+root. A type is carrier-bearing when any of these is true:
+
+- it is a transfer root for the capability;
+- a repository-authored union, intersection, type parameter, base type,
+  apparent type, readable property, tuple element, array element, or index
+  result contains a carrier-bearing type;
+- a repository-authored call or construct signature returns a carrier-bearing
+  type; or
 - a characterized standard `Promise`, `Iterable`, `Iterator`, `Generator`,
   `AsyncIterable`, or `AsyncIterator` type argument is carrier-bearing.
 
-The computation is cycle-safe and memoized by TypeScript type identity. It is
-fail-closed for unresolved, `any`, or unknown generic positions reached while
-classifying a value already known to contain a carrier. Ordinary unrelated
-`any` and `unknown` values do not become carriers merely because their
-structure is unavailable. Characterization tests pin the standard wrapper
-symbols and their produced-type argument positions from the configured
-TypeScript libraries.
+The verifier never recursively classifies a platform receiver by walking all
+of its platform-declared members. This prevents `Document.documentElement` and
+`HTMLElement.dataset` from turning every DOM root into a numeric carrier. The
+computation is cycle-safe and memoized by TypeScript type identity.
+
+Classification is fail-closed for unresolved, `any`, or unknown generic
+positions reached inside a repository-authored wrapper already known to contain
+a transfer root. Ordinary unrelated `any` and `unknown` values do not become
+carriers merely because their structure is unavailable. Characterization tests
+pin the standard wrapper symbols and their produced-type argument positions
+from the configured TypeScript libraries.
 
 Examples of carrier-bearing types include `DOMStringMap`,
 `() => DOMStringMap`, `{ data: DOMStringMap }`,
-`Promise<DocumentFragment>`, and `Iterable<Attr>`. This closure lets the
-verifier recognize higher-order and aggregate transport without reconstructing
-runtime value provenance.
-
-Classification is intentionally conservative: a value whose declared type has
-an optional carrier-bearing property is carrier-bearing even when that property
-is absent at runtime. Migration must split or encapsulate such aggregate types;
-the verifier does not add flow-sensitive exemptions for currently empty values.
+`Promise<DocumentFragment>`, and `Iterable<Attr>`. A repository-authored value
+whose declared type has an optional carrier-bearing property remains
+carrier-bearing even when that property is absent at runtime. Migration must
+split or encapsulate such aggregates; the verifier does not add flow-sensitive
+exemptions for currently empty values.
 
 ### Carrier transfer and type erasure
 
@@ -211,9 +230,9 @@ carrier-bearing.
 
 Entry-point authority applies only to receiving the carrier for the declared
 capability. It does not transfer adapter authority to the caller. Adapter
-exports may not return, yield, or expose configured carriers, covered methods,
-or structurally erased forms of either. Descriptor completeness and
-carrier-transfer mutations gate those public surfaces.
+exports may not return, yield, or expose transfer-root references, covered
+methods, or repository-authored wrappers of either. Descriptor completeness
+and carrier-transfer mutations gate those public surfaces.
 
 Passing `DOMStringMap` as `Record<string, string | undefined>`, passing
 `() => DOMStringMap` through a generic callback, yielding a `DOMStringMap` as a
@@ -231,6 +250,35 @@ the raw or callback type while the return type has already erased it. If a
 carrier reaches a use without either retained carrier-bearing identity or a
 checked transfer edge, the claimed boundary is not proven and the old
 enforcement cannot be retired.
+
+### Adapter trust and typed outputs
+
+The verifier establishes where a configured raw operation may occur. The
+declaring adapter is trusted to interpret primitive strings and numbers read
+there. Once an authorized adapter copies a raw string into another primitive
+or a plain primitive aggregate, TypeScript exposes no provenance for a
+reference-transfer verifier to recover.
+
+The verifier therefore does not claim primitive taint tracking or prove an
+adapter's decoder implementation. Each numeric descriptor names the
+owner-issued decoder and its protected output type. Numeric decoders return an
+opaque validated number type, or a result that visibly represents rejection.
+DOM-facing action and controller parameters for that attribute accept the
+protected type, not plain `number`.
+
+Only the numeric owner may construct a protected output type. The verifier
+rejects assertions, annotated returns, or other explicit construction of that
+type outside its owner. Existing type-aware lint remains responsible for unsafe
+`any` flows. This makes `Number(raw)` and `NaN` unable to satisfy a protected
+DOM-facing contract without a separately diagnosed escape, while ordinary
+controller arithmetic may consume the protected type as a number.
+
+Behavioral adapter tests remain required to prove that missing, malformed,
+non-integer, and out-of-range inputs are rejected and that accepted values are
+decoded correctly. Returning an unrelated primitive aggregate from an adapter
+is outside the verifier's claim; it does not satisfy a protected action
+contract and does not become trusted input merely because the verifier is
+clean.
 
 Selector ownership is based on cataloged selector and identifier constants, not
 every call to `querySelector`, `querySelectorAll`, or `getElementById`. Product
@@ -293,8 +341,9 @@ the verifier, initially:
 - resolve the type at an expression;
 - resolve the signature and declaration selected for a call;
 - reduce a property expression to a TypeScript constant when available;
-- enumerate constituents, constraints, properties, indexes, signatures, and
-  language-defined produced types for cycle-safe carrier classification;
+- enumerate constituents, constraints, repository-authored aggregate
+  positions, signatures, and characterized wrapper outputs for cycle-safe
+  transfer-root classification;
 - compare source and contextual types at every binding or production edge;
 - resolve a call to its exact declaration and instantiated parameter and return
   types; and
@@ -325,10 +374,15 @@ A descriptor has typed, literal data that the runtime adapter may also consume.
 It contains:
 
 - a stable capability identifier;
-- platform symbol or type identities needed for recognition; and
+- platform symbol or type identities needed for recognition;
 - property keys or methods covered by the boundary; and
 - exact callable references and parameter positions authorized to receive each
   carrier-bearing type.
+
+A numeric descriptor also names:
+
+- the owner-issued decoder callable and protected output type; and
+- the DOM-facing action or controller parameter that consumes that type.
 
 An entry-point reference must resolve to an exported callable declared in the
 same module as the descriptor. Its listed parameter must have a specific
@@ -351,8 +405,9 @@ expressions and duplicated string lists.
 The verifier rejects duplicate capability identifiers, duplicate selectors
 with conflicting owners, unresolved descriptor imports, unresolved platform
 identities, invalid or stale entry-point references, empty covered-key sets,
-and catalog entries without test witnesses. A second verifier-owned key or
-selector list is prohibited.
+numeric entries without protected decoder and sink contracts, and catalog
+entries without test witnesses. A second verifier-owned key or selector list
+is prohibited.
 
 ## Gate and evidence
 
@@ -370,8 +425,9 @@ The implementation adds an `inspect-web-boundaries` script and makes
    aggregates, rest parameters, imported consumers, sync and async returns,
    `yield`, `yield*`, aggregate storage, and adapter-return escape.
 3. **Close-negative corpus:** accepts lexical shadows, same-named properties on
-   unrelated types, unrelated intrinsic-like objects, and authorized adapter
-   access.
+   unrelated types, unrelated intrinsic-like objects, type-preserving transfer
+   of numeric-only operation receivers that contain no repository-authored
+   transfer root, and authorized adapter access.
 4. **Catalog completeness:** derives expected numeric keys from
    `numericDomAttributes` and proves every configured capability has mutation
    witnesses. Missing and stale rows both fail.
@@ -381,6 +437,9 @@ The implementation adds an `inspect-web-boundaries` script and makes
    proves that removing the verifier from `npm run analyze` fails.
 6. **Diagnostic snapshots:** assert rule identifiers, locations, stable
    ordering, owning-adapter guidance, and explicit semantic-service failures.
+7. **Protected outputs:** proves raw numbers, `NaN`, assertions outside the
+   owner, wrong decoder outputs, and plain-number DOM action parameters fail;
+   valid decoder results and ordinary numeric consumption pass.
 
 The implementation gate is:
 
@@ -405,17 +464,20 @@ Migration is replacement, not indefinite layering:
    every direct, alias, computed, destructuring, reflection, wrapper,
    dynamic-key, attribute-method, `NamedNodeMap`, type-erasure, decoder-shadow,
    generic-transfer, and lexical-shadow case.
-3. Establish parity and non-vacuity for numeric payload acquisition, then
+3. Introduce protected numeric output types and change DOM-facing action and
+   controller parameters to consume them. Add behavioral decoder tests for
+   every numeric descriptor.
+4. Establish parity and non-vacuity for numeric payload acquisition, then
    remove only the superseded numeric OXC reconstruction.
-4. Extract product-owned selector descriptors from the modules whose ownership
+5. Extract product-owned selector descriptors from the modules whose ownership
    is currently asserted in `test/spotlight-identity.test.ts`. Move the
    selector alias, computed-key, destructuring, method-extraction, reflection,
    wrapper, higher-order transfer, generator, and lexical-shadow corpus into
    verifier fixtures.
-5. Run the semantic verifier and selector OXC checks together until the
+6. Run the semantic verifier and selector OXC checks together until the
    semantic gate has catalog completeness, real-tree non-vacuity, and parity
    for the retained selector corpus.
-6. Remove the superseded selector lexical, alias, constant-key, and reflective
+7. Remove the superseded selector lexical, alias, constant-key, and reflective
    reconstruction. Retain syntax-only OXC checks that enforce independent
    architecture contracts.
 
@@ -472,7 +534,9 @@ The verifier does not own or redefine:
 - application state transitions;
 - event or listener binding behavior;
 - runtime sanitization or the untrusted-artifact threat model;
-- the semantics of product adapters and decoders; or
+- primitive provenance after an authorized read;
+- the semantics of product adapters and decoders, which behavioral tests own;
+  or
 - general-purpose TypeScript linting.
 
 The verifier proves only the configured source boundary. Runtime inputs remain
