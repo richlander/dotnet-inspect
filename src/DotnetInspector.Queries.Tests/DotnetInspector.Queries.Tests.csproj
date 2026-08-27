@@ -33,5 +33,11 @@
     <ProjectReference Include="..\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
     <ProjectReference Include="..\ILInspector.ILDiff\ILInspector.ILDiff.csproj" />
     <ProjectReference Include="..\..\tests\DotnetInspector.Fixtures\DotnetInspector.Fixtures.csproj" />
+    <ProjectReference Include="..\..\tests\DotnetInspector.PackageManifestCorpus\DotnetInspector.PackageManifestCorpus.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\eng\package-manifest-corpus.json"
+                      LogicalName="DotnetInspector.Queries.Tests.PackageManifestCorpus.json" />
   </ItemGroup>
 </Project>

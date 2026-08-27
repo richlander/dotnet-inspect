@@ -12,7 +12,7 @@ export const supportedAnalysisHosts = Object.freeze([
 
 const supportedAnalysisHostSet = new Set(supportedAnalysisHosts);
 
-export function verifyAnalysisHost(platform, architecture) {
+export function verifyAnalysisHost(platform: string, architecture: string): void {
   if (!supportedAnalysisHostSet.has(`${platform}-${architecture}`)) {
     throw new Error(
       "inspect-web analysis requires an x64 or arm64 host running macOS, Linux, "

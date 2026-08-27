@@ -122,6 +122,14 @@ public sealed record BrowserMemberBodySelector(
     string MemberName,
     string SelectorKey);
 
+/// <summary>
+/// The owning API member and exact physical body selected by a graph query.
+/// <c>MemberFacts_DistinguishesSurfaceAndBodyTokenResolution</c> gates this provenance.
+/// </summary>
+public sealed record BrowserGraphMemberSurface(
+    BrowserMemberSurface Member,
+    BrowserMemberBodySelector SelectedBody);
+
 public sealed record BrowserParameterSurface(
     string Name,
     string Type,
@@ -565,6 +573,75 @@ public sealed record BrowserPerformanceMember(
     string[] Shapes,
     string Confidence);
 
+public sealed record BrowserMemberFacts(
+    int MetadataToken,
+    BrowserMethodSignals Signals,
+    BrowserAllocationFact[] Allocations,
+    BrowserCallFact[] Calls,
+    BrowserSafetyFact[] Safety,
+    BrowserExceptionRegion[] ExceptionRegions,
+    BrowserPerformanceOpportunity[] PerformanceOpportunities,
+    string[] Diagnostics);
+
+public sealed record BrowserMethodSignals(
+    int Allocations,
+    int Copies,
+    bool Unsafe,
+    int Reflection,
+    int Throws,
+    int Catches,
+    int Finallys,
+    bool AllocatesInLoop,
+    string[] EvidenceOffsets,
+    string[] ExceptionTypes);
+
+public sealed record BrowserAllocationFact(
+    string Kind,
+    string? Type,
+    string Offset,
+    bool CountedAsHeap,
+    string Frequency,
+    string Multiplicity,
+    string Path,
+    string Escape,
+    bool InLoop,
+    int? EstimatedSizeBytes,
+    string? Detail);
+
+public sealed record BrowserCallFact(
+    string Callee,
+    string Offset,
+    string Opcode,
+    string Kind,
+    string Multiplicity,
+    bool InLoop);
+
+public sealed record BrowserSafetyFact(
+    string Kind,
+    string? Offset,
+    string Operation,
+    string Requirement,
+    string Evidence);
+
+public sealed record BrowserExceptionRegion(
+    int Region,
+    string Clause,
+    string TryRange,
+    string HandlerRange,
+    string? FilterRange,
+    string? CaughtType);
+
+public sealed record BrowserPerformanceOpportunity(
+    string Shape,
+    string Evidence,
+    string Fix,
+    string Confidence,
+    string? Offset,
+    bool InLoop,
+    string? Caveat,
+    string? Finding,
+    string Provenance);
+
 /// <summary>
 /// One progressively acquired member call graph, projected through
 /// <c>ILInspector.CallGraph.CallGraphProjection</c>. Graph identity, direction, cycles,
@@ -637,6 +714,7 @@ public sealed record BrowserWorkspacePackage(
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserPackageSurface))]
 [JsonSerializable(typeof(BrowserMemberSurface))]
+[JsonSerializable(typeof(BrowserGraphMemberSurface))]
 [JsonSerializable(typeof(BrowserPackageDocumentContent))]
 [JsonSerializable(typeof(BrowserMemberDocumentation))]
 [JsonSerializable(typeof(BrowserPackageCacheStats))]
@@ -647,6 +725,7 @@ public sealed record BrowserWorkspacePackage(
 [JsonSerializable(typeof(BrowserPackageIntegrations))]
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserPackagePerformance))]
+[JsonSerializable(typeof(BrowserMemberFacts))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]
 [JsonSerializable(typeof(BrowserAnnotatedSource))]
 [JsonSerializable(typeof(BrowserSource))]

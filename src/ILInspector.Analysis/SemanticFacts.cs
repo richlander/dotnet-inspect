@@ -92,9 +92,17 @@ public static class SemanticFactProjection
         IEnumerable<Finding<UnsafeEvidence>> unsafeEvidence,
         IEnumerable<Finding<UnsafetyOccurrence>> occurrences,
         int? ilOffset = null)
+        => SafetyFacts(
+            unsafeEvidence.Select(static finding => finding.Payload),
+            occurrences.Select(static finding => finding.Payload),
+            ilOffset);
+
+    public static ImmutableArray<SafetyFact> SafetyFacts(
+        IEnumerable<UnsafeEvidence> unsafeEvidence,
+        IEnumerable<UnsafetyOccurrence> occurrences,
+        int? ilOffset = null)
     {
         var operationRows = occurrences
-            .Select(static finding => finding.Payload)
             .Where(occurrence => ilOffset is null || occurrence.ILOffset == ilOffset)
             .Select(ToSafetyFact);
 
@@ -104,7 +112,6 @@ public static class SemanticFactProjection
             .ToHashSet();
 
         var unsafeCallRows = unsafeEvidence
-            .Select(static finding => finding.Payload)
             .Where(evidence => ilOffset is null || evidence.ILOffset == ilOffset)
             .Where(evidence => evidence.ILOffset is null
                 || !coveredOperations.Contains((evidence.Member.MetadataToken, evidence.ILOffset.Value)))
