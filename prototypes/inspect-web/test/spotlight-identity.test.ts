@@ -2545,10 +2545,16 @@ test("malformed package routes use the contained restore failure path", () => {
     ?? "";
   assert.match(
     failure,
-    /if \(snapshot\?\.hasWorkspace\)[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\)[\s\S]*const previousNotice = state\.queryNotice;\s*appendQueryNotice\(`Package route failed: \$\{message\}`\)[\s\S]*routeFailureNotice: \{\s*previous: previousNotice,\s*appended: state\.queryNotice,[\s\S]*state\.errorTitle = "Package route failed";[\s\S]*state\.error = message;[\s\S]*state\.retryAction = retryUnavailable/);
+    /if \(snapshot\?\.hasWorkspace\)[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\)[\s\S]*clearWorkspaceRouteFailureNotice\(\);\s*const previousNotice = state\.queryNotice;\s*appendQueryNotice\(`Package route failed: \$\{message\}`\);\s*routeFailureNotice = \{\s*previous: previousNotice,\s*appended: state\.queryNotice,[\s\S]*state\.errorTitle = "Package route failed";[\s\S]*state\.error = message;[\s\S]*state\.retryAction = retryUnavailable/);
   assert.match(
     appSource,
-    /function goHome\(\) \{[\s\S]*invalidateGraphMemberNavigation\(\);\s*clearNavigationError\(\);\s*const routeFailureNotice =\s*failedWorkspaceUrlPreservation\?\.routeFailureNotice;\s*if \(routeFailureNotice\) \{\s*state\.queryNotice = removeAppendedNotice\(\s*state\.queryNotice,\s*routeFailureNotice\.previous,\s*routeFailureNotice\.appended\);\s*failedWorkspaceUrlPreservation = null;\s*\}[\s\S]*workspaceLocation\.push\("\/"\);[\s\S]*render\(\)/);
+    /function goHome\(\) \{[\s\S]*invalidateGraphMemberNavigation\(\);\s*clearNavigationError\(\);\s*if \(clearWorkspaceRouteFailureNotice\(\)\) \{\s*failedWorkspaceUrlPreservation = null;\s*\}[\s\S]*workspaceLocation\.push\("\/"\);[\s\S]*render\(\)/);
+  assert.match(
+    appSource,
+    /function clearWorkspaceRouteFailureNotice\(\) \{\s*if \(!routeFailureNotice\) return false;\s*state\.queryNotice = removeAppendedNotice\(\s*state\.queryNotice,\s*routeFailureNotice\.previous,\s*routeFailureNotice\.appended\);\s*routeFailureNotice = null;\s*return true;\s*\}/);
+  assert.match(
+    appSource,
+    /onDismissNotice: \(\) => \{\s*state\.queryNotice = "";\s*state\.queryNoticeRetryAction = null;\s*routeFailureNotice = null;\s*failedWorkspaceUrlPreservation = null;/);
   assert.match(
     appSource,
     /state\.retryAction === retryUnavailable\s*\? ""\s*: `<button id="retry-load" type="button">retry<\/button>`/);

@@ -755,13 +755,13 @@ interface StateOverrides {
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
 
 const state: AppState = initialState;
+let routeFailureNotice: {
+  previous: string;
+  appended: string;
+} | null = null;
 let failedWorkspaceUrlPreservation: {
   url: string;
   projection: string;
-  routeFailureNotice?: {
-    previous: string;
-    appended: string;
-  };
 } | null = null;
 
 interface CanonicalWorkspaceRestoreSnapshot {
@@ -4834,6 +4834,7 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
   onDismissNotice: () => {
     state.queryNotice = "";
     state.queryNoticeRetryAction = null;
+    routeFailureNotice = null;
     failedWorkspaceUrlPreservation = null;
     render();
   },
@@ -6628,6 +6629,16 @@ function appendQueryNotice(message: string, retryAction: RetryAction = null) {
   state.queryNoticeRetryAction = retryAction;
 }
 
+function clearWorkspaceRouteFailureNotice() {
+  if (!routeFailureNotice) return false;
+  state.queryNotice = removeAppendedNotice(
+    state.queryNotice,
+    routeFailureNotice.previous,
+    routeFailureNotice.appended);
+  routeFailureNotice = null;
+  return true;
+}
+
 async function copyText(value: string, confirmation: string) {
   try {
     await navigator.clipboard.writeText(value);
@@ -6719,6 +6730,7 @@ const homeShellActions: HomeShellBindingActions = {
   onDismissNotice: () => {
     state.queryNotice = "";
     state.queryNoticeRetryAction = null;
+    routeFailureNotice = null;
     failedWorkspaceUrlPreservation = null;
     render();
   },
@@ -6772,13 +6784,7 @@ function goHome() {
   state.memberCallGraphExpanding = false;
   invalidateGraphMemberNavigation();
   clearNavigationError();
-  const routeFailureNotice =
-    failedWorkspaceUrlPreservation?.routeFailureNotice;
-  if (routeFailureNotice) {
-    state.queryNotice = removeAppendedNotice(
-      state.queryNotice,
-      routeFailureNotice.previous,
-      routeFailureNotice.appended);
+  if (clearWorkspaceRouteFailureNotice()) {
     failedWorkspaceUrlPreservation = null;
   }
   state.credits = false;
@@ -9221,15 +9227,16 @@ function failWorkspaceRoute(
     state.errorTitle = "";
     state.errorDetail = "";
     state.retryAction = null;
+    clearWorkspaceRouteFailureNotice();
     const previousNotice = state.queryNotice;
     appendQueryNotice(`Package route failed: ${message}`);
+    routeFailureNotice = {
+      previous: previousNotice,
+      appended: state.queryNotice,
+    };
     failedWorkspaceUrlPreservation = {
       url: location.href,
       projection: workspaceUrlProjection(),
-      routeFailureNotice: {
-        previous: previousNotice,
-        appended: state.queryNotice,
-      },
     };
     render();
     return;
