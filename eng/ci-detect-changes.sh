@@ -314,7 +314,7 @@ while IFS= read -r -d '' file; do
     # sweep's own rules. Under docs/, which no arm here would catch.
     docs/data/nuget-top-packages.lock.json) CODE=true ;;
     docs/data/nuget-top-packages.json) CODE=true ;;
-    # The test lane is what actually runs these scripts (the
+    # The PR test lane is what actually runs these scripts before merge (the
     # `Install ilasm/ildasm/mdv` step and IlToolsActivationTests), so
     # it is the only thing that can catch a break in them. Without
     # this, a PR touching only a script skips that lane and
