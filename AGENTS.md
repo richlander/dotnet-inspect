@@ -922,6 +922,12 @@ Put it under `## Demo` above validation in the PR body.
 - Keep concurrent agents modest and avoid unnecessary churn in central files.
 - Label a documentation-only PR (no product code, test, or build changes)
   `documentation` when opening it.
+- When passing a file's content to `gh api` (for example a PR body), use
+  `-F key=@path` (typed `--field`, which expands `@path`), not `-f key=@path`
+  (raw `--raw-field`, which sends the literal string `@path`). This is a `gh`
+  flag distinction, not platform-specific. Verify with
+  `gh pr view <n> --json body -q .body` after creating or editing a PR body
+  this way.
 - Treat CI as confirmation: run the focused local gate, then push promptly.
   Run eligible local suites, CI, and review concurrently.
 - Use [status discovery](docs/round-orchestration.md#status-discovery): REST by
