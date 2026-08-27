@@ -39,6 +39,7 @@ export interface BrowserAnnotatedSource {
 export interface BrowserAssemblyMetadata {
   readonly assembly: string;
   readonly metadataVersion: string;
+  readonly metadataVersionTruncated: boolean;
   readonly kind: string;
   readonly isAssembly: boolean;
   readonly metadataSize: number;

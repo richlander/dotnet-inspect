@@ -60,6 +60,7 @@ export interface MetadataAssembly {
   isAssembly: boolean;
   metadataSize: number;
   metadataVersion: string;
+  metadataVersionTruncated: boolean;
   projectedTableTotal: number;
   heaps?: readonly MetadataHeapSummary[];
   tables?: readonly MetadataTableSummary[];
@@ -481,7 +482,7 @@ export function renderAssemblyMetadataBlock(asm: MetadataAssembly, helpers: Meta
     <section class="document-section meta-assembly">
       <div class="section-title"><h2>${escapeHtml(asm.assembly)}</h2><span>${escapeHtml(asm.kind)}${asm.isAssembly ? " · assembly manifest" : " · module"} · metadata ${fmtBytes(asm.metadataSize)}</span></div>
       <div class="meta-facts">
-        <span class="meta-fact"><span class="meta-fact-k">Format</span><span class="meta-fact-v">${escapeHtml(asm.metadataVersion)}</span></span>
+        <span class="meta-fact"><span class="meta-fact-k">Format</span><span class="meta-fact-v">${escapeHtml(asm.metadataVersion)}${asm.metadataVersionTruncated ? "…" : ""}</span></span>
         <span class="meta-fact"><span class="meta-fact-k">Machine</span><span class="meta-fact-v">${escapeHtml(h.machine || "—")}${h.isPE32Plus ? " · PE32+" : " · PE32"}</span></span>
         <span class="meta-fact"><span class="meta-fact-k">Subsystem</span><span class="meta-fact-v">${escapeHtml(h.subsystem || "—")}</span></span>
         <span class="meta-fact"><span class="meta-fact-k">Tables</span><span class="meta-fact-v">${asm.projectedTableTotal}/${tables.length} populated</span></span>

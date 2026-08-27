@@ -233,6 +233,7 @@ public static partial class InspectionEngine
         return new BrowserAssemblyMetadata(
             assembly,
             overview.MetadataVersion.ToString(),
+            overview.MetadataVersion.IsTruncated,
             overview.Kind.ToString(),
             overview.IsAssembly,
             overview.MetadataSize,

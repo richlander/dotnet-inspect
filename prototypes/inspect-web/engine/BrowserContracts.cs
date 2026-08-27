@@ -419,6 +419,7 @@ public sealed record BrowserPackageMetadata(
 public sealed record BrowserAssemblyMetadata(
     string Assembly,
     string MetadataVersion,
+    bool MetadataVersionTruncated,
     string Kind,
     bool IsAssembly,
     int MetadataSize,
