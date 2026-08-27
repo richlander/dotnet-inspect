@@ -166,10 +166,10 @@ public sealed class StateMachineCompletenessTests
         {
             problems.Add(
                 $"""
-                {undecodable.Count} managed assembl{(undecodable.Count == 1 ? "y" : "ies")} failed to decode, so their
-                state machines could not be evaluated at all. The file carried a
-                CLI header, so it claims to be managed; failing to read it is a
-                decode failure rather than a reason to skip it.
+                {undecodable.Count} managed assembl{(undecodable.Count == 1 ? "y" : "ies")} failed to decode, so
+                {(undecodable.Count == 1 ? "its" : "their")} state machines could not be evaluated at all. The file
+                carried a CLI header, so it claims to be managed; failing to read
+                it is a decode failure rather than a reason to skip it.
 
                 {Truncated(undecodable)}
                 """);
@@ -177,7 +177,9 @@ public sealed class StateMachineCompletenessTests
 
         if (assemblies == 0)
         {
-            problems.Add("No managed assemblies were found, so this sweep proves nothing.");
+            problems.Add(
+                "No managed assembly was measured, so this sweep proves nothing. "
+                    + "If decode failures are also reported above, they are why.");
         }
         else if (totals.Structural == 0)
         {
@@ -190,9 +192,11 @@ public sealed class StateMachineCompletenessTests
         {
             problems.Add(
                 $"""
-                {totals.Rejected} structural state machine(s) were refused
-                authentication, across {assemblies} assemblies ({totals.Structural}
-                structural, {totals.Resolved} resolved, {totals.Absent} absent).
+                {totals.Rejected} structural state machine(s) across
+                {offenders.Count} assembl{(offenders.Count == 1 ? "y" : "ies")} were refused authentication.
+                The sweep measured {assemblies} assemblies in total
+                ({totals.Structural} structural, {totals.Resolved} resolved,
+                {totals.Absent} absent).
 
                 A refusal has two possible causes, distinguished by the failure kinds
                 listed below. Either an attribute claimed the type and the claim
@@ -258,7 +262,7 @@ public sealed class StateMachineCompletenessTests
             try
             {
                 subdirectories = Directory.GetDirectories(directory);
-                files = Directory.GetFiles(directory, "*.dll");
+                files = Directory.GetFiles(directory);
             }
             catch (Exception ex)
                 when (ex is UnauthorizedAccessException or IOException)
@@ -274,8 +278,79 @@ public sealed class StateMachineCompletenessTests
 
             foreach (string file in files)
             {
-                yield return file;
+                if (IsAssemblyExtension(Path.GetExtension(file.AsSpan())))
+                {
+                    yield return file;
+                }
             }
+        }
+    }
+
+    /// <summary>
+    /// Whether a corpus file's extension marks it as an assembly to measure.
+    ///
+    /// The filtering is explicit rather than delegated to a
+    /// <c>Directory.GetFiles(dir, "*.dll")</c> pattern, because that pattern's
+    /// case sensitivity follows the platform: on Linux it silently skips
+    /// <c>*.DLL</c>. Both round-3 reviewers demonstrated the same hole
+    /// independently -- a corpus holding a valid <c>good.dll</c> beside a
+    /// corrupt <c>BROKEN.DLL</c> swept green, and renaming the second file to
+    /// lowercase turned the same corpus red. A completeness gate cannot decide
+    /// what it covers by way of a platform default, so the comparison is written
+    /// out where it can be read.
+    ///
+    /// <c>.exe</c> is included for the same reason: a managed executable is an
+    /// assembly, and skipping one is the same silent omission in a different
+    /// spelling.
+    /// </summary>
+    static bool IsAssemblyExtension(ReadOnlySpan<char> extension) =>
+        extension.Equals(".dll", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".exe", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Enumeration must not decide what the corpus covers by way of a platform
+    /// default. <c>Directory.GetFiles(dir, "*.dll")</c> matches case-sensitively
+    /// on Linux, so a corpus holding a corrupt <c>BROKEN.DLL</c> swept green
+    /// while that file was never opened — the same silent omission an
+    /// unreadable directory used to cause, in a different spelling.
+    /// </summary>
+    [Fact]
+    public void EnumerateCandidates_MatchesExtensionCaseInsensitively()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"sm-case-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            string nested = Path.Combine(root, "nested");
+            Directory.CreateDirectory(nested);
+
+            foreach (string name in new[] { "lower.dll", "UPPER.DLL", "app.exe" })
+            {
+                File.WriteAllBytes(Path.Combine(root, name), []);
+            }
+
+            foreach (string name in new[] { "Mixed.Dll", "APP.EXE", "notes.txt" })
+            {
+                File.WriteAllBytes(Path.Combine(nested, name), []);
+            }
+
+            var inaccessible = new List<string>();
+            string[] found = EnumerateCandidates(root, inaccessible)
+                .Select(path => Path.GetFileName(path)!)
+                .Order(StringComparer.Ordinal)
+                .ToArray();
+
+            Assert.Empty(inaccessible);
+            Assert.Equal(
+                new[] { "APP.EXE", "Mixed.Dll", "UPPER.DLL", "app.exe", "lower.dll" },
+                found);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
         }
     }
 
