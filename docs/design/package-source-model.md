@@ -3,12 +3,19 @@
 This document defines what it means for dotnet-inspect to support NuGet package
 sources. It covers source configuration, package source mapping, local stores,
 source-bound caches, package discovery, exact payload acquisition, and
-NuGet.org-specific enrichment.
+NuGet.org-specific enrichment. It also owns the composition boundary that turns
+an eligible desktop producer route into typed source operations and projects
+their results back into package-source outcomes.
 
 Browser source implementations, NuGet Gallery access without the v3 service
 index, portable source bundles, ephemeral credentials, and library-owned
 timeouts are defined by
 [browser package sources](browser-package-sources.md).
+For the desktop composition boundary introduced below, protocol discovery and
+request mechanics remain owned by NuGetFetch. Host HTTP pipeline construction,
+offline enforcement, and network diagnostic rendering remain owned by
+DotnetInspector.Core. That boundary consumes those adjacent contracts without
+redefining them.
 
 It is the target contract. The
 [implementation boundaries](#implementation-boundaries) section distinguishes
@@ -42,6 +49,7 @@ package id, and source provenance protects downloaded content after acquisition.
 | Payload location | Where the inspected bytes were opened: an explicit file, global packages, the dotnet-inspect cache, a local feed, or a network response. |
 | Enrichment endpoint | A service such as a symbol server or NuGet.org aggregate metadata API that is not itself a package source. |
 | Source client | A protocol-specific implementation that supplies package-source capabilities behind the common candidate and payload contracts. |
+| Producer route | One stable producer identity together with its source kind and ordered runtime transport profiles. |
 | Candidate observation | A normalized coordinate together with the producer that reported it, the discovery contract, and source-relative listing state. |
 | Availability observation | A transient environment- and transport-scoped result describing whether an authorized producer can currently supply a coordinate. |
 
@@ -127,6 +135,239 @@ collapses them by producer identity before candidate queries. A transport
 failure falls through to another applicable profile and does not create a
 second candidate source or a partial aggregate; the producer fails only when
 all of its applicable transports fail.
+
+## Desktop typed source-client boundary
+
+This section defines one package-source-owned responsibility: adapting an
+eligible desktop producer route to an owner-issued typed source client.
+`DotnetInspector.Packages` owns that composition. It is a target contract. Its
+safety properties remain unverified until the
+[required implementation gates](#required-implementation-gates) run in a
+Release suite.
+
+### Immediate input and output
+
+For each eligible producer, the package layer forms one typed route input that
+contains:
+
+- the syntactic source kind: HTTP endpoint, local folder, or unsupported;
+- the configured source aliases and stable producer identity selected by
+  source policy;
+- the ordered runtime transport profiles for that producer;
+- an owner-issued typed source-client factory for each profile;
+- the network capability selected for the public package operation;
+- the public operation context issued by the
+  [operation-deadline owner](https://github.com/richlander/dotnet-inspect/issues/4770):
+  caller cancellation, request deadline, and operation ceiling; and
+- the package coordinate or candidate capability requested by the operation.
+
+The stable producer identity authorizes payload caches and records provenance.
+Candidate-cache identity adds the discovery contract and version. Runtime
+transport-profile order controls failover but does not create another content
+identity or invalidate candidate evidence for the same immutable producer and
+discovery contract. A signed query may distinguish runtime transports, but
+credentials are not part of durable identity.
+The package layer passes the network capability unchanged and cannot turn an
+offline operation into permission to contact a source.
+
+The source client returns one of three typed outcomes:
+
+- candidate observations with producer and discovery provenance;
+- an exact payload with coordinate, producer, transport profile, payload kind,
+  and a caller-owned stream; or
+- a content-free source failure with source identity, coordinate when known,
+  failure kind, and typed timeout identity when applicable.
+
+Raw resource URLs, response bodies, and credentials are not package-layer
+failure data. Caller cancellation propagates with the caller token instead of
+becoming a source failure.
+
+### Classify before selecting a transport
+
+Source kind is decided before any HTTP client or service-index normalization is
+selected:
+
+| Source kind | Package-layer action |
+| --- | --- |
+| HTTP endpoint | Ask the owner-issued factory for the endpoint's typed capability. A syntactically valid HTTP URL is not assumed to be a valid NuGet v3 source. |
+| Local path or `file://` directory | Retain the local-source identity and use only local-store capabilities implemented by the package layer. Until [local-feed acquisition](https://github.com/richlander/dotnet-inspect/issues/3759) supplies a capability, report it as unsupported explicitly and never rewrite the source as HTTP. |
+| Unsupported URI scheme or malformed runtime endpoint | Return a typed unsupported-source failure without constructing an HTTP request or exposing a raw argument exception. |
+
+An unsupported local capability is not an unreadable remote source. It is
+reported with its own source kind rather than an HTTP failure. When an
+aggregate requires every eligible source, that observation makes the result
+non-authoritative: the operation must fail or explicitly report a partial
+result. It cannot silently grant authority to a cache or another source.
+
+### Protocol and host handoff
+
+The package layer decides which producer may be queried, obtains the typed
+source client from the owner-issued factory, and invokes its operations with
+the operation context issued by #4770. NuGetFetch owns service-index discovery,
+endpoint construction and validation, protocol-level retry, bounded body
+reading, source-client transport construction and lifetime, and the typed
+source-operation result.
+DotnetInspector.Core owns its host HTTP pipeline, offline enforcement, and
+redacted network diagnostics.
+
+The package layer does not reconstruct v3 resource URLs or add a second retry
+loop around a typed operation. A compatibility request that still must follow
+a feed-discovered resource remains part of the same producer route and uses
+the request-policy hook issued by NuGetFetch. This prevents a fallback from
+bypassing policy merely because it has not yet migrated to the typed protocol
+operation.
+
+This boundary does not prescribe whether an adjacent source-client
+implementation owns an isolated transport or receives policy through another
+owner-issued factory. Transport construction, mutability, and disposal remain
+part of that adjacent owner's contract.
+
+DotnetInspector.Packages owns the typed client handle it obtains. It retains
+that handle until a returned payload stream is consumed or disposed, or
+transfers both into one wrapper with the same lifetime. It disposes the handle
+on every path that returns no payload. This is client-handle orchestration, not
+a claim about how the adjacent client owns its transport.
+
+### Credential and origin boundary
+
+The package layer consumes the source client's declared credential-origin
+contract; it does not redefine how typed protocol requests or redirects enforce
+that contract. For a compatibility request the package layer still constructs,
+the configured producer origin is compared with the feed-derived target before
+the request reaches authentication. A cross-origin request carries the
+owner-issued suppression marker; a same-origin request remains eligible for
+authentication.
+
+The package layer does not discover plugins, cache credentials, construct
+authorization headers, or infer authorization from URL text. Those mechanisms
+remain adjacent-owner responsibilities. The package layer's obligation is to
+preserve the producer origin and apply the owner-issued request policy to every
+compatibility request it constructs.
+
+### Routes, deadlines, and projection
+
+Configured source aliases collapse by producer identity after mapping.
+Transport profiles for one producer form one ordered route rather than
+separate candidate sources. Source declaration order between different
+producers is not precedence and cannot make one source's candidate
+authoritative over another.
+
+The request deadline and operation ceiling are the library-owned bounds defined
+by [browser package sources](browser-package-sources.md#timeout-ownership).
+The owner-issued carrier required to compose that rule across typed clients is
+tracked by #4770. One public operation ceiling spans every selected producer,
+transport-profile failover, retry, and payload read. The package layer passes
+the same operation context through every route; neither a new producer nor
+another transport profile resets it.
+
+Package-layer projection preserves:
+
+- producer identity and transport-profile diagnostics;
+- source-failure kind;
+- timeout kind and configured duration;
+- caller cancellation as cancellation rather than timeout; and
+- payload-stream ownership and the deadline that remains active through
+  consumption.
+
+If a source returns a payload after the public operation ceiling, the package
+layer disposes the unreturned stream before producing a typed operation
+timeout. If consuming an already returned payload raises an expected request
+timeout, the package acquisition layer projects a new content-free failure
+with the same timeout kind and duration; another authorized producer may be
+tried only while the public operation ceiling remains. An operation-ceiling
+timeout terminates the public operation and cannot enable producer failover.
+Archive validation and store failures remain payload-policy outcomes rather
+than transport failures.
+
+### Aggregation and completeness
+
+Typed clients report one producer at a time; the package layer owns
+multi-source composition. Exact pinned acquisition may succeed from one
+eligible producer. An aggregate that selects latest or wildcard versions,
+claims authoritative absence, or otherwise depends on the complete candidate
+set requires a terminal observation from every eligible producer. A capability
+gap is itself non-terminal for completeness: the operation must fail or
+explicitly report partial authority. A healthy subset cannot silently become
+the whole authority.
+
+Candidate caches remain producer- and discovery-contract-scoped observations.
+They may replace a request only for the producer and discovery contract that
+produced them, and every aggregate is recomposed against the current eligible
+set.
+Local sources without the operation capability remain explicit
+unsupported-capability observations. They are not rewritten as failed HTTP
+feeds, but they prevent an authoritative all-source aggregate unless the
+result shape explicitly represents partial authority.
+
+### Required implementation gates
+
+An implementation may claim this boundary only when the named Release test
+projects contain non-vacuous gates for these outcomes.
+
+`src/dotnet-inspect.Tests` owns the package-layer composition gates:
+
+- `PackageSourceClientProvider_LocalSourcesNeverSelectHttpTransport` proves
+  plain paths and `file://` directories do not enter HTTP selection.
+- `PackageSourceClientProvider_UnsupportedSchemesBecomeTypedFailures` proves an
+  unsupported scheme returns the declared failure shape without a request.
+- `PackageRoutePreservesOfflineNetworkCapability` proves route adaptation does
+  not construct or invoke an HTTP source client, and observes no request, when
+  the operation lacks network permission.
+- `PackageCompatibilityRecoverySuppressesPluginAuthenticationCrossOrigin`
+  proves compatibility recovery suppresses plugin acquisition for a
+  feed-declared foreign origin, with a same-origin positive control.
+- `PackageSourceFailureDataExcludesResourceUrlsAndCredentials` proves
+  package-layer failure projection does not retain signed queries, response
+  text, or authorization data.
+
+`src/DotnetInspector.Services.Tests` owns aggregation, acquisition, and
+projection gates:
+
+- `TransportProfilesShareThePublicOperationCeiling` proves neither another
+  profile nor another producer resets the operation ceiling. This gate depends
+  on the owner-issued carrier from #4770.
+- `PackageStreamTimeoutPreservesKindAndDuration` and
+  `RouteTimeoutPreservesKindAndDuration` prove request and operation timeout
+  identity survives package-layer projection. These gates depend on the typed
+  failure shape from #4770.
+- `PackagePayloadCallerCancellationRetainsToken` proves caller cancellation is
+  not projected as a source timeout.
+- `PayloadKeepsSourceClientAliveThroughConsumption` proves client-handle
+  disposal cannot invalidate a caller-owned payload stream.
+- `FailedRouteDisposesSourceClientHandle` proves every path without a returned
+  payload releases the package layer's client handle.
+- `LatePayloadAfterOperationCeilingIsDisposed` proves the package layer does not
+  leak an unreturned stream.
+- `ProducerRouteCollapsesTransportProfilesIntoOneCandidateSource` proves
+  transport failover does not create duplicate source authority.
+- `WildcardResolutionRequiresEveryEligibleSource` proves a healthy subset or
+  capability gap cannot produce an authoritative aggregate.
+- `LocalUnsupportedCapabilityPreventsAuthoritativeAggregateWithoutHttpFailure`
+  proves a filesystem-free operation keeps local-source handling visible,
+  prevents an authoritative aggregate, and does not route the source through
+  HTTP diagnostics.
+- `CandidateCacheUsesProducerAndDiscoveryContractIdentity` proves transport
+  profile changes do not become content identity while incompatible discovery
+  contracts remain isolated.
+
+These gates must fail when the corresponding classification, request-policy
+hook, timeout field, shared operation context, or completeness check is
+removed. A test that only observes a generic failure kind or an empty result is
+insufficient.
+
+### Non-claims
+
+This boundary does not define:
+
+- NuGet protocol resource parsing, endpoint normalization, or internal retry;
+- source-client transport construction or lifetime;
+- host HTTP handler construction, offline exception rendering, or credential
+  provider lifecycle;
+- browser source profiles, portable source bundles, or browser persistence;
+- local-folder package discovery and acquisition;
+- CLI wording or output layout; or
+- enrichment endpoint policy beyond consuming the producer eligibility already
+  defined by this document.
 
 ## Resolving active and eligible sources
 
@@ -499,6 +740,11 @@ version-index, exact-manifest, and exact-package URL construction. The legacy
 compatibility choice to bypass canonical NuGet.org service-index discovery.
 V3 symbol payload remains unsupported because the protocol has no
 package-base-relative symbol download contract.
+
+The [desktop typed source-client
+boundary](#desktop-typed-source-client-boundary) is not a current-behavior
+claim. #4653 is the implementation candidate, and the named Release gates
+define when that candidate may claim the boundary.
 
 The current implementation source-scopes downloaded package content and
 candidate metadata, aggregates versions across sources while retaining the
