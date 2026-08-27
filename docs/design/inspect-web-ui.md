@@ -411,6 +411,11 @@ The custom listbox has the accessible name `Libraries` and one tab stop. Focus
 remains on the listbox while `aria-activedescendant` identifies the active
 option; `aria-selected` identifies the committed Library subject.
 
+The active option has a visible focus indicator in addition to its rest or
+committed-selection styling. The indicator is not conveyed by color alone,
+and remains distinct from the committed `aria-selected` state. The UI scrolls
+the active option into view whenever it moves.
+
 Library selection uses manual commit:
 
 - Up and Down Arrow move only the active option.
