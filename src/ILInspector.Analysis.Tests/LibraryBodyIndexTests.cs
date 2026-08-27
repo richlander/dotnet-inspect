@@ -5088,9 +5088,12 @@ public class LibraryBodyIndexTests
         }
     }
 
-    [Fact]
+    [Theory]
+    [InlineData("<<AnalyzeAs>b__x>d")]
+    [InlineData("<<Analyze>b__0>d`0")]
     public void
-        OptimizationOpportunities_MalformedLiftedStateMachineFailsClosedInScopedViews()
+        OptimizationOpportunities_MalformedLiftedStateMachineFailsClosedInScopedViews(
+            string malformedName)
     {
         byte[] image =
             BuildMalformedAsyncSourceAssembly(
@@ -5099,7 +5102,7 @@ public class LibraryBodyIndexTests
         ReplaceAscii(
             image,
             "<AnalyzeAsync>d__1",
-            "<<AnalyzeAs>b__x>d",
+            malformedName,
             expectedReplacements: 1);
         string path = Path.Combine(
             Path.GetTempPath(),
@@ -5287,6 +5290,62 @@ public class LibraryBodyIndexTests
         Assert.Equal(
             owner,
             index.ResolveDeclaredMethod(moveNext));
+    }
+
+    [Fact]
+    public void
+        ResolveDeclaredMethod_LegacyHexLambdaOrdinalOnContainingHostMapsToAuthoredOwner()
+    {
+        string fixturePath =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        LibraryBodyIndex original =
+            LibraryBodyIndex.Open(fixturePath);
+        MethodIdentity originalLambda = Assert.Single(
+            original.Methods,
+            method => method.Name.StartsWith(
+                "<SharedLambdaOrdinalOwner>b__",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            "<>c__DisplayClass",
+            originalLambda.DeclaringType.Name,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            "SharedLambdaOrdinalOwner",
+            original.ResolveDeclaredMethod(
+                originalLambda)?.Name);
+        int marker = originalLambda.Name.LastIndexOf(
+            ">b__",
+            StringComparison.Ordinal);
+        Assert.Contains(
+            '_',
+            originalLambda.Name[(marker + 4)..]);
+        int suffixLength =
+            originalLambda.Name.Length - marker - 4;
+        string legacyName =
+            originalLambda.Name[..(marker + 4)]
+            + new string('a', suffixLength);
+        byte[] image = File.ReadAllBytes(fixturePath);
+        ReplaceAscii(
+            image,
+            originalLambda.Name,
+            legacyName,
+            expectedReplacements: 1);
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "LegacyHexLambdaOrdinal.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity owner = Assert.Single(
+            index.Methods,
+            method => method.Name
+                == "SharedLambdaOrdinalOwner");
+        MethodIdentity lambda = Assert.Single(
+            index.Methods,
+            method => method.Name == legacyName);
+
+        Assert.Equal(
+            owner,
+            index.ResolveDeclaredMethod(lambda));
     }
 
     [Fact]

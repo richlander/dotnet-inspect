@@ -362,15 +362,19 @@ Async execution sources and owner chains reject malformed generated-like names
 while ordinary compiler-generated owners, including async owners, retain
 established attribution. Rejected identities and incomplete lifted-owner
 chains cannot expand scoped acquisition.
-Lifted local-function and lambda names require canonical Roslyn ordinal tails
-before they can authenticate an owner. A closure-hosted lifted method carries
-one ordinal; a containing-type-hosted method carries two, and a local-function
-name carries exactly one name-to-ordinal delimiter. Generic metadata arity is
-removed before that grammar and before async-local or async-lambda state-machine
-leaves are classified as owner-required. A special state-machine leaf whose
-embedded lifted name is malformed is `Rejected`: its physical intrinsic
-evidence remains visible in an unscoped inspection, while scoped attribution
-and recommendations fail closed.
+Lifted local-function and lambda names require canonical compiler ordinal tails
+before they can authenticate an owner. A display-class-hosted lifted method
+typically carries one ordinal, while a containing-type or shared-holder method
+typically carries two. The pre-Roslyn native C# compiler also emits
+one-ordinal lambdas directly on containing types, so ordinal count is not
+treated as compiler provenance. Roslyn ordinals are decimal; native-csc
+one-ordinal lambda counters may be lowercase hexadecimal. A local-function name
+carries exactly one name-to-ordinal delimiter. Generic metadata arity is
+removed before that grammar and before async-local or async-lambda
+state-machine leaves are classified as owner-required. A special state-machine
+leaf whose embedded lifted name or raw outer arity is malformed is `Rejected`:
+its physical intrinsic evidence remains visible in an unscoped inspection,
+while scoped attribution and recommendations fail closed.
 Ultimate-owner traversal distinguishes an incomplete canonical chain
 (`Unresolved`) from malformed, ambiguous, cyclic, or invalid relationships
 (`Rejected`). Canonical generated bodies without an authenticated claimant,
@@ -409,6 +413,9 @@ gate canonical generated-name admission and typed rejection preservation at
 immediate and intermediate hops.
 `ResolveDeclaredMethod_CompiledCapturedAsyncLocalMapsToAuthoredOwner` gates the
 one-ordinal local-function form with current Release compiler output.
+`ResolveDeclaredMethod_LegacyHexLambdaOrdinalOnContainingHostMapsToAuthoredOwner`
+gates legacy native-csc compatibility, including the containing-host form that
+prevents ordinal count from serving as provenance.
 `ResolveDeclaredMethod_CompilerGeneratedOwnersRetainAttribution`,
 `DirectCalls_CompilerGeneratedAsyncOwnerRetainsAttributionAcrossScopes`,
 `ResolveDeclaredMethod_TypeGeneratedMalformedAsyncSourceFailsClosedAcrossScopes`,

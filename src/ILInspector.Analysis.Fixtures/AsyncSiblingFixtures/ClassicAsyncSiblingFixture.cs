@@ -263,6 +263,10 @@ public static class ClassicAsyncSiblingFixture
         return BuildAsync;
     }
 
+    internal static Func<int>
+        SharedLambdaOrdinalOwner() =>
+        static () => 42;
+
     public static Task ScopedAsyncLambdaOwner(int marker) =>
         Task.CompletedTask;
 

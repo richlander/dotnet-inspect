@@ -92,7 +92,10 @@ public static class CompilerGeneratedNames
 
         int underscore = suffix.IndexOf('_');
         if (underscore < 0)
-            return IsCanonicalOrdinal(suffix);
+            return IsCanonicalOrdinal(
+                suffix,
+                allowLegacyHex:
+                    !localFunction);
         if (underscore == 0
             || underscore == suffix.Length - 1
             || suffix[(underscore + 1)..]
@@ -102,13 +105,16 @@ public static class CompilerGeneratedNames
         }
 
         return IsCanonicalOrdinal(
-                suffix[..underscore])
+                suffix[..underscore],
+                allowLegacyHex: false)
             && IsCanonicalOrdinal(
-                suffix[(underscore + 1)..]);
+                suffix[(underscore + 1)..],
+                allowLegacyHex: false);
     }
 
     static bool IsCanonicalOrdinal(
-        ReadOnlySpan<char> value)
+        ReadOnlySpan<char> value,
+        bool allowLegacyHex)
     {
         if (value.IsEmpty
             || value.Length > 1 && value[0] == '0')
@@ -116,12 +122,29 @@ public static class CompilerGeneratedNames
             return false;
         }
 
+        bool hasHexLetter = false;
         foreach (char c in value)
         {
-            if (!char.IsAsciiDigit(c))
-                return false;
+            if (char.IsAsciiDigit(c))
+                continue;
+            if (allowLegacyHex
+                && c is >= 'a' and <= 'f')
+            {
+                hasHexLetter = true;
+                continue;
+            }
+            return false;
         }
 
+        if (hasHexLetter)
+        {
+            return uint.TryParse(
+                    value,
+                    NumberStyles.AllowHexSpecifier,
+                    CultureInfo.InvariantCulture,
+                    out uint ordinal)
+                && ordinal <= int.MaxValue;
+        }
         return int.TryParse(
             value,
             NumberStyles.None,
@@ -206,33 +229,62 @@ public static class CompilerGeneratedNames
 
     internal static bool IsMalformedLiftedStateMachineLeaf(
         TypeRef declaringType)
-    {
-        string simpleName =
-            MetadataNameArity.StripFromSegment(
-                LeafName(declaringType));
-        if (!simpleName.StartsWith('<')
-            || !simpleName.EndsWith(
-                ">d",
-                StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        string sourceName = simpleName[..^2];
-        return HasLiftedMethodMarker(sourceName)
-            && !IsLocalFunctionOrLambda(sourceName);
-    }
+        => ClassifyLiftedStateMachineLeaf(
+            LeafName(declaringType))
+            == LiftedStateMachineLeafKind.Malformed;
 
     static bool IsStateMachineLeaf(string leafName)
     {
         string simpleName =
             MetadataNameArity.StripFromSegment(leafName);
         return GeneratedNameGrammar.IsStateMachineLeaf(simpleName)
-            || simpleName.StartsWith('<')
-                && simpleName.EndsWith(">d", StringComparison.Ordinal)
-                && (GeneratedNameGrammar
-                        .IsLocalFunctionMethodName(simpleName)
-                    || GeneratedNameGrammar
-                        .IsLambdaMethodName(simpleName));
+            || ClassifyLiftedStateMachineLeaf(leafName)
+                != LiftedStateMachineLeafKind.None;
+    }
+
+    static LiftedStateMachineLeafKind
+        ClassifyLiftedStateMachineLeaf(string leafName)
+    {
+        string simpleName =
+            MetadataNameArity.StripFromSegment(leafName);
+        if (!simpleName.EndsWith(
+                ">d",
+                StringComparison.Ordinal))
+        {
+            int suffix = leafName.LastIndexOf(
+                ">d",
+                StringComparison.Ordinal);
+            if (suffix <= 0
+                || suffix + 2 >= leafName.Length
+                || leafName[suffix + 2] != '`')
+            {
+                return LiftedStateMachineLeafKind.None;
+            }
+
+            string malformedSource =
+                leafName[..suffix];
+            return malformedSource.StartsWith('<')
+                    && HasLiftedMethodMarker(
+                        malformedSource)
+                ? LiftedStateMachineLeafKind.Malformed
+                : LiftedStateMachineLeafKind.None;
+        }
+
+        string sourceName = simpleName[..^2];
+        if (!sourceName.StartsWith('<')
+            || !HasLiftedMethodMarker(sourceName))
+        {
+            return LiftedStateMachineLeafKind.None;
+        }
+        return IsLocalFunctionOrLambda(sourceName)
+            ? LiftedStateMachineLeafKind.Canonical
+            : LiftedStateMachineLeafKind.Malformed;
+    }
+
+    enum LiftedStateMachineLeafKind
+    {
+        None,
+        Canonical,
+        Malformed,
     }
 }
