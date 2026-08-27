@@ -215,13 +215,18 @@ named gates in
 [Target-resolution migration and gates](#target-resolution-migration-and-gates)
 land.
 
-This boundary is owned by `ILInspector.Research` and this document. For the
-implementation-comparison profile, it consumes one already-admitted comparison
-population, resolves exact member-selection intent into side-local attempts,
-establishes correspondence only from complete domain-local evidence, and
-determines body-presence dispositions before any producer runs. Its admission
-identity contract also supplies the concrete Research identities required by
-both rank-1 profiles.
+This design proposes one place to answer the target question before comparison
+work begins: which member body, if any, did each side select; can the two sides
+safely correspond; and does the result contain two bodies, one body, no body,
+or unavailable evidence? Keeping that decision in Research preserves side and
+failure evidence instead of flattening targets into strings and asking each
+producer to rediscover it.
+
+`ILInspector.Research` and this document own that boundary. For implementation
+comparison, Research turns one admitted population into side-local target
+attempts, establishes correspondence from complete domain-local evidence, and
+classifies body presence before any producer runs. The same admission contract
+supplies the Research identities required by both rank-1 profiles.
 
 The adjacent
 [Queries-to-Research population boundary](inspection-layers.md#queries-to-research-population-boundary)
