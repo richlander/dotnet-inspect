@@ -27,6 +27,8 @@ export interface AuditedBuild {
   readonly publicDir: string;
   readonly pluginNames: string[];
   readonly workerPluginCount: number;
+  readonly unaccountedRollupPlugins: string[];
+  readonly rollupOutputPlugins: string[];
 }
 
 // The audit installs one plugin of its own, so exactly one instance of that name is
@@ -43,10 +45,50 @@ function withoutAuditPlugin(names: string[]): string[] {
   return remaining.sort();
 }
 
+// Round 12 (Gemini 3.1 Pro) reached Rollup without going through Vite's plugin list at
+// all. `build.rollupOptions.plugins` is handed straight to Rollup, so it never appears in
+// the `config.plugins` that `configResolved` reports, and because it transforms in both
+// builds identically the equivalence gate below sees nothing to disagree about. The
+// payload shipped with all four commands green.
+//
+// Asking Vite was the wrong end of the pipe. Rollup is what actually runs the plugins, so
+// its `options` and `outputOptions` hooks are asked instead: every plugin Rollup has must
+// be one Vite resolved, and there must be no output plugins at all. Neither list is
+// enumerated here -- Rollup reports both, and the comparison is against Vite's own account
+// of what it installed. The difference is taken as a multiset so a plugin cannot hide by
+// borrowing the name of one that is legitimately present.
+function pluginNamesOf(plugins: unknown): string[] {
+  if (!Array.isArray(plugins)) {
+    return [];
+  }
+  return plugins.flatMap((plugin: unknown) => {
+    if (typeof plugin !== "object" || plugin === null || !("name" in plugin)) {
+      return [];
+    }
+    const { name } = plugin;
+    return typeof name === "string" ? [name] : [];
+  });
+}
+
+function multisetDifference(actual: string[], accounted: string[]): string[] {
+  const remaining = [...accounted];
+  return actual.flatMap(name => {
+    const found = remaining.indexOf(name);
+    if (found === -1) {
+      return [name];
+    }
+    remaining.splice(found, 1);
+    return [];
+  });
+}
+
 export async function auditedBuild(root: string): Promise<AuditedBuild> {
   const read = new Set<string>();
   let observed: { mode: string; publicDir: string; pluginNames: string[]; workerPluginCount: number }
     | undefined;
+  let configNames: string[] = [];
+  let rollupInputNames: string[] = [];
+  let rollupOutputNames: string[] = [];
   const result = await build({
     root,
     logLevel: "error",
@@ -55,12 +97,21 @@ export async function auditedBuild(root: string): Promise<AuditedBuild> {
       name: auditPluginName,
       configResolved(config) {
         const worker: unknown = config.worker.plugins;
+        configNames = config.plugins.map(plugin => plugin.name);
         observed = {
           mode: config.mode,
           publicDir: config.publicDir,
           pluginNames: withoutAuditPlugin(config.plugins.map(plugin => plugin.name)),
           workerPluginCount: Array.isArray(worker) ? worker.length : 0,
         };
+      },
+      options(options) {
+        rollupInputNames = pluginNamesOf(options.plugins);
+        return null;
+      },
+      outputOptions(options) {
+        rollupOutputNames = pluginNamesOf(options.plugins);
+        return null;
       },
       buildEnd() {
         for (const file of this.getWatchFiles()) {
@@ -77,7 +128,13 @@ export async function auditedBuild(root: string): Promise<AuditedBuild> {
   if (observed === undefined) {
     throw new Error("the audited build never resolved a config");
   }
-  return { readFiles: [...read], chunks, ...observed };
+  return {
+    readFiles: [...read],
+    chunks,
+    ...observed,
+    unaccountedRollupPlugins: multisetDifference(rollupInputNames, configNames),
+    rollupOutputPlugins: rollupOutputNames,
+  };
 }
 
 export async function bundlerReadFiles(root: string): Promise<string[]> {

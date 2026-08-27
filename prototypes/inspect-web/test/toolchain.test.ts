@@ -791,6 +791,14 @@ test("the bundler has no unread path into the shipped output", async () => {
       + "and splice it into a module without Rollup ever watching it, which is invisible "
       + "to the gate that audits what the build reads. Adding one means answering for "
       + "what it injects, so this gate has to be reckoned with rather than edited away");
+  assert.deepStrictEqual(audited.unaccountedRollupPlugins, [],
+    "Rollup is running plugins Vite never resolved, so they are invisible to the plugin "
+      + "list above. `build.rollupOptions.plugins` is handed straight to Rollup and does "
+      + "this, and because such a plugin transforms both builds alike the gate below sees "
+      + "nothing to disagree about either");
+  assert.deepStrictEqual(audited.rollupOutputPlugins, [],
+    "the build declares Rollup output plugins. Those run at generate time and can rewrite "
+      + "a chunk after every gate above has read it, so this project keeps none");
   assert.equal(audited.workerPluginCount, 0,
     "the build declares worker plugins. This project bundles no workers, and a worker "
       + "plugin injects into a bundle these gates do not audit, so the two have to stay "
