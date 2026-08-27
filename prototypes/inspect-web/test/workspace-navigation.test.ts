@@ -13,6 +13,9 @@ import {
   parseWorkspaceRoute,
   retainedMissingPlatformTarget,
   retainedPlatformTargetVersion,
+  resolveWorkspaceMemberFilters,
+  resolveWorkspaceMemberOverload,
+  resolveWorkspaceMemberSection,
   resolveWorkspaceRoute,
   selectedBrowserCallGraphPackageTabIds,
   shouldInterceptLinkClick,
@@ -20,6 +23,7 @@ import {
   workspaceShareTabsMatchResolved,
   workspaceShareCaptureTopology,
   workspaceViewSignature,
+  unavailableWorkspaceMemberContextFields,
   type LinkNavigationClick,
   type WorkspaceLocationSnapshot,
   type WorkspaceUrlState,
@@ -717,6 +721,19 @@ test("authoritative packets bypass malformed courtesy paths", () => {
   assert.match(parsed.workspaceNotice, /packet is invalid/);
 });
 
+test("canonical packets discard legacy coordinate diagnostics", () => {
+  const parsed = parseWorkspaceLocation(locationSnapshot(
+    "https://inspect.example/?w=canonical"
+      + "&overload=bogus&section=bogus#implementation"),
+  () => decoded());
+
+  assert.equal(parsed.package, "Example.Second");
+  assert.equal(parsed.overload, null);
+  assert.equal(parsed.section, "facts");
+  assert.equal(parsed.lens, "api");
+  assert.equal(parsed.workspaceNotice, "");
+});
+
 test("an empty workspace parameter remains authoritative", () => {
   const route = parseWorkspaceRoute(locationSnapshot(
     "https://inspect.example/?package=Visible.Package&w=#metadata"));
@@ -829,6 +846,125 @@ test("location preflight snapshots once and defers decoding", () => {
     resolved.workspaceNotice,
     "The shared workspace state was rejected (InvalidShape): "
       + "The product decoder rejected this packet.");
+});
+
+test("location preflight preserves malformed visible-coordinate notices for home", () => {
+  let href = "https://inspect.example/packages/%/1.0.0";
+  const persistence = createWorkspaceLocationPersistence({
+    current: () => locationSnapshot(href),
+    replace() {},
+    push() {},
+    decode: () => rejected("unused"),
+    encode: () => encoded(),
+  });
+
+  for (const [url, field] of [
+    ["https://inspect.example/packages/%/1.0.0", "package"],
+    ["https://inspect.example/?overload=abc", "overload"],
+  ] as const) {
+    href = url;
+    const preflight = persistence.preflightCurrent();
+    assert.equal(preflight.visible.package, null);
+    assert.equal(preflight.hasWorkspaceState, false);
+    assert.equal(preflight.startsAtHome, true);
+    assert.match(preflight.visibleNotice, new RegExp(field));
+  }
+});
+
+test("member share context reports unavailable filters and overloads", () => {
+  assert.deepEqual(
+    unavailableWorkspaceMemberContextFields({
+      member: "method:Missing",
+      overload: 1,
+      section: "source",
+      bodyTarget: {
+        memberName: "Missing",
+        selectorKey: "method",
+        metadataToken: 42,
+      },
+      memberBrowse: true,
+      memberTextFilter: "missing",
+      memberKindFilter: "method",
+      memberAccessibilityFilter: "public",
+      memberTraitFilter: "isStatic",
+    }, true),
+    [
+      "member",
+      "overload",
+      "member section",
+      "member body",
+      "member browse",
+      "member text filter",
+      "member kind filter",
+      "member accessibility filter",
+      "member trait filter",
+    ]);
+  assert.deepEqual(
+    unavailableWorkspaceMemberContextFields({
+      section: "overview",
+      memberKindFilter: "all",
+      memberAccessibilityFilter: "all",
+    }, false),
+    []);
+
+  assert.deepEqual(
+    resolveWorkspaceMemberFilters({
+      memberKindFilter: "unknown-kind",
+      memberAccessibilityFilter: "unknown-accessibility",
+      memberTraitFilter: "unknown-trait",
+    }, {
+      kinds: ["method", "property"],
+      accessibilities: ["public", "protected"],
+      traits: ["isStatic", "isVirtual"],
+    }),
+    {
+      kind: "all",
+      accessibility: "all",
+      trait: "",
+      rejectedFields: [
+        "member kind filter",
+        "member accessibility filter",
+        "member trait filter",
+      ],
+    });
+  assert.deepEqual(
+    resolveWorkspaceMemberFilters({
+      memberKindFilter: "method",
+      memberAccessibilityFilter: "public",
+      memberTraitFilter: "isStatic",
+    }, {
+      kinds: ["method"],
+      accessibilities: ["public"],
+      traits: ["isStatic"],
+    }),
+    {
+      kind: "method",
+      accessibility: "public",
+      trait: "isStatic",
+      rejectedFields: [],
+    });
+
+  assert.deepEqual(
+    resolveWorkspaceMemberOverload(2, 2),
+    { overload: null, rejected: true });
+  assert.deepEqual(
+    resolveWorkspaceMemberOverload(1, 2),
+    { overload: 1, rejected: false });
+  assert.deepEqual(
+    resolveWorkspaceMemberOverload(-0, 2),
+    { overload: null, rejected: true });
+  assert.deepEqual(
+    resolveWorkspaceMemberOverload(null, 1),
+    { overload: null, rejected: false });
+  assert.deepEqual(
+    resolveWorkspaceMemberSection("facts", ["overview", "source"]),
+    { section: "overview", rejected: true });
+  assert.deepEqual(
+    resolveWorkspaceMemberSection("source", ["overview", "source"]),
+    { section: "source", rejected: false });
+  assert.deepEqual(
+    resolveWorkspaceMemberSection(null, ["overview"]),
+    { section: "overview", rejected: false });
 });
 
 test("history signatures distinguish exact graph member identity", () => {

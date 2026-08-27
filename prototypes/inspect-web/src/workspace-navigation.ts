@@ -873,6 +873,7 @@ function resolveWorkspaceLocation(
   const shareError = share && "error" in share ? share.error : "";
 
   if (share && !("error" in share)) {
+    rejectedFields.length = 0;
     shareState = share.state;
     tabs = share.tabs;
     active = Math.min(Math.max(0, share.active), Math.max(0, tabs.length - 1));

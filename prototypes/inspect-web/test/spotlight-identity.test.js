@@ -242,17 +242,83 @@ function sourceText(node) {
   return appSource.slice(node.start, node.end).replace(/\s+/g, " ");
 }
 
-function selectorMemberName(node) {
+function selectorExpression(node) {
+  let current = node;
+  while (current
+    && (current.type === "TSAsExpression"
+      || current.type === "TSSatisfiesExpression"
+      || current.type === "TSNonNullExpression"
+      || current.type === "ParenthesizedExpression")) {
+    current = current.expression;
+  }
+  return current;
+}
+
+function selectorStringAliases(root) {
+  const aliases = [];
+  const valueAt = (name, position) =>
+    aliases
+      .filter(alias =>
+        alias.name === name
+        && alias.declarationStart <= position
+        && alias.scopeStart <= position
+        && position <= alias.scopeEnd)
+      .sort((left, right) =>
+        (left.scopeEnd - left.scopeStart) - (right.scopeEnd - right.scopeStart)
+        || right.declarationStart - left.declarationStart)[0]?.value;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    walkSyntax(root, (node, ancestors) => {
+      if (node.type !== "VariableDeclaration" || node.kind !== "const") return;
+      const scope = ancestors.toReversed().find(ancestor =>
+        ancestor.type === "BlockStatement"
+        || ancestor.type === "Program") ?? root;
+      for (const declaration of node.declarations ?? []) {
+        if (declaration.id?.type !== "Identifier") continue;
+        const value = selectorExpression(declaration.init);
+        const resolved = value?.type === "Literal"
+          && typeof value.value === "string"
+          ? value.value
+          : value?.type === "Identifier"
+            ? valueAt(value.name, value.start)
+            : undefined;
+        if (resolved === undefined) continue;
+        const existing = aliases.find(alias =>
+          alias.declarationStart === declaration.start);
+        if (!existing) {
+          aliases.push({
+            name: declaration.id.name,
+            value: resolved,
+            declarationStart: declaration.start,
+            scopeStart: scope.start,
+            scopeEnd: scope.end,
+          });
+          changed = true;
+        } else if (existing.value !== resolved) {
+          existing.value = resolved;
+          changed = true;
+        }
+      }
+    });
+  }
+  return { valueAt };
+}
+
+function selectorMemberName(node, stringAliases = null) {
   if (node?.type !== "MemberExpression") return "";
   const property = node.property;
   return property?.type === "Identifier"
-    ? property.name
+    ? node.computed
+      ? stringAliases?.valueAt(property.name, property.start) ?? ""
+      : property.name
     : property?.type === "Literal" && typeof property.value === "string"
       ? property.value
       : "";
 }
 
 function selectorOwnership(root) {
+  const stringAliases = selectorStringAliases(root);
   const documents = new Set(["document"]);
   const methodAliases = new Set();
   const destructuredEscapes = [];
@@ -262,9 +328,9 @@ function selectorOwnership(root) {
     || (node?.type === "MemberExpression"
       && node.object?.type === "Identifier"
       && globalObjects.has(node.object.name)
-      && selectorMemberName(node) === "document");
+      && selectorMemberName(node, stringAliases) === "document");
   const selectorName = node => {
-    const name = selectorMemberName(node);
+    const name = selectorMemberName(node, stringAliases);
     return name === "querySelector" || name === "querySelectorAll"
       ? name
       : "";
@@ -340,7 +406,13 @@ function selectorOwnership(root) {
       }
     });
   }
-  return { documents, methodAliases, destructuredEscapes, isDocument };
+  return {
+    documents,
+    methodAliases,
+    destructuredEscapes,
+    isDocument,
+    stringAliases,
+  };
 }
 
 function documentSelectorArguments(root, source) {
@@ -353,7 +425,9 @@ function documentSelectorArguments(root, source) {
         || !ownership.isDocument(node.callee.object)) {
         return false;
       }
-      const name = selectorMemberName(node.callee);
+      const name = selectorMemberName(
+        node.callee,
+        ownership.stringAliases);
       return name === "querySelector" || name === "querySelectorAll";
     })
     .flatMap(node => {
@@ -375,7 +449,7 @@ function selectorMethodEscapes(root) {
   const escapes = [...ownership.destructuredEscapes];
   walkSyntax(root, (node, ancestors) => {
     if (node.type !== "MemberExpression") return;
-    const name = selectorMemberName(node);
+    const name = selectorMemberName(node, ownership.stringAliases);
     if (name !== "querySelector" && name !== "querySelectorAll") return;
     if (!ownership.isDocument(node.object)) return;
     const parent = ancestors.at(-1);
@@ -1116,6 +1190,28 @@ doc.querySelectorAll("[data-kind-jump]");
     selectorMethodEscapes(extractedSelectorProbe).length,
     1,
     "selector-method extraction must remain visible to the ownership scan");
+  const computedSelectorProbe = parseSync(
+    "package-view-computed-selector-probe.ts",
+    'const method = "querySelectorAll" as const; const select = document[method];')
+    .program;
+  assert.equal(
+    selectorMethodEscapes(computedSelectorProbe).length,
+    1,
+    "constant-computed selector extraction must remain visible");
+  const scopedSelectorProbe = parseSync(
+    "package-view-scoped-selector-probe.ts",
+    `{
+      const method = "title" as const;
+      const title = document[method];
+    }
+    {
+      const method = "querySelector" as const;
+      const select = document[method];
+    }`).program;
+  assert.equal(
+    selectorMethodEscapes(scopedSelectorProbe).length,
+    1,
+    "computed selector names must resolve in their lexical scope");
   const destructuredSelectorProbe = parseSync(
     "package-view-selector-destructuring-probe.ts",
     "const doc = globalThis.document; const { querySelectorAll: select } = doc;")

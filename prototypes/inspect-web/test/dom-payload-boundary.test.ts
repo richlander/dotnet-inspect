@@ -501,24 +501,27 @@ function addPatternAliasesAndMasks(
   }
 }
 
-function patternContainsDatasetProperty(pattern: Node): boolean {
+function patternContainsDatasetProperty(
+  pattern: Node,
+  aliases: DomAliases,
+): boolean {
   if (pattern.type === "AssignmentPattern") {
     const left: unknown = Reflect.get(pattern, "left");
-    return isNode(left) && patternContainsDatasetProperty(left);
+    return isNode(left) && patternContainsDatasetProperty(left, aliases);
   }
   if (pattern.type === "ArrayPattern") {
     const elements: unknown = Reflect.get(pattern, "elements");
     return Array.isArray(elements)
       && elements.some(element =>
-        isNode(element) && patternContainsDatasetProperty(element));
+        isNode(element) && patternContainsDatasetProperty(element, aliases));
   }
   if (pattern.type !== "ObjectPattern") return false;
   const properties: unknown = Reflect.get(pattern, "properties");
   return Array.isArray(properties) && properties.some(property => {
     if (!isNode(property) || property.type !== "Property") return false;
-    if (propertyName(Reflect.get(property, "key")) === "dataset") return true;
+    if (resolvedPropertyName(property, aliases) === "dataset") return true;
     const value: unknown = Reflect.get(property, "value");
-    return isNode(value) && patternContainsDatasetProperty(value);
+    return isNode(value) && patternContainsDatasetProperty(value, aliases);
   });
 }
 
@@ -953,7 +956,8 @@ function assignmentAliasViolations(files: readonly SourceFile[]): string[] {
       if (!isNode(right)
         || (domAttribute(right, aliases) === null
           && !isDatasetExpression(right, aliases)
-          && !(isNode(left) && patternContainsDatasetProperty(left)))) {
+          && !(isNode(left)
+            && patternContainsDatasetProperty(left, aliases)))) {
         return;
       }
       violations.push(
@@ -1272,12 +1276,17 @@ let assigned;
 assigned = button.dataset.overload;
 let reassignedDataset: DOMStringMap;
 ({ dataset: reassignedDataset } = button);
+const datasetKey = "dataset" as const;
+let computedDataset: DOMStringMap;
+({ [datasetKey]: computedDataset } = button);
 `);
   const assignmentViolations = assignmentAliasViolations([assignmentProbe]);
   assert.ok(assignmentViolations.some(site =>
     site.endsWith("assigned = button.dataset.overload")));
   assert.ok(assignmentViolations.some(site =>
     site.includes("{ dataset: reassignedDataset } = button")));
+  assert.ok(assignmentViolations.some(site =>
+    site.includes("{ [datasetKey]: computedDataset } = button")));
   const assignmentTargetProbe = sourceFile("assignment-target-probe.ts", `
 const rawIndex = button.dataset.slIndex;
 const { dataset } = button;
