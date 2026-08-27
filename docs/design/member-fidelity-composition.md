@@ -27,7 +27,7 @@ for the upstream artifact, resolved-assembly, and PE-session owners,
 [Member inspection planning and Metadata projection](member-inspection-planning-and-metadata-projection.md)
 for Metadata declaration facts and the CSharp representability boundary,
 [C# assembly round-trip testing](csharp-member-recompilation.md) for the
-proposed reusable engine and its unresolved request/result owner, and
+current tools-only engine design and its unresolved request/result owner, and
 [ReturnToSender: fact-planned compile-back harness](fact-planned-compile-back-harness.md)
 for the current tools-only request, proof, and reporting boundary.
 
@@ -61,7 +61,7 @@ policy to this document.
 | Resolved assembly reference | Selected managed-assembly identity and guarded repeatable content access | Supply the exact selected assembly and owner-issued provenance to the inspection session | Does not own artifact acquisition or PE lifetime |
 | Assembly inspection session | One opened PE lifetime and session-scoped operations | Keep the reader/image coherent and live while Metadata materializes escaping facts | Does not own artifact identity, assembly selection, or Metadata facts |
 | `ILInspector.MetadataPrimitives` | Bounded SRM mechanics, neutral structural identity, raw MethodSemantics rows, and work budgets | Return typed rejection or exhaustion without display or fallback policy | Does not own API identity, fidelity, or reconstruction |
-| `ILInspector.Metadata` | Metadata facts, API models, declaration identity, operator classification, MethodImpl relationships, and PDB correlations | Materialize reader-local evidence into owner-issued facts carrying every discriminator required by declared consumers | Does not decide body fidelity or render C# |
+| `ILInspector.Metadata` | Metadata facts, API models, declaration identity, operator classification, MethodImpl relationships, cross-reader method correspondence, and PDB correlations | Materialize reader-local evidence into owner-issued facts carrying every discriminator required by declared consumers | Does not decide body fidelity or render C# |
 | `ILInspector.Analysis` | Whole-assembly IL, body, call-site, `MethodIdentity`, and `MemberRef` evidence | Preserve definition-versus-reference provenance and explicit unknown evidence in body/call-site facts | Does not own API identity, C# representability, or compile-back fidelity |
 | `ILInspector.Decompiler` | Method-body import, typed IR, C# body production, spellability, and body fidelity | Consume owner-issued metadata facts and report unsupported or unspellable projections without inferring identity from text | Does not own API extraction or artifact closure |
 | `ILInspector.CSharp` | Model-bound C# representability, declaration spelling, and typed type/member request rendering | Decide representability from Metadata-issued facts, then render accepted requests or return typed refusal | Does not discover metadata relationships or repair a plan |
@@ -253,7 +253,7 @@ repository harness rules.
 | How a classified member is displayed in CLI output | CLI/output |
 | Whether a MethodImpl body and declaration belong to the same canonical relationship | Metadata |
 | Which interface-edge and MethodImpl obligations the requested donor must retain | ReturnToSender planner, consuming Metadata facts |
-| Whether original and donor members correspond | Proposed C# assembly round-trip capability, through its typed cross-reader resolver |
+| Whether original and donor method addresses correspond across readers | Metadata's total `MethodCorrespondenceResolver` |
 | Whether all requested evidence permits current compile-back `Exact` | ReturnToSender's versioned harness fidelity contract |
 
 If implementation needs a decision not present in this table, the next step is
@@ -277,21 +277,33 @@ required by declared consumers, including typed semantic refusal.
 
 **Non-claims:** body spellability, donor planning, C# rendering, and `Exact`.
 
-### 2. Bounded Metadata traversal receipt
+### 2. MetadataPrimitives bounded rejection
 
-**Owner:** bounded Metadata traversal.
+**Owner:** `ILInspector.MetadataPrimitives`.
 
 **Owning document:**
 [Bounded metadata traversal](bounded-metadata-traversal.md).
 
-**Claim:** define the owner-issued typed budget/rejection result consumed by
-Metadata projections and the receipt gate proving that filtered or bounded
-operations cannot turn it into ordinary absence.
+**Claim:** define the neutral budget and typed rejection result issued to
+Metadata consumers.
 
-**Non-claims:** projection filtering strategy, index implementation, semantic
-classification, and consumer presentation.
+**Non-claims:** Metadata projection receipt, semantic classification, and
+consumer presentation.
 
-### 3. Analysis body and call-site operator evidence
+### 3. Metadata bounded-rejection receipt
+
+**Owner:** `ILInspector.Metadata`.
+
+**Owning document:**
+[Member inspection planning and Metadata projection](member-inspection-planning-and-metadata-projection.md).
+
+**Claim:** define how Metadata projection and degraded-fact results consume
+MetadataPrimitives rejection without turning exhaustion into ordinary absence.
+
+**Non-claims:** traversal mechanics, budget construction, filtering strategy,
+index implementation, and higher-consumer presentation.
+
+### 4. Analysis body and call-site operator evidence
 
 **Owner:** `ILInspector.Analysis`.
 
@@ -306,7 +318,7 @@ changing `MethodIdentity` or `MemberRef` equality accidentally.
 **Non-claims:** API classification, C# representability, decompiler
 spellability, and compile-back fidelity.
 
-### 4. Research body-identity receipt
+### 5. Research body-identity receipt
 
 **Owner:** `ILInspector.Research`.
 
@@ -320,7 +332,7 @@ reconstructing, strengthening, or dropping its unknown state.
 **Non-claims:** Analysis fact construction, API identity, and compile-back
 fidelity.
 
-### 5. CSharp declaration representability
+### 6. CSharp declaration representability
 
 **Owner:** `ILInspector.CSharp`.
 
@@ -334,7 +346,7 @@ forms.
 
 **Non-claims:** Metadata fact construction, body projection, and donor closure.
 
-### 6. Decompiler operator consumption
+### 7. Decompiler operator consumption
 
 **Owner:** `ILInspector.Decompiler`.
 
@@ -348,7 +360,7 @@ document remains supporting mechanics, not a second owner.
 **Non-claims:** Metadata or Analysis classification, declaration
 representability, API display, and artifact closure.
 
-### 7. CLI classified-member projection
+### 8. CLI classified-member projection
 
 **Owner:** CLI/output.
 
@@ -361,21 +373,35 @@ display spelling without parsing `op_*` names.
 **Non-claims:** member classification, C# declaration representability, and
 body fidelity.
 
-### 8. Cross-reader member correspondence
+### 9. Cross-reader method correspondence
 
-**Owner:** proposed C# assembly round-trip capability.
+**Owner:** `ILInspector.Metadata`.
+
+**Owning document:** a focused Metadata method-correspondence document
+established by that effort.
+
+**Claim:** document and gate the shipped `MethodCorrespondenceResolver` as the
+single total resolver from one module-scoped method address to an exact target
+address or `Absent`, `Ambiguous`, or `Failed`.
+
+**Non-claims:** changing API or body identity construction, round-trip receipt,
+diff semantics, and final fidelity classification.
+
+### 10. Round-trip correspondence receipt
+
+**Owner:** current `DotnetInspector.RoundTripCompilation` consumer.
 
 **Owning document:**
 [C# assembly round-trip testing](csharp-member-recompilation.md).
 
-**Claim:** close the existing planned-capability decision by assigning and
-defining a product-owned typed resolver from normalized owner identities to
-exact endpoint handles with total absent, ambiguous, and failed outcomes.
+**Claim:** define how the current tools-only comparison consumes Metadata's
+total correspondence result before invoking product C# and IL diff arbiters,
+preserving every non-exact state.
 
-**Non-claims:** changing API or body identity construction, using display text
-as a resolver, diff semantics, and final fidelity classification.
+**Non-claims:** Metadata correspondence semantics, long-term request/result
+ownership, product diff semantics, and ReturnToSender's final verdict.
 
-### 9. ReturnToSender obligations and verdict
+### 11. ReturnToSender obligations and verdict
 
 **Owner:** ReturnToSender.
 
@@ -389,14 +415,17 @@ under the existing ReturnToSender status contract.
 **Non-claims:** product C# construction, Metadata relationship construction,
 correspondence construction, and product diff semantics.
 
-The proposed reusable round-trip engine remains a separate design. Its owning
-document still has an open decision for request/result ownership. This map does
-not resolve that decision or transfer ReturnToSender's current verdict to the
-future engine.
+The reusable round-trip engine already exists in
+`tools/RoundTripCompilation` and is consumed by ReturnToSender. Its owning
+document still has an open decision for long-term request/result ownership.
+This map does not resolve that decision or transfer ReturnToSender's current
+verdict to the engine.
 
 There is no ownerless integration successor. Each immediate consumer owns the
 receipt test for its incoming handoff:
 
+- Metadata gates MetadataPrimitives/bounded-traversal rejection into its
+  projection and degraded-fact results;
 - Analysis gates Metadata-to-Analysis fact adaptation;
 - Research gates Analysis-to-Research body-identity and evidence receipt;
 - CSharp gates Metadata-to-CSharp representability input;
@@ -404,15 +433,16 @@ receipt test for its incoming handoff:
 - CLI gates Metadata/API classification projection;
 - ReturnToSender gates Metadata/CSharp/Decompiler inputs to its obligation
   ledger;
-- the proposed round-trip capability gates typed cross-reader correspondence;
+- RoundTripCompilation gates its receipt of Metadata-issued cross-reader
+  correspondence;
 - ReturnToSender gates planner obligations, correspondence, compilation, and
   product results into its current verdict.
 
 ## Enforcement plan
 
-The current implementation branches contain useful candidate tests, but none is
-an enforcement gate on `main`. They are listed to preserve measured evidence,
-not to approve their implementation.
+The current implementation branches contain useful candidate tests. Candidate
+rows below preserve measured evidence without approving their implementation;
+the correspondence row records gates already present on `main`.
 
 | Target invariant | Candidate gates in the frozen stack | Status |
 | --- | --- | --- |
@@ -422,7 +452,10 @@ not to approve their implementation.
 | Receiver lowering preserves valid lambda shape | `UncheckedInstanceAssignment_MaterializedReceiverVoidLambdaStaysBlockBodied` | Candidate only; unverified on `main` |
 | C# 14 instance assignment modifiers retain operator identity | `CSharpOperatorDeclaration_AcceptsVirtualInstanceAssignmentOperators`, `ApiSurface_ReportsVirtualInstanceAssignmentOperatorsAsDeclarations` | Candidate only; unverified on `main` |
 | MethodImpl identity preserves recursive assembly scope | `Extract_PreservesExternAliasMethodImplDeclarationsWithDistinctScopes` | Candidate only; unverified on `main` |
-| Bounded Metadata rejection remains visible at the projection boundary | `FinalizerOwnerClassification_DoesNotRematerializeBaseNamesPerMethod`, `PdbFinalizerClassifier_UsesIndexedModuleScopedLookup`, `TypesOnlyExtraction_DoesNotBuildMemberOrLocalTypeIndexes` | Candidate only; unverified on `main` |
+| Metadata owns total cross-reader method correspondence | `MethodCorrespondenceResolverTests.Resolve_ReturnsExactAddressAcrossReadersOfSameArtifact`, `Resolve_ReturnsAbsentForNearMissInAnotherModule`, `Resolve_ReturnsFailedForSourceAddressFromWrongModule` | Enforced on `main` |
+| RoundTripCompilation preserves non-exact correspondence | `RoundTripComparisonTests.Compare_PreservesAbsentCorrespondenceAsUnavailable` | Enforced on `main` |
+| Bounded Metadata work avoids repeated materialization and indexes reusable lookup | `FinalizerOwnerClassification_DoesNotRematerializeBaseNamesPerMethod`, `PdbFinalizerClassifier_UsesIndexedModuleScopedLookup`, `TypesOnlyExtraction_DoesNotBuildMemberOrLocalTypeIndexes` | Candidate only; unverified on `main` |
+| Metadata preserves forced budget rejection at its projection boundary | None; the focused Metadata receipt successor must add a forced-exhaustion projection gate | Planned and unverified |
 | `Exact` requires exact interface and MethodImpl obligations | `CompileBackTargets_FullRoundTripsInheritedSameAssemblyInterfacePath`, `CompileBackTargets_ValueTypeImplicitInterfaceMethodsAndAccessorsDeclineWhenOmitted`, `CompileBackTargets_FullRoundTripsImplicitStaticAbstractInterfaceMethod` | Candidate only; unverified on `main` |
 
 Each focused successor must:
@@ -440,6 +473,7 @@ specimen for each of these paths:
 - Analysis operator fact to Research/body projection;
 - owner-issued operator fact to Decompiler body fidelity;
 - Metadata/API classification to CLI display;
+- Metadata method correspondence to a non-exact RoundTripCompilation result;
 - scoped MethodImpl relationship to reconstructed donor metadata;
 - unavailable interface relationship to an honest non-`Exact` result;
 - bounded extraction rejection to a visible non-success result.
