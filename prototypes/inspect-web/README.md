@@ -492,13 +492,16 @@ invokes `AssemblyContextMethodAnalysisQuery` for that participant and physical
 MethodDef token. The query owns retained-image, metadata-context, and Analysis
 index lifetime. The browser only formats signals, allocation and call
 occurrences, unsafe evidence, exception regions, opportunities, and visible
-diagnostics. Selected graph-only accessor bodies use their body selector and
+diagnostics. Allocation occurrences retain the product's heap-counting
+discriminator, and safety rows use the product's deduplicated semantic
+projection. Selected graph-only accessor bodies use their body selector and
 token, and ref/lib MethodDef row numbers are validated rather than treated as
 cross-image identities. Surface selections use structural correspondence
 without offering their reference-image token as an implementation fallback;
-only graph-selected implementation bodies authorize token fallback.
+only targets carrying validated graph-member identity authorize token fallback.
 `BrowserEngineBoundaryTests.MemberFacts_DistinguishesSurfaceAndBodyTokenResolution`
-gates both paths.
+gates token provenance, heap classification, and unsafe-operation
+deduplication.
 
 `QueryPackageDependencies` asks the package-content query for every dependency
 group in manifest order and an exact-framework selection outcome. A missing

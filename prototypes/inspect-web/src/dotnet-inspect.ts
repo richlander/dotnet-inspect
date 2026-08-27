@@ -16,6 +16,7 @@ import {
   graphMemberDeepLinkDisposition,
   graphMemberPendingMatchesView,
   graphMemberShareTarget,
+  isImplementationBodyTarget,
   graphMemberSelection,
   graphMemberTargetFromShare,
   graphOnlyBodyTarget,
@@ -4134,12 +4135,13 @@ function renderMemberFacts(
 
   const facts = state.memberFacts;
   const signals = facts.signals;
-  const allocOffsets = facts.allocations.map(a => a.offset);
+  const heapAllocations = facts.allocations.filter(a => a.countedAsHeap);
+  const allocOffsets = heapAllocations.map(a => a.offset);
   const callOffsets = facts.calls.map(c => c.offset);
   const safetyOffsets = facts.safety
     .map(s => s.offset)
     .filter((offset): offset is string => offset != null);
-  const loopAllocOffsets = facts.allocations.filter(a => a.inLoop).map(a => a.offset);
+  const loopAllocOffsets = heapAllocations.filter(a => a.inLoop).map(a => a.offset);
   return `
     <section class="document-section facts-section">
       <div class="section-title"><h2>Method facts</h2><span>selected overload</span></div>
@@ -4158,18 +4160,20 @@ function renderMemberFacts(
       ])}
     </section>
     ${renderFactTable("Allocation facts", facts.allocations, [
-      ["IL", "offset"], ["Kind", "kind"], ["Type", "type"], ["Multiplicity", "multiplicity"],
+      ["IL", "offset"], ["Kind", "kind"], ["Type", "type"],
+      ["Heap", row => row.countedAsHeap ? "yes" : "no"], ["Multiplicity", "multiplicity"],
       ["Path", "path"], ["Escape", "escape"], ["Loop", row => row.inLoop ? "yes" : ""],
       ["Size", row => typeof row.estimatedSizeBytes === "number"
         ? `${row.estimatedSizeBytes} B`
         : ""]
-    ], "No heap-allocation occurrences were found in this method.")}
+    ], "No allocation occurrences were found in this method.")}
     ${renderFactTable("Calls", facts.calls, [
       ["IL", "offset"], ["Opcode", "opcode"], ["Callee", "callee"],
       ["Multiplicity", "multiplicity"], ["Loop", row => row.inLoop ? "yes" : ""]
     ], "No direct call sites were found in this method.")}
     ${renderFactTable("Safety facts", facts.safety, [
-      ["IL", row => row.offset || ""], ["Kind", "kind"], ["Evidence", "detail"]
+      ["IL", row => row.offset || ""], ["Kind", "kind"], ["Operation", "operation"],
+      ["Requirement", "requirement"], ["Evidence", "evidence"]
     ], "No unsafe operations or declaration evidence were found.")}
     ${renderFactTable("Exception regions", facts.exceptionRegions, [
       ["Region", "region"], ["Clause", "clause"], ["Try", "tryRange"],
@@ -8530,6 +8534,8 @@ async function loadSelectedMemberFacts() {
   }
   const signature = memberRequestSignature(type, overload, true);
   const pkg = currentPackage();
+  const implementationBodySelected =
+    isImplementationBodyTarget(state.selectedBodyTarget);
   return memberDetailInspection.loadFacts({
     signature,
     packageId: pkg.id,
@@ -8542,8 +8548,10 @@ async function loadSelectedMemberFacts() {
     memberSignature: overload.signature,
     selectorKey:
       state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
-    metadataToken: state.selectedBodyTarget?.metadataToken ?? 0,
-    implementationBodySelected: state.selectedBodyTarget !== null,
+    metadataToken: implementationBodySelected
+      ? state.selectedBodyTarget?.metadataToken ?? 0
+      : 0,
+    implementationBodySelected,
     isCurrent: () => memberRequestIsCurrent(signature, true),
   });
 }

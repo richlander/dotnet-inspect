@@ -30,6 +30,16 @@ public sealed class BrowserEngineBoundaryTests
 
     public static int PerformanceNoAllocationProbe(int value) => value;
 
+    public static Guid PerformanceValueTypeConstructionProbe(byte[] bytes) =>
+        new(bytes);
+
+    public static int PerformanceStackAllocProbe(int value)
+    {
+        Span<int> values = stackalloc int[1];
+        values[0] = value;
+        return values[0];
+    }
+
     public static object PerformanceBoxingProperty => 42;
 
     public static class PerformanceNestedProbe
@@ -3234,7 +3244,8 @@ public sealed class BrowserEngineBoundaryTests
             root.GetProperty("allocations").EnumerateArray(),
             allocation =>
                 allocation.GetProperty("kind").GetString()
-                == nameof(AllocationKind.Box));
+                    == nameof(AllocationKind.Box)
+                && allocation.GetProperty("countedAsHeap").GetBoolean());
         Assert.Contains(
             root.GetProperty("performanceOpportunities")
                 .EnumerateArray(),
@@ -3279,6 +3290,63 @@ public sealed class BrowserEngineBoundaryTests
                 "missing-structural-selector",
                 implementationToken,
                 implementationBodySelected: false));
+
+        JsonElement valueTypeMember = Assert.Single(
+            type.GetProperty("api").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("name").GetString()
+                == nameof(PerformanceValueTypeConstructionProbe));
+        string valueTypeJson = await InspectionEngine.QueryMemberFacts(
+            PackageId,
+            "1.0.0",
+            "net11.0",
+            type.GetProperty("assembly").GetString()!,
+            type.GetProperty("definitionId").GetString()!,
+            valueTypeMember.GetProperty("name").GetString()!,
+            valueTypeMember.GetProperty("signature").GetString()!,
+            valueTypeMember.GetProperty("graphSelectorKey").GetString()!,
+            metadataToken: 0,
+            implementationBodySelected: false);
+        using JsonDocument valueTypeDocument =
+            JsonDocument.Parse(valueTypeJson);
+        Assert.Contains(
+            valueTypeDocument.RootElement
+                .GetProperty("allocations")
+                .EnumerateArray(),
+            allocation =>
+                !allocation.GetProperty("countedAsHeap").GetBoolean());
+
+        JsonElement stackAllocMember = Assert.Single(
+            type.GetProperty("api").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("name").GetString()
+                == nameof(PerformanceStackAllocProbe));
+        string stackAllocJson = await InspectionEngine.QueryMemberFacts(
+            PackageId,
+            "1.0.0",
+            "net11.0",
+            type.GetProperty("assembly").GetString()!,
+            type.GetProperty("definitionId").GetString()!,
+            stackAllocMember.GetProperty("name").GetString()!,
+            stackAllocMember.GetProperty("signature").GetString()!,
+            stackAllocMember.GetProperty("graphSelectorKey").GetString()!,
+            metadataToken: 0,
+            implementationBodySelected: false);
+        using JsonDocument stackAllocDocument =
+            JsonDocument.Parse(stackAllocJson);
+        JsonElement[] safety =
+            [.. stackAllocDocument.RootElement
+                .GetProperty("safety")
+                .EnumerateArray()];
+        Assert.Contains(
+            safety,
+            fact => fact.GetProperty("kind").GetString() == "stackalloc");
+        Assert.DoesNotContain(
+            safety
+                .Where(fact => fact.GetProperty("offset").ValueKind
+                    == JsonValueKind.String)
+                .GroupBy(fact => fact.GetProperty("offset").GetString()),
+            group => group.Count() > 1);
     }
 
     [Fact]

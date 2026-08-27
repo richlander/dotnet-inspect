@@ -591,6 +591,7 @@ public sealed record BrowserAllocationFact(
     string Kind,
     string? Type,
     string Offset,
+    bool CountedAsHeap,
     string Frequency,
     string Multiplicity,
     string Path,
@@ -610,7 +611,9 @@ public sealed record BrowserCallFact(
 public sealed record BrowserSafetyFact(
     string Kind,
     string? Offset,
-    string Detail);
+    string Operation,
+    string Requirement,
+    string Evidence);
 
 public sealed record BrowserExceptionRegion(
     int Region,

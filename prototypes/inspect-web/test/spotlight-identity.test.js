@@ -37,6 +37,7 @@ import {
   graphMemberTargetFromPacket,
   graphMemberTargetFromShare,
   graphOnlyBodyTarget,
+  isImplementationBodyTarget,
   retainGraphOnlyBodyTarget,
   MARKDOWN_SANITIZE_OPTIONS,
   MAX_WORKSPACE_PACKAGES,
@@ -2930,6 +2931,10 @@ test("member detail adapters preserve exact engine coordinates", () => {
     appSource.match(
       /async function loadSelectedMemberFacts\(\)[\s\S]*?\n}\n\ninterface LoadPackageOptions/)?.[0]
     ?? "";
+  const factsRenderer =
+    appSource.match(
+      /function renderMemberFacts\([\s\S]*?\n}\n\ntype FactTableColumn/)?.[0]
+    ?? "";
 
   assert.match(
     coordinator,
@@ -2957,7 +2962,16 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /const signature = memberRequestSignature\(type, overload, true\)/);
   assert.match(
     factsLoader,
-    /return memberDetailInspection\.loadFacts\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*type: type\.queryId \?\? type\.id,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name,\s*memberSignature: overload\.signature,\s*selectorKey:[\s\S]*metadataToken: state\.selectedBodyTarget\?\.metadataToken \?\? 0,\s*implementationBodySelected: state\.selectedBodyTarget !== null,\s*isCurrent: \(\) => memberRequestIsCurrent\(signature, true\)/);
+    /const implementationBodySelected =\s*isImplementationBodyTarget\(state\.selectedBodyTarget\);\s*return memberDetailInspection\.loadFacts\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*type: type\.queryId \?\? type\.id,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name,\s*memberSignature: overload\.signature,\s*selectorKey:[\s\S]*metadataToken: implementationBodySelected[\s\S]*implementationBodySelected,\s*isCurrent: \(\) => memberRequestIsCurrent\(signature, true\)/);
+  assert.match(
+    factsRenderer,
+    /const heapAllocations = facts\.allocations\.filter\(a => a\.countedAsHeap\);\s*const allocOffsets = heapAllocations\.map\(a => a\.offset\)/);
+  assert.match(
+    factsRenderer,
+    /\["Heap", row => row\.countedAsHeap \? "yes" : "no"\][\s\S]*No allocation occurrences were found in this method/);
+  assert.match(
+    factsRenderer,
+    /\["Operation", "operation"\],[\s\S]*\["Requirement", "requirement"\],[\s\S]*\["Evidence", "evidence"\]/);
 });
 
 test("type source identity includes decompiler taste", () => {
@@ -3468,6 +3482,12 @@ test("graph-only member targets round-trip through shared URLs", () => {
   };
   const encoded = graphMemberShareTarget(target);
 
+  assert.equal(isImplementationBodyTarget(target), true);
+  assert.equal(isImplementationBodyTarget({
+    memberName: target.memberName,
+    selectorKey: target.selectorKey,
+    metadataToken: target.metadataToken,
+  }), false);
   assert.deepEqual(graphMemberTargetFromShare(encoded), target);
   assert.equal(graphMemberShareTarget({
     ...target,

@@ -698,6 +698,12 @@ export function graphMemberShareTarget(
   ];
 }
 
+export function isImplementationBodyTarget(
+  target: CallGraphTarget | null | undefined,
+): boolean {
+  return graphMemberShareTarget(target) !== null;
+}
+
 export function replaceCurrentNavigationEntry<TView>(
   navigation: NavigationState<TView>,
   entry: NavigationEntry<TView>,

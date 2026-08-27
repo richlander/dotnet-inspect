@@ -372,6 +372,7 @@ public static partial class InspectionEngine
                         allocation.AllocatedType?.ToDisplayString()
                             ?? allocation.RuntimeAllocationType,
                         FormatOffset(allocation.ILOffset),
+                        allocation.CountsAsHeapAllocation,
                         allocation.Frequency.ToString(),
                         allocation.Multiplicity.ToString(),
                         allocation.PathContext.ToString(),
@@ -403,18 +404,18 @@ public static partial class InspectionEngine
                         call.InLoop)),
             ],
             [
-                .. analysis.UnsafetyOccurrences.Select(
-                    operation => new BrowserSafetyFact(
-                        operation.Kind.ToString(),
-                        FormatOffset(operation.ILOffset),
-                        operation.Detail ?? "Unsafe IL operation")),
-                .. analysis.UnsafeEvidence.Select(
-                    evidence => new BrowserSafetyFact(
-                        evidence.Kind,
-                        evidence.ILOffset is int offset
-                            ? FormatOffset(offset)
-                            : null,
-                        $"{evidence.Reason}: {evidence.Detail}")),
+                .. Analysis.SemanticFactProjection.SafetyFacts(
+                    analysis.UnsafeEvidence,
+                    analysis.UnsafetyOccurrences)
+                    .Select(
+                        fact => new BrowserSafetyFact(
+                            fact.SafetyKind,
+                            fact.ILOffset is int offset
+                                ? FormatOffset(offset)
+                                : null,
+                            fact.Operation,
+                            fact.Requirement,
+                            fact.Evidence)),
             ],
             [
                 .. analysis.ExceptionRegions.Select(

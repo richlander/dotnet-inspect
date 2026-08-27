@@ -20,6 +20,7 @@ export interface BrowserAllocationFact {
   readonly kind: string;
   readonly type: string | null;
   readonly offset: string;
+  readonly countedAsHeap: boolean;
   readonly frequency: string;
   readonly multiplicity: string;
   readonly path: string;
@@ -431,7 +432,9 @@ export interface BrowserPerformanceOpportunity {
 export interface BrowserSafetyFact {
   readonly kind: string;
   readonly offset: string | null;
-  readonly detail: string;
+  readonly operation: string;
+  readonly requirement: string;
+  readonly evidence: string;
 }
 
 export interface BrowserSource {
