@@ -76,14 +76,19 @@ public class UrlRedactionTests
             StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void ForPathComponent_EncodesNonGraphicScalars()
+    [Theory]
+    [InlineData("/flat/\u202egnp.evil")]
+    [InlineData("/flat/\r\nX-Injected: 1\t")]
+    public void ForPathComponent_EncodesNonGraphicScalars(string path)
     {
-        InertString redacted =
-            UrlRedaction.ForPathComponent("/flat/\u202egnp.evil");
+        InertString redacted = UrlRedaction.ForPathComponent(path);
 
         Assert.True(redacted.WasEncoded);
-        Assert.DoesNotContain('\u202e', redacted.ToString());
+        Assert.NotEqual(path, redacted.ToString());
+        Assert.True(
+            InertString.IsPermitted(
+                TextPolicy.Field,
+                redacted.ToString()));
     }
 
     [Fact]

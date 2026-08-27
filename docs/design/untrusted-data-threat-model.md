@@ -134,6 +134,27 @@ than a missing line in a hand-maintained list. It is the primitive this section
 argues for; prefer it over a new `HardenedJson`-shaped static entry point when
 the thing being contained is text bound for a sink.
 
+One thing this rule does **not** forbid is escaping and encoding. Escaping a
+value on the way into a sink — JSON string escapes, `vis(3)`-style visual
+encoding of control characters — is a property of the *encoding*, applied
+uniformly to all text, lossless and invertible. Sanitization is different: it
+inspects a value, judges it dangerous, and alters or drops part of it so the
+rest can proceed.
+
+Both have to know which characters the sink interprets; a terminal has no
+formal grammar, so encoding for one is not the free lunch that escaping for
+JSON is. The distinction is what happens when you are **wrong** about that set:
+
+- Under-encode, and the fix is to widen the set in one place. Nothing was
+  lost, the decoder still recovers the original, and every call site inherits
+  the correction at once.
+- Under-sanitize, and the data is already gone, the judgment is spread across
+  every call site that made it, and there is no decoder to appeal to.
+
+Uniformity is the other half. An encoder does not decide *whether* a given
+value is hostile, so it cannot be wrong about a value — only about the sink.
+That is a much smaller thing to be right about, and it is written down.
+
 ### URL path-component redaction
 
 `InertText.UrlRedaction` owns both complete-URL diagnostic redaction and the
@@ -160,27 +181,6 @@ This contract is gated by
 `ForPathComponent_EncodesNonGraphicScalars` in the Release
 `InertText.Tests` suite. The authority-shaped and credential-bearing cases
 make the path-only wiring non-vacuous.
-
-One thing this rule does **not** forbid is escaping and encoding. Escaping a
-value on the way into a sink — JSON string escapes, `vis(3)`-style visual
-encoding of control characters — is a property of the *encoding*, applied
-uniformly to all text, lossless and invertible. Sanitization is different: it
-inspects a value, judges it dangerous, and alters or drops part of it so the
-rest can proceed.
-
-Both have to know which characters the sink interprets; a terminal has no
-formal grammar, so encoding for one is not the free lunch that escaping for
-JSON is. The distinction is what happens when you are **wrong** about that set:
-
-- Under-encode, and the fix is to widen the set in one place. Nothing was
-  lost, the decoder still recovers the original, and every call site inherits
-  the correction at once.
-- Under-sanitize, and the data is already gone, the judgment is spread across
-  every call site that made it, and there is no decoder to appeal to.
-
-Uniformity is the other half. An encoder does not decide *whether* a given
-value is hostile, so it cannot be wrong about a value — only about the sink.
-That is a much smaller thing to be right about, and it is written down.
 
 ### Failure messages carry no artifact data
 
