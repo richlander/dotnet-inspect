@@ -86,8 +86,9 @@ direct assembly asset, native asset, or `ProjectReference`; repository-wide
 build-only analyzers and targets remain allowed only when they contribute no
 compile/runtime asset. A static product-closure gate prohibits console,
 filesystem, network, process, dedicated-thread, parallel-loop, and native
-interop APIs. Its public execution surface is synchronous and deterministic,
-making it usable by NativeAOT and single-threaded Browser/Wasm consumers.
+interop APIs. With deterministic caller callbacks, its public execution
+surface is synchronous and deterministic, making it usable by NativeAOT and
+single-threaded Browser/Wasm consumers.
 
 ## Normalized plan
 
@@ -106,11 +107,11 @@ Counts and range coordinates are positive integers. A closed range is
 1-based and inclusive. An open range has a start and no end.
 
 `Take` is not a distinct semantic stage; a caller spelling with that meaning
-lowers to `Head`. `Top` carries an opaque ordering value already resolved by
-the caller. The component asks the supplied resolver for its comparer and does
-not parse field names, consult section schema, or infer ranking intent. Equal
-comparisons retain current sequence order, making the current stage position
-the deterministic final tie-breaker.
+lowers to `Head`. `Top` carries an opaque ranking-order identity already
+resolved by the caller. The component asks the supplied resolver to map that
+identity to its comparer and does not parse field names, consult section
+schema, or infer ranking intent. Equal comparisons retain current sequence
+order, making the current stage position the deterministic final tie-breaker.
 
 The plan permits repeated stages of any kind. It contains no incomplete
 modifier waiting for another token and no implicit default count. L3 owns
@@ -123,6 +124,31 @@ misuse, not a semantic range failure.
 
 An empty plan preserves every input value and its order without invoking the
 comparer resolver.
+
+Callback resolution follows pipeline order. An executor validates at entry
+that a non-null resolver is present when the plan contains `Top`, but it does
+not invoke the resolver during plan-wide validation. Each `Top` stage asks the
+resolver for its comparer exactly once when that stage is first reached during
+one executor invocation, and caches that comparer for the same stage across
+later named sequences. Repeated `Top` stages resolve independently even when
+they carry equal order values.
+
+An earlier strict `Range` failure therefore prevents a later `Top` resolver
+from running. `ApplyNamed` considers sequences in input order and stages in
+plan order while withholding every result until all sequences succeed. A
+failure or callback exception stops that traversal: a callback reached in an
+earlier sequence precedes a semantic failure in a later sequence, while a
+strict failure in the current sequence precedes every later-stage callback.
+Resolver and comparer exceptions propagate unchanged. Comparer call count and
+pair order are implementation details; callers must supply a deterministic
+comparer.
+
+An unkeyed empty value sequence still executes the plan, so it reaches `Top`
+unless an earlier strict stage fails. A named call with no input sequences
+reaches no stage and returns an empty successful sequence snapshot; a named
+empty value sequence behaves like the unkeyed empty sequence. Resolver
+presence is still boundary validation: a plan containing `Top` rejects a null
+resolver at entry even when no sequence would reach that stage.
 
 ## Public surface and immutability
 
@@ -231,9 +257,10 @@ public static class RowSelectionExecutor
 ```
 
 The API manifest includes type kind, visibility, generic arity and constraints,
-member name, static/instance shape, parameter and return type, nullability, and
-enum values. Inherited `object` members and compiler-generated metadata that
-does not add callable surface are outside the manifest.
+member name, static/instance shape, parameter name, order, type, nullability,
+optionality, default value, return type, and enum values. Inherited `object`
+members and compiler-generated metadata that does not add callable surface are
+outside the manifest.
 
 `Count` is valid for `Head`, `Tail`, and `Top`; `Start` and `End` are valid for
 `Range`; `Order` is valid for `Top`. A wrong-kind accessor throws
@@ -291,7 +318,10 @@ Each stage consumes the sequence produced by the preceding stage:
 | `Top(N, order)` | Rank the current rows by `order`, then keep the first `min(N, count)`. |
 
 `Head`, `Tail`, and `Top` are lenient: a request larger than the current input
-returns every current row. `Tail` never reverses the surviving rows.
+returns every current row. `Head` and `Tail` retain current order, and `Tail`
+never reverses the surviving rows. `Top` always resolves and applies its
+ranking, including when its count is at least the current count; an oversized
+`Top` therefore returns every row in ranked order rather than baseline order.
 
 `Range` is strict. A closed range requires its end, not merely its start, to
 exist in the current input. An open range requires its start to exist. A
@@ -322,6 +352,14 @@ Conceptual examples make the evaluation order explicit:
 [1, 2, 3, 4, 5, 6, 7, 8].Head(2).Range[2, 3]
 => [1, 2].Range[2, 3]
 => error: stage 2 requires position 3, but its input has 2 rows
+
+[4, 1, 3, 2].Top(10, ascending).Head(2)
+=> [1, 2, 3, 4].Head(2)
+=> [1, 2]
+
+[1, 2, 3, 4, 5, 6].Range[2, 5].Top(2, descending)
+=> [2, 3, 4, 5].Top(2, descending)
+=> [5, 4]
 ```
 
 Reindexing changes only the temporary positions consumed by the next stage.
@@ -349,6 +387,10 @@ A `Top` stage is the one selection stage that changes order itself. It ranks
 only its current input, then applies its lenient head count. A later stage sees
 that ranked subset with positions restarted at 1. A later `Top` may rank the
 surviving subset again by a different resolved order.
+
+Putting `Top` last is an ordinary and useful plan: every preceding stage first
+establishes the candidates that the final stage ranks. No eager comparer
+resolution may make a later `Top` observable before execution reaches it.
 
 Whether a CLI `--order-by` establishes baseline order or binds to a `Top`
 gesture is a CLI/schema-lowering question. The normalized plan never carries an
@@ -403,7 +445,14 @@ those choices are observationally equivalent only when they preserve:
 - the same output order;
 - the same strict-range success or failure;
 - the same named-sequence boundary; and
-- the same all-or-failure output behavior.
+- the same all-or-failure output behavior;
+- the same set of reached `Top` stages and one resolver invocation per reached
+  stage; and
+- the same semantic-failure, resolver-failure, and comparer-failure precedence.
+
+Comparer call count and pair order are not equivalence dimensions for a valid
+deterministic comparer. The source-pushdown successor must reject an
+optimization it cannot prove against the remaining callback contract.
 
 This distinction matters when a later lenient stage would keep fewer rows than
 an earlier strict stage validates:
@@ -448,27 +497,30 @@ The implementation must add these named Release gates:
 | Gate | Contract |
 | --- | --- |
 | `SelectionStagesComposeInDeclaredOrder` | Reversing `Head`, `Tail`, `Range`, or `Top` stages changes results exactly as the reference examples require; every stage reads positions beginning at 1 from the preceding output. |
-| `SelectionCountsAreLenientAndRangesAreStrict` | Oversized `Head`, `Tail`, and `Top` return the complete current input, while closed and open ranges fail unless their required endpoint exists at that stage. |
+| `SelectionCountsAreLenientAndRangesAreStrict` | Oversized `Head` and `Tail` return the complete current input in current order; oversized `Top` returns every current row in ranked order; closed and open ranges fail unless their required endpoint exists at that stage. |
 | `RowSelectionPlanRejectsInvalidStages` | Every public construction path rejects nonpositive counts, nonpositive range coordinates, and a closed end before its start rather than creating an empty or unlimited stage. |
 | `EmptyRowSelectionPlanIsIdentity` | An empty plan returns an immutable snapshot containing every original value in order and never invokes the comparer resolver. |
-| `TopRequiresResolvedComparer` | A resolver that returns no comparer identifies the `Top` stage and rejects as caller misuse before any selected result is returned. |
-| `SelectionCallbackExceptionsPropagateUnchanged` | Both executor entry points propagate the exact sentinel exception instance thrown by the comparer resolver or comparer; no sorting path wraps, substitutes, or suppresses it. |
+| `TopRequiresResolvedComparer` | A reached resolver that returns no comparer identifies the `Top` stage and rejects as caller misuse before any selected result is returned. |
+| `SelectionCallbacksFollowStageOrder` | Both executor entry points validate resolver presence without eager invocation, resolve each reached `Top` stage exactly once, cache that stage's comparer across named sequences, and stop before later callbacks after an earlier strict failure or callback exception. Fixtures cover `Range` before and after `Top`, multiple named sequences, repeated equal order values, unkeyed and named empty value sequences, and a named call with no sequences. |
+| `SelectionCallbackExceptionsPropagateUnchanged` | Both executor entry points propagate the exact sentinel exception instance thrown by a reached comparer resolver or by an always-throwing comparer over at least two rows; no sorting path wraps, substitutes, or suppresses it. |
 | `RowSelectionRejectsNullBoundaryInputs` | Every required reference argument rejects null; a null resolver is accepted only without `Top`; nullable row values remain ordinary selected values. |
 | `StageAccessorsRejectWrongKind` | Each kind exposes only its documented values; every wrong-kind `Count`, `Start`, `End`, or `Order` access throws rather than returning a plausible default. |
 | `StrictRangesValidateNamedSequencesAtomically` | A strict-range miss in any one of several keyed sequences identifies the key and stage and returns no selected sequence collection. |
 | `SelectionFailuresAreDeterministic` | Multiple failing named sequences return the first failure by input sequence order and stage order; duplicate `RowSequenceKey.Value` values reject before execution. |
 | `RowSequenceKeyHasStableValueSemantics` | Negative values reject; separately created equal values compare equal and produce equal hash codes; distinct values compare unequal; L2's typed row-set identity never enters the component. |
 | `RowRangeFailureShapeIsExact` | Unkeyed failures contain exactly stage number, required position, and available count; named failures add only the opaque key. Closed ranges report their end and open ranges report their start against the post-predecessor count. |
+| `TopAlwaysRanksCurrentInput` | Every `Top` over at least two rows, including an oversized one, resolves and applies its comparer; `Top(oversized)` followed by a positional stage observes ranked rather than baseline order. |
 | `TopRetainsCurrentOrderForEqualRanks` | Equal comparer results preserve current sequence order, including after an earlier stage changed the current sequence. |
 | `SelectionReturnsOriginalValuesInOrder` | The executor preserves each original caller-owned `T` value or reference without cloning, relabeling, or deriving identity from stage positions. |
 | `SelectionResultsSnapshotMembership` | Source-list mutation after named-input creation or execution cannot change result membership or order; exposed collections cannot mutate the snapshot. Fixtures cover empty, oversized Head/Tail/Top, Range, mixed stages, and named success/failure paths. |
 | `RowSelectionPlanIsImmutableSnapshot` | Mutating a caller-owned stage collection after `Create` cannot change the plan; `Stages` exposes no mutable collection; `Append` leaves the prior plan unchanged; every stage remains immutable. |
-| `RowSelectionPublicSurfaceIsExact` | A generated expected set derived from the signature manifest in [Public surface and immutability](#public-surface-and-immutability) rejects any missing or extra type, constructor, member, mutator, host-shaped overload, asynchronous protocol, generic constraint, or enum value. |
-| `RowSelectionExternalConsumerExercisesSurface` | A non-friend fixture project constructs every stage, plan, and named input through the declared factories; invokes both executor methods; and observes every accessor and success/failure branch. Removing any intended public wiring fails the gate. |
+| `RowSelectionPublicSurfaceIsExact` | A generated expected set derived from the signature manifest in [Public surface and immutability](#public-surface-and-immutability) rejects any missing or extra type, constructor, member, mutator, host-shaped overload, asynchronous protocol, generic constraint, enum value, parameter name/order/type/nullability/optionality, or default value. |
+| `RowSelectionExternalConsumerExercisesSurface` | A non-friend fixture project constructs every stage, plan, and named input through the declared factories; invokes both executor methods with omitted and named optional arguments; and observes every accessor and success/failure branch. Removing any intended public wiring fails the gate. |
 | `RowSelectionHasOnlyFrameworkRuntimeDependencies` | Evaluated Release references and resolved compile/runtime/native assets contain only framework references and this component; build-only tooling is allowed only when it contributes no product asset. |
 | `RowSelectionForbidsHostApis` | A static product-closure gate rejects console, filesystem, network, process, dedicated-thread, parallel-loop, and native-interop APIs even though those APIs are in the BCL. |
 | `RowSelectionRunsOnNativeAotAndBrowser` | The reference stage matrix executes in Release under NativeAOT and single-threaded Browser/Wasm hosts. |
 
 The source-pushdown successor must add an equivalence gate comparing every
 optimized plan it supports with this complete-sequence reference executor,
-including strict ranges before and after lenient stages.
+including strict ranges before and after lenient stages, reached-stage resolver
+cardinality, and callback/failure precedence.

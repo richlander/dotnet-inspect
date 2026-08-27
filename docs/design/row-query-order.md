@@ -167,9 +167,12 @@ Rules:
   default.
 - Named composite orders are allowed when declared by the section, for example
   `Triage desc`.
-- An explicit `--order-by` satisfies `--top`'s ranking requirement.
-- A default order satisfies bare `--top` only when the section declares
-  `DefaultOrderKind = Ranking`.
+- A semantic `Top` stage requires an explicit or schema-default order whose
+  declared kind is `Ranking`.
+- Stable sequence orders may establish baseline order but cannot resolve
+  `Top`.
+- L3 owns which gestures combine an order with `Top` and how invalid
+  combinations reject.
 
 ## Schema discoverability
 
@@ -205,9 +208,8 @@ Sortable fields:
 This makes the default sort order and its meaning visible exactly where users
 and agents already learn columns. Candidate fingerprint ordering, for example,
 is a `Sequence`: it is useful for stable pagination within one build, not as a
-semantic priority and cannot support bare `--top`. Exact token predicates
-normalize hexadecimal metadata tokens, so `0x2000001` matches rendered
-`0x02000001`.
+semantic priority and cannot resolve `Top`. Exact token predicates normalize
+hexadecimal metadata tokens, so `0x2000001` matches rendered `0x02000001`.
 
 `-D <section>` may include a compact form of the same metadata, but `--schema`
 is the authoritative static contract.
@@ -311,13 +313,9 @@ Unsortable sections should reject ordering clearly:
 Error: Section 'Facts' does not declare sortable fields.
 ```
 
-A stable but non-ranking default should reject bare `--top`:
-
-```text
-Error: Section 'Files' has a sequence default, not a ranking default.
-Supply an explicit ranking order, or use the positional selection gesture
-defined by the L3 design.
-```
+A stable but non-ranking default cannot resolve a semantic `Top` stage. The
+row-query owner reports that no ranking order was resolved; L3 owns gesture
+validation and diagnostic wording.
 
 ## Open questions
 
