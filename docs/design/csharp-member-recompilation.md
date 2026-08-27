@@ -176,16 +176,18 @@ cluster donor <-> all donor
 ```
 
 The comparison resolves exact cluster-donor and all-donor method handles through
-a typed cross-reader correspondence result. That resolver is a planned product
-capability; normalized `ResearchMemberIdentity` strings are correspondence input,
-not a handle resolver by themselves. The direct donor comparison then applies
-the existing C# and IL diff contracts. Separate original-to-cluster and
-original-to-all correspondence and diff results remain available as fidelity
-evidence, but they are not substituted for the direct scope comparison. A donor
-difference may reveal context-sensitive binding, incomplete cluster membership,
-different synthesized context, or an artifact-production gap. It is evidence,
-not automatically a cluster defect. If either donor or member correspondence is
-absent, ambiguous, or failed, the scope comparison is `Unavailable` and retains
+a typed cross-reader correspondence result. Ordinary members use the existing
+`MethodCorrespondenceResolver`; normalized `ResearchMemberIdentity` strings are
+correspondence input, not a handle resolver by themselves. Compiler-generated
+definitions additionally require the #4883 owner result. The direct donor
+comparison then applies the existing C# and IL diff contracts. Separate
+original-to-cluster and original-to-all correspondence and diff results remain
+available as fidelity evidence, but they are not substituted for the direct
+scope comparison. A donor difference may reveal context-sensitive binding,
+incomplete cluster membership, different synthesized context, or an
+artifact-production gap. It is evidence, not automatically a cluster defect. If
+either donor or member correspondence is absent, ambiguous, or failed, the
+scope comparison is `Unavailable` and retains
 the typed reason.
 
 The initial `cluster` lane remains useful without a successful `all` lane. A
@@ -258,9 +260,10 @@ plan all replacements into one typed artifact and compile one donor.
 ```
 
 The reusable capability is a round-trip compile engine plus result composition
-over the product artifact pipeline. The shell producer and printer already
-exist; the typed member-body increment is an explicit prerequisite below.
-ReturnToSender is one consumer, not the general abstraction.
+over the product artifact pipeline. The shell producer, printer, and typed
+member-body increment already exist; #4882 adds only the missing generated-
+fragment dependency and destination evidence. ReturnToSender is one consumer,
+not the general abstraction.
 
 ## Ownership boundaries
 
@@ -270,9 +273,10 @@ ReturnToSender is one consumer, not the general abstraction.
 - **CSharp** owns `TypeShellProducer` for metadata-backed typed shell composition
   and `CSharpTypePrinter` for rendering typed requests as C# source.
 - **Decompiler** owns `MemberBodyProducer` for selected-member C# body production
-  and fidelity grade. Its current public API returns composed source; the plan
-  must add a handle-addressed result that exposes a typed `CSharpMemberBody` plus
-  fidelity and failure provenance before tools consume individual bodies.
+  and fidelity grade. Its existing handle-addressed `ProduceBody` API returns
+  `MemberBodyProductionResult` with a typed `CSharpBlockBody` and materialized
+  projection. Issue #4882 adds generated-fragment dependency and destination
+  evidence; it does not replace that body seam.
 - **ILDiff** owns `IlBodyDiff`, its normalization mechanics, and its total
   exact/different/unavailable outcome.
 - **Research** owns `ImplementationDiff`, joining product C# and IL evidence.
@@ -292,12 +296,12 @@ engine consumes their typed results and must not strengthen or reinterpret them.
 - Harnesses own fixtures, comparison policy, assertions, and reporting.
 
 `TypeShellProducer` and `CSharpTypePrinter` already produce and render typed C#
-declarations. The planned member-scoped `MemberBodyProducer` seam supplies typed
-body increments without composing a parallel declaration. The harness may select
-scope, members, and typed body policies, but it must not format declarations or
-reconstruct decompiled bodies itself. Compiler feedback may expand a typed
-request but must not trigger ad hoc source patches that compensate for missing
-product behavior.
+declarations. The existing member-scoped `MemberBodyProducer` seam supplies
+typed body increments without composing a parallel declaration. The harness may
+select scope, members, and typed body policies, but it must not format
+declarations or reconstruct decompiled bodies itself. Compiler feedback may
+expand a typed request but must not trigger ad hoc source patches that
+compensate for missing product behavior.
 
 ## Typed request and result
 
@@ -319,7 +323,8 @@ public enum RoundTripBodyPolicy
 
 public sealed record RoundTripMethodReplacement(
     MemberAnchor Method,
-    CSharpBlockBody Body);
+    CSharpBlockBody Body,
+    SuppliedBodyDependencyPlan? Dependencies);
 
 public sealed record RoundTripRequest(
     ArtifactIdentity Artifact,
@@ -337,6 +342,16 @@ interpreted without its physical metadata scope. The request resolves both
 through the owning artifact session, whose acquisition registration and guarded
 retained content supply the exact bytes and provenance. Display text and a
 readable path are not identity or read authority.
+
+`SuppliedBodyDependencyPlan` is tools request evidence for one exact supplied
+body digest. It retains typed dependency occurrences, expected definition
+identities, and owner-issued source coordinates that the compiler adapter can
+bind. A source-only `CSharpBlockBody` may still compile and participate in
+comparison, but without this plan it cannot produce a complete compile-context
+receipt or `Exact`. The original member's IL census is not evidence for
+dependencies introduced only by supplied source, and tools do not parse that
+source to discover them.
+
 For the first contract, supplied C# is a `CSharpBlockBody` addressed to one
 metadata method definition: an ordinary method, constructor, or individual
 property/event accessor. The product artifact pipeline maps that method body into
@@ -566,15 +581,17 @@ union:
 - `UnresolvedDefinition` retains a typed failure and cannot participate in
   success.
 
-The source-local arm uses original artifact/module identity and
-`TypeDefinitionHandle`. A rebuilt declaration projects back to that identity
-only through the typed declaration plan and rebuilt-member correspondence.
-Equal namespace-qualified text is insufficient.
+The source-local arm uses original artifact identity plus the owner-issued
+durable `MetadataTypeDefinitionAddress`; a raw `TypeDefinitionHandle` exists
+only transiently while that address is validated against a live reader. A
+rebuilt declaration projects back to that identity only through the typed
+declaration plan and rebuilt-member correspondence. Equal namespace-qualified
+text is insufficient.
 
-The compiler-synthesized arm retains the original module, token, and Metadata
-evidence that the definition is generated, plus the emitted member whose C#
-artifact can cause regeneration. It is a deferred binding obligation, not a
-local declaration receipt. It completes only when an owner-issued typed
+The compiler-synthesized arm retains the original durable type/member address
+and Metadata evidence that the definition is generated, plus the emitted member
+whose C# artifact can cause regeneration. It is a deferred binding obligation,
+not a local declaration receipt. It completes only when an owner-issued typed
 cross-reader correspondence for that generated construct uniquely returns the
 original and rebuilt definitions. The current
 `CompilerGeneratedOrdinalCorrespondence` exposes per-side normalized names, not
@@ -610,7 +627,7 @@ by the effective body policy, including selected targets, required companions,
 and `full`-policy members. Each requirement records:
 
 - its `CompileDefinitionIdentity` or unresolved state;
-- original module and metadata handle;
+- owner-issued durable type/member address;
 - role and occurrence provenance;
 - whether generated source, one selected reference, or an intrinsic must
   provide it;
@@ -619,22 +636,35 @@ and `full`-policy members. Each requirement records:
 Duplicates retain every occurrence. They may share one resolved definition but
 cannot erase a stronger requirement or a failure.
 
+Raw metadata handles may appear only in a transient candidate plan while its
+reader is live. Every outcome or receipt that escapes the owner scope
+materializes the corresponding durable address and validates it again before
+re-resolution.
+
 The tools-owned effective artifact plan also produces an immutable
 `ArtifactParticipantPlan`. It assigns stable expected participant IDs to every
 requested declaration, effective real body, and generated fragment. Each
 planned census result is keyed by one expected participant ID.
 
-Expected-plan coverage is not self-proving. After rendering, tools consume the
-producer-issued, artifact-digest-bound participant manifest from
-[#4881](https://github.com/richlander/dotnet-inspect/issues/4881).
+Expected-plan coverage is not self-proving. After rendering, tools consume a
+policy-specific, artifact-digest-bound participant manifest:
+
+- the product-whole-member policy consumes the CSharp producer manifest from
+  [#4881](https://github.com/richlander/dotnet-inspect/issues/4881);
+- the legacy policy consumes a manifest issued by the tools-owned
+  `LegacyArtifactEmitter` as it renders declarations, bodies, and fragments.
+  The planner cannot fill this manifest, and legacy source construction cannot
+  bypass the emitter's participant-bearing operations with direct
+  `StringBuilder` writes.
+
 `CompileArtifactCoverageReceipt` requires exact equality between the expected
-plan and that owner-issued rendered-participant set, and then requires one
+plan and the selected policy's rendered-participant set, and then requires one
 census for every matched participant. Missing, duplicate, stale, or unexpected
 manifest entries or censuses retain their IDs and cannot produce a receipt. A
 primary-only scan cannot cover an artifact that also renders companions or
-`full`-policy members. Before #4881 lands, absence of the required producer
-capability is a pre-commit policy refusal; after `ProductAttemptCommit`, a
-missing or mismatched manifest is an artifact-production failure.
+`full`-policy members. Before a policy's manifest capability exists, its absence
+is a pre-commit policy refusal; after that policy's attempt commit, a missing or
+mismatched manifest is an artifact-production failure.
 
 Signature requirements come from the Metadata-owned immutable
 signature-spellability aggregate. Until
@@ -701,7 +731,7 @@ participant, including:
 - later non-body expression fragments explicitly included by the artifact plan.
 
 Each Decompiler-produced fragment consumes the owner-issued typed dependency and
-receiving-member evidence from
+complete lowering-destination set from
 [#4882](https://github.com/richlander/dotnet-inspect/issues/4882), tied to the
 owner-issued artifact occurrence from
 [#4881](https://github.com/richlander/dotnet-inspect/issues/4881). Source text
@@ -717,8 +747,10 @@ typed dependency and receiving-member result. Until one exists, the fragment is
 
 Resolved fragment occurrences become the same local, external, intrinsic,
 compiler-synthesized, or unresolved requirements as declaration and body
-occurrences. Their provenance retains the participant ID, source member, and
-owner-issued occurrence identity.
+occurrences. Their provenance retains the participant ID, source member,
+owner-issued occurrence identity, and complete destination set. A singular
+receiver cannot stand in for an initializer that may lower into multiple
+instance constructors or a type initializer.
 
 ### Conservative body-reference census
 
@@ -754,6 +786,21 @@ Body occurrences retain IL offset, opcode, operand kind, metadata token, local
 slot, exception-region ordinal, parent token, and signature path as applicable.
 The census is a tools-only compile-closure artifact, not an Analysis Finding or
 a reusable interpretation of method behavior.
+
+### Supplied-body reference plan
+
+A supplied replacement body does not inherit the original member's
+`BodyReferenceCensus`. Its optional `SuppliedBodyDependencyPlan` is bound to the
+exact supplied-body digest and carries every typed source occurrence and
+expected definition identity. The compiler adapter resolves those owner-issued
+coordinates while its semantic model is live.
+
+Without the plan, or when a coordinate is missing, stale, or does not bind to
+the expected definition, the member's binding receipt is unavailable. The body
+may still produce compile and diff observations, but the verdict classifier
+cannot construct `Exact`. Source parsing, name lookup, and emitted-IL absence
+cannot repair the missing evidence; a source-only dependency such as a
+compile-time name expression may intentionally leave no rebuilt IL operand.
 
 ### Closure outcome
 
@@ -806,8 +853,8 @@ Each iteration follows one ordered transition:
 1. Build an immutable typed candidate plan without treating it as product
    evidence.
 2. Recompute signature requirements, declaration-reference censuses, local
-   receipts, generated-fragment censuses, and every effective real-body census
-   against the frozen reference set.
+   receipts, generated-fragment censuses, supplied-body dependency plans, and
+   every effective real-body census against the frozen reference set.
 3. Add any supported source-local declaration roots and repeat planning. A
    final unspellable, missing, ambiguous, or incomplete provider is a policy
    refusal and produces `Declined`; it cannot add a reference from a compiler
@@ -853,23 +900,24 @@ correspondence and compares:
   identities;
 - original and rebuilt declaration-reference censuses;
 - original and rebuilt body-reference censuses for every effective real body;
+- every supplied-body dependency occurrence through its body-digest-bound plan;
 - each generated-fragment dependency with the compiler binding at its
-  owner-issued source occurrence and the corresponding rebuilt receiving member;
+  owner-issued source occurrence and every corresponding rebuilt destination;
 - each rebuilt local definition projected through the typed declaration plan;
 - each rebuilt external definition through the exact frozen reference
   descriptor that supplied it;
 - each deferred compiler-synthesized definition through the applicable
   owner-issued cross-reader correspondence.
 
-Generated-fragment evidence names the original receiving member and its
-lowering destination. That original member must be an effective real body in
-the artifact, and its rebuilt counterpart must be exact; otherwise the fragment
-returns `BindingReceiptUnavailable`. While the compiler workspace is alive,
-tools resolve the owner-issued source occurrence and compare its bound
-definition with the planned identity. This is binding of a typed coordinate,
-not tools-side parsing or dependency discovery. An external fragment occurrence
-that binds to a same-FQN source-local declaration is therefore a mismatch even
-when the receiving method later compares equal.
+Generated-fragment evidence names the complete original lowering-destination
+set. Every destination must be an effective real body in the artifact, and
+every rebuilt counterpart must be exact; an omitted, extra, stubbed, ambiguous,
+or non-corresponding destination returns `BindingReceiptUnavailable`. While the
+compiler workspace is alive, tools resolve each owner-issued source occurrence
+and compare its bound definition with the planned identity. This is binding of
+a typed coordinate, not tools-side parsing or dependency discovery. An external
+fragment occurrence that binds to a same-FQN source-local declaration is
+therefore a mismatch even when one receiving method later compares equal.
 
 For an `Exact` claim, the rebuilt census cannot replace an external definition
 with a source-local definition, replace one external definition with another,
@@ -891,6 +939,19 @@ to its frozen reference set, converged closure, producer-issued artifact
 coverage, compilation, correspondence, and rebuilt binding evidence.
 `Unavailable` retains the exact failed or incomplete stage and cannot expose a
 receipt.
+
+For the product policy, producer-issued coverage means the #4881 CSharp
+manifest. For the legacy policy, it means the manifest created by
+`LegacyArtifactEmitter` during source emission, not an inventory copied from the
+tools planner. The two manifests share the receipt shape but not an issuer.
+
+The legacy policy applies the same frozen-reference, static-closure,
+capability-check, rendering, coverage, compilation, and rebuilt-binding order
+under a distinct `LegacyAttemptCommit`. Its admission does not project as
+`ProductWholeMemberAdmission`, and its failure cannot replace or relabel a
+failed product attempt. A product `Declined` result may select this policy only
+before `ProductAttemptCommit`; the legacy result then succeeds or fails on its
+own evidence.
 
 Any `CompileBackStatus.Exact` requires a complete receipt for the exact artifact
 whose fidelity is being reported. This rule is independent of artifact policy.
@@ -1034,13 +1095,16 @@ blocked on their respective owner results.
 - Add typed product-whole-member declined, failed, and admitted outcomes without
   allowing an in-flight planning state or legacy artifact to borrow product
   receipts.
-- Add the missing product-owned, handle-addressed `MemberBodyProducer` result that
-  returns a typed `CSharpMemberBody` plus fidelity and failure provenance; adapt
-  ReturnToSender away from its harness-side body conversion.
+- Consume the existing product-owned, handle-addressed
+  `MemberBodyProducer.ProduceBody` result and preserve its typed body, projection,
+  and failure provenance.
 - Wire the product artifact pipeline explicitly: the tools planner builds neutral
   `CSharpTypeShellSpec` inputs, `TypeShellProducer` builds typed print requests,
-  the new member-body seam supplies decompiled body increments, and
+  the existing member-body seam supplies decompiled body increments, and
   `CSharpTypePrinter` renders source.
+- Refactor legacy source construction through `LegacyArtifactEmitter` so every
+  declaration, body, and fragment emission contributes to its digest-bound
+  participant manifest.
 - Extract compiler-driven root growth from decompiler-specific comparison.
 - Adapt ReturnToSender to consume the engine, preserving safe verdicts while
   reclassifying outcomes that lack complete compile-context evidence.
@@ -1052,12 +1116,14 @@ blocked on their respective owner results.
 ### Milestone 2: general selected-member comparison
 
 - Support supplied replacement bodies independently of decompiler-produced
-  bodies.
+  bodies; source-only replacements remain comparison evidence until a
+  body-digest-bound typed dependency plan is supplied.
 - Reject field-initializer and aggregate property/event replacement shapes in the
   first method-addressed contract; test each rejection explicitly.
-- Add a product-owned cross-reader member-correspondence resolver that consumes
-  typed/normalized identities and returns exact endpoint handles or total
-  absent/ambiguous/failed outcomes.
+- Consume the existing `MethodCorrespondenceResolver` for ordinary structural
+  member correspondence. Issue #4883 remains the separate prerequisite for
+  compiler-generated definitions whose normalized ordinals do not preserve
+  strict names.
 - Resolve original/cluster-donor, original/all-donor, and
   cluster-donor/all-donor correspondence independently before invoking
   member-scoped diff APIs.
@@ -1202,7 +1268,10 @@ Issue #4810 adds these named gates:
     never promoted over the artifact failure.
 18. `CompileBackResultRetainsReceiptsAfterOwnerDisposal` proves all reference,
     closure, artifact-coverage, admission, diagnostic, and binding evidence
-    remains readable after disposable owners are gone.
+    remains readable after disposable owners are gone. Every retained
+    type/member location is a durable address; reopening the exact module
+    revalidates MVID, token table, and row bounds before producing a transient
+    handle, while a wrong-MVID or out-of-range address fails visibly.
 19. `CompileReferenceSelectionPreservesDistinctIdenticalRegistrations` creates
     two fresh owner-issued registrations over identical bytes, digest, MVID, and
     assembly identity. Repeated occurrences of either registration may
@@ -1232,15 +1301,17 @@ Issue #4810 adds these named gates:
     pre-commit `Declined`. With the owner-issued manifest, exact
     digest-bound coverage can complete; removing any declaration, body, or
     fragment census, injecting a stale manifest participant, or returning a
-    primary-only manifest produces post-commit `Failed`. A tools-owned observed
-    set substituted for the producer manifest fails the architecture arm.
+    primary-only manifest produces post-commit `Failed`. For a product artifact,
+    a tools-owned observed set substituted for the CSharp producer manifest
+    fails the architecture arm.
 23. `CompileClosureRequiresGeneratedFragmentEvidence` uses a reconstructed
     initializer. Until #4882 and #4881 land, retaining only initializer source
     text produces `Incomplete`. With the owner-issued typed external requirement
     and occurrence coordinate, the exact reference produces `Complete`, removing
     it produces `Missing`, and binding the occurrence to a same-FQN local
-    definition produces `BindingReceiptUnavailable`. A receiving constructor
-    that is not an effective real body is also unavailable. No arm parses the
+    definition produces `BindingReceiptUnavailable`. A fixture whose initializer
+    lowers into multiple constructors requires the complete destination set;
+    omitting or stubbing any receiver is also unavailable. No arm parses the
     generated expression.
 24. `CompileClosureConsumesMetadataSpellabilityOutcome` uses forwarded
     signatures. Until #4885 lands, the missing aggregate capability produces
@@ -1250,6 +1321,18 @@ Issue #4810 adds these named gates:
     retains Metadata's definition and accessibility evidence as `Unspellable`,
     produces pre-commit `Declined`, and cannot be converted into `Complete` by
     direct-name lookup or permissive compiler binding.
+25. `SuppliedBodyRequiresTypedDependencyEvidence` uses a replacement body with a
+    source-only same-FQN dependency that is absent from emitted IL. Source
+    without a dependency plan can compile and compare but reports
+    `FidelityUnavailable`; a digest-matched plan binds the exact external
+    definition, while a stale coordinate or local rebind remains unavailable.
+    No arm parses the supplied body.
+26. `LegacyArtifactCoverageIsEmitterIssued` renders a legacy artifact with a
+    primary target, sibling stub, declaration shape, and generated fragment.
+    The emitter manifest exactly covers them and can support gate 14's legacy
+    positive arm. Removing a participant-bearing emission, adding a raw source
+    append outside `LegacyArtifactEmitter`, copying the planner's expected set,
+    or reusing a manifest under another artifact digest fails the gate.
 
 Documentation-only changes validate Markdown. Implementation milestones add the
 smallest focused product and harness checks that prove their claims.

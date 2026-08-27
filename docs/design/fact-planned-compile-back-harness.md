@@ -755,6 +755,13 @@ the existing compile-back status buckets.
 | artifact source does not compile | `RecompileFail` |
 | unsupported product body shape before compile | `RecompileFail` or `ContextFail`, with explicit reason |
 
+This table describes the shipping status projection. Under issue #4810's target
+contract, the `Exact` row additionally requires the matching artifact
+compile-context receipt and member entry defined by
+[`csharp-member-recompilation.md`](csharp-member-recompilation.md). Compile plus
+diff equality without that evidence becomes `FidelityUnavailable`. The receipt
+precondition is **unverified** until its planned Release gates run.
+
 SourceLink or fixture source coverage is a sidecar oracle, not a replacement RTS
 verdict. When a product artifact fails to recompile and an authored source body
 is available for the same requested target, RTS may substitute only that authored
