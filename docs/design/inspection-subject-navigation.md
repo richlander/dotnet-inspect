@@ -779,6 +779,9 @@ covering at least:
 - `InspectWeb_CoordinateVariationSuppliesPriorNavigationSnapshot`
 - `InspectWeb_UsesProductTypeInventoryLibraryContextAtRoot`
 - `InspectWeb_UsesAncestorContextWithoutActivatingAncestors`
+- `InspectWeb_UnavailableLensOutcomeHasNoSelectedTabOrPanel`
+- `InspectWeb_FailedLensOutcomeHasNoSelectedTabOrPanel`
+- `InspectWeb_EffectiveLensRetainsPartialFailureDiagnostics`
 - `InspectWeb_ConsumesSubjectOutcomeWithoutHostFallback`
 
 Product-side gates should live with the eventual subject-navigation query.

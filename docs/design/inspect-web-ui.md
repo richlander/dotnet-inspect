@@ -232,12 +232,16 @@ repeat that identity merely to create a local hero heading.
 
 ### API and Source lenses
 
-The API and Source lenses begin with their primary content. Their accessible
-heading relationship includes both the product-owned active-subject label from
-the inspection command and the active lens label. While an inspection surface
-is active, the active-subject token is the visible level-one heading for a root,
-Library, Type, or Member subject. The lens panel's `aria-labelledby` references
-that label and the active lens tab.
+The API and Source lenses begin with their primary content. When an effective
+lens exists, their accessible heading relationship includes both the
+product-owned active-subject label from the inspection command and the active
+lens label. While an inspection surface is active, the active-subject token is
+the visible level-one heading for a root, Library, Type, or Member subject. The
+lens panel's `aria-labelledby` references that label and the active lens tab.
+
+When no effective lens exists, no `tabpanel` is rendered. A status region uses
+`role="region"` and references the active-subject label plus its visible
+`Lens unavailable` or `Lens failed` heading.
 
 Home, Workspace, and Diagnostics replace the coordinate, subject, and
 `Copy target` portion of the inspection-command region with their own visible
@@ -421,19 +425,24 @@ from display labels.
 
 ### Lens navigation semantics
 
-Each subject's lens strip remains a tablist. Every lens or member section is a
-tab with `role="tab"` and `aria-selected`, including identically labelled tabs
-owned by different subjects. The active lens must therefore be available
-programmatically rather than conveyed by color alone.
+When a subject has one or more lens descriptors, its lens strip remains a
+tablist. Every lens or member section is a tab with `role="tab"` and
+`aria-selected`, including identically labelled tabs owned by different
+subjects. An effective lens is selected programmatically rather than conveyed
+by color alone. When no effective lens exists, every tab has
+`aria-selected="false"`. A subject with no lens descriptors omits the tablist
+and renders only the no-effective-lens status region.
 
-Each tablist has the accessible name `<Subject> lenses`. A tab references its
-panel with `aria-controls`; the panel uses `role="tabpanel"` and
-`aria-labelledby`.
+Each tablist has the accessible name `<Subject> lenses`. The effective tab
+references its panel with `aria-controls`; the panel uses `role="tabpanel"` and
+`aria-labelledby`. Without an effective lens, tabs do not reference a
+nonexistent panel.
 
 Lens tablists use one tab stop and manual activation:
 
-- `Tab` enters on the tab with `tabindex="0"`, initially the active tab, and
-  leaves the tablist from the focused tab.
+- `Tab` enters on the tab with `tabindex="0"`, initially the effective tab or,
+  when none exists, the first owner-ordered descriptor, and leaves the tablist
+  from the focused tab.
 - Left and Right Arrow move focus through the horizontal tabs.
 - Home and End move focus to the first and last tab.
 - Arrow navigation includes `aria-disabled` lens tabs so unavailable lenses
@@ -444,9 +453,16 @@ Lens tablists use one tab stop and manual activation:
 Roving `tabindex` keeps only the focused tab at `tabindex="0"`. Moving focus
 does not change `aria-selected` or start lens work until activation.
 
-An unavailable lens remains in its owning strip with
-`aria-disabled="true"` and an accessible description of the owner-issued
-reason. It does not retain stale panel content.
+An unavailable lens remains in its owning strip with `aria-disabled="true"`
+and an accessible description of the owner-issued reason. A failed lens is
+also disabled but exposes its owner-issued diagnostic distinctly from valid
+unavailability. Neither retains stale panel content.
+
+With no effective lens, the status region presents the product outcome without
+selecting a tab: `Lens unavailable` renders the valid-empty reason and
+`Lens failed` renders the diagnostic. With an effective lens and failed
+alternatives, the effective tab and panel remain active while the failed tabs
+and their diagnostics stay discoverable.
 
 ### Subject availability and reconciliation
 
@@ -1008,6 +1024,19 @@ outcomes:
 10. Supply `SelectionRequired` Member context with available Member rows and
     confirm that the UI exposes the guidance and actions without presenting a
     valid-empty unavailable state or selecting a default Member.
+
+### No effective lens
+
+1. Supply only unavailable lens descriptors and confirm that no tab is
+   selected, the first descriptor owns the tab stop, no `tabpanel` exists, and
+   the subject-labelled status region presents `Lens unavailable`.
+2. Supply at least one failed lens and no effective lens and confirm the same
+   tab behavior with `Lens failed` and the owner-issued diagnostic.
+3. Supply an effective lens plus a failed alternative and confirm that the
+   effective tab and panel remain active while the failed tab stays disabled
+   and exposes its diagnostic.
+4. Supply no lens descriptors and confirm that the tablist is omitted while
+   the typed no-effective-lens status remains visible.
 
 ### Workspace composition
 
