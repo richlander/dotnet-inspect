@@ -46,6 +46,7 @@ public sealed class MetadataSource : IDisposable
     readonly object _crossLock = new();
     readonly object _acquisitionGuard = new();
     readonly Lazy<StateMachineRelationshipIndex> _stateMachineRelationships;
+    readonly ClassicAsyncPlanningSession _classicAsyncPlanning;
 
     MetadataSource(string path, string? filePath, Stream? stream, PEReader peReader, MetadataReader reader, string assemblyName, ResolvedAssemblyReference assembly, string? externalPdbPath, bool readSymbols, IAssemblyBindingPolicy bindingPolicy, MetadataContext? context)
     {
@@ -63,6 +64,7 @@ public sealed class MetadataSource : IDisposable
         _stateMachineRelationships = new(
             () => StateMachineRelationshipIndex.Create(reader),
             LazyThreadSafetyMode.ExecutionAndPublication);
+        _classicAsyncPlanning = new(this);
     }
 
     public string Path { get; }
@@ -110,17 +112,30 @@ public sealed class MetadataSource : IDisposable
         var address = MetadataMethodAddress.Create(Reader, methodHandle);
         StateMachineRelationshipResult kickoff =
             _stateMachineRelationships.Value.GetByKickoff(methodHandle);
-        if (kickoff is StateMachineRelationshipResult.Resolved
-            || kickoff is StateMachineRelationshipResult.Rejected
-                && asyncClassification
-                    == MethodClassification.StateMachineAsync)
+        if (kickoff is StateMachineRelationshipResult.Resolved)
         {
             return new(
                 address,
                 ClassicAsyncHostRole.DeclaredKickoff,
                 asyncClassification,
                 kickoff,
-                _acquisitionGuard);
+                _acquisitionGuard,
+                _classicAsyncPlanning);
+        }
+
+        if (kickoff is StateMachineRelationshipResult.Rejected)
+        {
+            // The owner has rejected a kickoff claim, but its current result
+            // does not retain classic-versus-iterator kind. Preserve the
+            // rejection without electing a classic declared host; #4804 owns
+            // the typed distinction needed to make that decision.
+            return new(
+                address,
+                ClassicAsyncHostRole.Ordinary,
+                asyncClassification,
+                kickoff,
+                _acquisitionGuard,
+                _classicAsyncPlanning);
         }
 
         StateMachineRelationshipResult implementation =
@@ -138,7 +153,8 @@ public sealed class MetadataSource : IDisposable
                 role,
                 asyncClassification,
                 implementation,
-                _acquisitionGuard);
+                _acquisitionGuard,
+                _classicAsyncPlanning);
         }
 
         return new(
@@ -146,7 +162,8 @@ public sealed class MetadataSource : IDisposable
             ClassicAsyncHostRole.Ordinary,
             asyncClassification,
             implementation,
-            _acquisitionGuard);
+            _acquisitionGuard,
+            _classicAsyncPlanning);
     }
 
     /// <summary>

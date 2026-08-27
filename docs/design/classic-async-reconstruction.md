@@ -305,9 +305,13 @@ the current matcher expects a valued `SetResult`.
 application owner. Slice 0 separates its work into two phases:
 
 1. **Plan once.** Run the existing complete
-   `ForReconstruction<ClassicAsyncReconstructionPass>()` prerequisite sequence
-   over detached kickoff and execution snapshots. Recognition produces one
-   immutable `ClassicAsyncDecision`.
+   registered prefix before `ClassicAsyncReconstructionPass` over a detached
+   kickoff snapshot, and
+   `ForReconstruction<ClassicAsyncReconstructionPass>()` over the detached
+   execution snapshot. The distinct sequences are derived from
+   `IrPasses.Default`: replaying passes registered after classic reconstruction
+   over the kickoff would change the recognizer's historical input.
+   Recognition produces one immutable `ClassicAsyncDecision`.
 2. **Apply per stage.** Raised and Lowered each clone their own stage snapshot
    and materialize the same decision. Application does not rescan metadata,
    reimport bodies, rerun recognition, or retain nodes/locals from another
@@ -322,6 +326,14 @@ Request order is irrelevant. Preparing Lowered before Raised or Raised before
 Lowered yields value-equal decisions and stage-appropriate independent
 snapshots. Mutating or rendering one snapshot cannot alter the decision,
 another stage, or a later render.
+
+Preparation is cached by exact requested-host address on the live
+`MetadataSource` acquisition that owns the reader and import lifetime. It is
+not a static or cross-reader cache. The cache computes outside publication
+locks, so nested or concurrent preparation cannot deadlock; duplicate
+concurrent computations publish one value-equal decision. Canonical planning
+uses a source-owned import context rather than inheriting the requesting
+stage's optional capabilities or active nested-pipeline stack.
 
 Planning failures do not become declines. A decline means the classic input was
 healthy and the component intentionally refused reconstruction for a named
@@ -525,7 +537,7 @@ Every asserted property below names its enforcing gate. Tests run in Release.
 | Planning totality | Healthy classic, non-classic, owner-failure, import-failure, and injected planner-failure fixtures | A request has no terminal result; failure becomes decline; or classic health is inferred from rendered text |
 | Stage-neutral plan | Raised/Lowered fixtures in both request orders | Recognition runs twice; decisions differ by request order; a plan retains stage-owned nodes/locals; or stage snapshots alias |
 | Registered pipeline preservation | Independent exact pass-list baselines plus accepted classic fixtures | The registered `IrPasses.Default` or `IrPasses.Lowered` sequence or required relative order changes without an intentional baseline update |
-| Planning-sequence derivation | Set/order equality against `ForReconstruction<ClassicAsyncReconstructionPass>()` | Planning uses a copied list, omits a registered prerequisite, includes the requesting/application pass, or changes order |
+| Planning-sequence derivation | Set/order equality against the registered prefix before `ClassicAsyncReconstructionPass` for kickoff planning and `ForReconstruction<ClassicAsyncReconstructionPass>()` for execution planning | Planning uses a copied list, omits a registered prerequisite, includes the requesting/application pass, replays a post-classic pass over the kickoff, or changes order |
 | Legacy population equality | Existing accepted classic fixture set plus close negatives | Slice 0 adds or removes an accepted reconstruction |
 | Plan-region partition | Accepted compiler fixtures plus injected extra-region, external-entry, duplicate-consumption, overlap, and unconsumed-use negatives | A physical kickoff/execution region is neither consumed nor preserved, appears in both sets, is consumed twice, has an unmodeled entry/use, or is rewritten while preserved |
 | User-region realization | Accepted side-effect/call/store/return fixtures plus omitted-region, duplicate-primary, effectful-context, and preserved-material negatives | A user region has no realization or more than one; a primary output effect appears twice; a context node emits the effect; or preserved physical material supplies reconstructed semantics |

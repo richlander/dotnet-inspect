@@ -17,48 +17,144 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        if (function.ClassicAsyncRelationship is not
+        if (function.ClassicAsyncRelationship is not { } evidence
+            || context.ImportMethodBody is null)
+        {
+            return;
+        }
+
+        ClassicAsyncPreparationResult preparation =
+            evidence.PlanningSession.Prepare(evidence);
+        ClassicAsyncStage stage =
+            context.ClassicAsyncStage ?? ClassicAsyncStage.Raised;
+        if (preparation is not
+            ClassicAsyncPreparationResult.Decided { Decision: var decision })
+        {
+            function.ClassicAsyncStageResult = preparation switch
             {
-                Relationship: StateMachineRelationshipResult.Resolved
-                {
-                    Relationship.Kind: StateMachineClaimKind.ClassicAsync,
-                } resolved,
-            } evidence)
-        {
+                ClassicAsyncPreparationResult.NotApplicable
+                    => new ClassicAsyncStageResult.NotApplicable(stage),
+                _ => new ClassicAsyncStageResult.Failed(
+                    stage,
+                    PreparationFailure(preparation)),
+            };
             return;
         }
 
-        if (evidence.HostRole is
-            ClassicAsyncHostRole.Execution or ClassicAsyncHostRole.Support)
+        ApplyDecision(function, context, decision);
+        function.ClassicAsyncStageResult =
+            new ClassicAsyncStageResult.Applied(
+                stage,
+                function.ClassicAsyncOutcome!,
+                function.ClassicAsyncDeclarationDisposition);
+
+        static ClassicAsyncFailure PreparationFailure(
+            ClassicAsyncPreparationResult result)
+            => result switch
+            {
+                ClassicAsyncPreparationResult.InputUnavailable unavailable
+                    => new(
+                        DiagnosticIds.ContextUnavailable,
+                        unavailable.Failure.Detail),
+                ClassicAsyncPreparationResult.ImportFailed failed
+                    => failed.Failure,
+                ClassicAsyncPreparationResult.PlanningFailed failed
+                    => failed.Failure,
+                _ => new(
+                    DiagnosticIds.InternalError,
+                    "classic async preparation did not produce a decision"),
+            };
+    }
+
+    internal static void ApplyDecision(
+        IrFunction function,
+        PassContext context,
+        ClassicAsyncDecision decision)
+    {
+        switch (decision)
         {
-            return;
+            case ClassicAsyncDecision.Reconstruct reconstruct:
+                Apply(function, context, reconstruct.Plan);
+                break;
+            case ClassicAsyncDecision.Decline decline:
+                Decline(
+                    function,
+                    context,
+                    decline.Reason,
+                    decline.KickoffDisposition);
+                break;
+        }
+    }
+
+    internal static ClassicAsyncPreparationResult Prepare(
+        MetadataSource source,
+        ClassicAsyncRelationshipEvidence evidence)
+    {
+        if (!ReferenceEquals(
+                evidence.AcquisitionGuard,
+                source.AcquisitionGuard)
+            || !evidence.RequestedHost.BelongsTo(source.Reader))
+        {
+            return ImportFailure(
+                ClassicAsyncHostRole.DeclaredKickoff,
+                "classic async request belongs to another metadata acquisition");
         }
 
-        if (context.ImportMethodBody is null)
-            return;
-        if (evidence.HostRole != ClassicAsyncHostRole.DeclaredKickoff)
-            return;
+        if (evidence.Relationship is
+            StateMachineRelationshipResult.Rejected rejected)
+        {
+            return new ClassicAsyncPreparationResult.InputUnavailable(
+                rejected.Failure);
+        }
+
+        if (evidence.HostRole != ClassicAsyncHostRole.DeclaredKickoff
+            || evidence.Relationship is not
+                StateMachineRelationshipResult.Resolved resolved
+            || resolved.Relationship.Kind
+                != StateMachineClaimKind.ClassicAsync)
+        {
+            return new ClassicAsyncPreparationResult.NotApplicable(
+                evidence.HostRole,
+                evidence.Classification);
+        }
+
+        IrFunction? kickoffFunction = IrImporter.Import(
+            source,
+            evidence.RequestedHost.Handle);
+        if (kickoffFunction is null)
+        {
+            return ImportFailure(
+                ClassicAsyncHostRole.DeclaredKickoff,
+                "owner-selected classic async kickoff could not be imported");
+        }
+
+        var planningContext = PassContext.ForImport(
+            method => IrImporter.Import(source, method),
+            source.AreProvablyDisjoint);
+        IrPasses.Run(
+            kickoffFunction,
+            IrPasses.Before<ClassicAsyncReconstructionPass>(),
+            planningContext);
 
         if (!TryGetKickoff(
-                function,
+                kickoffFunction,
                 resolved.Relationship.StateMachineName,
                 out var kickoff,
                 out var declineReason,
                 out bool narrowHandoff))
         {
-            Decline(
-                function,
-                context,
+            return DeclineDecision(
                 declineReason,
                 narrowHandoff);
-            return;
         }
 
         if (!resolved.Relationship.TryGetMethod(
                 StateMachineMethodRole.MoveNext,
                 out var moveNextAddress))
         {
-            return;
+            return DeclineDecision(
+                ClassicAsyncDeclineReason.NoExecutionMethod,
+                kickoff.IsNarrow);
         }
 
         var moveNextMethod = new MethodRef(
@@ -72,40 +168,97 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             ExactDefinitionAcquisitionGuard = evidence.AcquisitionGuard,
         };
         var moveNextPasses = IrPasses.ForReconstruction<ClassicAsyncReconstructionPass>();
-        if (!context.TryImportAndRunMethodBody(
+        if (!planningContext.TryImportAndRunMethodBody(
                 moveNextMethod,
                 moveNextPasses,
                 out var moveNext)
             || moveNext is null)
         {
-            return;
+            return ImportFailure(
+                ClassicAsyncHostRole.Execution,
+                "owner-selected classic async execution method could not be imported");
         }
 
         var reconstruction = TryReconstruct(
             moveNext,
-            function,
-            kickoff,
+            kickoffFunction,
             out var body,
             out var locals,
             out var localNames);
-        if (reconstruction == ReconstructionResult.UnconsumedExecutionRegion)
+        if (reconstruction
+            == ReconstructionResult.UnconsumedExecutionRegion)
         {
-            MarkUnconsumedExecutionRegion(function, kickoff, context);
-            return;
+            return DeclineDecision(
+                ClassicAsyncDeclineReason.UnconsumedExecutionRegion,
+                narrowHandoff: false);
         }
         if (reconstruction != ReconstructionResult.Reconstructed)
         {
-            Decline(
-                function,
-                context,
+            return DeclineDecision(
                 ClassicAsyncDeclineReason.UnrecognizedAwaiterProtocol,
                 kickoff.IsNarrow);
-            return;
         }
 
-        context.Stepper.StepOver($"reconstruct classic async '{function.Name}' from {kickoff.StateMachineType.Name}.MoveNext");
-        function.MergeTypeFactsFrom(moveNext);
-        function.ResetLocals(locals, localNames);
+        var machine = new ClassicAsyncMachine(
+            resolved.Relationship.Kickoff,
+            moveNextAddress,
+            resolved.Relationship.StateMachineType,
+            resolved.Relationship.StateMachineName,
+            kickoff.StateMachineType,
+            kickoff.StateMachineLocal,
+            evidence.AcquisitionGuard);
+        var plan = new ClassicAsyncPlan(
+            machine,
+            ClassicAsyncBodyPlan.Capture(body, locals, localNames),
+            IrTypeFactsSnapshot.Capture(moveNext));
+        return new ClassicAsyncPreparationResult.Decided(
+            new ClassicAsyncDecision.Reconstruct(plan));
+
+        static ClassicAsyncPreparationResult DeclineDecision(
+            ClassicAsyncDeclineReason reason,
+            bool narrowHandoff)
+            => new ClassicAsyncPreparationResult.Decided(
+                new ClassicAsyncDecision.Decline(
+                    reason,
+                    narrowHandoff
+                        ? ClassicAsyncKickoffDisposition.ReplacedNarrowHandoff
+                        : ClassicAsyncKickoffDisposition.PreservedOriginal));
+
+        static ClassicAsyncPreparationResult ImportFailure(
+            ClassicAsyncHostRole role,
+            string message)
+            => new ClassicAsyncPreparationResult.ImportFailed(
+                role,
+                new(
+                    DiagnosticIds.ContextUnavailable,
+                    message));
+    }
+
+    static void Apply(
+        IrFunction function,
+        PassContext context,
+        ClassicAsyncPlan plan)
+    {
+        BlockContainer body = plan.Body.Materialize();
+        int sourceOffset = function.Descendants
+            .OfType<StoreField>()
+            .FirstOrDefault(store => store is
+            {
+                Field.Name: "<>t__builder",
+                Instance: LoadLocalAddress local,
+            } && local.Index == plan.Machine.StateMachineLocal)
+            ?.SourceOffset ?? -1;
+        foreach (IrNode statement in body.Blocks.SelectMany(
+            static block => block.Children))
+        {
+            Reanchor(statement, sourceOffset);
+        }
+
+        context.Stepper.StepOver(
+            $"reconstruct classic async '{function.Name}' from "
+            + $"{plan.Machine.StateMachineType.Name}.MoveNext");
+        function.MergeTypeFactsFrom(plan.TypeFacts);
+        function.ResetLocals(plan.Body.Locals, plan.Body.LocalNames);
         function.RequiresAsyncBodyModifier = true;
         function.ClassicAsyncOutcome = new ClassicAsyncOutcome.Reconstructed();
         function.ClassicAsyncDeclarationDisposition =
@@ -122,7 +275,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         IrFunction function,
         PassContext context,
         ClassicAsyncDeclineReason reason,
-        bool narrowHandoff)
+        ClassicAsyncKickoffDisposition kickoffDisposition)
     {
         context.Stepper.StepOver(
             $"decline classic async '{function.Name}': {reason}");
@@ -131,7 +284,8 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             "classic async",
             $"unsupported classic async state machine: {ReasonText(reason)}");
         var statement = new ExpressionStatement(marker);
-        if (narrowHandoff)
+        if (kickoffDisposition
+            == ClassicAsyncKickoffDisposition.ReplacedNarrowHandoff)
         {
             function.ResetLocals([], []);
             function.Body.DetachChildren();
@@ -157,9 +311,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             $"classic async reconstruction declined: {ReasonText(reason)}"));
         function.ClassicAsyncOutcome = new ClassicAsyncOutcome.Declined(
             reason,
-            narrowHandoff
-                ? ClassicAsyncKickoffDisposition.ReplacedNarrowHandoff
-                : ClassicAsyncKickoffDisposition.PreservedOriginal);
+            kickoffDisposition);
         function.ClassicAsyncDeclarationDisposition =
             ClassicAsyncDeclarationDisposition.OmitAsync;
         function.RequiresAsyncBodyModifier = false;
@@ -168,12 +320,16 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
     static string ReasonText(ClassicAsyncDeclineReason reason)
         => reason switch
         {
+            ClassicAsyncDeclineReason.NoExecutionMethod
+                => "owner relationship has no execution method",
             ClassicAsyncDeclineReason.KickoffMachineMismatch
                 => "kickoff does not hand off the owner-selected state machine",
             ClassicAsyncDeclineReason.NonNarrowKickoffHandoff
                 => "kickoff handoff is not narrow",
             ClassicAsyncDeclineReason.UnsupportedBuilder
                 => "unsupported async method builder",
+            ClassicAsyncDeclineReason.UnconsumedExecutionRegion
+                => "execution region contains unconsumed user effects; original kickoff preserved",
             ClassicAsyncDeclineReason.UnrecognizedAwaiterProtocol
                 => "unrecognized awaiter protocol",
             _ => throw new ArgumentOutOfRangeException(nameof(reason)),
@@ -423,7 +579,6 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
     static ReconstructionResult TryReconstruct(
         IrFunction moveNext,
         IrFunction kickoff,
-        Kickoff kickoffShape,
         out BlockContainer body,
         out ImmutableArray<TypeRef> locals,
         out ImmutableArray<string?> localNames)
@@ -450,10 +605,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
         var block = new Block(0);
         foreach (var statement in statements)
-        {
-            Reanchor(statement, kickoffShape.SourceOffset);
             block.Add(statement);
-        }
 
         body = new BlockContainer();
         body.Add(block);
@@ -561,40 +713,6 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             && type.ElementType is { } definition
                 ? definition
                 : type;
-
-    static void MarkUnconsumedExecutionRegion(
-        IrFunction function,
-        Kickoff kickoff,
-        PassContext context)
-    {
-        context.Stepper.StepOver(
-            $"decline classic async '{function.Name}': execution region contains unconsumed user effects");
-
-        IReadOnlyList<Block> originalBlocks = function.Body.Blocks;
-        function.Body.DetachChildren();
-
-        var block = new Block(originalBlocks[0].StartOffset);
-        var marker = new UnsupportedNode(
-            kickoff.SourceOffset,
-            "classic async",
-            "execution region contains unconsumed user effects; original kickoff preserved");
-        marker.SetSourceOffset(kickoff.SourceOffset);
-        var markerStatement = new ExpressionStatement(marker);
-        markerStatement.SetSourceOffset(kickoff.SourceOffset);
-        block.Add(markerStatement);
-
-        foreach (Block originalBlock in originalBlocks)
-        {
-            foreach (IrNode statement in originalBlock.DetachChildren())
-                block.Add(statement);
-        }
-
-        function.Body.Add(block);
-        function.RequiresAsyncBodyModifier = false;
-        function.Diagnostics.Add(new DecompilerDiagnostic(
-            DiagnosticIds.UnsupportedConstruct,
-            "classic async reconstruction declined: execution region contains unconsumed user effects"));
-    }
 
     static bool TryBuildStatements(
         IrFunction moveNext,

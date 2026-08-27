@@ -73,6 +73,19 @@ public sealed class PassContext
     /// </summary>
     public Func<TypeRef, TypeRef, bool>? TypesProvablyDisjoint { get; }
 
+    internal ClassicAsyncStage? ClassicAsyncStage { get; private set; }
+
+    internal PassContext ForClassicAsyncStage(ClassicAsyncStage stage)
+        => new(
+            Stepper,
+            StructuringDiagnostics,
+            ImportMethodBody,
+            TypesProvablyDisjoint,
+            _activeCrossMethodPipelines)
+        {
+            ClassicAsyncStage = stage,
+        };
+
     /// <summary>
     /// Imports a sibling body and runs a pass pipeline over it while marking that
     /// method active. Cross-method raising is allowed to nest, but recursive or

@@ -405,6 +405,7 @@ public sealed class IrFunction : IrNode
     public MetadataFactState DeclaringTypeCompilerGenerated { get; set; } = MetadataFactState.Unknown;
     public MetadataFactState IsRuntimeAsync { get; set; } = MetadataFactState.Unknown;
     internal ClassicAsyncRelationshipEvidence? ClassicAsyncRelationship { get; set; }
+    internal ClassicAsyncStageResult? ClassicAsyncStageResult { get; set; }
     public ClassicAsyncOutcome? ClassicAsyncOutcome { get; set; }
     public ClassicAsyncDeclarationDisposition ClassicAsyncDeclarationDisposition { get; set; }
 
@@ -743,8 +744,13 @@ public sealed class IrFunction : IrNode
         = ImmutableHashSet<TypeDefinitionIdentity>.Empty;
 
     internal void MergeTypeFactsFrom(IrFunction body)
+        => MergeTypeFactsFrom(IrTypeFactsSnapshot.Capture(body));
+
+    internal void MergeTypeFactsFrom(IrTypeFactsSnapshot body)
     {
-        var ambiguous = MergeSet(AmbiguousTypeFacts, body.AmbiguousTypeFacts).ToImmutableHashSet();
+        var ambiguous = MergeSet(
+            AmbiguousTypeFacts,
+            body.AmbiguousTypeFacts).ToImmutableHashSet();
         foreach (var (type, bodyIdentity) in body.TypeFactIdentities)
         {
             if (TypeFactIdentities.TryGetValue(type, out var outerIdentity)
@@ -883,6 +889,37 @@ public sealed class IrFunction : IrNode
 
     public override string Describe()
         => $"Function {Signature.ReturnType.ToDisplayString()} {Name}({string.Join(", ", Signature.Parameters.Select(p => $"{p.Type.ToDisplayString()} {p.Name}"))})";
+}
+
+internal sealed record IrTypeFactsSnapshot(
+    IReadOnlyDictionary<TypeRef, TypeShape> TypeShapes,
+    IReadOnlyDictionary<TypeRef, TypeDefinitionIdentity> TypeFactIdentities,
+    IReadOnlySet<TypeRef> AmbiguousTypeFacts,
+    IReadOnlyDictionary<TypeRef, IReadOnlyDictionary<long, string>> EnumMembers,
+    IReadOnlyDictionary<TypeRef, TypeRef> EnumUnderlyingTypes,
+    IReadOnlySet<TypeRef> CollectionInitializerTypes,
+    IReadOnlySet<TypeRef> UnionTypes,
+    IReadOnlySet<TypeRef> ByRefLikeTypes,
+    IReadOnlySet<TypeRef> InterfaceTypes,
+    IReadOnlySet<TypeDefinitionIdentity> EqualityOperatorFreeTypes,
+    IReadOnlySet<TypeDefinitionIdentity> InequalityOperatorFreeTypes)
+{
+    internal static IrTypeFactsSnapshot Capture(IrFunction function)
+        => new(
+            function.TypeShapes.ToImmutableDictionary(),
+            function.TypeFactIdentities.ToImmutableDictionary(),
+            function.AmbiguousTypeFacts.ToImmutableHashSet(),
+            function.EnumMembers.ToImmutableDictionary(
+                static pair => pair.Key,
+                static pair => (IReadOnlyDictionary<long, string>)
+                    pair.Value.ToImmutableDictionary()),
+            function.EnumUnderlyingTypes.ToImmutableDictionary(),
+            function.CollectionInitializerTypes.ToImmutableHashSet(),
+            function.UnionTypes.ToImmutableHashSet(),
+            function.ByRefLikeTypes.ToImmutableHashSet(),
+            function.InterfaceTypes.ToImmutableHashSet(),
+            function.EqualityOperatorFreeTypes.ToImmutableHashSet(),
+            function.InequalityOperatorFreeTypes.ToImmutableHashSet());
 }
 
 /// <summary>

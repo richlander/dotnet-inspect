@@ -53,17 +53,11 @@ public class ClassicAsyncReconstructionPassTests
     {
         using var source = OpenClassicFixture();
         IrFunction function = ImportClassicFixture(source, "AwaitVoid");
-        MethodRef? requested = null;
-        var context = PassContext.ForImport(method =>
-        {
-            if (method.ExactDefinitionAddress is not null)
-                requested = method;
-            return IrImporter.Import(source, method);
-        });
+        var context = PassContext.ForImport(
+            method => IrImporter.Import(source, method));
 
         IrPasses.Run(function, IrPasses.Default, context);
 
-        Assert.NotNull(requested);
         var evidence = Assert.IsType<ClassicAsyncRelationshipEvidence>(
             function.ClassicAsyncRelationship);
         var resolved = Assert.IsType<StateMachineRelationshipResult.Resolved>(
@@ -71,10 +65,13 @@ public class ClassicAsyncReconstructionPassTests
         Assert.True(resolved.Relationship.TryGetMethod(
             StateMachineMethodRole.MoveNext,
             out var moveNext));
-        Assert.Equal(moveNext, requested.ExactDefinitionAddress);
+        var decision = Assert.IsType<ClassicAsyncDecision.Reconstruct>(
+            PublishedDecision(evidence));
+        Assert.Equal(moveNext, decision.Plan.Machine.Execution);
         Assert.Same(
             evidence.AcquisitionGuard,
-            requested.ExactDefinitionAcquisitionGuard);
+            decision.Plan.Machine.AcquisitionGuard);
+        Assert.Equal(1, PlanningSession(evidence).PreparationCount);
         Assert.True(function.RequiresAsyncBodyModifier);
     }
 
@@ -211,7 +208,12 @@ public class ClassicAsyncReconstructionPassTests
             .Select(SubtreeSignature)
             .ToList();
 
-        new ClassicAsyncReconstructionPass().Run(function, context);
+        ClassicAsyncReconstructionPass.ApplyDecision(
+            function,
+            context,
+            new ClassicAsyncDecision.Decline(
+                ClassicAsyncDeclineReason.UnrecognizedAwaiterProtocol,
+                ClassicAsyncKickoffDisposition.PreservedOriginal));
 
         var outcome = Assert.IsType<ClassicAsyncOutcome.Declined>(
             function.ClassicAsyncOutcome);
@@ -247,20 +249,255 @@ public class ClassicAsyncReconstructionPassTests
             requested with { Name = "SetStateMachine" }));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RaisedAndLoweredShareOneDecisionWithoutAliasing(
+        bool loweredFirst)
+    {
+        using var source = OpenClassicFixture();
+        IrFunction raised = ImportClassicFixture(
+            source,
+            "AwaitValue");
+        IrFunction lowered = ImportClassicFixture(
+            source,
+            "AwaitValue");
+        var raisedEvidence =
+            Assert.IsType<ClassicAsyncRelationshipEvidence>(
+                raised.ClassicAsyncRelationship);
+        var loweredEvidence =
+            Assert.IsType<ClassicAsyncRelationshipEvidence>(
+                lowered.ClassicAsyncRelationship);
+        ClassicAsyncPlanningSession planningSession =
+            PlanningSession(raisedEvidence);
+        Assert.Same(
+            planningSession,
+            PlanningSession(loweredEvidence));
+
+        Func<MethodRef, IrFunction?> import =
+            method => IrImporter.Import(source, method);
+        DecompilerResult raisedResult;
+        DecompilerResult loweredResult;
+        if (loweredFirst)
+        {
+            loweredResult = CSharpPrinter.PrintLowered(
+                lowered,
+                import);
+            raisedResult = CSharpPrinter.PrintRaised(
+                raised,
+                import,
+                typesProvablyDisjoint: source.AreProvablyDisjoint);
+        }
+        else
+        {
+            raisedResult = CSharpPrinter.PrintRaised(
+                raised,
+                import,
+                typesProvablyDisjoint: source.AreProvablyDisjoint);
+            loweredResult = CSharpPrinter.PrintLowered(
+                lowered,
+                import);
+        }
+
+        Assert.True(raisedResult.Succeeded);
+        Assert.True(loweredResult.Succeeded);
+        Assert.IsType<ClassicAsyncDecision.Reconstruct>(
+            PublishedDecision(raisedEvidence));
+        var raisedStage = Assert.IsType<
+            ClassicAsyncStageResult.Applied>(
+                raised.ClassicAsyncStageResult);
+        var loweredStage = Assert.IsType<
+            ClassicAsyncStageResult.Applied>(
+                lowered.ClassicAsyncStageResult);
+        Assert.Equal(ClassicAsyncStage.Raised, raisedStage.Stage);
+        Assert.Equal(ClassicAsyncStage.Lowered, loweredStage.Stage);
+        Assert.Equal(
+            1,
+            planningSession.PreparationCount);
+        Assert.Equal(
+            1,
+            planningSession.PublishedPreparationCount);
+        Assert.NotSame(raised.Body, lowered.Body);
+        Assert.NotSame(
+            raised.Body.Blocks[0].Children[0],
+            lowered.Body.Blocks[0].Children[0]);
+        string loweredBefore = IrPrinter.Dump(lowered);
+
+        raised.Body.DetachChildren();
+
+        Assert.Equal(loweredBefore, IrPrinter.Dump(lowered));
+        IrFunction later = ImportClassicFixture(
+            source,
+            "AwaitValue");
+        DecompilerResult laterResult = CSharpPrinter.PrintRaised(
+            later,
+            import,
+            typesProvablyDisjoint: source.AreProvablyDisjoint);
+        Assert.Equal(raisedResult.Output, laterResult.Output);
+        Assert.NotSame(later.Body, lowered.Body);
+    }
+
+    [Fact]
+    public async Task ConcurrentRequestsPublishOneDecisionWithoutDeadlock()
+    {
+        using var source = OpenClassicFixture();
+        IrFunction[] functions = Enumerable.Range(0, 8)
+            .Select(_ => ImportClassicFixture(
+                source,
+                "AwaitValue"))
+            .ToArray();
+        var evidence = Assert.IsType<ClassicAsyncRelationshipEvidence>(
+            functions[0].ClassicAsyncRelationship);
+        Func<MethodRef, IrFunction?> import =
+            method => IrImporter.Import(source, method);
+
+        System.Threading.Tasks.Task<DecompilerResult>[] requests = functions
+            .Select((function, index) => System.Threading.Tasks.Task.Run(() =>
+                index % 2 == 0
+                    ? CSharpPrinter.PrintRaised(
+                        function,
+                        import,
+                        typesProvablyDisjoint:
+                            source.AreProvablyDisjoint)
+                    : CSharpPrinter.PrintLowered(
+                        function,
+                        import)))
+            .ToArray();
+        DecompilerResult[] results = await System.Threading.Tasks.Task.WhenAll(requests)
+            .WaitAsync(
+                TimeSpan.FromSeconds(30),
+                TestContext.Current.CancellationToken);
+
+        Assert.All(results, result => Assert.True(result.Succeeded));
+        Assert.IsType<ClassicAsyncDecision.Reconstruct>(
+            PublishedDecision(evidence));
+        Assert.Equal(
+            1,
+            PlanningSession(evidence).PublishedPreparationCount);
+    }
+
+    [Fact]
+    public void NestedLocalPreparationDoesNotPoisonTopLevelRequest()
+    {
+        using var source = OpenClassicFixture();
+        IrFunction parent = ImportClassicFixture(
+            source,
+            "CallsClassicLocal");
+        Func<MethodRef, IrFunction?> import =
+            method => IrImporter.Import(source, method);
+
+        CSharpPrinter.PrintRaised(
+            parent,
+            import,
+            typesProvablyDisjoint: source.AreProvablyDisjoint);
+
+        IrFunction local = IrImporter.ImportAssembly(source)
+            .Select(method => method.Function)
+            .First(function => function.Name.Contains(
+                "g__ClassicLocal",
+                StringComparison.Ordinal));
+        var evidence = Assert.IsType<ClassicAsyncRelationshipEvidence>(
+            local.ClassicAsyncRelationship);
+        ClassicAsyncPlanningSession planningSession =
+            PlanningSession(evidence);
+        int preparationsAfterNestedRequest =
+            planningSession.PreparationCount;
+
+        CSharpPrinter.PrintRaised(
+            local,
+            import,
+            typesProvablyDisjoint: source.AreProvablyDisjoint);
+
+        Assert.IsType<ClassicAsyncDecision.Reconstruct>(
+            PublishedDecision(evidence));
+        Assert.Equal(
+            preparationsAfterNestedRequest,
+            planningSession.PreparationCount);
+        Assert.Equal(
+            1,
+            planningSession.PublishedPreparationCount);
+    }
+
+    [Fact]
+    public void RejectedKickoffEvidenceIsNotOverwrittenByImplementationLookup()
+    {
+        using var source = OpenClassicFixture();
+        IrFunction function = ImportClassicFixture(
+            source,
+            "RejectedClassicClaim");
+        var evidence = Assert.IsType<ClassicAsyncRelationshipEvidence>(
+            function.ClassicAsyncRelationship);
+
+        Assert.IsType<StateMachineRelationshipResult.Rejected>(
+            evidence.Relationship);
+
+        IrPasses.Run(
+            function,
+            IrPasses.Default,
+            PassContext.ForImport(
+                method => IrImporter.Import(source, method)));
+
+        Assert.IsType<ClassicAsyncStageResult.Failed>(
+            function.ClassicAsyncStageResult);
+        Assert.Null(function.ClassicAsyncOutcome);
+        Assert.Equal(
+            ClassicAsyncDeclarationDisposition.NoOpinion,
+            function.ClassicAsyncDeclarationDisposition);
+    }
+
+    [Fact]
+    public void KickoffPlanningPrefixIsDerivedFromRegisteredPipeline()
+    {
+        string[] expected = IrPasses.Default
+            .TakeWhile(pass =>
+                pass is not ClassicAsyncReconstructionPass)
+            .Select(pass => pass.Name)
+            .ToArray();
+
+        Assert.Equal(
+            expected,
+            IrPasses.Before<ClassicAsyncReconstructionPass>()
+                .Select(pass => pass.Name));
+    }
+
     static MethodRef CaptureMoveNextRequest(MetadataSource source)
     {
         IrFunction function = ImportClassicFixture(source, "AwaitVoid");
-        MethodRef? requested = null;
-        var context = PassContext.ForImport(method =>
-        {
-            if (method.ExactDefinitionAddress is not null)
-                requested = method;
-            return null;
-        });
+        var context = PassContext.ForImport(
+            method => IrImporter.Import(source, method));
 
         RunUntilClassicAsync(function, context);
 
-        return Assert.IsType<MethodRef>(requested);
+        var evidence = Assert.IsType<ClassicAsyncRelationshipEvidence>(
+            function.ClassicAsyncRelationship);
+        var decision = Assert.IsType<ClassicAsyncDecision.Reconstruct>(
+            PublishedDecision(evidence));
+        ClassicAsyncMachine machine = decision.Plan.Machine;
+        return new MethodRef(
+            machine.StateMachineType,
+            "MoveNext",
+            Void,
+            [],
+            HasThis: true)
+        {
+            ExactDefinitionAddress = machine.Execution,
+            ExactDefinitionAcquisitionGuard =
+                machine.AcquisitionGuard,
+        };
+    }
+
+    static ClassicAsyncPlanningSession PlanningSession(
+        ClassicAsyncRelationshipEvidence evidence)
+        => Assert.IsType<ClassicAsyncPlanningSession>(
+            evidence.PlanningSession);
+
+    static ClassicAsyncDecision PublishedDecision(
+        ClassicAsyncRelationshipEvidence evidence)
+    {
+        var prepared =
+            Assert.IsType<ClassicAsyncPreparationResult.Decided>(
+                PlanningSession(evidence).Prepare(evidence));
+        return prepared.Decision;
     }
 
     static IrFunction BuildSupportLookalike()

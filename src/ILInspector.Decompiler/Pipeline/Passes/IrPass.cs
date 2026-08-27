@@ -485,6 +485,14 @@ public static class IrPasses
     public static ImmutableArray<IIrPass> ForReconstruction<TPass>() where TPass : IIrPass =>
         [.. Default.Where(p => p is not (TPass or SlotMaterializationPass))];
 
+    /// <summary>
+    /// The registered prefix a pass receives on its host function. Planning
+    /// uses this projection instead of replaying later emission passes over the
+    /// kickoff and changing the recognizer's historical input.
+    /// </summary>
+    public static ImmutableArray<IIrPass> Before<TPass>() where TPass : IIrPass =>
+        [.. Default.TakeWhile(p => p is not TPass)];
+
     public static void Run(IrFunction function) => Run(function, Default);
 
     public static void Run(IrFunction function, ImmutableArray<IIrPass> passes)
@@ -492,9 +500,15 @@ public static class IrPasses
 
     public static void Run(IrFunction function, ImmutableArray<IIrPass> passes, PassContext context)
     {
+        PassContext runContext = context;
+        if (passes.Equals(Default))
+            runContext = context.ForClassicAsyncStage(ClassicAsyncStage.Raised);
+        else if (passes.Equals(Lowered))
+            runContext = context.ForClassicAsyncStage(ClassicAsyncStage.Lowered);
+
         foreach (var pass in passes)
         {
-            pass.Run(function, context);
+            pass.Run(function, runContext);
             if (IrInvariants.Enabled)
                 function.CheckInvariant(IrInvariants.CheckSemantics);
         }

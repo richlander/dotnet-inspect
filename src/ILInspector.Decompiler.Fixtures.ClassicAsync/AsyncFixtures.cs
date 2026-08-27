@@ -409,6 +409,18 @@ public static class AsyncFixtures
         bool other)
         => flag && other ? await a : 0;
 
+    public static Task<int> CallsClassicLocal(Task<int> value)
+    {
+        static async Task<int> ClassicLocal(Task<int> input)
+            => await input;
+
+        return ClassicLocal(value);
+    }
+
+    [AsyncStateMachine(typeof(NotAStateMachine))]
+    public static Task RejectedClassicClaim()
+        => Task.CompletedTask;
+
     public static async Task<bool> DynamicReferenceIdentity(
         Task<ReferenceIdentityPlain> value,
         dynamic right)
@@ -442,6 +454,10 @@ public static class AsyncFixtures
     }
 
     public readonly struct InterfaceValue : IInterfaceValue
+    {
+    }
+
+    sealed class NotAStateMachine
     {
     }
 #pragma warning restore CS1998
