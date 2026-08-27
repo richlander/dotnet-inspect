@@ -302,17 +302,22 @@ and nonzero exit codes pass through unchanged.
 Initialization has one terminal state machine per generated module instance.
 The first `initializeRuntime()` call records the in-flight work before calling
 `dotnet.create()`. Concurrent calls join that work, and calls after success are
-fulfilled without creating or acquiring again. Any creation or acquisition
-failure is terminal: later initialization calls preserve the same rejection,
-and a new module instance is required to retry. Runtime and export storage
-remain unpublished unless the whole operation succeeds.
+fulfilled without creating or acquiring again. Any creation, acquisition, or
+validation failure is terminal for that module in the current JavaScript realm:
+later initialization calls preserve the same rejection, and retry requires a
+page reload or worker-realm restart. Runtime and export storage remain
+unpublished unless the whole operation succeeds.
 
 That single-flight guarantee is deliberately module-local. A consumer using
-several separately generated facade modules serializes their first
-initialization unless its runtime owner guarantees shared in-flight
-acquisition. A facade whose local acquisition or validation fails never exits
-or disposes the potentially shared runtime; cross-module coordination and
-runtime lifetime remain consumer and runtime policy.
+several separately generated facade modules configures the SDK's shared
+module-scoped `dotnet` builder before invoking any facade initializer, then
+serializes their first initialization unless its runtime owner guarantees
+shared in-flight acquisition. Generated facades import that same builder but
+never change its configuration; after the first serialized initializer
+completes, later `dotnet.create()` calls reuse the SDK's completed runtime
+instance. A facade whose local acquisition or validation fails never exits or
+disposes the potentially shared runtime. Cross-module coordination,
+configuration, and runtime lifetime remain consumer and runtime policy.
 
 Managed operations and `runEntryPoint()` fail visibly until initialization has
 fulfilled, using one consistent module-owned not-initialized error across all
@@ -402,16 +407,23 @@ If a consumer emits declarations for the facade, `tsc` derives them from the
 generated TypeScript source. Those facade declarations are distinct from the
 SDK's declaration for the runtime module.
 
-Generated identifiers must be valid, collision-free TypeScript bindings.
-Reserved module bindings, helper names, wrapper-local names, wire declaration
-names, function names, and nested managed-export paths are validated as one
-composed module before any output is published. One deterministic allocator
-handles operation-to-operation, wire-declaration-to-wire-declaration,
-operation-to-wire-declaration, operation-to-infrastructure, helper, and
-reserved-name collisions. Module infrastructure, runtime imports, helpers, and
-wrapper-local bindings are allocated first and are never renamed or displaced
-by a public declaration. A preferred public name is retained only when it is
-unique and unreserved.
+Generated identifiers must be valid, collision-free TypeScript bindings. One
+deterministic, scope-aware allocator validates the composed module before any
+output is published. At module scope it handles operation-to-operation,
+wire-declaration-to-wire-declaration, operation-to-wire-declaration,
+operation-to-infrastructure, helper, and reserved-name collisions. Module
+infrastructure, runtime imports, and helpers are allocated first and are never
+renamed or displaced by a public declaration.
+
+Within each facade function, generated wrapper locals and every module binding
+referenced by that function are reserved first and remain immovable. Legal
+managed parameter spellings are then retained only when unique and unreserved
+in that function scope. A colliding parameter fallback derives from the
+complete managed operation identity and parameter ordinal. If distinct
+parameter identities still produce the same legal TypeScript spelling, the
+same stable canonical-identity digest rule disambiguates them. Parameter order
+and types remain unchanged, and genuinely illegal identifier input still fails
+generation visibly.
 
 The allocator never rewrites an owner-issued declaring-type path or runtime
 dispatch key. TypeScript identifier legality is not evidence that a path is
@@ -427,8 +439,8 @@ spelling, a stable digest of the corresponding canonical identity
 disambiguates them. All signatures and reached-property types refer to enums
 and DTOs through typed identity and the allocated-name map, never through a
 simple display name. A spelling collision never drops a supported operation,
-enum, or DTO, replaces module infrastructure, or makes the otherwise supported
-surface ungeneratable.
+parameter, enum, or DTO, replaces module infrastructure, or makes the otherwise
+supported surface ungeneratable.
 
 The current exact `ConfigureHost(string)` browser bootstrap is consumer policy,
 not a general implication of `[JSExport]`. `ts-jsexport` emits it as an ordinary
@@ -644,9 +656,10 @@ The implementation effort should:
     for an inherited, accessor-backed, absent, or non-callable path;
 11. remove `ValueTask` mapping branches, reject such a hand-composed input
     visibly, and retain the SDK compile-time negative;
-12. allocate deterministic operation, enum, and DTO names from complete
-    managed identities, and route every typed reference through that
-    allocation, instead of rejecting collisions; and
+12. allocate deterministic operation, parameter, enum, and DTO names from
+    complete managed identities, route every typed reference through that
+    allocation, and preserve parameter order and types instead of rejecting
+    legal spelling collisions; and
 13. preserve deterministic output and failure-before-publication behavior.
 
 Steps 9 and 12 are atomic for methods sharing one declaring-type path and
@@ -718,18 +731,21 @@ The target remains unverified until all of these gates exist:
   without changing runtime import or public facade semantics;
 - collision fixtures cover operation-to-operation, overload,
   DTO-to-DTO, enum-to-enum, enum-to-DTO, operation-to-infrastructure,
-  operation-to-wire-declaration, helper, reserved-name, and post-normalization
-  collisions; every supported operation, enum, and DTO retains one
-  deterministic public declaration without renaming or replacing module
-  infrastructure, and every wire-type reference resolves to the allocated
-  declaration for its exact typed identity;
+  operation-to-wire-declaration, parameter-to-parameter,
+  parameter-to-wrapper-local, parameter-to-referenced-module-binding, helper,
+  reserved-name, and post-normalization collisions; every supported operation,
+  parameter, enum, and DTO retains one deterministic declaration or binding
+  without renaming or replacing module infrastructure, parameter order and
+  types remain unchanged, and every wire-type reference resolves to the
+  allocated declaration for its exact typed identity;
 - after #4791, an overloaded compiled fixture with distinct results proves each
   generated facade function indexes the owner-issued exact runtime key rather
   than the ambiguous bare method name;
-- runtime export-aggregate fixtures prove inherited and accessor-backed path
-  segments fail before publication without invoking a getter, two assembly
-  roots cannot cross-dispatch through a shared prototype, and an equivalent
-  own-data-property path succeeds;
+- runtime export-aggregate fixtures cover both intermediate path segments and
+  final dispatch keys: inherited, accessor-backed, absent, and non-callable
+  properties fail before publication, call-counting getters are never invoked,
+  two assembly roots cannot cross-dispatch through a shared prototype, and an
+  equivalent own-data-property path with an own callable key succeeds;
 - runtime tests prove initialization failure, publication only after export
   acquisition and exact callable-path validation, no raw-object return, exact
   export dispatch, JSON parsing, and exception propagation;
