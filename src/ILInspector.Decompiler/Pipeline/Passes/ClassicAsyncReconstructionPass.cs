@@ -30,14 +30,25 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             [],
             HasThis: true);
         var moveNextPasses = IrPasses.ForReconstruction<ClassicAsyncReconstructionPass>();
-        if (!context.TryImportAndRunMethodBody(moveNextMethod, moveNextPasses, out var moveNext)
-            || moveNext is null)
+        if (!context.TryEnterCrossMethodPipeline(moveNextMethod, out var scope))
             return;
+        IrFunction? moveNext;
+        bool importedBodyHasUnconsumedStore;
+        using (scope)
+        {
+            moveNext = scope.Import();
+            if (moveNext is null)
+                return;
+            importedBodyHasUnconsumedStore =
+                HasUnconsumedExecutionStore(moveNext);
+            scope.Run(moveNext, moveNextPasses);
+        }
 
         var reconstruction = TryReconstruct(
             moveNext,
             function,
             kickoff,
+            importedBodyHasUnconsumedStore,
             out var body,
             out var locals,
             out var localNames);
@@ -179,6 +190,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         IrFunction moveNext,
         IrFunction kickoff,
         Kickoff kickoffShape,
+        bool importedBodyHasUnconsumedStore,
         out BlockContainer body,
         out ImmutableArray<TypeRef> locals,
         out ImmutableArray<string?> localNames)
@@ -190,8 +202,11 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         var localBuilder = new LocalBuilder();
         if (!TryBuildStatements(moveNext, kickoff, localBuilder, out var statements))
             return ReconstructionResult.NotRecognized;
-        if (HasUnconsumedExecutionStore(moveNext))
+        if (importedBodyHasUnconsumedStore
+            || HasUnconsumedExecutionStore(moveNext))
+        {
             return ReconstructionResult.UnconsumedExecutionRegion;
+        }
 
         var block = new Block(0);
         foreach (var statement in statements)
@@ -215,16 +230,36 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             switch (node)
             {
                 case StoreField store
-                    when !DefinitionType(store.Field.DeclaringType).Equals(machine):
+                    when !IsMachineFieldStore(store, machine):
                 case StoreProperty:
                 case StoreElement:
                 case StoreIndirect:
                 case StoreArgument:
+                case ChainedAssignment:
+                case Call call
+                    when call.Callee.Name.StartsWith(
+                        "set_",
+                        StringComparison.Ordinal):
                     return true;
             }
         }
 
         return false;
+    }
+
+    internal static bool IsMachineFieldStore(
+        StoreField store,
+        TypeRef machine)
+    {
+        TypeRef declaringType =
+            DefinitionType(store.Field.DeclaringType);
+        machine = DefinitionType(machine);
+        return !declaringType.DefinitionHandle.IsNil
+            && declaringType.DefinitionHandle
+                == machine.DefinitionHandle
+            && declaringType.DefinitionModuleVersionId is { } declaringMvid
+            && machine.DefinitionModuleVersionId is { } machineMvid
+            && declaringMvid == machineMvid;
     }
 
     static TypeRef DefinitionType(TypeRef type)

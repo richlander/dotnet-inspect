@@ -1,4 +1,6 @@
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
+using System.Reflection.Metadata.Ecma335;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -10,6 +12,8 @@ public class ClassicAsyncReconstructionHonestyTests
 
     [Theory]
     [InlineData("SequentialWithFieldStore")]
+    [InlineData("SequentialWithChainedFieldStores")]
+    [InlineData("SequentialWithNullCoalescingFieldStore")]
     [InlineData("LoopWithFieldStore")]
     public void UnconsumedUserStoreDeclinesAtPartialFidelity(
         string methodName)
@@ -51,6 +55,31 @@ public class ClassicAsyncReconstructionHonestyTests
             "Observed =",
             result.Output,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SameNamedFieldFromAnotherModuleIsNotMachineStorage()
+    {
+        Guid machineMvid = Guid.NewGuid();
+        TypeRef machine = Definition(
+            machineMvid,
+            MetadataTokens.TypeDefinitionHandle(2));
+        TypeRef sameNameFromAnotherModule = Definition(
+            Guid.NewGuid(),
+            MetadataTokens.TypeDefinitionHandle(2));
+        Assert.Equal(machine, sameNameFromAnotherModule);
+
+        var localStore = Store(machine);
+        var foreignStore = Store(sameNameFromAnotherModule);
+
+        Assert.True(
+            ClassicAsyncReconstructionPass.IsMachineFieldStore(
+                localStore,
+                machine));
+        Assert.False(
+            ClassicAsyncReconstructionPass.IsMachineFieldStore(
+                foreignStore,
+                machine));
     }
 
     [Theory]
@@ -154,4 +183,38 @@ public class ClassicAsyncReconstructionHonestyTests
         function.CheckInvariant();
         return function;
     }
+
+    static TypeRef Definition(
+        Guid moduleVersionId,
+        System.Reflection.Metadata.TypeDefinitionHandle handle)
+    {
+        MetadataTypeDefinitionName name =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Samples",
+                    ["Outer", "<Method>d__0"]))
+                .Name;
+        return TypeRef.DefinitionWithResolution(
+            "Samples",
+            "Samples",
+            "Outer+<Method>d__0",
+            ValueTypeHint.ValueType,
+            MetadataFactState.Unknown,
+            enclosingType: null,
+            definitionName: name,
+            resolutionAssembly: null,
+            definitionHandle: handle,
+            definitionModuleVersionId: moduleVersionId);
+    }
+
+    static StoreField Store(TypeRef declaringType)
+        => new(
+            new FieldRef(
+                declaringType,
+                "<>1__state",
+                TypeRef.CoreLib("System", "Int32")),
+            new LoadArgument(0, "this", declaringType),
+            new Constant(
+                0,
+                TypeRef.CoreLib("System", "Int32")));
 }

@@ -16,6 +16,8 @@ namespace ILInspector.Decompiler.Fixtures.ClassicAsync;
 public static class AsyncFixtures
 {
     public static int Observed;
+    public static int Observed2;
+    public static int? ObservedNullable;
 
     public static async Task<int> AwaitValue(Task<int> a, int b) => await a + b;
 
@@ -43,6 +45,26 @@ public static class AsyncFixtures
     {
         int alpha = await a;
         Observed = alpha;
+        int beta = await b;
+        GC.KeepAlive((alpha, beta));
+    }
+
+    public static async Task SequentialWithChainedFieldStores(
+        Task<int> a,
+        Task<int> b)
+    {
+        int alpha = await a;
+        Observed2 = Observed = alpha;
+        int beta = await b;
+        GC.KeepAlive((alpha, beta));
+    }
+
+    public static async Task SequentialWithNullCoalescingFieldStore(
+        Task<int> a,
+        Task<int> b)
+    {
+        int alpha = await a;
+        ObservedNullable ??= alpha;
         int beta = await b;
         GC.KeepAlive((alpha, beta));
     }
