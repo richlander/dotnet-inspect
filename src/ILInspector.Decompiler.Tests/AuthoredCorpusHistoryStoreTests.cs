@@ -163,6 +163,8 @@ public class AuthoredCorpusHistoryStoreTests
     [InlineData("incomplete")]
     [InlineData("partition")]
     [InlineData("methodology")]
+    [InlineData("printer-methodology")]
+    [InlineData("printer-summary")]
     public void AppendProjection_RejectsRepresentativeArtifactTampering(string tamper)
     {
         AuthoredCorpusBenchmark.Report report = Report();
@@ -177,6 +179,12 @@ public class AuthoredCorpusHistoryStoreTests
                 ValidBreakdown = report.ValidBreakdown with { FrontierIlExact = 0 },
             },
             "methodology" => report with { MethodologyVersion = 999 },
+            "printer-methodology" => report with { PrinterComparisonVersion = 999 },
+            "printer-summary" => report with
+            {
+                PrinterExact = 1,
+                PrinterNotRecorded = 0,
+            },
             _ => throw new InvalidOperationException(),
         };
 
@@ -235,6 +243,7 @@ public class AuthoredCorpusHistoryStoreTests
     [InlineData("faultIsolationMethod", "Bogus")]
     [InlineData("supersededFaultIsolation", "Bogus")]
     [InlineData("supersededFaultIsolationMethod", "Bogus")]
+    [InlineData("printerExact", "Bogus")]
     [InlineData("qualityContract", "Bogus")]
     public void AppendProjection_RejectsUnknownEnumShapedFactsWithMatchingSummaries(
         string field,
@@ -310,6 +319,10 @@ public class AuthoredCorpusHistoryStoreTests
                 {
                     SupersededFaultIsolationMethod = value,
                 }),
+            },
+            "printerExact" => report with
+            {
+                Rows = Replace(rows, 0, rows[0] with { PrinterExact = value }),
             },
             "qualityContract" => report with { QualityContract = value },
             _ => throw new InvalidOperationException(),
@@ -402,6 +415,18 @@ public class AuthoredCorpusHistoryStoreTests
         report = report with { Rows = rows };
 
         Assert.Throws<InvalidDataException>(() => AuthoredCorpusHistoryStore.Project(report));
+    }
+
+    [Fact]
+    [Trait("Area", "Corpus")]
+    public void AppendProjection_RejectsPrinterExactOutsideCorrect()
+    {
+        AuthoredCorpusBenchmark.Report report = Report();
+        var rows = report.Rows.ToArray();
+        rows[3] = rows[3] with { PrinterExact = PrinterExactOutcome.Exact.ToString() };
+
+        Assert.Throws<InvalidDataException>(
+            () => AuthoredCorpusHistoryStore.Project(report with { Rows = rows }));
     }
 
     [Fact]
@@ -529,6 +554,10 @@ public class AuthoredCorpusHistoryStoreTests
             InputsComplete: true,
             QualityContract: "Perfection",
             Correct: 1,
+            PrinterComparisonVersion: AuthoredSourceOracleManifest.PrinterComparisonVersion,
+            PrinterExact: 0,
+            PrinterDifferent: 0,
+            PrinterNotRecorded: 1,
             ValidDifferent: 2,
             ValidBreakdown: new AuthoredCorpusBenchmark.ValidBreakdownReport(
                 Total: 2,
@@ -552,6 +581,7 @@ public class AuthoredCorpusHistoryStoreTests
             Drift: 0,
             Unsupported: 0,
             UnknownOutcome: 0,
+            SourceOracleManifest: null,
             Ratchet: null,
             Rows:
             [
@@ -589,7 +619,8 @@ public class AuthoredCorpusHistoryStoreTests
             SupersededFaultIsolationMethod: null,
             Reason: "test",
             Detail: null,
-            SourceFile: null);
+            SourceFile: null,
+            PrinterExact: PrinterExactOutcome.NotRecorded.ToString());
 
     static IReadOnlyList<AuthoredCorpusBenchmark.RowReport> Replace(
         AuthoredCorpusBenchmark.RowReport[] rows,
