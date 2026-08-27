@@ -74,6 +74,20 @@ public sealed class TsTypeMapperTests
         Assert.Equal("string", TsTypeMapper.MapJsonWireType(csharpType, RecordNames));
     }
 
+    [Fact]
+    public void MapJsonWireType_MapsArraysToReadonlyArrays()
+    {
+        Assert.Equal(
+            "ReadonlyArray<number>",
+            TsTypeMapper.MapJsonWireType("int[]", RecordNames));
+        Assert.Equal(
+            "ReadonlyArray<WidgetDto | null>",
+            TsTypeMapper.MapJsonWireType("WidgetDto?[]", RecordNames));
+        Assert.Equal(
+            "ReadonlyArray<ReadonlyArray<number>>",
+            TsTypeMapper.MapJsonWireType("int[][]", RecordNames));
+    }
+
     [Theory]
     [InlineData("byte[]")]
     [InlineData("System.Byte[]")]
@@ -189,6 +203,11 @@ public sealed class TsTypeMapperTests
         Assert.Equal(
             "Record<string, string>",
             TsTypeMapper.MapParameterType("IReadOnlyDictionary<string, string>", RecordNames));
+        Assert.Equal(
+            "Readonly<Record<string, ReadonlyArray<WidgetDto>>>",
+            TsTypeMapper.MapJsonWireType(
+                "IReadOnlyDictionary<string, WidgetDto[]>",
+                RecordNames));
     }
 
     [Fact]

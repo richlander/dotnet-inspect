@@ -19,24 +19,74 @@ import {
 } from "../scripts/verify-analysis-host.js";
 import { verifySiteArtifact } from "../scripts/verify-site-artifact.js";
 
-const packageLock = JSON.parse(
-  readFileSync(new URL("../package-lock.json", import.meta.url), "utf8"),
-);
-const packageJson = JSON.parse(
-  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
-);
-const oxlintConfig = JSON.parse(
-  readFileSync(new URL("../.oxlintrc.json", import.meta.url), "utf8"),
-);
-const browserTsconfig = JSON.parse(
-  readFileSync(new URL("../tsconfig.json", import.meta.url), "utf8"),
-);
-const testTsconfig = JSON.parse(
-  readFileSync(new URL("tsconfig.json", import.meta.url), "utf8"),
-);
-const staticWebAppConfig = JSON.parse(
-  readFileSync(new URL("../staticwebapp.config.json", import.meta.url), "utf8"),
-);
+interface PackageLockEntry {
+  readonly link?: boolean;
+  readonly resolved?: string;
+  readonly integrity?: string;
+  readonly optionalDependencies?: Readonly<Record<string, string>>;
+  readonly os?: readonly string[];
+  readonly cpu?: readonly string[];
+  readonly libc?: readonly string[];
+}
+
+interface PackageLock {
+  readonly packages: Readonly<Record<string, PackageLockEntry>>;
+}
+
+interface PackageJson {
+  readonly scripts: Readonly<Record<string, string>>;
+}
+
+interface OxlintConfig {
+  readonly ignorePatterns?: readonly string[];
+}
+
+interface TsconfigFile {
+  readonly extends?: string;
+  readonly compilerOptions: Readonly<Record<string, unknown>>;
+  readonly include?: readonly string[];
+}
+
+interface StaticWebAppRoute {
+  readonly route: string;
+  readonly rewrite?: string;
+  readonly headers?: Readonly<Record<string, string>>;
+}
+
+interface StaticWebAppConfig {
+  readonly routes: readonly StaticWebAppRoute[];
+  readonly navigationFallback: {
+    readonly rewrite: string;
+    readonly exclude: readonly string[];
+  };
+}
+
+// `JSON.parse` is typed `any`, and an `any` here would silently switch off checking for
+// every config read below -- the same defeat this file's own strictness tests guard
+// against. Naming the shape each test relies on keeps those reads checked, so a renamed
+// config key becomes a compile error rather than an `undefined` comparison.
+//
+// These are repo-owned files rather than untrusted input, and a shape that stops matching
+// fails the assertion that reads it, so this asserts the shape instead of validating it.
+// That mirrors `parseEngineJson` in `src/dotnet-inspect.ts`, including the two targeted
+// disables it needs. `reportUnusedDisableDirectives` is an error here, so these directives
+// cannot outlive the rules they suppress.
+// oxlint-disable-next-line typescript/no-unnecessary-type-parameters
+function readJson<T>(specifier: string): T {
+  const parsed: unknown = JSON.parse(
+    readFileSync(new URL(specifier, import.meta.url), "utf8"),
+  );
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return parsed as T;
+}
+
+const packageLock = readJson<PackageLock>("../package-lock.json");
+const packageJson = readJson<PackageJson>("../package.json");
+const oxlintConfig = readJson<OxlintConfig>("../.oxlintrc.json");
+const browserTsconfig = readJson<TsconfigFile>("../tsconfig.json");
+const testTsconfig = readJson<TsconfigFile>("tsconfig.json");
+const staticWebAppConfig
+  = readJson<StaticWebAppConfig>("../staticwebapp.config.json");
 const siteIndexHtml = readFileSync(
   new URL("../index.html", import.meta.url),
   "utf8",
@@ -88,8 +138,8 @@ test("the strictness options this project relies on stay enabled", () => {
 // Round 6 review (GPT-5.6 Sol, converging with Claude Opus 5) defeated the pin above
 // without touching any value it reads: adding `"noCheck": true` leaves every pinned
 // option literally `true` while TypeScript stops checking anything at all, and the suite
-// stayed green with a genuinely unsafe indexed read restored. A per-file `// @ts-nocheck`
-// walked past it the same way.
+// stayed green with a genuinely unsafe indexed read restored. A per-file suppression
+// directive walked past it the same way.
 //
 // Enumerating the neutering options is the losing move -- `noCheck` was already the
 // second one found, and the compiler keeps adding surface. So this asserts the property
@@ -100,7 +150,10 @@ test("the strictness options this project relies on stay enabled", () => {
 // Opus established that the remaining vector, narrowing `include`/`exclude` to drop files
 // from the program, is already caught by `npm run analyze`: oxlint's type-aware rules
 // lose their type information and fail. So this covers the vectors that gate leaves open.
-for (const [name, project] of [["browser", "tsconfig.json"], ["test", "test/tsconfig.json"]]) {
+for (const [name, project] of [
+  ["browser", "tsconfig.json"],
+  ["test", "test/tsconfig.json"],
+] as const) {
   test(`the ${name} project rejects an unchecked indexed read`, () => {
     const root = new URL("../", import.meta.url);
     const probe = mkdtempSync(join(tmpdir(), "inspect-web-strictness-"));
@@ -147,31 +200,69 @@ for (const [name, project] of [["browser", "tsconfig.json"], ["test", "test/tsco
 }
 
 // The other half of the same vector: `noCheck` turns the compiler off for a project, and
-// `@ts-nocheck` turns it off for a file. The fixture above cannot see the second, because
-// it compiles a file of its own. Unlike a naming or roster ban, the set of suppression
-// directives is closed and owned by the compiler rather than by us, so listing them here
-// is not a restatement that can drift out of date.
-test("no source file suppresses type checking", () => {
+// the per-file suppression directives turn it off for a single file. The fixture above
+// cannot see the second, because it compiles a file of its own. Unlike a naming or roster
+// ban, the set of suppression directives is closed and owned by the compiler rather than
+// by us, so listing them here is not a restatement that can drift out of date.
+//
+// Converting this file from JavaScript put it inside its own scan. The directives are
+// therefore assembled from parts rather than spelled out: a literal would make this gate
+// report itself, and excluding this file would leave a hole in the one test that closes
+// the per-file vector. Assembling keeps this file in scope and the scan exactly as
+// strict, which is why the prose above names the directives only in the abstract.
+function checkedSourceFiles(extensions: readonly string[]): string[] {
   const root = new URL("../", import.meta.url);
-  const files = [];
+  const files: string[] = [];
   for (const directory of ["src", "test"]) {
     for (const entry of readdirSync(new URL(directory, root), {
       recursive: true,
       withFileTypes: true,
     })) {
-      if (entry.isFile() && entry.name.endsWith(".ts")) {
+      if (entry.isFile()
+          && extensions.some(extension => entry.name.endsWith(extension))) {
         files.push(join(entry.parentPath, entry.name));
       }
     }
   }
+  return files;
+}
+
+test("no source file suppresses type checking", () => {
+  const root = new URL("../", import.meta.url);
+  const files = checkedSourceFiles([".ts"]);
 
   assert.ok(files.length > 50, `expected the TypeScript sources, found ${files.length}`);
+  const suppressionPattern = new RegExp(
+    ["nocheck", "ignore"].map(directive => `@ts-${directive}`).join("|"),
+  );
+  // This file is one of the scanned files, so the assembly above is load-bearing rather
+  // than stylistic; a literal pattern would fail this assertion on this very file.
+  assert.ok(
+    files.includes(fileURLToPath(import.meta.url)),
+    "the scan must cover the file that defines it");
   const suppressed = files.filter(file =>
-    /@ts-nocheck|@ts-ignore/.test(readFileSync(file, "utf8")));
+    suppressionPattern.test(readFileSync(file, "utf8")));
   assert.deepEqual(
     suppressed.map(file => file.slice(fileURLToPath(root).length)),
     [],
     "these files opt out of type checking; use a narrowing guard or @ts-expect-error");
+});
+
+// The third way out of type checking is to not write TypeScript at all. The oxlint config
+// turns the `no-unsafe-*` family off for `**/*.js`, which is right for the build script,
+// the generated engine wrapper, and the Vite config, but would silently exempt a new
+// JavaScript file dropped into the application or its tests. Both directories are now
+// wholly TypeScript, so the cheapest way to keep the exemption scoped to the files that
+// need it is to assert that neither directory has any JavaScript to exempt.
+test("the application and its tests are wholly TypeScript", () => {
+  const root = new URL("../", import.meta.url);
+  const unchecked = checkedSourceFiles([".js", ".jsx", ".mjs", ".cjs"]);
+
+  assert.deepEqual(
+    unchecked.map(file => file.slice(fileURLToPath(root).length)),
+    [],
+    "src and test are TypeScript-only; the oxlint `**/*.js` override would exempt these "
+      + "files from the no-unsafe rules that the rest of the application is held to");
 });
 
 test("static hosting serves credits links through the application entry point", () => {
@@ -197,24 +288,34 @@ test("static hosting serves credits links through the application entry point", 
 
 const linuxLibcs = ["glibc", "musl"];
 
-function optionalNativeVariants(packagePath, dependencyPrefix) {
+function optionalNativeVariants(
+  packagePath: string,
+  dependencyPrefix: string,
+): Set<string> {
   const packageEntry = packageLock.packages[packagePath];
   assert.ok(packageEntry);
   const dependencies = Object.keys(packageEntry.optionalDependencies ?? {})
     .filter(dependency => dependency.startsWith(dependencyPrefix));
   assert.notEqual(dependencies.length, 0);
 
-  const variants = new Set();
+  const variants = new Set<string>();
   for (const dependency of dependencies) {
     const nativeEntry = packageLock.packages[`node_modules/${dependency}`];
     assert.ok(nativeEntry);
-    assert.equal(nativeEntry.os?.length, 1);
-    assert.equal(nativeEntry.cpu?.length, 1);
+    const { os, cpu } = nativeEntry;
+    assert.equal(os?.length, 1);
+    assert.equal(cpu?.length, 1);
     assert.ok(nativeEntry.libc === undefined || nativeEntry.libc.length === 1);
 
-    const host = `${nativeEntry.os[0]}-${nativeEntry.cpu[0]}`;
+    // The length assertions above already establish these, but they are `assert` calls
+    // rather than narrowing, so the indexed reads still need a guard to compile.
+    const osName = os?.[0];
+    const cpuName = cpu?.[0];
+    assert.ok(osName !== undefined && cpuName !== undefined);
+
+    const host = `${osName}-${cpuName}`;
     const libcs = nativeEntry.libc
-      ?? (nativeEntry.os[0] === "linux" ? linuxLibcs : ["none"]);
+      ?? (osName === "linux" ? linuxLibcs : ["none"]);
     for (const libc of libcs) {
       variants.add(`${host}/${libc}`);
     }
@@ -222,7 +323,10 @@ function optionalNativeVariants(packagePath, dependencyPrefix) {
   return variants;
 }
 
-function completeAnalyzerHosts(oxlintVariants, tsgolintVariants) {
+function completeAnalyzerHosts(
+  oxlintVariants: ReadonlySet<string>,
+  tsgolintVariants: ReadonlySet<string>,
+): Set<string> {
   const sharedVariants = new Set(
     [...tsgolintVariants].filter(variant => oxlintVariants.has(variant)),
   );
@@ -276,24 +380,42 @@ test("the lint gate includes both generated tsbindgen outputs", () => {
   assert.ok(
     !(oxlintConfig.ignorePatterns ?? []).includes("src/inspect-web-engine.d.ts"),
   );
-  assert.match(packageJson.scripts.lint, /(?:^| )src(?: |$)/);
+  // Reading the script through an index signature makes its absence a real possibility
+  // rather than a silent `undefined` handed to `assert.match`, which would fail with a
+  // type error about the argument instead of naming the missing script.
+  const lintScript = packageJson.scripts.lint;
+  assert.ok(lintScript !== undefined, "package.json must define a lint script");
+  assert.match(lintScript, /(?:^| )src(?: |$)/);
   assert.match(
-    packageJson.scripts.lint,
+    lintScript,
     /(?:^| )engine\/wwwroot\/inspect-web-engine\.js(?: |$)/,
   );
 });
+
+// The fixture below is mutated in place across the assertions, so it is typed rather than
+// inferred: an inferred object literal makes every key required, which forbids `delete`,
+// and an indexed read back would be `ManifestEntry | undefined`. Holding the entry that
+// the test mutates in its own binding keeps those mutations checked and undefined-free.
+interface ManifestEntry {
+  file: string;
+  css?: readonly string[];
+  dynamicImports?: readonly string[];
+  isEntry?: boolean;
+  isDynamicEntry?: boolean;
+}
 
 test("the site artifact rejects a missing Vite output", (context) => {
   const site = mkdtempSync(join(tmpdir(), "inspect-web-artifact-"));
   context.after(() => rmSync(site, { recursive: true, force: true }));
   mkdirSync(join(site, "assets"));
-  const manifest = {
-    "index.html": {
-      file: "assets/index.js",
-      css: ["assets/index.css"],
-      dynamicImports: ["src/dotnet-inspect.ts"],
-      isEntry: true,
-    },
+  const indexEntry: ManifestEntry = {
+    file: "assets/index.js",
+    css: ["assets/index.css"],
+    dynamicImports: ["src/dotnet-inspect.ts"],
+    isEntry: true,
+  };
+  const manifest: Record<string, ManifestEntry> = {
+    "index.html": indexEntry,
     "src/dotnet-inspect.ts": {
       file: "assets/app.js",
       isDynamicEntry: true,
@@ -366,14 +488,14 @@ test("the site artifact rejects a missing Vite output", (context) => {
     file: "assets/app.js",
     isDynamicEntry: true,
   };
-  manifest["index.html"].file = "assets/../index.html";
+  indexEntry.file = "assets/../index.html";
   writeFileSync(join(site, "manifest.json"), JSON.stringify(manifest));
   assert.throws(
     () => verifySiteArtifact(site),
     /manifest contains invalid asset 'assets\/\.\.\/index\.html'/,
   );
 
-  manifest["index.html"].file = "assets/index.js";
+  indexEntry.file = "assets/index.js";
   writeFileSync(join(site, "manifest.json"), JSON.stringify(manifest));
   unlinkSync(join(site, "assets/index.js"));
   assert.throws(

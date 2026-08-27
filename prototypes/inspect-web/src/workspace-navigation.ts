@@ -289,8 +289,8 @@ export interface WorkspaceDeepLink {
 
 export interface WorkspaceUrlState {
   package: string;
-  tabs: BrowserWorkspaceShareTab[];
-  contexts: BrowserWorkspaceShareContext[];
+  tabs: readonly BrowserWorkspaceShareTab[];
+  contexts: readonly BrowserWorkspaceShareContext[];
   activeTabId: string;
   selectedContextId: string;
   view: BrowserWorkspaceShareView;
@@ -520,7 +520,7 @@ export interface DecodedShareState {
   state: BrowserWorkspaceShareState;
   tabs: WorkspaceTab[];
   active: number;
-  contexts: BrowserWorkspaceShareContext[];
+  contexts: readonly BrowserWorkspaceShareContext[];
   selectedContextId: string;
   view: string;
   type: string | null;
@@ -714,7 +714,7 @@ function resolveWorkspaceLocation(
   let viewToken = location.hash.slice(1);
   let tabs: WorkspaceTab[] = [];
   let active = 0;
-  let contexts: BrowserWorkspaceShareContext[] = [];
+  let contexts: readonly BrowserWorkspaceShareContext[] = [];
   let selectedContextId = "";
   let library: string | null = null;
   let libraryPack: PlatformPack | null = null;
