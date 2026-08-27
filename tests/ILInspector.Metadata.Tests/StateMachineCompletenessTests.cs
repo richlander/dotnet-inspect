@@ -100,16 +100,7 @@ public sealed class StateMachineCompletenessTests
         int assemblies = 0;
         int notManaged = 0;
 
-        // IgnoreInaccessible keeps one unreadable subdirectory from aborting a
-        // sweep of a shared or system-wide corpus.
-        var enumeration = new EnumerationOptions
-        {
-            RecurseSubdirectories = true,
-            IgnoreInaccessible = true,
-        };
-
-        foreach (string path in
-            Directory.EnumerateFiles(root!, "*.dll", enumeration))
+        foreach (string path in EnumerateCandidates(root!, inaccessible))
         {
             switch (TryMeasure(path, out CompletenessReport report, out string? detail))
             {
@@ -151,55 +142,235 @@ public sealed class StateMachineCompletenessTests
             $"{assemblies} managed assemblies measured, {notManaged} "
                 + $"non-managed skipped, {inaccessible.Count} unreadable.";
 
+        // Every problem is collected before anything is asserted. Asserting them
+        // one at a time lets the first failure hide the rest, so a corpus with
+        // one unreadable directory and four hundred rejections would report only
+        // the directory.
+        var problems = new List<string>();
+
+        if (inaccessible.Count != 0)
+        {
+            problems.Add(
+                $"""
+                {inaccessible.Count} corpus entr{(inaccessible.Count == 1 ? "y" : "ies")} could not be read, so the
+                sweep did not cover the whole corpus and cannot claim the property
+                over it. An unreadable directory is a hole in a completeness gate,
+                not a detail to skip past: the assemblies it hides are exactly the
+                ones nothing was proven about.
+
+                {Truncated(inaccessible)}
+                """);
+        }
+
+        if (undecodable.Count != 0)
+        {
+            problems.Add(
+                $"""
+                {undecodable.Count} managed assembl{(undecodable.Count == 1 ? "y" : "ies")} failed to decode, so their
+                state machines could not be evaluated at all. The file carried a
+                CLI header, so it claims to be managed; failing to read it is a
+                decode failure rather than a reason to skip it.
+
+                {Truncated(undecodable)}
+                """);
+        }
+
+        if (assemblies == 0)
+        {
+            problems.Add("No managed assemblies were found, so this sweep proves nothing.");
+        }
+        else if (totals.Structural == 0)
+        {
+            problems.Add(
+                "No structural state machines were found, so this sweep proves "
+                    + "nothing about the property it claims to gate.");
+        }
+
+        if (totals.Rejected != 0)
+        {
+            problems.Add(
+                $"""
+                {totals.Rejected} structural state machine(s) were refused
+                authentication, across {assemblies} assemblies ({totals.Structural}
+                structural, {totals.Resolved} resolved, {totals.Absent} absent).
+
+                A refusal has two possible causes, distinguished by the failure kinds
+                listed below. Either an attribute claimed the type and the claim
+                failed its role requirements, or the module failed to index at all,
+                in which case every structural machine in it reports Rejected
+                regardless of whether anything claimed it (see #4833).
+
+                A known cause of the first is trimming: ILLink removes
+                SetStateMachine, which both ClassicAsync and AsyncIterator require,
+                so every async claim in a trimmed assembly is refused (see #4827).
+                If this corpus contains trimmed output, that is expected rather than
+                a regression.
+
+                {Truncated(offenders)}
+                """);
+        }
+
         Assert.True(
-            undecodable.Count == 0,
-            $"""
-            {undecodable.Count} managed assembly/assemblies failed to decode, so
-            their state machines could not be evaluated at all. That is a decode
-            failure, not a clean sweep, and it is reported rather than skipped.
+            problems.Count == 0,
+            $"{surveyed}\n\n{string.Join("\n\n", problems)}");
+    }
 
-            {surveyed}
+    /// <summary>
+    /// Renders at most 25 entries and says so when it drops any. An undisclosed
+    /// truncation reads as a complete list, which understates the problem.
+    /// </summary>
+    static string Truncated(List<string> entries)
+    {
+        const int Limit = 25;
+        string body = string.Join("\n  ", entries.Take(Limit));
+        return entries.Count <= Limit
+            ? $"  {body}"
+            : $"  {body}\n  ... and {entries.Count - Limit} more "
+                + $"(showing {Limit} of {entries.Count}).";
+    }
 
-            Undecodable:
-              {string.Join("\n  ", undecodable.Take(25))}
-            """);
+    /// <summary>
+    /// Yields every <c>*.dll</c> beneath <paramref name="root"/>, recording any
+    /// directory it could not read into <paramref name="inaccessible"/>.
+    ///
+    /// The obvious spelling — <see cref="Directory.EnumerateFiles(string, string, EnumerationOptions)"/>
+    /// with <c>IgnoreInaccessible</c> — is wrong for a gate. It keeps one
+    /// unreadable subdirectory from aborting the sweep, which is why it was
+    /// reached for, but it does so by omitting that subtree silently. A corpus
+    /// whose interesting assemblies sit under a directory the test cannot read
+    /// then sweeps green while proving nothing about them. Walking explicitly
+    /// keeps the sweep robust and the hole visible, which is the property that
+    /// actually matters here.
+    /// </summary>
+    static IEnumerable<string> EnumerateCandidates(
+        string root,
+        List<string> inaccessible)
+    {
+        var pending = new Stack<string>();
+        pending.Push(root);
 
-        Assert.True(assemblies != 0, $"No managed assemblies found. {surveyed}");
-        Assert.True(
-            totals.Structural != 0,
-            $"No structural state machines found, so this sweep proves nothing. "
-                + surveyed);
+        while (pending.Count != 0)
+        {
+            string directory = pending.Pop();
 
-        Assert.True(
-            totals.Rejected == 0,
-            $"""
-            {totals.Rejected} structural state machine(s) were refused
-            authentication, across {assemblies} assemblies ({totals.Structural}
-            structural, {totals.Resolved} resolved, {totals.Absent} absent).
+            string[] subdirectories;
+            string[] files;
+            try
+            {
+                subdirectories = Directory.GetDirectories(directory);
+                files = Directory.GetFiles(directory, "*.dll");
+            }
+            catch (Exception ex)
+                when (ex is UnauthorizedAccessException or IOException)
+            {
+                inaccessible.Add($"{directory}{Path.DirectorySeparatorChar} ({ex.Message})");
+                continue;
+            }
 
-            A refusal has two possible causes, distinguished by the failure kinds
-            listed below. Either an attribute claimed the type and the claim
-            failed its role requirements, or the module failed to index at all,
-            in which case every structural machine in it reports Rejected
-            regardless of whether anything claimed it (see #4833).
+            foreach (string subdirectory in subdirectories)
+            {
+                pending.Push(subdirectory);
+            }
 
-            A known cause of the first is trimming: ILLink removes
-            SetStateMachine, which both ClassicAsync and AsyncIterator require,
-            so every async claim in a trimmed assembly is refused (see #4827).
-            If this corpus contains trimmed output, that is expected rather than
-            a regression.
+            foreach (string file in files)
+            {
+                yield return file;
+            }
+        }
+    }
 
-            {surveyed}
+    /// <summary>
+    /// A damaged managed assembly must reach <c>DecodeFailed</c>, not
+    /// <c>NotManaged</c>. The two outcomes mean opposite things to the sweep:
+    /// NotManaged is skipped in silence, DecodeFailed fails the run. Classifying
+    /// damage as NotManaged therefore launders exactly the files this gate
+    /// exists to notice, and nothing else here would catch it -- the corpus
+    /// assertion is <c>Rejected == 0</c>, which an assembly that is never
+    /// measured satisfies trivially.
+    ///
+    /// This is also the test that makes <c>DecodeFailed</c> a verified outcome
+    /// rather than an asserted one.
+    /// </summary>
+    [Fact]
+    public void TryMeasure_DamagedManagedAssembly_ReportsDecodeFailed()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(StateMachineCompletenessTests).Assembly.Location);
 
-            Offenders:
-              {string.Join("\n  ", offenders.Take(25))}
-            """);
+        int metadataStart;
+        using (var probe = new PEReader(new MemoryStream(image)))
+        {
+            Assert.True(probe.HasMetadata);
+            metadataStart = probe.PEHeaders.MetadataStartOffset;
+        }
+
+        // The metadata root signature, "BSJB". The CLI header still points at
+        // this offset, so the file goes on claiming to be managed and only the
+        // metadata itself is unreadable.
+        image[metadataStart] ^= 0xFF;
+
+        string damaged = Path.Combine(
+            Path.GetTempPath(),
+            $"sm-damaged-{Guid.NewGuid():N}.dll");
+
+        try
+        {
+            File.WriteAllBytes(damaged, image);
+
+            CorpusOutcome outcome =
+                TryMeasure(damaged, out _, out string? detail);
+
+            Assert.Equal(CorpusOutcome.DecodeFailed, outcome);
+            Assert.NotNull(detail);
+        }
+        finally
+        {
+            File.Delete(damaged);
+        }
+    }
+
+    /// <summary>
+    /// The negative half of the same seam. Routing damage to DecodeFailed is
+    /// only correct if files that are genuinely not managed assemblies still
+    /// reach NotManaged; a gate that answered DecodeFailed for everything would
+    /// pass the test above and fail every real corpus.
+    /// </summary>
+    [Fact]
+    public void TryMeasure_NonPortableExecutable_ReportsNotManaged()
+    {
+        string garbage = Path.Combine(
+            Path.GetTempPath(),
+            $"sm-garbage-{Guid.NewGuid():N}.dll");
+
+        try
+        {
+            File.WriteAllBytes(garbage, "not a PE file, despite the extension"u8.ToArray());
+
+            Assert.Equal(
+                CorpusOutcome.NotManaged,
+                TryMeasure(garbage, out _, out _));
+        }
+        finally
+        {
+            File.Delete(garbage);
+        }
     }
 
     /// <summary>
     /// Why a corpus entry did or did not contribute a measurement. Every file
-    /// the sweep touches lands in exactly one of these, so nothing is silently
+    /// the sweep opens lands in exactly one of these, so nothing is silently
     /// dropped.
+    ///
+    /// "Opens" is the honest boundary. A non-regular file named <c>*.dll</c> --
+    /// a FIFO or a device node -- can block indefinitely inside
+    /// <see cref="File.OpenRead"/> and so reach no outcome at all. .NET exposes
+    /// no portable way to detect one beforehand: <c>File.GetAttributes</c>
+    /// reports <c>Normal</c> for a FIFO exactly as it does for a regular file,
+    /// <c>LinkTarget</c> is null, <c>Length</c> is 0, <c>GetUnixFileMode</c>
+    /// returns permission bits only, and there is no non-blocking open. This is
+    /// recorded as a known limitation rather than worked around, because the
+    /// corpus root is chosen by the developer running the sweep and is not a
+    /// hostile input.
     /// </summary>
     enum CorpusOutcome
     {
@@ -262,35 +433,56 @@ public sealed class StateMachineCompletenessTests
 
             using (pe)
             {
-                MetadataReader reader;
+                // The seam between "not managed" and "managed but undecodable"
+                // is here, and it used to sit one step too late. HasMetadata
+                // reads the PE headers and the CLI directory entry; if that
+                // throws, or reports no CLI directory, the file is not a managed
+                // assembly and skipping it is right. Once it reports true the
+                // file claims to be managed, so any later failure is a decode
+                // failure and must fail the sweep rather than be laundered into
+                // NotManaged.
+                //
+                // Measured, not assumed: corrupting the "BSJB" metadata
+                // signature of a real assembly leaves HasMetadata true and makes
+                // GetMetadataReader throw "Invalid COR20 header signature". A
+                // single catch spanning both calls classified that damaged
+                // managed assembly as NotManaged and swept green.
+                bool hasMetadata;
                 try
                 {
-                    if (!pe.HasMetadata)
-                        return CorpusOutcome.NotManaged;
-
-                    reader = pe.GetMetadataReader();
+                    hasMetadata = pe.HasMetadata;
                 }
                 catch (BadImageFormatException)
                 {
                     // PrefetchEntireImage defers format validation, so a file
                     // that is not a PE at all surfaces here rather than from the
-                    // constructor. Not having readable headers means this is not
-                    // a managed assembly, not that a managed assembly failed to
-                    // decode. Real package caches contain such files.
+                    // constructor. Real package caches contain such files.
+                    return CorpusOutcome.NotManaged;
+                }
+
+                if (!hasMetadata)
+                {
                     return CorpusOutcome.NotManaged;
                 }
 
                 try
                 {
-                    report = Measure(reader);
+                    report = Measure(pe.GetMetadataReader());
                     return CorpusOutcome.Measured;
                 }
-                catch (BadImageFormatException ex)
+                catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
-                    // A MetadataReader was obtained, so this genuinely is a
-                    // managed assembly, and its metadata still failed to read.
-                    // That is a decode failure and must not be silently skipped.
-                    detail = ex.Message;
+                    // Deliberately broad, and safe to be broad precisely because
+                    // DecodeFailed fails the sweep: this surfaces the failure
+                    // instead of masking it, and records the exception type so an
+                    // unexpected one is identifiable from the assertion message.
+                    //
+                    // Randomized corruption of a real assembly produced an
+                    // OverflowException from GetMetadataReader. A
+                    // BadImageFormatException-only catch let that escape
+                    // TryMeasure entirely and abort the sweep, reaching no
+                    // outcome at all -- contrary to what this type documents.
+                    detail = $"{ex.GetType().Name}: {ex.Message}";
                     return CorpusOutcome.DecodeFailed;
                 }
             }
