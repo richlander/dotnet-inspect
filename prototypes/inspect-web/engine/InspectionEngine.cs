@@ -1049,25 +1049,24 @@ public static partial class InspectionEngine
         _ = memberSignature;
         _ = typeQueryId;
 
-        var requests = new List<BrowserPackageRequest>
-        {
-            new(packageId, version, targetFramework),
-        };
-        foreach (BrowserWorkspacePackage entry in JsonSerializer.Deserialize(
-            workspaceJson,
-            BrowserJsonContext.Default.BrowserWorkspacePackageArray) ?? [])
-        {
-            requests.Add(new BrowserPackageRequest(
-                entry.Package,
-                entry.Version,
-                string.IsNullOrWhiteSpace(entry.Framework) ? null : entry.Framework));
-        }
+        (BrowserPackageRequest[] requests, int rootIndex) =
+            MemberCallGraphRequests(
+                packageId,
+                version,
+                targetFramework,
+                workspaceJson);
 
         BrowserScopeResolution resolution =
             await BrowserPackageWorkspace.ResolveAndOpenScopeAsync(requests);
+        if (resolution.RequestedCoordinates.Length != requests.Length)
+        {
+            throw new InvalidOperationException(
+                "The selected Call Graph context did not preserve its "
+                + "distinct package coordinates.");
+        }
         BrowserInspectionScope scope = resolution.Scope;
         BrowserPackageCoordinate rootCoordinate =
-            scope.Coordinate(resolution.RequestedCoordinates[0]);
+            scope.Coordinate(resolution.RequestedCoordinates[rootIndex]);
         (
             BrowserWorkspaceParticipant participant,
             Analysis.CallGraphMemberResolution memberResolution
@@ -1094,6 +1093,60 @@ public static partial class InspectionEngine
         return JsonSerializer.Serialize(
             graph,
             BrowserJsonContext.Default.BrowserCallGraph);
+    }
+
+    internal static (BrowserPackageRequest[] Requests, int RootIndex)
+        MemberCallGraphRequests(
+            string packageId,
+            string version,
+            string targetFramework,
+            string workspaceJson)
+    {
+        BrowserWorkspacePackage[] workspace =
+            JsonSerializer.Deserialize(
+                workspaceJson,
+                BrowserJsonContext.Default.BrowserWorkspacePackageArray) ?? [];
+        if (workspace.Length == 0)
+        {
+            return (
+                [new BrowserPackageRequest(packageId, version, targetFramework)],
+                0);
+        }
+
+        BrowserPackageRequest[] requests =
+        [
+            .. workspace.Select(entry => new BrowserPackageRequest(
+                entry.Package,
+                entry.Version,
+                string.IsNullOrWhiteSpace(entry.Framework)
+                    ? null
+                    : entry.Framework)),
+        ];
+        int[] rootIndexes =
+        [
+            .. requests.Select((request, index) => (request, index))
+                .Where(entry =>
+                    string.Equals(
+                        entry.request.PackageId,
+                        packageId,
+                        StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(
+                        entry.request.Version,
+                        version,
+                        StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(
+                        entry.request.TargetFramework ?? "",
+                        targetFramework,
+                        StringComparison.OrdinalIgnoreCase))
+                .Select(entry => entry.index),
+        ];
+        if (rootIndexes.Length != 1)
+        {
+            throw new InvalidOperationException(
+                "The selected Call Graph context must contain the active "
+                + "package coordinate exactly once.");
+        }
+        return (requests, rootIndexes[0]);
     }
 
     internal static BrowserCallGraph ProjectCallGraph(
