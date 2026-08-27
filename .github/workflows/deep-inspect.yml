@@ -18,7 +18,7 @@ on:
           - all
   schedule:
     # Daily release certification: full slow tests, the decompiler corpus, and
-    # Windows/macOS compatibility.
+    # Windows/macOS/latest-Ubuntu compatibility.
     - cron: '0 6 * * *'
     # Weekly discovery: current packages and the authored-corpus ratchet.
     - cron: '0 9 * * 1'
@@ -159,7 +159,8 @@ jobs:
     # The reduced platform suite runs daily rather than on every PR. Windows is
     # materially slower than Linux, and platform-specific failures should be
     # discovered by scheduled platform agents instead of holding the primary
-    # development fleet. macOS runs the same suite for symmetric coverage.
+    # development fleet. macOS and Ubuntu 26.04 run the same suite for
+    # symmetric coverage across all three operating systems.
     #
     # The selected suites preserve the Windows-only failures recorded in
     # #3445, #3496, #3509, #3519, #3526, and #3542 plus path-sensitive
@@ -177,6 +178,8 @@ jobs:
             rid: win-x64
           - os: macos-latest
             rid: osx-arm64
+          - os: ubuntu-26.04
+            rid: linux-x64
     runs-on: ${{ matrix.os }}
     # Windows has measured as high as 57 minutes (#4350). The initial macOS
     # lane gets the same larger budget until its runtime variance is known.

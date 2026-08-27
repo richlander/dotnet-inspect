@@ -300,10 +300,10 @@ jobs:
             exit 1
           fi
 
-  # Build and run the PR test matrix on Ubuntu. Windows and macOS compatibility
-  # suites run daily in Deep Inspect, where platform-specific failures do not
-  # hold the predominantly Linux and macOS development fleet on the much slower
-  # Windows runner.
+  # Build and run the PR test matrix on Ubuntu 24.04. Windows, macOS, and Ubuntu
+  # 26.04 compatibility suites run daily in Deep Inspect, where
+  # platform-specific failures do not hold the predominantly Linux and macOS
+  # development fleet on the much slower Windows runner.
   #
   # Runs on PRs only. A pull_request build validates the PR merged into the
   # current base, so re-running the full test suite on the push to main is
