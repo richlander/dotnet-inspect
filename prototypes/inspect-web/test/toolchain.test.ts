@@ -462,9 +462,10 @@ test("the only JavaScript is the file the lint exemption names", () => {
 // everything else. A document may *reference* script and may not *contain* any, which
 // leaves a file as the only place script can be. For a relative reference that file is a
 // module under `src/`, which every other gate here already reads. For an absolute one it
-// is remote code that no gate reads, so the check below requires `integrity`: the property
-// there is that the bytes are pinned to a hash, not that anything analyzed them. An
-// element or attribute nobody has classified fails, so the next
+// is remote code that no gate reads -- and "absolute" here means remote rather than merely
+// scheme-bearing, because `//host/path` is remote too. The check below requires a real
+// `integrity` digest on those: the property is that the bytes are pinned to a hash, not
+// that anything analyzed them. An element or attribute nobody has classified fails, so the next
 // HTML feature that can run script is rejected on the grounds that it is unrecognized,
 // which is the one property a deny list cannot have.
 //
@@ -517,7 +518,7 @@ function entityText(decimal: string | undefined, hex: string | undefined,
 // control characters while resolving the URL, so `&#106;avascript&colon;` and
 // `java\tscript:` both reach the same place a plain `javascript:` does. Comparing the
 // literal text would compare the wrong string.
-function urlScheme(value: string): string | undefined {
+function resolvedValue(value: string): string {
   let decoded = "";
   let index = 0;
   for (const match of value.matchAll(/&(?:#(\d+)|#x([\da-f]+)|([a-z]+));?/gi)) {
@@ -526,10 +527,29 @@ function urlScheme(value: string): string | undefined {
     index = match.index + match[0].length;
   }
   decoded += value.slice(index);
+  return decoded.replaceAll(/[\0-\u0020\u007F]/g, "");
+}
 
-  const scheme = /^([a-z][\d+.a-z-]*):/i
-    .exec(decoded.replaceAll(/[\0-\u0020\u007F]/g, ""));
-  return scheme?.[1]?.toLowerCase();
+function urlScheme(value: string): string | undefined {
+  return /^([a-z][\d+.a-z-]*):/i.exec(resolvedValue(value))?.[1]?.toLowerCase();
+}
+
+// Round 2 (Opus) found the `integrity` requirement keyed on "has a scheme", which reads
+// `//cdn.example.com/x.js` as relative and skips the check. It is not relative: Vite
+// itself treats `/^(https?:)?\/\//` as external and copies it into the document verbatim,
+// so those bytes come from a third party. "Remote" is the property that matters, and a
+// scheme-relative URL has it.
+function isRemoteReference(value: string): boolean {
+  return urlScheme(value) !== undefined || resolvedValue(value).startsWith("//");
+}
+
+// Presence is not pinning. `integrity=""` satisfies a check for the attribute and disables
+// subresource integrity in every browser, so require a value the browser will honor: one
+// or more whitespace-separated `sha256`/`sha384`/`sha512` digests.
+function pinsItsBytes(value: string): boolean {
+  const digests = value.trim().split(/\s+/u).filter(entry => entry.length > 0);
+  return digests.length > 0
+    && digests.every(entry => /^sha(?:256|384|512)-[\d+/A-Za-z]+={0,2}$/.test(entry));
 }
 
 // Reading markup with a regular expression is how the previous two versions of this gate
@@ -563,7 +583,14 @@ function isMarkupSpace(character: string): boolean {
     || character === "\r" || character === "\f";
 }
 
-function scanMarkup(html: string, report: (problem: string) => void): MarkupTag[] {
+function scanMarkup(source: string, report: (problem: string) => void): MarkupTag[] {
+  // HTML5 input preprocessing replaces every CR and CRLF with LF before the tokenizer
+  // runs, so a browser never sees a CR at all. Round 2 (Opus) found that omitting this
+  // step let `</title\r>` end the element for parse5 and for every browser while this
+  // scan read straight past it, swallowing a following `<script>` in the process. Doing
+  // the same normalization is what makes the two agree; leaving CR out of one character
+  // class and in another is how they diverged.
+  const html = source.replaceAll(/\r\n?/g, "\n");
   const tags: MarkupTag[] = [];
   let at = 0;
 
@@ -679,7 +706,8 @@ function scanMarkup(html: string, report: (problem: string) => void): MarkupTag[
 
     if (!isEnd && rawTextElements.has(element)) {
       // The end tag is `</name` followed by whitespace, `/` or `>` -- the terminators the
-      // tokenizer uses in its end-tag-name state. Round 1 (Opus) found that requiring
+      // tokenizer uses in its end-tag-name state, read here after the CR normalization
+      // above so that `</name\r>` is one of them. Round 1 (Opus) found that requiring
       // `</script\s*>` misses `</script/>` and `</script foo="bar">`, both of which close
       // the element and run the body. Accepting a bare `</script` prefix is the opposite
       // error: `</scriptfoo>` closes nothing, and treating it as the end would put the
@@ -695,6 +723,14 @@ function scanMarkup(html: string, report: (problem: string) => void): MarkupTag[
       const body = html.slice(cursor, closeAt).trim();
       if (element === "script" && body.length > 0) {
         report(`<script> has a body of ${body.split("\n").length} line(s)`);
+      } else if (element !== "script" && /<[/a-z]/i.test(body)) {
+        // Raw text is not markup, so a tag inside one of these is either a mistake or the
+        // two tokenizers disagreeing about where the element ends -- and the second case
+        // means this scan just swallowed markup it never checked. Report rather than
+        // discard. `<title>` and `<style>` are on the allow list, so without this the
+        // swallowed region would vanish in silence.
+        report(`<${element}> contains markup. Raw text cannot hold a tag, so either the `
+          + "content is wrong or this element does not end where it appears to");
       }
       at = closeAt;
     }
@@ -767,11 +803,14 @@ test("no HTML document carries script the gates cannot read", () => {
       if (tag.element === "script") {
         const source = tag.attributes.find(candidate =>
           candidate.name.toLowerCase() === "src");
-        if (source !== undefined && urlScheme(source.value) !== undefined
-          && !tag.attributes.some(candidate =>
-            candidate.name.toLowerCase() === "integrity")) {
-          findings.push(`${name}: <script src="${source.value}"> loads remote code that `
-            + "no compiler or lint here reads, and pins it to no hash. Add `integrity`");
+        if (source !== undefined && isRemoteReference(source.value)) {
+          const pinned = tag.attributes.find(candidate =>
+            candidate.name.toLowerCase() === "integrity");
+          if (pinned === undefined || !pinsItsBytes(pinned.value)) {
+            findings.push(`${name}: <script src="${source.value}"> loads remote code `
+              + "that no compiler or lint here reads, and pins it to no hash. Add an "
+              + "`integrity` digest");
+          }
         }
       }
       for (const attribute of tag.attributes) {
@@ -1071,8 +1110,8 @@ test("the lint covers every file the bundler reads", async () => {
   // carried an unchecked `<script>` block until #4783, and a gate above now fails unless
   // every element, attribute and URL scheme in a document this project owns is one it
   // lists as inert. So the script it can reach is a module under a lint target, or a
-  // remote URL pinned by `integrity` -- which that gate requires precisely because no
-  // compiler or lint here reads it.
+  // remote URL carrying an `integrity` digest -- which that gate requires precisely
+  // because no compiler or lint here reads those bytes.
   //
   // `package.json` is read for dependency resolution rather than compiled, and the gates
   // above already assert its contents field by field.
