@@ -626,7 +626,8 @@ rather than duplicating their evolving commands and gates here.
 
 ### Markdown
 
-All changed Markdown must pass `markdownlint`. Run the fixer first when needed:
+All changed Markdown must pass `markdownlint` before commit. Run the fixer first
+when needed:
 
 ```bash
 npx markdownlint-cli --fix <file>
@@ -658,9 +659,11 @@ driving the loop is
    even when `review-clean` is present.
 6. **A round closes only when reconciled and green.** Both: the feedback is
    publicly reconciled, and every required current-head check and post-push gate
-   has succeeded. Until then the round number does not advance — a check that
-   goes red first makes the next push a failed-gate restart at the *same*
-   number, not the next round.
+   has succeeded. For a documentation-only PR, the pre-commit `markdownlint`
+   result is the per-round green gate; `ci-required` may remain pending until
+   final merge readiness. Until the applicable gate is green the round number
+   does not advance — a check that goes red first makes the next push a
+   failed-gate restart at the *same* number, not the next round.
 7. **Six rounds, then stop** and ask for another block.
 8. **Never merge without explicit user authorization** for that specific PR.
    Auto-merge armed at the user's direction is that authorization; see
@@ -695,14 +698,16 @@ reopen the locked candidate.
 | Attempt | Required before reviewer dispatch | May remain pending |
 | --- | --- | --- |
 | First attempt at round 1 | Pushed settled head, recorded effective base, focused gate | CI and mergeability |
+| Documentation-only attempt at any round | Pushed settled head, recorded effective base, zero conflicts, pre-commit `markdownlint` | CI and mergeability |
 | Ordinary subsequent round | First-attempt requirements, zero conflicts, green current-head `ci-required` | Nothing required |
 | Conflict-recovery attempt | Resolution head pushed, round number authorized | Post-push local gates, CI, mergeability |
 | Failed-gate restart | Required fix pushed, zero conflicts, green current-head `ci-required` | Nothing required |
 
-Markdown lint is the focused gate for documentation-only changes. A
-documentation conflict-recovery attempt may review before lint finishes, but
-cannot reconcile or close without it. The user may authorize review in parallel
-with CI.
+The documentation-only row overrides the other attempt rows. Run `markdownlint`
+before committing every documentation change. Once that commit is pushed,
+review may dispatch and the round may close without waiting for CI.
+`ci-required` remains mandatory for final merge readiness. The user may
+authorize review in parallel with CI for other changes.
 
 #### Review-clean, and what it gates
 
