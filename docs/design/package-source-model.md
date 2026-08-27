@@ -155,6 +155,8 @@ contains:
   source policy;
 - the ordered runtime transport profiles for that producer;
 - an owner-issued typed source-client factory for each profile;
+- the owner-issued compatibility-request credential policy tracked by
+  [NuGet feed authentication](https://github.com/richlander/dotnet-inspect/issues/4776);
 - the network capability selected for the public package operation;
 - the public operation context issued by the
   [operation-deadline owner](https://github.com/richlander/dotnet-inspect/issues/4770):
@@ -170,13 +172,21 @@ credentials are not part of durable identity.
 The package layer passes the network capability unchanged and cannot turn an
 offline operation into permission to contact a source.
 
-The source client returns one of three typed outcomes:
+An owner-issued source operation returns either its typed value or a
+`PackageSourceFailure`. `DotnetInspector.Packages` wraps that result in one
+package-owned route outcome with these variants:
 
-- candidate observations with producer and discovery provenance;
-- an exact payload with coordinate, producer, transport profile, payload kind,
-  and a caller-owned stream; or
-- a content-free source failure with source identity, coordinate when known,
-  failure kind, and typed timeout identity when applicable.
+- a successful candidate or payload value, with its producer provenance and
+  the selected transport profile;
+- a source-operation failure, retaining the owner-issued failure and selected
+  transport profile; or
+- a pre-client classification failure, retaining a safe configured-source
+  reference, syntactic source kind, and reason without a producer identity.
+
+The classification-failure variant cannot authorize a cache entry, contribute
+candidate provenance, or assert package absence. A safe configured-source
+reference is a configured source name or redacted display, never a raw signed
+URL.
 
 Raw resource URLs, response bodies, and credentials are not package-layer
 failure data. Caller cancellation propagates with the caller token instead of
@@ -191,7 +201,7 @@ selected:
 | --- | --- |
 | HTTP endpoint | Ask the owner-issued factory for the endpoint's typed capability. A syntactically valid HTTP URL is not assumed to be a valid NuGet v3 source. |
 | Local path or `file://` directory | Retain the local-source identity and use only local-store capabilities implemented by the package layer. Until [local-feed acquisition](https://github.com/richlander/dotnet-inspect/issues/3759) supplies a capability, report it as unsupported explicitly and never rewrite the source as HTTP. |
-| Unsupported URI scheme or malformed runtime endpoint | Return a typed unsupported-source failure without constructing an HTTP request or exposing a raw argument exception. |
+| Unsupported URI scheme or malformed runtime endpoint | Return the package-owned classification-failure variant without constructing an HTTP request, minting a producer identity, or exposing a raw argument exception. |
 
 An unsupported local capability is not an unreadable remote source. It is
 reported with its own source kind rather than an HTTP failure. When an
@@ -213,9 +223,9 @@ redacted network diagnostics.
 The package layer does not reconstruct v3 resource URLs or add a second retry
 loop around a typed operation. A compatibility request that still must follow
 a feed-discovered resource remains part of the same producer route and uses
-the request-policy hook issued by NuGetFetch. This prevents a fallback from
-bypassing policy merely because it has not yet migrated to the typed protocol
-operation.
+the request-policy hook issued by the NuGetFetch-owned #4776 prerequisite. This
+prevents a fallback from bypassing policy merely because it has not yet
+migrated to the typed protocol operation.
 
 This boundary does not prescribe whether an adjacent source-client
 implementation owns an isolated transport or receives policy through another
@@ -234,14 +244,14 @@ The package layer consumes the source client's declared credential-origin
 contract; it does not redefine how typed protocol requests or redirects enforce
 that contract. For a compatibility request the package layer still constructs,
 the configured producer origin is compared with the feed-derived target before
-the request reaches authentication. A cross-origin request carries the
-owner-issued suppression marker; a same-origin request remains eligible for
-authentication.
+the request reaches authentication. The owner-issued policy from #4776 marks a
+cross-origin request as ineligible for plugin authentication; a same-origin
+request remains eligible.
 
 The package layer does not discover plugins, cache credentials, construct
 authorization headers, or infer authorization from URL text. Those mechanisms
 remain adjacent-owner responsibilities. The package layer's obligation is to
-preserve the producer origin and apply the owner-issued request policy to every
+preserve the producer origin and apply the #4776 request policy to every
 compatibility request it constructs.
 
 ### Routes, deadlines, and projection
@@ -308,14 +318,16 @@ projects contain non-vacuous gates for these outcomes.
 
 - `PackageSourceClientProvider_LocalSourcesNeverSelectHttpTransport` proves
   plain paths and `file://` directories do not enter HTTP selection.
-- `PackageSourceClientProvider_UnsupportedSchemesBecomeTypedFailures` proves an
-  unsupported scheme returns the declared failure shape without a request.
+- `PackageSourceClientProvider_UnsupportedSchemesBecomeRouteClassificationFailures`
+  proves an unsupported scheme returns the package-owned pre-client variant
+  without a request or producer identity.
 - `PackageRoutePreservesOfflineNetworkCapability` proves route adaptation does
   not construct or invoke an HTTP source client, and observes no request, when
   the operation lacks network permission.
 - `PackageCompatibilityRecoverySuppressesPluginAuthenticationCrossOrigin`
   proves compatibility recovery suppresses plugin acquisition for a
-  feed-declared foreign origin, with a same-origin positive control.
+  feed-declared foreign origin, with a same-origin positive control. This gate
+  depends on the owner-issued policy from #4776.
 - `PackageSourceFailureDataExcludesResourceUrlsAndCredentials` proves
   package-layer failure projection does not retain signed queries, response
   text, or authorization data.
@@ -743,8 +755,9 @@ package-base-relative symbol download contract.
 
 The [desktop typed source-client
 boundary](#desktop-typed-source-client-boundary) is not a current-behavior
-claim. #4653 is the implementation candidate, and the named Release gates
-define when that candidate may claim the boundary.
+claim. #4653 is the implementation candidate; #4770 and #4776 supply its
+adjacent owner-issued prerequisites, and the named Release gates define when
+that candidate may claim the boundary.
 
 The current implementation source-scopes downloaded package content and
 candidate metadata, aggregates versions across sources while retaining the
