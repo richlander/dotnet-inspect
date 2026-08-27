@@ -38,8 +38,9 @@ For a transport failure or GitHub 5xx response, retain `attempt=<n>` and
 schedule one successor after 10 minutes plus jitter, then 30 minutes, then one
 hour for later consecutive failures. Remove `attempt` after a successful
 snapshot. A 401, non-rate-limit 403, 404, or malformed response is not pending:
-surface the concrete error and stop rather than scheduling a success-shaped
-retry.
+clear `waiting`, `schedule`, and `attempt`, publish an explicit error with
+`rec=stop`, surface the concrete response, and end. Do not leave a wait that no
+scheduled run can satisfy or schedule a success-shaped retry.
 
 Use GraphQL only when the task genuinely requires graph-shaped data that the
 REST pair cannot provide economically, such as review threads with their
@@ -92,6 +93,10 @@ The PR request comes first. If its returned head differs from the expected
 head, do not make the check-runs request. Clear the old wait and route the
 returned head through candidate formation or the applicable recovery
 transition; it never inherits the old head's schedule.
+
+After the head matches, short-circuit `mergeable: false` into conflict recovery
+without making the check-runs request. CI cannot change that transition, so the
+second call would spend shared capacity without advancing the PR.
 
 ### Four traps in the result
 
@@ -152,7 +157,7 @@ with `sleep`, or make extra status calls in the same run.
 
 | Status run says | Do this |
 | --- | --- |
-| `mergeable: false` | Apply the conflict transition in [Canonical round flow](../AGENTS.md#canonical-round-flow), then schedule one new five-minute check when status gates progress again. |
+| `mergeable: false` | Apply the conflict transition in [Canonical round flow](../AGENTS.md#canonical-round-flow). After pushing the resolution head, use the standard initial 10- or 35-minute cadence when status gates progress again. |
 | `ci-required` completed with a conclusion other than `success` | Classify it and apply the applicable [recovery transition](../AGENTS.md#recovery-transitions). A terminal non-green result is an answer, not something to wait out. |
 | `mergeable: true`, `ci-required` green at this head | **Done.** Clear the waiting state and proceed to whatever waited on the answer. |
 | `mergeable: null`, CI green | Schedule one REST snapshot for five minutes later; see [resolving unknown mergeability](#resolving-unknown-mergeability). |
