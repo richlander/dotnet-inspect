@@ -282,7 +282,7 @@ public static class MatchCommand
                 options.Columns, options.Fields,
                 (writer, formatter, writerOptions) =>
                     MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions),
-                options.Rows);
+                options.Rows, options.HumanRowWindowNote);
         }
         else
         {
@@ -297,7 +297,8 @@ public static class MatchCommand
                     }
 
                     return text;
-                });
+                },
+                humanRowWindowNote: options.HumanRowWindowNote);
         }
     }
 }

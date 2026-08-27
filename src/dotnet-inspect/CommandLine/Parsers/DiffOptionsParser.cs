@@ -143,6 +143,7 @@ public static class DiffOptionsParser
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
             Rows = opts.ParseRows(parseResult),
+            HumanRowWindowNote = opts.BuildHumanRowWindowNote(parseResult),
         };
 
         var verbosity = opts.ParseVerbosity(parseResult);

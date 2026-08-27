@@ -3556,7 +3556,7 @@ public class PackageCommand
                 ["package", "version", "path", "size"],
                 windowedRows);
             markoutWriter.Flush();
-        });
+        }, humanRowWindowNote: options.Tsv || options.Jsonl ? null : options.HumanRowWindowNote);
     }
 
     private static void WritePackageFilesJsonl(
@@ -3850,11 +3850,17 @@ public class PackageCommand
             section,
             options.Fields,
             rows.Select(row => row[1]));
-        Console.Out.Write(
-            OutputFormatter.LimitRenderedTableRows(
-                rendered,
-                options.Rows,
-                !options.NoHeader));
+        var limited = OutputFormatter.LimitRenderedTableRows(
+            rendered,
+            options.Rows,
+            !options.NoHeader);
+        if (!string.IsNullOrWhiteSpace(limited))
+            OutputFormatter.WriteHumanRowWindowNote(
+                Console.Out,
+                options.Verbosity != Verbosity.Quiet && !options.Tsv && !options.Jsonl
+                    ? options.HumanRowWindowNote
+                    : null);
+        Console.Out.Write(limited);
     }
 
     private static void DiagnoseMissingPackageFieldSectionFields(

@@ -237,7 +237,7 @@ public class DiffCommand
                             options.Columns, options.Fields,
                             (writer, formatter, writerOptions) =>
                                 MarkoutSerializer.Serialize(view, writer, formatter, DiffViewContext.Default, writerOptions),
-                            options.Rows);
+                            options.Rows, options.HumanRowWindowNote);
                     }
                     else
                     {
@@ -260,7 +260,7 @@ public class DiffCommand
                                         inspectionFailures),
                                     OutputFormatter.CreateWindowedOptions(
                                         options.Rows));
-                        Console.WriteLine(output);
+                        Console.WriteLine(OutputFormatter.AddHumanRowWindowNote(output, options.HumanRowWindowNote));
                     }
                     if (inspectionFailures.Count > 0
                         && (options.Tabular
@@ -295,7 +295,7 @@ public class DiffCommand
                             options.Columns, options.Fields,
                             (writer, formatter, writerOptions) =>
                                 MarkoutSerializer.Serialize(view, writer, formatter, DiffViewContext.Default, writerOptions),
-                            options.Rows);
+                            options.Rows, options.HumanRowWindowNote);
                     }
                     else
                     {
@@ -318,7 +318,7 @@ public class DiffCommand
                                         inspectionFailures),
                                     OutputFormatter.CreateWindowedOptions(
                                         options.Rows));
-                        Console.WriteLine(output);
+                        Console.WriteLine(OutputFormatter.AddHumanRowWindowNote(output, options.HumanRowWindowNote));
                     }
                     if (options.Tabular || options.NameOnly)
                     {
@@ -346,7 +346,7 @@ public class DiffCommand
                             options.Columns, options.Fields,
                             (writer, formatter, writerOptions) =>
                                 MarkoutSerializer.Serialize(view, writer, formatter, DiffViewContext.Default, writerOptions),
-                            options.Rows);
+                            options.Rows, options.HumanRowWindowNote);
                     }
                     else
                     {
@@ -369,7 +369,7 @@ public class DiffCommand
                                         inspectionFailures),
                                     OutputFormatter.CreateWindowedOptions(
                                         options.Rows));
-                        Console.WriteLine(output);
+                        Console.WriteLine(OutputFormatter.AddHumanRowWindowNote(output, options.HumanRowWindowNote));
                     }
                     if (options.Tabular
                         || options.NameOnly)
@@ -396,7 +396,7 @@ public class DiffCommand
                             options.Columns, options.Fields,
                             (writer, formatter, writerOptions) =>
                                 MarkoutSerializer.Serialize(view, writer, formatter, DiffViewContext.Default, writerOptions),
-                            options.Rows);
+                            options.Rows, options.HumanRowWindowNote);
                     }
                     else
                     {
@@ -405,7 +405,7 @@ public class DiffCommand
                             options.Columns, options.Fields,
                             (writer, formatter, writerOptions) =>
                                 MarkoutSerializer.Serialize(view, writer, formatter, DiffViewContext.Default, writerOptions),
-                            options.Rows);
+                            options.Rows, options.HumanRowWindowNote);
                     }
 
                     WriteIncompleteComparisonDiagnostic(
@@ -414,7 +414,7 @@ public class DiffCommand
                 else
                 {
                     var output = RenderDiff(inputs.Name, diff, inputs.FromVersion, inputs.ToVersion, options);
-                    Console.WriteLine(output);
+                    Console.WriteLine(OutputFormatter.AddHumanRowWindowNote(output, options.HumanRowWindowNote));
                     if (options.NameOnly)
                     {
                         WriteIncompleteComparisonDiagnostic(
@@ -936,8 +936,9 @@ public class DiffCommand
             return inspectionFailures.Count > 0;
         }
 
-        Console.WriteLine(DiffOutputFormatter.RenderDocumentView(
-            view, OutputFormatter.CreateWindowedOptions(options.Rows)));
+        Console.WriteLine(OutputFormatter.AddHumanRowWindowNote(
+            DiffOutputFormatter.RenderDocumentView(view, OutputFormatter.CreateWindowedOptions(options.Rows)),
+            options.HumanRowWindowNote));
         return inspectionFailures.Count > 0;
     }
 
@@ -2313,6 +2314,7 @@ public record DiffOptions
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }
     public RowWindow? Rows { get; init; }
+    public string? HumanRowWindowNote { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>

@@ -1261,7 +1261,7 @@ public static class TimelineCommand
                             formatter,
                             TimelineViewContext.Default,
                             writerOptions),
-                    options.Rows);
+                    options.Rows, options.HumanRowWindowNote);
             }
             else
             {
@@ -1280,14 +1280,16 @@ public static class TimelineCommand
                             formatter,
                             TimelineViewContext.Default,
                             writerOptions),
-                    options.Rows);
+                    options.Rows, options.HumanRowWindowNote);
             }
             return 0;
         }
 
         var writer = new MarkoutWriter(new MarkdownFormatter(), OutputFormatter.CreateWindowedOptions(options.Rows));
         TimelineViewContext.Default.Serialize(view, writer);
-        Console.WriteLine(writer.ToString().TrimEnd());
+        Console.WriteLine(OutputFormatter.AddHumanRowWindowNote(
+            writer.ToString().TrimEnd(),
+            options.HumanRowWindowNote));
         return 0;
     }
 
@@ -1324,6 +1326,7 @@ public sealed record TimelineOptions
     public bool NoHeader { get; init; }
     public bool Count { get; init; }
     public RowWindow? Rows { get; init; }
+    public string? HumanRowWindowNote { get; init; }
     public string[]? Select { get; init; }
     public bool SelectDefault { get; init; }
     public string[]? Columns { get; init; }
