@@ -867,6 +867,31 @@ survives automatic renders until navigation changes`, `Browser Call Graph
 contexts reject Platform participants`, `explicit coordinate changes discard a
 floating canonical basis`, and `canonical commit clears a settled graph source
 without rendering` gate those boundaries.
+Malformed percent-encoding in an ordinary package or version courtesy path
+produces a typed route failure rather than escaping `decodeURIComponent`.
+Boot and navigation without a resident workspace render that failure in the
+error shell without offering an ineffective retry, and explicit Home navigation
+clears the route error and its failed-URL hold. A resident route failure owns
+its notice and URL hold in one discriminated state record; projection changes
+retire both before presentation, while ordinary query notices and Retry actions
+remain independent. A valid route, explicit Home or Credits navigation, and
+both dismiss surfaces share its cleanup path; Home dismissal also replaces the
+failed history entry with `/`. Other dismissals and projection changes replace
+the failed entry with a guaranteed package-root recovery URL; if history
+replacement is blocked, the owned failure and notice remain visible. Canonical
+workspace Retry actions restore their own failed URL before retrying rather
+than adopting an ambient route. Retry proceeds without history mutation when
+that URL is already current, but does not run when a required restoration is
+blocked. Parsed restore paths and final-package closure likewise stop before
+replacing an unrecovered route failure or releasing its workspace. In-app and
+history navigation with a resident workspace retain it and report the failed
+route as a notice. `last package close recovers a route before releasing the
+workspace`, `failed URL state is retained and retired atomically`,
+`workspace retry restores its owned URL before running`, `route failure
+recovery owns malformed URL replacement`, `malformed courtesy package routes
+become typed failures`, `valid courtesy package routes continue to decode
+normally`, and `malformed package routes use the contained restore failure path`
+gate those boundaries.
 `canonical transitions cancel visible source work before snapshot` and
 `canonical transitions settle annotated source before snapshot` specifically
 gate source-request settlement. Filters and browse presentation stay
