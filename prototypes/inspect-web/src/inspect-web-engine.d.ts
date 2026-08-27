@@ -481,22 +481,67 @@ export interface BrowserVocabularySection {
   values: unknown[];
 }
 
-export interface BrowserWorkspacePackage {
-  package: string;
-  version: string;
-  framework: string;
+export interface BrowserWorkspaceShareContext {
+  id: string;
+  tabIds: string[];
+}
+
+export interface BrowserWorkspaceShareDecodeResult {
+  succeeded: boolean;
+  state: BrowserWorkspaceShareState | null;
+  failure: BrowserWorkspaceShareFailure | null;
+}
+
+export interface BrowserWorkspaceShareEncodeResult {
+  succeeded: boolean;
+  packet: string | null;
+  failure: BrowserWorkspaceShareFailure | null;
+}
+
+export interface BrowserWorkspaceShareFailure {
+  kind: string;
+  path: string;
+  message: string;
+}
+
+export interface BrowserWorkspaceShareState {
+  tabs: BrowserWorkspaceShareTab[];
+  contexts: BrowserWorkspaceShareContext[];
+  activeTabId: string;
+  selectedContextId: string;
+  view: BrowserWorkspaceShareView;
+}
+
+export interface BrowserWorkspaceShareTab {
+  id: string;
+  kind: string;
+  source: string;
+  version: string | null;
+  framework: string | null;
+  runtimeIdentifier: string | null;
+}
+
+export interface BrowserWorkspaceShareView {
+  lens: string | null;
+  type: string | null;
+  memberAnchor: string | null;
+  memberSignature: string | null;
+  section: string | null;
+  libraries: string[];
 }
 
 export declare function initializeEngine(onStatus?: (status: string) => void): Promise<unknown>;
 export declare function buildIdentity(): BrowserBuildIdentity;
 export declare function cancelSourceQuery(): void;
 export declare function configureHost(origin: string): void;
-export declare function expandPlatformCallGraph(targetFramework: string, assembly: string, pack: string, assemblyVersion: string, assemblyCulture: string | null, assemblyPublicKeyToken: string | null, typeFullName: string, memberName: string, selectorKey: string, metadataToken: number): Promise<BrowserCallGraph>;
+export declare function decodeWorkspaceShareState(encoded: string): BrowserWorkspaceShareDecodeResult;
+export declare function encodeWorkspaceShareState(stateJson: string): BrowserWorkspaceShareEncodeResult;
+export declare function expandPlatformCallGraph(targetFramework: string, platformVersion: string, assembly: string, pack: string, assemblyVersion: string, assemblyCulture: string | null, assemblyPublicKeyToken: string | null, typeFullName: string, memberName: string, selectorKey: string, metadataToken: number): Promise<BrowserCallGraph>;
 export declare function getPackageDocument(packageId: string, version: string, path: string): Promise<BrowserPackageDocumentContent>;
 export declare function listHomeDemos(): BrowserHomeDemoCatalog;
 export declare function listVocabulary(): BrowserVocabularyDocument;
-export declare function loadRuntimePack(targetFramework: string): Promise<string>;
-export declare function loadRuntimePackAssembly(targetFramework: string, assemblyFileName: string, pack: string): Promise<string>;
+export declare function loadRuntimePack(targetFramework: string, platformVersion: string): Promise<string>;
+export declare function loadRuntimePackAssembly(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<string>;
 export declare function matchPackageDependencyCoordinate(packageId: string, declaredRange: string | null, candidatesJson: string): BrowserDependencyCoordinateMatch;
 export declare function packageCacheStats(): BrowserPackageCacheStats;
 export declare function queryGraphMemberSurface(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number): Promise<BrowserMemberSurface>;
@@ -514,12 +559,12 @@ export declare function queryPackageMetadataTable(packageId: string, version: st
 export declare function queryPackageOpportunities(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageOpportunities>;
 export declare function queryPackagePerformance(packageId: string, version: string, targetFramework: string): Promise<BrowserPackagePerformance>;
 export declare function queryPackageVersions(packageId: string): Promise<string[]>;
-export declare function queryPlatformHeapEntries(targetFramework: string, assemblyFileName: string, pack: string, heap: string): Promise<string>;
-export declare function queryPlatformIntegrations(targetFramework: string, assemblyFileName: string, pack: string): Promise<BrowserPackageIntegrations>;
-export declare function queryPlatformMetadata(targetFramework: string, assemblyFileName: string, pack: string): Promise<string>;
-export declare function queryPlatformMetadataTable(targetFramework: string, assemblyFileName: string, pack: string, tableIndex: number, startRowId: number, maxRows: number): Promise<string>;
-export declare function queryPlatformOpportunities(targetFramework: string, assemblyFileName: string, pack: string): Promise<BrowserPackageOpportunities>;
-export declare function queryPlatformPerformance(targetFramework: string, assemblyFileName: string, pack: string): Promise<string>;
+export declare function queryPlatformHeapEntries(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, heap: string): Promise<string>;
+export declare function queryPlatformIntegrations(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<BrowserPackageIntegrations>;
+export declare function queryPlatformMetadata(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<string>;
+export declare function queryPlatformMetadataTable(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, tableIndex: number, startRowId: number, maxRows: number): Promise<string>;
+export declare function queryPlatformOpportunities(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<BrowserPackageOpportunities>;
+export declare function queryPlatformPerformance(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<string>;
 export declare function queryTypeMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserSource>;
 export declare function queryTypeProjection(packageId: string, version: string, targetFramework: string, assemblyName: string, typeId: string): Promise<BrowserTypeMetadata>;
 export declare function queryTypeSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string): Promise<BrowserSource>;

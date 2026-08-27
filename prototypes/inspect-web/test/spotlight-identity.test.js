@@ -39,7 +39,6 @@ import {
   graphOnlyBodyTarget,
   retainGraphOnlyBodyTarget,
   MARKDOWN_SANITIZE_OPTIONS,
-  MAX_SHARE_STATE_CHARACTERS,
   MAX_WORKSPACE_PACKAGES,
   memberRequestKey,
   memberSectionDefinitions,
@@ -48,7 +47,6 @@ import {
   mergeInspectionErrors,
   renderInspectionErrors,
   mermaidLabel,
-  normalizeShareTabs,
   packageCoordinateMatchesLocation,
   packageForView,
   packageIdentityKey,
@@ -72,7 +70,6 @@ import {
   runtimePackForFramework,
   runtimeGraphTargetAssemblyIsResident,
   runtimeGraphTargetNavigationDisposition,
-  shareStateLengthError,
   scopedRequestState,
   selectedDependencyGroup,
   sourceSurfaceIsVisible,
@@ -491,7 +488,10 @@ test("platform call graphs carry the target pack into lazy acquisition", () => {
     "aspnetcore.app");
   assert.match(
     appSource,
-    /callGraphInspection\.drill\(\{[\s\S]*pack:\s*platformPackForGraphAssembly\(\s*node\.assembly,\s*node\.platformPack,\s*runtimePackPackage\(\),\s*currentPackage\(\)\.activeFramework\) \?\? ""/);
+    /retainedPlatformTargetVersion\(\s*captured\.preservesBasis && runtimeIndex >= 0[\s\S]*callGraphInspection\.drill\(\{[\s\S]*platformVersion,/);
+  assert.doesNotMatch(
+    appSource,
+    /platformVersion:\s*currentPackage\(\)\.version/);
   assert.match(
     appSource,
     /platformType:\s*type\.definitionId\s*\?\?\s*type\.metadataId[\s\S]*platformPack:\s*platformPackForAssembly\(type\.assembly,\s*type\.platformPack\)/);
@@ -500,7 +500,7 @@ test("platform call graphs carry the target pack into lazy acquisition", () => {
     /pack:\s*request\.platformPack/);
   assert.match(
     appSource,
-    /inspectExpandPlatformCallGraph\(\s*request\.framework,\s*request\.assembly,\s*request\.pack/);
+    /inspectExpandPlatformCallGraph\(\s*request\.framework,\s*request\.platformVersion,\s*request\.assembly,\s*request\.pack/);
 });
 
 test("platform pack inference rejects cross-family ambiguity", () => {
@@ -599,16 +599,16 @@ test("runtime graph acquisition ignores a resident pack from another TFM", () =>
     /let pack = runtimePackForFramework\(\s*runtimePackPackage\(\),\s*framework\)/);
 });
 
-test("shared platform state preserves an exact pack token", () => {
+test("platform library selection remains distinct from canonical Platform identity", () => {
   assert.equal(platformPackToken("aspnetcore.app"), "aspnetcore.app");
   assert.equal(platformPackToken("netcore.app"), "netcore.app");
   assert.equal(platformPackToken("unknown.app"), null);
   assert.match(
     workspaceNavigationSource,
-    /if \(state\.libraryPack\) packet\.p = state\.libraryPack/);
+    /tab\.kind === "group" && tab\.source === ":Platform"/);
   assert.match(
     workspaceNavigationSource,
-    /libraryPack:\s*platformPackToken\(raw\.p\)/);
+    /id: "Microsoft\.NETCore\.App"/);
   assert.match(
     appSource,
     /platformPackForAssembly\(key,\s*libraryPack\)/);
@@ -746,6 +746,35 @@ test("typed package bar owns package framework and version selection bindings", 
     /document\.querySelector(?:<HTMLSelectElement>)?\("#(?:framework|package-version)"\)/);
 });
 
+test("explicit coordinate changes discard a floating canonical basis", () => {
+  const packageVersion = appSource.match(
+    /async function switchPackageVersion\([\s\S]*?\n}/)?.[0] ?? "";
+  const packageFramework = appSource.match(
+    /async function switchPackageFramework\([\s\S]*?\n}/)?.[0] ?? "";
+  const platformVersion = appSource.match(
+    /async function switchPlatformVersion\([\s\S]*?\n}/)?.[0] ?? "";
+  const packageLoader = appSource.match(
+    /async function loadPackage\([\s\S]*?\n}(?=\n\nfunction )/)?.[0] ?? "";
+
+  assert.match(packageVersion, /invalidateWorkspaceShareBasis: true/);
+  assert.match(packageFramework, /invalidateWorkspaceShareBasis: true/);
+  assert.match(
+    packageLoader,
+    /if \(options\.invalidateWorkspaceShareBasis\)\s*state\.workspaceShareBasis = null;\s*activatePackage/);
+  assert.match(
+    platformVersion,
+    /if \(!loaded\)[\s\S]*return;[\s\S]*state\.workspaceShareBasis = null;[\s\S]*activatePackage/);
+  assert.doesNotMatch(
+    platformVersion.slice(0, platformVersion.indexOf("await loadRuntimePack(")),
+    /state\.packages =|state\.libraryScope = null|state\.platformStack = \[\]/);
+  assert.match(
+    platformVersion,
+    /if \(!loaded\)[\s\S]*appendQueryNotice\([\s\S]*render\(\);\s*return;/);
+  assert.match(
+    platformVersion,
+    /state\.workspaceShareBasis = null;\s*state\.platformStack = \[\];\s*activatePackage[\s\S]*state\.libraryScope = null/);
+});
+
 test("typed package inspection owns package-root request coordination", () => {
   const dependenciesLoader =
     appSource.match(/async function loadPackageDependencies\(\) \{[\s\S]*?\n}/)?.[0]
@@ -777,7 +806,8 @@ test("typed package inspection owns package-root request coordination", () => {
     assert.match(
       appSource,
       new RegExp(
-        `${engine}\\(\\s*framework,\\s*assemblyFileName,\\s*pack\\)`));
+        `${engine}\\(\\s*framework,\\s*platformVersion,\\s*`
+        + "assemblyFileName,\\s*pack\\)"));
   }
   assert.match(
     dependenciesLoader,
@@ -2159,43 +2189,164 @@ test("member filters retain accessible controls and focus across rerenders", () 
     /function navigateToRuntimeMember\([\s\S]*const targetLibrary = libraryKey\(type\);\s*state\.libraryScope = targetLibrary \? new Set\(\[targetLibrary\]\) : null;[\s\S]*state\.typeCursor = Math\.max\(0, filteredTypes\(\)/);
 });
 
-test("shared member views retain scope and filter state", () => {
+test("shared member views use portable product identity and omit UI-local filters", () => {
   const capture = appSource.match(
     /function captureWorkspaceUrlState\(\)[\s\S]*?\n}\n\nfunction buildStateUrl/)?.[0] ?? "";
   const encoder = workspaceNavigationSource.match(
     /function encodeWorkspaceShareState\([\s\S]*?\n}\n\nfunction decodeWorkspaceShareState/)?.[0] ?? "";
-  const decoder = workspaceNavigationSource.match(
-    /function decodeWorkspaceShareState\([\s\S]*?\n}\n\nfunction resolveView/)?.[0] ?? "";
   const deepLink = appSource.match(
     /function applyDeepLink\([\s\S]*?\n}\n\n\/\/ Kick off/)?.[0] ?? "";
-  assert.match(encoder, /packet\.b = 1/);
-  assert.match(encoder, /packet\.q = state\.memberTextFilter/);
-  assert.match(encoder, /packet\.k = state\.memberKindFilter/);
-  assert.match(encoder, /packet\.e = state\.memberAccessibilityFilter/);
-  assert.match(encoder, /packet\.r = state\.memberTraitFilter/);
   assert.match(
     encoder,
-    /const encodedBodyTarget = encodeBodyTarget\(state\.selectedBodyTarget\);[\s\S]*if \(encodedBodyTarget\) packet\.d = encodedBodyTarget/);
-  assert.match(decoder, /memberBrowse: raw\.b === 1/);
-  assert.match(decoder, /bodyTarget: decodeBodyTarget\(raw\.d\)/);
+    /tabs: state\.tabs,[\s\S]*contexts: state\.contexts,[\s\S]*view: state\.view/);
   assert.match(
     capture,
-    /selectedBodyTarget: pending \? null : state\.selectedBodyTarget,[\s\S]*graphTarget/);
-  assert.match(capture, /memberBrowse: memberScopeIsActive\(state, selectedType\(\)\?\.id\)/);
-  assert.match(capture, /memberTextFilter: state\.memberTextFilter/);
-  assert.match(capture, /memberKindFilter: state\.memberKindFilter/);
-  assert.match(capture, /memberAccessibilityFilter: state\.memberAccessibilityFilter/);
-  assert.match(capture, /memberTraitFilter: state\.memberTraitFilter/);
-  assert.match(appSource, /if \(deep\.memberBrowse && groups\.length\)\s*state\.memberBrowseTypeId = type\.id/);
+    /memberAnchor = overload\.anchorDigest \|\| null;[\s\S]*memberSignature = memberAnchor \? null : overload\.canonicalSignature \|\| null/);
+  assert.match(capture, /libraries = state\.libraryScope/);
+  assert.match(
+    capture,
+    /state\.libraryScope && state\.libraryScope\.size > 1[\s\S]*Select one library/);
+  assert.match(
+    capture,
+    /overload\.bodySelectors\.length > 1[\s\S]*accessor-specific section/);
+  assert.match(
+    capture,
+    /overload\.graphOnly[\s\S]*Graph-discovered members cannot be shared/);
+  assert.match(capture, /package: state\.package\.id/);
+  assert.doesNotMatch(capture, /memberTextFilter:/);
+  assert.doesNotMatch(capture, /memberKindFilter:/);
+  assert.doesNotMatch(capture, /memberAccessibilityFilter:/);
+  assert.doesNotMatch(capture, /memberTraitFilter:/);
   assert.match(
     deepLink,
-    /state\.memberSection = "overview";[\s\S]*const hasSelectedBody = bodyTargetMatchesOverload\(\s*deep\.bodyTarget,\s*group,\s*restoredOverload\)[\s\S]*memberSectionIdsFor\([\s\S]*hasSelectedBody\)\.includes\(deep\.section\)[\s\S]*if \(hasSelectedBody\) \{\s*state\.selectedBodyTarget = deep\.bodyTarget/);
+    /deep\.memberAnchor \|\| deep\.memberSignature[\s\S]*portableMatches\.length === 1[\s\S]*solePortableBodyTarget\(selection\.overload\)[\s\S]*state\.selectedBodyTarget = portableBodyTarget/);
   assert.match(
     appSource,
     /function selectMemberNavEntry\(entry: MemberNavEntry, focusList: boolean\) \{\s*const preservedFocus = captureMemberFocus\(document\);[\s\S]*memberFocusRestorer\.schedule\(\s*document,\s*preservedFocus/);
   assert.match(
     appSource,
-    /window\.addEventListener\("popstate"[\s\S]*const deep = loc;[\s\S]*restoreWorkspaceFromLocation\(loc, deep, navigationSeq\)/);
+    /window\.addEventListener\("popstate"[\s\S]*const deep = loc;[\s\S]*restoreWorkspaceFromLocation\(\s*loc,\s*deep,\s*navigationSeq,\s*canonicalSnapshot\)/);
+});
+
+test("the frontend delegates compact packet syntax to the product codec", () => {
+  assert.doesNotMatch(workspaceNavigationSource, /\batob\b|\bbtoa\b/);
+  assert.doesNotMatch(
+    workspaceNavigationSource,
+    /\b(?:packet|raw)\.(?:f|t|g|a|x|v|y|m|s|c|l)\b/);
+  assert.doesNotMatch(
+    workspaceNavigationSource,
+    /WorkspaceSharePacket|encodeBase64Url|decodeBase64Url/);
+  assert.match(
+    workspaceNavigationSource,
+    /const result = decode\(value\)/);
+  assert.match(
+    workspaceNavigationSource,
+    /const result = encode\(JSON\.stringify\(\{/);
+});
+
+test("the selected canonical context bounds call graph workspace membership", () => {
+  const selection = appSource.match(
+    /function selectedCallGraphWorkspacePackages\(\)[\s\S]*?\n}/)?.[0] ?? "";
+  const loader = appSource.match(
+    /async function loadSelectedMemberCallGraph\([\s\S]*?\n}/)?.[0] ?? "";
+
+  assert.match(
+    selection,
+    /selectedBrowserCallGraphPackageTabIds\(basis\)/);
+  assert.match(
+    selection,
+    /packageTabIds\.includes\(activeTab\.id\)/);
+  assert.match(
+    loader,
+    /workspacePackages = selectedCallGraphWorkspacePackages\(\)/);
+  assert.match(
+    appSource,
+    /callGraphCaptureTopology\(\s*captured\.tabs,\s*activeIndex,\s*participantTabIds\)/);
+});
+
+test("canonical restoration is atomic and history adopts the active packet basis", () => {
+  const restore = appSource.match(
+    /async function restoreWorkspaceFromLocation\([\s\S]*?\n}\n\nfunction failCanonicalWorkspaceRestore/)?.[0] ?? "";
+  const history = appSource.match(
+    /window\.addEventListener\("popstate"[\s\S]*?\n}\);/)?.[0] ?? "";
+  const sync = appSource.match(
+    /function syncUrl\(\)[\s\S]*?\n}/)?.[0] ?? "";
+  const stateUrl = appSource.match(
+    /function buildStateUrl\([\s\S]*?\n}/)?.[0] ?? "";
+  const scopePlatform = appSource.match(
+    /async function openPlatformLibrary\([\s\S]*?\n}/)?.[0] ?? "";
+  const validateView = appSource.match(
+    /function canonicalViewRestorationFailure\([\s\S]*?\n}/)?.[0] ?? "";
+  const initialRestore = appSource.match(
+    /async function restoreInitialWorkspace\(\)[\s\S]*?\n}/)?.[0] ?? "";
+
+  assert.match(
+    restore,
+    /canonicalTabCountPreserved[\s\S]*canonicalTabsPreserved[\s\S]*failedTabCount > 0 \|\| !canonicalTabsPreserved[\s\S]*failCanonicalWorkspaceRestore/);
+  assert.match(
+    restore,
+    /canonicalViewRestorationFailure\(targetModel, deep, loc\.lens\)[\s\S]*failCanonicalWorkspaceRestore/);
+  assert.match(
+    restore,
+    /canonicalSnapshot = loc\.hasWorkspaceState[\s\S]*captureCanonicalWorkspaceRestoreSnapshot/);
+  assert.match(
+    history,
+    /canonicalSnapshot = loc\.hasWorkspaceState[\s\S]*commitWorkspaceShareBasis\(loc\.shareState\)/);
+  assert.match(
+    restore,
+    /loc\.hasWorkspaceState && !loc\.shareState[\s\S]*failCanonicalWorkspaceRestore\(/);
+  assert.match(
+    history,
+    /loc\.hasWorkspaceState && !loc\.shareState[\s\S]*failCanonicalWorkspaceRestore\(/);
+  assert.match(
+    initialRestore,
+    /loc\.hasWorkspaceState && !loc\.shareState[\s\S]*restoreWorkspaceFromLocation\([\s\S]*return;[\s\S]*const packageId = loc\.package/);
+  assert.match(
+    appSource,
+    /function failCanonicalWorkspaceRestore\([\s\S]*snapshot\?\.hasWorkspace[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\)[\s\S]*state\.credits = false;[\s\S]*failedWorkspaceUrlPreservation = \{[\s\S]*projection: workspaceUrlProjection\(\)[\s\S]*render\(\);\s*return/);
+  assert.match(
+    restore,
+    /loc\.hasWorkspaceState && !loc\.shareState[\s\S]*canonicalSnapshot,\s*null\)/);
+  assert.match(
+    history,
+    /loc\.hasWorkspaceState && !loc\.shareState[\s\S]*canonicalSnapshot,\s*null\)/);
+  assert.doesNotMatch(
+    appSource,
+    /preserveUrlThroughNextRender/);
+  assert.match(
+    sync,
+    /workspaceUrlPreservationApplies\([\s\S]*failedWorkspaceUrlPreservation[\s\S]*workspaceUrlProjection\(\)[\s\S]*return;[\s\S]*failedWorkspaceUrlPreservation = null/);
+  assert.match(
+    appSource,
+    /navigation: navigationHistory\.snapshot\(\)[\s\S]*navigationHistory\.restore\(snapshot\.navigation\)/);
+  assert.match(
+    appSource,
+    /captureCanonicalWorkspaceRestoreSnapshot\(\)[\s\S]*sourceInspection\.cancelCurrentRequest\(\);\s*cancelAnnotatedSourceRequest\(state\)[\s\S]*structuredClone\(state\.packages\)/);
+  assert.match(
+    appSource,
+    /function commitWorkspaceShareBasis\([\s\S]*state\.workspaceShareBasis = basis;[\s\S]*sourceInspection\.clearGraphSource\(\)/);
+  assert.match(
+    history,
+    /invalidateMemberCallGraphWork\(state\)[\s\S]*captureCanonicalWorkspaceRestoreSnapshot/);
+  assert.match(
+    appSource,
+    /const \{ tabs, preservesBasis \} = capturedShareTabs\(\);[\s\S]*browserCreatedCallGraphTabIds\(tabs, activeIndex\)/);
+  assert.match(
+    appSource,
+    /captured\.preservesBasis,[\s\S]*state\.memberSection === "call-graph"/);
+  assert.match(sync, /state\.atPackageRoot/);
+  assert.match(
+    sync,
+    /workspaceLocation\.replace\(buildStateUrl\(\)/);
+  assert.match(
+    stateUrl,
+    /state\.atPackageRoot && state\.package[\s\S]*buildPackageRootStateUrl/);
+  assert.match(
+    scopePlatform,
+    /candidate\.toLowerCase\(\) === key\.toLowerCase\(\)[\s\S]*scopeOnly\) return hasLib \? pkg : undefined/);
+  assert.match(
+    validateView,
+    /typeLensesFor\(pkg\)[\s\S]*deep\.section && !hasPortableMember/);
 });
 
 test("initial workspace packet resolution waits for the engine phase", () => {
@@ -2312,7 +2463,7 @@ test("lens-scoped Platform library changes reset type-specific member state", ()
     ?? "";
   assert.match(
     picker,
-    /originPackage: AppPackage = currentPackage\(\),[\s\S]*noticeRetryState: NoticeRetryState \| null = null[\s\S]*if \(!state\.packages\.includes\(originPackage\)[\s\S]*!packageIdentityEquals\(state\.package, originPackage\)[\s\S]*state\.queryNoticeRetryAction === noticeRetryState\.action[\s\S]*state\.queryNotice = removeAppendedNotice\([\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*const pack = selectedPack \|\| platformPackForAssembly\(key\);[\s\S]*const runtimeResult = await loadRuntimePackAssembly\([\s\S]*\(\) => state\.packages\.includes\(originPackage\)\);[\s\S]*const loaded = runtimeResult\.packageModel;[\s\S]*previous: state\.queryNotice[\s\S]*const retryAction = \(\) =>\s*openPlatformLensLibrary\([\s\S]*noticeState\);[\s\S]*runtimeResult\.failureMessage[\s\S]*noticeState\.appended = state\.queryNotice;[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[key\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*lens === "integrations"[\s\S]*loadPackageIntegrations\(\)[\s\S]*lens === "opportunities"[\s\S]*loadPackageOpportunities\(\)[\s\S]*lens === "analysis"[\s\S]*loadPackagePerformance\(\)[\s\S]*loadPackageMetadata\(\)/);
+    /originPackage: AppPackage = currentPackage\(\),[\s\S]*noticeRetryState: NoticeRetryState \| null = null[\s\S]*if \(!state\.packages\.includes\(originPackage\)[\s\S]*!packageIdentityEquals\(state\.package, originPackage\)[\s\S]*state\.queryNoticeRetryAction === noticeRetryState\.action[\s\S]*state\.queryNotice = removeAppendedNotice\([\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*const pack = selectedPack \|\| platformPackForAssembly\(key\);[\s\S]*const runtimeResult = await loadRuntimePackAssembly\([\s\S]*\(\) => state\.packages\.includes\(originPackage\),[\s\S]*originPackage\.version\);[\s\S]*const loaded = runtimeResult\.packageModel;[\s\S]*previous: state\.queryNotice[\s\S]*const retryAction = \(\) =>\s*openPlatformLensLibrary\([\s\S]*noticeState\);[\s\S]*runtimeResult\.failureMessage[\s\S]*noticeState\.appended = state\.queryNotice;[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[key\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*lens === "integrations"[\s\S]*loadPackageIntegrations\(\)[\s\S]*lens === "opportunities"[\s\S]*loadPackageOpportunities\(\)[\s\S]*lens === "analysis"[\s\S]*loadPackagePerformance\(\)[\s\S]*loadPackageMetadata\(\)/);
   assert.doesNotMatch(picker, /select\.isConnected/);
   assert.match(
     appSource,
@@ -2472,7 +2623,7 @@ test("Platform scope restoration defers selection, rendering, and data loading",
     ?? "";
   assert.match(
     openPlatformLibrary,
-    /const scopeOnly = options\.scopeOnly === true;[\s\S]*state\.libraryScope = hasLib \? new Set\(\[key\]\) : null;[\s\S]*if \(scopeOnly\) return pkg;[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*render\(\);/);
+    /const scopeOnly = options\.scopeOnly === true;[\s\S]*candidate\.toLowerCase\(\) === key\.toLowerCase\(\)[\s\S]*state\.libraryScope = actualKey \? new Set\(\[actualKey\]\) : null;[\s\S]*if \(scopeOnly\) return hasLib \? pkg : undefined;[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*render\(\);/);
   const applyScope =
     appSource.match(/async function applyPlatformLibraryScope\([\s\S]*?\n}\n\n\/\/ History/)?.[0]
     ?? "";
@@ -2488,7 +2639,7 @@ test("Type Source completion settles behind workbench overlays", () => {
     /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\)\s*\|\| state\.tasteOpen;[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| state\.graphSourceOpen\s*\|\| state\.docViewerOpen;/);
   assert.match(
     appSource,
-    /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*activeSourceOperationKind\(state\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);
+    /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*currentSourceOperationKind\(\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);
   assert.match(
     typeSource,
     /const ownsRequest = \(\) =>[\s\S]*if \(ownsRequest\(\)\) \{\s*state\.typeSourceLoading = false;\s*if \(request\.isVisible\(\)\) \{\s*dependencies\.renderPreservingMemberFocus\(preservedFocus\)/);
@@ -2834,10 +2985,10 @@ test("source operations cancel when superseded or hidden", () => {
   assert.match(renderBody, /sourceInspection\.cancelHiddenRequest\(\)/);
   assert.match(
     appSource,
-    /createSourceInspectionCoordinator\(\{[\s\S]*cancelEngineSourceRequest: \(\) => cancelSourceInspection\?\.\(\)/);
+    /createSourceInspectionCoordinator\(\{[\s\S]*memberSourceHasConcreteOverload,[\s\S]*cancelEngineSourceRequest: \(\) => cancelSourceInspection\?\.\(\)/);
   assert.match(
     sourceInspectionSource,
-    /cancelHiddenRequest\(\)[\s\S]*sourceSurfaceIsVisible\(state\)[\s\S]*cancelSourceRequestState\(state\)/);
+    /const cancelCurrentRequest = \(\) => \{[\s\S]*cancelSourceRequestState\(state\)[\s\S]*cancelHiddenRequest\(\)[\s\S]*sourceSurfaceIsVisible\(\s*state,\s*dependencies\.memberSourceHasConcreteOverload\(\)\)[\s\S]*cancelCurrentRequest\(\)/);
   assert.match(appSource, /sourceInspection\.loadMemberSource\(\{/);
   assert.match(appSource, /sourceInspection\.loadTypeSource\(\{/);
   assert.match(appSource, /sourceInspection\.openGraphSource\(request, title\)/);
@@ -2845,14 +2996,14 @@ test("source operations cancel when superseded or hidden", () => {
   const reloadBody =
     appSource.match(/function reloadVisibleSource\(\)[\s\S]*?\n}/)?.[0]
     ?? "";
-  assert.match(reloadBody, /switch \(sourceReloadKind\(state\)\)/);
+  assert.match(reloadBody, /switch \(currentSourceReloadKind\(\)\)/);
   const autoLoadBody =
     appSource.match(
       /function maybeAutoLoadVisibleSource\(\)[\s\S]*?\n}\n\nfunction maybeAutoLoadTypeMetadata/)?.[0]
     ?? "";
   assert.match(
     autoLoadBody,
-    /const kind = activeSourceOperationKind\(state\)/);
+    /const kind = currentSourceOperationKind\(\)/);
   assert.match(autoLoadBody, /kind === "type"/);
   assert.match(autoLoadBody, /kind === "member"/);
   assert.match(autoLoadBody, /kind === "graph"/);
@@ -2919,6 +3070,22 @@ test("source operations cancel when superseded or hidden", () => {
       memberSection: "annotated"
     }),
     "annotated");
+  assert.equal(
+    activeSourceOperationKind({
+      ...visible,
+      lens: "api",
+      selectedMemberKey: "M",
+      memberSection: "source"
+    }, false),
+    null);
+  assert.equal(
+    sourceReloadKind({
+      ...visible,
+      lens: "api",
+      selectedMemberKey: "M",
+      memberSection: "annotated"
+    }, false),
+    null);
   assert.equal(
     sourceReloadKind({
       ...visible,
@@ -3013,6 +3180,74 @@ test("MethodDef-only member sections are hidden for bodiless APIs", () => {
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }),
     ["overview", "call-graph", "facts", "source", "annotated"]);
+});
+
+// Arrowing between members keeps the active section (e.g. Source) sticky, the same way
+// arrowing between types never disturbs the type-level lens. openMemberGroup/openOverload
+// (the two entry points arrow-key nav uses) must clear cached per-member content without
+// resetting memberSection, and only fall back to Overview when the newly selected member
+// doesn't support the section that was showing.
+test("moving between members keeps the active section sticky, falling back to Overview only when unsupported", () => {
+  const openMemberGroupBody =
+    appSource.match(/function openMemberGroup\(key: string\) \{[\s\S]*?\n}\n/)?.[0] ?? "";
+  assert.match(openMemberGroupBody, /clearMemberContentCache\(\)/);
+  assert.doesNotMatch(openMemberGroupBody, /resetMemberSectionState\(\)/);
+  assert.match(
+    openMemberGroupBody,
+    /const preserveSection =\s*state\.memberBrowseTypeId === type\?\.id && Boolean\(state\.selectedMemberKey\)/);
+  assert.match(
+    openMemberGroupBody,
+    /state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*if \(!preserveSection\) \{\s*state\.memberSection = "overview"/);
+  assert.match(
+    openMemberGroupBody,
+    /state\.memberSection !== "overview"[\s\S]*group\.overloads\.length > 1[\s\S]*state\.selectedOverloadIndex = 0;[\s\S]*retainMemberSectionIfSupported\(group\)/);
+  assert.match(
+    openMemberGroupBody,
+    /const retainedSection = state\.memberSection;[\s\S]*let selectedFirstOverload = false;[\s\S]*selectedFirstOverload = true;[\s\S]*if \(selectedFirstOverload && state\.memberSection !== retainedSection\) \{\s*state\.selectedOverloadIndex = null;\s*state\.selectedBodyTarget = null/);
+  assert.match(openMemberGroupBody, /loadMemberSectionContent\(state\.memberSection\)/);
+
+  const openOverloadBody =
+    appSource.match(/function openOverload\(index: number\) \{[\s\S]*?\n}\n/)?.[0] ?? "";
+  assert.match(openOverloadBody, /clearMemberContentCache\(\)/);
+  assert.doesNotMatch(openOverloadBody, /resetMemberSectionState\(\)/);
+  assert.match(
+    openOverloadBody,
+    /state\.selectedBodyTarget = graphTarget;[\s\S]*retainMemberSectionIfSupported\(selectedMember\(selectedType\(\)\)\)/);
+  assert.match(openOverloadBody, /loadMemberSectionContent\(state\.memberSection\)/);
+
+  const retainBody =
+    appSource.match(/function retainMemberSectionIfSupported\([\s\S]*?\n}\n/)?.[0] ?? "";
+  assert.match(retainBody, /memberSectionsFor\(member\)/);
+  assert.match(retainBody, /state\.memberSection = "overview"/);
+
+  const resetBody =
+    appSource.match(/function resetMemberSectionState\(\) \{[\s\S]*?\n}\n/)?.[0] ?? "";
+  assert.match(resetBody, /state\.memberSection = "overview"/);
+  assert.match(resetBody, /clearMemberContentCache\(\)/);
+
+  const selectEntryBody =
+    appSource.match(/function selectMemberNavEntry\([\s\S]*?\n}\n\nfunction stepMemberNav/)?.[0]
+    ?? "";
+  assert.match(
+    selectEntryBody,
+    /entry\.group\.key === state\.selectedMemberKey[\s\S]*entry\.group\.overloads\.length === 1[\s\S]*state\.selectedOverloadIndex = null;\s*clearMemberContentCache\(\);\s*render\(\)/);
+});
+
+test("every overload-specific member loader leaves a multi-overload picker inert", () => {
+  for (const name of [
+    "loadSelectedMemberDocumentation",
+    "loadSelectedMemberSource",
+    "loadSelectedMemberAnnotatedSource",
+    "loadSelectedMemberCallGraph",
+    "loadSelectedMemberFacts",
+  ]) {
+    const body =
+      appSource.match(new RegExp(`async function ${name}\\(\\)[\\s\\S]*?\\n}`))?.[0]
+      ?? "";
+    assert.match(body, /selectedConcreteOverload\(member\.overloads, state\.selectedOverloadIndex\)/);
+    assert.match(body, /if \(!overload\) \{\s*render\(\);\s*return;\s*}/);
+    assert.doesNotMatch(body, /selectedOverloadIndex \?\? 0/);
+  }
 });
 
 // `memberSectionIdsFor` is the admission set for the member strip, for the URL `?section=`
@@ -3335,7 +3570,7 @@ test("graph-only members open through the typed member surface", () => {
   assert.doesNotMatch(binding, /openGraphSource\(/);
   assert.match(
     openMember,
-    /const graphOnlyTarget =[\s\S]*resetMemberSectionState\(\);[\s\S]*state\.selectedBodyTarget = graphOnlyTarget/);
+    /const graphOnlyTarget =[\s\S]*clearMemberContentCache\(\);[\s\S]*state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*retainMemberSectionIfSupported\(group\)/);
   assert.match(
     generatedEngineSource,
     /queryGraphMemberSurfaceExport = exports\.InspectionEngine\.QueryGraphMemberSurface/);
@@ -3385,9 +3620,6 @@ test("graph-only deep links win over colliding public member groups", () => {
   assert.match(
     deepLink,
     /The shared graph member no longer matches this package and was not opened/);
-  assert.match(
-    workspaceNavigationSource,
-    /const graphMember = graphMemberTargetFromPacket\(raw\);[\s\S]*if \(graphMember\.error\) return \{ error: graphMember\.error \}/);
 });
 
 test("pending graph-member restoration is bound to its exact view", () => {
@@ -3450,18 +3682,18 @@ test("stale graph-only navigation clears progress without surfacing its error", 
     /function popPlatformDrill\(\) \{\s*invalidateGraphMemberNavigation\(\);/);
 });
 
-test("shared package graph navigation retains existing accessor identity", () => {
+test("shared package graph navigation retains portable accessor identity", () => {
   const shareState =
     appSource.match(/function captureWorkspaceUrlState\(\)[\s\S]*?\n}(?=\n\nfunction buildStateUrl)/)?.[0]
     ?? "";
 
   assert.match(
     shareState,
-    /selection\?\.group\.key === state\.selectedMemberKey/);
+    /memberAnchor = overload\.anchorDigest \|\| null/);
   assert.match(
     shareState,
-    /selection\.overloadIndex === state\.selectedOverloadIndex/);
-  assert.doesNotMatch(shareState, /overloads\.some\(overload => overload\.graphOnly\)/);
+    /memberSignature = memberAnchor \? null : overload\.canonicalSignature \|\| null/);
+  assert.doesNotMatch(shareState, /selectedBodyTarget:/);
   assert.match(appSource, /solid border: no platform lookup/);
 });
 
@@ -3669,7 +3901,7 @@ test("runtime graph nodes separate member, drill, and lookup disposition", () =>
     /state\.libraryScope = targetLibrary \? new Set\(\[targetLibrary\]\) : null/);
 });
 
-test("runtime graph identities share and restore through exact resident candidates", () => {
+test("runtime graph identities restore through exact resident candidates", () => {
   const type = {
     id: "System.Console",
     definitionId: "System.Console",
@@ -3723,7 +3955,7 @@ test("runtime graph identities share and restore through exact resident candidat
     /if \(!state\.package\?\.isRuntimePack\s*&& packet\.y/);
   assert.match(
     appSource,
-    /resolveRuntimeGraphTargetCandidate\(\s*state\.package,\s*state\.selectedBodyTarget\)/);
+    /resolveRuntimeGraphTargetCandidate\(\s*pkg,\s*deep\.graphTarget\)/);
 });
 
 test("home navigation invalidates pending graph work", () => {
@@ -3737,7 +3969,7 @@ test("home navigation invalidates pending graph work", () => {
   assert.match(home, /invalidateGraphMemberNavigation\(\)/);
   assert.match(home, /state\.memberCallGraphExpanding = false/);
   assert.match(history, /invalidateGraphMemberNavigation\(\)/);
-  assert.match(history, /state\.memberCallGraphExpanding = false/);
+  assert.match(history, /invalidateMemberCallGraphWork\(state\)/);
 });
 
 test("graph navigation restores scope and supersedes local drills", () => {
@@ -4623,29 +4855,6 @@ test("package Markdown has no styling or resource-loading authority", () => {
   for (const attribute of ["style", "src", "srcset", "href", "poster", "class", "id"]) {
     assert.equal(MARKDOWN_SANITIZE_OPTIONS.ALLOWED_ATTR.includes(attribute), false);
   }
-});
-
-test("shared workspaces are bounded before package loading", () => {
-  const tuples = Array.from(
-    { length: MAX_WORKSPACE_PACKAGES },
-    (_, index) => [`Package.${index}`, "1.0.0", "net10.0"]);
-  assert.equal(normalizeShareTabs(tuples).error, "");
-  assert.match(
-    normalizeShareTabs([...tuples, ["Package.Overflow", "1.0.0", "net10.0"]]).error,
-    /12-package limit/);
-  for (const malformed of [
-    [null],
-    [[]],
-    [[""]],
-    [[{}, "1.0.0", "net10.0"]],
-    [["Package", "1.0.0", "net10.0", "unexpected"]]
-  ]) {
-    assert.match(normalizeShareTabs(malformed).error, /invalid/);
-  }
-  assert.equal(shareStateLengthError("x".repeat(MAX_SHARE_STATE_CHARACTERS)), "");
-  assert.match(
-    shareStateLengthError("x".repeat(MAX_SHARE_STATE_CHARACTERS + 1)),
-    /65536-character limit/);
 });
 
 test("workspace package models retain the active and newest coordinates within the limit", () => {
