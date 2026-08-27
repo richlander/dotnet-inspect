@@ -584,6 +584,23 @@ test("every source file is covered by a lint target", () => {
 // So coverage is asked of the ignore rules directly, with git as the oracle for its own
 // file. Anything the project compiles or ships that git would ignore is a file the lint
 // cannot see, whatever its path looks like.
+// `--no-index` is what makes git's answer match oxlint's. Without it `check-ignore`
+// reports a tracked file as not ignored, because from git's point of view a file it is
+// already tracking is not being ignored -- but oxlint applies the ignore *patterns* and
+// never consults the index, so it skips that file anyway. Round 4 (Sol) force-added a
+// file under an ignored path and the gate went green while the lint stayed blind.
+function ignoredFiles(directory: string, candidates: readonly string[]): string[] {
+  // `check-ignore` exits 0 when it ignored something, 1 when it ignored nothing, and
+  // anything else is a real failure that must not read as "nothing ignored".
+  const checked = spawnSync("git", ["check-ignore", "--no-index", "--stdin"],
+    { cwd: directory, encoding: "utf8", input: candidates.join("\n") });
+  assert.ok(checked.status === 0 || checked.status === 1,
+    `git check-ignore failed: ${checked.stderr}`);
+  return checked.stdout.split("\n")
+    .map(line => line.trim())
+    .filter(line => line.length > 0);
+}
+
 test("no file the build compiles is hidden from the lint by an ignore rule", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const sources = projectFiles([...typeScriptExtensions, ...javaScriptExtensions]);
@@ -592,16 +609,7 @@ test("no file the build compiles is hidden from the lint by an ignore rule", () 
   assert.ok(candidates.length > 50,
     `expected the project sources, found ${candidates.length}`);
 
-  // `check-ignore` exits 0 when it ignored something, 1 when it ignored nothing, and
-  // anything else is a real failure that must not read as "nothing ignored".
-  const checked = spawnSync("git", ["check-ignore", "--stdin"],
-    { cwd: root, encoding: "utf8", input: candidates.join("\n") });
-  assert.ok(checked.status === 0 || checked.status === 1,
-    `git check-ignore failed: ${checked.stderr}`);
-
-  const ignored = checked.stdout.split("\n")
-    .map(line => line.trim())
-    .filter(line => line.length > 0)
+  const ignored = ignoredFiles(root, candidates)
     .map(file => projectRelative(root, file))
     .sort();
 
@@ -609,6 +617,36 @@ test("no file the build compiles is hidden from the lint by an ignore rule", () 
     "oxlint applies .gitignore while walking, so these files are compiled or shipped but "
       + "never linted; move them out of the ignored path rather than relying on being "
       + "under a lint target");
+});
+
+// The gate above cannot demonstrate its own `--no-index` on this repository, because a
+// file that would prove it is exactly a file the gate refuses to allow. So the reason for
+// the flag is pinned on a scratch repository, exercising the same helper the gate uses:
+// without `--no-index` a force-added file reads as "not ignored" and the gate goes green
+// over a file oxlint will never open. Dropping the flag as redundant tidying fails here
+// rather than silently reopening round 4.
+test("the ignore-rule gate reads ignore patterns rather than tracked status", () => {
+  const scratch = mkdtempSync(join(tmpdir(), "inspect-web-ignore-"));
+  try {
+    const git = (...args: string[]): void => {
+      const run = spawnSync("git", args, { cwd: scratch, encoding: "utf8" });
+      assert.equal(run.status, 0, `git ${args.join(" ")} failed: ${run.stderr}`);
+    };
+    git("init", "-q");
+    git("config", "user.email", "gate@example.invalid");
+    git("config", "user.name", "gate");
+    writeFileSync(join(scratch, ".gitignore"), "ignored/\n");
+    mkdirSync(join(scratch, "ignored"));
+    const hidden = join(scratch, "ignored", "hidden.ts");
+    writeFileSync(hidden, "export const value = 1;\n");
+    git("add", "-f", "ignored/hidden.ts");
+
+    assert.deepEqual(ignoredFiles(scratch, [hidden]), [hidden],
+      "a force-added file under an ignored path must still report as ignored, because "
+        + "oxlint skips it on the pattern alone and never consults the index");
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 });
 
 // Sol also walked past the assertion above entirely by turning a rule off at the top
