@@ -11,9 +11,15 @@ namespace ILInspector.Metadata;
 /// name and then consumes that many value bytes. The pre-decode guard has to
 /// skip the same number of bytes or every later declared count is read from
 /// the wrong offset. Both callers therefore resolve a handle or serialized
-/// name to a local <see cref="TypeDefinition"/> the same way and apply the
-/// same <see cref="SignatureBlobGuard"/> fallback to
-/// <see cref="PrimitiveTypeCode.Int32"/>.
+/// name to a local <see cref="TypeDefinition"/> the same way. A name that is
+/// not a TypeDef in the current image falls back to
+/// <see cref="PrimitiveTypeCode.Int32"/> so the skip stays aligned, unless a
+/// caller-supplied resolver found the defining image first. A local TypeDef
+/// still wins over that resolver. Guard and SRM both consult the resolver
+/// with <see cref="NormalizeSerializedName"/> of the blob name and
+/// <see cref="Normalize"/> the returned code so an assembly-qualified
+/// SerString or a non-fixed-width callback cannot select a different skip
+/// than SRM.
 /// </summary>
 static class EnumUnderlyingPrimitive
 {
@@ -37,16 +43,33 @@ static class EnumUnderlyingPrimitive
             if ((field.Attributes & FieldAttributes.Static) != 0)
                 continue;
 
-            return SignatureBlobGuard.IsSafeToDecode(
+            PrimitiveTypeCode code = SignatureBlobGuard.IsSafeToDecode(
                     reader,
                     field.Signature,
                     SignatureBlobGuard.Kind.Field)
                 ? field.DecodeSignature(Provider.Instance, genericContext: null)
                 : PrimitiveTypeCode.Int32;
+            return Normalize(code);
         }
 
         return PrimitiveTypeCode.Int32;
     }
+
+    /// <summary>
+    /// SRM casts the provider result to <c>SerializationTypeCode</c> and
+    /// consumes a SerString for <see cref="PrimitiveTypeCode.String"/>.
+    /// Only fixed-width enum primitives stay; everything else, including
+    /// String, falls back to <see cref="PrimitiveTypeCode.Int32"/> so the
+    /// guard and decoder skip the same four bytes.
+    /// </summary>
+    public static PrimitiveTypeCode Normalize(PrimitiveTypeCode code) => code switch
+    {
+        PrimitiveTypeCode.Boolean or PrimitiveTypeCode.SByte or PrimitiveTypeCode.Byte
+            or PrimitiveTypeCode.Char or PrimitiveTypeCode.Int16 or PrimitiveTypeCode.UInt16
+            or PrimitiveTypeCode.Int32 or PrimitiveTypeCode.UInt32
+            or PrimitiveTypeCode.Int64 or PrimitiveTypeCode.UInt64 => code,
+        _ => PrimitiveTypeCode.Int32,
+    };
 
     public static PrimitiveTypeCode FromHandle(
         MetadataReader reader,
@@ -76,11 +99,30 @@ static class EnumUnderlyingPrimitive
     public static PrimitiveTypeCode FromSerializedName(
         MetadataReader reader,
         string name)
+        => TryFromSerializedName(reader, name, out PrimitiveTypeCode code)
+            ? code
+            : PrimitiveTypeCode.Int32;
+
+    /// <summary>
+    /// Resolves a serialized enum name to a local TypeDef's underlying
+    /// primitive. Returns <see langword="false"/> when the name is not a
+    /// TypeDef in <paramref name="reader"/>, including when it is defined
+    /// only in a referenced assembly.
+    /// </summary>
+    public static bool TryFromSerializedName(
+        MetadataReader reader,
+        string name,
+        out PrimitiveTypeCode code)
     {
         ReadOnlySpan<char> simple = NormalizeSerializedName(name).AsSpan();
-        return TryFindDefinition(reader, simple, out var definition)
-            ? FromDefinition(reader, definition)
-            : PrimitiveTypeCode.Int32;
+        if (TryFindDefinition(reader, simple, out var definition))
+        {
+            code = FromDefinition(reader, definition);
+            return true;
+        }
+
+        code = default;
+        return false;
     }
 
     static bool TryFindDefinition(

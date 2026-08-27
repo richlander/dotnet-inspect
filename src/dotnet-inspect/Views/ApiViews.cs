@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
+using InertText;
 using Markout;
 
 namespace DotnetInspector.Views;
@@ -48,6 +49,15 @@ internal static class ApiSectionEmptyText
             or (SectionNames.CallGraph, CallGraph)
             or ("Unsafe Operations", UnsafeOperations)
             or ("Facts", Facts);
+}
+
+internal static class ApiViewText
+{
+    public static InertString Field(string value) =>
+        new(TextPolicy.Field, value);
+
+    public static InertString? OptionalField(string? value) =>
+        value is null ? null : Field(value);
 }
 
 /// <summary>
@@ -606,18 +616,49 @@ public class TypeInfoSection
 [MarkoutSkipNull]
 public class ApiInfoSection
 {
-    [MarkoutPropertyName("Library")]
-    public string? Assembly { get; init; }
+    public ApiInfoSection(
+        InertString? assemblyText,
+        int? types,
+        int? methods,
+        int? properties,
+        InertString? versionText,
+        InertString? tfmText,
+        InertString? sourceText)
+    {
+        AssemblyText = assemblyText;
+        Types = types;
+        Methods = methods;
+        Properties = properties;
+        VersionText = versionText;
+        TfmText = tfmText;
+        SourceText = sourceText;
+    }
 
-    public int? Types { get; init; }
-    public int? Methods { get; init; }
-    public int? Properties { get; init; }
-    public string? Version { get; init; }
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? AssemblyText { get; }
+
+    [MarkoutPropertyName("Library")]
+    public string? Assembly => AssemblyText?.ToString();
+
+    public int? Types { get; }
+    public int? Methods { get; }
+    public int? Properties { get; }
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? VersionText { get; }
+
+    public string? Version => VersionText?.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? TfmText { get; }
 
     [MarkoutPropertyName("TFM")]
-    public string? Tfm { get; init; }
+    public string? Tfm => TfmText?.ToString();
 
-    public string? Source { get; init; }
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? SourceText { get; }
+
+    public string? Source => SourceText?.ToString();
 }
 
 /// <summary>
@@ -626,19 +667,62 @@ public class ApiInfoSection
 [MarkoutSerializable(TitleProperty = nameof(Name), DescriptionProperty = nameof(Description), FieldLayout = FieldLayout.Inline)]
 public class CliApiSurface
 {
-    [MarkoutIgnore] public string? Name { get; set; }
-    [MarkoutIgnore] public string? Description { get; set; }
+    public CliApiSurface(
+        InertString? nameText,
+        InertString? descriptionText,
+        InertString? libraryText,
+        InertString? sourceText,
+        InertString? versionText,
+        InertString? tfmText)
+    {
+        NameText = nameText;
+        DescriptionText = descriptionText;
+        LibraryText = libraryText;
+        SourceText = sourceText;
+        VersionText = versionText;
+        TfmText = tfmText;
+    }
 
-    [MarkoutSkipNull] public string? Library { get; set; }
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? NameText { get; }
+
+    [MarkoutIgnore]
+    public string? Name => NameText?.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? DescriptionText { get; set; }
+
+    [MarkoutIgnore]
+    public string? Description => DescriptionText?.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? LibraryText { get; }
+
+    [MarkoutSkipNull]
+    public string? Library => LibraryText?.ToString();
+
     [MarkoutSkipNull] public int? Types { get; set; }
     [MarkoutSkipNull] public int? Methods { get; set; }
     [MarkoutSkipNull] public int? Properties { get; set; }
-    [MarkoutSkipNull] public string? Source { get; set; }
-    [MarkoutSkipNull] public string? Version { get; set; }
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? SourceText { get; }
+
+    [MarkoutSkipNull]
+    public string? Source => SourceText?.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? VersionText { get; }
+
+    [MarkoutSkipNull]
+    public string? Version => VersionText?.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? TfmText { get; }
 
     [MarkoutSkipNull]
     [MarkoutPropertyName("TFM")]
-    public string? Tfm { get; set; }
+    public string? Tfm => TfmText?.ToString();
 
     /// <summary>
     /// API surface identity fact table. Unlike every other section on this view, the row set does
@@ -685,7 +769,43 @@ public class CliApiSurface
 }
 
 [MarkoutSerializable]
-public record TypeSummaryRow(string Kind, string Type, string Members, string? Description);
+public record TypeSummaryRow(
+    InertString KindText,
+    InertString TypeText,
+    InertString MembersText,
+    string? Description)
+{
+    public TypeSummaryRow(
+        string kind,
+        string type,
+        string members,
+        string? description)
+        : this(
+            ApiViewText.Field(kind),
+            MarkoutInline.CodeText(ApiViewText.Field(type)),
+            ApiViewText.Field(members),
+            description)
+    {
+    }
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString KindText { get; init; } = KindText;
+
+    public string Kind => KindText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString TypeText { get; init; } = TypeText;
+
+    public string Type => TypeText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString MembersText { get; init; } = MembersText;
+
+    public string Members => MembersText.ToString();
+
+    [MarkoutSkipNull]
+    public string? Description { get; init; } = Description;
+}
 
 [MarkoutSerializable]
 public record ForwarderSummaryRow(
@@ -694,13 +814,72 @@ public record ForwarderSummaryRow(
 
 [MarkoutSerializable]
 public record ApiInspectionFailureRow(
-    string Operation,
-    string Subject,
-    string Mechanism,
-    string Kind,
-    string Detail,
-    [property: MarkoutSkipNull] string? Assembly = null,
-    [property: MarkoutSkipNull] string? DependencyAssembly = null);
+    InertString OperationText,
+    InertString SubjectText,
+    InertString MechanismText,
+    InertString KindText,
+    InertString DetailText,
+    InertString? AssemblyText = null,
+    InertString? DependencyAssemblyText = null)
+{
+    public ApiInspectionFailureRow(
+        string operation,
+        string subject,
+        string mechanism,
+        string kind,
+        string detail,
+        string? assembly = null,
+        string? dependencyAssembly = null)
+        : this(
+            ApiViewText.Field(operation),
+            ApiViewText.Field(subject),
+            ApiViewText.Field(mechanism),
+            ApiViewText.Field(kind),
+            ApiViewText.Field(detail),
+            ApiViewText.OptionalField(assembly),
+            ApiViewText.OptionalField(dependencyAssembly))
+    {
+    }
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString OperationText { get; init; } = OperationText;
+
+    public string Operation => OperationText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString SubjectText { get; init; } = SubjectText;
+
+    public string Subject => SubjectText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString MechanismText { get; init; } = MechanismText;
+
+    public string Mechanism => MechanismText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString KindText { get; init; } = KindText;
+
+    public string Kind => KindText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString DetailText { get; init; } = DetailText;
+
+    public string Detail => DetailText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? AssemblyText { get; init; } = AssemblyText;
+
+    [MarkoutSkipNull]
+    public string? Assembly => AssemblyText?.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? DependencyAssemblyText { get; init; } =
+        DependencyAssemblyText;
+
+    [MarkoutSkipNull]
+    public string? DependencyAssembly =>
+        DependencyAssemblyText?.ToString();
+}
 
 [MarkoutSerializable]
 public record MemberRow(
@@ -819,7 +998,13 @@ public record FieldSummaryRow(
 public record EventSummaryRow(string Name, string Type);
 
 [MarkoutSerializable]
-public record MethodAttributeRow(string Name, string Value);
+public record MethodAttributeRow(
+    [property: MarkoutIgnore] InertString NameText,
+    [property: MarkoutIgnore] InertString ValueText)
+{
+    public string Name => NameText.ToString();
+    public string Value => ValueText.ToString();
+}
 
 /// <summary>
 /// View model for constructor emphasis (--ctor mode).
@@ -892,12 +1077,85 @@ public class ApiSurfaceTableView
 }
 
 [MarkoutSerializable]
-public record ApiTableRow(string Kind, string Name,
-    [property: MarkoutPropertyName("Return Type")] string ReturnType,
-    string Detail);
+public record ApiTableRow(
+    InertString KindText,
+    InertString NameText,
+    InertString ReturnTypeText,
+    InertString DetailText)
+{
+    public ApiTableRow(
+        string kind,
+        string name,
+        string returnType,
+        string detail)
+        : this(
+            ApiViewText.Field(kind),
+            ApiViewText.Field(name),
+            ApiViewText.Field(returnType),
+            ApiViewText.Field(detail))
+    {
+    }
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString KindText { get; init; } = KindText;
+
+    public string Kind => KindText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString NameText { get; init; } = NameText;
+
+    public string Name => NameText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString ReturnTypeText { get; init; } = ReturnTypeText;
+
+    [MarkoutPropertyName("Return Type")]
+    public string ReturnType => ReturnTypeText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString DetailText { get; init; } = DetailText;
+
+    public string Detail => DetailText.ToString();
+}
 
 [MarkoutSerializable]
-public record ApiSurfaceTableRow(string Kind, string Type, string Members, string? Description);
+public record ApiSurfaceTableRow(
+    InertString KindText,
+    InertString TypeText,
+    InertString MembersText,
+    string? Description)
+{
+    public ApiSurfaceTableRow(
+        string kind,
+        string type,
+        string members,
+        string? description)
+        : this(
+            ApiViewText.Field(kind),
+            MarkoutInline.CodeText(ApiViewText.Field(type)),
+            ApiViewText.Field(members),
+            description)
+    {
+    }
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString KindText { get; init; } = KindText;
+
+    public string Kind => KindText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString TypeText { get; init; } = TypeText;
+
+    public string Type => TypeText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString MembersText { get; init; } = MembersText;
+
+    public string Members => MembersText.ToString();
+
+    [MarkoutSkipNull]
+    public string? Description { get; init; } = Description;
+}
 
 [MarkoutSerializable]
 public sealed record FidelityCauseRow(
@@ -917,7 +1175,7 @@ public sealed record AppliedTasteRow(
     string? Detail);
 
 /// <summary>
-/// Code sections for member command output (Decompiled Source, Annotated Source, Original Source, IL).
+/// Code sections for member command output (Decompiled Source, Annotated Source, PDB Source, IL).
 /// Serialized separately after the main TypeView.
 /// </summary>
 [MarkoutSerializable(AutoFields = false)]
@@ -953,15 +1211,15 @@ public class MemberCodeView
     [MarkoutSection(Name = "Semantics Overlay")]
     public CodeSection SemanticsOverlayCode { get; set; }
 
-    [MarkoutSection(Name = "Original Source")]
-    public CodeSection OriginalSourceCode { get; set; }
+    [MarkoutSection(Name = SectionNames.PdbSource)]
+    public CodeSection PdbSourceCode { get; set; }
 
     /// <summary>
-    /// True when <see cref="OriginalSourceCode"/> holds the bodyless-member explanation rather than
-    /// authored source. Not a section: consumers that treat the original source as text (Source
-    /// Diff) must skip it (issue #3299).
+    /// True when <see cref="PdbSourceCode"/> holds an explanation rather than PDB-selected source.
+    /// Not a section: consumers that treat the PDB source as text (Source Diff) must skip it
+    /// (issue #3299).
     /// </summary>
-    public bool OriginalSourceUnavailable { get; set; }
+    public bool PdbSourceUnavailable { get; set; }
 
     [MarkoutSection(Name = SectionNames.SourceDiff)]
     public CodeSection SourceDiffCode { get; set; }

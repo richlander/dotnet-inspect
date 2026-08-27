@@ -9,7 +9,7 @@ namespace DotnetInspector.Tests.Parsers;
 
 /// <summary>
 /// Focused tests for <see cref="DiffOptionsParser"/> covering the <c>--repo</c> plumbing that
-/// threads local git clones into the Implementation Diff authored-source acquisition.
+/// threads local git clones into the Implementation Diff PDB-source acquisition.
 /// </summary>
 [Collection("Console")]
 public class DiffOptionsParserTests
@@ -39,7 +39,8 @@ public class DiffOptionsParserTests
         var additiveOption = new Option<bool>("--additive");
         var changedOption = new Option<bool>("--changed");
         var allocRegressionsOption = new Option<bool>("--alloc-regressions");
-        var authoredSourceOption = new Option<bool>("--authored-source");
+        var pdbSourceOption = new Option<bool>("--pdb-source");
+        var legacyAuthoredSourceOption = new Option<bool>("--authored-source") { Hidden = true };
         var repoOption = new Option<string[]>("--repo") { AllowMultipleArgumentsPerToken = false };
         var findingOption = new Option<string?>("--finding");
         var legendOption = new Option<bool>("--legend");
@@ -61,7 +62,8 @@ public class DiffOptionsParserTests
         diffCommand.Options.Add(additiveOption);
         diffCommand.Options.Add(changedOption);
         diffCommand.Options.Add(allocRegressionsOption);
-        diffCommand.Options.Add(authoredSourceOption);
+        diffCommand.Options.Add(pdbSourceOption);
+        diffCommand.Options.Add(legacyAuthoredSourceOption);
         diffCommand.Options.Add(repoOption);
         diffCommand.Options.Add(findingOption);
         diffCommand.Options.Add(legendOption);
@@ -77,7 +79,7 @@ public class DiffOptionsParserTests
         var args = new DiffOptionsParser.DiffCommandArgs(
             argsArg, packageOption, platformOption, libraryOption, frameworkOption, tfmOption, allOption,
             typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption,
-            changedOption, allocRegressionsOption, authoredSourceOption, findingOption, legendOption, repoOption);
+            changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, legendOption, repoOption);
 
         return (root, opts, args);
     }
@@ -112,5 +114,18 @@ public class DiffOptionsParserTests
         var options = ParseSuccess("diff", "--package", "System.Text.Json@8.0.0..9.0.0");
 
         Assert.Empty(options.SourceRepositories);
+    }
+
+    [Theory]
+    [InlineData("--pdb-source")]
+    [InlineData("--authored-source")]
+    public void PdbSourceOption_AndLegacyAlias_EnablePdbSource(string option)
+    {
+        var options = ParseSuccess(
+            "diff",
+            "--package", "System.Text.Json@8.0.0..9.0.0",
+            option);
+
+        Assert.True(options.IncludePdbSource);
     }
 }

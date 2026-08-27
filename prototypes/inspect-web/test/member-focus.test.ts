@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   captureMemberFocus as captureMemberFocusImpl,
   createMemberFocusRestorer as createMemberFocusRestorerImpl,
+  focusPlatformGraphError as focusPlatformGraphErrorImpl,
   resolveMemberFocusSnapshot,
   restoreMemberFocus as restoreMemberFocusImpl,
 } from "../src/member-focus.ts";
@@ -32,6 +33,8 @@ interface MockDocument {
 }
 
 function captureMemberFocus(document: MockDocument): MemberFocusSnapshot {
+  // The harness supplies the exact DOM subset the product reads.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   return captureMemberFocusImpl(document as unknown as Document);
 }
 
@@ -41,7 +44,14 @@ function restoreMemberFocus(
   requestFrame: (callback: FrameRequestCallback) => number,
   isCurrent?: () => boolean,
 ): void {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   restoreMemberFocusImpl(document as unknown as Document, snapshot, requestFrame, isCurrent);
+}
+
+function focusPlatformGraphError(document: MockDocument): boolean {
+  // The harness supplies the exact DOM subset the product reads.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return focusPlatformGraphErrorImpl(document as unknown as Document);
 }
 
 function createMemberFocusRestorer() {
@@ -54,6 +64,7 @@ function createMemberFocusRestorer() {
       snapshot: MemberFocusSnapshot,
       requestFrame: (callback: FrameRequestCallback) => number,
     ) {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       restorer.schedule(document as unknown as Document, snapshot, requestFrame);
     },
   };
@@ -70,7 +81,9 @@ function createDocument() {
     },
     querySelectorAll(selector: string) {
       const key = selector.match(/^\[data-([a-z-]+)\]$/)?.[1]
-        ?.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+        ?.replace(
+          /-([a-z])/g,
+          (_match: string, letter: string) => letter.toUpperCase());
       return key
         ? [...elements.values()].filter(value =>
           value.isConnected && value.dataset[key] !== undefined)
@@ -93,6 +106,32 @@ function createDocument() {
   };
   return { document, element, elements };
 }
+
+test("a blocked graph refusal receives focus after replacement render", () => {
+  const { document, element } = createDocument();
+  const oldNode = element("#old-graph-node", {
+    id: "flowchart-n1-0",
+  });
+  document.activeElement = oldNode;
+
+  oldNode.isConnected = false;
+  document.activeElement = document.body;
+  const error = element("#platform-drill-error", {
+    id: "platform-drill-error",
+  });
+
+  assert.equal(focusPlatformGraphError(document), true);
+  assert.equal(document.activeElement, error);
+});
+
+test("a missing graph refusal does not disturb current focus", () => {
+  const { document, element } = createDocument();
+  const unrelated = element("#unrelated", { id: "unrelated" });
+  document.activeElement = unrelated;
+
+  assert.equal(focusPlatformGraphError(document), false);
+  assert.equal(document.activeElement, unrelated);
+});
 
 test("navigation focus and scroll survive completion before loading focus restores", () => {
   const { document, element, elements } = createDocument();
@@ -196,6 +235,7 @@ test("member-filter selection survives a replacement render", () => {
     selectionStart: 2,
     selectionEnd: 5,
     selectionDirection: "backward",
+    setSelectionRange() {},
   });
   document.activeElement = initialInput;
   const snapshot = captureMemberFocus(document);
@@ -203,6 +243,9 @@ test("member-filter selection survives a replacement render", () => {
   let restoredSelection = null;
   const replacementInput = element("#member-filter", {
     id: "member-filter",
+    selectionStart: null,
+    selectionEnd: null,
+    selectionDirection: null,
     setSelectionRange(start, end, direction) {
       restoredSelection = { start, end, direction };
     },
@@ -227,6 +270,7 @@ test("type-filter selection survives a replacement render", () => {
     selectionStart: 2,
     selectionEnd: 5,
     selectionDirection: "backward",
+    setSelectionRange() {},
   });
   document.activeElement = initialInput;
   const snapshot = captureMemberFocus(document);
@@ -234,6 +278,9 @@ test("type-filter selection survives a replacement render", () => {
   let restoredSelection = null;
   const replacementInput = element("#type-filter", {
     id: "type-filter",
+    selectionStart: null,
+    selectionEnd: null,
+    selectionDirection: null,
     setSelectionRange(start, end, direction) {
       restoredSelection = { start, end, direction };
     },
@@ -311,29 +358,29 @@ test("member and overload rows survive activation renders", () => {
       return 1;
     });
 
-    test("taste controls survive source completion renders", () => {
-      const { document, element } = createDocument();
-      const selector = "[data-taste=\"prefer-var\"]";
-      const initialCheckbox = element(selector, {
-        dataset: { taste: "prefer-var" },
-      });
-      document.activeElement = initialCheckbox;
-      const snapshot = captureMemberFocus(document);
-
-      const replacementCheckbox = element(selector, {
-        dataset: { taste: "prefer-var" },
-      });
-      document.activeElement = document.body;
-      restoreMemberFocus(document, snapshot, callback => {
-        callback(0);
-        return 1;
-      });
-
-      assert.equal(document.activeElement, replacementCheckbox);
-    });
-
     assert.equal(document.activeElement, replacementButton);
   }
+});
+
+test("taste controls survive source completion renders", () => {
+  const { document, element } = createDocument();
+  const selector = "[data-taste=\"prefer-var\"]";
+  const initialCheckbox = element(selector, {
+    dataset: { taste: "prefer-var" },
+  });
+  document.activeElement = initialCheckbox;
+  const snapshot = captureMemberFocus(document);
+
+  const replacementCheckbox = element(selector, {
+    dataset: { taste: "prefer-var" },
+  });
+  document.activeElement = document.body;
+  restoreMemberFocus(document, snapshot, callback => {
+    callback(0);
+    return 1;
+  });
+
+  assert.equal(document.activeElement, replacementCheckbox);
 });
 
 test("deferred restoration does not steal intentionally moved focus", () => {

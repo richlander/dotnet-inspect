@@ -60,6 +60,7 @@ public static class SelectResolver
         ["Resource Triage"] = SectionNames.ArrayPoolEscapes,
         ["Resource Escape Triage"] = SectionNames.ArrayPoolEscapes,
         ["Escape"] = SectionNames.ArrayPoolEscapes,
+        ["Original Source"] = SectionNames.PdbSource,
         ["Dependencies"] = SectionNames.References,
         ["Source Files"] = SectionNames.SourceLinkFiles,
         ["SourceLink Availability"] = SectionNames.SourceLinkAvailability,
@@ -103,12 +104,24 @@ public static class SelectResolver
     public static bool IsActiveAllSelector(string[]? select, HashSet<string>? includeSections)
         => IsAllSelector(select) && includeSections is { Count: > 1 };
 
+    public static bool IsActiveAllSelector(
+        string[]? select,
+        HashSet<string>? includeSections,
+        bool sectionsPreResolved)
+        => !sectionsPreResolved && IsActiveAllSelector(select, includeSections);
+
     /// <summary>
     /// Whether the default preset is in effect and actually resolved to something. The preset is
     /// reached only through bare <c>-S</c>; it has no selector spelling.
     /// </summary>
     public static bool IsActiveInfoSelector(bool selectDefault, HashSet<string>? includeSections)
         => selectDefault && includeSections is { Count: > 0 };
+
+    public static bool IsActiveInfoSelector(
+        bool selectDefault,
+        HashSet<string>? includeSections,
+        bool sectionsPreResolved)
+        => !sectionsPreResolved && IsActiveInfoSelector(selectDefault, includeSections);
 
     internal static bool TryResolveCategory(
         string value,
@@ -154,7 +167,7 @@ public static class SelectResolver
     /// (discover semantics); otherwise all glob matches are returned.
     /// </summary>
     public static (List<string> Matches, SelectMiss? Miss) ResolveSingle(
-        string name, string[] knownSections, bool singleGlob = false)
+        string name, IReadOnlyList<string> knownSections, bool singleGlob = false)
     {
         var (matches, miss, _) = ResolveSingleWithProvenance(name, knownSections, singleGlob);
         return (matches, miss);
@@ -162,7 +175,7 @@ public static class SelectResolver
 
     private static (List<string> Matches, SelectMiss? Miss, bool IsExact)
         ResolveSingleWithProvenance(
-            string name, string[] knownSections, bool singleGlob = false)
+            string name, IReadOnlyList<string> knownSections, bool singleGlob = false)
     {
         // Exact match (case-insensitive)
         var exact = knownSections.FirstOrDefault(s =>
@@ -221,8 +234,8 @@ public static class SelectResolver
     /// </param>
     public static SelectResult ResolveSelectAsSections(
         string[]? select,
-        string[] knownSections,
-        string[]? infoSections = null,
+        IReadOnlyList<string> knownSections,
+        IReadOnlyList<string>? infoSections = null,
         IReadOnlyDictionary<string, string[]>? categories = null,
         bool selectDefault = false)
     {
@@ -300,11 +313,12 @@ public static class SelectResolver
         };
     }
 
-    private static IReadOnlyDictionary<string, string[]> BuildFallbackCategories(string[] knownSections)
+    private static IReadOnlyDictionary<string, string[]> BuildFallbackCategories(
+        IReadOnlyList<string> knownSections)
     {
         Dictionary<string, string[]> categories = new(StringComparer.OrdinalIgnoreCase)
         {
-            [AllSelector] = knownSections
+            [AllSelector] = [.. knownSections]
         };
         return categories;
     }
@@ -313,7 +327,10 @@ public static class SelectResolver
     /// Generates suggestions using prefix + fuzzy matching, ranked by similarity.
     /// Same strategy as TypeMatcher.LookupMembers.
     /// </summary>
-    private static List<string> GetSuggestions(string value, string[] allNames, int maxResults = 6)
+    private static List<string> GetSuggestions(
+        string value,
+        IReadOnlyList<string> allNames,
+        int maxResults = 6)
     {
         var suggestions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var valueKey = SuggestionKey(value);

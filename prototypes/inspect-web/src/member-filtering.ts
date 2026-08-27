@@ -1,3 +1,4 @@
+import type { MemberSection, TypeLens } from "./data.ts";
 import type { MemberGroup, MemberOverloadSummary } from "./type-panel.ts";
 
 export const MEMBER_TRAITS = [
@@ -18,7 +19,7 @@ export interface MemberGroupFilters {
 }
 
 /** The overload fields the filter predicates and body-target matching read. */
-export interface FilterableMemberOverload extends MemberOverloadSummary {
+interface FilterableMemberOverload extends MemberOverloadSummary {
   accessibility?: string;
   isStatic?: boolean;
   isUnsafe?: boolean;
@@ -37,7 +38,7 @@ export function memberGroupMatches(
   group: FilterableMemberGroup,
   filters: MemberGroupFilters,
 ): boolean {
-  const query = String(filters.query || "").trim().toLowerCase();
+  const query = (filters.query ?? "").trim().toLowerCase();
   if (filters.kind && filters.kind !== "all" && group.kind !== filters.kind) {
     return false;
   }
@@ -55,7 +56,7 @@ export function memberGroupMatches(
     }
     return !query
       || group.name.toLowerCase().includes(query)
-      || String(overload.signature || "").toLowerCase().includes(query);
+      || overload.signature.toLowerCase().includes(query);
   });
 }
 
@@ -68,7 +69,7 @@ export function filterMemberGroups(
 
 export interface MemberScopeState {
   atPackageRoot: boolean;
-  lens: string;
+  lens: TypeLens;
   selectedMemberKey: string;
   memberBrowseTypeId: string;
 }
@@ -93,6 +94,14 @@ export function memberNavTargetIndex(
   if (!entryCount) return -1;
   if (currentIndex < 0) return delta < 0 ? entryCount - 1 : 0;
   return Math.max(0, Math.min(entryCount - 1, currentIndex + delta));
+}
+
+export function selectedConcreteOverload<T>(
+  overloads: readonly T[],
+  selectedIndex: number | null | undefined,
+): T | undefined {
+  if (overloads.length > 1 && selectedIndex == null) return undefined;
+  return overloads[selectedIndex ?? 0];
 }
 
 export interface MemberCallGraphWorkState {
@@ -137,7 +146,7 @@ export interface BodyTarget {
   metadataToken: number | null;
 }
 
-export interface BodySelectorLike {
+interface BodySelectorLike {
   memberName: string;
   selectorKey: string;
   token: number;
@@ -154,7 +163,7 @@ export interface BodyTargetMember {
 }
 
 export function bodyTargetMatchesOverload(
-  target: BodyTarget | null | undefined,
+  target: Partial<BodyTarget> | null | undefined,
   member: BodyTargetMember | null | undefined,
   overload: BodyTargetOverload | null | undefined,
 ): boolean {
@@ -181,25 +190,29 @@ export type EncodedBodyTarget = [string | null, string | null, number | null];
 
 export function encodeBodyTarget(target: BodyTarget | null | undefined): EncodedBodyTarget | null {
   if (!target) return null;
-  return [
+  const encoded: EncodedBodyTarget = [
     target.memberName ?? null,
     target.selectorKey ?? null,
     target.metadataToken ?? null,
   ];
+  return encoded.some(value => value != null) ? encoded : null;
 }
 
 export function decodeBodyTarget(value: unknown): BodyTarget | null {
   if (!Array.isArray(value) || value.length !== 3) return null;
-  const [memberNameValue, selectorKeyValue, metadataTokenValue] = value;
+  const values: unknown[] = value;
+  const [memberNameValue, selectorKeyValue, metadataTokenValue] = values;
   if ((memberNameValue != null && typeof memberNameValue !== "string")
     || (selectorKeyValue != null && typeof selectorKeyValue !== "string")
-    || (metadataTokenValue != null && !Number.isInteger(metadataTokenValue))) {
+    || (metadataTokenValue != null
+      && (typeof metadataTokenValue !== "number"
+        || !Number.isInteger(metadataTokenValue)))) {
     return null;
   }
   const target: BodyTarget = {
     memberName: memberNameValue || null,
     selectorKey: selectorKeyValue || null,
-    metadataToken: metadataTokenValue,
+    metadataToken: metadataTokenValue ?? null,
   };
   return target.memberName || target.selectorKey || target.metadataToken != null
     ? target
@@ -214,7 +227,7 @@ export interface MemberHistoryView {
   memberTraitFilter?: string;
   memberTextFilter?: string;
   selectedOverloadIndex?: number | null;
-  memberSection?: string;
+  memberSection?: MemberSection;
   bodyTarget?: BodyTarget | null;
 }
 
@@ -235,7 +248,7 @@ export interface RestoredMemberHistoryState {
   memberTraitFilter: string;
   memberTextFilter: string;
   selectedOverloadIndex: number | null;
-  memberSection: string;
+  memberSection: MemberSection;
   selectedBodyTarget: BodyTarget | null;
 }
 
@@ -243,7 +256,7 @@ export function restoreMemberHistoryState(
   view: MemberHistoryView,
   type: MemberHistoryType | null | undefined,
   member: MemberHistoryMember | null | undefined,
-  memberSectionIds: readonly string[] = [],
+  memberSectionIds: readonly MemberSection[] = [],
 ): RestoredMemberHistoryState {
   const restoreMemberScope = Boolean(type)
     && view.memberBrowseTypeId === type!.id

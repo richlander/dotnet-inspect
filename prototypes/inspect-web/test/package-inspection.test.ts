@@ -3,16 +3,22 @@ import test from "node:test";
 
 import {
   createPackageInspectionCoordinator,
+  resolvePackagePerformanceMember,
   workspaceDependencyKey,
   type PackageInspectionDependencies,
   type PackageInspectionState,
   type PackagePerformance,
 } from "../src/package-inspection.ts";
-import type { AppPackage } from "../src/package-acquisition.ts";
+import type {
+  AppMemberSurface,
+  AppPackage,
+  AppTypeSurface,
+} from "../src/package-acquisition.ts";
 import type {
   BrowserPackageDependencies,
   BrowserPackageIntegrations,
   BrowserPackageOpportunities,
+  BrowserPerformanceMember,
 } from "../src/inspect-web-engine.d.ts";
 import type { PackageMetadata } from "../src/metadata-viewer.ts";
 
@@ -121,10 +127,96 @@ function opportunitiesResult(): BrowserPackageOpportunities {
 function performanceResult(): PackagePerformance {
   return {
     members: [],
+    inspectionError: null,
     nonPublicOpportunities: 0,
     totalOpportunities: 0,
   };
 }
+
+function performanceMember(): AppMemberSurface {
+  return {
+    name: "Bounds",
+    kind: "property",
+    signature: "object Bounds",
+    accessibility: "public",
+    isStatic: false,
+    isUnsafe: false,
+    isVirtual: false,
+    isAbstract: false,
+    isOverride: false,
+    isExtension: false,
+    isObsolete: false,
+    genericArity: 0,
+    metadataToken: null,
+    returnType: "object",
+    parameters: [],
+    documentationId: "P:Example.Outer.Inner.Bounds",
+    summary: null,
+    returns: null,
+    exceptions: [],
+    stableSelector: "Bounds~surface",
+    anchorDigest: "surface",
+    canonicalSignature: "P:Example.Outer.Inner.Bounds",
+    graphSelectorKey: "property:Bounds",
+    bodySelectors: [{
+      token: 0x06000001,
+      memberName: "get_Bounds",
+      selectorKey: "get_Bounds",
+    }],
+  };
+}
+
+function performanceType(
+  member: AppMemberSurface,
+): AppTypeSurface {
+  return {
+    id: "Example.dll:Example.Outer+Inner",
+    definitionId: "Example.Outer+Inner",
+    queryId: "Example.Outer.Inner",
+    metadataId: "Example.Outer+Inner",
+    name: "Inner",
+    displayName: "Inner",
+    namespace: "Example",
+    kind: "class",
+    accessibility: "public",
+    accessibilityId: "public",
+    assembly: "Example.dll",
+    assemblyId: "example",
+    assemblyName: "Example",
+    members: 1,
+    signature: "public class Inner",
+    api: [member],
+    platformPack: null,
+  };
+}
+
+test(
+  "performance navigation uses stable surface identity across body tokens",
+  () => {
+    const member = performanceMember();
+    const type = performanceType(member);
+    const packageItem: AppPackage = packageModel({ types: [type] });
+    const performance: BrowserPerformanceMember = {
+      assembly: "Example.dll",
+      typeId: "Example.Outer+Inner",
+      memberName: "Bounds",
+      stableSelector: "Bounds~surface",
+      bodyTokens: [0x06001000],
+      opportunityCount: 1,
+      inLoopCount: 0,
+      shapes: ["box-value-type"],
+      confidence: "high",
+    };
+
+    assert.deepEqual(
+      resolvePackagePerformanceMember(packageItem, performance),
+      { type, member });
+    assert.equal(
+      resolvePackagePerformanceMember(
+        packageItem,
+        { ...performance, stableSelector: "Bounds~different" }),
+      null);
+  });
 
 function metadataResult(): PackageMetadata {
   return { assemblies: [] };
@@ -150,7 +242,7 @@ function inspectionDependencies(
       error instanceof Error ? error.message : String(error),
     refreshPackageStats: () => {},
     render: () => {},
-    renderDependencyGraph: () => {},
+    renderDependencyGraph: async () => {},
     ...overrides,
   };
 }
@@ -323,7 +415,9 @@ test("dependency results cache for a resident package after the foreground lens 
       queryDependencies: async () => request.promise,
       refreshPackageStats: () => events.push("stats"),
       render: () => events.push("render"),
-      renderDependencyGraph: () => events.push("graph"),
+      renderDependencyGraph: async () => {
+        events.push("graph");
+      },
     }));
 
   const load = coordinator.loadDependencies(packageItem, "first");
@@ -649,15 +743,17 @@ test("workspace dependency loading records failures and ignores runtime packs", 
     "Example.Dependency");
   assert.equal(Object.hasOwn(state.workspaceDependencyErrors, goodKey), false);
   const partialKey = workspaceDependencyKey(partial);
+  const partialWorkspace = state.workspaceDependencies[partialKey];
+  assert.ok(partialWorkspace);
   assert.equal(
-    state.workspaceDependencies[partialKey].dependencyGroupError,
+    partialWorkspace.dependencyGroupError,
     "no dependency group matches net10.0");
   assert.equal(
     state.workspaceDependencyErrors[partialKey],
     "no dependency group matches net10.0");
-  assert.deepEqual(
-    state.workspaceDependencies[workspaceDependencyKey(bad)].dependencyGroups,
-    []);
+  const failedWorkspace = state.workspaceDependencies[workspaceDependencyKey(bad)];
+  assert.ok(failedWorkspace);
+  assert.deepEqual(failedWorkspace.dependencyGroups, []);
   assert.equal(
     state.workspaceDependencyErrors[workspaceDependencyKey(bad)],
     "dependency feed unavailable");
@@ -682,7 +778,9 @@ test("workspace dependency loading skips keys already in flight", async () => {
         queries++;
         return dependencyResult();
       },
-      renderDependencyGraph: () => graphRenders++,
+      renderDependencyGraph: async () => {
+        graphRenders++;
+      },
     }));
 
   await coordinator.ensureWorkspaceDependencies();
@@ -866,8 +964,14 @@ test("scoped package lenses route platform coordinates and suppress stale result
         calls.push(`integrations:${model.id}`);
         return integrationsResult();
       },
-      queryPlatformOpportunities: async (framework, assemblyName, pack) => {
-        calls.push(`opportunities:${framework}/${assemblyName}/${pack}`);
+      queryPlatformOpportunities: async (
+        framework,
+        platformVersion,
+        assemblyName,
+        pack,
+      ) => {
+        calls.push(
+          `opportunities:${framework}/${platformVersion}/${assemblyName}/${pack}`);
         return opportunitiesResult();
       },
       queryPackagePerformance: async model => {
@@ -894,7 +998,7 @@ test("scoped package lenses route platform coordinates and suppress stale result
 
   assert.deepEqual(calls, [
     "integrations:Example.Package",
-    "opportunities:net10.0/System.Text.Json.dll/pack:System.Text.Json",
+    "opportunities:net10.0/1.2.3/System.Text.Json.dll/pack:System.Text.Json",
     "performance:Example.Package",
     "metadata:Example.Package",
   ]);
@@ -917,20 +1021,44 @@ test("all scoped runtime package lenses route exact platform coordinates", async
   const state = inspectionState({ packages: [runtime] });
   const coordinator = createPackageInspectionCoordinator(
     inspectionDependencies(state, {
-      queryPlatformIntegrations: async (framework, assemblyName, pack) => {
-        calls.push(`integrations:${framework}/${assemblyName}/${pack}`);
+      queryPlatformIntegrations: async (
+        framework,
+        platformVersion,
+        assemblyName,
+        pack,
+      ) => {
+        calls.push(
+          `integrations:${framework}/${platformVersion}/${assemblyName}/${pack}`);
         return integrationsResult();
       },
-      queryPlatformOpportunities: async (framework, assemblyName, pack) => {
-        calls.push(`opportunities:${framework}/${assemblyName}/${pack}`);
+      queryPlatformOpportunities: async (
+        framework,
+        platformVersion,
+        assemblyName,
+        pack,
+      ) => {
+        calls.push(
+          `opportunities:${framework}/${platformVersion}/${assemblyName}/${pack}`);
         return opportunitiesResult();
       },
-      queryPlatformPerformance: async (framework, assemblyName, pack) => {
-        calls.push(`performance:${framework}/${assemblyName}/${pack}`);
+      queryPlatformPerformance: async (
+        framework,
+        platformVersion,
+        assemblyName,
+        pack,
+      ) => {
+        calls.push(
+          `performance:${framework}/${platformVersion}/${assemblyName}/${pack}`);
         return performanceResult();
       },
-      queryPlatformMetadata: async (framework, assemblyName, pack) => {
-        calls.push(`metadata:${framework}/${assemblyName}/${pack}`);
+      queryPlatformMetadata: async (
+        framework,
+        platformVersion,
+        assemblyName,
+        pack,
+      ) => {
+        calls.push(
+          `metadata:${framework}/${platformVersion}/${assemblyName}/${pack}`);
         return metadataResult();
       },
     }));
@@ -941,10 +1069,10 @@ test("all scoped runtime package lenses route exact platform coordinates", async
   await coordinator.loadMetadata(runtime, "metadata", "System.Text.Json");
 
   assert.deepEqual(calls, [
-    "integrations:net10.0/System.Text.Json.dll/pack:System.Text.Json",
-    "opportunities:net10.0/System.Text.Json.dll/pack:System.Text.Json",
-    "performance:net10.0/System.Text.Json.dll/pack:System.Text.Json",
-    "metadata:net10.0/System.Text.Json.dll/pack:System.Text.Json",
+    "integrations:net10.0/1.2.3/System.Text.Json.dll/pack:System.Text.Json",
+    "opportunities:net10.0/1.2.3/System.Text.Json.dll/pack:System.Text.Json",
+    "performance:net10.0/1.2.3/System.Text.Json.dll/pack:System.Text.Json",
+    "metadata:net10.0/1.2.3/System.Text.Json.dll/pack:System.Text.Json",
   ]);
 });
 

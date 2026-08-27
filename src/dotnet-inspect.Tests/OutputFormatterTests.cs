@@ -7,6 +7,7 @@ using DotnetInspector.Commands;
 using ILInspector.Analysis;
 using ILInspector.Findings;
 using ILInspector.Metadata;
+using InertText;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -57,6 +58,244 @@ public class OutputFormatterTests
         {
             tempDirectory.Delete(recursive: true);
         }
+    }
+
+    [Fact]
+    public void OutputDestination_NormalizesBufferedLineEndings()
+    {
+        var tempDirectory = Directory.CreateTempSubdirectory("output-destination-lf-");
+        try
+        {
+            var path = Path.Combine(tempDirectory.FullName, "output.txt");
+            OutputDestination.Write(
+                path,
+                rowWindow: null,
+                writer => writer.Write("first\r\nsecond\rthird\n"));
+            Assert.Equal("first\nsecond\nthird\n", File.ReadAllText(path));
+
+            var sink = new StringWriter { NewLine = "\r\n" };
+            var normalized = new LfTextWriter(sink);
+            normalized.WriteLine("first\r\nsecond".AsSpan());
+            normalized.Flush();
+            Assert.Equal("first\nsecond\n", sink.ToString());
+        }
+        finally
+        {
+            tempDirectory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void LibraryInspectionTypedRows_CarryConcernProvenance()
+    {
+        const string hostile = "value\u202E\nINJECTED";
+        const TextConcern concerns = TextConcern.Control | TextConcern.Format;
+
+        var reference = new ReferenceRow(hostile, hostile, hostile);
+        var classified = new ClassifiedMethodRow(hostile, hostile, hostile);
+        var resource = new ResourceRow(hostile, hostile, hostile);
+        var triage = new ResourceTriageRow(
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile);
+        var performance = new PerformanceRow(
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile);
+        var performanceGroup = new PerformanceGroupRow(
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile);
+        var failure = new InspectionFailureRow(hostile, hostile, hostile);
+        var union = new UnionTypeRow(hostile, hostile, hostile, hostile);
+        var sourceLink = new SourceLinkAuditSection
+        {
+            SourceFilesText = new InertString(TextPolicy.Field, hostile),
+            StatusText = new InertString(TextPolicy.Field, hostile),
+        };
+        var sourceIntegrity = new SourceIntegritySection
+        {
+            CrlfMismatchText = new InertString(TextPolicy.Field, hostile),
+            MismatchedFileTexts = [new InertString(TextPolicy.Field, hostile)],
+            StatusText = new InertString(TextPolicy.Field, hostile),
+        };
+
+        InertString[] texts =
+        [
+            reference.PublicKeyTokenText,
+            classified.DeclaringTypeText,
+            classified.SignatureText,
+            resource.VisibilityText,
+            resource.SizeText,
+            triage.MemberText,
+            triage.CandidateText,
+            triage.BoundaryText,
+            triage.AcquireILText,
+            triage.BoundaryILText,
+            performance.MemberText,
+            performance.EvidenceText,
+            performance.AllocationText!.Value,
+            performance.ReachText,
+            performanceGroup.KindText,
+            performanceGroup.MemberText,
+            performanceGroup.EvidenceText,
+            performanceGroup.AllocationText!.Value,
+            performanceGroup.LoopText!.Value,
+            performanceGroup.ReachText,
+            performanceGroup.WeightText!.Value,
+            performanceGroup.PriorityText,
+            performanceGroup.ConfidenceText,
+            failure.SectionText,
+            union.IUnionText,
+            sourceLink.SourceFilesText,
+            sourceLink.StatusText,
+            sourceIntegrity.CrlfMismatchText!.Value,
+            sourceIntegrity.MismatchedFileTexts![0],
+            sourceIntegrity.StatusText,
+        ];
+
+        Assert.Equal(30, texts.Length);
+        Assert.All(texts, text => Assert.Equal(concerns, text.Concerns));
+    }
+
+    [Fact]
+    public void SourceIntegrityTypedText_RendersAcrossMarkdownTsvAndJsonl()
+    {
+        const string cleanPath = @"C:\src\Foo.cs";
+        const string hostile = "path\u202E\nINJECTED.cs";
+        var view = new LibraryInspectionView(new LibraryInspection
+        {
+            SourceIntegrityChecked = true,
+            SourceIntegrityMismatched = 2,
+            SourceIntegrityMismatches = [cleanPath, hostile],
+        });
+        var writerOptions = new MarkoutWriterOptions
+        {
+            IncludeSections = [SectionNames.SourceLinkIntegrity],
+        };
+
+        string markdown = MarkoutSerializer.Serialize(
+            view,
+            InspectionContext.Default,
+            writerOptions);
+        string tsv = RenderLibraryTable(view, tsv: true, jsonl: false);
+        string jsonl = RenderLibraryTable(view, tsv: false, jsonl: true);
+
+        foreach (string output in new[] { markdown, tsv })
+        {
+            Assert.Contains(cleanPath, output, StringComparison.Ordinal);
+            Assert.DoesNotContain(@"C:\\src\\Foo.cs", output, StringComparison.Ordinal);
+            Assert.DoesNotContain("\u202E", output, StringComparison.Ordinal);
+            Assert.Contains(@"\u202E", output, StringComparison.Ordinal);
+            Assert.Contains(@"\^J", output, StringComparison.Ordinal);
+        }
+        Assert.DoesNotContain("\u202E", jsonl, StringComparison.Ordinal);
+        Assert.Contains(@"\u202E", jsonl, StringComparison.Ordinal);
+        Assert.Contains(@"\^J", jsonl, StringComparison.Ordinal);
+
+        string[] jsonlRows =
+            jsonl.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(5, jsonlRows.Length);
+        foreach (string jsonlRow in jsonlRows)
+        {
+            using JsonDocument document = JsonDocument.Parse(jsonlRow);
+            Assert.DoesNotContain(
+                document.RootElement.EnumerateObject(),
+                property => property.Name.EndsWith("_text", StringComparison.Ordinal));
+        }
+        Assert.Contains(
+            jsonlRows,
+            row => row.Contains(
+                "\"field\":\"Mismatched Files\"",
+                StringComparison.Ordinal));
+        string mismatchedFilesRow = Assert.Single(
+            jsonlRows,
+            row => row.Contains(
+                "\"field\":\"Mismatched Files\"",
+                StringComparison.Ordinal));
+        using JsonDocument mismatchedFilesDocument =
+            JsonDocument.Parse(mismatchedFilesRow);
+        string mismatchedFiles =
+            mismatchedFilesDocument.RootElement.GetProperty("value").GetString()!;
+        Assert.Contains(cleanPath, mismatchedFiles, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            @"C:\\src\\Foo.cs",
+            mismatchedFiles,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PerformanceGroupTypedText_RendersAcrossTsvAndJsonl()
+    {
+        const string hostile = "value\u200D\uFEFF\U000E0041\t\u202E\nINJECTED";
+        var view = new PerformanceGroupView(
+        [
+            new PerformanceGroupRow(
+                hostile,
+                hostile,
+                hostile,
+                hostile,
+                hostile,
+                hostile,
+                hostile,
+                hostile,
+                hostile),
+        ]);
+
+        string tsv = RenderPerformanceGroupTable(
+            view,
+            tsv: true,
+            jsonl: false);
+        string jsonl = RenderPerformanceGroupTable(
+            view,
+            tsv: false,
+            jsonl: true);
+
+        foreach (string output in new[] { tsv, jsonl })
+        {
+            Assert.DoesNotContain("\u200D", output, StringComparison.Ordinal);
+            Assert.DoesNotContain("\uFEFF", output, StringComparison.Ordinal);
+            Assert.DoesNotContain("\U000E0041", output, StringComparison.Ordinal);
+            Assert.DoesNotContain("\u202E", output, StringComparison.Ordinal);
+            Assert.Contains(@"\u200D", output, StringComparison.Ordinal);
+            Assert.Contains(@"\uFEFF", output, StringComparison.Ordinal);
+            Assert.Contains(@"\U000E0041", output, StringComparison.Ordinal);
+            Assert.Contains(@"\^I", output, StringComparison.Ordinal);
+            Assert.Contains(@"\u202E", output, StringComparison.Ordinal);
+            Assert.Contains(@"\^J", output, StringComparison.Ordinal);
+        }
+
+        string jsonlRow = Assert.Single(
+            jsonl.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        using JsonDocument document = JsonDocument.Parse(jsonlRow);
+        Assert.DoesNotContain(
+            document.RootElement.EnumerateObject(),
+            property => property.Name.EndsWith("_text", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -170,6 +409,41 @@ public class OutputFormatterTests
         Assert.Equal(
             OutputFormatter.LimitRenderedTableRows(OutputFormatter.RenderTable(true, serialize), RowWindow.Head(1), hasHeader: true),
             capped.ToString());
+    }
+
+    [Fact]
+    public void VersionListings_HeadersAreDefaultAndHeaderlessIsOptIn()
+    {
+        PackageVersionInfo[] versions =
+        [
+            new("2.0.0", Listed: true),
+            new("1.0.0-preview.1", Listed: false),
+        ];
+        var withHeader = new StringWriter { NewLine = "\n" };
+        var withoutHeader = new StringWriter { NewLine = "\n" };
+
+        OutputFormatter.WriteVersionListings(
+            versions,
+            new InspectionOptions { Tsv = true },
+            withHeader);
+        OutputFormatter.WriteVersionListings(
+            versions,
+            new InspectionOptions
+            {
+                Tsv = true,
+                NoHeader = true,
+            },
+            withoutHeader);
+
+        Assert.Equal(
+            "version\tlisting\n"
+            + "2.0.0\tlisted\n"
+            + "1.0.0-preview.1\tunlisted\n",
+            withHeader.ToString());
+        Assert.Equal(
+            "2.0.0\tlisted\n"
+            + "1.0.0-preview.1\tunlisted\n",
+            withoutHeader.ToString());
     }
 
     [Fact]
@@ -1744,59 +2018,102 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void CountMarkdownTableRows_CountsDataRowsOnly()
+    public void CountProjection_CapturesTableRowsBySection()
     {
-        const string markdown = """
-        # Title
+        var projection = CountProjectionFormatter.Capture(writer =>
+        {
+            writer.WriteHeading(1, "Title");
+            writer.WriteHeading(2, "Methods");
+            writer.WriteTable(
+                ["Name"],
+                ["name"],
+                [new[] { "Read" }, new[] { "Write" }]);
+            writer.WriteHeading(2, "Fields");
+            writer.WriteTable(
+                ["Name"],
+                ["name"],
+                [new[] { "Value" }]);
+        }, new MarkoutWriterOptions());
 
-        ## Methods
-
-        | Name | Signature |
-        | ---- | --------- |
-        | Read | void Read() |
-        | Write | void Write() |
-
-        ## Notes
-
-        Not a table.
-        """;
-
-        Assert.Equal(2, CountOutput.CountMarkdownTableRows(markdown));
+        Assert.Equal(3, projection.Total);
+        Assert.Equal(2, projection.SectionCounts["Methods"]);
+        Assert.Equal(1, projection.SectionCounts["Fields"]);
     }
 
     [Fact]
-    public void CountMarkdownTableRows_SumsMultipleTables()
+    public void CountProjection_AppliesRowWindowBeforeReduction()
     {
-        const string markdown = """
-        | Field | Value |
-        | ----- | ----- |
-        | Name | Example |
+        var projection = CountProjectionFormatter.Capture(writer =>
+        {
+            writer.WriteHeading(2, "Methods");
+            writer.WriteTable(
+                ["Name"],
+                ["name"],
+                [
+                    new[] { "One" },
+                    new[] { "Two" },
+                    new[] { "Three" }
+                ]);
+        }, OutputFormatter.CreateWindowedOptions(RowWindow.Head(2)));
 
-        | Name |
-        | ---- |
-        | One |
-        | Two |
-        """;
-
-        Assert.Equal(3, CountOutput.CountMarkdownTableRows(markdown));
+        Assert.Equal(2, projection.Total);
+        Assert.Equal(2, projection.SectionCounts["Methods"]);
     }
 
     [Fact]
-    public void CountMarkdownTableRows_IgnoresCodeFences()
+    public void CountProjection_DoesNotCountNonTableContent()
     {
-        const string markdown = """
-        ```md
-        | Not | Data |
-        | --- | ---- |
-        | One | Two |
-        ```
+        var projection = CountProjectionFormatter.Capture(writer =>
+        {
+            writer.WriteHeading(2, "Notes");
+            writer.WriteParagraph("Not a row.");
+            writer.WriteCodeStart("md");
+            writer.WriteCodeEnd();
+        }, new MarkoutWriterOptions());
 
-        | Name |
-        | ---- |
-        | Real |
-        """;
+        Assert.Equal(0, projection.Total);
+        Assert.True(projection.WroteAnyContent);
+    }
 
-        Assert.Equal(1, CountOutput.CountMarkdownTableRows(markdown));
+    [Theory]
+    [InlineData(OutputFormat.Markdown)]
+    [InlineData(OutputFormat.Json)]
+    [InlineData(OutputFormat.Tsv)]
+    [InlineData(OutputFormat.Jsonl)]
+    [InlineData(OutputFormat.Table)]
+    [InlineData(OutputFormat.PlainText)]
+    public void CountProjection_SectionRowsRenderThroughEveryCompatibleFormat(
+        OutputFormat format)
+    {
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Methods"] = 17,
+            ["Fields"] = 23
+        };
+
+        var output = CountOutput.RenderSectionCounts(
+            counts, ["Methods", "Fields"], format);
+
+        Assert.Contains("Methods", output, StringComparison.Ordinal);
+        Assert.Contains("17", output, StringComparison.Ordinal);
+        Assert.Contains("Fields", output, StringComparison.Ordinal);
+        Assert.Contains("23", output, StringComparison.Ordinal);
+
+        if (format == OutputFormat.Json)
+        {
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(17, document.RootElement[0].GetProperty("count").GetInt32());
+            Assert.Equal(23, document.RootElement[1].GetProperty("count").GetInt32());
+        }
+        else if (format == OutputFormat.Jsonl)
+        {
+            var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal(2, lines.Length);
+            using var first = JsonDocument.Parse(lines[0]);
+            using var second = JsonDocument.Parse(lines[1]);
+            Assert.Equal(17, first.RootElement.GetProperty("count").GetInt32());
+            Assert.Equal(23, second.RootElement.GetProperty("count").GetInt32());
+        }
     }
 
     [Fact]
@@ -3358,6 +3675,41 @@ public class OutputFormatterTests
             writer.WriteParagraph($"... *and {truncatedCount} more types*");
         return writer.ToString().TrimEnd();
     }
+
+    private static string RenderLibraryTable(
+        LibraryInspectionView view,
+        bool tsv,
+        bool jsonl) =>
+        OutputFormatter.RenderTable(
+            showHeader: true,
+            (writer, formatter) => MarkoutSerializer.Serialize(
+                view,
+                writer,
+                formatter,
+                InspectionContext.Default,
+                OutputFormatter.ConfigureTableWriterOptions(
+                    new MarkoutWriterOptions
+                    {
+                        IncludeSections = [SectionNames.SourceLinkIntegrity],
+                    },
+                    tsv,
+                    jsonl)));
+
+    private static string RenderPerformanceGroupTable(
+        PerformanceGroupView view,
+        bool tsv,
+        bool jsonl) =>
+        OutputFormatter.RenderTable(
+            showHeader: true,
+            (writer, formatter) => MarkoutSerializer.Serialize(
+                view,
+                writer,
+                formatter,
+                InspectionContext.Default,
+                OutputFormatter.ConfigureTableWriterOptions(
+                    new MarkoutWriterOptions(),
+                    tsv,
+                    jsonl)));
 
     private static string SerializeWithInclude(LibraryInspection inspection, HashSet<string>? includeSections, bool topFieldsOnly = false)
     {

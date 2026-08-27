@@ -43,6 +43,44 @@ public sealed class PackageIndexCacheTests
     }
 
     [Fact]
+    public void RidAvailability_IsNotPersisted()
+    {
+        string packageName =
+            $"Indeterminate.Rid.{Guid.NewGuid():N}";
+        const string Version = "1.0.0";
+        var result = new InspectionResult
+        {
+            PackageName = packageName,
+            Version = Version,
+            RuntimeIdentifierPackages =
+            [
+                new RidPackageReference
+                {
+                    RuntimeIdentifier = "linux-x64",
+                    PackageId = $"{packageName}.linux-x64",
+                    Exists = true,
+                },
+            ],
+        };
+
+        PackageIndexCache.Set(
+            packageName,
+            Version,
+            ProducerKey,
+            result);
+
+        InspectionResult cached =
+            PackageIndexCache.TryGet(
+                packageName,
+                Version,
+                ProducerKey)!;
+        Assert.True(
+            PackageIndexCache.RequiresRidReverification(cached));
+        Assert.Null(
+            Assert.Single(cached.RuntimeIdentifierPackages!).Exists);
+    }
+
+    [Fact]
     public void Description_MalformedEnvelopeRejectsTheWholeCacheEntry()
     {
         AssertMalformedCacheMiss(
@@ -154,6 +192,127 @@ public sealed class PackageIndexCacheTests
                 packageName,
                 Version,
                 "producer-a")!.Authors);
+    }
+
+    [Fact]
+    public void LegacyRidAvailabilityCacheIsIgnored()
+    {
+        string donorPackage = $"Legacy.Rid.Donor.{Guid.NewGuid():N}";
+        string legacyPackage = $"Legacy.Rid.Target.{Guid.NewGuid():N}";
+        const string version = "1.0.0";
+        PackageIndexCache.Set(
+            donorPackage,
+            version,
+            ProducerKey,
+            new InspectionResult
+            {
+                PackageName = donorPackage,
+                Version = version,
+                IsRidSpecificPointerPackage = true,
+                RuntimeIdentifierPackages =
+                [
+                    new RidPackageReference
+                    {
+                        RuntimeIdentifier = "linux-x64",
+                        PackageId = $"{donorPackage}.linux-x64",
+                        Exists = false,
+                    }
+                ],
+            });
+        byte[] bytes = CoreCache.TryGetBytes(
+            PackageIndexCache.Category,
+            PackageIndexCache.CacheKey(
+                donorPackage,
+                version,
+                ProducerKey),
+            extension: "md")!;
+        CoreCache.SetBytes(
+            "pkg-index-v15",
+            PackageIndexCache.CacheKey(
+                legacyPackage,
+                version,
+                ProducerKey),
+            bytes,
+            extension: "md");
+
+        Assert.Null(
+            PackageIndexCache.TryGet(
+                legacyPackage,
+                version,
+                ProducerKey));
+    }
+
+    [Fact]
+    public void RidReferenceDelimiterCannotRestoreAvailability()
+    {
+        string packageName = $"Rid.Delimiter.{Guid.NewGuid():N}";
+        const string version = "1.0.0";
+        const string rid = "linux|x64";
+        const string ridPackage = "Bogus|yes";
+        PackageIndexCache.Set(
+            packageName,
+            version,
+            ProducerKey,
+            new InspectionResult
+            {
+                PackageName = packageName,
+                Version = version,
+                IsRidSpecificPointerPackage = true,
+                RuntimeIdentifierPackages =
+                [
+                    new RidPackageReference
+                    {
+                        RuntimeIdentifier = rid,
+                        PackageId = ridPackage,
+                        Exists = true,
+                    }
+                ],
+            });
+
+        RidPackageReference cached = Assert.Single(
+            PackageIndexCache.TryGet(
+                packageName,
+                version,
+                ProducerKey)!.RuntimeIdentifierPackages!);
+        Assert.Equal(rid, cached.RuntimeIdentifier);
+        Assert.Equal(ridPackage, cached.PackageId);
+        Assert.Null(cached.Exists);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void RidAvailabilityDoesNotPersistAcrossSourcePolicies(
+        bool availability)
+    {
+        string packageName = $"Rid.Policy.{Guid.NewGuid():N}";
+        const string version = "1.0.0";
+        PackageIndexCache.Set(
+            packageName,
+            version,
+            ProducerKey,
+            new InspectionResult
+            {
+                PackageName = packageName,
+                Version = version,
+                IsRidSpecificPointerPackage = true,
+                RuntimeIdentifierPackages =
+                [
+                    new RidPackageReference
+                    {
+                        RuntimeIdentifier = "linux-x64",
+                        PackageId = $"{packageName}.linux-x64",
+                        Exists = availability,
+                    }
+                ],
+            });
+
+        Assert.Null(
+            Assert.Single(
+                PackageIndexCache.TryGet(
+                    packageName,
+                    version,
+                    ProducerKey)!.RuntimeIdentifierPackages!).Exists);
     }
 
     [Theory]

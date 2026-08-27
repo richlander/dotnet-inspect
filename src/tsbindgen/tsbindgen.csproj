@@ -42,6 +42,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\CSharpText\CSharpText.csproj" />
     <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
     <ProjectReference Include="..\ILInspector.JsExportSurface\ILInspector.JsExportSurface.csproj" />
   </ItemGroup>

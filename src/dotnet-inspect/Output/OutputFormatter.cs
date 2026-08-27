@@ -1,7 +1,6 @@
 using DotnetInspector.Models;
 using DotnetInspector.Packages;
 using DotnetInspector.Views;
-using System.Globalization;
 using System.Text.Json;
 using DotnetInspector.Options;
 using DotnetInspector.Sections;
@@ -412,12 +411,15 @@ public static class OutputFormatter
     /// silently included.
     /// </summary>
     public static void WriteVersionListings(IEnumerable<PackageVersionInfo> versions,
-        bool tsv, bool jsonl, TextWriter output)
+        InspectionOptions options, TextWriter output)
     {
         var rows = versions.Select(v => new[] { v.Version, v.Listed ? "listed" : "unlisted" }).ToArray();
-        WriteTable(output, showHeader: false, (writer, formatter) =>
+        WriteTable(output, showHeader: !options.NoHeader, (writer, formatter) =>
         {
-            var markoutWriter = new MarkoutWriter(writer, formatter, CreateTableWriterOptions(tsv, jsonl));
+            var markoutWriter = new MarkoutWriter(
+                writer,
+                formatter,
+                CreateTableWriterOptions(options.Tsv, options.Jsonl));
             markoutWriter.WriteTable(["Version", "Listing"], ["version", "listing"], rows);
             markoutWriter.Flush();
         });
@@ -447,7 +449,9 @@ public static class OutputFormatter
         if (requested is not { Count: > 1 })
             return null;
 
-        return pipeline.AlphabeticalSectionOrder.Where(requested.Contains).ToList();
+        return requested.OrderBy(
+            section => section,
+            StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     public static string FormatResult(InspectionResult result, InspectionOptions options,
@@ -460,26 +464,45 @@ public static class OutputFormatter
                 PackageInspectionJsonContext.Default.PackageInspectionJson);
         }
 
+        var view = new InspectionResultView(result, includeTitleVersion: false);
+        var writerOptions = BuildPackageDocumentWriterOptions(result, options, pipeline);
+        if (options.Count)
+        {
+            var projection = CountProjectionFormatter.Capture(
+                view, InspectionContext.Default, writerOptions);
+            var ordered = ResolveCountMapSections(
+                pipeline, options.IncludeSections, options.FixedOverview);
+            return CountOutput.Render(
+                projection, ordered, options.Format, options.NoHeader);
+        }
+
+        return MarkoutSerializer.Serialize(
+            view, InspectionContext.Default, writerOptions).TrimEnd();
+    }
+
+    internal static CountProjection CapturePackageCountProjection(
+        InspectionResult result,
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline)
+        => CountProjectionFormatter.Capture(
+            new InspectionResultView(result, includeTitleVersion: false),
+            InspectionContext.Default,
+            BuildPackageDocumentWriterOptions(result, options, pipeline));
+
+    private static MarkoutWriterOptions BuildPackageDocumentWriterOptions(
+        InspectionResult result,
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline)
+    {
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         bool selectInfo = SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections);
-        var view = new InspectionResultView(result, includeTitleVersion: false);
         var writerOptions = BuildWriterOptions(result, options, pipeline);
         if (selectAll)
             writerOptions.SectionOrder = pipeline.GetAllSelectorSections(result);
         else if (selectInfo)
             writerOptions.SectionOrder = pipeline.InfoSectionNames;
         writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
-        var markdown = MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOptions).TrimEnd();
-        if (!options.Count)
-            return markdown;
-
-        // A category selects many sections at once; report each member's count, including the
-        // members that rendered nothing, so the map describes the whole category.
-        var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
-        if (ordered != null)
-            return CountOutput.RenderCountMapFromMarkdown(markdown, ordered);
-
-        return CountOutput.CountMarkdownTableRows(markdown).ToString(CultureInfo.InvariantCulture);
+        return writerOptions;
     }
 
     /// <summary>
@@ -548,17 +571,11 @@ public static class OutputFormatter
 
         if (options.Count)
         {
-            var markdown = SerializeLibraryMarkdown(
-                auditView, inspection, writerOpts, pipeline, options.Rows);
+            var projection = CaptureLibraryCountProjection(
+                auditView, inspection, writerOpts, options.Rows, options.Fields, options.Columns);
             var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
-            if (ordered != null)
-            {
-                CountOutput.WriteCountMapFromMarkdown(markdown, ordered, options.OutputPath);
-            }
-            else
-            {
-                CountOutput.WriteCountFromMarkdown(markdown, options.OutputPath);
-            }
+            CountOutput.Write(
+                projection, ordered, options.Format, options.NoHeader, options.OutputPath, options.Rows);
             return;
         }
 
@@ -770,30 +787,16 @@ public static class OutputFormatter
 
         if (options.Count)
         {
-            var markdownDocuments = inspections.Select(inspection =>
+            var projection = new CountProjection();
+            foreach (var inspection in inspections)
             {
                 var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
-                var markdown = SerializeLibraryMarkdown(
-                    auditView, inspection, WriterOptions(inspection), pipeline, options.Rows);
-                return markdown;
-            }).ToList();
+                projection.Merge(CaptureLibraryCountProjection(
+                    auditView, inspection, WriterOptions(inspection), options.Rows, options.Fields, options.Columns));
+            }
             var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
-            if (ordered != null)
-            {
-                var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                foreach (var markdown in markdownDocuments)
-                {
-                    foreach (var (section, count) in CountOutput.CountMarkdownTableRowsBySection(markdown))
-                        counts[section] = counts.GetValueOrDefault(section) + count;
-                }
-                CountOutput.WriteCountMap(counts, ordered, options.OutputPath);
-            }
-            else
-            {
-                CountOutput.WriteCount(
-                    markdownDocuments.Sum(CountOutput.CountMarkdownTableRows),
-                    options.OutputPath);
-            }
+            CountOutput.Write(
+                projection, ordered, options.Format, options.NoHeader, options.OutputPath, options.Rows);
             return;
         }
 
@@ -987,4 +990,89 @@ public static class OutputFormatter
 
     internal static bool ShouldRenderLibraryContext(LibraryOptions options) =>
         options.Verbosity == Verbosity.Quiet;
+
+    internal static CountProjection CaptureLibraryCountProjection(
+        LibraryInspectionView auditView,
+        LibraryInspection inspection,
+        MarkoutWriterOptions writerOptions,
+        RowWindow? rows,
+        string[]? fields = null,
+        string[]? columns = null)
+    {
+        writerOptions.RowWindow = RowWindow.ToMarkout(rows);
+        var projection = CountProjectionFormatter.Capture(
+            auditView, InspectionContext.Default, writerOptions);
+        projection.Merge(MetadataLensRenderer.CaptureCounts(
+            inspection, writerOptions.IncludeSections, rows));
+        ApplyILCoordinateCardinality(
+            projection, inspection, writerOptions.IncludeSections, rows, fields, columns);
+        return projection;
+    }
+
+    private static void ApplyILCoordinateCardinality(
+        CountProjection projection,
+        LibraryInspection inspection,
+        IReadOnlyCollection<string>? includedSections,
+        RowWindow? rows,
+        string[]? fields,
+        string[]? columns)
+    {
+        if (inspection.ILOffset is null || includedSections is null)
+            return;
+
+        var schema = InspectionContext.Default
+            .GetSchemaInfo<LibraryInspectionView>()!
+            .ToDocumentSchema();
+        foreach (var section in includedSections)
+        {
+            bool? hasRow = section switch
+            {
+                SectionNames.ILOffset => true,
+                SectionNames.MemberContext => inspection.ILOffset.MemberContext != null,
+                SectionNames.InstructionContext => inspection.ILOffset.InstructionContext != null,
+                SectionNames.CallsiteContext => inspection.ILOffset.CallsiteContext != null,
+                SectionNames.ReturnAddressContext => inspection.ILOffset.ReturnAddressContext != null,
+                _ => null
+            };
+            if (hasRow is null)
+                continue;
+
+            bool projected = ProjectionMatchesSection(
+                schema, section, fields, columns);
+            int count = hasRow.Value && projected
+                ? RowWindow.Apply(rows, new[] { 0 }).Count
+                : 0;
+            projection.SetRows(section, count);
+        }
+    }
+
+    private static bool ProjectionMatchesSection(
+        DocumentSchema schema,
+        string section,
+        string[]? fields,
+        string[]? columns)
+    {
+        if (fields is not { Length: > 0 }
+            && columns is not { Length: > 0 })
+        {
+            return true;
+        }
+
+        var sectionSchema = schema.GetSection(section);
+        return sectionSchema is not null
+            && ((fields is { Length: > 0 }
+                    && sectionSchema.ItemKind.Equals(
+                        "field", StringComparison.OrdinalIgnoreCase)
+                    && schema.ValidateProjection(section, fields).Resolved.Length > 0)
+                || (columns is { Length: > 0 }
+                    && sectionSchema.ItemKind.Equals(
+                        "column", StringComparison.OrdinalIgnoreCase)
+                    && schema.ValidateProjection(section, columns).Resolved.Length > 0)
+                || (columns is { Length: > 0 }
+                    && sectionSchema.ItemKind.Equals(
+                        "field", StringComparison.OrdinalIgnoreCase)
+                    && columns.Contains(
+                        "*",
+                        StringComparer.Ordinal)));
+    }
 }

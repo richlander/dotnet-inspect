@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -93,6 +94,134 @@ public class InstructionDecoderTests
         Assert.Equal(3, instructions[0].NextOffset);
         Assert.Equal((3, ILOpCode.Ldarg_0), (instructions[1].Offset, instructions[1].OpCode));
         Assert.Equal((4, ILOpCode.Ret), (instructions[2].Offset, instructions[2].OpCode));
+    }
+
+    [Fact]
+    public void Visit_streams_method_tokens_and_encoded_lengths()
+    {
+        const int methodToken = 0x06000001;
+        byte[] il = [0x28, 0x01, 0x00, 0x00, 0x06, 0x2A];
+        var visited = new List<(ILOpCode, int, int)>();
+
+        bool completed = Visit(
+            il,
+            (opcode, token, length) =>
+            {
+                visited.Add((opcode, token, length));
+                return true;
+            });
+
+        Assert.True(completed);
+        Assert.Equal(
+            [
+                (ILOpCode.Call, methodToken, 5),
+                (ILOpCode.Ret, 0, 1),
+            ],
+            visited);
+    }
+
+    [Fact]
+    public void Visit_can_stop_before_a_malformed_suffix()
+    {
+        byte[] il = [0x29, 0x00, 0x00, 0x00, 0x00, 0xFE];
+
+        bool completed = Visit(
+            il,
+            (_, _, _) => false);
+
+        Assert.False(completed);
+    }
+
+    [Fact]
+    public void Visit_rejects_malformed_or_dangling_input()
+    {
+        byte[][] malformed =
+        [
+            [0x28, 0x00],
+            [0x45, 0x01, 0x00, 0x00, 0x00],
+            [0xFE],
+            [0xFE, 0x14],
+        ];
+
+        foreach (byte[] il in malformed)
+        {
+            Assert.Throws<BadImageFormatException>(
+                () => Visit(il, (_, _, _) => true));
+        }
+    }
+
+    static bool Visit(
+        byte[] il,
+        Func<ILOpCode, int, int, bool> visitor)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Visit.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Visit"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            AssemblyHashAlgorithm.None);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("T"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                0,
+                returnType => returnType.Void(),
+                parameters => { });
+        var code = new BlobBuilder(il.Length);
+        code.WriteBytes(il);
+        var bodies = new BlobBuilder();
+        int bodyOffset = new MethodBodyStreamEncoder(bodies)
+            .AddMethodBody(
+                new InstructionEncoder(code),
+                maxStack: 1);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        using var reader =
+            new PEReader(ImmutableArray.Create(image.ToArray()));
+        MetadataReader metadataReader =
+            reader.GetMetadataReader();
+        MethodDefinition method =
+            metadataReader.GetMethodDefinition(
+                MetadataTokens.MethodDefinitionHandle(1));
+        MethodBodyBlock body =
+            reader.GetMethodBody(
+                method.RelativeVirtualAddress);
+
+        return InstructionDecoder.Visit(body, visitor);
     }
 }
 
@@ -258,10 +387,63 @@ public class StackTypeInterpreterTests
         Assert.Equal(StackValue.NoProducer, merged.ProducerOffset); // but provenance is ambiguous
     }
 
+    [Theory]
+    [InlineData(0x65)] // neg
+    [InlineData(0x66)] // not
+    public void Value_changing_unary_operations_stamp_their_own_provenance(
+        byte operation)
+    {
+        byte[] il = [0x17, operation, 0x2A];
+        TypedStackResult stack = MethodInstructions
+            .Decode(il, il.Length, [])
+            .InterpretStack(methodReturnsValue: true);
+
+        Assert.True(stack.IsComplete);
+        StackValue returned = Assert.Single(stack.StackBeforeOffset(2));
+        Assert.Equal(StackType.Int32, returned.Type);
+        Assert.Equal(1, returned.ProducerOffset);
+    }
+
+    /// <summary>
+    /// Gate for <see cref="TypedStackResult.BlockExit"/>: a merge erases provenance at the join,
+    /// so the value each predecessor contributed is only recoverable from what that block left on
+    /// the stack when it exited. An unvisited block keeps a default exit, which is how a consumer
+    /// tells "never reached" from "reached and left nothing".
+    /// </summary>
+    [Fact]
+    public void Retains_per_block_exit_stacks_including_unreached_blocks()
+    {
+        // ldc.i4.0 ; brtrue.s +3 ; ldc.i4.1 ; br.s +1 ; ldc.i4.2 ; ret
+        // then an unreachable ldc.i4.3 ; ret past the return.
+        byte[] il = [0x16, 0x2D, 0x03, 0x17, 0x2B, 0x01, 0x18, 0x2A, 0x19, 0x2A];
+        var mi = MethodInstructions.Decode(il, il.Length, []);
+        var ts = mi.InterpretStack(methodReturnsValue: true);
+
+        Assert.True(ts.IsComplete);
+        Assert.Equal(mi.Blocks.Blocks.Length, ts.BlockExit.Length);
+
+        // The join at ret has no producer, but each predecessor's exit still names one.
+        Assert.Equal(
+            StackValue.NoProducer,
+            Assert.Single(ts.StackBeforeOffset(7)).ProducerOffset);
+        Assert.Equal(
+            [3, 6],
+            mi.Blocks.Blocks
+                .Select((_, index) => index)
+                .Where(index => mi.Blocks.Blocks[index].Edges.Successors
+                    .Contains(mi.Blocks.BlockIndexAt(7)))
+                .Select(index => Assert.Single(ts.BlockExitAt(index)).ProducerOffset)
+                .Order());
+
+        int unreached = mi.Blocks.BlockIndexAt(8);
+        Assert.True(unreached >= 0);
+        Assert.True(ts.BlockExitAt(unreached).IsDefault);
+        Assert.True(ts.BlockExitAt(mi.Blocks.Blocks.Length).IsDefault);
+    }
+
     [Fact]
     public void Reports_incomplete_when_a_call_signature_is_unresolved()
-    {
-        // ldarg.0 ; call <token 06000001> ; ret  — default resolver cannot resolve the call.
+    {        // ldarg.0 ; call <token 06000001> ; ret  — default resolver cannot resolve the call.
         byte[] il = [0x02, 0x28, 0x01, 0x00, 0x00, 0x06, 0x2A];
         var ts = MethodInstructions.Decode(il, il.Length, []).InterpretStack(methodReturnsValue: false);
 

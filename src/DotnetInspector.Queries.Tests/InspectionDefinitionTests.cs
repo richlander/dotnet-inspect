@@ -105,6 +105,69 @@ public class InspectionDefinitionTests
     }
 
     [Fact]
+    public void ViewJson_PreservesSingleAndMultipleLibraryCompatibility()
+    {
+        var single = Assert.IsType<ViewDefinition>(InspectionDefinitionJson.Parse(
+            """
+            { "schemaVersion": 1, "kind": "view", "id": "single", "library": "A" }
+            """));
+        var multiple = Assert.IsType<ViewDefinition>(InspectionDefinitionJson.Parse(
+            """
+            { "schemaVersion": 1, "kind": "view", "id": "multiple", "libraries": ["A", "B"] }
+            """));
+
+        Assert.Equal(["A"], single.Libraries);
+        Assert.Equal(["A", "B"], multiple.Libraries);
+        Assert.Contains(
+            "\"library\": \"A\"",
+            InspectionDefinitionJson.Serialize(single),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"libraries\": [",
+            InspectionDefinitionJson.Serialize(multiple),
+            StringComparison.Ordinal);
+
+        var dual = Assert.Throws<InspectionDefinitionException>(() =>
+            InspectionDefinitionJson.Parse(
+                """
+                {
+                  "schemaVersion": 1,
+                  "kind": "view",
+                  "id": "dual",
+                  "library": "A",
+                  "libraries": ["B"]
+                }
+                """));
+        Assert.IsType<ArgumentException>(dual.InnerException);
+
+        Assert.Throws<InspectionDefinitionException>(() =>
+            InspectionDefinitionJson.Parse(
+                """
+                { "schemaVersion": 1, "kind": "view", "id": "null", "libraries": [null] }
+                """));
+        Assert.Throws<InspectionDefinitionException>(() =>
+            InspectionDefinitionJson.Parse(
+                """
+                { "schemaVersion": 1, "kind": "view", "id": "one", "libraries": ["A"] }
+                """));
+        Assert.Throws<InspectionDefinitionException>(() =>
+            InspectionDefinitionJson.Parse(
+                """
+                { "schemaVersion": 1, "kind": "view", "id": "empty", "libraries": [] }
+                """));
+        Assert.Throws<InspectionDefinitionException>(() =>
+            InspectionDefinitionJson.Parse(
+                """
+                { "schemaVersion": 1, "kind": "view", "id": "order", "libraries": ["B", "A"] }
+                """));
+        Assert.Throws<InspectionDefinitionException>(() =>
+            InspectionDefinitionJson.Parse(
+                """
+                { "schemaVersion": 1, "kind": "query", "id": "q", "libraries": null }
+                """));
+    }
+
+    [Fact]
     public void Parse_RejectsNullNestedArrayElements()
     {
         Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
@@ -594,6 +657,61 @@ public class InspectionDefinitionTests
     }
 
     [Fact]
+    public void Serialize_RejectsGroupDepthAndNodeLimitsBeforeRecursiveWalks()
+    {
+        CatalogGroupDefinition group = new("leaf");
+        for (int depth = 1;
+            depth < InspectionDefinitionJson.MaxGroupDepth;
+            depth++)
+        {
+            group = new CatalogGroupDefinition($"g{depth}", children: [group]);
+        }
+
+        var maximumDepth = new WorkspaceDefinition(
+            1,
+            "ws",
+            [new WorkspaceContextDefinition("c", subscribe: ":Platform")],
+            groups: [group]);
+        string json = InspectionDefinitionJson.Serialize(maximumDepth);
+        var parsed = Assert.IsType<WorkspaceDefinition>(
+            InspectionDefinitionJson.Parse(json));
+        Assert.Single(parsed.Groups);
+
+        var excessiveDepth = new WorkspaceDefinition(
+            1,
+            "ws",
+            [new WorkspaceContextDefinition("c", subscribe: ":Platform")],
+            groups:
+            [
+                new CatalogGroupDefinition(
+                    "too-deep",
+                    children: [group]),
+            ]);
+        var depthException = Assert.Throws<InspectionDefinitionException>(
+            () => InspectionDefinitionJson.Serialize(excessiveDepth));
+        Assert.Contains(
+            "depth",
+            depthException.Message,
+            StringComparison.OrdinalIgnoreCase);
+
+        CatalogGroupDefinition[] excessiveNodes = Enumerable
+            .Range(0, InspectionDefinitionJson.MaxGroupsPerRecord + 1)
+            .Select(index => new CatalogGroupDefinition($"g{index}"))
+            .ToArray();
+        var excessiveCount = new WorkspaceDefinition(
+            1,
+            "ws",
+            [new WorkspaceContextDefinition("c", subscribe: ":Platform")],
+            groups: excessiveNodes);
+        var countException = Assert.Throws<InspectionDefinitionException>(
+            () => InspectionDefinitionJson.Serialize(excessiveCount));
+        Assert.Contains(
+            "group",
+            countException.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Parse_RejectsBlankQueryIdAndViewSelectors()
     {
         var queryEx = Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
@@ -809,10 +927,25 @@ public class InspectionDefinitionTests
     public void ProductHomeDemos_ResolveCallGraphByMemberAnchor()
     {
         Assert.Equal(
-            ["stj-serializer", "extensions-callgraph", "platform-list"],
+            [
+                "stj-serializer",
+                "extensions-callgraph",
+                "stj-serialize-callgraph",
+                "config-bind-callgraph",
+                "options-add-callgraph",
+                "di-tryadd-callgraph",
+                "http-addhttpclient-callgraph",
+                "stj-getdecimal-callgraph",
+            ],
             ProductInspectionDemos.HomeScenarioIds);
-        Assert.Equal(3, ProductInspectionDemos.Entries.Count);
+        Assert.Equal(8, ProductInspectionDemos.Entries.Count);
         Assert.True(ProductInspectionDemos.HasScenario("extensions-callgraph"));
+        Assert.True(ProductInspectionDemos.HasScenario("stj-serialize-callgraph"));
+        Assert.True(ProductInspectionDemos.HasScenario("config-bind-callgraph"));
+        Assert.True(ProductInspectionDemos.HasScenario("options-add-callgraph"));
+        Assert.True(ProductInspectionDemos.HasScenario("di-tryadd-callgraph"));
+        Assert.True(ProductInspectionDemos.HasScenario("http-addhttpclient-callgraph"));
+        Assert.True(ProductInspectionDemos.HasScenario("stj-getdecimal-callgraph"));
 
         // Per-demo resolve — does not require materializing the other home demos.
         var callGraph = ProductInspectionDemos.ResolveHomeScenario("extensions-callgraph");
@@ -828,7 +961,7 @@ public class InspectionDefinitionTests
             callGraph.View!.Type);
         Assert.Equal("74b6b4b321", callGraph.View.MemberAnchor);
         Assert.Equal("method:TryAddEnumerable", callGraph.View.MemberKey);
-        Assert.Equal("call-graph", callGraph.View.Section);
+        Assert.Equal(ProductDemoSections.CallGraph, callGraph.View.Section);
         Assert.Null(callGraph.View.MemberSignature);
 
         Assert.NotNull(callGraph.Navigation);
@@ -839,36 +972,108 @@ public class InspectionDefinitionTests
             callGraph.Navigation.FocusTab.Coordinate);
         Assert.Equal("Microsoft.Extensions.DependencyInjection.Abstractions", focus.PackageId);
         Assert.Equal("10.0.0", focus.Version);
+
+        ProductDemoRunPlan run = ProductDemoRunPlan.Create(callGraph);
+        Assert.Same(callGraph.SelectedContext, run.Context);
+        Assert.Same(callGraph.Navigation.FocusTab, run.Focus);
+        Assert.Equal(callGraph.View.Type, run.TypeName);
+        Assert.Equal(ProductDemoSections.CallGraph, run.Section);
+        Assert.Equal("TryAddEnumerable", run.Member!.Name);
+        Assert.Equal("method", run.Member.Kind);
+        Assert.Equal("74b6b4b321", run.Member.Anchor);
     }
 
     [Fact]
-    public void ProductHomeDemos_StjAndPlatformSelections()
+    public void ProductHomeDemos_StjSelection()
     {
         var stj = ProductInspectionDemos.ResolveHomeScenario("stj-serializer");
         Assert.Equal("System.Text.Json.JsonSerializer", stj.View!.Type);
+        Assert.Equal(ProductDemoSections.Methods, stj.View.Section);
         var stjPackage = Assert.IsType<WorkspaceMemberCoordinate.PackageMember>(
             stj.SelectedContext!.Members[0]);
         Assert.Equal("System.Text.Json", stjPackage.PackageId);
+        Assert.Null(ProductDemoRunPlan.Create(stj).Member);
+        Assert.False(ProductInspectionDemos.HasScenario("platform-list"));
+    }
 
-        var platform = ProductInspectionDemos.ResolveHomeScenario("platform-list");
-        Assert.Equal("System.Collections.Generic.List`1", platform.View!.Type);
-        Assert.Equal("System.Private.CoreLib", platform.View.Library);
-        Assert.Equal(2, platform.SelectedContext!.Members.Count);
-        Assert.Contains(
-            platform.SelectedContext.Members,
-            member => member is WorkspaceMemberCoordinate.PlatformMember platformMember
-                && platformMember.Family == "runtime"
-                && platformMember.Version == "10.0.10");
-        Assert.Equal("runtime", platform.Navigation!.FocusTabId);
-        Assert.IsType<WorkspaceMemberCoordinate.PlatformMember>(
-            platform.Navigation.FocusTab.Coordinate);
+    [Fact]
+    public void ProductHomeDemos_SinglePackageCallGraphShapes()
+    {
+        // Complementary Call Graph demos: dense outbound STJ Serialize, recursive
+        // ConfigurationBinder.Bind, inbound Options/TryAdd hubs, HttpClient
+        // factory registration, and STJ GetDecimal parse path.
+        var serialize = ProductInspectionDemos.ResolveHomeScenario(
+            ProductInspectionDemos.StjSerializeCallGraphScenarioId);
+        Assert.Equal(ProductDemoSections.CallGraph, serialize.View!.Section);
+        Assert.Equal("1dc14dd1fb", serialize.View.MemberAnchor);
+        Assert.Equal("method:Serialize", serialize.View.MemberKey);
+        Assert.Single(serialize.SelectedContext!.Members);
+        var serializePlan = ProductDemoRunPlan.Create(serialize);
+        Assert.Equal("Serialize", serializePlan.Member!.Name);
+        Assert.Equal("1dc14dd1fb", serializePlan.Member.Anchor);
+
+        var bind = ProductInspectionDemos.ResolveHomeScenario(
+            ProductInspectionDemos.ConfigBindCallGraphScenarioId);
+        Assert.Equal("Microsoft.Extensions.Configuration.ConfigurationBinder", bind.View!.Type);
+        Assert.Equal("a6a6257f65", bind.View.MemberAnchor);
+        Assert.Equal("method:Bind", bind.View.MemberKey);
+        Assert.Equal(
+            "Microsoft.Extensions.Configuration.Binder",
+            Assert.IsType<WorkspaceMemberCoordinate.PackageMember>(
+                bind.SelectedContext!.Members[0]).PackageId);
+
+        var options = ProductInspectionDemos.ResolveHomeScenario(
+            ProductInspectionDemos.OptionsAddCallGraphScenarioId);
+        Assert.Equal(
+            "Microsoft.Extensions.DependencyInjection.OptionsServiceCollectionExtensions",
+            options.View!.Type);
+        Assert.Equal("1e6bfaf2ae", options.View.MemberAnchor);
+        Assert.Equal("method:AddOptions", options.View.MemberKey);
+        Assert.Single(options.SelectedContext!.Members);
+
+        var tryAdd = ProductInspectionDemos.ResolveHomeScenario(
+            ProductInspectionDemos.DiTryAddCallGraphScenarioId);
+        Assert.Equal(
+            "Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions",
+            tryAdd.View!.Type);
+        Assert.Equal("6ce164c602", tryAdd.View.MemberAnchor);
+        Assert.Equal("method:TryAdd", tryAdd.View.MemberKey);
+        Assert.Single(tryAdd.SelectedContext!.Members);
+
+        var http = ProductInspectionDemos.ResolveHomeScenario(
+            ProductInspectionDemos.HttpAddHttpClientCallGraphScenarioId);
+        Assert.Equal(
+            "Microsoft.Extensions.DependencyInjection.HttpClientFactoryServiceCollectionExtensions",
+            http.View!.Type);
+        Assert.Equal("5c44566d15", http.View.MemberAnchor);
+        Assert.Equal("method:AddHttpClient", http.View.MemberKey);
+        Assert.Single(http.SelectedContext!.Members);
+
+        var getDecimal = ProductInspectionDemos.ResolveHomeScenario(
+            ProductInspectionDemos.StjGetDecimalCallGraphScenarioId);
+        Assert.Equal("System.Text.Json.JsonElement", getDecimal.View!.Type);
+        Assert.Equal("cfd9980a6c", getDecimal.View.MemberAnchor);
+        Assert.Equal("method:GetDecimal", getDecimal.View.MemberKey);
+        Assert.Single(getDecimal.SelectedContext!.Members);
+    }
+
+    [Fact]
+    public void ProductHomeDemos_AllBindKnownProductSections()
+    {
+        foreach (var entry in ProductInspectionDemos.Entries)
+        {
+            var resolved = ProductInspectionDemos.ResolveHomeScenario(entry.Id);
+            Assert.True(
+                ProductDemoSections.IsKnown(resolved.View!.Section),
+                $"Home demo '{entry.Id}' section '{resolved.View.Section}' is outside ProductDemoSections.Known.");
+        }
     }
 
     [Fact]
     public void ProductHomeDemos_FactoryRegistry_IsMetadataOnlyUntilResolved()
     {
-        // Catalog surface is three entries; factories are not invoked by listing.
-        Assert.Equal(3, ProductInspectionDemos.Entries.Count);
+        // Catalog surface is eight entries; factories are not invoked by listing.
+        Assert.Equal(8, ProductInspectionDemos.Entries.Count);
         Assert.All(
             ProductInspectionDemos.Entries,
             entry =>
@@ -878,9 +1083,9 @@ public class InspectionDefinitionTests
                 Assert.NotNull(entry.CreateRecords);
             });
 
-        // Full materialization is opt-in (4 records × 3 demos).
+        // Full materialization is opt-in (4 records × 8 demos).
         var all = ProductInspectionDemos.CreateRegistry();
-        Assert.Equal(12, all.Records.Count);
+        Assert.Equal(32, all.Records.Count);
 
         // Each factory owns exactly one scenario composition.
         foreach (var entry in ProductInspectionDemos.Entries)
@@ -942,7 +1147,7 @@ public class InspectionDefinitionTests
                 Assert.Equal(view.MemberSignature, actualView.MemberSignature);
                 Assert.Equal(view.MemberKey, actualView.MemberKey);
                 Assert.Equal(view.Section, actualView.Section);
-                Assert.Equal(view.Library, actualView.Library);
+                Assert.Equal(view.Libraries, actualView.Libraries);
                 break;
             case NavigationDefinition navigation:
                 var actualNavigation = Assert.IsType<NavigationDefinition>(actual);

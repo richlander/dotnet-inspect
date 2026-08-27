@@ -29,42 +29,19 @@ using InspectWeb.Engine;
 [SupportedOSPlatform("browser")]
 public static partial class InspectionEngine
 {
-    const string NoPlatformWorkspace =
-        "no product acquisition owner produces runtime-pack participants from content, so no "
-        + "platform workspace can be opened in a browser";
+    const string NoPlatformProjection =
+        "no group-scoped product query projects this evidence from a platform participant";
 
     static NotSupportedException Unavailable(string operation, string capability) =>
         new($"{operation} is not available in this engine build: {capability}");
 
     [JSExport]
-    public static Task<string> QueryPlatformIntegrations(
-        string targetFramework,
-        string assemblyFileName,
-        string pack) =>
-        throw Unavailable("Platform integrations", NoPlatformWorkspace);
-
-    [JSExport]
-    public static Task<string> QueryPlatformOpportunities(
-        string targetFramework,
-        string assemblyFileName,
-        string pack) =>
-        throw Unavailable("Platform opportunities", NoPlatformWorkspace);
-
-    [JSExport]
-    public static Task<string> QueryPackagePerformance(
-        string packageId,
-        string version,
-        string targetFramework) =>
-        throw Unavailable(
-            "Package performance",
-            "no group-scoped query ranks assembly-wide Analysis evidence");
-
-    [JSExport]
     public static Task<string> QueryPlatformPerformance(
         string targetFramework,
+        string platformVersion,
         string assemblyFileName,
         string pack) =>
-        throw Unavailable("Platform performance", NoPlatformWorkspace);
+        throw Unavailable("Platform performance", NoPlatformProjection);
 
     /// <summary>
     /// <c>MetadataImageQuery</c> exists but binds to a host-opened
@@ -82,9 +59,10 @@ public static partial class InspectionEngine
     [JSExport]
     public static Task<string> QueryPlatformMetadata(
         string targetFramework,
+        string platformVersion,
         string assemblyFileName,
         string pack) =>
-        throw Unavailable("Platform metadata", NoPlatformWorkspace);
+        throw Unavailable("Platform metadata", NoPlatformProjection);
 
     [JSExport]
     public static Task<string> QueryPackageMetadataTable(
@@ -102,12 +80,13 @@ public static partial class InspectionEngine
     [JSExport]
     public static Task<string> QueryPlatformMetadataTable(
         string targetFramework,
+        string platformVersion,
         string assemblyFileName,
         string pack,
         int tableIndex,
         int startRowId,
         int maxRows) =>
-        throw Unavailable("Platform metadata table", NoPlatformWorkspace);
+        throw Unavailable("Platform metadata table", NoPlatformProjection);
 
     [JSExport]
     public static Task<string> QueryPackageHeapEntries(
@@ -123,42 +102,10 @@ public static partial class InspectionEngine
     [JSExport]
     public static Task<string> QueryPlatformHeapEntries(
         string targetFramework,
+        string platformVersion,
         string assemblyFileName,
         string pack,
         string heap) =>
-        throw Unavailable("Platform heap entries", NoPlatformWorkspace);
+        throw Unavailable("Platform heap entries", NoPlatformProjection);
 
-    [JSExport]
-    public static Task<string> ExpandPlatformCallGraph(
-        string targetFramework,
-        string assembly,
-        string typeFullName,
-        string memberName,
-        string selectorKey,
-        int metadataToken) =>
-        throw Unavailable("Platform call graph expansion", NoPlatformWorkspace);
-
-    [JSExport]
-    public static Task<string> QueryMemberFacts(
-        string packageId,
-        string version,
-        string targetFramework,
-        string assemblyName,
-        string typeId,
-        string memberName,
-        string memberSignature) =>
-        throw Unavailable(
-            "Member facts",
-            "no group-scoped query projects method-scoped Analysis evidence");
-
-    [JSExport]
-    public static Task<string> LoadRuntimePack(string targetFramework) =>
-        throw Unavailable("Runtime pack load", NoPlatformWorkspace);
-
-    [JSExport]
-    public static Task<string> LoadRuntimePackAssembly(
-        string targetFramework,
-        string assemblyFileName,
-        string pack) =>
-        throw Unavailable("Runtime pack assembly load", NoPlatformWorkspace);
 }

@@ -53,6 +53,12 @@ static class AuthoredSourceHarvest
         [property: System.Text.Json.Serialization.JsonIgnore(
             Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
         Guid? ModuleVersionId = null,
+        [property: System.Text.Json.Serialization.JsonIgnore(
+            Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        string? PrinterBody = null,
+        [property: System.Text.Json.Serialization.JsonIgnore(
+            Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        int? PrinterBodyVersion = null,
         // Omitted for the CIVIL (identity) corpus so its rows stay
         // schema-identical to the vendored corpus; populated only for EVIL.
         [property: System.Text.Json.Serialization.JsonIgnore(
@@ -250,10 +256,10 @@ static class AuthoredSourceHarvest
             $"{candidate.Type}::{candidate.Method}#{candidate.Overload}",
             $"{candidate.Type}.{candidate.Method}");
 
-        AuthoredMemberSourceInspection authored;
+        PdbMemberSourceInspection authored;
         try
         {
-            authored = await AuthoredSourceAcquisition.AcquireMemberAsync(
+            authored = await PdbSourceAcquisition.AcquireMemberAsync(
                 library.Source,
                 candidate.MetadataToken,
                 candidate.Method,
@@ -274,11 +280,12 @@ static class AuthoredSourceHarvest
 
         // Reduce the PDB line-span slice to the clean, disambiguated member body
         // the benchmark will compare the decompiler output against.
-        if (!AuthoredRebuildFidelity.TryExtractTargetBody(
+        if (!AuthoredRebuildFidelity.TryExtractTargetBodies(
                 memberSource,
                 candidate.Method,
                 candidate.ParameterCount,
-                out string body)
+                out string body,
+                out string? printerBody)
             || body.Length == 0)
         {
             return null;
@@ -300,6 +307,10 @@ static class AuthoredSourceHarvest
             Checksum: authored.Document?.Checksum,
             AuthoredBody: body,
             ModuleVersionId: library.ModuleVersionId,
+            PrinterBody: printerBody,
+            PrinterBodyVersion: printerBody is null
+                ? null
+                : AuthoredSourceOracleManifest.PrinterComparisonVersion,
             Difficulty: evil ? candidate.Difficulty : null);
     }
 

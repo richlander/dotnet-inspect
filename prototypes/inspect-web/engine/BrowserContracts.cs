@@ -9,6 +9,14 @@ namespace InspectWeb.Engine;
 /// <see cref="Accessibility"/> comes from the product's own
 /// <c>ApiAccessibilityBucket</c> values; the host restates none of them.
 /// </summary>
+/// <param name="InspectionErrors">
+/// The whole entries rendered into <paramref name="InspectionError"/>. The browser uses these
+/// product-owned boundaries when cumulative platform loads deduplicate notices. This transport
+/// pairing is gated by
+/// <c>BrowserEngineBoundaryTests.QueryPackage_FirstTransportTruncationReturnsTypedNotice</c>;
+/// browser accumulation is gated by <c>platform inspection notices survive cumulative surface
+/// loads</c>.
+/// </param>
 /// <param name="InspectionError">
 /// The participants the workspace could not project, if any. A partial surface says so rather
 /// than reading as a complete one.
@@ -24,6 +32,7 @@ public sealed record BrowserPackageSurface(
     BrowserAccessibilityDescriptor[] Accessibility,
     int TotalMembers,
     BrowserPackageDocument[] Documents,
+    string[] InspectionErrors,
     string? InspectionError);
 
 /// <summary>
@@ -45,7 +54,8 @@ public sealed record BrowserAssemblySurface(
     string? PublicKeyToken,
     string Asset,
     int PublicTypes,
-    int PublicMembers);
+    int PublicMembers,
+    string? PlatformPack);
 
 /// <summary>
 /// One type row. <see cref="Id"/> is the browser key, <see cref="DefinitionId"/> is the escaped
@@ -72,7 +82,8 @@ public sealed record BrowserTypeSurface(
     string AssemblyName,
     int Members,
     string Signature,
-    BrowserMemberSurface[] Api);
+    BrowserMemberSurface[] Api,
+    string? PlatformPack);
 
 /// <summary>
 /// One member overload. <see cref="StableSelector"/>, <see cref="AnchorDigest"/>, and
@@ -110,6 +121,14 @@ public sealed record BrowserMemberBodySelector(
     int Token,
     string MemberName,
     string SelectorKey);
+
+/// <summary>
+/// The owning API member and exact physical body selected by a graph query.
+/// <c>MemberFacts_DistinguishesSurfaceAndBodyTokenResolution</c> gates this provenance.
+/// </summary>
+public sealed record BrowserGraphMemberSurface(
+    BrowserMemberSurface Member,
+    BrowserMemberBodySelector SelectedBody);
 
 public sealed record BrowserParameterSurface(
     string Name,
@@ -201,6 +220,148 @@ public sealed record BrowserVocabularyDocument(
     [property: JsonPropertyName("schema_version")]
     int SchemaVersion,
     BrowserVocabularySection[] Sections);
+
+/// <summary>
+/// One product home-demo catalog row from <c>ProductInspectionDemos.Entries</c>.
+/// Browser-local so tsbindgen emits a real TypeScript interface.
+/// </summary>
+public sealed record BrowserHomeDemoCatalogEntry(
+    string Id,
+    string Title,
+    string Summary);
+
+/// <summary>Product home-demo catalog in display order.</summary>
+public sealed record BrowserHomeDemoCatalog(
+    BrowserHomeDemoCatalogEntry[] Demos);
+
+/// <summary>
+/// One workspace/navigation member coordinate projected for the browser.
+/// <see cref="Kind"/> is <c>package</c> or <c>platform</c>.
+/// </summary>
+public sealed record BrowserHomeDemoMember(
+    string Kind,
+    string Id,
+    string? Version,
+    string? Framework,
+    string? Assembly);
+
+/// <summary>One navigation tab from a resolved home demo.</summary>
+public sealed record BrowserHomeDemoNavigationTab(
+    string Id,
+    BrowserHomeDemoMember Member);
+
+/// <summary>View selectors from a resolved home demo.</summary>
+public sealed record BrowserHomeDemoView(
+    string? Library,
+    string? Type,
+    string? MemberAnchor,
+    string? MemberKey,
+    string? Section);
+
+/// <summary>
+/// Fully resolved product home demo: workspace members, navigation, and view.
+/// Hosts own share encoding and any residual platform pack mapping.
+/// </summary>
+public sealed record BrowserHomeDemoResolved(
+    string Id,
+    string Title,
+    string Summary,
+    BrowserHomeDemoMember[] WorkspaceMembers,
+    BrowserHomeDemoNavigationTab[] Tabs,
+    int FocusTabIndex,
+    BrowserHomeDemoView View);
+
+/// <summary>
+/// Result of resolving one home demo id. <see cref="Demo"/> is set only when
+/// <see cref="Found"/> is true (avoids a bare JSON null on the JSExport surface).
+/// </summary>
+public sealed record BrowserHomeDemoResolveResult(
+    bool Found,
+    BrowserHomeDemoResolved? Demo);
+
+/// <summary>
+/// Exact browser selection produced while running one product home demo.
+/// The frontend applies this identity to the package surfaces returned by the
+/// same operation; it does not parse product view or navigation definitions.
+/// </summary>
+public sealed record BrowserHomeDemoRunActivation(
+    string FocusPackage,
+    string FocusVersion,
+    string FocusFramework,
+    string TypeId,
+    string Section,
+    string? MemberName,
+    string? MemberKind,
+    string? MemberAnchorDigest,
+    string? MemberSection);
+
+/// <summary>
+/// Browser result of running one product home demo through the normal package
+/// workspace and query path. Unknown ids return <see cref="Found"/> false;
+/// known-demo failures remain visible exceptions.
+/// </summary>
+public sealed record BrowserHomeDemoRunResult(
+    bool Found,
+    BrowserPackageSurface[] Packages,
+    BrowserHomeDemoRunActivation? Activation,
+    BrowserCallGraph? CallGraph);
+
+/// <summary>
+/// One product-normalized source in a canonical workspace share packet.
+/// <see cref="Kind"/> is <c>package</c> or <c>group</c>; <see cref="Source"/>
+/// is the package id or leading-colon group expression.
+/// </summary>
+public sealed record BrowserWorkspaceShareTab(
+    string Id,
+    string Kind,
+    string Source,
+    string? Version,
+    string? Framework,
+    string? RuntimeIdentifier);
+
+/// <summary>
+/// One binding-consistent context expressed through stable packet-local tab ids.
+/// </summary>
+public sealed record BrowserWorkspaceShareContext(
+    string Id,
+    string[] TabIds);
+
+/// <summary>Canonical product-owned view fields carried by share packet v1.</summary>
+public sealed record BrowserWorkspaceShareView(
+    string? Lens,
+    string? Type,
+    string? MemberAnchor,
+    string? MemberSignature,
+    string? Section,
+    string[] Libraries);
+
+/// <summary>
+/// Long-form Browser transport for one canonical packet-local scenario.
+/// TypeScript consumes these product-owned identities and never parses compact
+/// packet fields or base64url.
+/// </summary>
+public sealed record BrowserWorkspaceShareState(
+    BrowserWorkspaceShareTab[] Tabs,
+    BrowserWorkspaceShareContext[] Contexts,
+    string ActiveTabId,
+    string SelectedContextId,
+    BrowserWorkspaceShareView View);
+
+/// <summary>Typed codec, transposition, or Browser-transport failure.</summary>
+public sealed record BrowserWorkspaceShareFailure(
+    string Kind,
+    string Path,
+    string Message);
+
+public sealed record BrowserWorkspaceShareDecodeResult(
+    bool Succeeded,
+    BrowserWorkspaceShareState? State,
+    BrowserWorkspaceShareFailure? Failure);
+
+public sealed record BrowserWorkspaceShareEncodeResult(
+    bool Succeeded,
+    string? Packet,
+    BrowserWorkspaceShareFailure? Failure);
 
 /// <summary>
 /// One type's metadata projection, adapted from <c>ResearchViews.TypeProjectionResult</c> — the
@@ -327,6 +488,7 @@ public sealed record BrowserSource(
     string Provider,
     string Provenance,
     string? Url,
+    string? PdbSourceLimitation,
     string Text);
 
 public sealed record BrowserStyleOption(
@@ -387,7 +549,98 @@ public sealed record BrowserOpportunityCategory(
 public sealed record BrowserOpportunityItem(
     string Api,
     string IntegrationType,
-    string LookFor);
+    string LookFor,
+    string? SourceDefinitionId,
+    string SourceAssembly,
+    string SourceAssemblyVersion,
+    string? SourceAssemblyCulture,
+    string? SourceAssemblyPublicKeyToken);
+
+public sealed record BrowserPackagePerformance(
+    BrowserPerformanceMember[] Members,
+    string? InspectionError,
+    int NonPublicOpportunities,
+    int TotalOpportunities);
+
+public sealed record BrowserPerformanceMember(
+    string Assembly,
+    string TypeId,
+    string MemberName,
+    string StableSelector,
+    int[] BodyTokens,
+    int OpportunityCount,
+    int InLoopCount,
+    string[] Shapes,
+    string Confidence);
+
+public sealed record BrowserMemberFacts(
+    int MetadataToken,
+    BrowserMethodSignals Signals,
+    BrowserAllocationFact[] Allocations,
+    BrowserCallFact[] Calls,
+    BrowserSafetyFact[] Safety,
+    BrowserExceptionRegion[] ExceptionRegions,
+    BrowserPerformanceOpportunity[] PerformanceOpportunities,
+    string[] Diagnostics);
+
+public sealed record BrowserMethodSignals(
+    int Allocations,
+    int Copies,
+    bool Unsafe,
+    int Reflection,
+    int Throws,
+    int Catches,
+    int Finallys,
+    bool AllocatesInLoop,
+    string[] EvidenceOffsets,
+    string[] ExceptionTypes);
+
+public sealed record BrowserAllocationFact(
+    string Kind,
+    string? Type,
+    string Offset,
+    bool CountedAsHeap,
+    string Frequency,
+    string Multiplicity,
+    string Path,
+    string Escape,
+    bool InLoop,
+    int? EstimatedSizeBytes,
+    string? Detail);
+
+public sealed record BrowserCallFact(
+    string Callee,
+    string Offset,
+    string Opcode,
+    string Kind,
+    string Multiplicity,
+    bool InLoop);
+
+public sealed record BrowserSafetyFact(
+    string Kind,
+    string? Offset,
+    string Operation,
+    string Requirement,
+    string Evidence);
+
+public sealed record BrowserExceptionRegion(
+    int Region,
+    string Clause,
+    string TryRange,
+    string HandlerRange,
+    string? FilterRange,
+    string? CaughtType);
+
+public sealed record BrowserPerformanceOpportunity(
+    string Shape,
+    string Evidence,
+    string Fix,
+    string Confidence,
+    string? Offset,
+    bool InLoop,
+    string? Caveat,
+    string? Finding,
+    string Provenance);
 
 /// <summary>
 /// One progressively acquired member call graph, projected through
@@ -434,7 +687,8 @@ public sealed record BrowserCallGraphTarget(
     int GenericArity,
     int? MetadataToken,
     string SelectorKey,
-    string Kind);
+    string Kind,
+    string? PlatformPack);
 
 public sealed record BrowserCallGraphNode(
     string Label,
@@ -459,6 +713,8 @@ public sealed record BrowserWorkspacePackage(
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserPackageSurface))]
+[JsonSerializable(typeof(BrowserMemberSurface))]
+[JsonSerializable(typeof(BrowserGraphMemberSurface))]
 [JsonSerializable(typeof(BrowserPackageDocumentContent))]
 [JsonSerializable(typeof(BrowserMemberDocumentation))]
 [JsonSerializable(typeof(BrowserPackageCacheStats))]
@@ -468,6 +724,8 @@ public sealed record BrowserWorkspacePackage(
 [JsonSerializable(typeof(BrowserDependencyCoordinateMatch))]
 [JsonSerializable(typeof(BrowserPackageIntegrations))]
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
+[JsonSerializable(typeof(BrowserPackagePerformance))]
+[JsonSerializable(typeof(BrowserMemberFacts))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]
 [JsonSerializable(typeof(BrowserAnnotatedSource))]
 [JsonSerializable(typeof(BrowserSource))]
@@ -477,4 +735,11 @@ public sealed record BrowserWorkspacePackage(
 [JsonSerializable(typeof(BrowserTypeSearchHit[]))]
 [JsonSerializable(typeof(string[]))]
 [JsonSerializable(typeof(BrowserVocabularyDocument))]
+[JsonSerializable(typeof(BrowserHomeDemoCatalog))]
+[JsonSerializable(typeof(BrowserHomeDemoResolved))]
+[JsonSerializable(typeof(BrowserHomeDemoResolveResult))]
+[JsonSerializable(typeof(BrowserHomeDemoRunResult))]
+[JsonSerializable(typeof(BrowserWorkspaceShareState))]
+[JsonSerializable(typeof(BrowserWorkspaceShareDecodeResult))]
+[JsonSerializable(typeof(BrowserWorkspaceShareEncodeResult))]
 internal sealed partial class BrowserJsonContext : JsonSerializerContext;

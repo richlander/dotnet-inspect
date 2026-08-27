@@ -1,11 +1,22 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Runtime;
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
 
+[CollectionDefinition(
+    AllocationMeasurementCollection.Name,
+    DisableParallelization = true)]
+public sealed class AllocationMeasurementCollection
+{
+    public const string Name = "Allocation measurement";
+}
+
+[Collection(AllocationMeasurementCollection.Name)]
 public class MemberIdentityValueEqualityTests
 {
     [Fact]
@@ -89,6 +100,21 @@ public class MemberIdentityValueEqualityTests
     }
 
     [Fact]
+    public void AllocationMeasurement_RejectsAmortizedOperationAllocation()
+    {
+        int calls = 0;
+        long allocated = MeasureSteadyStateAllocations(
+            () =>
+            {
+                if (++calls % 2_000 == 0)
+                    Consume(new object());
+            },
+            static () => { });
+
+        Assert.True(allocated > 0);
+    }
+
+    [Fact]
     public void TypeRefExactAndLegacySimpleNames_AgreeWithoutDelimiterInference()
     {
         static TypeRef Exact(params string[] segments)
@@ -163,6 +189,184 @@ public class MemberIdentityValueEqualityTests
         Assert.Equal(
             0x06000001,
             MethodDefinitionMap.Create([method]).Resolve(call));
+    }
+
+    [Fact]
+    public void MethodDefinitionMap_ConversionFallbackUsesReturnType()
+    {
+        TypeRef owner =
+            TypeRef.Definition("Sample", "Sample", "Value");
+        TypeRef libraryAResult =
+            TypeRef.Definition("LibraryA", "Shared", "Result");
+        TypeRef libraryBResult =
+            TypeRef.Definition("LibraryB", "Shared", "Result");
+        var toLibraryA = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "op_Explicit",
+            [owner],
+            libraryAResult,
+            0x06000001,
+            true);
+        var toLibraryB = toLibraryA with
+        {
+            ReturnType = libraryBResult,
+            MetadataToken = 0x06000002,
+        };
+        var caller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Call",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000003,
+            true);
+        var libraryACall = new DirectCall(
+            caller,
+            new MemberRef(
+                owner,
+                "op_Explicit",
+                [owner],
+                libraryAResult,
+                MemberKind.Method),
+            0,
+            0x0A000001,
+            0x0A000001,
+            CallKind.Call);
+        var libraryBCall = libraryACall with
+        {
+            Callee = libraryACall.Callee with
+            {
+                ReturnType = libraryBResult,
+            },
+            ILOffset = 1,
+            OperandToken = 0x0A000002,
+            CalleeDefinitionToken = 0x0A000002,
+        };
+        MethodDefinitionMap map =
+            MethodDefinitionMap.Create(
+                [toLibraryA, toLibraryB, caller]);
+
+        Assert.Equal(
+            toLibraryA.MetadataToken,
+            map.Resolve(libraryACall));
+        Assert.Equal(
+            toLibraryB.MetadataToken,
+            map.Resolve(libraryBCall));
+    }
+
+    [Fact]
+    public void MethodDefinitionMap_ConstructedGenericFallbackPreservesReturnAssembly()
+    {
+        TypeRef owner =
+            TypeRef.Definition("Sample", "Sample", "Box`1");
+        TypeRef closedOwner =
+            TypeRef.GenericInstance(
+                owner,
+                [TypeRef.CoreLib("System", "Int32")]);
+        TypeRef libraryAResult =
+            TypeRef.Definition("LibraryA", "Shared", "Result");
+        TypeRef libraryBResult =
+            TypeRef.Definition("LibraryB", "Shared", "Result");
+        var getA = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Get",
+            [],
+            libraryAResult,
+            0x06000001,
+            true);
+        var getB = getA with
+        {
+            ReturnType = libraryBResult,
+            MetadataToken = 0x06000002,
+        };
+        var caller = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "Call",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000003,
+            true);
+        var call = new DirectCall(
+            caller,
+            new MemberRef(
+                closedOwner,
+                "Get",
+                [],
+                libraryBResult,
+                MemberKind.Method),
+            0,
+            0x0A000001,
+            0x0A000001,
+            CallKind.Call);
+
+        Assert.Equal(
+            getB.MetadataToken,
+            MethodDefinitionMap.Create([getA, getB, caller])
+                .Resolve(call));
+    }
+
+    [Fact]
+    public void MemberPattern_ConversionReturnUsesExactRetainedIdentity()
+    {
+        TypeRef owner =
+            TypeRef.Definition("Sample", "Sample", "Value");
+        TypeRef integer = TypeRef.CoreLib("System", "Int32");
+        TypeRef modifierA =
+            TypeRef.Definition("LibraryA", "Shared", "Marker");
+        TypeRef modifierB =
+            TypeRef.Definition("LibraryB", "Shared", "Marker");
+        TypeRef returnA =
+            TypeRef.UnsupportedModified(
+                modifierA,
+                TypeRef.MdArray(
+                    integer,
+                    new ArrayShape(1, [6], [0])),
+                isRequired: true);
+        TypeRef differentModifier =
+            TypeRef.UnsupportedModified(
+                modifierB,
+                TypeRef.MdArray(
+                    integer,
+                    new ArrayShape(1, [6], [0])),
+                isRequired: true);
+        TypeRef differentArrayShape =
+            TypeRef.UnsupportedModified(
+                modifierA,
+                TypeRef.MdArray(
+                    integer,
+                    new ArrayShape(1, [7], [0])),
+                isRequired: true);
+        var conversion = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "op_Explicit",
+            [owner],
+            returnA,
+            0x06000001,
+            true);
+        MemberPattern pattern = MemberPattern.Method(conversion);
+        MemberRef member = new(
+            owner,
+            conversion.Name,
+            conversion.ParameterTypes,
+            returnA,
+            MemberKind.Method);
+
+        Assert.True(pattern.Matches(member));
+        Assert.False(
+            pattern.Matches(
+                member with { ReturnType = differentModifier }));
+        Assert.False(
+            pattern.Matches(
+                member with { ReturnType = differentArrayShape }));
     }
 
     [Fact]
@@ -413,32 +617,125 @@ public class MemberIdentityValueEqualityTests
         TypeRef right)
     {
         bool result = false;
-        for (int i = 0; i < 1_000; i++)
-            result ^= left.Equals(right);
-
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        for (int i = 0; i < 1_000; i++)
-            result ^= left.Equals(right);
-        long allocated =
-            GC.GetAllocatedBytesForCurrentThread() - before;
-        Consume(result);
-        return allocated;
+        return MeasureSteadyStateAllocations(
+            () => result ^= left.Equals(right),
+            () => Consume(result));
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     static long MeasureHashAllocations(TypeRef type)
     {
         int result = 0;
-        for (int i = 0; i < 1_000; i++)
-            result ^= type.GetHashCode();
+        return MeasureSteadyStateAllocations(
+            () => result ^= type.GetHashCode(),
+            () => Consume(result));
+    }
 
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        for (int i = 0; i < 1_000; i++)
-            result ^= type.GetHashCode();
-        long allocated =
-            GC.GetAllocatedBytesForCurrentThread() - before;
-        Consume(result);
-        return allocated;
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static long MeasureSteadyStateAllocations(
+        Action operation,
+        Action consume)
+    {
+        const int WarmupIterations = 10_000;
+        const int MeasurementIterations = 10_000;
+        const int NoGcRegionBudget = 4 * 1024 * 1024;
+        const int MaximumAttempts = 3;
+
+        for (int i = 0; i < WarmupIterations; i++)
+            operation();
+
+        // A GC suspension can retire the current thread's allocation context
+        // and inflate its counter. Accept only a sample whose no-GC region held.
+        string failure = "No attempt was made.";
+        for (int attempt = 0;
+            attempt < MaximumAttempts;
+            attempt++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            if (TryMeasureWithoutGc(
+                    operation,
+                    consume,
+                    MeasurementIterations,
+                    NoGcRegionBudget,
+                    out long allocated,
+                    out failure))
+            {
+                return allocated;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Unable to establish a stable no-GC allocation "
+                + $"measurement after {MaximumAttempts} attempts. "
+                + $"Last failure: {failure}");
+    }
+
+    static bool TryMeasureWithoutGc(
+        Action operation,
+        Action consume,
+        int iterations,
+        long noGcRegionBudget,
+        out long allocated,
+        out string failure)
+    {
+        allocated = 0;
+        failure = "";
+
+        try
+        {
+            if (!GC.TryStartNoGCRegion(noGcRegionBudget))
+            {
+                failure = "The runtime declined the no-GC region.";
+                return false;
+            }
+        }
+        catch (InvalidOperationException ex)
+        {
+            failure = ex.Message;
+            return false;
+        }
+
+        ExceptionDispatchInfo? operationFailure = null;
+        try
+        {
+            long before =
+                GC.GetAllocatedBytesForCurrentThread();
+            for (int i = 0; i < iterations; i++)
+                operation();
+            allocated =
+                GC.GetAllocatedBytesForCurrentThread() - before;
+            consume();
+        }
+        catch (Exception ex)
+        {
+            operationFailure =
+                ExceptionDispatchInfo.Capture(ex);
+        }
+
+        bool regionHeld =
+            GCSettings.LatencyMode == GCLatencyMode.NoGCRegion;
+        string? endFailure = null;
+        if (regionHeld)
+        {
+            try
+            {
+                GC.EndNoGCRegion();
+            }
+            catch (InvalidOperationException ex)
+            {
+                regionHeld = false;
+                endFailure = ex.Message;
+            }
+        }
+
+        operationFailure?.Throw();
+        if (regionHeld)
+            return true;
+
+        failure = endFailure
+            ?? "The no-GC region ended during the measurement.";
+        return false;
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]

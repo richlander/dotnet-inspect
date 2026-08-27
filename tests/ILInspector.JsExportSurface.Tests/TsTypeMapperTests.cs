@@ -9,7 +9,11 @@ namespace ILInspector.JsExportSurface.Tests;
 /// </summary>
 public sealed class TsTypeMapperTests
 {
-    private static readonly HashSet<string> RecordNames = new(StringComparer.Ordinal) { "WidgetDto" };
+    private static readonly HashSet<string> RecordNames = new(StringComparer.Ordinal)
+    {
+        "WidgetDto",
+        "ILInspector.JsExportSurface.Fixtures.WidgetDto",
+    };
 
     [Theory]
     [InlineData("string", "string")]
@@ -62,6 +66,44 @@ public sealed class TsTypeMapperTests
         Assert.Equal("number[]", TsTypeMapper.MapParameterType("int[]", RecordNames));
     }
 
+    [Theory]
+    [InlineData("byte[]")]
+    [InlineData("System.Byte[]")]
+    public void MapJsonWireType_MapsExactByteArraysToBase64Strings(string csharpType)
+    {
+        Assert.Equal("string", TsTypeMapper.MapJsonWireType(csharpType, RecordNames));
+    }
+
+    [Fact]
+    public void MapJsonWireType_MapsArraysToReadonlyArrays()
+    {
+        Assert.Equal(
+            "ReadonlyArray<number>",
+            TsTypeMapper.MapJsonWireType("int[]", RecordNames));
+        Assert.Equal(
+            "ReadonlyArray<WidgetDto | null>",
+            TsTypeMapper.MapJsonWireType("WidgetDto?[]", RecordNames));
+        Assert.Equal(
+            "ReadonlyArray<ReadonlyArray<number>>",
+            TsTypeMapper.MapJsonWireType("int[][]", RecordNames));
+    }
+
+    [Theory]
+    [InlineData("byte[]")]
+    [InlineData("System.Byte[]")]
+    public void MapInteropType_PreservesByteArraysAsNumericArrays(string csharpType)
+    {
+        Assert.Equal("number[]", TsTypeMapper.MapParameterType(csharpType, RecordNames));
+        Assert.Equal("number[]", TsTypeMapper.MapReturnType(csharpType, RecordNames));
+    }
+
+    [Fact]
+    public void Map_PreservesOrdinaryArrayMappingForOtherByteLikeTypes()
+    {
+        Assert.Equal("number[]", TsTypeMapper.MapParameterType("sbyte[]", RecordNames));
+        Assert.Equal("number[]", TsTypeMapper.MapParameterType("System.SByte[]", RecordNames));
+    }
+
     [Fact]
     public void Map_NullableTypeMapsToUnionWithNull()
     {
@@ -92,6 +134,34 @@ public sealed class TsTypeMapperTests
                 Assert.Equal("WidgetDto.Property", d.Location);
                 Assert.Equal("SomeUnmappedType", d.CSharpType);
             });
+    }
+
+    [Fact]
+    public void Map_QualifiedExternalTypeDoesNotAliasLocalRecord()
+    {
+        var knownTypes = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "Result",
+            "Mine.Result",
+        };
+        var diagnostics = new TsBindGenDiagnostics();
+
+        Assert.Equal(
+            "unknown",
+            TsTypeMapper.MapParameterType(
+                "Other.Result",
+                knownTypes,
+                diagnostics,
+                "Holder.Value"));
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic => diagnostic.Location == "Holder.Value"
+                && diagnostic.CSharpType == "Other.Result");
+        Assert.Equal(
+            "Result",
+            TsTypeMapper.MapParameterType(
+                "Mine.Result",
+                knownTypes));
     }
 
     [Fact]
@@ -133,6 +203,11 @@ public sealed class TsTypeMapperTests
         Assert.Equal(
             "Record<string, string>",
             TsTypeMapper.MapParameterType("IReadOnlyDictionary<string, string>", RecordNames));
+        Assert.Equal(
+            "Readonly<Record<string, ReadonlyArray<WidgetDto>>>",
+            TsTypeMapper.MapJsonWireType(
+                "IReadOnlyDictionary<string, WidgetDto[]>",
+                RecordNames));
     }
 
     [Fact]

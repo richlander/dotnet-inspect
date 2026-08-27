@@ -39,10 +39,9 @@ internal static class LibraryMetadataService
         string? packageVersion,
         HttpClient httpClient,
         bool isPlatformAssembly = false,
-        HashSet<string>? scanners = null,
-        ScannerRegistry? scannerRegistry = null,
         HashSet<InspectionQueryDefinition>? queries = null,
-        InspectionQueryRegistry<ScannerContext>? queryRegistry = null,
+        InspectionQueryCatalog<InspectionQueryContext>? queryCatalog = null,
+        InspectionQueryPlan<InspectionQueryContext>? queryPlan = null,
         ResolvedAssemblyReference? assemblyReference = null,
         AssemblyIntegrationsEntry? integrationsEntry = null,
         AssemblyIntegrationOpportunitiesEntry?
@@ -54,29 +53,25 @@ internal static class LibraryMetadataService
 
         try
         {
-            // Expand declared scanner prerequisites before narrowing body-analysis features, so a
-            // prerequisite that needs the body index is not missed by the narrowing.
-            var requiredScanners =
-                scannerRegistry is not null
-                    && scanners is not null
-                    ? scannerRegistry.ExpandRequired(scanners)
-                    : scanners;
-            if (requiredScanners is not null)
-                trace?.RecordClosure(requiredScanners);
-            var requiredQueries = queryRegistry is not null && queries is not null
-                ? queryRegistry.ExpandRequired(queries)
-                : queries;
+            queryPlan ??= queryCatalog is not null && queries is not null
+                ? queryCatalog.Plan(queries)
+                : null;
+            IReadOnlyCollection<InspectionQueryDefinition>? requiredQueries =
+                queryPlan is null
+                    ? queries
+                    : queryPlan.Queries;
             if (requiredQueries is not null)
                 trace?.RecordQueryClosure(requiredQueries);
-            var bodyAnalysisFeatures = SelectBodyAnalysisFeatures(
-                requiredScanners,
-                requiredQueries);
+            var bodyAnalysisFeatures =
+                SelectBodyAnalysisFeatures(requiredQueries);
+            bool needsPrefetchedImage =
+                bodyAnalysisFeatures
+                    != Analysis.LibraryBodyAnalysisFeatures.None;
             bool needsBodyReferenceResolver =
                 bodyAnalysisFeatures.HasFlag(
                     Analysis.LibraryBodyAnalysisFeatures
                         .OptimizationOpportunities)
-                || requiredScanners?.Contains(
-                    Sections.LibrarySections.ScannerBodyShapes) == true;
+                || requiredQueries?.Contains(BodyShapesQuery.Definition) == true;
             IAssemblyReferenceResolver? bodyReferenceResolver =
                 needsBodyReferenceResolver
                     ? new AssemblyDependencyResolver(
@@ -95,29 +90,37 @@ internal static class LibraryMetadataService
                     maxMappings: 16 * 1024);
             using var service = discoveryOnly
                 ? assemblyReference is not null
-                    ? SourceLinkService.OpenEmbeddedPdbOnly(
-                        assemblyReference,
-                        discoveryReadLimits,
-                        logger.Log)
-                    : SourceLinkService.OpenEmbeddedPdbOnly(
-                        path,
-                        discoveryReadLimits,
-                        logger.Log)
+                    ? needsPrefetchedImage
+                        ? SourceLinkService
+                            .OpenEmbeddedPdbOnlyPrefetched(
+                                assemblyReference,
+                                discoveryReadLimits,
+                                logger.Log)
+                        : SourceLinkService.OpenEmbeddedPdbOnly(
+                            assemblyReference,
+                            discoveryReadLimits,
+                            logger.Log)
+                    : needsPrefetchedImage
+                        ? SourceLinkService
+                            .OpenEmbeddedPdbOnlyPrefetched(
+                                path,
+                                discoveryReadLimits,
+                                logger.Log)
+                        : SourceLinkService.OpenEmbeddedPdbOnly(
+                            path,
+                            discoveryReadLimits,
+                            logger.Log)
                 : assemblyReference is not null
-                    ? bodyAnalysisFeatures
-                        == Analysis.LibraryBodyAnalysisFeatures.None
+                    ? !needsPrefetchedImage
                         ? SourceLinkService.Open(
                             assemblyReference,
                             logger.Log)
                         : SourceLinkService.OpenPrefetched(
                             assemblyReference,
                             logger.Log)
-                    : bodyAnalysisFeatures
-                        == Analysis.LibraryBodyAnalysisFeatures.None
-                            ? SourceLinkService.Open(path, logger.Log)
-                            : SourceLinkService.OpenPrefetched(
-                                path,
-                                logger.Log);
+                    : !needsPrefetchedImage
+                        ? SourceLinkService.Open(path, logger.Log)
+                        : SourceLinkService.OpenPrefetched(path, logger.Log);
             var pdbContext = service.Context;
             bool projectOptimizationOpportunities =
                 options.IncludeSections is null
@@ -149,9 +152,9 @@ internal static class LibraryMetadataService
                 nativeAudit.HasReproducibleFlag = pdbContext.HasReproducibleFlag;
                 nativeAudit.IsDeterministic = pdbContext.HasReproducibleFlag;
 
-                if (queryRegistry is not null && requiredQueries is not null)
+                if (queryPlan is not null)
                 {
-                    using var queryContext = new Sections.ScannerContext
+                    using var queryContext = new Sections.InspectionQueryContext
                     {
                         AssemblyPath = path,
                         AssemblyReference = assemblyReference,
@@ -167,8 +170,7 @@ internal static class LibraryMetadataService
                         path,
                         nativeAudit,
                         logger,
-                        queryRegistry,
-                        requiredQueries,
+                        queryPlan,
                         queryContext,
                         projectOptimizationOpportunities,
                         trace).ConfigureAwait(false);
@@ -271,10 +273,10 @@ internal static class LibraryMetadataService
             inspection.PdbPath = pdbContext.CodeViewPdbPath;
             ApplySourceLinkAudit(service, inspection);
 
-            // Run legacy scanners and typed queries against one shared assembly context.
+            // Run typed queries against one shared assembly context.
             var collectReferenceTree = options.CollectReferenceTree;
             var referencesWillRun =
-                queryRegistry is not null
+                queryPlan is not null
                 && requiredQueries?.Contains(AssemblyReferencesQuery.Definition) == true;
             if ((collectReferenceTree || needsAuditSignals) && !referencesWillRun)
             {
@@ -286,10 +288,9 @@ internal static class LibraryMetadataService
                     AssemblyReferencesQuery.Execute(session));
             }
 
-            if ((scannerRegistry is not null && requiredScanners is not null)
-                || (queryRegistry is not null && requiredQueries is not null))
+            if (queryPlan is not null)
             {
-                using var scannerContext = new Sections.ScannerContext
+                using var queryContext = new Sections.InspectionQueryContext
                 {
                     AssemblyPath = path,
                     AssemblyReference = assemblyReference,
@@ -302,20 +303,14 @@ internal static class LibraryMetadataService
                     Trace = trace,
                 };
 
-                if (queryRegistry is not null && requiredQueries is not null)
-                {
-                    await RunTypedQueriesAsync(
-                        path,
-                        inspection,
-                        logger,
-                        queryRegistry,
-                        requiredQueries,
-                        scannerContext,
-                        projectOptimizationOpportunities,
-                        trace).ConfigureAwait(false);
-                }
-
-                scannerRegistry?.RunScanners(requiredScanners ?? [], scannerContext);
+                await RunTypedQueriesAsync(
+                    path,
+                    inspection,
+                    logger,
+                    queryPlan,
+                    queryContext,
+                    projectOptimizationOpportunities,
+                    trace).ConfigureAwait(false);
             }
             else if (options.Verbosity == Options.Verbosity.Detailed)
             {
@@ -524,8 +519,7 @@ internal static class LibraryMetadataService
     }
 
     static Analysis.LibraryBodyAnalysisFeatures SelectBodyAnalysisFeatures(
-        IReadOnlySet<string>? scanners,
-        IReadOnlySet<InspectionQueryDefinition>? queries)
+        IReadOnlyCollection<InspectionQueryDefinition>? queries)
     {
         var features = Analysis.LibraryBodyAnalysisFeatures.None;
         if (queries?.Contains(TopLeverageQuery.Definition) == true
@@ -538,9 +532,9 @@ internal static class LibraryMetadataService
             features |=
                 Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities;
         }
-        if (scanners?.Contains(Sections.LibrarySections.ScannerResourceTriage) == true)
+        if (queries?.Contains(ResourceTriageQuery.Definition) == true)
             features |= Analysis.LibraryBodyAnalysisFeatures.LeakTriage;
-        if (scanners?.Contains(Sections.LibrarySections.ScannerBodyShapes) == true)
+        if (queries?.Contains(BodyShapesQuery.Definition) == true)
             features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
         return features;
     }
@@ -1374,9 +1368,8 @@ internal static class LibraryMetadataService
     // helpers) are not actionable source-shape fixes, so optimization scans suppress them
     // and leverage scans label them as generated.
     internal static bool IsGeneratedMethod(Analysis.MethodIdentity method)
-        => ILInspector.Metadata.MemberFilters.IsCompilerGenerated(method.Name)
-           || ILInspector.Metadata.TypeFilters.IsCompilerGeneratedNested(method.DeclaringType.Name)
-           || IsSystemTextJsonContextGeneratedMethod(method);
+        => Analysis.OptimizationOpportunityRanking.IsGeneratedMethod(
+            method);
 
     // Overload that also treats members of structurally-detected generated framework types
     // (protobuf/gRPC, see LibraryBodyIndex.GeneratedFrameworkTypes) as generated, so their
@@ -1385,55 +1378,17 @@ internal static class LibraryMetadataService
     internal static bool IsGeneratedMethod(
         Analysis.MethodIdentity method,
         IReadOnlySet<Analysis.TypeRef> generatedFrameworkTypes)
-        => IsGeneratedMethod(method)
-           || Analysis.LibraryBodyIndex.IsGeneratedFrameworkType(
-               generatedFrameworkTypes,
-               method.DeclaringType);
+        => Analysis.OptimizationOpportunityRanking.IsGeneratedMethod(
+            method,
+            generatedFrameworkTypes);
 
     internal static bool IncludePerformanceOpportunity(
         Analysis.OptimizationOpportunity opportunity,
         IReadOnlySet<Analysis.TypeRef> generatedFrameworkTypes)
-        => !IsGeneratedMethod(opportunity.Method, generatedFrameworkTypes)
-            || opportunity.Shape == "generic-parameter-object-box"
-                && !IsInGeneratedFrameworkType(
-                    opportunity,
-                    generatedFrameworkTypes)
-                && IsSourceFunctionName(opportunity.Method.Name);
-
-    static bool IsInGeneratedFrameworkType(
-        Analysis.OptimizationOpportunity opportunity,
-        IReadOnlySet<Analysis.TypeRef> generatedFrameworkTypes)
-    {
-        if (opportunity.SourceOwner is { } sourceOwner
-            && Analysis.LibraryBodyIndex.IsGeneratedFrameworkType(
-                generatedFrameworkTypes,
-                sourceOwner.DeclaringType))
-        {
-            return true;
-        }
-
-        return Analysis.LibraryBodyIndex.IsGeneratedFrameworkType(
-            generatedFrameworkTypes,
-            opportunity.Method.DeclaringType);
-    }
-
-    static bool IsSourceFunctionName(string methodName)
-        => methodName.Contains(">g__", StringComparison.Ordinal)
-            || methodName.Contains(">b__", StringComparison.Ordinal);
-
-    private static bool IsSystemTextJsonContextGeneratedMethod(Analysis.MethodIdentity method)
-        => method.Name is "TryGetTypeInfoForRuntimeCustomConverter"
-           && method.IsStatic
-           && method.ReturnType.Equals(Analysis.TypeRef.CoreLib("System", "Boolean"))
-           && method.ParameterTypes.Length == 2
-           && method.ParameterTypes[0].Equals(Analysis.TypeRef.Definition("System.Text.Json", "System.Text.Json", "JsonSerializerOptions"))
-           && method.ParameterTypes[1] is { Kind: Analysis.TypeRefKind.ByRef, ElementType: { } jsonTypeInfo }
-           && IsJsonTypeInfo(jsonTypeInfo);
-
-    private static bool IsJsonTypeInfo(Analysis.TypeRef type)
-        => type.Kind == Analysis.TypeRefKind.GenericInstance
-           && type.ElementType is { } definition
-           && definition.Equals(Analysis.TypeRef.Definition("System.Text.Json", "System.Text.Json.Serialization.Metadata", "JsonTypeInfo`1"));
+        => Analysis.OptimizationOpportunityRanking
+            .IncludePerformanceOpportunity(
+                opportunity,
+                generatedFrameworkTypes);
 
     /// <summary>
     /// Builds a metadata-token → (Stable, Visibility, Selector) map across the whole
@@ -1568,80 +1523,110 @@ internal static class LibraryMetadataService
             Saturated = opportunity.AllocationCountSaturated ? "yes" : null,
         };
 
-    internal static ResourceTriageScan ScanResourceTriage(
-        Func<Analysis.LibraryBodyIndex> openIndex,
+    internal static void ApplyResourceTriageResult(
+        LibraryInspection inspection,
+        ResourceTriageResult result,
         Func<IReadOnlyDictionary<int, (string? Stable, string Visibility, string Selector)>>
-            getDrillMap,
-        string path,
-        VerboseLogger logger)
+            getDrillMap)
     {
-        var result = Analysis.ResourceLifecycleAnalysis.InspectAssembly(
-            openIndex,
-            new FindingSubject(Path.GetFullPath(path), Path.GetFileName(path)));
-        return new ResourceTriageScan(
-            result,
-            result.Value
-                is FindingInspection<Analysis.ResourceLifecycleOccurrence>.Complete complete
-                ? ProjectResourceTriage(
-                    complete,
-                    getDrillMap())
-                : null);
+        ArgumentNullException.ThrowIfNull(getDrillMap);
+
+        inspection.ResourceTriageQueryResult = result;
+        inspection.ResourceLifecycleInspection = null;
+        inspection.ResourceTriageAssessments = [];
+        inspection.ResourceTriageDrillMap = null;
+        inspection.ResourceTriage = null;
+
+        switch (result)
+        {
+            case ResourceTriageResult.Available available:
+                inspection.ResourceLifecycleInspection =
+                    available.Inspection;
+                var drillByToken = getDrillMap();
+                inspection.ResourceTriageDrillMap = drillByToken;
+                ImmutableArray<Analysis.ResourceTriageAssessment> assessments =
+                [
+                    .. available.Assessments
+                        .Where(assessment =>
+                            assessment.Actionability
+                                == Analysis.ResourceTriageActionability
+                                    .UntrustedActionable)
+                        .OrderBy(
+                            assessment => FormatMethod(
+                                assessment.Source.Payload.Method),
+                            StringComparer.Ordinal)
+                        .ThenBy(
+                            assessment =>
+                                assessment.Source.Payload.AcquireOffset)
+                        .ThenBy(
+                            assessment =>
+                                assessment.Boundaries.Length > 0
+                                    ? assessment.Boundaries[0]
+                                        .Evidence.ILOffset
+                                    : -1),
+                ];
+                inspection.ResourceTriageAssessments = assessments;
+                var rows = assessments
+                    .Select(assessment =>
+                        ProjectResourceTriageAssessment(
+                            assessment,
+                            drillByToken))
+                    .ToList();
+                inspection.ResourceTriage = rows;
+                break;
+
+            case ResourceTriageResult.NoMetadata:
+                break;
+
+            case ResourceTriageResult.Failed failed:
+                inspection.ResourceLifecycleInspection =
+                    new FindingInspection<
+                        Analysis.ResourceLifecycleOccurrence>.Failed(
+                            failed.Error);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown resource triage result '{result.GetType().Name}'.");
+        }
     }
 
-    static List<ResourceTriageSummary> ProjectResourceTriage(
-        FindingInspection<Analysis.ResourceLifecycleOccurrence>.Complete inspection,
+    internal static ResourceTriageSummary ProjectResourceTriageAssessment(
+        Analysis.ResourceTriageAssessment assessment,
         IReadOnlyDictionary<int, (string? Stable, string Visibility, string Selector)>
             drillByToken)
     {
-        return Analysis.ResourceTriageAnalysis
-            .Assess(inspection)
-            .Where(assessment =>
-                assessment.Actionability
-                    == Analysis.ResourceTriageActionability.UntrustedActionable)
-            .Select(assessment =>
-            {
-                var occurrence = assessment.Source.Payload;
-                drillByToken.TryGetValue(
-                    occurrence.Method.MetadataToken,
-                    out var drill);
-                return new ResourceTriageSummary
-                {
-                    Member = FormatMethod(occurrence.Method),
-                    Candidate = assessment.CandidateId,
-                    Finding = assessment.Source.Descriptor.Id,
-                    Provenance = "exact",
-                    Resource = occurrence.Resource,
-                    Shape = occurrence.Shape,
-                    Impact = FormatResourceTriageImpact(assessment.Impact),
-                    Actionability = FormatResourceTriageActionability(
-                        assessment.Actionability),
-                    AcquireOffset = occurrence.AcquireOffset,
-                    Boundaries = assessment.Boundaries
-                        .Select(boundary => new ResourceBoundarySummary(
-                            boundary.Evidence.Operation.ToQualifiedDisplayString(),
-                            boundary.Evidence.ILOffset))
-                        .Distinct()
-                        .ToList(),
-                    Evidence = FormatResourceTriageReason(assessment.Reason),
-                    Direction = FormatResourceTriageRemediation(
-                        assessment.Remediation),
-                    Confidence = FormatResourceTriageConfidence(
-                        assessment.Confidence),
-                    Visibility = drill.Visibility,
-                    Stable = drill.Stable,
-                    Selector = drill.Selector,
-                };
-            })
-            .OrderBy(
-                static row => row.Member,
-                StringComparer.Ordinal)
-            .ThenBy(
-                static row => row.AcquireOffset)
-            .ThenBy(
-                static row => row.Boundaries.Count > 0
-                    ? row.Boundaries[0].ILOffset
-                    : -1)
-            .ToList();
+        var occurrence = assessment.Source.Payload;
+        drillByToken.TryGetValue(
+            occurrence.Method.MetadataToken,
+            out var drill);
+        return new ResourceTriageSummary
+        {
+            Member = FormatMethod(occurrence.Method),
+            Candidate = assessment.CandidateId,
+            Finding = assessment.Source.Descriptor.Id,
+            Provenance = "exact",
+            Resource = occurrence.Resource,
+            Shape = occurrence.Shape,
+            Impact = FormatResourceTriageImpact(assessment.Impact),
+            Actionability = FormatResourceTriageActionability(
+                assessment.Actionability),
+            AcquireOffset = occurrence.AcquireOffset,
+            Boundaries = assessment.Boundaries
+                .Select(boundary => new ResourceBoundarySummary(
+                    boundary.Evidence.Operation.ToQualifiedDisplayString(),
+                    boundary.Evidence.ILOffset))
+                .Distinct()
+                .ToList(),
+            Evidence = FormatResourceTriageReason(assessment.Reason),
+            Direction = FormatResourceTriageRemediation(
+                assessment.Remediation),
+            Confidence = FormatResourceTriageConfidence(
+                assessment.Confidence),
+            Visibility = drill.Visibility,
+            Stable = drill.Stable,
+            Selector = drill.Selector,
+        };
     }
 
     static string FormatResourceTriageImpact(
@@ -1694,52 +1679,15 @@ internal static class LibraryMetadataService
     // are medium priority; ordinary one-shot candidates are low. Confidence then ranks the
     // certainty of the evidence/rewrite within that tier, followed by weight and call-graph reach.
     internal static IEnumerable<Analysis.OptimizationOpportunity> OrderByTriagePriority(IEnumerable<Analysis.OptimizationOpportunity> opportunities)
-        => opportunities
-            .OrderByDescending(TriagePriorityRank)
-            .ThenByDescending(opportunity => ConfidenceRank(opportunity.Confidence))
-            .ThenByDescending(opportunity => WeightSortRank(opportunity.Weight))
-            .ThenByDescending(opportunity => opportunity.RootReach)
-            .ThenBy(opportunity => opportunity.Method.DeclaringType.ToQualifiedDisplayString(), StringComparer.Ordinal)
-            .ThenBy(opportunity => opportunity.Method.Name, StringComparer.Ordinal)
-            .ThenBy(opportunity => opportunity.ILOffset ?? -1)
-            .ThenBy(opportunity => opportunity.Shape, StringComparer.Ordinal);
+        => Analysis.OptimizationOpportunityRanking.Order(opportunities);
 
     internal static string TriagePriority(Analysis.OptimizationOpportunity opportunity)
-        => TriagePriorityRank(opportunity) switch
+        => Analysis.OptimizationOpportunityRanking.Priority(opportunity) switch
         {
-            2 => "high",
-            1 => "medium",
+            Analysis.OptimizationOpportunityPriority.High => "high",
+            Analysis.OptimizationOpportunityPriority.Medium => "medium",
             _ => "low",
         };
-
-    static int TriagePriorityRank(Analysis.OptimizationOpportunity opportunity)
-    {
-        if (opportunity.ColdPath)
-            return 0;
-
-        if (opportunity.Shape is
-                "allocation-hotspot"
-                or "cache-lookup-factory-delegate"
-                or "linq-scan-in-loop"
-                or "materialize-in-loop"
-                or "scan-method-in-loop-call"
-                or "string-build-in-loop"
-            || (opportunity.Weight == "high"
-                && opportunity.Shape != "small-array"))
-        {
-            return 2;
-        }
-
-        if (opportunity.Shape == "generic-parameter-object-box")
-            return IteratesInLoop(opportunity)
-                    ? 2
-                    : 1;
-
-        return IteratesInLoop(opportunity)
-            || opportunity.Weight == "medium"
-                ? 1
-                : 0;
-    }
 
     // Whether an allocation opportunity actually iterates as a hot loop, per the
     // semantic per-invocation multiplicity (#2127). A structural in-loop offset that
@@ -1748,8 +1696,8 @@ internal static class LibraryMetadataService
     // unknown. This is the single source of truth for the Loop column, triage sort,
     // and the --loop filter.
     internal static bool IteratesInLoop(Analysis.OptimizationOpportunity opportunity)
-        => opportunity.Multiplicity == "loop"
-            || (opportunity.Multiplicity is null && opportunity.InLoop);
+        => Analysis.OptimizationOpportunityRanking.IteratesInLoop(
+            opportunity);
 
     // Triage ordering weight for a confidence label (high allocations are the surest pay-dirt).
     static int ConfidenceRank(string confidence)
@@ -1862,7 +1810,10 @@ internal static class LibraryMetadataService
             int expected = ConfidenceRank(predicate.Value);
             if (expected == 0 && !predicate.Value.Equals("low", StringComparison.OrdinalIgnoreCase))
                 return false;
-            int compare = TriagePriorityRank(opportunity).CompareTo(expected);
+            int compare = Analysis.OptimizationOpportunityRanking
+                .Priority(opportunity)
+                .CompareTo(
+                    (Analysis.OptimizationOpportunityPriority)expected);
             return MatchCompare(compare, predicate.Operator);
         }
 
@@ -1944,7 +1895,11 @@ internal static class LibraryMetadataService
             return leftNumber.CompareTo(rightNumber);
         }
         if (field == "Priority")
-            return TriagePriorityRank(left).CompareTo(TriagePriorityRank(right));
+            return Analysis.OptimizationOpportunityRanking
+                .Priority(left)
+                .CompareTo(
+                    Analysis.OptimizationOpportunityRanking.Priority(
+                        right));
         if (field == "Confidence")
             return ConfidenceRank(left.Confidence).CompareTo(ConfidenceRank(right.Confidence));
         if (field == "Weight")
@@ -2098,7 +2053,7 @@ internal static class LibraryMetadataService
         LibraryInspection inspection,
         VerboseLogger logger,
         InspectionQueryResults results,
-        ScannerContext scannerContext,
+        InspectionQueryContext queryContext,
         bool projectOptimizationOpportunities)
     {
         if (results.TryGet(MetadataImageQuery.Definition, out MetadataImageResult? metadata))
@@ -2129,10 +2084,29 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
+                UnsafeEvidencePresenceQuery.Definition,
+                out UnsafeEvidencePresenceResult? unsafeEvidencePresence))
+        {
+            ApplyUnsafeEvidencePresenceResult(
+                inspection,
+                unsafeEvidencePresence);
+        }
+
+        if (results.TryGet(
                 UnsafeEvidenceQuery.Definition,
                 out UnsafeEvidenceResult? unsafeEvidence))
         {
             ApplyUnsafeEvidenceResult(path, inspection, logger, unsafeEvidence);
+        }
+
+        if (results.TryGet(
+                ResourceTriageQuery.Definition,
+                out ResourceTriageResult? resourceTriage))
+        {
+            ApplyResourceTriageResult(
+                inspection,
+                resourceTriage,
+                queryContext.DrillMap);
         }
 
         if (results.TryGet(
@@ -2148,6 +2122,13 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
+                BodyShapesQuery.Definition,
+                out BodyShapesResult? bodyShapes))
+        {
+            ApplyBodyShapesResult(inspection, logger, bodyShapes);
+        }
+
+        if (results.TryGet(
                 TopLeverageQuery.Definition,
                 out TopLeverageResult? topLeverage))
         {
@@ -2156,7 +2137,7 @@ internal static class LibraryMetadataService
                 inspection,
                 logger,
                 topLeverage,
-                scannerContext.DrillMap);
+                queryContext.DrillMap);
         }
 
         if (results.TryGet(
@@ -2332,15 +2313,9 @@ internal static class LibraryMetadataService
             case OptimizationOpportunitiesResult.Available available:
                 ReportOptimizationDiagnostics(available.Diagnostics);
                 ImmutableArray<Analysis.OptimizationOpportunity> opportunities =
-                [
-                    .. FilterAndOrderTriageOpportunities(
-                        available.Opportunities
-                            .Concat(available.AllocationFanoutOpportunities)
-                            .Where(opportunity => IncludePerformanceOpportunity(
-                                opportunity,
-                                available.GeneratedFrameworkTypes)),
-                        inspection.PerformanceTriageOptions),
-                ];
+                    SelectPerformanceTriageOpportunities(
+                        available,
+                        inspection.PerformanceTriageOptions);
                 inspection.PerformanceTriageOpportunities = opportunities;
                 if (projectCompatibilityRows)
                 {
@@ -2365,6 +2340,67 @@ internal static class LibraryMetadataService
                 throw new InvalidOperationException(
                     "Unknown optimization opportunities result "
                     + $"'{result.GetType().Name}'.");
+        }
+    }
+
+    internal static ImmutableArray<Analysis.OptimizationOpportunity>
+        SelectPerformanceTriageOpportunities(
+            OptimizationOpportunitiesResult.Available available,
+            PerformanceTriageOptions options)
+        =>
+        [
+            .. FilterAndOrderTriageOpportunities(
+                available.Opportunities
+                    .Concat(available.AllocationFanoutOpportunities)
+                    .Where(opportunity => IncludePerformanceOpportunity(
+                        opportunity,
+                        available.GeneratedFrameworkTypes)),
+                options),
+        ];
+
+    internal static void ApplyBodyShapesResult(
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        BodyShapesResult result)
+    {
+        inspection.BodyShapesQueryResult = result;
+        inspection.BodyShapeSearchResult = null;
+
+        switch (result)
+        {
+            case BodyShapesResult.Available available:
+                inspection.BodyShapeSearchResult = available.Search;
+                if (available.Search.Failures.Count == 0)
+                    break;
+
+                if (logger.Enabled)
+                {
+                    foreach (var failure in available.Search.Failures)
+                    {
+                        logger.LogWarning(
+                            $"Body Shapes skipped {failure.Subject}: {failure.Reason}");
+                    }
+                }
+                else
+                {
+                    CommandError.WriteWarning(
+                        $"Body Shapes skipped {available.Search.Failures.Count} candidates; "
+                        + "rerun with --verbose for details.");
+                }
+                break;
+
+            case BodyShapesResult.NoMetadata:
+            case BodyShapesResult.DependencyUnavailable:
+                break;
+
+            case BodyShapesResult.Failed failed:
+                logger.LogWarning(
+                    $"Error searching body shapes: {failed.Error.Message}");
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown Body Shapes result '{result.GetType().Name}'.");
         }
     }
 
@@ -2663,6 +2699,30 @@ internal static class LibraryMetadataService
         }
     }
 
+    internal static void ApplyUnsafeEvidencePresenceResult(
+        LibraryInspection inspection,
+        UnsafeEvidencePresenceResult result)
+    {
+        switch (result)
+        {
+            case UnsafeEvidencePresenceResult.Available available:
+                inspection.UnsafeEvidencePresent =
+                    available.HasEvidence;
+                inspection.UnsafeEvidencePresenceError = null;
+                break;
+
+            case UnsafeEvidencePresenceResult.Failed failed:
+                inspection.UnsafeEvidencePresent = null;
+                inspection.UnsafeEvidencePresenceError =
+                    failed.Error;
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown unsafe-evidence-presence result '{result.GetType().Name}'.");
+        }
+    }
+
     internal static void ApplyCustomAttributesResult(
         string path,
         LibraryInspection inspection,
@@ -2824,9 +2884,8 @@ internal static class LibraryMetadataService
         string path,
         LibraryInspection inspection,
         VerboseLogger logger,
-        InspectionQueryRegistry<ScannerContext> queryRegistry,
-        HashSet<InspectionQueryDefinition> requiredQueries,
-        ScannerContext scannerContext,
+        InspectionQueryPlan<InspectionQueryContext> queryPlan,
+        InspectionQueryContext queryContext,
         bool projectOptimizationOpportunities,
         Sections.InspectionTrace? trace)
     {
@@ -2836,9 +2895,8 @@ internal static class LibraryMetadataService
         InspectionQueryResults results;
         try
         {
-            results = await queryRegistry.RunAsync(
-                requiredQueries,
-                scannerContext,
+            results = await queryPlan.RunAsync(
+                queryContext,
                 recordQuery).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
@@ -2863,7 +2921,7 @@ internal static class LibraryMetadataService
             inspection,
             logger,
             results,
-            scannerContext,
+            queryContext,
             projectOptimizationOpportunities);
     }
 

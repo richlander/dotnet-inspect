@@ -153,7 +153,7 @@ public record LibraryOptions : IProjectionOptions
     /// <summary>
     /// Resolved output format.
     /// </summary>
-    public OutputFormat Format { get; init; }
+    public OutputFormat Format { get; init; } = OutputFormat.Markdown;
 
     /// <summary>
     /// Show progress messages on stderr.
@@ -161,7 +161,7 @@ public record LibraryOptions : IProjectionOptions
     public bool Verbose { get; init; }
 
     /// <summary>
-    /// Report the work the run actually did — selected sections, the scanners they demanded, what
+    /// Report the work the run actually did — selected sections, the queries they demanded, what
     /// prerequisite expansion added, execution times, and expensive resource acquisition — on
     /// stderr. Diagnostic only: stdout is unchanged, so a caller parsing the document is unaffected.
     /// </summary>
@@ -207,6 +207,12 @@ public record LibraryOptions : IProjectionOptions
     /// <summary>The section selection that came from the user's gesture.</summary>
     public HashSet<string>? UserIncludeSections
         => UserIncludeSectionsOverride ?? IncludeSections;
+
+    /// <summary>
+    /// Whether the caller actually passed <c>-S/--select</c>, before command sugar can add
+    /// internally selected sections.
+    /// </summary>
+    public bool SelectExplicitlySet { get; init; }
 
     /// <summary>
     /// Canonical sections reached through an exact selector or compatible legacy alias. An empty

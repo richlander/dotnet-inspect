@@ -67,6 +67,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
             name,
             rejection,
             metadataName,
+            CurrentAssemblyIdentity(reader, observe),
             materializationWork);
         Cache(reader, handle, read);
         return ReadNamedType(read, rawTypeKind);
@@ -79,27 +80,18 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     /// a canonical <c>`N</c> suffix (#4507). Scoped to <see cref="TypeDefinitionHandle"/>
     /// (a local declaration): a <see cref="TypeReferenceHandle"/> has no
     /// equivalent trusted source without loading the referenced assembly, which
-    /// this product does not do.
+    /// this product does not do. Malformed generic-parameter ownership propagates
+    /// as a rejection instead of producing an ordinary raw-name rendering, gated
+    /// by <c>NestedGenericSignature_WithMalformedOwnership_IsReportedAsInspectionFailure</c>.
     /// </summary>
     static MetadataTypeNameParts WithTrustedArity(
         MetadataReader reader,
         TypeDefinitionHandle handle,
         MetadataTypeNameParts metadataName)
-    {
-        try
-        {
-            List<int> counts = MetadataDeclarationQuery.GetIntroducedTypeParameterCounts(reader, handle);
-            return metadataName.WithIntroducedTypeParameterCounts(counts);
-        }
-        catch (BadImageFormatException)
-        {
-            // A malformed declaring/generic-parameter relationship here does not
-            // change what TryGetTypeNameFromDefinition already resolved; fall
-            // back to raw-name-only arity rather than rejecting a name the
-            // caller already trusts.
-            return metadataName;
-        }
-    }
+        => metadataName.WithIntroducedTypeParameterCounts(
+            MetadataDeclarationQuery.GetIntroducedTypeParameterCounts(
+                reader,
+                handle));
 
     public TypeNode GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
     {
@@ -133,6 +125,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
             name,
             rejection,
             metadataName,
+            ReferencedAssemblyIdentity(reader, handle, observe),
             materializationWork);
         Cache(reader, handle, read);
         return ReadNamedType(read, rawTypeKind);
@@ -145,11 +138,13 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         if (read.Resolved)
         {
             _beforeRetain?.Invoke(read.Name!);
+            RetainAssemblyIdentity(read.AssemblyIdentity);
             bool isRef = rawTypeKind != 0x11; // 0x11 = ELEMENT_TYPE_VALUETYPE
             return new NamedTypeNode(
                 read.Name!,
                 isRef,
-                read.MetadataName);
+                read.MetadataName,
+                read.AssemblyIdentity);
         }
 
         ArgumentNullException.ThrowIfNull(read.Rejection);
@@ -196,7 +191,64 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         string? Name,
         RelationshipTraversalRejection? Rejection,
         MetadataTypeNameParts? MetadataName,
+        ApiAssemblyIdentity? AssemblyIdentity,
         int MaterializationWork);
+
+    static ApiAssemblyIdentity? CurrentAssemblyIdentity(
+        MetadataReader reader,
+        Action<int>? beforeMaterialize) =>
+        reader.IsAssembly
+            ? ApiAssemblyIdentity.FromDefinition(
+                reader,
+                beforeMaterialize)
+            : null;
+
+    static ApiAssemblyIdentity? ReferencedAssemblyIdentity(
+        MetadataReader reader,
+        TypeReferenceHandle handle,
+        Action<int>? beforeMaterialize)
+    {
+        Span<TypeReferenceHandle> chain =
+            stackalloc TypeReferenceHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal
+                .TryWalkTypeReferenceResolutionScope(
+                    reader,
+                    handle,
+                    chain,
+                    out _,
+                    out EntityHandle terminal,
+                    out _))
+        {
+            return null;
+        }
+
+        return terminal.Kind switch
+        {
+            HandleKind.AssemblyReference =>
+                ApiAssemblyIdentity.FromReference(
+                    reader,
+                    (AssemblyReferenceHandle)terminal,
+                    beforeMaterialize),
+            HandleKind.ModuleDefinition or HandleKind.ModuleReference =>
+                CurrentAssemblyIdentity(reader, beforeMaterialize),
+            _ when terminal.IsNil =>
+                CurrentAssemblyIdentity(reader, beforeMaterialize),
+            _ => null,
+        };
+    }
+
+    void RetainAssemblyIdentity(ApiAssemblyIdentity? identity)
+    {
+        if (identity is null)
+            return;
+
+        _beforeRetain?.Invoke(identity.Name);
+        if (identity.Culture is not null)
+            _beforeRetain?.Invoke(identity.Culture);
+        if (identity.PublicKeyToken is not null)
+            _beforeRetain?.Invoke(identity.PublicKeyToken);
+    }
 
     void ReplayMaterializationWork(int amount)
     {
@@ -222,6 +274,8 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
                 foreach (string segment in structured.Segments)
                     characters += segment.Length;
             }
+            characters +=
+                read.AssemblyIdentity?.RetainedCharacterCount ?? 0;
             if (characters
                 > SignatureDecoder.MaxAcceptedNameCacheCharacters
                     - _retainedCharacters)
@@ -255,7 +309,11 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     public TypeNode GetArrayType(TypeNode elementType, ArrayShape shape)
     {
         ObserveMaterialization(16L + Math.Max(shape.Rank, 0));
-        var node = new MDArrayTypeNode(elementType, shape.Rank);
+        var node = new MDArrayTypeNode(
+            elementType,
+            shape.Rank,
+            shape.Sizes,
+            shape.LowerBounds);
         ObserveMaterialization(node.EstimatedRenderedLength);
         return node;
     }
@@ -294,7 +352,9 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
                 genericType.IsReferenceType,
                 typeArguments,
                 degradedGenericType: genericType.IsDegraded,
-                metadataName: metadataName);
+                metadataName: metadataName,
+                definitionAssemblyIdentity:
+                    ((NamedTypeNode)genericType).AssemblyIdentity);
         }
         else
         {
@@ -321,7 +381,9 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
                     rawName,
                     genericType.IsReferenceType,
                     typeArguments,
-                    structuralMetadataName: rawName);
+                    structuralMetadataName: rawName,
+                    definitionAssemblyIdentity:
+                        (genericType as NamedTypeNode)?.AssemblyIdentity);
             }
             else
             {
@@ -334,7 +396,9 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
                     typeArguments,
                     nestedSuffix,
                     genericType.IsDegraded,
-                    structuralMetadataName: rawName);
+                    structuralMetadataName: rawName,
+                    definitionAssemblyIdentity:
+                        (genericType as NamedTypeNode)?.AssemblyIdentity);
             }
         }
 

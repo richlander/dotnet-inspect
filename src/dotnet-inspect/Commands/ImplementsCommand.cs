@@ -88,7 +88,8 @@ public class ImplementsCommand
             // with the full unprojected result set.
             if (options.Count)
             {
-                WriteCount(results);
+                if (!WriteCount(targetType, results, options))
+                    return 1;
             }
             else if (options.JsonOutput)
             {
@@ -156,9 +157,19 @@ public class ImplementsCommand
             ImplementsCompactJsonContext.Default.ListImplementerJsonResult, compact);
     }
 
-    private static void WriteCount(List<ImplementerResult> results)
+    private static bool WriteCount(
+        string targetType,
+        List<ImplementerResult> results,
+        ImplementsOptions options)
     {
-        CountOutput.WriteCount(results.Count);
+        var view = ImplementsOutputFormatter.BuildView(targetType, results);
+        return CountOutput.TryWriteProjected(
+            view,
+            SearchViewContext.Default,
+            "Implementers",
+            options.Columns,
+            options.Fields,
+            options.Rows);
     }
 
     private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results, bool tabular, bool tsv, bool jsonl, bool noHeader, string[]? columns, string[]? fields, RowWindow? rows)

@@ -208,7 +208,8 @@ starting the next one, emit this report as the assistant's visible user-facing
 response in the terminal, filling every field and choosing exactly one feedback
 classification. Do not emit it through a shell command such as `printf`, leave
 it only in tool output, collapse it behind a tool-call summary, or replace it
-with a shorter completion summary:
+with a shorter completion summary. Do not put it in an interactive approval
+prompt:
 
 ```text
 Round <n> is complete for PR <number>.
@@ -218,14 +219,46 @@ Round <n> is complete for PR <number>.
 - Round end: <datetime>.
 - Round duration: <hours:minutes>
 
+Reviews: <clean>/<required> clean — <status by reviewer>
+Blocked: <PR or issue numbers not yours to fix; omit when empty>
+Recommendation: [continue, wait, merge, approve next rounds, stop (reason)]
+
 Fix description: <prose description of changes made in response to the round>.
 ```
 
-Use `Fix description` to state the concrete review-driven changes. For a `clean`
-classification, say that no findings or fixes were produced and that the locked
-head remained unchanged. For a no-fix round with dismissed findings, use
-`converging`, `diverging`, or `neutral` and explain the dismissals in the public
-reconciliation.
+Use `Fix description` to state the concrete review-driven changes.
+Classification must match the reviewer outcomes:
+
+- If every required reviewer returned no findings and the locked head remained
+  unchanged, use `clean`. Do not use `converging` as a generic positive label.
+- If any reviewer returned a finding, use `converging`, `diverging`, or
+  `neutral`, even when every finding was dismissed and the head stayed
+  unchanged. Explain dismissals in the public reconciliation.
+
+`Reviews` records the dual-clean count that GitHub cannot observe. Every
+`Blocked` entry must be an existing PR or issue; file one before citing a new
+shared failure.
+
+- `continue` means the next round is inside the current authorized six-round
+  block. Emit the report, then immediately begin the next candidate cycle. Do
+  not ask, set `HELP`, or wait for user input.
+- `wait` requires a non-empty blocker list and means the agent will resume when
+  it clears.
+- `approve next rounds` is valid only after rounds 6, 12, 18, and so on, after
+  the required architectural checkpoint. Never use it for an earlier round in
+  the current block.
+- `merge`, `approve next rounds`, and `stop` request a user decision; `stop`
+  does not close anything until approved.
+
+When the recommendation needs approval, render the complete report first as
+normal session output. Then open a separate prompt containing only the concise
+decision question and answer labels. Do not repeat the report or its evidence
+inside the prompt.
+
+Before emitting the report or opening its approval prompt, synchronize the PR's
+`ready-to-merge` and `carry-forward` labels with
+[Keep PR readiness labels current](../AGENTS.md#keep-pr-readiness-labels-current).
+The labels describe the state the report records; they must not lag behind it.
 
 The same report may also be posted on the PR; the public reconciliation may
 include more detail when the findings or fixes warrant it.
@@ -238,19 +271,23 @@ path applies and when it does not. This is the procedure once it does.
 
 1. **Detect movement.** Compare the candidate's recorded base tip with the live
    tip in `baseRef.target.oid`. `baseRefOid` is the base commit recorded for the
-   PR, not the live branch tip.
+   PR, not the live branch tip. Replace `ready-to-merge` with `carry-forward`
+   before beginning the analysis.
 2. **Inspect without integrating.** A non-mutating fetch is permitted solely to
    read the exact landed range.
-3. **Analyze and ask.** Report which commits touch files this change touches,
-   which behavior this change relies on that they alter, and any conflict a
-   textual merge would resolve silently but wrongly. Say plainly when nothing in
-   the range interacts — that is the common case and the most useful thing you
-   can report.
+3. **Report, then ask.** As normal session output, report which commits touch
+   files this change touches, which relied-on behavior they alter, and any
+   conflict a textual merge would resolve silently but wrongly. Say plainly
+   when nothing interacts. Remove `carry-forward` before reporting an outcome
+   where the path is unavailable. After that output is visible, open a separate
+   prompt that asks only whether to carry the clean reviews forward to the named
+   tip.
 4. **Execute the rule's decision.** Exactly one of its outcomes runs here: when
-   it authorizes carry-forward, integrate that exact analyzed tip by SHA, not a
-   moving branch ref, and re-run the claimed validation and current-head CI.
-   Every other outcome — declined, interacting, or that re-run failing — returns
-   to the rule for its terminal action, which this document does not restate.
+   it authorizes carry-forward, remove `carry-forward`, integrate that exact
+   analyzed tip by SHA, not a moving branch ref, and re-run the claimed
+   validation and current-head CI. Remove `carry-forward` when the user declines.
+   Every other outcome — interacting or that re-run failing — returns to the
+   rule for its terminal action, which this document does not restate.
 
 For an approved carry-forward, record the reviewed head, the old and approved
 new tips, the non-interaction analysis, and the user's decision on the PR.

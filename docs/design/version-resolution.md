@@ -8,6 +8,9 @@ The command modes, listing rules, source-scoped candidate caches, and
 payload-provenance rules describe current behavior. Package source mapping and
 the remaining source-policy boundaries are tracked by the
 [package source model](package-source-model.md).
+Result-limit and short-selector examples use the approved target contract from
+[Item and line limits](item-and-line-limits.md); those spellings remain
+unreleased until its implementation lands.
 
 ## Four modes
 
@@ -100,6 +103,17 @@ reuse a NuGet.org metadata cache entry for a same-named private package. Package
 acquisition and RID companion-package verification continue to follow the
 configured sources.
 
+RID companion verification prefers the package's standalone nuspec and falls
+back to the source's authoritative version index when a feed does not expose
+standalone nuspec documents. A version-list failure is reported as unknown,
+not as evidence that the companion package is absent. Cached companion
+identities are reverified without repeating filesystem inspection. RID
+availability is not persisted because it depends on the current source policy.
+The
+`VerifyAsync_VersionIndexFailureIsUnknown` and
+`InspectAsync_ReverifiesIndeterminateCachedRidAvailability` and
+`RidAvailability_IsNotPersisted` tests gate these properties.
+
 This describes the current gate. The target
 [package source model](package-source-model.md#enrichment-is-a-separate-capability)
 narrows it further when package source mapping is enabled: NuGet.org must be
@@ -176,7 +190,7 @@ endpoints and reports each native allocation occurrence pair:
 
 ```bash
 dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
-  -t Foo.Parser -m Parse \
+  --type Foo.Parser --member Parse \
   --finding analysis.allocation
 ```
 
@@ -189,7 +203,7 @@ can test whether a new direct call explains it:
 
 ```bash
 dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
-  -t Foo.Parser -m Parse \
+  --type Foo.Parser --member Parse \
   --finding analysis.call-site
 ```
 
@@ -202,7 +216,7 @@ To confirm a definite unsafe-operation boundary in the same method:
 
 ```bash
 dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
-  -t Foo.Parser -m Parse \
+  --type Foo.Parser --member Parse \
   --finding analysis.unsafety
 ```
 
@@ -278,7 +292,7 @@ listing, so verifying a known unlisted version reports it rather than
 feed), versions are reported as listed.
 
 `--include-unlisted` composes with the other `--versions` lenses. With a limit
-(`--versions 1 --include-unlisted`) it takes the listing-aware path. A pinned
+(`--versions -n 1 --include-unlisted`) it takes the listing-aware path. A pinned
 `Name@Version` and `Name@latest` still emit a one-row tagged table rather than a
 bare version, so the result always carries the `listed`/`unlisted` column the
 flag requests.
@@ -330,7 +344,7 @@ offline mode, and unsupported local feed URLs are not cached as misses.
 | Pinned package `.nupkg` extraction | Uses a global or app payload only when its recorded producer is eligible; downloads otherwise. |
 | Bare package version resolution | Uses the version-resolution cache with a 1-hour TTL, then NuGet. When producer-authorized local payloads exist, an uncached network lookup is bounded to one second and timeout diagnostics offer exact local pins; those diagnostic versions are never selected automatically, and package caches are still used only after a version is resolved. |
 | Bare package `--preview` resolution | Uses a separate prerelease-aware version-resolution cache with a 1-hour TTL, then NuGet. |
-| Single-version listing (`--version` or `--versions 1`) | Combines matching-flavor latest entries with uncached source listings. Without `--preview`, an empty stable listing stays empty rather than falling back to a prerelease. |
+| Single-version listing (`--version` or `--versions -n 1`) | Combines matching-flavor latest entries with uncached source listings. Without `--preview`, an empty stable listing stays empty rather than falling back to a prerelease. |
 | Wildcard version resolution | Uses the same version-list cache as `--versions` with a 1-hour TTL for nuget.org-backed sources. |
 | Addressable package range | Uses the version-list cache to resolve the vector; package caches are consulted only after a caller selects a cell. |
 | `@latest` package resolution | Always checks NuGet and bypasses version/metadata caches. |
@@ -342,7 +356,7 @@ offline mode, and unsupported local feed URLs are not cached as misses.
 | Successful `.snupkg` PDB extraction | Extracted PDB is cached permanently under `packages/symbols/{package}/{version}/`. |
 | Missing `.snupkg` URLs and `.snupkg` files without the requested PDB | Cached as misses for 1 day. The `.snupkg` archive itself is not retained. |
 | SourceLink audit source checks | Successful HEAD checks are cached permanently; 404s are cached as misses for 1 day. |
-| Selected-member `Original Source` downloads | Not cached by this command path. |
+| Selected-member `PDB Source` downloads | Not cached by this command path. |
 | `SourceLink: Availability` URL checks | Not cached by this command path. |
 | Service-index discovery for custom NuGet feeds | Not cached. nuget.org flat-container paths avoid this lookup. |
 | GitHub advisory enrichment | Not separately cached; it is covered when the package metadata cache is hit. |
@@ -396,7 +410,15 @@ and `PackageVersionVectorTests.ResolveAsync_FallsThroughFailedHttpSource`.
 
 `--versions-with-feed` keeps provenance that the merged views discard. It shows
 which feeds carry each coordinate, including a coordinate published by more than
-one feed.
+one feed. Under the target item-limit contract, its declared row is one
+`(version, feed)` observation, so `--versions-with-feed -n N` selects N rows.
+This differs from the released count-valued lens option, which selects N
+distinct versions and then emits every carrying feed. The primary version order
+is the containing Vector's order: newest-first for a bare package and caller
+direction for `Package@A..B`. Equal-version rows then sort by the credential-free
+canonical producer key in ordinal order. Presentation labels do not define this
+tie-breaker, and reversing source declaration order cannot change which rows an
+item limit selects.
 
 ### Listing status across sources
 

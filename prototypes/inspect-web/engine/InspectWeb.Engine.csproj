@@ -23,7 +23,6 @@
       BrowserEngineLayeringTests pins this wiring.
     -->
     <AdditionalFiles Include="BannedSymbols.txt" />
-    <ProjectReference Include="..\acquisition\InspectWeb.Acquisition.csproj" />
     <ProjectReference Include="..\..\..\src\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
     <ProjectReference Include="..\..\..\src\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
     <ProjectReference Include="..\..\..\src\DotnetInspector.ResearchQueries\DotnetInspector.ResearchQueries.csproj" />
@@ -48,12 +47,16 @@
 
   <Target Name="ValidateInspectWebFrontendBundle" BeforeTargets="ResolveProjectStaticWebAssets;PrepareForPublish">
     <Error Condition="!Exists('..\dist\index.html') Or !Exists('..\dist\manifest.json')" Text="The inspect-web frontend bundle is missing. Run 'npm ci' and 'npm run build' in prototypes/inspect-web before building or publishing." />
-    <Exec Command="node &quot;../scripts/verify-site-artifact.js&quot; &quot;../dist&quot;" WorkingDirectory="$(MSBuildProjectDirectory)" />
+    <Exec Command="node &quot;../scripts/verify-site-artifact.ts&quot; &quot;../dist&quot;" WorkingDirectory="$(MSBuildProjectDirectory)" />
   </Target>
 
   <Target Name="PublishInspectWebFrontendIndex" AfterTargets="ComputeAndCopyFilesToPublishDirectory">
     <Error Condition="'@(_HtmlPublishCandidates)' == ''" Text="The .NET SDK did not produce the inspect-web HTML placeholder artifact." />
     <Copy SourceFiles="@(_HtmlPublishCandidates)" DestinationFiles="@(_HtmlPublishCandidates->'$(PublishDir)wwwroot/index.html')" />
+  </Target>
+
+  <Target Name="VerifyPublishedInspectWebSite" AfterTargets="PublishInspectWebFrontendIndex">
+    <Exec Command="node &quot;../scripts/verify-site-artifact.ts&quot; &quot;$(PublishDir)wwwroot&quot;" WorkingDirectory="$(MSBuildProjectDirectory)" />
   </Target>
 
 </Project>

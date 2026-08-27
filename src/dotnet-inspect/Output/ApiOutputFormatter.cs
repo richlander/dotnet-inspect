@@ -12,6 +12,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using InertText;
 using Markout;
 
 using Decompiler = ILInspector.Decompiler;
@@ -64,51 +65,53 @@ public static class ApiOutputFormatter
                 ? options.IncludeSections is not { Count: > 0 }
                 : projectionActive);
 
-        var view = new CliApiSurface
+        var view = new CliApiSurface(
+            ApiViewText.OptionalField(api.Name),
+            descriptionText: null,
+            libraryText: ApiViewText.OptionalField(
+                showCompactFields ? api.Library : null),
+            sourceText: ApiViewText.OptionalField(
+                showCompactFields ? api.Source : null),
+            versionText: ApiViewText.OptionalField(
+                showCompactFields ? api.Version : null),
+            tfmText: ApiViewText.OptionalField(
+                showCompactFields ? api.Tfm : null))
         {
-            Name = api.Name,
-            Library = showCompactFields ? api.Library : null,
             Types = showCompactFields ? api.PublicTypeCount : null,
             Methods = showCompactFields ? api.PublicMethodCount : null,
             Properties = showCompactFields ? api.PublicPropertyCount : null,
-            Source = showCompactFields ? api.Source : null,
-            Version = showCompactFields ? api.Version : null,
-            Tfm = showCompactFields ? api.Tfm : null,
 
             // Deliberately the same values the compact fields list carries, not a second spelling
             // of them: this section is a promotion of that line into a selectable fixed section, so
             // a reader who selects it and a reader who reads the line must not see two different
             // answers to the same question.
-            ApiInfo = new ApiInfoSection
-            {
-                Assembly = api.Library,
-                Types = api.PublicTypeCount,
-                Methods = api.PublicMethodCount,
-                Properties = api.PublicPropertyCount,
-                Version = api.Version,
-                Tfm = api.Tfm,
-                Source = api.Source
-            }
+            ApiInfo = new ApiInfoSection(
+                ApiViewText.OptionalField(api.Library),
+                api.PublicTypeCount,
+                api.PublicMethodCount,
+                api.PublicPropertyCount,
+                ApiViewText.OptionalField(api.Version),
+                ApiViewText.OptionalField(api.Tfm),
+                ApiViewText.OptionalField(api.Source))
         };
 
         if (RendersInspectionFailures(api, options))
         {
             view.InspectionFailures = api.InspectionFailures
                 .Select(failure => new ApiInspectionFailureRow(
-                    failure.Operation,
-                    $"0x{failure.SubjectToken:X8}",
-                    failure.Mechanism.ToString(),
-                    failure.Kind,
-                    CSharpIdentifier.ContainRenderedText(
-                        failure.Detail),
+                    ApiViewText.Field(failure.Operation),
+                    ApiViewText.Field($"0x{failure.SubjectToken:X8}"),
+                    ApiViewText.Field(failure.Mechanism.ToString()),
+                    ApiViewText.Field(failure.Kind),
+                    ApiViewText.Field(failure.Detail),
                     failure.SubjectAssembly is null
                         ? null
-                        : CSharpIdentifier.ContainRenderedText(
+                        : ApiViewText.Field(
                             AssemblyIdentityFormatter.Format(
                                 failure.SubjectAssembly)),
                     failure.DependencyAssembly is null
                         ? null
-                        : CSharpIdentifier.ContainRenderedText(
+                        : ApiViewText.Field(
                             AssemblyIdentityFormatter.Format(
                                 failure.DependencyAssembly))))
                 .ToList();
@@ -118,7 +121,8 @@ public static class ApiOutputFormatter
         {
             if (api.TypeForwarders.Count > 0)
             {
-                view.Description = "This library contains no public types. Type forwarders could not be resolved.";
+                view.DescriptionText = ApiViewText.Field(
+                    "This library contains no public types. Type forwarders could not be resolved.");
                 view.TypeForwarders = api.TypeForwarders
                     .GroupBy(f => f.TargetAssembly)
                     .OrderBy(g => g.Key)
@@ -127,14 +131,16 @@ public static class ApiOutputFormatter
             }
             else
             {
-                view.Description = "This library contains no public types.";
+                view.DescriptionText = ApiViewText.Field(
+                    "This library contains no public types.");
             }
         }
         else if (options.Verbosity != Verbosity.Quiet
             || options.IncludeSections is { Count: > 0 })
         {
             if (api.IsTypeForwardingAssembly)
-                view.Description = "*This is a type-forwarding library. Types shown are resolved from target libraries.*";
+                view.DescriptionText = ApiViewText.Field(
+                    "*This is a type-forwarding library. Types shown are resolved from target libraries.*");
 
             var showDocs = options.ShowDocs
                 || ProjectionDiagnostics.MatchesAny(options.Columns, "Description", "Kind");
@@ -176,7 +182,7 @@ public static class ApiOutputFormatter
                 : group;
             var rows = orderedTypes.Select(t =>
             {
-                var fullName = FormatGenericFullName(t);
+                var fullName = FormatGenericFullNameText(t);
                 var members = t.Members.Count.ToString();
                 string? desc = null;
                 if (showDocs)
@@ -185,7 +191,11 @@ public static class ApiOutputFormatter
                     desc = desc.ReplaceLineEndings(" ");
                     if (desc.Length > 80) desc = desc[..77] + "...";
                 }
-                return new TypeSummaryRow(group.Key, MarkoutInline.Code(fullName), members, desc);
+                return new TypeSummaryRow(
+                    ApiViewText.Field(group.Key),
+                    MarkoutInline.CodeText(ApiViewText.Field(fullName)),
+                    ApiViewText.Field(members),
+                    desc);
             }).ToList();
 
             switch (group.Key)
@@ -255,9 +265,17 @@ public static class ApiOutputFormatter
         var effectiveVerbosity = options.Verbosity;
 
         var pipeline = ApiMemberSectionPipelines.Create(options);
-        var selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
+        var sectionsPreResolved = options is MemberOptions { MemberSectionsPreResolved: true };
+        var selectAll = SelectResolver.IsActiveAllSelector(
+            options.Select,
+            options.IncludeSections,
+            sectionsPreResolved);
         var includeSections = pipeline.ComputeIncludeSections(
-            type, effectiveVerbosity, options.IncludeSections, selectAll);
+            type,
+            effectiveVerbosity,
+            options.IncludeSections,
+            selectAll,
+            explicitInclude: sectionsPreResolved);
         if (ShouldRenderMemberDetailContext(options) && includeSections is { Count: > 0 }
             && !includeSections.Contains(SectionNames.Summary))
             includeSections = [SectionNames.Summary, .. includeSections];
@@ -284,8 +302,14 @@ public static class ApiOutputFormatter
     internal static bool ShouldRenderMemberDetailContext(ApiOptions options) =>
         options is MemberOptions { OverloadIndex: not null }
         && options.IncludeSections is { Count: > 0 }
-        && !SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
-        && !SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
+        && !SelectResolver.IsActiveAllSelector(
+            options.Select,
+            options.IncludeSections,
+            options is MemberOptions { MemberSectionsPreResolved: true })
+        && !SelectResolver.IsActiveInfoSelector(
+            options.SelectDefault,
+            options.IncludeSections,
+            options is MemberOptions { MemberSectionsPreResolved: true })
         && !options.Count
         && !options.JsonOutput
         && !options.Tabular;
@@ -308,7 +332,10 @@ public static class ApiOutputFormatter
         options.Verbosity != Verbosity.Minimal
         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options)
         || SectionRequested(options.IncludeSections, SectionNames.Methods)
-        || (!SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
+        || (!SelectResolver.IsActiveInfoSelector(
+                options.SelectDefault,
+                options.IncludeSections,
+                options is MemberOptions { MemberSectionsPreResolved: true })
             && (SectionRequested(options.IncludeSections, SectionNames.Operators)
                 || SectionRequested(options.IncludeSections, SectionNames.ExplicitInterfaceImplementations)
                 || SectionRequested(options.IncludeSections, SectionNames.ExtensionMethods)))
@@ -328,7 +355,10 @@ public static class ApiOutputFormatter
         options.Verbosity == Verbosity.Minimal
         && !ShouldRenderMemberRows(options)
         && (options.IncludeSections is null
-            || SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections));
+            || SelectResolver.IsActiveInfoSelector(
+                options.SelectDefault,
+                options.IncludeSections,
+                options is MemberOptions { MemberSectionsPreResolved: true }));
 
     /// <summary>
     /// True when the type-listing tabular view must project the fixed fact table rather than type
@@ -357,6 +387,12 @@ public static class ApiOutputFormatter
 
     internal static bool ShouldRenderSectionedTabularView(ApiType type, ApiOptions options)
     {
+        if (options is MemberOptions
+            {
+                MemberSectionsPreResolved: true,
+                IncludeSections.Count: 0
+            })
+            return true;
         if (options.IncludeSections is { Count: 1 })
             return true;
         if (!ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options))
@@ -1881,7 +1917,9 @@ public static class ApiOutputFormatter
             if (code.Attributes is { Count: > 0 } attributes)
             {
                 view.MethodAttributeRows = attributes
-                    .Select(a => new MethodAttributeRow(a.Name, a.Value ?? ""))
+                    .Select(a => new MethodAttributeRow(
+                        new InertString(TextPolicy.Field, a.Name),
+                        new InertString(TextPolicy.Field, a.Value ?? "")))
                     .ToList();
             }
 
@@ -3055,7 +3093,11 @@ public static class ApiOutputFormatter
     /// identity rather than presentation (issue #3319).
     /// </summary>
     internal static string FormatGenericFullName(ApiType type)
-        => CSharpIdentifier.ContainRenderedText(MetadataTypeNameFormatter.FormatFullName(type));
+        => CSharpIdentifier.ContainRenderedText(
+            FormatGenericFullNameText(type));
+
+    private static string FormatGenericFullNameText(ApiType type) =>
+        MetadataTypeNameFormatter.FormatFullName(type);
 
     internal static string GetMemberSignatureSortKey(ApiMember member)
         => ApiMemberIdentity.GetMemberSignatureSortKey(member);
@@ -3153,19 +3195,29 @@ public static class ApiOutputFormatter
             var m = e.members[0];
             var returnType = e.kind switch
             {
-                "constructor" or "finalizer" => "",
-                "event" => CSharpIdentifier.ContainRenderedText(m.ReturnType ?? m.Signature ?? ""),
-                _ => MemberReturnType(m)
+                "constructor" or "finalizer" => ApiViewText.Field(""),
+                "event" => ApiViewText.Field(
+                    m.ReturnType ?? m.Signature ?? ""),
+                _ => ApiViewText.Field(MemberReturnTypeText(m))
             };
             var detail = e.kind switch
             {
-                "property" => MemberAccessors(m),
-                "constructor" or "method" or "operator" or "explicit-interface-implementation" or "extension-method" when e.members.Count > 1 => e.members.Count.ToString(),
-                "constructor" or "method" or "operator" or "explicit-interface-implementation" or "extension-method" when e.members.Count == 1 => MemberParameterTypes(m),
-                _ => ""
+                "property" => ApiViewText.Field(
+                    MemberAccessorsText(m)),
+                "constructor" or "method" or "operator" or "explicit-interface-implementation" or "extension-method" when e.members.Count > 1 =>
+                    ApiViewText.Field(e.members.Count.ToString()),
+                "constructor" or "method" or "operator" or "explicit-interface-implementation" or "extension-method" when e.members.Count == 1 =>
+                    ApiViewText.Field(
+                        MemberParameterTypesText(m)),
+                _ => ApiViewText.Field("")
             };
             var kindLabel = m.Accessibility != null ? $"{m.Accessibility} {e.kind}" : e.kind;
-            return new ApiTableRow(kindLabel, OperatorNames.FormatDisplayName(m.Name), returnType, detail);
+            return new ApiTableRow(
+                ApiViewText.Field(kindLabel),
+                ApiViewText.Field(
+                    OperatorNames.FormatDisplayNameUntreated(m.Name)),
+                returnType,
+                detail);
         }).ToList();
 
         return (new ApiTypeTableView { Rows = rows }, truncated);
@@ -3174,21 +3226,30 @@ public static class ApiOutputFormatter
     /// <inheritdoc cref="GetMemberDisplaySignature"/>
     private static string MemberReturnType(ApiMember member)
         => CSharpIdentifier.ContainRenderedText(
-            member.SignatureModel?.ReturnType
-            ?? member.ReturnType
-            ?? SignatureParser.ExtractReturnType(member.Signature));
+            MemberReturnTypeText(member));
+
+    private static string MemberReturnTypeText(ApiMember member) =>
+        member.SignatureModel?.ReturnType
+        ?? member.ReturnType
+        ?? SignatureParser.ExtractReturnType(member.Signature);
 
     /// <inheritdoc cref="GetMemberDisplaySignature"/>
     private static string MemberAccessors(ApiMember member)
         => CSharpIdentifier.ContainRenderedText(
-            member.SignatureModel?.PublicAccessorsSummary
-            ?? SignatureParser.ExtractAccessors(member.Signature));
+            MemberAccessorsText(member));
+
+    private static string MemberAccessorsText(ApiMember member) =>
+        member.SignatureModel?.PublicAccessorsSummary
+        ?? SignatureParser.ExtractAccessors(member.Signature);
 
     /// <inheritdoc cref="GetMemberDisplaySignature"/>
     private static string MemberParameterTypes(ApiMember member)
         => CSharpIdentifier.ContainRenderedText(
-            member.SignatureModel?.ParameterTypesSummary
-            ?? SignatureParser.ExtractParamList(member.Signature));
+            MemberParameterTypesText(member));
+
+    private static string MemberParameterTypesText(ApiMember member) =>
+        member.SignatureModel?.ParameterTypesSummary
+        ?? SignatureParser.ExtractParamList(member.Signature);
 
     /// <summary>
     /// Builds a unified tabular view for a full API surface (all types).
@@ -3226,9 +3287,11 @@ public static class ApiOutputFormatter
                     }
                 }
                 return new ApiSurfaceTableRow(
-                    t.Kind,
-                    MarkoutInline.Code(FormatGenericFullName(t)),
-                    t.Members.Count.ToString(),
+                    ApiViewText.Field(t.Kind),
+                    MarkoutInline.CodeText(
+                        ApiViewText.Field(
+                            FormatGenericFullNameText(t))),
+                    ApiViewText.Field(t.Members.Count.ToString()),
                     desc);
             })
             .ToList();
