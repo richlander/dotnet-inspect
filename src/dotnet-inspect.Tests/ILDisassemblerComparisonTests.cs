@@ -217,6 +217,42 @@ public class ILDisassemblerComparisonTests
         }
     }
 
+    [Fact]
+    public void CanonicalIL_UnrepresentableArrayShape_IsRejectedByILAsm()
+    {
+        Assert.SkipUnless(HasILAsm, "ildasm/ilasm not found — install them with `source eng/activate-iltools.sh`");
+
+        string rendered = ArrayShapeText.Format(
+            "int32",
+            new ArrayShape(1, [6], []));
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"array-shape-rejection-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            string ilPath = Path.Combine(tempDir, "invalid.il");
+            string outputDll = Path.Combine(tempDir, "invalid.dll");
+            File.WriteAllText(
+                ilPath,
+                $$"""
+                .assembly invalid { }
+                .class public Shapes {
+                  .method public static void M({{rendered}} a) cil managed { ret }
+                }
+                """);
+
+            Assert.False(
+                TryRunTool("ilasm", [ilPath, "-dll", $"-output={outputDll}", "-quiet"]));
+            Assert.False(File.Exists(outputDll));
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
     /// <summary>
     /// Assembles a class with one static method per spelling, then returns each method's raw
     /// signature blob alongside the parameter type as <c>CanonicalIL</c> renders it.

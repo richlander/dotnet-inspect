@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Reflection.Metadata;
 using System.Text;
@@ -38,6 +39,10 @@ namespace ILInspector.Metadata;
 /// </remarks>
 public static class ArrayShapeText
 {
+    const int MaxEncodedSize = 0x1fffffff;
+    const int MinEncodedLowerBound = -0x10000000;
+    const int MaxEncodedLowerBound = 0x0fffffff;
+
     /// <summary>
     /// The largest array rank the CLI can load, and so the largest this renders faithfully.
     /// </summary>
@@ -78,7 +83,8 @@ public static class ArrayShapeText
 
     /// <summary>
     /// <paramref name="elementType"/> followed by <paramref name="shape"/> in IL-assembler
-    /// syntax, or a marker when the shape could not belong to a loadable array.
+    /// syntax, or a visibly non-assembling marker when the shape is malformed or cannot be
+    /// represented faithfully in ILAsm syntax.
     /// </summary>
     /// <remarks>
     /// ILAsm spells a rank-1 multi-dimensional array <c>int32[...]</c>, distinct from the vector
@@ -87,33 +93,60 @@ public static class ArrayShapeText
     /// <c>ILDisassemblerComparisonTests.CanonicalIL_ArraySpellings_ReassembleToTheSameSignature</c>
     /// gates the rank, size, and lower-bound spellings by reassembling them and requiring
     /// byte-identical signature blobs.
+    /// <c>ILDisassemblerComparisonTests.CanonicalIL_UnrepresentableArrayShape_IsRejectedByILAsm</c>
+    /// gates the failure marker by requiring native ILAsm to reject it.
     /// </remarks>
     public static string Format(string elementType, ArrayShape shape)
     {
         int rank = shape.Rank;
         if (!IsLoadableRank(rank))
-            return $"{elementType}[/* invalid rank {Invariant(rank)} */]";
+            return Failure(elementType, $"invalid rank {Invariant(rank)}");
 
         if (shape.Sizes.Length > rank)
-            return $"{elementType}[/* invalid size count {Invariant(shape.Sizes.Length)} for rank {Invariant(rank)} */]";
+        {
+            return Failure(
+                elementType,
+                $"invalid size count {Invariant(shape.Sizes.Length)} for rank {Invariant(rank)}");
+        }
 
         if (shape.LowerBounds.Length > rank)
-            return $"{elementType}[/* invalid lower-bound count {Invariant(shape.LowerBounds.Length)} for rank {Invariant(rank)} */]";
+        {
+            return Failure(
+                elementType,
+                $"invalid lower-bound count {Invariant(shape.LowerBounds.Length)} for rank {Invariant(rank)}");
+        }
 
         for (int dimension = 0; dimension < shape.Sizes.Length; dimension++)
         {
             int size = shape.Sizes[dimension];
-            if (size < 0)
+            if (size < 0 || size > MaxEncodedSize)
             {
-                return $"{elementType}[/* invalid size {Invariant(size)} at dimension "
-                    + $"{Invariant(dimension)} */]";
+                return ShapeFailure(
+                    elementType,
+                    $"invalid size {Invariant(size)} at dimension {Invariant(dimension)}",
+                    shape);
+            }
+        }
+
+        for (int dimension = 0; dimension < shape.LowerBounds.Length; dimension++)
+        {
+            int lowerBound = shape.LowerBounds[dimension];
+            if (lowerBound < MinEncodedLowerBound || lowerBound > MaxEncodedLowerBound)
+            {
+                return ShapeFailure(
+                    elementType,
+                    $"invalid lower bound {Invariant(lowerBound)} at dimension {Invariant(dimension)}",
+                    shape);
             }
         }
 
         if (shape.Sizes.Length > shape.LowerBounds.Length)
         {
-            return $"{elementType}[/* unrepresentable shape: {Invariant(shape.Sizes.Length)} sizes, "
-                + $"{Invariant(shape.LowerBounds.Length)} lower bounds */]";
+            return ShapeFailure(
+                elementType,
+                $"unrepresentable shape: {Invariant(shape.Sizes.Length)} sizes, "
+                    + $"{Invariant(shape.LowerBounds.Length)} lower bounds",
+                shape);
         }
 
         var text = new StringBuilder(elementType);
@@ -133,8 +166,11 @@ public static class ArrayShapeText
                 {
                     if (dimension == shape.Sizes.Length - 1)
                     {
-                        return $"{elementType}[/* unrepresentable zero size with lower bound "
-                            + $"{Invariant(lowerBound)} at dimension {Invariant(dimension)} */]";
+                        return ShapeFailure(
+                            elementType,
+                            $"unrepresentable zero size with lower bound {Invariant(lowerBound)} "
+                                + $"at dimension {Invariant(dimension)}",
+                            shape);
                     }
 
                     text.Append(Invariant(lowerBound));
@@ -164,6 +200,32 @@ public static class ArrayShapeText
 
         text.Append(']');
         return text.ToString();
+    }
+
+    static string Failure(string elementType, string detail)
+        => $"{elementType}[/* {detail} */ invalid]";
+
+    static string ShapeFailure(string elementType, string detail, ArrayShape shape)
+    {
+        var text = new StringBuilder(elementType);
+        text.Append("[/* ");
+        text.Append(detail);
+        text.Append("; sizes=[");
+        AppendValues(text, shape.Sizes);
+        text.Append("], lower bounds=[");
+        AppendValues(text, shape.LowerBounds);
+        text.Append("] */ invalid]");
+        return text.ToString();
+    }
+
+    static void AppendValues(StringBuilder text, ImmutableArray<int> values)
+    {
+        for (int i = 0; i < values.Length; i++)
+        {
+            if (i > 0)
+                text.Append(',');
+            text.Append(Invariant(values[i]));
+        }
     }
 
     static string Invariant(int value) => value.ToString(CultureInfo.InvariantCulture);

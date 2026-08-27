@@ -137,6 +137,24 @@ public class IlBodyDiffNormalizationTests
     }
 
     [Fact]
+    public void CompareMembers_DistinguishesUnrepresentableArrayOperandShapes()
+    {
+        var oldImage = BuildCallImage(
+            "Shapes",
+            "Library",
+            targetSignature: ArrayParameterSignature(size: 6));
+        var newImage = BuildCallImage(
+            "Shapes",
+            "Library",
+            targetSignature: ArrayParameterSignature(size: 7));
+
+        var diff = CompareImages(oldImage, newImage);
+
+        Assert.Equal(IlBodyDiffOutcome.OperandDiff, diff.Outcome);
+        Assert.False(diff.IsExact);
+    }
+
+    [Fact]
     public void CompareStreams_AppliesRequestedNormalization()
     {
         using var oldStream = new MemoryStream(BuildCallImage("Old", "System.Runtime"));
@@ -275,7 +293,8 @@ public class IlBodyDiffNormalizationTests
         string assemblyName,
         string? referenceAssemblyName = null,
         string? memberName = null,
-        string? typeName = null)
+        string? typeName = null,
+        byte[]? targetSignature = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -313,7 +332,7 @@ public class IlBodyDiffNormalizationTests
             target = metadata.AddMemberReference(
                 type,
                 metadata.GetOrAddString(memberName ?? (selfReference ? "Caller" : "Target")),
-                metadata.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x01 }));
+                metadata.GetOrAddBlob(targetSignature ?? [0x00, 0x00, 0x01]));
         }
 
         metadata.AddTypeDefinition(
@@ -333,6 +352,8 @@ public class IlBodyDiffNormalizationTests
 
         var il = new BlobBuilder();
         var encoder = new InstructionEncoder(il, new ControlFlowBuilder());
+        if (targetSignature is not null)
+            encoder.OpCode(ILOpCode.Ldnull);
         encoder.Call(target);
         encoder.OpCode(ILOpCode.Ret);
         var methodBodies = new BlobBuilder();
@@ -354,6 +375,19 @@ public class IlBodyDiffNormalizationTests
         pe.Serialize(image);
         return image.ToArray();
     }
+
+    static byte[] ArrayParameterSignature(byte size) =>
+    [
+        0x00, // default method signature
+        0x01, // one parameter
+        0x01, // void return type
+        0x14, // ARRAY
+        0x08, // int32 element type
+        0x01, // rank 1
+        0x01, // one size
+        size,
+        0x00, // no lower bounds
+    ];
 
     static byte[] BuildStringImage(string assemblyName, string value)
     {
