@@ -58,7 +58,7 @@ policy to this document.
 
 | Owner | Existing authority | Immediate composition obligation | Non-claim |
 | --- | --- | --- | --- |
-| Resolved assembly reference | Selected managed-assembly identity and guarded repeatable content access | Supply the exact selected assembly and owner-issued provenance to the inspection session | Does not own artifact acquisition or PE lifetime |
+| Resolved assembly reference | Selected managed-assembly identity, guarded repeatable content access, and the current opaque acquisition registration | Supply selected-entry identity and content to Metadata's candidate-open validation before session construction | Does not own artifact acquisition, adapter provenance, or PE lifetime |
 | Assembly inspection session | One opened PE lifetime and session-scoped operations | Keep the reader/image coherent and live while Metadata materializes escaping facts | Does not own artifact identity, assembly selection, or Metadata facts |
 | `ILInspector.MetadataPrimitives` | Bounded SRM mechanics, neutral structural identity, raw MethodSemantics rows, and work budgets | Return typed rejection or exhaustion without display or fallback policy | Does not own API identity, fidelity, or reconstruction |
 | `ILInspector.Metadata` | Metadata facts, API models, declaration identity, operator classification, MethodImpl relationships, cross-reader method correspondence, and PDB correlations | Materialize reader-local evidence into owner-issued facts carrying every discriminator required by declared consumers | Does not decide body fidelity or render C# |
@@ -80,10 +80,19 @@ layer to reference a higher one.
 
 The upstream artifact and workspace contracts resolve one managed assembly
 without being restated here. This map begins with their
-`ResolvedAssemblyReference`. An `AssemblyInspectionSession` opens that exact
-content and owns the PE lifetime. Reader-local handles are valid only inside
-that session. MetadataPrimitives performs bounded mechanical reads; Metadata
-turns those reads into native facts before the reader lifetime ends.
+`ResolvedAssemblyReference`; [Assembly inspection query](assembly-inspection-query.md)
+owns that seam. The current
+[assembly candidate contract](type-forwarding-resolution.md#assembly-candidate)
+requires Metadata's candidate-open path to validate the selected-entry identity
+against opened content and retain one immutable snapshot plus its opaque
+acquisition registration. An
+`AssemblyInspectionSession` opens that validated snapshot and owns the PE
+lifetime. The direct reference-to-session compatibility overload does not
+perform that validation. The target artifact migration replaces its unguarded
+opener and Metadata-owned source provenance; this map does not reassign that
+migration to the session. Reader-local handles are valid only inside that
+session. MetadataPrimitives performs bounded mechanical reads; Metadata turns
+those reads into native facts before the reader lifetime ends.
 
 Any value that leaves the reader scope carries enough owner-issued context to
 prevent a handle, token, or structural signature from being interpreted in
@@ -264,22 +273,7 @@ to identify its focused owner, not add the decision to the nearest consumer.
 Implementation resumes through owner-sized contracts. The order reflects data
 dependencies; independent documentation and prototypes may proceed in parallel.
 
-### 1. Assembly inspection content receipt
-
-**Owner:** `AssemblyInspectionSession`.
-
-**Owning document:**
-[Artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md).
-
-**Claim:** define how a session receives a `ResolvedAssemblyReference` and
-retains or verifies the binding among selected assembly identity, owner-issued
-provenance, and the exact opened content, with a non-vacuity gate that rejects
-content substitution.
-
-**Non-claims:** artifact storage, source selection, acquisition authorization,
-or Metadata fact construction.
-
-### 2. Metadata relationship evidence
+### 1. Metadata relationship evidence
 
 **Owner:** `ILInspector.Metadata`.
 
@@ -292,7 +286,7 @@ required by declared consumers, including typed semantic refusal.
 
 **Non-claims:** body spellability, donor planning, C# rendering, and `Exact`.
 
-### 3. MetadataPrimitives bounded rejection
+### 2. MetadataPrimitives bounded rejection
 
 **Owner:** `ILInspector.MetadataPrimitives`.
 
@@ -305,7 +299,7 @@ Metadata consumers.
 **Non-claims:** Metadata projection receipt, semantic classification, and
 consumer presentation.
 
-### 4. Metadata bounded-rejection receipt
+### 3. Metadata bounded-rejection receipt
 
 **Owner:** `ILInspector.Metadata`.
 
@@ -318,7 +312,7 @@ MetadataPrimitives rejection without turning exhaustion into ordinary absence.
 **Non-claims:** traversal mechanics, budget construction, filtering strategy,
 index implementation, and higher-consumer presentation.
 
-### 5. Analysis body and call-site operator evidence
+### 4. Analysis body and call-site operator evidence
 
 **Owner:** `ILInspector.Analysis`.
 
@@ -333,7 +327,7 @@ changing `MethodIdentity` or `MemberRef` equality accidentally.
 **Non-claims:** API classification, C# representability, decompiler
 spellability, and compile-back fidelity.
 
-### 6. Research body-identity receipt
+### 5. Research body-identity receipt
 
 **Owner:** `ILInspector.Research`.
 
@@ -347,7 +341,7 @@ reconstructing, strengthening, or dropping its unknown state.
 **Non-claims:** Analysis fact construction, API identity, and compile-back
 fidelity.
 
-### 7. CSharp declaration representability
+### 6. CSharp declaration representability
 
 **Owner:** `ILInspector.CSharp`.
 
@@ -361,7 +355,7 @@ forms.
 
 **Non-claims:** Metadata fact construction, body projection, and donor closure.
 
-### 8. Decompiler operator consumption
+### 7. Decompiler operator consumption
 
 **Owner:** `ILInspector.Decompiler`.
 
@@ -375,7 +369,7 @@ document remains supporting mechanics, not a second owner.
 **Non-claims:** Metadata or Analysis classification, declaration
 representability, API display, and artifact closure.
 
-### 9. CLI classified-member projection
+### 8. CLI classified-member projection
 
 **Owner:** CLI/output.
 
@@ -388,7 +382,7 @@ display spelling without parsing `op_*` names.
 **Non-claims:** member classification, C# declaration representability, and
 body fidelity.
 
-### 10. Cross-reader method correspondence
+### 9. Cross-reader method correspondence
 
 **Owner:** `ILInspector.Metadata`.
 
@@ -402,7 +396,7 @@ address or `Absent`, `Ambiguous`, or `Failed`.
 **Non-claims:** changing API or body identity construction, round-trip receipt,
 diff semantics, and final fidelity classification.
 
-### 11. Round-trip correspondence receipt
+### 10. Round-trip correspondence receipt
 
 **Owner:** current `DotnetInspector.RoundTripCompilation` consumer.
 
@@ -416,7 +410,7 @@ preserving every non-exact state.
 **Non-claims:** Metadata correspondence semantics, long-term request/result
 ownership, product diff semantics, and ReturnToSender's final verdict.
 
-### 12. ReturnToSender obligations and verdict
+### 11. ReturnToSender obligations and verdict
 
 **Owner:** ReturnToSender.
 
@@ -439,8 +433,8 @@ verdict to the engine.
 There is no ownerless integration successor. Each immediate consumer owns the
 receipt test for its incoming handoff:
 
-- AssemblyInspectionSession gates the binding from resolved assembly identity
-  and provenance to opened content;
+- Metadata's candidate-open path gates selected-entry identity against immutable
+  opened content before session construction;
 - Metadata gates MetadataPrimitives/bounded-traversal rejection into its
   projection and degraded-fact results;
 - Analysis gates Metadata-to-Analysis fact adaptation;
@@ -463,7 +457,8 @@ per-row status is authoritative.
 
 | Target invariant | Evidence or required gate | Status |
 | --- | --- | --- |
-| Resolved assembly identity and provenance stay bound to session-opened content | None; the AssemblyInspectionSession receipt successor must add a content-substitution non-vacuity gate | Planned and unverified |
+| Selected-entry assembly identity matches retained snapshot content before workspace session use | `InspectionWorkspaceTests.DescriptorIdentityMismatch_IsReportedAsInvalidImage` | Enforced on `main` for the snapshot-backed workspace path; the direct reference-to-session compatibility overload is ungated |
+| Target artifact identity, acquisition registration, and authorized access stay bound to admitted snapshot content | `ArtifactAdmission_ProjectsAssembliesThroughAuthorizedLease`, `ArtifactDescriptor_ExposesNoUnguardedContentRoute`, and `ArtifactOpen_RejectsContentSubstitutionAfterAdmission` | Planned and unverified by [Artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md) |
 | Analysis operator evidence preserves unknown MemberRefs | `MetadataOperatorFactTests.CrossAssemblyMemberReferences_StayUnknown` | Candidate only; unverified on `main` |
 | Body operator identity and spelling stay separate | `UnresolvedKnownFrameworkOperatorDelegateTarget_DegradesToPartial`, `UnresolvedKnownFrameworkOperatorCall_StaysFull` | Candidate only; unverified on `main` |
 | CLI operator display consumes typed classification | `PopulateMemberSections_FormatsOnlyTypedOperatorsAsOperators` | Candidate only; unverified on `main` |
@@ -489,7 +484,7 @@ Each focused successor must:
 The named immediate consumers must collectively include at least one seam
 specimen for each of these paths:
 
-- resolved assembly identity/provenance to exact session-opened content;
+- selected-entry assembly identity to immutable content before session opening;
 - Metadata operator fact to CSharp declaration representability;
 - Analysis operator fact to Research/body projection;
 - owner-issued operator fact to Decompiler body fidelity;
