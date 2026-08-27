@@ -357,6 +357,20 @@ approval. Before requesting approval, present the component map, explain why
 focused designs cannot close independently, and name the intended claims and
 non-claims.
 
+### Keep specifications readable; model interactions
+
+Design specifications own detailed requirements, component boundaries, and
+policies. Keep them readable as prose and typed contracts; do not turn them
+into unconventional EBNF-like descriptions of operational behavior. When a
+feature's correctness depends on significant stateful, concurrent, distributed,
+or scheduling interactions, prefer a small TLA+ model that states the relevant
+safety and liveness properties and model-check it before implementation. Use
+the model to evaluate whether the interaction or algorithm is effective, and
+keep the design specification focused on what the system must guarantee. Link
+the model from the owning design and record the checked properties and any
+material counterexamples; the model supplements rather than replaces the
+readable specification.
+
 ### Reviewing focused designs
 
 Review a focused design against its named owner, owning document, immediate
