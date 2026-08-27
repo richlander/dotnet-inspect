@@ -758,6 +758,10 @@ const state: AppState = initialState;
 let failedWorkspaceUrlPreservation: {
   url: string;
   projection: string;
+  routeFailureNotice?: {
+    previous: string;
+    appended: string;
+  };
 } | null = null;
 
 interface CanonicalWorkspaceRestoreSnapshot {
@@ -6768,6 +6772,15 @@ function goHome() {
   state.memberCallGraphExpanding = false;
   invalidateGraphMemberNavigation();
   clearNavigationError();
+  const routeFailureNotice =
+    failedWorkspaceUrlPreservation?.routeFailureNotice;
+  if (routeFailureNotice) {
+    state.queryNotice = removeAppendedNotice(
+      state.queryNotice,
+      routeFailureNotice.previous,
+      routeFailureNotice.appended);
+    failedWorkspaceUrlPreservation = null;
+  }
   state.credits = false;
   state.home = true;
   spotlight.reset();
@@ -9208,10 +9221,15 @@ function failWorkspaceRoute(
     state.errorTitle = "";
     state.errorDetail = "";
     state.retryAction = null;
+    const previousNotice = state.queryNotice;
     appendQueryNotice(`Package route failed: ${message}`);
     failedWorkspaceUrlPreservation = {
       url: location.href,
       projection: workspaceUrlProjection(),
+      routeFailureNotice: {
+        previous: previousNotice,
+        appended: state.queryNotice,
+      },
     };
     render();
     return;

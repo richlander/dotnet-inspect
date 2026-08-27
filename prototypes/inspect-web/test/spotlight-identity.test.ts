@@ -2545,10 +2545,10 @@ test("malformed package routes use the contained restore failure path", () => {
     ?? "";
   assert.match(
     failure,
-    /if \(snapshot\?\.hasWorkspace\)[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\)[\s\S]*appendQueryNotice\(`Package route failed: \$\{message\}`\)[\s\S]*state\.errorTitle = "Package route failed";[\s\S]*state\.error = message;[\s\S]*state\.retryAction = retryUnavailable/);
+    /if \(snapshot\?\.hasWorkspace\)[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\)[\s\S]*const previousNotice = state\.queryNotice;\s*appendQueryNotice\(`Package route failed: \$\{message\}`\)[\s\S]*routeFailureNotice: \{\s*previous: previousNotice,\s*appended: state\.queryNotice,[\s\S]*state\.errorTitle = "Package route failed";[\s\S]*state\.error = message;[\s\S]*state\.retryAction = retryUnavailable/);
   assert.match(
     appSource,
-    /function goHome\(\) \{[\s\S]*invalidateGraphMemberNavigation\(\);\s*clearNavigationError\(\);[\s\S]*workspaceLocation\.push\("\/"\);[\s\S]*render\(\)/);
+    /function goHome\(\) \{[\s\S]*invalidateGraphMemberNavigation\(\);\s*clearNavigationError\(\);\s*const routeFailureNotice =\s*failedWorkspaceUrlPreservation\?\.routeFailureNotice;\s*if \(routeFailureNotice\) \{\s*state\.queryNotice = removeAppendedNotice\(\s*state\.queryNotice,\s*routeFailureNotice\.previous,\s*routeFailureNotice\.appended\);\s*failedWorkspaceUrlPreservation = null;\s*\}[\s\S]*workspaceLocation\.push\("\/"\);[\s\S]*render\(\)/);
   assert.match(
     appSource,
     /state\.retryAction === retryUnavailable\s*\? ""\s*: `<button id="retry-load" type="button">retry<\/button>`/);
