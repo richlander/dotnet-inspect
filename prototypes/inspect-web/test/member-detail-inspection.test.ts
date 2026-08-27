@@ -446,11 +446,12 @@ test("documentation hydration mutates only the application projection", async ()
   const coordinator = createMemberDetailInspectionCoordinator(
     inspectionDependencies(state));
 
-  await coordinator.loadDocumentation(documentationRequest(overload));
-
   assert.notEqual(overload.parameters, wire.parameters);
   assert.notEqual(overload.parameters[0], wire.parameters[0]);
   assert.notEqual(overload.exceptions, wire.exceptions);
+
+  await coordinator.loadDocumentation(documentationRequest(overload));
+
   assert.equal(overload.summary, "Runs the widget.");
   assert.equal(overload.parameters[0]?.description, "The value to run.");
   assert.equal(wire.summary, null);

@@ -1596,6 +1596,8 @@ public sealed class DtsEmitterTests
     [InlineData("unknown")]
     [InlineData("string")]
     [InlineData("Promise")]
+    [InlineData("Readonly")]
+    [InlineData("ReadonlyArray")]
     [InlineData("Record")]
     public void Emit_RefusesForbiddenTypeDeclarationNames(string name)
     {
