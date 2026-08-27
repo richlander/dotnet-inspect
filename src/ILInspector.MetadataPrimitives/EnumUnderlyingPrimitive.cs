@@ -269,17 +269,11 @@ static class EnumUnderlyingPrimitive
         string name,
         out PrimitiveTypeCode code)
     {
-        // A metadata type name may legally contain characters that are escape
-        // sequences in a reflection type name, so the exact spelling is tried
-        // before the reflection-normalized one. Normalizing first would unescape
-        // a name SRM's provider looks up verbatim, and the guard would then skip
-        // a different width than the decode consumes.
-        if (TryFindDefinition(reader, name.AsSpan(), out var exact))
-        {
-            code = FromDefinition(reader, exact);
-            return true;
-        }
-
+        // A blob-authored name is a reflection type name, so its escapes are
+        // meaningful and must be resolved before lookup: `E\+Kind` names the
+        // metadata type `E+Kind`, not one spelled with a backslash. Only
+        // handle-derived names are matched by their exact metadata spelling,
+        // and those never reach this method.
         ReadOnlySpan<char> simple = NormalizeSerializedName(name).AsSpan();
         if (TryFindDefinition(reader, simple, out var definition))
         {

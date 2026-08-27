@@ -65,12 +65,17 @@ that is not a CLI-valid enum -- unsealed, not directly derived from
 `value__`, or
 carrying a non-literal static field -- supplies no width.
 
-A type name is looked up by its exact metadata spelling before its
-reflection-normalized spelling. Metadata names may contain characters that a
-reflection type name treats as escapes, and a handle-derived name reaches the
-provider verbatim, so normalizing first would miss a local TypeDef that the
-guard resolves straight from its handle -- leaving the guard skipping one width
-while the decode consumed another. The guard also resolves a repeated enum name
+A type name's lookup depends on where the name came from. A handle-derived
+name is an exact metadata spelling that reaches the provider verbatim, and
+metadata names may contain characters a reflection type name treats as escapes,
+so it is matched by its exact spelling before its reflection-normalized one;
+normalizing first would miss a local TypeDef that the guard resolves straight
+from its handle, leaving the guard skipping one width while the decode consumed
+another. A blob-authored name is reflection syntax whose escapes are meaningful
+-- `E\+Kind` names the metadata type `E+Kind`, not one spelled with a backslash
+-- so it is normalized first and never matched verbatim. Both sides of the
+guard/decode pair classify a name the same way, so the two remain aligned
+either way. The guard also resolves a repeated enum name
 once rather than once per array element, because the element count is
 attacker-chosen and per-element parsing is the amplification the guard exists to
 prevent.

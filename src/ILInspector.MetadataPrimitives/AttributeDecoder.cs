@@ -366,6 +366,7 @@ public static class AttributeDecoder
         Func<string, PrimitiveTypeCode>? enumUnderlyingType) : ICustomAttributeTypeProvider<string>
     {
         Dictionary<string, TypeDefinitionHandle>? _typeDefinitionsByName;
+        HashSet<string>? _serializedNames;
         readonly MaterializationContext? _materializationContext =
             beforeMaterialize?.Target as MaterializationContext;
 
@@ -400,20 +401,30 @@ public static class AttributeDecoder
                 beforeMaterialize: ObserveBeforeMaterialize) ?? "object";
         public string GetTypeFromSerializedName(string name)
         {
-            if (preserveSerializedTypeNames)
-                return name;
-            return EnumUnderlyingPrimitive.WithoutAssemblyQualification(name);
+            string projected = preserveSerializedTypeNames
+                ? name
+                : EnumUnderlyingPrimitive.WithoutAssemblyQualification(name);
+            // Remember that this spelling came from the blob. Its escapes are
+            // reflection syntax and must be resolved before lookup, unlike a
+            // handle-derived name which is matched verbatim.
+            (_serializedNames ??= new HashSet<string>(StringComparer.Ordinal))
+                .Add(projected);
+            return projected;
         }
 
         public PrimitiveTypeCode GetUnderlyingEnumType(string type)
         {
-            // The exact metadata spelling wins over the reflection-normalized
-            // one. Handle-derived names reach here verbatim, and a metadata name
-            // may contain characters that reflection treats as escapes, so
-            // normalizing first would miss a local TypeDef the pre-decode guard
-            // resolves directly from its handle.
-            if (TypeDefinitionsByName.TryGetValue(type, out var exact))
+            // A handle-derived name is an exact metadata spelling and may
+            // legally contain characters reflection treats as escapes, so it is
+            // matched verbatim; the pre-decode guard resolves the same type
+            // straight from its handle, and normalizing here would make the two
+            // sides skip different widths. A blob-authored name is reflection
+            // syntax, so it is normalized first and never matched verbatim.
+            if (_serializedNames?.Contains(type) != true
+                && TypeDefinitionsByName.TryGetValue(type, out var exact))
+            {
                 return EnumUnderlyingPrimitive.FromDefinition(reader, exact);
+            }
 
             string normalized = EnumUnderlyingPrimitive.NormalizeSerializedName(type);
             if (TypeDefinitionsByName.TryGetValue(normalized, out var handle))

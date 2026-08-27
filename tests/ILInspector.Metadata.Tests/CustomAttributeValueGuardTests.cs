@@ -2680,4 +2680,109 @@ public sealed class CustomAttributeValueGuardTests
         AddAttributedType(metadata, constructor, value);
         return Serialize(metadata);
     }
+
+    [Fact]
+    public void EscapedBlobEnumName_ResolvesTheEscapedSpelling()
+    {
+        // A blob-authored name is reflection syntax, so `E\\+Kind` names the
+        // metadata type `E+Kind` and not one spelled with a backslash. Matching
+        // the blob spelling verbatim would pick the wrong local enum, so only
+        // handle-derived names are matched exactly.
+        using var image = Open(BuildEscapeCollisionImage());
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        Assert.True(
+            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
+        var decoded = AttributeDecoder.TryDecode(image.Reader, attribute);
+        Assert.NotNull(decoded);
+        Assert.Equal(7L, decoded.Value.FixedArguments[0].Value);
+    }
+
+    static byte[] BuildEscapeCollisionImage()
+    {
+        var metadata = CreateMetadata("EscapeCollision");
+        AssemblyReferenceHandle other = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default, default, default, default);
+        TypeReferenceHandle systemEnum = metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Enum"));
+        TypeReferenceHandle attributeType = metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("SampleAttribute"));
+
+        var constructorSignature = new BlobBuilder();
+        new BlobEncoder(constructorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                1,
+                returnType => returnType.Void(),
+                parameters => parameters.AddParameter().Type().Object());
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            attributeType,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+
+        // Field 1: value__ for the backslash-named enum (Int32).
+        var i4 = new BlobBuilder();
+        new BlobEncoder(i4).FieldSignature().Int32();
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName,
+            metadata.GetOrAddString("value__"),
+            metadata.GetOrAddBlob(i4));
+        // Field 2: value__ for the plus-named enum (Int64).
+        var i8 = new BlobBuilder();
+        new BlobEncoder(i8).FieldSignature().Int64();
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName,
+            metadata.GetOrAddString("value__"),
+            metadata.GetOrAddBlob(i8));
+
+        metadata.AddTypeDefinition(
+            default, default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        // Metadata name literally contains a backslash then a plus.
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("E\\+Kind"),
+            systemEnum,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        // Metadata name literally contains a plus.
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("E+Kind"),
+            systemEnum,
+            MetadataTokens.FieldDefinitionHandle(2),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle attributed = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Attributed"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(3),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteByte(0x55);
+        // Reflection spelling: the escaped plus denotes the metadata name "E+Kind".
+        value.WriteSerializedString("Samples.E\\+Kind");
+        value.WriteInt64(7);
+        value.WriteUInt16(0);
+        metadata.AddCustomAttribute(
+            attributed,
+            constructor,
+            metadata.GetOrAddBlob(value));
+        return Serialize(metadata);
+    }
+
 }
