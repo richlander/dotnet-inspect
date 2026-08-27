@@ -63,6 +63,9 @@ The visual treatment communicates the interaction contract:
 - A **Finding annotation chip** makes its Finding primary and opens the
   product-issued Finding detail as one inspect transition. Relationship
   evidence appears within that detail when the owner provides it.
+- A **Finding inspector action** is a persistent full-explorer selection chip
+  for every Finding. It opens the same detail without changing annotation
+  membership.
 - A **destination action** names where it goes, such as **Member** or
   **Source**. A generic **Navigate** action is prohibited.
 
@@ -80,6 +83,7 @@ indistinguishable.
 | Structural CodeLens chip | Full | Off by default | Selects and reveals the named structural node |
 | Finding annotation chip | Both | Its Finding is active and has a target on a visible medium | Makes the Finding primary and opens its Finding detail |
 | Finding toggle chip | Full | Its Finding belongs to the annotation universe | Adds or removes that Finding's active annotation instance |
+| Finding inspector action | Full | Every Finding | Makes the Finding primary and opens its detail; does not change active annotations |
 | Node selection chip | Full | Inspector control | Selects or focuses that exact node |
 | **Member** destination | Full | Primary has one actionable member target | Opens that target's member overview |
 | **Source** destination | Full | Primary has one actionable source target | Opens that target's member source |
@@ -109,11 +113,11 @@ same contract, binds the semantic result to the annotated document's
 product-issued node or fact id. The workspace layer then emits one closed
 selection result for the browser:
 
-- **Actionable** carries one or both typed capabilities. **Member** carries an
-  acquisition-qualified `InspectionGraphMemberIdentity.AcquiredApi`.
-  **Source** carries that identity plus an exact
+- **Actionable** always carries **Member** as an acquisition-qualified
+  `InspectionGraphMemberIdentity.AcquiredApi`. It may additionally carry
+  **Source** as that identity plus an exact
   `AssemblyMemberSourceRequest`, including its physical MethodDef token. A
-  missing capability carries a typed reason.
+  missing Source capability carries a typed reason.
 - **Unresolved** means no product-issued call occurrence or member target
   joined to the primary selection.
 - **Ambiguous** means one occurrence resolved to more than one candidate.
@@ -122,6 +126,8 @@ selection result for the browser:
 - **Unavailable** means exactly one semantic target was resolved but
   acquisition, residency, identity-skew validation, or policy rejection
   prevented every destination capability. It carries the typed reason.
+  A target that cannot be projected as an API-surface member reports a typed
+  `NotApiSurfaceMember` reason rather than exposing a body-only destination.
 
 The browser transports that result and must not derive it from display text,
 IL offsets, node kinds, candidate ordering, or ambient assembly guesses.
@@ -137,6 +143,11 @@ with its typed payload or unavailable with a reason. A Finding annotation chip
 therefore never becomes inert and never opens an empty success-shaped peek:
 when optional evidence is absent, its detail reports that absence as an inert
 label.
+
+Every Finding has a persistent full-inspector action even when it is
+unanchored, belongs to the member header, is inactive, or has targets only on
+hidden media. A source annotation chip is an additional spatial opener, never
+the only route to Finding detail.
 
 The selected-node annotation beneath source is descriptive. If it is inert, it
 is rendered as plain metadata rather than as a chip. If it is retained as a
@@ -200,11 +211,12 @@ Both Annotated Source surfaces keep these concepts separate:
 - **Workspace view** — package, type, member, overload, section, and embedded
   versus full Annotated Source mode.
 
-Activating a Finding annotation chip makes its Finding primary and opens its
-detail. Activating a node selection makes that node primary and closes Finding
-detail. Visibility toggles do not change primary selection unless they remove
-the primary Finding; that transition clears both the primary selection and its
-detail.
+Activating a Finding annotation chip or Finding inspector action makes its
+Finding primary and opens its detail. The inspector action does not change
+active annotations. Activating a node selection makes that node primary and
+closes Finding detail. Visibility toggles do not change primary selection
+unless they remove the primary Finding; that transition clears both the
+primary selection and its detail.
 
 Multiple annotations may remain active while one explicit primary selection
 owns detail. Implementations must not infer it from active-annotation array
@@ -226,15 +238,15 @@ workspace entry:
   node selection. An embedded primary Finding and its open detail carry only
   into that initial full state. On every later **Explore**, the retained full
   primary wins; a newer embedded primary and detail do not overwrite it.
-- **Exit**, or Escape when no transient layer is open, first clears retained
-  full Finding detail, then derives a new embedded primary from the full
-  primary. A default-visible anchored Finding with a C# target transfers as
-  primary; a node, unanchored Finding, non-default Finding, or Finding without
-  a C# target clears the embedded primary. Previously retained embedded primary
-  state is not restored. Embedded Finding detail always closes, and focus
-  returns to **Explore**. The full annotation set, primary, media, and
-  coordinate preferences remain retained for a later **Explore**, but its
-  closed detail cannot resurrect.
+- **Exit**, or Escape from full mode when no transient layer is open, first
+  clears retained full Finding detail, then derives a new embedded primary from
+  the full primary. A default-visible anchored Finding with a C# target
+  transfers as primary; a node, unanchored Finding, non-default Finding, or
+  Finding without a C# target clears the embedded primary. Previously retained
+  embedded primary state is not restored. Embedded Finding detail always
+  closes, and focus returns to **Explore**. The full annotation set, primary,
+  media, and coordinate preferences remain retained for a later **Explore**,
+  but its closed detail cannot resurrect.
 - A direct full-mode link has no retained state to restore. It starts with the
   default annotation-instance set, C# visible, IL and offsets hidden, and no
   primary selection or transient detail.
@@ -289,9 +301,9 @@ maintaining an unrelated modal history.
 
 - **Explore** replaces the current history entry with the full-mode workspace
   view; it does not push an entry.
-- **Exit**, and Escape when no transient layer is open, replace that entry with
-  the embedded-mode workspace view. This also applies to a direct full-mode
-  link, including when it is the first history entry.
+- **Exit**, and Escape from full mode when no transient layer is open, replace
+  that entry with the embedded-mode workspace view. This also applies to a
+  direct full-mode link, including when it is the first history entry.
 - **Member** and **Source** navigation record the current view before moving.
 - Back from a destination restores the originating package, type, member,
   overload, Annotated Source section, and full explorer mode.
@@ -301,23 +313,36 @@ maintaining an unrelated modal history.
 - Session history may restore local explorer state and scroll for a previously
   visited entry. It must at minimum restore the full-mode view and its primary
   selection.
-- Changing members while Annotated Source is the active section keeps
-  Annotated Source active when the destination supports it.
+- Changing members while Annotated Source is active keeps both the section and
+  embedded/full mode when the destination supports them. The destination gets
+  fresh entry-local state: embedded starts at its default state; full starts at
+  the direct-full defaults with no primary selection or detail. No source
+  member's primary, detail, annotation set, or presentation state transfers.
+  Back and Forward restore each entry's own mode and local state.
 
-The workspace packet can deep-link to:
+`WorkspaceSharePacket` and `WorkspaceSharePacketTransposer` in
+`DotnetInspector.Queries` own the packet representation of Annotated Source
+mode. Format version 2 adds a typed `AnnotatedSourceMode` field with exactly
+`Embedded` and `Full`; it is not encoded as a browser-minted `Section` token.
+Version 1 packets, which carry no mode, decode compatibly as `Embedded`. The
+product codec and transposer validate the field, and the Browser adapter only
+transports it.
+
+The workspace packet can therefore deep-link to:
 
 - the member's embedded Annotated Source reader; or
 - the full explorer for that member.
 
-The packet records the durable presentation mode, not transient popovers or
-scroll positions. A direct full-explorer link must open the explorer after the
-annotated document loads, rather than briefly rendering the embedded hand-off
-and requiring another gesture.
+The packet records only the durable embedded/full mode, not transient
+popovers, primary selection, local annotation state, or scroll positions. A
+direct full-explorer link must open the explorer after the annotated document
+loads, rather than briefly rendering the embedded hand-off and requiring
+another gesture.
 
 Type-level Annotated Source is future scope. If introduced, the active
-Annotated Source mode stays sticky when navigating between types and members
-that support it; unsupported destinations fail visibly rather than silently
-switching lenses.
+Annotated Source mode follows the same fresh-entry sticky rule when navigating
+between types that support it. Unsupported destinations fail visibly rather
+than silently switching lenses.
 
 ## Escape and focus
 
@@ -325,14 +350,18 @@ Escape is handled by the topmost active layer:
 
 1. Close Finding detail or another transient menu and restore focus to its
    opener.
-2. Otherwise perform the same transition as **Exit** and restore focus to
-   **Explore**.
-3. Only when neither is active may the workspace-level Escape behavior run.
+2. Otherwise, when the full explorer is active, perform the same transition as
+   **Exit** and restore focus to **Explore**.
+3. In embedded mode with no transient layer, leave embedded and retained full
+   state unchanged and return Escape unhandled to the workspace-level
+   behavior.
 
 A popover must therefore consume its Escape before the explorer or workspace
 handler. Pointer activation of **Exit** closes any transient Finding detail and
 exits in one transition. Opening, closing, back navigation, and forward
 navigation each restore focus to a surviving, semantically equivalent control.
+Closing Finding detail restores its original opener when that control still
+exists; otherwise it focuses the same Finding's persistent inspector action.
 
 ## Source presentation
 
@@ -434,10 +463,10 @@ accepted as a named follow-up.
 | Embedded reader | A hand-off card hides all annotated source | Complete declaration prefix, C#, default Finding annotation chips, transient Finding detail, and a prominent **Explore** action |
 | Chip vocabulary | Some pill-shaped labels are inert; actions use several unrelated verbs | Every chip is actionable and every action follows the click matrix |
 | Invocation navigation | Explicit **Member**/**Source** exists only after selection | Research and workspace resolution emit the closed, acquisition-qualified selection result |
-| Finding primary state | Evidence and annotation arrays can imply selection indirectly | Finding activation establishes one explicit primary Finding and useful detail; toggles do not |
+| Finding primary state | Evidence and annotation arrays can imply selection indirectly; header and hidden-media Findings lack a detail opener | Every Finding has a persistent inspector action; Finding activation establishes one explicit primary and useful detail; toggles do not |
 | Initial presentation | C# and all anchored facts start active; structural CodeLens also starts on | Default Findings are active; only visible-medium targets render; structure, captures, IL, and coordinates start off |
 | Annotation commands | One **clear** action combines several state changes | Separate **Default**, **All**, and **Clear** commands with derived-state precedence |
-| History and packet | Full mode is local modal state outside `WorkspaceView`; canonical packet view binding is incomplete | Explore/Exit/Escape replace the current entry, preserve the defined surface-local state, packets restore embedded/full mode, and destinations round-trip the originating full view |
+| History and packet | Full mode is local modal state outside `WorkspaceView`; packet v1 has no typed Annotated Source mode | Explore/Exit/Escape replace the current entry, member changes create fresh sticky-mode entries, packet v2 carries product-owned mode, and destinations round-trip the originating full view |
 | Escape | Browser popovers and the explorer can compete with workspace Escape | Topmost transient surface closes first; Exit follows the same mode transition |
 | Source decoration | Invocation and other states use persistent underlines | Availability is ordinary; active states use distinct non-underline treatments |
 | Coordinates | Node chips always show ranges and IL offsets | Coordinates are explicit and off by default |
@@ -456,12 +485,15 @@ The interaction model requires:
   source-node selection and destination actions are absent;
 - chip-availability tests proving active IL-only Findings expose no chip until
   IL is visible, while toggles change active membership independently;
+- persistent Finding-inspector-action tests for unanchored, member-header,
+  inactive, and hidden-media Findings, including fallback focus when a source
+  chip disappears while detail is open;
 - invocation hit tests proving the cataloged invocation-like kinds, the
   tightest-node tie-break, discontinuous-span total extent, and precedence over
   nested generic nodes;
-- destination-action tests for Member-only, Source-only, and combined
-  actionable capabilities, plus unresolved, ambiguous, aggregate, and
-  unavailable-with-reason close negatives;
+- destination-action tests for Member-only and Member-plus-Source actionable
+  capabilities, plus unresolved, ambiguous, aggregate,
+  `NotApiSurfaceMember`, and other unavailable-with-reason close negatives;
 - Finding-detail tests proving unavailable optional evidence produces useful
   detail and an inert explanatory label rather than an inert chip or empty
   peek;
@@ -479,6 +511,14 @@ The interaction model requires:
 - mode-transition tests proving Exit and layered Escape clear retained full
   detail, a later Explore cannot resurrect it, and non-first Explore restores
   the retained full primary instead of a newer embedded primary;
+- embedded Escape tests proving a transient layer closes first and the next
+  Escape falls through without changing embedded primary, retained full state,
+  or focus;
+- member-navigation tests proving mode is sticky, destination-local state
+  starts fresh, and Back/Forward restore each entry;
+- canonical packet codec, transposer, and Browser bridge vectors proving v2
+  embedded/full mode, v1-to-embedded compatibility, invalid-mode rejection,
+  and separation from the section field;
 - a real-browser back/forward test after **Member** and **Source** navigation;
 - layered Escape and focus-restoration tests;
 - a real-browser drag-selection negative proving pointer movement selects text
