@@ -214,10 +214,10 @@ repeat that identity merely to create a local hero heading.
 
 The API and Source lenses begin with their primary content. Their accessible
 heading relationship includes both the product-owned active-subject label from
-the inspection command and the active lens label. The active-subject token is
-the visible level-one heading: the coordinate token for a Package or other root
-subject, and the current-subject token for Library, Type, or Member. The lens
-panel's `aria-labelledby` references that label and the active lens tab.
+the inspection command and the active lens label. The always-present
+active-subject token is the visible level-one heading for a root, Library, Type,
+or Member subject. The lens panel's `aria-labelledby` references that label and
+the active lens tab.
 
 They do not repeat:
 
@@ -314,6 +314,7 @@ Workspace root, active coordinate, and current leaf subject:
 ```text
 dotnet-inspect  System.Text.Json@10.0.0/net10.0  System.Text.Json.JsonSerializer.DeserializeAsync
 dotnet-inspect  MyAssembly.dll                   MyNamespace.MyType
+dotnet-inspect  DotnetInspect.TestAssets.ToolV2  Package
 ```
 
 The command starts without a separator glyph. Spacing and typography distinguish
@@ -322,7 +323,9 @@ its three roles:
 1. `dotnet-inspect` is the Workspace root.
 2. The coordinate identifies the active package, platform, project, file, or
    other product-owned workspace input.
-3. The current subject identifies the active Library, Type, or Member.
+3. The current subject identifies the active root, Library, Type, or Member.
+   At a package root its label is `Package`; another coordinate kind uses its
+   owner-issued root label.
 
 The displayed subject need not mechanically repeat every parent. A Type or
 Member normally uses its product-owned qualified display identity. A defining
@@ -341,9 +344,9 @@ attached to inert text:
 - activating the coordinate opens a coordinate menu whose first action
   navigates to the Package or other root overview and whose remaining controls
   change applicable version, TFM, or acquisition detail;
-- activating the current subject opens a hierarchy menu containing every
-  applicable root, Library, Type, and Member ancestor with its availability
-  state; and
+- activating the always-present current subject opens a hierarchy menu
+  containing every applicable root, Library, Type, and Member ancestor with its
+  availability state; and
 - `Copy target` copies the product-issued canonical current target.
 
 The coordinate and subject menus are not primary-view tablists. Their items use
@@ -365,16 +368,22 @@ The Workspace surface replaces the package tab strip. It consumes
 product-issued descriptors for every open coordinate and shows:
 
 - coordinate identity and acquisition kind;
-- the retained current Library, Type, or Member path;
+- the retained current root, Library, Type, or Member path when session or
+  canonical state supplies one;
 - loading, ready, or failed state;
 - an activation action; and
 - an explicit Close action.
 
-Activating an entry restores its retained subject and lens. Closing one entry
-requests the product-owned workspace transition. The returned state identifies
-the next active entry or an empty Home state; the UI does not choose a successor
-by package label or visual order. Separate coordinates remain separate even
-when their display package IDs match.
+Activating an entry restores its session-retained subject and lens. After v1
+packet restoration, only the active entry has canonical view state; another
+entry therefore shows coordinate context without inventing a retained path and
+opens at its root overview. #4787 owns portable per-entry view state, after
+which activation restores the owner-issued per-entry subject and lens.
+
+Closing one entry requests the product-owned workspace transition. The returned
+state identifies the next active entry or an empty Home state; the UI does not
+choose a successor by package label or visual order. Separate coordinates
+remain separate even when their display package IDs match.
 
 Workspace also exposes the same Search and Open actions as the shell. It does
 not infer source identity, package equivalence, or local-file correspondence
@@ -411,17 +420,25 @@ reason. It does not retain stale panel content.
 
 ### Subject availability and reconciliation
 
-Subject availability remains explicit even though unavailable levels no longer
-occupy permanent primary tabs:
+The current browser surface does not supply a host-neutral subject-navigation
+contract. [#4794](https://github.com/richlander/dotnet-inspect/issues/4794)
+owns the product descriptors, availability and failure outcomes, initial
+recommendation, and reconciliation result required by this section. The UI
+does not derive those semantics from assembly order, visible filters, package
+kind, or display text.
 
-- A root subject is available whenever a coordinate workspace is active.
-- Package is that root subject only for a package-backed coordinate.
-- Library is available when the product supplies a validated, non-empty Library
-  subject descriptor set for the active coordinate.
-- Type is available when Library is available and the workspace has a current
-  Type selection.
-- Member is available when Type is available and the current Type has a current
-  Member selection.
+When that contract is available, the UI consumes:
+
+- the coordinate's root subject;
+- ordered applicable Library, Type, and Member descriptors;
+- availability and owner-issued reasons for each level;
+- an optional initial subject and lens recommendation; and
+- a reconciliation result for previously selected identities.
+
+The root is always reachable for a realized coordinate. Package is the root
+only for a package-backed coordinate. Library, Type, and Member availability
+comes directly from the descriptor result rather than from whether the UI
+happens to hold a selection.
 
 The hierarchy menu exposes every applicable subject level. An unavailable
 Library, Type, or Member item remains discoverable with `aria-disabled="true"`
@@ -429,27 +446,15 @@ and an owner-issued reason. The coordinate root overview also summarizes
 ordinary absent capabilities, such as a valid package with no inspectable
 Types, separately from acquisition or producer failures.
 
-Reconciliation first computes subjects, then decides whether navigation must
-move:
+After a coordinate or Library change, the UI submits the previous subject
+identities and applies the owner-issued reconciliation result verbatim. A
+successful empty outcome clears Library, Type, and Member and leaves the
+coordinate root without presenting a producer failure. A typed failure also
+clears invalid dependent content but remains visible. The UI never chooses a
+replacement Type or Member by array order or current filters.
 
-1. The product supplies the validated Library subject descriptor set for the
-   new coordinate.
-2. A successful empty set is valid. The UI clears the Library, Type, and Member
-   subjects and leaves the coordinate on its root subject without presenting a
-   producer failure.
-3. A malformed set or producer failure also clears the dependent subjects, but
-   surfaces the typed failure and stops subject reconciliation. The UI does not
-   guess a subject.
-4. A validated non-empty set has exactly one owner-issued default. If the
-   previous Library subject is absent, the UI selects that default. The default
-   may be `All libraries` or one library.
-5. The host asks the owning product model to resolve the existing Type within
-   both the active coordinate and active Library subject.
-6. It resolves Member only when the retained Type still owns that Member.
-7. A missing Type or Member selection is cleared. Reconciliation does not
-   silently substitute another Type or Member.
-
-Navigation changes only when the active subject becomes unavailable:
+Navigation changes only when the owner result makes the active subject
+unavailable:
 
 - Member moves to Type when Type remains available, otherwise to Library when
   Library remains available, otherwise to the coordinate root.
@@ -459,28 +464,26 @@ Navigation changes only when the active subject becomes unavailable:
   is available.
 - The coordinate root remains active through coordinate reconciliation.
 
-Resolving a missing Library subject to the owner-issued default happens before
-Type and Member reconciliation. It keeps an active Library subject available
-but does not itself redirect navigation.
-
 ### Initial subject and lens
 
-A newly acquired coordinate starts at the deepest preferred subject the product
-can validly supply:
+After #4794 supplies an owner-issued recommendation, a newly acquired coordinate
+applies it without re-deriving eligibility. The desired product policy is:
 
 1. Type API when a valid default Library subject and Type exist.
 2. The owner-issued initial Library lens when a Library exists but no Type does.
 3. The coordinate's root overview when no inspectable Library or Type exists.
 
-Initial activation may adopt an owner-issued default Type only after a valid
-Library subject exists. That adoption is the one initial Type choice permitted
-without a prior user selection; later reconciliation never substitutes another
-Type or Member.
+The UI does not choose the first visible Type or alter filters to manufacture
+this outcome. Until #4794 supplies the recommendation and availability result,
+implementation can open the coordinate root but cannot claim the Type-first
+default.
 
 This default applies to the initial activation of each newly acquired
 coordinate, including coordinates added to an existing Workspace. Browser
-refresh, history navigation, Workspace reactivation, and shared-link restoration
-use retained or canonical state instead of reapplying the default.
+refresh and history navigation use canonical state when available. Workspace
+reactivation uses session-retained or owner-issued per-entry state; when neither
+exists, it opens the coordinate root rather than reapplying the initial
+recommendation.
 
 A tools v2 pointer package is the required Package-fallback case. Acquisition
 succeeds, Package identity and metadata remain available, Library, Type, and
@@ -514,16 +517,15 @@ The Library view lists every library admitted from the active coordinate and an
 `All libraries` subject when the product admits aggregate
 inspection for that coordinate.
 
-The product supplies ordered Library subject descriptors and an owner-issued
-default. A coordinate whose initial Library lens supports aggregate inspection
-may default to `All libraries`; when the initial Library lens requires one
-library, the product defaults to an owner-issued library. The UI does not infer
-that choice from package kind, endpoint shape, or assembly count.
+After #4794 supplies ordered Library subject descriptors and an owner-issued
+recommendation, the UI renders and submits those opaque identities. The
+recommendation may be `All libraries` or one library. The UI does not infer
+that choice from package kind, endpoint shape, assembly count, or lens
+capability.
 
-The default must be a valid subject for the coordinate. Lens capability does
-not silently replace it: if the active lens cannot inspect the default subject
-arity, the subject remains selected and the lens reports its unavailable
-result.
+If an active lens cannot inspect the recommended subject arity, the subject
+remains selected and the owner-issued lens outcome reports unavailability. The
+UI does not silently replace the subject to make the lens succeed.
 
 The Library subject control is single-select. A compact population may use a
 native `select`; a visible library list uses `role="listbox"` with
@@ -559,11 +561,9 @@ The selected subject controls every Library lens:
 - An individual library requests the same lens for only that assembly.
 - The selected subject persists when switching among References, Integrations,
   Opportunities, Analysis, and Metadata.
-- Changing package version or TFM retains the individual selection only when
-  the same library identity is present in the new coordinate; otherwise it uses
-  the new coordinate's owner-issued default Library subject. An invalid
-  descriptor set follows the reconciliation failure branch and clears the
-  dependent subjects.
+- Changing package version or TFM submits the prior Library identity to #4794's
+  reconciliation contract and applies its retained, replacement, cleared, or
+  failed result verbatim.
 
 The active library subject remains visible while the library list is filtered
 or collapsed. A lens heading distinguishes aggregate results from a
@@ -648,13 +648,18 @@ after browser refresh. The UI reaches that outcome only through
 product-issued long-form state and the product codec. It does not parse the
 packet or add compact fields.
 
-The current v1 packet can project coordinates, selected contexts, the active
-entry, Library identities, Type, portable Member, lens, and section. Package
-root facets, result-affecting filters, ambiguous overloads, body and source
-targets, and other non-portable subjects remain outside that contract.
+The current v1 Browser projection can safely restore supported coordinates,
+selected contexts, the active entry, admitted Library scope, Type, and a
+portable Member. Although the wire shape has lens and section slots, their
+current consumer-owned token spaces are not stable product identities and
+remain non-projectable. V1 also has only one active view, not retained view
+state for every open coordinate. Package root facets, result-affecting filters,
+ambiguous overloads, body and source targets, and other non-portable subjects
+remain outside the current contract.
 [#4787](https://github.com/richlander/dotnet-inspect/issues/4787) owns the
-focused workspace-definition work required before the complete restoration
-target can be implemented.
+stable facet identities, per-entry view state, and other focused
+workspace-definition work required before the complete restoration target can
+be implemented.
 
 Every committed transition is classified:
 
@@ -704,8 +709,10 @@ An optional decorative glyph does not replace any visible label.
 
 Coordinate and subject menus use menu-button semantics. Their invoking control
 exposes `aria-expanded` and `aria-controls`; opening moves focus to the current
-item or first available item; Escape or outside dismissal closes the menu; and
-focus returns to the invoking control.
+item or first item. Arrow navigation includes `aria-disabled` items so their
+reasons remain discoverable; Enter activates only an available item. Escape
+closes the menu and returns focus to the invoker. Outside pointer dismissal or
+tabbing away preserves the new focus destination instead.
 
 Spotlight, Open, Settings, and the narrow navigation drawer are modal dialogs:
 
@@ -864,11 +871,10 @@ not promise producer-bound replay when no owner-issued replay identity exists.
 Source-scoped persistent package payloads may appear in Diagnostics and cache
 management. Credentials never appear there.
 
-Search results and version choices show producer labels when source identity is
-needed to explain availability or distinguish results. Workspace, package
-headings, and the data bar render the owner-issued compact producer label
-verbatim. The UI never shortens, parses, or reconstructs that label from an
-endpoint.
+Search results and version choices render the owner-issued compact producer
+label verbatim for every represented producer. Workspace, package headings, and
+the data bar render that same compact label for the acquired producer. The UI
+never shortens, parses, or reconstructs it from an endpoint.
 
 ## Command palette
 
@@ -902,8 +908,7 @@ One information hierarchy adapts across viewport sizes:
 
 - wide layouts retain Type or Member navigation beside a full working surface;
 - narrow layouts replace the navigation pane with a visible
-  `Types` or `Members` button whose `aria-expanded` and `aria-controls`
-  relationship opens the shared modal navigation drawer;
+  `Types` or `Members` button that opens the shared modal navigation drawer;
 - the inspection command remains one line;
 - coordinate and leaf subject have highest truncation priority;
 - intermediate qualification elides first;
@@ -989,8 +994,10 @@ outcomes:
 
 ### Ordinary package
 
-1. Open a package with an owner-issued default Library and Type.
-2. Confirm that the workspace starts on Type API.
+1. After #4794 supplies an owner recommendation, open a package whose
+   recommendation is a Library, Type, and API lens.
+2. Confirm that the UI applies that recommendation and starts on Type API
+   without selecting from the visible Type array itself.
 3. Confirm that the inspection command shows the active package coordinate and
    Type without a package-tab or primary-view row.
 4. Open the subject menu and navigate to the active Library.
@@ -1000,7 +1007,8 @@ outcomes:
 
 ### Tools v2 pointer package
 
-1. Open the pinned `DotnetInspect.TestAssets.ToolV2` pointer-package fixture.
+1. After #4794 supplies a valid-empty subject outcome, open the pinned
+   `DotnetInspect.TestAssets.ToolV2` pointer-package fixture.
 2. Confirm that acquisition succeeds with no inspectable Library or Type.
 3. Confirm that the workspace opens Package Overview.
 4. Confirm that absence of types is disclosed as ordinary availability rather
@@ -1010,17 +1018,21 @@ outcomes:
 ### Refresh restoration
 
 1. Open two coordinates.
-2. Select the second coordinate, one Library, a Type, a portable Member, and a
-   non-default lens.
+2. Select the second coordinate, one admitted Library, a Type, and a portable
+   Member.
 3. Refresh the browser.
-4. Confirm that the same coordinate, Library, Type, Member, and lens are
+4. Confirm that the same active coordinate, Library, Type, and Member are
    restored from the current canonical packet.
-5. Confirm that keyboard focus, hover, an uncommitted Library option, and
+5. Activate the other restored coordinate and confirm that current v1 opens its
+   root overview rather than inventing a retained subject or lens.
+6. Confirm that keyboard focus, hover, an uncommitted Library option, and
    incidental scroll position are not restored.
-6. Select a currently non-projectable filter or body target and confirm that
+7. Select a currently non-projectable lens, section, filter, or body target and
+   confirm that
    explicit Share reports the typed refusal rather than claiming portability.
-7. After #4787 supplies the required projection, repeat the refresh and confirm
-   that the same committed filter or body target is restored.
+8. After #4787 supplies stable facet identities and per-entry view state, repeat
+   the refresh and confirm that both coordinates retain their committed subject
+   and lens and that the selected refinement is restored.
 
 ### Browser history
 
@@ -1036,16 +1048,18 @@ outcomes:
 1. Register an authenticated browser source and select it with at least one
    other source.
 2. Confirm that ordinary search follows the owner-issued active source set.
-3. Acquire a package and confirm that Workspace and the data bar show the
+3. Give two custom sources the same display name and confirm that search results
+   and version choices render distinct owner-issued compact labels.
+4. Acquire a package and confirm that Workspace and the data bar show the
    complete owner-issued compact producer label.
-4. If #4788 has supplied `Default feed` semantics, change that setting and
+5. If #4788 has supplied `Default feed` semantics, change that setting and
    confirm that the UI sends the exact owner-issued policy rather than reducing
    search to one endpoint.
-5. Refresh after session credentials are discarded.
-6. Confirm that the UI presents the actual source-owner outcome: cached
+6. Refresh after session credentials are discarded.
+7. Confirm that the UI presents the actual source-owner outcome: cached
    restoration, authentication required, another authorized producer, or typed
    failure.
-7. Confirm that the returned producer and any partial or failure evidence are
+8. Confirm that the returned producer and any partial or failure evidence are
    visible.
 
 ### Search input
@@ -1080,8 +1094,9 @@ outcomes:
 
 1. Start from a committed Type Source state.
 2. Narrow the viewport until Type navigation moves to its drawer.
-3. Activate the visible `Types` button and confirm its expanded state, initial
-   focus, focus containment, Escape dismissal, and focus return.
+3. Activate the visible `Types` button and confirm the drawer's accessible
+   dialog name, initial focus, focus containment, Escape dismissal, and focus
+   return.
 4. Confirm that the inspection command and lens strip remain single-line
    scrolling or truncating surfaces rather than wrapping.
 5. Restore the wide viewport and confirm that coordinate, subject, lens,
