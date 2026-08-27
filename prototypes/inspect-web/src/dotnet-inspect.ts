@@ -3450,7 +3450,8 @@ function applyExplorerFocus() {
     ex.focusHeap = entry.heap;
     ex.highlight = null;
     ex.detail = null;
-    if (!ex.heapWindows[entry.heap])
+    const heapWindow = ex.heapWindows[entry.heap];
+    if (!heapWindow || (!heapWindow.loading && !heapWindow.data))
       observeAsync(loadExplorerHeap(entry.heap), "Loading metadata heap rows");
     else render();
   } else {

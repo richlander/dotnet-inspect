@@ -2688,6 +2688,9 @@ test("metadata explorer request coordination stays outside the composition root"
   const heapLoader =
     appSource.match(/async function loadExplorerHeap\([\s\S]*?\n}\n\/\/ ref->def/)?.[0]
     ?? "";
+  const focus =
+    appSource.match(/function applyExplorerFocus\(\)[\s\S]*?\n}\n\n\/\/ Center/)?.[0]
+    ?? "";
   assert.match(
     windowLoader,
     /return metadataInspection\.loadExplorerWindow\(index, startRowId, maxRows\)/);
@@ -2703,6 +2706,12 @@ test("metadata explorer request coordination stays outside the composition root"
   assert.match(
     metadataInspectionSource,
     /dependencies\.queryPlatformHeap[\s\S]*dependencies\.queryPackageHeap[\s\S]*state\.explorer !== explorer[\s\S]*explorer\.focusHeap === heapName/);
+  assert.match(
+    focus,
+    /const heapWindow = ex\.heapWindows\[entry\.heap\];\s*if \(!heapWindow \|\| \(!heapWindow\.loading && !heapWindow\.data\)\)\s*observeAsync\(loadExplorerHeap\(entry\.heap\), "Loading metadata heap rows"\);\s*else render\(\)/);
+  assert.match(
+    appSource,
+    /state\.explorer\.focusHeap && !state\.explorer\.heapWindows\[state\.explorer\.focusHeap\]/);
 });
 
 test("call graph request coordination stays outside the composition root", () => {
