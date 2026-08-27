@@ -358,16 +358,36 @@ for a compiled module boundary.
 
 The generated source has one external declaration dependency: the
 `dotnet.d.ts` supplied by the same .NET SDK/runtime pack as the imported
-`dotnet.js`. At compile time, it describes the generic runtime API. Its
-`getAssemblyExports()` result is necessarily application-agnostic, so
-`ts-bindgen` generates the private structural type for the inspected assembly
-and performs one explicit narrowing at that boundary. The generator must not
+`dotnet.js`. `ts-bindgen` does not parse that declaration or derive facade
+operations from it. Instead, it emits TypeScript written against the SDK-owned
+contract, just as authored TypeScript would be.
+
+That relationship gives the generated source the official types and
+documentation for `dotnet.create()`, `RuntimeAPI`, `runMain()`, and
+`getAssemblyExports()`. The TypeScript compiler can reject incorrect runtime
+API use, and editors can provide navigation, completion, and explanation when
+a person reads the generated file. The generator therefore does not need to
+invent a partial local runtime interface that could drift from the selected
+.NET SDK.
+
+`dotnet.d.ts` does not supply the richer facade. Its `getAssemblyExports()`
+result is necessarily application-agnostic. `ILInspector.JsExportSurface`
+supplies the assembly-specific export and wire facts; `ts-bindgen` turns those
+facts into the private raw-export structure, public facade types, and one
+explicit narrowing at the generic runtime boundary. The generator must not
 copy, synthesize, or hand-maintain a substitute declaration for the generic
 runtime API.
 
 The declaration has no runtime role. The emitted JavaScript imports
 `dotnet.js`; it does not load `dotnet.d.ts`, and deployment does not require the
 declaration merely to execute already-compiled JavaScript.
+
+The SDK declaration is also an implementation-private dependency. Generated
+public functions must not expose `RuntimeAPI` or another SDK runtime type. A
+consumer compiling the generated `.ts` source needs `dotnet.d.ts`; a consumer
+receiving only emitted facade JavaScript and its optional declarations does
+not. Declaration emission must not leak an import of the SDK runtime
+declaration into the facade's public contract.
 
 The two consumption forms are distinct:
 
@@ -519,7 +539,10 @@ The target remains unverified until all of these gates exist:
   JSON wire values;
 - a compiler test resolves the generated runtime import against the
   SDK-owned `dotnet.d.ts`, with no generator-owned ambient or copied substitute,
-  and proves the assembly-specific `getAssemblyExports()` narrowing;
+  rejects an invalid use of the generic runtime API, and proves the
+  assembly-specific `getAssemblyExports()` narrowing;
+- a declaration-emission test proves the public facade declaration does not
+  expose or import SDK runtime types;
 - a compiler test proves the generated TypeScript emits executable JavaScript
   without changing runtime import or public facade semantics;
 - runtime tests prove initialization failure, one-runtime reuse,
