@@ -4831,13 +4831,7 @@ function bindAnnotatedSourceEvents() {
 }
 
 const workbenchShellActions: WorkbenchShellBindingActions = {
-  onDismissNotice: () => {
-    state.queryNotice = "";
-    state.queryNoticeRetryAction = null;
-    routeFailureNotice = null;
-    failedWorkspaceUrlPreservation = null;
-    render();
-  },
+  onDismissNotice: dismissQueryNotice,
   onDismissPackageNotice: () => {
     const pkg = currentPackage();
     pkg.inspectionErrors = [];
@@ -6639,6 +6633,14 @@ function clearWorkspaceRouteFailureNotice() {
   return true;
 }
 
+function dismissQueryNotice() {
+  state.queryNotice = "";
+  state.queryNoticeRetryAction = null;
+  routeFailureNotice = null;
+  failedWorkspaceUrlPreservation = null;
+  render();
+}
+
 async function copyText(value: string, confirmation: string) {
   try {
     await navigator.clipboard.writeText(value);
@@ -6727,13 +6729,7 @@ function homeArtSvg() {
 
 const homeShellActions: HomeShellBindingActions = {
   onDemo: runHomeDemo,
-  onDismissNotice: () => {
-    state.queryNotice = "";
-    state.queryNoticeRetryAction = null;
-    routeFailureNotice = null;
-    failedWorkspaceUrlPreservation = null;
-    render();
-  },
+  onDismissNotice: dismissQueryNotice,
   onOpenCredits: openCredits,
   onToggleTheme: toggleTheme,
 };
@@ -9229,7 +9225,10 @@ function failWorkspaceRoute(
     state.retryAction = null;
     clearWorkspaceRouteFailureNotice();
     const previousNotice = state.queryNotice;
-    appendQueryNotice(`Package route failed: ${message}`);
+    const previousRetryAction = state.queryNoticeRetryAction;
+    appendQueryNotice(
+      `Package route failed: ${message}`,
+      previousRetryAction);
     routeFailureNotice = {
       previous: previousNotice,
       appended: state.queryNotice,

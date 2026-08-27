@@ -1195,7 +1195,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /app\.innerHTML = `[\s\S]*bindLoadErrorShell\(document, loadErrorShellActions\)/);
   assert.match(
     workbenchActions,
-    /onDismissNotice: \(\) => \{[\s\S]*state\.queryNotice = "";[\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*render\(\);\s*\},\n  onDismissPackageNotice:/);
+    /onDismissNotice: dismissQueryNotice,\n  onDismissPackageNotice:/);
   assert.match(
     workbenchActions,
     /onDismissPackageNotice: \(\) => \{[\s\S]*pkg\.inspectionErrors = \[\];[\s\S]*pkg\.inspectionError = "";[\s\S]*render\(\);\s*\},\n  onGoHome:/);
@@ -1204,7 +1204,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /onGoHome: goHome,[\s\S]*onHelp: \(\) => showToast\([\s\S]*onNavigateBack: navBack,[\s\S]*onNavigateForward: navForward,[\s\S]*onRetryNotice: \(\) => \{[\s\S]*state\.queryNoticeRetryAction;[\s\S]*if \(retryAction\) observeAction\(retryAction, "Retrying the inspection"\);[\s\S]*onShare: \(\) => void share\(\),[\s\S]*onToggleTheme: toggleTheme/);
   assert.match(
     homeActions,
-    /onDemo: runHomeDemo,\s*onDismissNotice: \(\) => \{[\s\S]*state\.queryNotice = "";[\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*render\(\);\s*\},\n  onOpenCredits: openCredits,\n  onToggleTheme: toggleTheme/);
+    /onDemo: runHomeDemo,\s*onDismissNotice: dismissQueryNotice,\s*onOpenCredits: openCredits,\s*onToggleTheme: toggleTheme/);
   assert.match(
     loadErrorActions,
     /onOpenPackage: openPackageQuery,\s*onRetry: \(\) => \{\s*if \(state\.retryAction === retryUnavailable\) return;\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\);\s*\}/);
@@ -2545,7 +2545,7 @@ test("malformed package routes use the contained restore failure path", () => {
     ?? "";
   assert.match(
     failure,
-    /if \(snapshot\?\.hasWorkspace\)[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\)[\s\S]*clearWorkspaceRouteFailureNotice\(\);\s*const previousNotice = state\.queryNotice;\s*appendQueryNotice\(`Package route failed: \$\{message\}`\);\s*routeFailureNotice = \{\s*previous: previousNotice,\s*appended: state\.queryNotice,[\s\S]*state\.errorTitle = "Package route failed";[\s\S]*state\.error = message;[\s\S]*state\.retryAction = retryUnavailable/);
+    /if \(snapshot\?\.hasWorkspace\)[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\)[\s\S]*clearWorkspaceRouteFailureNotice\(\);\s*const previousNotice = state\.queryNotice;\s*const previousRetryAction = state\.queryNoticeRetryAction;\s*appendQueryNotice\(\s*`Package route failed: \$\{message\}`,\s*previousRetryAction\);\s*routeFailureNotice = \{\s*previous: previousNotice,\s*appended: state\.queryNotice,[\s\S]*state\.errorTitle = "Package route failed";[\s\S]*state\.error = message;[\s\S]*state\.retryAction = retryUnavailable/);
   assert.match(
     appSource,
     /function goHome\(\) \{[\s\S]*invalidateGraphMemberNavigation\(\);\s*clearNavigationError\(\);\s*if \(clearWorkspaceRouteFailureNotice\(\)\) \{\s*failedWorkspaceUrlPreservation = null;\s*\}[\s\S]*workspaceLocation\.push\("\/"\);[\s\S]*render\(\)/);
@@ -2554,7 +2554,13 @@ test("malformed package routes use the contained restore failure path", () => {
     /function clearWorkspaceRouteFailureNotice\(\) \{\s*if \(!routeFailureNotice\) return false;\s*state\.queryNotice = removeAppendedNotice\(\s*state\.queryNotice,\s*routeFailureNotice\.previous,\s*routeFailureNotice\.appended\);\s*routeFailureNotice = null;\s*return true;\s*\}/);
   assert.match(
     appSource,
-    /onDismissNotice: \(\) => \{\s*state\.queryNotice = "";\s*state\.queryNoticeRetryAction = null;\s*routeFailureNotice = null;\s*failedWorkspaceUrlPreservation = null;/);
+    /function dismissQueryNotice\(\) \{\s*state\.queryNotice = "";\s*state\.queryNoticeRetryAction = null;\s*routeFailureNotice = null;\s*failedWorkspaceUrlPreservation = null;\s*render\(\);\s*\}/);
+  assert.match(
+    appSource,
+    /const workbenchShellActions: WorkbenchShellBindingActions = \{\s*onDismissNotice: dismissQueryNotice,/);
+  assert.match(
+    appSource,
+    /const homeShellActions: HomeShellBindingActions = \{\s*onDemo: runHomeDemo,\s*onDismissNotice: dismissQueryNotice,/);
   assert.match(
     appSource,
     /state\.retryAction === retryUnavailable\s*\? ""\s*: `<button id="retry-load" type="button">retry<\/button>`/);
