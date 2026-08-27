@@ -88,8 +88,9 @@ substrates, and inspection producers that will extend that space.
   binding, and state-transition responsibilities.
 - `tools/DecompilerHarness/` owns ReturnToSender closure discovery,
   type-cluster planning, compile-back reference selection and closure, and
-  generated-artifact admission. RTS specifies the required Metadata/CSharp
-  request shape; `ILInspector.CSharp` owns rendering it.
+  generated-artifact admission and receipt-gated verdict composition. RTS
+  specifies the required Metadata/CSharp request shape; `ILInspector.CSharp`
+  owns rendering it.
 
 ## Engineering guidance
 

@@ -346,6 +346,11 @@ declarations are outside the first contract. Initializers require a later typed
 lowering-correspondence design because their effects may span multiple instance
 constructors or the type initializer.
 
+That replacement boundary does not exempt initializer text already emitted by
+the existing artifact pipeline from compile closure. Such generated fragments
+must contribute typed dependency evidence under the contract below or make the
+artifact incomplete.
+
 A scope-pair key uses canonical method ordering and a versioned content digest
 over source, async/unsafe modifiers, constructor-initializer kind, and initializer
 arguments; object or collection reference equality is never used as replacement
@@ -566,10 +571,10 @@ name.
 ### Closure requirements
 
 `CompileClosurePlan` is the immutable union of signature, declaration-shape,
-local-declaration, and body requirements for the selected artifact. It covers
-every declaration and every real body emitted by the effective body policy,
-including selected targets, required companions, and `full`-policy members.
-Each requirement records:
+local-declaration, generated-fragment, and body requirements for the selected
+artifact. It covers every declaration, generated fragment, and real body emitted
+by the effective body policy, including selected targets, required companions,
+and `full`-policy members. Each requirement records:
 
 - its `CompileDefinitionIdentity` or unresolved state;
 - original module and metadata handle;
@@ -580,6 +585,15 @@ Each requirement records:
 
 Duplicates retain every occurrence. They may share one resolved definition but
 cannot erase a stronger requirement or a failure.
+
+The tools-owned effective artifact plan also produces an immutable
+`ArtifactParticipantPlan`. It assigns stable participant IDs to every included
+declaration, effective real body, and generated fragment. Each census result is
+keyed by one expected participant ID. `CompileClosureCoverageReceipt` requires
+exact equality between expected and observed participant sets; missing,
+duplicate, stale, or unexpected participants make closure `Incomplete` with
+their IDs. A primary-only scan cannot issue a complete receipt for an artifact
+that also emits companions or `full`-policy members.
 
 Signature requirements come from the Metadata-owned immutable
 signature-spellability aggregate. External definitions become exact selected
@@ -622,6 +636,29 @@ receipt repeats the census against corresponding donor declarations. A base,
 interface, constraint, explicit-interface, or attribute type cannot rebind
 between source-local and external definitions merely because both use the same
 C# full name.
+
+### Generated-fragment reference census
+
+Some emitted C# expressions are neither declaration metadata nor real method
+bodies. Tools create a `GeneratedFragmentReferenceCensus` for each such
+participant, including:
+
+- reconstructed field and property initializers;
+- constructor- or primary-constructor initializer arguments supplied outside a
+  `CSharpMemberBody`;
+- later non-body expression fragments explicitly included by the artifact plan.
+
+Each fragment consumes owner-issued typed dependency evidence tied to its source
+member and artifact participant. Source text alone is not dependency evidence,
+and tools do not parse or repair the fragment to reconstruct it. A text-only
+fragment therefore makes the census `Incomplete`; the initial implementation
+may omit that fragment through its existing typed artifact policy or decline
+the artifact, but cannot admit it with an empty requirement set.
+
+Resolved fragment occurrences become the same local, external, intrinsic,
+compiler-synthesized, or unresolved requirements as declaration and body
+occurrences. Their provenance retains the participant ID, source member, and
+owner-issued occurrence identity.
 
 ### Conservative body-reference census
 
@@ -670,12 +707,26 @@ Evaluating the plan against the frozen reference set produces one closed
 - `Ambiguous` retains every requirement with multiple non-corresponding
   providers;
 - `Incomplete` retains decode, resolution, safety-bound, and unsupported-scope
-  failures.
+  failures plus participant-coverage mismatches.
 
 `Complete` means the artifact is ready for compilation under its mapped
 providers. It is not final binding success: every retained
 compiler-synthesized obligation must still be discharged by the rebuilt binding
 receipt before `CompileContextOutcome.Complete`.
+
+Closure is artifact-scoped because Roslyn compiles one artifact. A
+`MemberClosureProjection` separately retains the requirements and local
+coverage contributed by each target, companion, and generated-fragment
+participant, plus every artifact-wide blocker and its originating participant.
+The projection never converts an artifact `Missing`, `Ambiguous`, or
+`Incomplete` outcome into member success.
+
+Targeted and batch runs may therefore have different artifact closure and
+admission outcomes when batch includes another broken participant. For the same
+member and artifact policy, they must use the same reference-set digest,
+definition identities, and member-local requirement projection. Any
+artifact-level difference remains visible with the causative participant
+rather than being called a parity failure or silently attributed to the target.
 
 The evaluator does not add references after seeing compiler diagnostics and
 does not retry with a different set. A missing body-only dependency therefore
@@ -701,11 +752,14 @@ Each iteration follows one ordered transition:
 4. After static closure is `Complete`, cross `ProductAttemptCommit` for that
    exact plan and invoke product artifact production and the compiler.
 5. A supported compiler diagnostic may contribute one typed declaration root.
-   That explicitly supersedes the in-flight attempt without producing a
-   terminal admission arm. Discard its artifact, closure, compilation, and
-   binding evidence, then begin a replacement iteration.
+   When root and iteration budgets permit growth, that explicitly supersedes
+   the in-flight attempt without producing a terminal admission arm. Discard
+   its artifact, closure, compilation, and binding evidence, then begin a
+   replacement iteration.
 6. A terminal product, compiler, rebuilt-resolution, or binding failure after
-   `ProductAttemptCommit` produces `Failed`.
+   `ProductAttemptCommit` produces `Failed`. A stalled diagnostic, root-budget
+   exhaustion, or iteration-budget exhaustion is terminal at this boundary,
+   retains its exact bail reason, and cannot select legacy replacement evidence.
 7. A successful compile plus complete rebuilt binding produces `Admitted`.
 
 `ProductAttemptCommit` is the only boundary that permits product evidence to
@@ -764,6 +818,12 @@ construct an `Exact` compile-back verdict. Primary targets, sibling accessors,
 effective companions, nested ReturnToSender rows, and future verdict producers
 all call it; an enum assignment or opcode-only helper is not authoritative.
 
+Result contracts carry a `CompileBackVerdict`, not a caller-supplied raw status.
+Its `Exact` constructor is private to the classifier; `CompileBackStatus` remains
+a read-only serialization/reporting projection. Adding a producer therefore
+cannot create `Exact` without providing the classifier's artifact receipt and
+member entry.
+
 Each verdict retains the exact artifact and compile-context receipt IDs plus its
 member-binding entry. A companion may share the artifact-level receipt only
 when it was compiled in that exact artifact/context and its own member entry is
@@ -779,8 +839,9 @@ planning transition:
   selection, declaration planning, closure, or local requirements. It carries
   the typed reasons and selected legacy policy, when permitted.
 - `Failed` when artifact production, compilation, rebuilt resolution, or
-  binding fails after `ProductAttemptCommit`. It retains every product artifact
-  and partial receipt that exists.
+  binding fails after `ProductAttemptCommit`, including a stalled post-commit
+  diagnostic and root/iteration budget exhaustion. It retains every product
+  artifact, bail reason, and partial receipt that exists.
 - `Admitted` only after the exact artifact and typed declaration plan exist, the
   frozen reference set is unambiguous, signature/declaration/body closure is
   `Complete`, every Metadata `LocalRequirement` has a declaration receipt, and
@@ -838,7 +899,8 @@ signature-only shortcut.
 | Selection | target missing, ambiguous overload, unsupported member kind |
 | Artifact production | unsupported declaration, partial body, missing typed fact |
 | Reference selection | exact set, missing identity, ambiguous candidates, changed bytes |
-| Closure | complete, missing requirement, ambiguous provider, incomplete census |
+| Closure | complete, missing requirement, ambiguous provider, incomplete census or participant coverage |
+| Post-commit convergence | expandable diagnostic, stalled closure, root budget, iteration budget |
 | Compilation | parse failure, bind failure, emit failure |
 | Correspondence | rebuilt member missing, ambiguous, or wrong module |
 | Binding | corresponding, rebound definition, incomplete receipt |
@@ -856,8 +918,9 @@ No layer converts failure or unavailability into an empty successful result.
 - Replace simple-name/first-wins reference selection with the frozen exact
   inventory, canonical selected set, and typed ambiguity outcomes.
 - Add artifact-specific signature, declaration-shape, local-declaration, and
-  effective-body closure plus deferred compiler-generated correspondence and
-  the rebuilt binding and compile-context receipts required by every `Exact`.
+  generated-fragment, and effective-body closure plus participant-coverage,
+  deferred compiler-generated correspondence, and the rebuilt binding and
+  compile-context receipts required by every `Exact`.
 - Centralize primary, companion, accessor, and nested fidelity verdicts through
   the receipt-bearing classifier.
 - Model diagnostic-driven cluster growth through the ordered
@@ -1019,8 +1082,13 @@ Issue #4810 adds these named gates:
     mutation-verified to fail the gate.
 16. `CompleteNeighboringArtifactRemainsProductAdmitted` compiles an unambiguous
     neighboring member and proves `Admitted` plus the expected fidelity result.
-17. `TargetedAndBatchUseIdenticalCompileContextPlanning` proves equal reference
-    digests, closure outcomes, and admission outcomes for the same member.
+17. `TargetedAndBatchRetainMemberLocalPlanningParity` proves equal reference
+    digests, definition identities, and member-local requirement projections
+    for the same member. A one-member batch and targeted artifact produce equal
+    closure/admission outcomes. Adding a batch-only sibling with a missing
+    dependency makes only the batch artifact unavailable and retains that
+    sibling as the cause; the target's local projection remains equal and is
+    never promoted over the artifact failure.
 18. `CompileBackResultRetainsReceiptsAfterOwnerDisposal` proves all reference,
     closure, admission, diagnostic, and binding evidence remains readable after
     disposable owners are gone.
@@ -1035,11 +1103,30 @@ Issue #4810 adds these named gates:
     and complete member entry; withholding or mismatching either changes only
     that verdict to `FidelityUnavailable`. Removing the central classifier call
     from any producer is mutation-verified to fail its negative arm.
+    `CompileBackExactConstructionIsCentralized` additionally derives the
+    allowed result constructors and exact-producing factory from the result
+    declaration; an accessible raw-status constructor or another `Exact`
+    factory fails the architecture gate.
 21. `ProductAdmissionSeparatesDeclineAndFailure` proves both terminal arms and
     their fallback boundary. A pre-commit reference or closure refusal produces
     `Declined` and may select the labelled legacy policy. A terminal product or
-    compiler failure after `ProductAttemptCommit` produces `Failed`, retains
-    available product evidence, and cannot be replaced by the legacy control.
+    compiler failure, stalled diagnostic, root/iteration budget exhaustion,
+    rebuilt-resolution failure, correspondence failure, or binding failure
+    after `ProductAttemptCommit` produces `Failed`, retains available product
+    evidence and exact bail provenance, and cannot be replaced by the legacy
+    control.
+22. `CompileClosureCoverageMatchesEffectiveParticipantPlan` derives the expected
+    census keys from an artifact containing a primary target, a companion, and
+    multiple `full`-policy members with distinct body-only and same-FQN
+    dependencies. Exact coverage can become `Complete`; removing any
+    declaration, body, or fragment census or injecting a stale participant
+    makes closure `Incomplete`. A primary-only implementation fails the
+    positive arm.
+23. `CompileClosureRequiresGeneratedFragmentEvidence` uses a reconstructed
+    initializer with an owner-issued typed external requirement. The exact
+    reference produces `Complete`; removing it produces `Missing`; retaining
+    only initializer source text produces `Incomplete`. No arm parses the
+    generated expression.
 
 Documentation-only changes validate Markdown. Implementation milestones add the
 smallest focused product and harness checks that prove their claims.

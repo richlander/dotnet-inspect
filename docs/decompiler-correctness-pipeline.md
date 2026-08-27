@@ -594,13 +594,18 @@ both:
   `not-sampled`.
 
 The compile-back fidelity contract defines `Exact` as a full product-owned IL
-body comparison match. It compares opcode families, immediate values, symbolic
-member/type/string identities, and branch topology while tolerating
-local/argument macro and slot-layout changes. `OpcodeDiff` means opcode names
-differ; `OperandDiff` means the opcode names match but the body comparison
-differs; `FidelityUnavailable` means the comparison could not return a verdict.
-The contract is explicitly EH-blind and is not a semantic-equivalence claim.
-Its version is independent from the corpus snapshot schema version.
+body comparison match under a complete compile-context receipt for the exact
+artifact and member. The body comparison covers opcode families, immediate
+values, symbolic member/type/string identities, and branch topology while
+tolerating local/argument macro and slot-layout changes. Missing, mismatched, or
+incomplete reference-closure and rebuilt-binding evidence produces
+`FidelityUnavailable` even when that body comparison is exact. `OpcodeDiff`
+means opcode names differ; `OperandDiff` means the opcode names match but the
+body comparison differs. The contract is explicitly EH-blind and is not a
+semantic-equivalence claim. Its version is independent from the corpus snapshot
+schema version. `ExactRequiresNonVacuousCompileContextReceipts` and
+`EveryExactProducerRequiresMatchingContextReceipt` gate the receipt
+precondition.
 
 When reporting deltas, spell out `currentValidity`, `currentDecompilerFidelity`,
 and `currentFidelityCheck` rather than mixing axes.
@@ -874,13 +879,16 @@ Report changed-method runs in three bands:
    escalation — typically a Roslyn-class internal cross-assembly graph). Do not
    count them as passing.
 
-The operational order is **escalate, do not cluster-first**: run the cheap
-whole-module grouped compile, then escalate only the rows it could not check to
-the (per-method, iterative) closure path, and treat a closure bail as
-`not-safely-capturable`. A whole-module `Exact` is already trustworthy and a
-closure cannot make it worse (it falls back), so escalation reaches the same
-checkable population as attempting the closure on every row, far more cheaply,
-while the three bands fall out of the capture provenance for free.
+The operational order remains **escalate, do not cluster-first**: run the cheap
+whole-module grouped compile, then escalate only rows without complete
+receipt-bearing evidence to the per-method iterative closure path. A
+whole-module body comparison is reusable as `Exact` only when its artifact and
+member compile-context receipt is complete; comparison equality alone is not
+trustworthy. A closure bail is `not-safely-capturable`, and a post-attempt
+stalled/root-budget/iteration-budget result remains a typed failure rather than
+borrowing whole-module success. This ordering still avoids unnecessary
+per-method attempts while the three bands fall out of capture and receipt
+provenance.
 
 When repeated skeleton/context fixes only trade compiler diagnostics without
 growing the checkable population, stop the incremental burndown and say the
@@ -890,9 +898,10 @@ measured under #1412: the failures are not predominantly unrelated-sibling
 poison but types genuinely inside the target's (often large) reconstruction
 closure. The harness ships an opt-in **reconstruction-closure (cluster) emitter**
 (`CB_CLUSTER=1`) that reconstructs only the target's transitive closure instead
-of the whole module and falls back to the whole-module skeleton on bail, so it
-never regresses, emitting the safely-capturable bands above. The gain is
-library-shaped, not universal — see
+of the whole module. The current harness falls back to the whole-module skeleton
+on bail; under the compile-context receipt contract, that fallback is a
+separately labelled control and cannot replace the failed cluster attempt or
+inherit its fidelity claim. The gain is library-shaped, not universal — see
 [decompiler-quality.md](decompiler-quality.md#reconstruction-closures-and-the-safely-capturable-population)
 for the framing and the extension/inherited-member follow-ups.
 
