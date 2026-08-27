@@ -65,8 +65,8 @@ The verifier owns:
 
 The verifier consumes, but does not own:
 
-- the numeric DOM attribute catalog and associated adapter introduced during
-  migration;
+- the numeric DOM catalog and decoder owner, plus binding adapters introduced
+  during migration;
 - adapter module identities declared next to the owning product component;
 - TypeScript's DOM library declarations and semantic program; and
 - the source files selected by the product `tsconfig.json`.
@@ -84,7 +84,7 @@ TypeScript assigns to an operation. The initial capability set is:
 
 | Capability | Semantic evidence | Owning adapter |
 | --- | --- | --- |
-| Numeric DOM payload acquisition | A cataloged key read from `DOMStringMap`, or its corresponding `data-*` attribute read through `Element` or `NamedNodeMap` APIs | The product binding module whose descriptor owns that key; decoder and output contracts come from the planned numeric DOM owner |
+| Cataloged numeric DOM admission | A cataloged key read from `DOMStringMap`, or its corresponding `data-*` attribute read through `Element` or `NamedNodeMap` APIs, and admission to its declared DOM-facing sink | The product binding module whose descriptor owns that key; decoder and output contracts come from the planned numeric DOM owner |
 | Owned DOM selector lookup | A call to a characterized DOM selector declaration with a constant selector or identifier from an owner-issued catalog | The product module that declares that selector catalog |
 
 Catalogs may add capabilities, but every row needs all three parts: semantic
@@ -136,11 +136,11 @@ including:
 Dynamic property names that cannot be reduced to a catalog key are not silently
 accepted. For a covered carrier they produce an unsupported-dynamic-access
 diagnostic outside its adapter. Every `Attr`-producing operation is unsupported
-outside the numeric adapter, even when it is addressed by a constant
-non-catalog name: the resulting `Attr` type no longer proves its originating
-attribute name. This rule covers new `NamedNodeMap` methods by semantic result
-type rather than a closed method-name list. The verifier is not required to
-evaluate arbitrary JavaScript expressions.
+outside a descriptor-authorized numeric adapter, even when it is addressed by
+a constant non-catalog name: the resulting `Attr` type no longer proves its
+originating attribute name. This rule covers new `NamedNodeMap` methods by
+semantic result type rather than a closed method-name list. The verifier is not
+required to evaluate arbitrary JavaScript expressions.
 
 Lexically shadowed locals remain valid close negatives. A local named
 `document`, `Reflect`, `Object`, `window`, or `self` is not a browser capability
@@ -167,6 +167,21 @@ that identity while exposing a structurally compatible covered property or
 method. This catches `Element` converted to a local
 `{ getAttribute(name: string): string | null }` or `{ dataset: ... }` surface
 without treating every `Element` transfer as numeric-carrier movement.
+
+Receiver erasure is compared recursively through corresponding positions in
+repository-authored wrappers. A wrapper position is receiver-bearing when it
+is the receiver itself or a repository-authored property, union constituent,
+tuple or array element, index result, callback result, generic constraint, or
+characterized standard wrapper output that is receiver-bearing. The comparison
+never discovers those positions by walking members declared on a DOM platform
+type.
+
+For example, converting `{ value: HTMLElement }` to
+`{ value: Reader }`, `HTMLElement[]` to `Reader[]`, or
+`() => HTMLElement` to `() => Reader` compares the nested receiver position
+and rejects the capability-shaped structural target. The comparison is
+cycle-safe and uses the same characterized standard wrappers as transfer-root
+classification.
 
 The rule applies at the source-to-target edges below and at generic calls. For a
 generic call, the verifier checks both the instantiated signature and its
@@ -289,9 +304,10 @@ The value object's runtime representation is part of the boundary:
 
 - its class has owner-private construction and private nominal state;
 - it is not assignable to `number` and defines no implicit numeric coercion;
-- it exposes the accepted number only through a read-only accessor; and
-- the instance is frozen and has no mutator, so a structurally widened alias
-  cannot replace the accepted value.
+- it stores the accepted number in an own read-only data property;
+- that property becomes non-writable and non-configurable when the instance is
+  frozen; and
+- it exposes no mutator or prototype-hosted value accessor.
 
 Only the numeric owner may construct the value object. The verifier rejects
 `new`, assertions, annotated returns, object-literal substitutes, or other
@@ -420,15 +436,16 @@ unlisted overload or parameter position. Same-module private helpers need no
 entry-point listing because they cannot transfer the carrier out of the
 adapter.
 
-The declaring module is the exact owner; an independently stated path is not
-needed. Migration introduces the numeric adapter and its
-`numericDomAttributes` declaration by porting the prototype from paused
-[PR #4581](https://github.com/richlander/dotnet-inspect/pull/4581). That
-artifact is not present on `main` today. The catalog derives each
-serialized `data-*` attribute name from its dataset key and tests the mapping.
-Selector adapters declare their selector constants in their descriptors and
-use those constants for runtime lookup, replacing test-owned regular
-expressions and duplicated string lists.
+The declaring module is the exact adapter owner; an independently stated path
+is not needed. Migration introduces the numeric catalog and decoder owner, its
+`numericDomAttributes` declaration, and descriptors in the binding adapters by
+porting the prototype from paused
+[PR #4581](https://github.com/richlander/dotnet-inspect/pull/4581). Those
+artifacts are not present on `main` today. The catalog derives each serialized
+`data-*` attribute name from its dataset key and tests the mapping. Selector
+adapters declare their selector constants in their descriptors and use those
+constants for runtime lookup, replacing test-owned regular expressions and
+duplicated string lists.
 
 The verifier rejects duplicate capability identifiers, duplicate selectors
 with conflicting owners, unresolved descriptor imports, unresolved platform
@@ -436,6 +453,17 @@ identities, invalid or stale entry-point references, empty covered-key sets,
 numeric entries without validated decoder and sink contracts, and catalog
 entries without test witnesses. A second verifier-owned key or selector list
 is prohibited.
+
+This is catalog integrity, not independent discovery of every numeric
+interpretation in product source. A key absent from `numericDomAttributes`
+cannot prove its own omission by comparison with descriptors derived from that
+same declaration.
+
+The existing broad numeric-coercion scan remains an independent required gate
+for uncataloged DOM-to-number operations. The semantic verifier may replace
+only the cataloged boundary checks for which it proves parity; it cannot remove
+that broad scan. Replacing broad discovery requires a separate design with an
+expected set independent of the numeric catalog.
 
 ## Gate and evidence
 
@@ -453,14 +481,15 @@ The implementation adds an `inspect-web-boundaries` script and makes
    aggregates, rest parameters, imported consumers, sync and async returns,
    `yield`, `yield*`, aggregate storage, and adapter-return escape.
    Receiver-erasure cases include structural assignment, structural generic
-   constraints, erased generic results, and close type-preserving transfers.
+   constraints, erased generic results, nested object, array, callback, and
+   standard-wrapper positions, and close type-preserving transfers.
 3. **Close-negative corpus:** accepts lexical shadows, same-named properties on
    unrelated types, unrelated intrinsic-like objects, type-preserving transfer
    of numeric-only operation receivers that contain no repository-authored
    transfer root, and authorized adapter access.
-4. **Catalog completeness:** derives expected numeric keys from
+4. **Catalog integrity:** compares descriptors with
    `numericDomAttributes` and proves every configured capability has mutation
-   witnesses. Missing and stale rows both fail.
+   witnesses. Missing and stale rows within either declared set fail.
 5. **Non-vacuity:** runs the verifier against the real source tree, then uses a
    temporary or virtual copy of that configured graph to introduce one
    forbidden use per capability. It never edits the worktree. A wiring test
@@ -469,9 +498,12 @@ The implementation adds an `inspect-web-boundaries` script and makes
    ordering, owning-adapter guidance, and explicit semantic-service failures.
 7. **Validated outputs:** proves raw numbers, `NaN`, external construction,
    assertions outside the owner, wrong decoder outputs, mutable structural
-   aliases, and plain-number DOM action parameters cannot corrupt or satisfy
-   the nominal contract. Valid decoder results and explicit post-boundary
-   unwrapping pass.
+   aliases, prototype tampering, and plain-number DOM action parameters cannot
+   corrupt or satisfy the nominal contract. Valid decoder results and explicit
+   post-boundary unwrapping pass.
+8. **Independent numeric discovery:** retains the broad numeric-coercion gate
+   and adds an uncataloged constant-key mutation. Removing or weakening that
+   gate fails even when every declared descriptor remains valid.
 
 The implementation gate is:
 
@@ -499,15 +531,16 @@ Migration is replacement, not indefinite layering:
 3. Introduce runtime-immutable nominal numeric value objects and change
    DOM-facing action and controller parameters to consume them. Add behavioral
    decoder and mutable-alias tests for every numeric descriptor.
-4. Establish parity and non-vacuity for numeric payload acquisition, then
-   remove only the superseded numeric OXC reconstruction.
+4. Establish parity and non-vacuity for cataloged numeric admission, then
+   remove only the superseded cataloged-boundary OXC reconstruction. Retain the
+   broad numeric-coercion discovery gate and its independent mutation.
 5. Extract product-owned selector descriptors from the modules whose ownership
    is currently asserted in `test/spotlight-identity.test.ts`. Move the
    selector alias, computed-key, destructuring, method-extraction, reflection,
    wrapper, higher-order transfer, generator, and lexical-shadow corpus into
    verifier fixtures.
 6. Run the semantic verifier and selector OXC checks together until the
-   semantic gate has catalog completeness, real-tree non-vacuity, and parity
+   semantic gate has descriptor integrity, real-tree non-vacuity, and parity
    for the retained selector corpus.
 7. Remove the superseded selector lexical, alias, constant-key, and reflective
    reconstruction. Retain syntax-only OXC checks that enforce independent
@@ -518,9 +551,10 @@ and accepts every close negative. It does not require reproducing an old false
 positive or preserving test implementation structure.
 
 The numeric capability may land before selector extraction is complete.
-`inspect-web-boundaries` is not the full replacement for the current boundary
-tests until both capabilities have satisfied their own parity and non-vacuity
-gates. No OXC enforcement is removed merely because the semantic runner exists.
+`inspect-web-boundaries` replaces only cataloged capability enforcement after
+each capability has satisfied its own parity and non-vacuity gates. Independent
+broad numeric discovery remains required. No OXC enforcement is removed merely
+because the semantic runner exists.
 
 ## Alternatives considered
 
@@ -565,6 +599,8 @@ The verifier does not own or redefine:
 - URL parsing, workspace restoration, or notice precedence;
 - application state transitions;
 - event or listener binding behavior;
+- presentation and interaction language, which
+  [Inspect Web UI](inspect-web-ui.md) owns;
 - runtime sanitization or the untrusted-artifact threat model;
 - primitive provenance after an authorized read;
 - the semantics of product adapters and decoders, which behavioral tests own;
