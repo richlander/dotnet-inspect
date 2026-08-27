@@ -20,6 +20,9 @@ assessment sits next to the code it judges:
 
 - Valid: does it compile and bind (True/False)?
 - Correct: does it preserve the original observable behavior (True/False)?
+- Printer exact: when the method is enrolled in a whole-file source oracle,
+  does the rendered body match the checksum-pinned authored body before source
+  normalization (True/False/not enrolled)?
 - IL fidelity: does it recompile to the original opcodes (True/False), or is it
   not currently checkable? This is the camp the #3127 trap hides in: a render
   can be Valid and Correct yet no longer opcode-faithful. It is judged by the
@@ -221,6 +224,7 @@ against that reference.
 
 - Valid: {True/False}
 - Correct: {True/False}
+- Printer exact: {True/False/not enrolled}
 - IL fidelity: {True/False/not currently checkable}
 - Taste applied: {None / list the byte-divergent style lenses from `-S "Applied Taste"`}
 - Commit: {base commit digest}
@@ -240,6 +244,7 @@ the method signature line here too, for the same reason.
 
 - Valid: {True/False}
 - Correct: {True/False}
+- Printer exact: {True/False/not enrolled}
 - IL fidelity: {True/False/not currently checkable}
 - Taste applied: {None / list the byte-divergent style lenses from `-S "Applied Taste"`}
 - Commit: {head commit digest}
