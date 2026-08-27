@@ -105,6 +105,17 @@ public static partial class AttributeReader
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
         Action<int>? beforeMaterialize)
+        => HasExtensionAttribute(
+            reader,
+            attributes,
+            beforeMaterialize,
+            rejectInvalidTypeSpecification: false);
+
+    internal static bool HasExtensionAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize,
+        bool rejectInvalidTypeSpecification)
     {
         foreach (var attrHandle in attributes)
         {
@@ -112,7 +123,8 @@ public static partial class AttributeReader
             var attrTypeName = GetAttributeTypeName(
                 reader,
                 attr.Constructor,
-                beforeMaterialize);
+                beforeMaterialize,
+                rejectInvalidTypeSpecification);
             if (attrTypeName == KnownAttributeNames.ExtensionAttribute)
                 return true;
         }
@@ -2636,6 +2648,17 @@ public static partial class AttributeReader
             reader,
             constructorHandle,
             beforeMaterialize);
+
+    internal static string? GetAttributeTypeName(
+        MetadataReader reader,
+        EntityHandle constructorHandle,
+        Action<int>? beforeMaterialize,
+        bool rejectInvalidTypeSpecification)
+        => AttributeDecoder.GetAttributeTypeName(
+            reader,
+            constructorHandle,
+            beforeMaterialize,
+            rejectInvalidTypeSpecification);
 
     /// <summary>
     /// Gets custom attributes for a specific method, identified by type name, method name, and overload index.

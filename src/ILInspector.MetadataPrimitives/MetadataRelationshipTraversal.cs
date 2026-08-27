@@ -98,6 +98,7 @@ public static class MetadataSafetyPolicy
     /// <c>ResolveApiMember_DeepDeclaringTypeCycleChecksRespectOperationBudget</c>,
     /// <c>ResolveApiMember_RepeatedDeepSignatureRelationshipsRespectOperationBudget</c>,
     /// <c>ResolveApiMember_DeepExtensionAttributeRelationshipsRespectOperationBudget</c>,
+    /// <c>ResolveApiMember_OverDepthTypeSpecificationExtensionAttributeFails</c>,
     /// and
     /// <c>ResolveApiMember_DistinctGenericAssemblyReferencesFailWithinOperationBudget</c>.
     /// </summary>

@@ -90,6 +90,17 @@ public static class AttributeDecoder
         MetadataReader reader,
         EntityHandle constructorHandle,
         Action<int>? beforeMaterialize)
+        => GetAttributeTypeName(
+            reader,
+            constructorHandle,
+            beforeMaterialize,
+            rejectInvalidTypeSpecification: false);
+
+    internal static string? GetAttributeTypeName(
+        MetadataReader reader,
+        EntityHandle constructorHandle,
+        Action<int>? beforeMaterialize,
+        bool rejectInvalidTypeSpecification)
     {
         if (constructorHandle.Kind == HandleKind.MemberReference)
         {
@@ -98,7 +109,8 @@ public static class AttributeDecoder
                 reader,
                 memberRef.Parent,
                 context: null,
-                beforeMaterialize);
+                beforeMaterialize,
+                rejectInvalidTypeSpecification);
         }
         if (constructorHandle.Kind == HandleKind.MethodDefinition)
         {

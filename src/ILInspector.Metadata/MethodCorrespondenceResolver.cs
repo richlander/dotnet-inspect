@@ -622,7 +622,8 @@ public static class MethodCorrespondenceResolver
             return AttributeReader.HasExtensionAttribute(
                 reader,
                 attributes,
-                materializationBudget.Charge);
+                materializationBudget.Charge,
+                rejectInvalidTypeSpecification: true);
         }
         finally
         {

@@ -102,6 +102,8 @@ that share heap storage. Named-type correspondence storage reads are charged
 during signature decode, so repeated TypeRefs cannot amplify shared scope scans
 outside the operation budget. Extension-attribute classification likewise
 charges both relationship walks for TypeDef and TypeRef constructor parents.
+Rejected TypeSpec constructor parents remain visible correspondence failures
+rather than becoming attribute absence.
 Core-library facade normalization requires neutral culture as well as a trusted
 platform token; a cultured reference retains its ordinary assembly identity.
 Generic-parameter rows are projected from the raw `GenericParam` table with

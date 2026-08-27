@@ -2197,6 +2197,61 @@ public sealed class MethodCorrespondenceResolverTests
         Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ResolveApiMember_OverDepthTypeSpecificationExtensionAttributeFails(
+        bool useTypeReference)
+    {
+        byte[] source =
+            BuildDeepExtensionAttributeRelationshipImage(
+                attributeCount: 0,
+                useTypeReference,
+                nestingDepth:
+                    MetadataSafetyPolicy.MaxRelationshipNodes + 1,
+                wrapInTypeSpecification: true);
+        byte[] target =
+            BuildDeepExtensionAttributeRelationshipImage(
+                attributeCount: 1,
+                useTypeReference,
+                nestingDepth:
+                    MetadataSafetyPolicy.MaxRelationshipNodes + 1,
+                wrapInTypeSpecification: true);
+
+        MethodCorrespondenceResult result =
+            ResolveApiMember(source, target);
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains(
+            "Metadata relationship traversal rejected",
+            result.Failure);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ResolveApiMember_MaximumDepthTypeSpecificationExtensionAttributeRemainsExact(
+        bool useTypeReference)
+    {
+        byte[] source =
+            BuildDeepExtensionAttributeRelationshipImage(
+                attributeCount: 0,
+                useTypeReference,
+                nestingDepth: MetadataSafetyPolicy.MaxRelationshipNodes,
+                wrapInTypeSpecification: true);
+        byte[] target =
+            BuildDeepExtensionAttributeRelationshipImage(
+                attributeCount: 1,
+                useTypeReference,
+                nestingDepth: MetadataSafetyPolicy.MaxRelationshipNodes,
+                wrapInTypeSpecification: true);
+
+        MethodCorrespondenceResult result =
+            ResolveApiMember(source, target);
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+    }
+
     [Fact]
     public void ResolveApiMember_NestedFunctionPointerUsesCorrespondenceLength()
     {
@@ -4887,7 +4942,9 @@ public sealed class MethodCorrespondenceResolverTests
 
     static byte[] BuildDeepExtensionAttributeRelationshipImage(
         int attributeCount,
-        bool useTypeReference)
+        bool useTypeReference,
+        int nestingDepth = MetadataSafetyPolicy.MaxRelationshipNodes,
+        bool wrapInTypeSpecification = false)
     {
         var metadata =
             CreateSingleTypeMetadata(
@@ -4912,7 +4969,7 @@ public sealed class MethodCorrespondenceResolverTests
             EntityHandle scope = assembly;
             TypeReferenceHandle current = default;
             for (int i = 0;
-                i < MetadataSafetyPolicy.MaxRelationshipNodes;
+                i < nestingDepth;
                 i++)
             {
                 current =
@@ -4929,7 +4986,7 @@ public sealed class MethodCorrespondenceResolverTests
             TypeDefinitionHandle parent = default;
             TypeDefinitionHandle current = default;
             for (int i = 0;
-                i < MetadataSafetyPolicy.MaxRelationshipNodes;
+                i < nestingDepth;
                 i++)
             {
                 current =
@@ -4947,6 +5004,19 @@ public sealed class MethodCorrespondenceResolverTests
                 parent = current;
             }
             attributeType = current;
+        }
+
+        if (wrapInTypeSpecification)
+        {
+            int codedType =
+                (MetadataTokens.GetRowNumber(attributeType) << 2)
+                | (useTypeReference ? 1 : 0);
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x12);
+            signature.WriteCompressedInteger(codedType);
+            attributeType =
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(signature));
         }
 
         MemberReferenceHandle constructor =

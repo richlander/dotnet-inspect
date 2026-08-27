@@ -49,6 +49,19 @@ public static class TypeResolver
         EntityHandle handle,
         GenericContext? context,
         Action<int>? beforeMaterialize)
+        => GetTypeName(
+            reader,
+            handle,
+            context,
+            beforeMaterialize,
+            rejectInvalidTypeSpecification: false);
+
+    internal static string? GetTypeName(
+        MetadataReader reader,
+        EntityHandle handle,
+        GenericContext? context,
+        Action<int>? beforeMaterialize,
+        bool rejectInvalidTypeSpecification)
     {
         if (handle.IsNil)
             return null;
@@ -59,16 +72,36 @@ public static class TypeResolver
                 reader, (TypeReferenceHandle)handle, beforeMaterialize),
             HandleKind.TypeDefinition => GetTypeNameFromDefinition(
                 reader, (TypeDefinitionHandle)handle, beforeMaterialize),
-            HandleKind.TypeSpecification => DecodeTypeNameFromSpecification(
-                reader,
-                (TypeSpecificationHandle)handle,
-                context,
-                beforeMaterialize,
-                enforceCharacterBudget: false).TryGetValue(out var name)
-                    ? name
-                    : null,
+            HandleKind.TypeSpecification =>
+                GetTypeNameFromSpecification(
+                    reader,
+                    (TypeSpecificationHandle)handle,
+                    context,
+                    beforeMaterialize,
+                    rejectInvalidTypeSpecification),
             _ => null
         };
+    }
+
+    static string? GetTypeNameFromSpecification(
+        MetadataReader reader,
+        TypeSpecificationHandle handle,
+        GenericContext? context,
+        Action<int>? beforeMaterialize,
+        bool rejectInvalidTypeSpecification)
+    {
+        SignatureDecodeResult<string> result =
+            DecodeTypeNameFromSpecification(
+                reader,
+                handle,
+                context,
+                beforeMaterialize,
+                enforceCharacterBudget: false);
+        if (rejectInvalidTypeSpecification)
+            return result.GetValueOrThrow();
+        return result.TryGetValue(out string? name)
+            ? name
+            : null;
     }
 
     /// <summary>
