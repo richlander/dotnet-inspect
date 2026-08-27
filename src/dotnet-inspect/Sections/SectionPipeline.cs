@@ -59,9 +59,27 @@ public sealed class SectionPipeline<TModel>
     private bool _curatedCatalog;
     private bool _computedPoles = true;
     private Func<InspectionQueryDefinition, InspectionCost>? _queryCost;
+    private SectionCatalog<TModel>? _compiledCatalog;
 
     public const string AllCategory = "@All";
     public const string HiddenCategory = "@Hidden";
+
+    internal IReadOnlyList<SectionCategory> RegisteredCategories => _categories;
+
+    public SectionCatalog<TModel> Compile()
+    {
+        if (_compiledCatalog is not null)
+            return _compiledCatalog;
+
+        for (int i = 0; i < _categories.Count; i++)
+        {
+            SectionCategory category = _categories[i];
+            _categories[i] = category with { Sections = [.. category.Sections] };
+        }
+
+        _compiledCatalog = new SectionCatalog<TModel>(this);
+        return _compiledCatalog;
+    }
 
     /// <summary>
     /// Opts this pipeline into the curated-catalog taxonomy: <c>@All</c> is the visible pole
@@ -73,6 +91,7 @@ public sealed class SectionPipeline<TModel>
     /// </summary>
     public SectionPipeline<TModel> UseCuratedCatalog()
     {
+        EnsureMutable();
         _curatedCatalog = true;
         return this;
     }
@@ -84,6 +103,7 @@ public sealed class SectionPipeline<TModel>
     public SectionPipeline<TModel> UseQueryCosts(
         Func<InspectionQueryDefinition, InspectionCost> costOf)
     {
+        EnsureMutable();
         if (_entries.Count > 0)
             throw new InvalidOperationException(
                 "UseQueryCosts must be called before any section is registered; " +
@@ -103,6 +123,7 @@ public sealed class SectionPipeline<TModel>
     /// </summary>
     public SectionPipeline<TModel> WithoutComputedPoles()
     {
+        EnsureMutable();
         _computedPoles = false;
         return this;
     }
@@ -204,6 +225,7 @@ public sealed class SectionPipeline<TModel>
     /// </summary>
     public SectionPipeline<TModel> Add(SectionEntry<TModel> entry)
     {
+        EnsureMutable();
         if (entry.Queries.IsDefault)
             throw new InvalidOperationException($"{entry.Name} has an uninitialized query set.");
         if (entry.Queries.Any(query => query is null))
@@ -264,6 +286,7 @@ public sealed class SectionPipeline<TModel>
         SectionCategoryRole role,
         params string[] sections)
     {
+        EnsureMutable();
         if (!name.StartsWith("@", StringComparison.Ordinal))
             throw new ArgumentException("Section category names must start with '@'.", nameof(name));
 
@@ -275,7 +298,7 @@ public sealed class SectionPipeline<TModel>
                 "Category membership must name a registered section; use the SectionNames constant " +
                 "the descriptor returns so renames move both together.");
 
-        _categories.Add(new SectionCategory(name, role, sections));
+        _categories.Add(new SectionCategory(name, role, [.. sections]));
         return this;
     }
 
@@ -425,7 +448,7 @@ public sealed class SectionPipeline<TModel>
         }
 
         foreach (var category in _categories)
-            categories[category.Name] = category.Sections;
+            categories[category.Name] = [.. category.Sections];
 
         if (_curatedCatalog && _computedPoles)
             categories[HiddenCategory] = GetHiddenSections().ToArray();
@@ -787,22 +810,15 @@ public sealed class SectionPipeline<TModel>
         bool excludeUnbounded = false)
     {
         HashSet<InspectionQueryDefinition> queries = [];
-        for (int i = 0; i < _entries.Count; i++)
-        {
-            SectionEntry<TModel> entry = _entries[i];
-            if (entry.Queries.IsDefaultOrEmpty)
-                continue;
-            if (excludeUnbounded && entry.Cost == SectionCost.Unbounded)
-                continue;
-            if (IsRequested(entry, i, verbosity, include, fixedOverview))
-            {
-                foreach (InspectionQueryDefinition query in entry.Queries)
-                {
-                    queries.Add(query);
-                    trace?.RecordQueryDemand(entry.Name, query);
-                }
-            }
-        }
+        CollectRequiredQueries(
+            verbosity,
+            include,
+            fixedOverview,
+            excludeUnbounded,
+            queries,
+            orderedQueries: null,
+            demands: null,
+            trace);
 
         if (commandDemand is not null)
         {
@@ -815,6 +831,62 @@ public sealed class SectionPipeline<TModel>
 
         trace?.RecordRequestedQueries(queries);
         return queries;
+    }
+
+    internal SectionQueryPlan CreateQueryPlan(
+        Verbosity verbosity,
+        HashSet<string>? include,
+        bool fixedOverview,
+        bool excludeUnbounded)
+    {
+        HashSet<InspectionQueryDefinition> queries = [];
+        ImmutableArray<InspectionQueryDefinition>.Builder orderedQueries =
+            ImmutableArray.CreateBuilder<InspectionQueryDefinition>();
+        ImmutableArray<SectionQueryDemand>.Builder demands =
+            ImmutableArray.CreateBuilder<SectionQueryDemand>();
+
+        CollectRequiredQueries(
+            verbosity,
+            include,
+            fixedOverview,
+            excludeUnbounded,
+            queries,
+            orderedQueries,
+            demands,
+            trace: null);
+
+        return new SectionQueryPlan(orderedQueries.ToImmutable(), demands.ToImmutable());
+    }
+
+    private void CollectRequiredQueries(
+        Verbosity verbosity,
+        HashSet<string>? include,
+        bool fixedOverview,
+        bool excludeUnbounded,
+        HashSet<InspectionQueryDefinition> queries,
+        ImmutableArray<InspectionQueryDefinition>.Builder? orderedQueries,
+        ImmutableArray<SectionQueryDemand>.Builder? demands,
+        InspectionTrace? trace)
+    {
+        for (int i = 0; i < _entries.Count; i++)
+        {
+            SectionEntry<TModel> entry = _entries[i];
+            if (entry.Queries.IsDefaultOrEmpty)
+                continue;
+            if (excludeUnbounded && entry.Cost == SectionCost.Unbounded)
+                continue;
+            if (IsRequested(entry, i, verbosity, include, fixedOverview))
+            {
+                foreach (InspectionQueryDefinition query in entry.Queries)
+                {
+                    if (queries.Add(query))
+                        orderedQueries?.Add(query);
+
+                    demands?.Add(new SectionQueryDemand(entry.Name, query));
+                    trace?.RecordQueryDemand(entry.Name, query);
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -842,6 +914,15 @@ public sealed class SectionPipeline<TModel>
 
         // No expensive entries: all are primary
         return _entries.Count - 1;
+    }
+
+    private void EnsureMutable()
+    {
+        if (_compiledCatalog is not null)
+        {
+            throw new InvalidOperationException(
+                "A compiled section pipeline is immutable. Create a new pipeline to author another catalog.");
+        }
     }
 
     private bool IsRequested(SectionEntry<TModel> entry, int index, Verbosity verbosity,
