@@ -56,7 +56,8 @@ type, member, API, metadata, or source material the user selected.
 Selector controls are compact pill-shaped buttons used to choose a value or
 filter a result set. Type kind, member kind, accessibility, and member trait
 controls use the same state language even when their values and selection
-semantics differ.
+semantics differ. This section applies to selector pills, not to primary-view
+or lens navigation.
 
 ### Selected state
 
@@ -106,7 +107,7 @@ disabled.
 
 - Visual selection reflects the control's actual selection state, independent
   of which selector family rendered it.
-- Every toggle-style selector exposes `aria-pressed="true"` or
+- Every selector pill exposes `aria-pressed="true"` or
   `aria-pressed="false"` consistently.
 - Color is supplementary. Border weight and programmatic pressed state carry
   the same information.
@@ -157,7 +158,7 @@ any selection that restricts the visible result set:
 For example, a type pane showing only public types has one restrictive
 dimension even though `public` is the product default. Its collapsed control is
 presented as `Filters · 1` with an accessible name such as
-`Show filters; accessibility: public`. A member pane with `all kinds`,
+`Filters · 1, accessibility: public`. A member pane with `all kinds`,
 `all access`, and `all traits` has no restrictive dimensions and presents a
 neutral `Filters` button.
 
@@ -234,21 +235,23 @@ In the Type view, the Source lens is ordered as:
 No type metrics or metadata summary appears between these elements.
 
 For checksum-verified source resolved through PDB information, the visible
-status is simply:
+status is compact:
 
 ```text
 PDB Source                                      open source   copy
+PDB Source                                                    copy
 ```
 
 `PDB Source` implies that the source satisfied the product's PDB checksum
 verification contract. The page does not repeat `PDB-checksum-verified`, the
 SourceLink transport, repository URL, or commit hash in explanatory prose.
-Those facts remain part of the product result and link target; they do not need
-to occupy the source viewport.
+Those facts remain part of the product result; they do not need to occupy the
+source viewport.
 
-The `open source` action uses plain text with no trailing arrow or external-link
-glyph. Its accessible name may state that it opens a new browser tab. The
-`copy` action remains adjacent to it.
+The `open source` action appears only when the product result supplies an
+attributable source URL. It uses plain text with no trailing arrow or
+external-link glyph. Its accessible name may state that it opens a new browser
+tab. The `copy` action remains available with or without a URL.
 
 `Decompiled source` remains the concise status for product-generated source.
 If a PDB source attempt failed and the product returned a meaningful limitation
@@ -276,6 +279,17 @@ The primary view control presents four choices:
 View labels name the kind of subject, not its cardinality. The label is
 `Library` even when its selected subject is `All libraries`.
 
+### Navigation semantics
+
+The primary view control is a tablist. Package, Library, Type, and Member are
+tabs with `role="tab"` and `aria-selected`; unavailable tabs use native disabled
+semantics. They do not use `aria-pressed`.
+
+Each view's lens strip is a separate tablist. Every lens or member section is a
+tab with `role="tab"` and `aria-selected`, including identically labelled tabs
+owned by different views. The active lens must therefore be available
+programmatically rather than conveyed by color alone.
+
 ### View availability and reconciliation
 
 The four view controls remain visible so the information architecture does not
@@ -290,17 +304,31 @@ shift as subjects are selected:
 An unavailable view is disabled with native disabled semantics. It is not
 hidden and does not retain stale content.
 
-After a version, TFM, or library-subject change, the host asks the owning
-product model to resolve the existing type and member identities. It retains
-each selection only when that owner confirms it in the new coordinate. An
-owner-issued default may replace a missing selection; the UI does not select an
-arbitrary first row.
+Reconciliation first computes subjects, then decides whether navigation must
+move:
 
-If the active Member selection is lost while its Type remains, the UI moves to
-Type. If the Type selection is also lost, or the active Library view has no
-available libraries, the UI moves to Package. Losing an individual library
-selection while other libraries remain returns the Library subject to
-`All libraries` and keeps the Library view active.
+1. If a version or TFM change removes the selected library while other
+   libraries remain, the Library subject becomes `All libraries`. If no
+   libraries remain, Library becomes unavailable.
+2. The host asks the owning product model to resolve the existing Type within
+   both the active coordinate and active Library subject.
+3. It resolves Member only when the retained Type still owns that Member.
+4. An owner-issued default within the same coordinate and Library subject may
+   replace a missing selection; the UI does not select an arbitrary first row.
+
+Subject invalidation in a non-active view only disables that view's tab. It
+does not move the user away from Package or Library.
+
+Navigation changes only when the active view becomes unavailable:
+
+- Member moves to Type when Type remains available, otherwise to Library when
+  Library remains available, otherwise to Package.
+- Type moves to Library when Library remains available, otherwise to Package.
+- Library moves to Package only when no libraries remain.
+- Package remains active through coordinate reconciliation.
+
+Returning a missing individual library to `All libraries` keeps an active
+Library view available and takes precedence over Type or Member fallback.
 
 ### Lens ownership
 
@@ -348,6 +376,16 @@ Package and Type navigation honor the same active Library subject. With
 library selected, they include only that library's types. The type-navigation
 heading shows `All libraries` or the selected library as context and links back
 to Library for changes. It is not a second library selector.
+
+The active Library subject also constrains the eligible Type and Member
+subjects. A Type from another library is not retained merely because it still
+exists elsewhere in the package coordinate.
+
+When the product surface identifies colliding types under `All libraries`, type
+navigation qualifies only those rows with their product-owned defining library.
+If a colliding Type is selected, compact workspace context also shows its
+defining library. API and Source retain their name-only content heading;
+disambiguation does not restore the removed metadata block.
 
 ### Aggregate results
 
