@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Encodings.Web;
 using ILInspector.JsExportSurface;
 
 namespace tsbindgen;
@@ -23,6 +24,9 @@ static class JsEmitter
 {
     public static string Emit(ILInspector.JsExportSurface.JsExportSurface surface)
     {
+        string assemblyName = surface.AssemblyIdentity?.Name
+            ?? throw new InvalidOperationException(
+                "Runtime wrapper emission requires an assembly identity.");
         var sb = new StringBuilder();
         sb.Append("import { dotnet } from \"./_framework/dotnet.js\";\n\n");
 
@@ -36,8 +40,9 @@ static class JsEmitter
         sb.Append("\nexport async function initializeEngine(onStatus = () => {}) {\n");
         sb.Append("  onStatus(\"Loading .NET WebAssembly…\");\n");
         sb.Append("  const runtime = await dotnet.create();\n");
-        sb.Append("  const config = runtime.getConfig();\n");
-        sb.Append("  const exports = await runtime.getAssemblyExports(config.mainAssemblyName);\n");
+        sb.Append("  const exports = await runtime.getAssemblyExports(\"")
+          .Append(JavaScriptEncoder.Default.Encode(assemblyName))
+          .Append("\");\n");
 
         foreach (JsExportFunction function in functions)
         {
@@ -50,7 +55,7 @@ static class JsEmitter
         // its own origin (for MSDL-proxied source requests) before any other export is used, so
         // this generator calls it here rather than leaving every caller to remember to.
         JsExportFunction? configureHost = functions.FirstOrDefault(
-            f => string.Equals(f.Name, "ConfigureHost", StringComparison.Ordinal));
+            IsConfigureHostBootstrap);
         if (configureHost is not null)
         {
             sb.Append("  ").Append(CamelCase.FromPascalCase(configureHost.Name))
@@ -68,6 +73,20 @@ static class JsEmitter
 
         return sb.ToString();
     }
+
+    static bool IsConfigureHostBootstrap(
+        JsExportFunction function) =>
+        string.Equals(
+            function.Name,
+            "ConfigureHost",
+            StringComparison.Ordinal)
+        && function.ReturnType == "void"
+        && function.Parameters is
+        [
+            {
+                Type: "string",
+            },
+        ];
 
     static void EmitFunction(StringBuilder sb, JsExportFunction function)
     {

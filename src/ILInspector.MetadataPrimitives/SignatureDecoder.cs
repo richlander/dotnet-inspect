@@ -246,7 +246,7 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
     public string GetArrayType(string elementType, ArrayShape shape)
     {
         ObserveMaterialization(elementType.Length + Math.Max(shape.Rank, 0L) + 1L);
-        return $"{elementType}[{new string(',', shape.Rank - 1)}]";
+        return ArrayShapeText.Format(elementType, shape.Rank);
     }
 
     public string GetByReferenceType(string elementType)

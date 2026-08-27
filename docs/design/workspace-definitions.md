@@ -1012,7 +1012,9 @@ Implementation must add, at minimum:
   `Encode_UsesPinnedCanonicalStringEscaping`, and the neighboring
   `Decode_Rejects*` tests cover the product-owned .NET codec, semantic
   validation, canonical writer, fixed vectors, and declared bounds; an
-  independent browser implementation consuming the same vectors remains open;
+  `BrowserWorkspaceShareOperationsTests.CanonicalPacket_RoundTripsThroughLongFormBrowserTransport`
+  gates the Browser JS-export adapter against the same product-owned codec and
+  transposer rather than a second packet implementation;
 - a session-closure gate asserting the packet grammar covers every
   interactively reachable v1 session state without inferring relationships
   across contexts, including library scope over non-platform packages;
@@ -1162,11 +1164,55 @@ Definition records and product demos (this slice):
   `ImplementationPairing_RequiresEquivalentAssemblyIdentity`, and
   `WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures` gate the
   Browser adapter and its unchanged Wasm limits; and
-- **not yet:** minted view-facet ids, packet view/query binding, or CLI and
-  browser use of the codec and transposer;
-  `WorkspaceContextLoader` acquisition as the run substrate (CLI still uses
-  package + `--caller-package` encoding, and
-  platform still uses the resident runtime-pack share encoding).
+- inspect-web decodes `w=` through `WorkspaceSharePacketCodec` and
+  `WorkspaceSharePacketTransposer`, carries the packet-local tab/context
+  topology through typed Browser records, and reverses the same path when
+  sharing. The active navigation tab and selected query context remain
+  independent; the selected context bounds cross-package Call Graph expansion.
+  Browser-created Call Graph contexts compose only package tabs with the active
+  tab's framework and RID; incompatible targets remain separate contexts.
+  Product-run Call Graph demos install their exact executed package order as the
+  selected context, and expanded queries send that complete ordered context to
+  the product engine.
+  Exact `:Platform` versions remain exact through initial and lazy acquisition,
+  while an absent pin remains floating. Browser activation accepts at most one
+  Platform tab and is atomic: an unavailable coordinate, selected library,
+  type, member, or applicable section, or a many-to-one or coordinate-changing
+  tab resolution restores no partial workspace, retains a prior workbench when
+  present, and leaves the source URL intact. Unsupported
+  groups, RIDs, multi-library Browser views, unknown lenses or sections, package
+  facets, pending graph targets, graph-discovered members, accessor-specific
+  bodies, and members without portable anchor/signature identity fail visibly
+  instead of being flattened.
+  These Browser boundaries are gated by `canonical tabs must remain distinct
+  and ordered after resolution`, `missing Platform reacquisition retains only
+  an aligned canonical pin`, and `canonical restoration is atomic and history
+  adopts the active packet basis`. A present `w=` remains authoritative even
+  when product decoding or Browser adaptation rejects it; courtesy route fields
+  never become fallback state or preempt packet handling through malformed path
+  escaping. Failed packet URLs remain stable across automatic nested renders
+  until the user changes the projected workspace or navigates elsewhere.
+  Successful packet activation discards any prior graph-source modal, while
+  rollback retains settled prior source state.
+  User-authored version or framework changes discard a floating packet basis
+  before URL capture only after acquisition succeeds; a failed Platform switch
+  retains its resident package, scope, stack, and packet basis. A selected Call
+  Graph context containing a Platform participant fails visibly because the
+  Browser query transport can realize only package participants.
+  `an empty workspace parameter remains authoritative`, `authoritative packets
+  bypass malformed courtesy paths`, `failed URL retention survives automatic
+  renders until navigation changes`, `Browser Call Graph contexts reject
+  Platform participants`, `explicit coordinate changes discard a floating
+  canonical basis`, and `canonical commit clears a settled graph source without
+  rendering` gate these boundaries. `canonical transitions cancel visible
+  source work before snapshot` and `canonical transitions settle annotated
+  source before snapshot` specifically gate source-request settlement.
+  Package-root navigation and explicit Share use the ordinary
+  Browser route, without stale packet state, until product facet ids exist; and
+- **not yet:** minted view-facet ids, complete packet view/query binding, CLI
+  use of the codec/transposer for executable `-W`, or
+  `WorkspaceContextLoader` acquisition as the CLI run substrate (the CLI still
+  uses package + `--caller-package` encoding).
 
 The coordinate-realization slice implements the `package`, `platform`, and
 `embedded` member coordinates
@@ -1352,8 +1398,8 @@ is not part of runtime-pack acquisition. It supplies:
   unusable folder rather than an exception escaping the loader after commit.
 
 The residual open items from the list above are: group catalog grammar and
-subscribe lowering, packet projection, filesystem `project` / `local` /
-`directory` coordinate hosts, and preset/query binding. Coordinate kinds
+subscribe lowering, filesystem `project` / `local` / `directory` coordinate
+hosts, and complete preset/query binding. Coordinate kinds
 `package`, `platform`, and `embedded` already lower; the record schema,
 serializer, registry, and product demos are gated by
 `InspectionDefinitionTests`. Every property that still depends on the residual

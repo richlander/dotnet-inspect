@@ -4103,6 +4103,7 @@ public class PackageCommand
                 : packageName;
 
         var catalog = LibrarySections.CreateCatalog();
+        var sectionCatalog = catalog.Sections;
         var pipeline = catalog.Pipeline;
         var queryCatalog = catalog.QueryCatalog;
         var libraryOptions = CreateLibraryOptions(assemblyName: null, packageReference, options);
@@ -4115,9 +4116,9 @@ public class PackageCommand
 
         var selectResult = SelectResolver.ResolveSelectAsSections(
             libraryOptions.Select,
-            pipeline.SelectableSectionNames,
-            pipeline.InfoSectionNames,
-            pipeline.GetCategoryMap(),
+            sectionCatalog.SelectableSectionNames,
+            sectionCatalog.InfoSectionNames,
+            sectionCatalog.SelectionCategoryMap,
             selectDefault: libraryOptions.SelectDefault);
         if (SelectOutput.WriteUnresolved(selectResult)) return 1;
         if (selectResult.Sections != null)
@@ -4174,14 +4175,14 @@ public class PackageCommand
                 candidates.Contains(SectionNames.IdentifierConfusion),
         };
 
-        HashSet<InspectionQueryDefinition> sectionQueries = pipeline.GetRequiredQueries(
+        SectionQueryPlan sectionPlan = sectionCatalog.PlanQueries(
             libraryOptions.Verbosity,
             libraryOptions.IncludeSections,
             libraryOptions.FixedOverview);
         List<(string Reason, InspectionQueryDefinition Query)> commandQueryDemand = [];
         if (libraryOptions.CollectReferenceTree)
             commandQueryDemand.Add(("reference tree", AssemblyReferencesQuery.Definition));
-        if (sectionQueries.Contains(BodyShapesQuery.Definition)
+        if (sectionPlan.Queries.Contains(BodyShapesQuery.Definition)
             && libraryOptions.BodyKindQuery.HasFilter
             && libraryOptions.PerformanceTriage.HasCandidateFilters)
         {
@@ -4189,9 +4190,8 @@ public class PackageCommand
                 ("Body Shapes performance predicates",
                     OptimizationOpportunitiesQuery.Definition));
         }
-        HashSet<InspectionQueryDefinition> queries = sectionQueries;
-        foreach ((_, InspectionQueryDefinition query) in commandQueryDemand)
-            queries.Add(query);
+        HashSet<InspectionQueryDefinition> queries =
+            sectionPlan.Activate(commandDemand: commandQueryDemand);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         bool requiresGroupedIntegrations =
@@ -4331,8 +4331,8 @@ public class PackageCommand
             && libraryOptions.Select?.Any(
                 value => SelectResolver.TryResolveCategory(
                     value,
-                    pipeline.GetCategoryMap(),
-                    pipeline.SelectableSectionNames,
+                    sectionCatalog.SelectionCategoryMap,
+                    sectionCatalog.SelectableSectionNames,
                     out _,
                     out _)) == true)
         {

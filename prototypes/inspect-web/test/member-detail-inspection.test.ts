@@ -5,6 +5,7 @@ import { sampleDocument } from "../../annotated-source-viewer/src/sample-documen
 import type { AnnotatedSourceResult } from "../src/annotated-source.ts";
 import { validateAnnotatedSourceDocument } from "../src/annotated-source-view.ts";
 import {
+  cancelAnnotatedSourceRequest,
   createMemberDetailInspectionCoordinator,
   type DocumentableMemberSurface,
   type MemberAnnotatedRequest,
@@ -15,10 +16,17 @@ import {
   type MemberFactsRequest,
 } from "../src/member-detail-inspection.ts";
 import type { MemberFocusSnapshot } from "../src/member-focus.ts";
+import {
+  createAppMemberSurface,
+  type AppMemberSurface,
+} from "../src/package-acquisition.ts";
+import type {
+  BrowserMemberSurface,
+} from "../src/inspect-web-engine.d.ts";
 
-function memberSurface(
-  overrides: Partial<DocumentableMemberSurface> = {},
-): DocumentableMemberSurface {
+function wireMemberSurface(
+  overrides: Partial<BrowserMemberSurface> = {},
+): BrowserMemberSurface {
   return {
     name: "Run",
     kind: "Method",
@@ -55,8 +63,33 @@ function memberSurface(
   };
 }
 
+function memberSurface(
+  overrides: Partial<AppMemberSurface> = {},
+): DocumentableMemberSurface {
+  return {
+    ...createAppMemberSurface(wireMemberSurface()),
+    ...overrides,
+  };
+}
+
+function generatedMemberSurfaceRejectsMutation(
+  surface: BrowserMemberSurface,
+): void {
+  // @ts-expect-error Generated wire properties are producer-owned snapshots.
+  surface.summary = "application state";
+  // @ts-expect-error Nested generated wire records are readonly.
+  surface.parameters[0]!.description = "application state";
+  // @ts-expect-error Generated wire collections are readonly.
+  surface.exceptions[0] = {
+    type: "System.InvalidOperationException",
+    description: "application state",
+  };
+}
+void generatedMemberSurfaceRejectsMutation;
+
 function factsResult(): MemberFacts {
   return {
+    metadataToken: 0x06000001,
     signals: {
       allocations: 0,
       copies: 0,
@@ -66,12 +99,15 @@ function factsResult(): MemberFacts {
       finallys: 0,
       unsafe: false,
       allocatesInLoop: false,
+      evidenceOffsets: [],
+      exceptionTypes: [],
     },
     allocations: [],
     calls: [],
     safety: [],
     exceptionRegions: [],
     performanceOpportunities: [],
+    diagnostics: [],
   };
 }
 
@@ -166,8 +202,12 @@ function factsRequest(
     framework: "net10.0",
     assembly: "Example.Package.dll",
     type: "Example.Widget",
+    typeIdentity: "T:Example.Widget",
     member: "Run",
     memberSignature: "void Run(string value)",
+    selectorKey: "Run|System.String",
+    metadataToken: 0x06000001,
+    implementationBodySelected: false,
     isCurrent: () => true,
     ...overrides,
   };
@@ -408,6 +448,26 @@ test("documentation completion updates the current overload and restores focus",
   assert.deepEqual(focusCalls, [undefined, preservedFocus]);
 });
 
+test("documentation hydration mutates only the application projection", async () => {
+  const wire = wireMemberSurface();
+  const overload = createAppMemberSurface(wire);
+  const state = inspectionState();
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state));
+
+  assert.notEqual(overload.parameters, wire.parameters);
+  assert.notEqual(overload.parameters[0], wire.parameters[0]);
+  assert.notEqual(overload.exceptions, wire.exceptions);
+
+  await coordinator.loadDocumentation(documentationRequest(overload));
+
+  assert.equal(overload.summary, "Runs the widget.");
+  assert.equal(overload.parameters[0]?.description, "The value to run.");
+  assert.equal(wire.summary, null);
+  assert.equal(wire.parameters[0]?.description, null);
+  assert.deepEqual(wire.exceptions, []);
+});
+
 test("current documentation failure remains visible", async () => {
   const overload = memberSurface();
   let focusRenders = 0;
@@ -644,6 +704,20 @@ test("duplicate in-flight annotated requests do not query or mutate state", asyn
   assert.equal(renders, 1);
   assert.equal(state.memberAnnotated, null);
   assert.equal(state.memberAnnotatedLoading, true);
+});
+
+test("canonical transitions settle annotated source before snapshot", () => {
+  const state = inspectionState({
+    memberAnnotatedLoading: true,
+    memberAnnotatedKey: "annotated",
+    memberAnnotatedError: "stale",
+  });
+
+  assert.equal(cancelAnnotatedSourceRequest(state), true);
+  assert.equal(state.memberAnnotatedLoading, false);
+  assert.equal(state.memberAnnotatedKey, "");
+  assert.equal(state.memberAnnotatedError, "");
+  assert.equal(cancelAnnotatedSourceRequest(state), false);
 });
 
 test("another member starts while an annotated request is in flight", async () => {
@@ -905,6 +979,113 @@ test("cached member facts render without querying or invalidating annotated cont
   assert.equal(renders, 1);
   assert.equal(state.memberFacts, cached);
   assert.equal(state.memberAnnotated, annotated);
+});
+
+test("same member facts request does not duplicate in-flight analysis", async () => {
+  const query = deferred<MemberFacts>();
+  const result = factsResult();
+  let queries = 0;
+  const focusCalls: (MemberFocusSnapshot | null | undefined)[] = [];
+  const state = inspectionState();
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryFacts: async () => {
+        queries++;
+        return query.promise;
+      },
+      renderPreservingMemberFocus: fallback => {
+        focusCalls.push(fallback);
+        return focusSnapshot();
+      },
+    }));
+
+  const firstLoad = coordinator.loadFacts(factsRequest());
+  const secondLoad = coordinator.loadFacts(factsRequest());
+
+  assert.equal(queries, 1);
+  assert.equal(state.memberFactsLoading, true);
+  assert.deepEqual(focusCalls, [undefined, undefined]);
+  query.resolve(result);
+  await Promise.all([firstLoad, secondLoad]);
+  assert.equal(state.memberFacts, result);
+  assert.equal(state.memberFactsLoading, false);
+  assert.deepEqual(focusCalls, [undefined, undefined, focusSnapshot()]);
+});
+
+test("returning to in-flight member facts reuses work and owns publication", async () => {
+  for (const firstResolution of ["a", "b"] as const) {
+    const aQuery = deferred<MemberFacts>();
+    const bQuery = deferred<MemberFacts>();
+    const aResult = {
+      ...factsResult(),
+      metadataToken: 0x06000001,
+    };
+    const bResult = {
+      ...factsResult(),
+      metadataToken: 0x06000002,
+    };
+    const queries = new Map<string, number>();
+    let current = "a-first";
+    let focusCalls = 0;
+    const state = inspectionState();
+    const coordinator = createMemberDetailInspectionCoordinator(
+      inspectionDependencies(state, {
+        queryFacts: async request => {
+          queries.set(
+            request.signature,
+            (queries.get(request.signature) ?? 0) + 1);
+          return request.signature === "a"
+            ? aQuery.promise
+            : bQuery.promise;
+        },
+        renderPreservingMemberFocus: () => {
+          focusCalls++;
+          return focusSnapshot();
+        },
+      }));
+
+    const firstA = coordinator.loadFacts(factsRequest({
+      signature: "a",
+      isCurrent: () => current === "a-first",
+    }));
+    current = "b";
+    const b = coordinator.loadFacts(factsRequest({
+      signature: "b",
+      metadataToken: 0x06000002,
+      isCurrent: () => current === "b",
+    }));
+    current = "a-return";
+    const returningA = coordinator.loadFacts(factsRequest({
+      signature: "a",
+      isCurrent: () => current === "a-return",
+    }));
+
+    assert.deepEqual([...queries], [["a", 1], ["b", 1]]);
+    assert.equal(state.memberFactsKey, "a");
+    assert.equal(state.memberFactsLoading, true);
+    assert.equal(focusCalls, 3);
+
+    if (firstResolution === "a") {
+      aQuery.resolve(aResult);
+      await Promise.all([firstA, returningA]);
+      assert.equal(state.memberFacts, aResult);
+      assert.equal(state.memberFactsLoading, false);
+      bQuery.resolve(bResult);
+      await b;
+    } else {
+      bQuery.resolve(bResult);
+      await b;
+      assert.equal(state.memberFacts, null);
+      assert.equal(state.memberFactsLoading, true);
+      aQuery.resolve(aResult);
+      await Promise.all([firstA, returningA]);
+    }
+
+    assert.equal(state.memberFacts, aResult);
+    assert.equal(state.memberFactsLoading, false);
+    assert.equal(state.memberFactsKey, "a");
+    assert.equal(focusCalls, 4);
+  }
 });
 
 test("cleared member facts reload for the same member", async () => {

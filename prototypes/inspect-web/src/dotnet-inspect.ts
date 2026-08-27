@@ -17,6 +17,7 @@ import {
   graphMemberPendingMatchesView,
   graphMemberShareTarget,
   graphMemberSelection,
+  graphMemberTargetWithSelectedBody,
   graphMemberTargetFromShare,
   graphOnlyBodyTarget,
   MARKDOWN_SANITIZE_OPTIONS,
@@ -36,7 +37,6 @@ import {
   removeWorkspacePackage,
   removeAppendedNotice,
   retainGraphMemberProjection,
-  retainGraphOnlyBodyTarget,
   retainWorkspacePackage,
   resolveLoadedGraphTargetCandidate,
   resolveOpportunitySourceCandidate,
@@ -77,14 +77,25 @@ import {
   memberScopeIsActive,
   restoreLibraryScope,
   restoreMemberHistoryState,
+  selectedConcreteOverload,
   type BodyTarget,
 } from "./member-filtering.ts";
 import {
   bindWorkspaceLinkNavigation,
+  browserCreatedCallGraphTabIds,
+  buildPackageRootStateUrl,
+  callGraphCaptureTopology,
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
+  retainedMissingPlatformTarget,
+  retainedPlatformTargetVersion,
+  selectedBrowserCallGraphPackageTabIds,
+  workspaceUrlPreservationApplies,
+  workspaceShareTabsMatchResolved,
+  workspaceShareCaptureTopology,
   workspaceViewSignature,
+  type NavigationHistorySnapshot,
   type ParsedWorkspaceLocation,
   type WorkspaceDeepLink,
   type WorkspaceUrlState,
@@ -96,10 +107,15 @@ import {
 } from "./workbench-keybindings.ts";
 import {
   createNuGetPackageModel,
+  createAppMemberSurface,
   createPackageAcquisition,
+  graphOnlyImplementationBody,
+  retainGraphOnlyImplementationBody,
   runtimeAssemblyIsResident,
   runtimePackIsResident,
+  type AppMemberSurface,
   type AppPackage,
+  type AppTypeSurface,
 } from "./package-acquisition.ts";
 import {
   createPackageInspectionCoordinator,
@@ -140,6 +156,7 @@ import {
   type AppExplorerState,
 } from "./metadata-inspection.ts";
 import {
+  cancelAnnotatedSourceRequest,
   createMemberDetailInspectionCoordinator,
   type MemberFacts,
 } from "./member-detail-inspection.ts";
@@ -272,6 +289,7 @@ import type {
   BrowserSource,
   BrowserTypeMetadata,
   BrowserTypeSurface,
+  BrowserWorkspaceShareState,
 } from "./inspect-web-engine.d.ts";
 
 type EngineModule = typeof import("./inspect-web-engine.d.ts");
@@ -312,6 +330,8 @@ let inspectTypeMemberSource: EngineModule["queryTypeMemberSource"];
 let inspectTypeProjection: EngineModule["queryTypeProjection"];
 let inspectTypeSource: EngineModule["queryTypeSource"];
 let inspectBuildIdentity: EngineModule["buildIdentity"];
+let inspectDecodeWorkspaceShareState: EngineModule["decodeWorkspaceShareState"];
+let inspectEncodeWorkspaceShareState: EngineModule["encodeWorkspaceShareState"];
 let inspectPackageCacheStats: EngineModule["packageCacheStats"];
 let matchPackageDependencyCoordinate: EngineModule["matchPackageDependencyCoordinate"];
 let resolveDependencyVersion: EngineModule["resolvePackageDependencyVersion"];
@@ -320,6 +340,8 @@ async function loadEngineModule() {
   ({
     buildIdentity: inspectBuildIdentity,
     cancelSourceQuery: cancelSourceInspection,
+    decodeWorkspaceShareState: inspectDecodeWorkspaceShareState,
+    encodeWorkspaceShareState: inspectEncodeWorkspaceShareState,
     expandPlatformCallGraph: inspectExpandPlatformCallGraph,
     getPackageDocument: inspectPackageDocument,
     initializeEngine,
@@ -396,16 +418,6 @@ interface AppMemberGroup {
   overloads: AppMemberSurface[];
 }
 
-interface AppMemberSurface extends BrowserMemberSurface {
-  documentationLoaded?: boolean;
-  graphOnly?: boolean;
-  graphTarget?: BodyTarget;
-}
-
-interface AppTypeSurface extends BrowserTypeSurface {
-  api: AppMemberSurface[];
-}
-
 function loadStoredTaste() {
   try {
     const value: unknown = JSON.parse(localStorage.getItem("inspect-taste") || "[]");
@@ -473,8 +485,8 @@ type RetryAction = (() => void | Promise<unknown>) | null;
 
 interface SpotlightCache {
   signature: string;
-  pool: Array<{ pkg: AppPackage; type: BrowserTypeSurface }>;
-  keyMap: Map<string, { pkg: AppPackage; type: BrowserTypeSurface }>;
+  pool: Array<{ pkg: AppPackage; type: AppTypeSurface }>;
+  keyMap: Map<string, { pkg: AppPackage; type: AppTypeSurface }>;
   candidatesJson: string;
 }
 
@@ -482,7 +494,7 @@ type HighlightRange = readonly [start: number, end: number];
 
 interface SpotlightMemberCandidate {
   pkg: AppPackage;
-  type: BrowserTypeSurface;
+  type: AppTypeSurface;
   memberKey: string;
   name: string;
   kind: string;
@@ -546,6 +558,7 @@ const initialState = {
   requestedPackage: "System.Text.Json",
   requestedVersion: "10.0.0",
   requestedFramework: DEFAULT_REQUESTED_FRAMEWORK,
+  workspaceShareBasis: null,
   selectedTypeId: "",
   selectedMemberKey: "",
   memberBrowseTypeId: "",
@@ -688,6 +701,7 @@ const initialState = {
 interface StateOverrides {
   packages: AppPackage[];
   package: AppPackage | null;
+  workspaceShareBasis: BrowserWorkspaceShareState | null;
   platformIndex: PlatformIndex | null;
   queryNoticeRetryAction: RetryAction;
   selectedOverloadIndex: number | null;
@@ -741,6 +755,68 @@ interface StateOverrides {
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
 
 const state: AppState = initialState;
+let failedWorkspaceUrlPreservation: {
+  url: string;
+  projection: string;
+} | null = null;
+
+interface CanonicalWorkspaceRestoreSnapshot {
+  state: AppState;
+  hasWorkspace: boolean;
+  navigation: NavigationHistorySnapshot<WorkspaceView>;
+}
+
+function captureCanonicalWorkspaceRestoreSnapshot():
+CanonicalWorkspaceRestoreSnapshot {
+  sourceInspection.cancelCurrentRequest();
+  cancelAnnotatedSourceRequest(state);
+  const packages = structuredClone(state.packages);
+  const activeKey = state.package
+    ? packageIdentityKey(state.package)
+    : null;
+  return {
+    state: {
+      ...state,
+      packages,
+      package: activeKey
+        ? packages.find(pkg => packageIdentityKey(pkg) === activeKey) ?? null
+        : null,
+      workspaceDependencies: structuredClone(state.workspaceDependencies),
+      workspaceDependencyErrors:
+        structuredClone(state.workspaceDependencyErrors),
+      workspaceDependencyLoads: new Set(state.workspaceDependencyLoads),
+      packageVersions: structuredClone(state.packageVersions),
+      packageVersionsLoading:
+        structuredClone(state.packageVersionsLoading),
+      libraryScope: state.libraryScope
+        ? new Set(state.libraryScope)
+        : null,
+      accessibilityFilter: new Set(state.accessibilityFilter),
+      memberAnnotatedMedia: { ...state.memberAnnotatedMedia },
+      memberAnnotatedNodeIds: [...state.memberAnnotatedNodeIds],
+      platformStack: structuredClone(state.platformStack),
+      platformRecent: structuredClone(state.platformRecent),
+      recentPackages: structuredClone(state.recentPackages),
+      spotlightPkgHits: structuredClone(state.spotlightPkgHits),
+      history: [...state.history],
+    },
+    hasWorkspace: state.package !== null,
+    navigation: navigationHistory.snapshot(),
+  };
+}
+
+function restoreCanonicalWorkspaceRestoreSnapshot(
+  snapshot: CanonicalWorkspaceRestoreSnapshot,
+) {
+  clearWorkspacePackages();
+  Object.assign(state, snapshot.state);
+  navigationHistory.restore(snapshot.navigation);
+  spotlightCache = null;
+  persistRecentPackages();
+  persistPlatformRecent();
+  refreshPackageStats();
+}
+
 const keybindings = createWorkbenchKeybindings();
 const sourceInspection = createSourceInspectionCoordinator({
   state,
@@ -771,6 +847,7 @@ const sourceInspection = createSourceInspectionCoordinator({
     request.selectorKey,
     request.metadataToken,
     taste),
+  memberSourceHasConcreteOverload,
   cancelEngineSourceRequest: () => cancelSourceInspection?.(),
   describeError: errorMessage,
   render,
@@ -798,6 +875,7 @@ const metadataInspection = createMetadataInspectionCoordinator({
     parseEngineJson<ExplorerTableData>(
       await inspectPlatformMetadataTable(
         explorer.framework,
+        explorer.version,
         explorer.assemblyFileName,
         explorer.pack || "",
         index,
@@ -815,6 +893,7 @@ const metadataInspection = createMetadataInspectionCoordinator({
     parseEngineJson<HeapListingData>(
       await inspectPlatformHeapEntries(
         explorer.framework,
+        explorer.version,
         explorer.assemblyFileName,
         explorer.pack || "",
         heapName)),
@@ -849,16 +928,18 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
     validateAnnotatedSourceDocument(document);
     return { ...result, document };
   },
-  queryFacts: async request =>
-    parseEngineJson<MemberFacts>(
-      await inspectMemberFacts(
-        request.packageId,
-        request.version,
-        request.framework,
-        request.assembly,
-        request.type,
-        request.member,
-        request.memberSignature)),
+  queryFacts: request =>
+    inspectMemberFacts(
+      request.packageId,
+      request.version,
+      request.framework,
+      request.assembly,
+      request.typeIdentity,
+      request.member,
+      request.memberSignature,
+      request.selectorKey,
+      request.metadataToken,
+      request.implementationBodySelected),
   describeError: errorMessage,
   render,
   renderPreservingMemberFocus,
@@ -880,6 +961,7 @@ const callGraphInspection = createCallGraphInspectionCoordinator({
   queryPlatform: request =>
     inspectExpandPlatformCallGraph(
       request.framework,
+      request.platformVersion,
       request.assembly,
       request.pack,
       request.assemblyVersion ?? "",
@@ -1027,8 +1109,7 @@ function applyView(view: WorkspaceView) {
     state.selectedMemberKey = graphSelection.group.key;
     state.memberBrowseTypeId = type.id;
     state.selectedOverloadIndex = graphSelection.overloadIndex;
-    state.selectedBodyTarget = view.bodyTarget;
-    retainGraphOnlyBodyTarget(
+    state.selectedBodyTarget = retainGraphOnlyImplementationBody(
       graphSelection.group.overloads[graphSelection.overloadIndex],
       view.bodyTarget);
     state.memberSection = isMemberSection(view.memberSection)
@@ -1138,6 +1219,8 @@ const workspaceLocation = createWorkspaceLocationPersistence({
   }),
   replace: url => history.replaceState(null, "", url),
   push: url => history.pushState(null, "", url),
+  decode: value => inspectDecodeWorkspaceShareState(value),
+  encode: stateJson => inspectEncodeWorkspaceShareState(stateJson),
 });
 
 function parseLocation() {
@@ -1170,6 +1253,8 @@ function deepLinkFromLocation(loc: ParsedLocation): DeepLink {
   return {
     type: loc.type,
     member: loc.member,
+    memberAnchor: loc.memberAnchor,
+    memberSignature: loc.memberSignature,
     overload: loc.overload,
     section: loc.section,
     bodyTarget: loc.bodyTarget,
@@ -1620,6 +1705,7 @@ function clearWorkspacePackages() {
   const discarded = state.packages;
   state.packages = [];
   state.package = null;
+  state.workspaceShareBasis = null;
   for (const packageModel of discarded)
     releasePackageModelCaches(packageModel);
 }
@@ -1786,10 +1872,10 @@ function typeGroups() {
 }
 
 function memberGroups(
-  type: BrowserTypeSurface | null | undefined,
+  type: AppTypeSurface | null | undefined,
 ): AppMemberGroup[] {
   const groups = new Map<string, AppMemberGroup>();
-  for (const member of (type?.api ?? []) as AppMemberSurface[]) {
+  for (const member of type?.api ?? []) {
     const key =
       `${member.graphOnly ? "graph:" : ""}${member.kind}:${member.name}`;
     let group = groups.get(key);
@@ -1818,33 +1904,33 @@ function resetMemberFilters() {
   state.memberTextFilter = "";
 }
 
-function visibleMemberGroups(type: BrowserTypeSurface) {
+function visibleMemberGroups(type: AppTypeSurface) {
   return filterMemberGroups(publicMemberGroups(type), memberFilterState());
 }
 
-function publicMemberGroups(type: BrowserTypeSurface) {
+function publicMemberGroups(type: AppTypeSurface) {
   return searchableMemberGroups(memberGroups(type));
 }
 
-function selectedGraphMemberGroup(type: BrowserTypeSurface) {
+function selectedGraphMemberGroup(type: AppTypeSurface) {
   return memberGroups(type).find(group =>
     group.key === state.selectedMemberKey
     && group.overloads.some(overload => overload.graphOnly));
 }
 
 function memberSelectionIsAvailable(
-  type: BrowserTypeSurface,
+  type: AppTypeSurface,
   visible: readonly { key: string }[],
 ) {
   return visible.some(group => group.key === state.selectedMemberKey)
     || selectedGraphMemberGroup(type) != null;
 }
 
-function memberKinds(type: BrowserTypeSurface) {
+function memberKinds(type: AppTypeSurface) {
   return [...new Set(publicMemberGroups(type).map(group => group.kind))];
 }
 
-function memberAccessibilities(type: BrowserTypeSurface) {
+function memberAccessibilities(type: AppTypeSurface) {
   const values = new Set(
     publicMemberGroups(type)
       .flatMap(group => group.overloads)
@@ -1856,14 +1942,14 @@ function memberAccessibilities(type: BrowserTypeSurface) {
     ].includes(value)).sort());
 }
 
-function availableMemberTraits(type: BrowserTypeSurface) {
+function availableMemberTraits(type: AppTypeSurface) {
   const publicMembers =
     publicMemberGroups(type).flatMap(group => group.overloads);
   return MEMBER_TRAITS.filter(([property]) =>
     publicMembers.some(member => member[property]));
 }
 
-function renderMemberFilterControls(type: BrowserTypeSurface) {
+function renderMemberFilterControls(type: AppTypeSurface) {
   const groups = publicMemberGroups(type);
   const visible = visibleMemberGroups(type);
   const kinds = memberKinds(type);
@@ -1934,7 +2020,7 @@ function renderMemberComposition(type: AppTypeSurface) {
     ${traits ? `<div class="composition-filters" aria-label="Browse members by trait">${traits}</div>` : ""}`;
 }
 
-function selectedMember(type: BrowserTypeSurface | null | undefined) {
+function selectedMember(type: AppTypeSurface | null | undefined) {
   return memberGroups(type).find(group => group.key === state.selectedMemberKey);
 }
 
@@ -1995,10 +2081,30 @@ function navMode() {
   return memberScopeIsActive(state, selectedType()?.id) ? "member" : "type";
 }
 
-function resetMemberSectionState() {
+function memberSourceHasConcreteOverload() {
+  const member = selectedMember(selectedType());
+  return Boolean(
+    member
+    && selectedConcreteOverload(
+      member.overloads,
+      state.selectedOverloadIndex));
+}
+
+function currentSourceOperationKind() {
+  return activeSourceOperationKind(
+    state,
+    memberSourceHasConcreteOverload());
+}
+
+function currentSourceReloadKind() {
+  return sourceReloadKind(
+    state,
+    memberSourceHasConcreteOverload());
+}
+
+function clearMemberContentCache() {
   invalidateMemberCallGraphWork(state);
   invalidateGraphMemberNavigation();
-  state.memberSection = "overview";
   state.memberSource = null;
   state.memberSourceError = "";
   state.memberCallGraph = null;
@@ -2011,18 +2117,67 @@ function resetMemberSectionState() {
   state.selectedBodyTarget = null;
 }
 
+function resetMemberSectionState() {
+  state.memberSection = "overview";
+  clearMemberContentCache();
+}
+
+function retainMemberSectionIfSupported(member: AppMemberGroup | undefined) {
+  if (!member
+    || !memberSectionsFor(member).some(([id]) => id === state.memberSection)) {
+    state.memberSection = "overview";
+  }
+}
+
+function loadMemberSectionContent(id: MemberSection) {
+  if (id === "source")
+    observeAsync(loadSelectedMemberSource(), "Loading member source");
+  else if (id === "annotated")
+    observeAsync(loadSelectedMemberAnnotatedSource(), "Loading annotated member source");
+  else if (id === "call-graph")
+    observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
+  else if (id === "facts")
+    observeAsync(loadSelectedMemberFacts(), "Loading member facts");
+  else if (id === "overview")
+    observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
+  else
+    assertNever(id, "member section");
+}
+
 function openMemberGroup(key: string) {
-  const group = memberGroups(selectedType()).find(candidate => candidate.key === key);
+  const type = selectedType();
+  const preserveSection =
+    state.memberBrowseTypeId === type?.id && Boolean(state.selectedMemberKey);
+  const group = memberGroups(type).find(candidate => candidate.key === key);
   const graphOnlyTarget =
     group?.overloads.length === 1
       ? graphOnlyBodyTarget(group.overloads[0])
       : null;
-  state.memberBrowseTypeId = selectedType()?.id ?? "";
+  state.memberBrowseTypeId = type?.id ?? "";
   state.selectedMemberKey = key;
   state.selectedOverloadIndex = graphOnlyTarget ? 0 : null;
-  resetMemberSectionState();
+  clearMemberContentCache();
   state.selectedBodyTarget = graphOnlyTarget;
-  observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
+  if (!preserveSection) {
+    state.memberSection = "overview";
+  } else {
+    const retainedSection = state.memberSection;
+    let selectedFirstOverload = false;
+    if (state.memberSection !== "overview"
+      && group
+      && group.overloads.length > 1
+      && state.selectedOverloadIndex == null) {
+      state.selectedOverloadIndex = 0;
+      state.selectedBodyTarget = graphOnlyBodyTarget(group.overloads[0]);
+      selectedFirstOverload = true;
+    }
+    retainMemberSectionIfSupported(group);
+    if (selectedFirstOverload && state.memberSection !== retainedSection) {
+      state.selectedOverloadIndex = null;
+      state.selectedBodyTarget = null;
+    }
+  }
+  loadMemberSectionContent(state.memberSection);
 }
 
 function enterMemberScope() {
@@ -2065,9 +2220,10 @@ function openOverload(index: number) {
   const graphTarget = graphOnlyBodyTarget(
     selectedMember(selectedType())?.overloads[index]);
   state.selectedOverloadIndex = index;
-  resetMemberSectionState();
+  clearMemberContentCache();
   state.selectedBodyTarget = graphTarget;
-  observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
+  retainMemberSectionIfSupported(selectedMember(selectedType()));
+  loadMemberSectionContent(state.memberSection);
 }
 
 // Switch the open member's section (Overview / Call graph / Facts / Source / Annotated) and
@@ -2084,24 +2240,13 @@ function applyMemberSection(id: MemberSection) {
     invalidateMemberCallGraphWork(state);
   }
   state.memberSection = id;
-  if (id === "source")
-    observeAsync(loadSelectedMemberSource(), "Loading member source");
-  else if (id === "annotated")
-    observeAsync(loadSelectedMemberAnnotatedSource(), "Loading annotated member source");
-  else if (id === "call-graph")
-    observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
-  else if (id === "facts")
-    observeAsync(loadSelectedMemberFacts(), "Loading member facts");
-  else if (id === "overview")
-    observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
-  else
-    assertNever(id, "member section");
+  loadMemberSectionContent(id);
 }
 
 // Flattened, ordered nav rows for member mode: filtered public groups plus the selected
 // graph-only target, with active overloads nested beneath their group. This is the exact
 // list ↑/↓ walks.
-function memberNavEntries(type: BrowserTypeSurface): MemberNavEntry[] {
+function memberNavEntries(type: AppTypeSurface): MemberNavEntry[] {
   const entries: MemberNavEntry[] = [];
   for (const group of visibleMemberGroups(type)) {
     entries.push({ kind: "member", group });
@@ -2133,8 +2278,14 @@ function memberNavCursor(entries: readonly MemberNavEntry[]) {
 function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
   const preservedFocus = captureMemberFocus(document);
   if (entry.kind === "member") {
-    if (entry.group.key === state.selectedMemberKey && entry.group.overloads.length === 1) {
-      render();
+    if (entry.group.key === state.selectedMemberKey) {
+      if (entry.group.overloads.length === 1) {
+        render();
+      } else {
+        state.selectedOverloadIndex = null;
+        clearMemberContentCache();
+        render();
+      }
     } else {
       openMemberGroup(entry.group.key);
     }
@@ -2445,7 +2596,7 @@ function render() {
 }
 
 function maybeAutoLoadVisibleSource() {
-  const kind = activeSourceOperationKind(state);
+  const kind = currentSourceOperationKind();
   if (kind === "graph") {
     if (state.graphSourceRequest
       && sourceRequestNeedsLoad(
@@ -2477,7 +2628,9 @@ function maybeAutoLoadVisibleSource() {
   }
   if (kind === "member") {
     const member = selectedMember(type);
-    const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+    const overload = member
+      ? selectedConcreteOverload(member.overloads, state.selectedOverloadIndex)
+      : undefined;
     if (!member || !overload) return;
     const signature = memberRequestSignature(type, overload, false, true);
     if (sourceRequestNeedsLoad(
@@ -2504,8 +2657,8 @@ function maybeAutoLoadTypeMetadata() {
 }
 
 function renderNavPane(
-  current: BrowserTypeSurface | null | undefined,
-  visible: readonly BrowserTypeSurface[],
+  current: AppTypeSurface | null | undefined,
+  visible: readonly AppTypeSurface[],
 ) {
   return navMode() === "member" && current
     ? renderMemberNavPane(current)
@@ -2513,8 +2666,8 @@ function renderNavPane(
 }
 
 function renderTypeNavPane(
-  current: BrowserTypeSurface | null | undefined,
-  visible: readonly BrowserTypeSurface[],
+  current: AppTypeSurface | null | undefined,
+  visible: readonly AppTypeSurface[],
 ) {
   return renderTypeNav({
     current: current ?? null,
@@ -2535,7 +2688,7 @@ function renderTypeNavPane(
   });
 }
 
-function renderMemberNavPane(type: BrowserTypeSurface) {
+function renderMemberNavPane(type: AppTypeSurface) {
   const visibleGroups = visibleMemberGroups(type);
   return renderMemberNav({
     type,
@@ -2792,28 +2945,46 @@ const packageInspection = createPackageInspectionCoordinator({
     packageModel.id,
     packageModel.version,
     packageModel.activeFramework),
-  queryPlatformIntegrations: (framework, assemblyFileName, pack) =>
+  queryPlatformIntegrations: (
+    framework,
+    platformVersion,
+    assemblyFileName,
+    pack,
+  ) =>
     inspectPlatformIntegrations(
       framework,
+      platformVersion,
       assemblyFileName,
       pack),
   queryPackageOpportunities: packageModel => inspectPackageOpportunities(
     packageModel.id,
     packageModel.version,
     packageModel.activeFramework),
-  queryPlatformOpportunities: (framework, assemblyFileName, pack) =>
+  queryPlatformOpportunities: (
+    framework,
+    platformVersion,
+    assemblyFileName,
+    pack,
+  ) =>
     inspectPlatformOpportunities(
       framework,
+      platformVersion,
       assemblyFileName,
       pack),
   queryPackagePerformance: packageModel => inspectPackagePerformance(
     packageModel.id,
     packageModel.version,
     packageModel.activeFramework),
-  queryPlatformPerformance: async (framework, assemblyFileName, pack) =>
+  queryPlatformPerformance: async (
+    framework,
+    platformVersion,
+    assemblyFileName,
+    pack,
+  ) =>
     parseEngineJson<PackagePerformance>(
       await inspectPlatformPerformance(
         framework,
+        platformVersion,
         assemblyFileName,
         pack)),
   queryPackageMetadata: async packageModel =>
@@ -2822,10 +2993,16 @@ const packageInspection = createPackageInspectionCoordinator({
         packageModel.id,
         packageModel.version,
         packageModel.activeFramework)),
-  queryPlatformMetadata: async (framework, assemblyFileName, pack) =>
+  queryPlatformMetadata: async (
+    framework,
+    platformVersion,
+    assemblyFileName,
+    pack,
+  ) =>
     parseEngineJson<PackageMetadata>(
       await inspectPlatformMetadata(
         framework,
+        platformVersion,
         assemblyFileName,
         pack)),
   platformPackForAssembly: assemblyName =>
@@ -3607,7 +3784,7 @@ function renderPackageOverview() {
     </section>${documentsSection}`;
 }
 
-function typeHeadingHtml(item: BrowserTypeSurface) {
+function typeHeadingHtml(item: AppTypeSurface) {
   return typeHeading({
     item,
     packageContext: currentPackage(),
@@ -3619,7 +3796,7 @@ function typeHeadingHtml(item: BrowserTypeSurface) {
 }
 
 function renderGraphMemberPendingHtml(
-  item: BrowserTypeSurface,
+  item: AppTypeSurface,
   title: string,
 ) {
   return renderGraphMemberPending({
@@ -3645,7 +3822,7 @@ function renderTypeMetadataHtml(item: AppTypeSurface) {
   });
 }
 
-function renderTypeSourceHtml(item: BrowserTypeSurface) {
+function renderTypeSourceHtml(item: AppTypeSurface) {
   const currentSignature = typeSourceSignature(
     item,
     currentPackage(),
@@ -3741,7 +3918,7 @@ function renderApiLens(item: AppTypeSurface) {
       : ""}`;
 }
 
-function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
+function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
   const selectedOverloadIndex = state.selectedOverloadIndex;
   const hasSelectedOverload =
     selectedOverloadIndex != null
@@ -3944,7 +4121,7 @@ function renderAnnotatedSource(result: AnnotatedSourceResult) {
 }
 
 function renderMemberFacts(
-  type: BrowserTypeSurface,
+  type: AppTypeSurface,
   member: AppMemberGroup,
   overload: BrowserMemberSurface,
   overloadIndex: number,
@@ -3958,17 +4135,20 @@ function renderMemberFacts(
 
   const facts = state.memberFacts;
   const signals = facts.signals;
-  const allocOffsets = facts.allocations.map(a => a.offset);
+  const heapAllocations = facts.allocations.filter(a => a.countedAsHeap);
+  const allocOffsets = heapAllocations.map(a => a.offset);
   const callOffsets = facts.calls.map(c => c.offset);
-  const safetyOffsets = facts.safety.map(s => s.offset);
-  const loopAllocOffsets = facts.allocations.filter(a => a.inLoop).map(a => a.offset);
+  const safetyOffsets = facts.safety
+    .map(s => s.offset)
+    .filter((offset): offset is string => offset != null);
+  const loopAllocOffsets = heapAllocations.filter(a => a.inLoop).map(a => a.offset);
   return `
     <section class="document-section facts-section">
       <div class="section-title"><h2>Method facts</h2><span>selected overload</span></div>
       ${factRows([
         ["Overload", `${overloadIndex + 1} of ${member.overloads.length}`],
         ["Kind", overload.kind],
-        ["Metadata token", overload.metadataToken == null ? "not exposed" : `0x${overload.metadataToken.toString(16).padStart(8, "0")}`],
+        ["Metadata token", `0x${facts.metadataToken.toString(16).padStart(8, "0")}`],
         ["Declaring type", type.id],
         ["Allocations", String(signals.allocations), allocOffsets],
         ["Calls", String(facts.calls.length), callOffsets],
@@ -3980,19 +4160,20 @@ function renderMemberFacts(
       ])}
     </section>
     ${renderFactTable("Allocation facts", facts.allocations, [
-      ["IL", "offset"], ["Kind", "kind"], ["Type", "type"], ["Multiplicity", "multiplicity"],
+      ["IL", "offset"], ["Kind", "kind"], ["Type", "type"],
+      ["Heap", row => row.countedAsHeap ? "yes" : "no"], ["Multiplicity", "multiplicity"],
       ["Path", "path"], ["Escape", "escape"], ["Loop", row => row.inLoop ? "yes" : ""],
       ["Size", row => typeof row.estimatedSizeBytes === "number"
         ? `${row.estimatedSizeBytes} B`
         : ""]
-    ], "No heap-allocation occurrences were found in this method.")}
+    ], "No allocation occurrences were found in this method.")}
     ${renderFactTable("Calls", facts.calls, [
       ["IL", "offset"], ["Opcode", "opcode"], ["Callee", "callee"],
-      ["Multiplicity", "multiplicity"], ["Loop", row => row.inLoop ? "yes" : ""],
-      ["Target", row => row.exactTarget ? "exact" : "open"]
+      ["Multiplicity", "multiplicity"], ["Loop", row => row.inLoop ? "yes" : ""]
     ], "No direct call sites were found in this method.")}
     ${renderFactTable("Safety facts", facts.safety, [
-      ["IL", row => row.offset || ""], ["Kind", "kind"], ["Evidence", "detail"]
+      ["IL", row => row.offset || ""], ["Kind", "kind"], ["Operation", "operation"],
+      ["Requirement", "requirement"], ["Evidence", "evidence"]
     ], "No unsafe operations or declaration evidence were found.")}
     ${renderFactTable("Exception regions", facts.exceptionRegions, [
       ["Region", "region"], ["Clause", "clause"], ["Try", "tryRange"],
@@ -4009,7 +4190,10 @@ function renderMemberFacts(
             <dl><dt>Possible direction</dt><dd>${escapeHtml(opportunity.fix)}</dd>${opportunity.caveat ? `<dt>Caveat</dt><dd>${escapeHtml(opportunity.caveat)}</dd>` : ""}<dt>Provenance</dt><dd>${escapeHtml([opportunity.provenance, opportunity.finding].filter(Boolean).join(" · "))}</dd></dl>
           </article>`).join("")
         : '<div class="empty-fact-group">No curated performance opportunities were found for this method.</div>'}
-    </section>`;
+    </section>
+    ${facts.diagnostics.length
+      ? `<section class="document-section fact-group"><div class="section-title"><h2>Analysis diagnostics</h2><span>${facts.diagnostics.length}</span></div><ul>${facts.diagnostics.map(diagnostic => `<li>${escapeHtml(diagnostic)}</li>`).join("")}</ul></section>`
+      : ""}`;
 }
 
 type FactTableColumn<T> =
@@ -4238,7 +4422,8 @@ async function openPlatformLensLibrary(
       platformScopeTfm(),
       `${key}.dll`,
       pack ?? "",
-      () => state.packages.includes(originPackage));
+      () => state.packages.includes(originPackage),
+      originPackage.version);
     const loaded = runtimeResult.packageModel;
     if (!loaded) {
       if (isCurrent()) {
@@ -4651,6 +4836,7 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
   onDismissNotice: () => {
     state.queryNotice = "";
     state.queryNoticeRetryAction = null;
+    failedWorkspaceUrlPreservation = null;
     render();
   },
   onDismissPackageNotice: () => {
@@ -5080,6 +5266,10 @@ function recordPlatformRecent(assembly: string, pack: string | null) {
   if (!normPack) return;
   const rest = (state.platformRecent || []).filter(entry => entry.assembly !== key);
   state.platformRecent = [{ assembly: key, pack: normPack }, ...rest].slice(0, PLATFORM_RECENT_MAX);
+  persistPlatformRecent();
+}
+
+function persistPlatformRecent() {
   try {
     localStorage.setItem("inspect-platform-recent", JSON.stringify(state.platformRecent));
   } catch {
@@ -5098,6 +5288,10 @@ function recordRecentPackage(id: string, version: string, framework: string) {
     { id, version: version || "latest", framework: framework || "" },
     ...rest,
   ].slice(0, RECENT_PACKAGES_MAX);
+  persistRecentPackages();
+}
+
+function persistRecentPackages() {
   try {
     localStorage.setItem("inspect-recent-packages", JSON.stringify(state.recentPackages));
   } catch {
@@ -5357,13 +5551,19 @@ function updatePlatformVersionSelect() {
 async function switchPlatformVersion(
   tfm: string,
   retryPackage: AppPackage | null = null,
+  noticeRetryState: NoticeRetryState | null = null,
 ) {
   const pkg = runtimePackPackage() ?? retryPackage;
   if (!pkg || !tfm || tfm === pkg.activeFramework) return;
+  if (noticeRetryState
+    && state.queryNoticeRetryAction === noticeRetryState.action) {
+    state.queryNotice = removeAppendedNotice(
+      state.queryNotice,
+      noticeRetryState.previous,
+      noticeRetryState.appended);
+    state.queryNoticeRetryAction = null;
+  }
   const navigationSeq = navigationSequence.begin();
-  state.packages = state.packages.filter(item => !item.isRuntimePack);
-  state.libraryScope = null;
-  state.platformStack = [];
   state.home = false;
   state.loading = true;
   state.error = "";
@@ -5379,14 +5579,29 @@ async function switchPlatformVersion(
     || (state.package && state.package !== pkg)) return;
   if (!loaded) {
     state.loading = false;
-    state.error = runtimeResult.failureMessage
+    state.error = "";
+    state.errorTitle = "";
+    const failure = runtimeResult.failureMessage
       || state.runtimePackError
       || "Couldn’t load the .NET Platform.";
-    state.errorTitle = "Platform failed";
-    state.retryAction = () => switchPlatformVersion(tfm, pkg);
+    const retryState: NoticeRetryState = {
+      action: null,
+      previous: state.queryNotice,
+      appended: "",
+    };
+    const retryAction = () =>
+      switchPlatformVersion(tfm, pkg, retryState);
+    retryState.action = retryAction;
+    appendQueryNotice(
+      failure,
+      retryAction);
+    retryState.appended = state.queryNotice;
+    state.retryAction = null;
     render();
     return;
   }
+  state.workspaceShareBasis = null;
+  state.platformStack = [];
   activatePackage(loaded, { resetAccessibility: true });
   state.loading = false;
   state.atPackageRoot = true;
@@ -5430,7 +5645,10 @@ async function switchPackageVersion(newVersion: string) {
   const oldVersion = pkg.version;
   if (!newVersion || newVersion.toLowerCase() === oldVersion.toLowerCase()) return;
   const framework = pkg.activeFramework;
-  await loadPackage(id, newVersion, framework, { replacePackage: pkg });
+  await loadPackage(id, newVersion, framework, {
+    replacePackage: pkg,
+    invalidateWorkspaceShareBasis: true,
+  });
 }
 
 async function switchPackageFramework(newFramework: string) {
@@ -5442,7 +5660,10 @@ async function switchPackageFramework(newFramework: string) {
     pkg.id,
     pkg.version,
     newFramework,
-    { replacePackage: pkg });
+    {
+      replacePackage: pkg,
+      invalidateWorkspaceShareBasis: true,
+    });
 }
 
 
@@ -5556,7 +5777,8 @@ async function openPlatformLibrary(
       tfm,
       fileName,
       pack,
-      () => navigationSequence.isCurrent(navigationSeq));
+      () => navigationSequence.isCurrent(navigationSeq),
+      runtimePackPackage()?.version ?? "");
     const loaded = runtimeResult.packageModel;
     if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
     if (!loaded) {
@@ -5577,10 +5799,13 @@ async function openPlatformLibrary(
   if (!pkg) { render(); return undefined; }
   activatePackage(pkg, { resetAccessibility: true });
   state.home = false;
-  const hasLib = pkg.types.some(type => libraryKey(type) === key);
-  state.libraryScope = hasLib ? new Set([key]) : null;
-  if (hasLib) recordPlatformRecent(key, pack);
-  if (scopeOnly) return pkg;
+  const actualKey = pkg.types
+    .map(libraryKey)
+    .find(candidate => candidate.toLowerCase() === key.toLowerCase());
+  const hasLib = actualKey !== undefined;
+  state.libraryScope = actualKey ? new Set([actualKey]) : null;
+  if (actualKey) recordPlatformRecent(actualKey, pack);
+  if (scopeOnly) return hasLib ? pkg : undefined;
   state.loading = false;
   state.atPackageRoot = !hasLib; // scoped → jump straight to the type list; otherwise the overview
   state.packageLens = "overview";
@@ -5803,77 +6028,169 @@ function workbenchModalOwnsFocus() {
     || state.docViewerOpen;
 }
 
+function resolvedWorkspaceShareTabs():
+BrowserWorkspaceShareState["tabs"] {
+  return state.packages.map((pkg, index) => ({
+    id: `t${index}`,
+    kind: pkg.isRuntimePack ? "group" : "package",
+    source: pkg.isRuntimePack ? ":Platform" : pkg.id,
+    version: pkg.version || null,
+    framework: pkg.activeFramework || null,
+    runtimeIdentifier: null,
+  }));
+}
+
+function capturedShareTabs() {
+  const basis = state.workspaceShareBasis;
+  const resolvedTabs = resolvedWorkspaceShareTabs();
+  const preservesBasis = Boolean(basis
+    && workspaceShareTabsMatchResolved(basis.tabs, resolvedTabs));
+  const tabs: BrowserWorkspaceShareState["tabs"] =
+    preservesBasis && basis
+      ? basis.tabs.map(tab => ({ ...tab }))
+      : resolvedTabs;
+  return { tabs, preservesBasis };
+}
+
+function commitWorkspaceShareBasis(
+  basis: BrowserWorkspaceShareState | null,
+) {
+  state.workspaceShareBasis = basis;
+  sourceInspection.clearGraphSource();
+}
+
+function selectedCallGraphWorkspacePackages(): AppPackage[] {
+  if (state.package?.isRuntimePack) return [];
+  const basis = state.workspaceShareBasis;
+  const { tabs, preservesBasis } = capturedShareTabs();
+  const activeIndex = state.package
+    ? state.packages.indexOf(state.package)
+    : -1;
+  const activeTab = tabs[activeIndex];
+  if (!activeTab) {
+    throw new Error(
+      "The active package is no longer part of the Browser workspace.");
+  }
+  const packageForTabId = (id: string) => {
+    const index = tabs.findIndex(tab => tab.id === id);
+    return index >= 0 ? state.packages[index] ?? null : null;
+  };
+  if (!preservesBasis || !basis) {
+    return browserCreatedCallGraphTabIds(tabs, activeIndex)
+      .map(packageForTabId)
+      .filter((pkg): pkg is AppPackage =>
+        pkg !== null && !pkg.isRuntimePack);
+  }
+
+  const packageTabIds = selectedBrowserCallGraphPackageTabIds(basis);
+  if (!packageTabIds.includes(activeTab.id)) {
+    throw new Error(
+      "The active package is not part of the selected Call Graph context.");
+  }
+  return packageTabIds.map(id => {
+    const packageModel = packageForTabId(id);
+    if (!packageModel || packageModel.isRuntimePack) {
+      throw new Error(
+        "The selected Call Graph context could not be realized by this browser.");
+    }
+    return packageModel;
+  });
+}
+
 function captureWorkspaceUrlState(): WorkspaceUrlState | null {
   if (!state.package) return null;
-  const packageKey = packageIdentityKey(state.package);
-  const currentViewSignature = viewSignature();
-  const pending = graphMemberPendingMatchesView(
-    state.pendingGraphMemberDeepLink,
-    packageKey,
-    currentViewSignature)
-    ? state.pendingGraphMemberDeepLink
-    : null;
-  const pendingOverload = Number(pending?.overload);
-  const selectedOverloadIndex = pending
-    && Number.isInteger(pendingOverload)
-    && pendingOverload >= 0
-    ? pendingOverload
-    : state.selectedOverloadIndex;
-  let graphTarget = pending?.target ?? null;
-  if (!pending && state.selectedBodyTarget) {
-    const type = selectedType();
-    const candidate = state.package.isRuntimePack
-      ? resolveRuntimeGraphTargetCandidate(
-          state.package,
-          state.selectedBodyTarget)
-      : resolveLoadedGraphTargetCandidate(
-          [state.package],
-          state.selectedBodyTarget);
-    const selection = type
-      ? findGraphMemberSelection(type, state.selectedBodyTarget)
-      : null;
-    if (candidate.status === "unique"
-      && candidate.type === type
-      && selection?.group.key === state.selectedMemberKey
-      && selection.overloadIndex === state.selectedOverloadIndex) {
-      graphTarget = graphMemberTargetFromShare(
-        graphMemberShareTarget(state.selectedBodyTarget));
+  if (state.atPackageRoot) {
+    throw new Error(
+      "Package views do not yet have product-owned share facet identities.");
+  }
+  if (state.pendingGraphMemberDeepLink) {
+    throw new Error(
+      "The pending graph member must resolve before this workspace can be shared.");
+  }
+
+  const captured = capturedShareTabs();
+  const tabs = captured.tabs;
+  const activeIndex = state.packages.indexOf(state.package);
+  const activeTab = tabs[activeIndex];
+  if (!activeTab) return null;
+
+  const basis = state.workspaceShareBasis;
+  const { contexts, selectedContextId } = workspaceShareCaptureTopology(
+    tabs,
+    activeIndex,
+    basis,
+    captured.preservesBasis,
+    state.memberSection === "call-graph");
+
+  const type = selectedType();
+  const member = selectedMember(type);
+  let memberAnchor: string | null = null;
+  let memberSignature: string | null = null;
+  if (member) {
+    const overloadIndex = state.selectedOverloadIndex
+      ?? (member.overloads.length === 1 ? 0 : null);
+    if (overloadIndex === null) {
+      throw new Error(
+        "Select a concrete overload before sharing this member view.");
+    }
+    const overload = member.overloads[overloadIndex];
+    if (!overload) {
+      throw new Error(
+        "The selected overload is no longer available and cannot be shared.");
+    }
+    if (overload.graphOnly) {
+      throw new Error(
+        "Graph-discovered members cannot be shared until workspace packets carry their portable target identity.");
+    }
+    memberAnchor = overload.anchorDigest || null;
+    memberSignature = memberAnchor ? null : overload.canonicalSignature || null;
+    if (!memberAnchor && !memberSignature) {
+      throw new Error(
+        "The selected overload has no portable product identity and cannot be shared.");
+    }
+    if (state.memberSection !== "overview"
+      && overload.bodySelectors.length > 1) {
+      throw new Error(
+        "This accessor-specific section cannot be shared until workspace packets carry portable body identity.");
     }
   }
-  const library = isRuntimePackId(state.package.id)
-    && state.libraryScope?.size === 1
-    ? [...state.libraryScope][0] ?? null
-    : null;
+
+  if (state.libraryScope && state.libraryScope.size > 1) {
+    throw new Error(
+      "Select one library before sharing this Browser workspace.");
+  }
+  const libraries = state.libraryScope
+    ? [...state.libraryScope].sort((left, right) =>
+        left < right ? -1 : left > right ? 1 : 0)
+    : [];
   return {
     package: state.package.id,
-    tabs: state.packages.map(item => ({
-      id: item.id,
-      version: item.version,
-      framework: item.activeFramework || "",
-    })),
-    active: Math.max(0, state.packages.indexOf(state.package)),
-    lens: state.lens,
-    atPackageRoot: state.atPackageRoot,
-    packageLens: state.packageLens,
-    library,
-    libraryPack: library ? platformPackForAssembly(library) : null,
-    selectedTypeId: pending?.type ?? state.selectedTypeId,
-    selectedMemberKey: pending?.member ?? state.selectedMemberKey,
-    selectedOverloadIndex,
-    memberSection: pending && isMemberSection(pending.section)
-      ? pending.section
-      : state.memberSection,
-    selectedBodyTarget: pending ? null : state.selectedBodyTarget,
-    graphTarget,
-    memberBrowse: memberScopeIsActive(state, selectedType()?.id),
-    memberTextFilter: state.memberTextFilter,
-    memberKindFilter: state.memberKindFilter,
-    memberAccessibilityFilter: state.memberAccessibilityFilter,
-    memberTraitFilter: state.memberTraitFilter,
+    tabs,
+    contexts,
+    activeTabId: activeTab.id,
+    selectedContextId,
+    view: {
+      lens: state.lens,
+      type: state.selectedTypeId || null,
+      memberAnchor,
+      memberSignature,
+      section: member && state.memberSection !== "overview"
+        ? state.memberSection
+        : null,
+      libraries,
+    },
   };
 }
 
 function buildStateUrl(base = location.href) {
+  if (state.atPackageRoot && state.package) {
+    return buildPackageRootStateUrl(base, {
+      package: state.package.id,
+      version: state.package.version,
+      framework: state.package.activeFramework,
+      lens: state.packageLens,
+    });
+  }
   const snapshot = captureWorkspaceUrlState();
   return snapshot
     ? workspaceLocation.build(snapshot, base)
@@ -5883,16 +6200,122 @@ function buildStateUrl(base = location.href) {
 // Rewrite the address bar to reflect the current selection so a refresh restores it and
 // the URL is always shareable. replaceState (not pushState) keeps the app's own
 // back/forward buttons authoritative and avoids flooding browser history on every render.
+function workspaceUrlProjection() {
+  return JSON.stringify({
+    packages: state.packages.map(packageIdentityKey),
+    basis: state.workspaceShareBasis,
+    view: captureView(),
+  });
+}
+
 function syncUrl() {
-  const snapshot = captureWorkspaceUrlState();
-  if (!snapshot || state.loading) return;
-  document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
-  workspaceLocation.sync(snapshot);
+  if (workspaceUrlPreservationApplies(
+      failedWorkspaceUrlPreservation,
+      location.href,
+      workspaceUrlProjection())) {
+    return;
+  }
+  failedWorkspaceUrlPreservation = null;
+  try {
+    if (state.atPackageRoot && state.package && !state.loading) {
+      document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
+      workspaceLocation.replace(buildStateUrl().toString());
+      return;
+    }
+    const snapshot = captureWorkspaceUrlState();
+    if (!snapshot || state.loading) return;
+    document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
+    workspaceLocation.sync(snapshot);
+  } catch {
+    // Keep the last canonical URL while the active Browser state is not projectable.
+  }
 }
 
 // Apply a parsed URL selection onto the currently loaded package, validating that the
 // type/member/overload/section still exist.
 type DeepLink = WorkspaceDeepLink;
+
+function solePortableBodyTarget(
+  overload: AppMemberSurface,
+): BodyTarget | null {
+  const selector = overload.bodySelectors.length === 1
+    ? overload.bodySelectors[0]
+    : null;
+  return selector
+    ? {
+        memberName: selector.memberName,
+        selectorKey: selector.selectorKey,
+        metadataToken: selector.token,
+      }
+    : null;
+}
+
+function canonicalViewRestorationFailure(
+  pkg: AppPackage,
+  deep: DeepLink,
+  requestedLens: TypeLens | null,
+): string | null {
+  const lens = requestedLens ?? "api";
+  if (!typeLensesFor(pkg).some(([id]) => id === lens)) {
+    return `The shared '${lens}' lens is not available for ${pkg.id}.`;
+  }
+  if (lens !== "api" && !deep.type) {
+    return `The shared '${lens}' lens requires a selected type.`;
+  }
+  const requestedType = deep.type
+    ? pkg.types.find(type => type.id === deep.type)
+    : null;
+  if (deep.type && !requestedType) {
+    return `The shared type '${deep.type}' is no longer available.`;
+  }
+  if (requestedType
+    && state.libraryScope
+    && !state.libraryScope.has(libraryKey(requestedType))) {
+    return `The shared type '${deep.type}' is not part of the selected library.`;
+  }
+  const hasPortableMember = Boolean(
+    deep.memberAnchor || deep.memberSignature);
+  if (deep.section && !hasPortableMember) {
+    return `The shared member section '${deep.section}' requires a selected member.`;
+  }
+  if (!hasPortableMember) return null;
+  if (lens !== "api") {
+    return `The shared member selection is not available in the '${lens}' lens.`;
+  }
+  if (!deep.type) {
+    return "The shared member has no declaring type and cannot be restored.";
+  }
+
+  if (!requestedType) {
+    return `The shared member's declaring type '${deep.type}' is no longer available.`;
+  }
+  const matches = memberGroups(requestedType).flatMap(group =>
+    group.overloads.map(overload => ({
+      group,
+      overload,
+    }))).filter(candidate =>
+      deep.memberAnchor
+        ? candidate.overload.anchorDigest === deep.memberAnchor
+        : candidate.overload.canonicalSignature === deep.memberSignature);
+  if (matches.length === 0) {
+    return "The shared member is no longer available.";
+  }
+  if (matches.length > 1) {
+    return "The shared member identity is ambiguous.";
+  }
+
+  const selection = matches[0]!;
+  const hasSelectedBody =
+    solePortableBodyTarget(selection.overload) !== null;
+  if (deep.section
+    && !memberSectionIdsFor(
+      selection.group,
+      pkg.isRuntimePack,
+      hasSelectedBody).includes(deep.section)) {
+    return `The shared member section '${deep.section}' is not available for this member.`;
+  }
+  return null;
+}
 
 function applyDeepLink(deep: DeepLink | null | undefined) {
   const pkg = state.package;
@@ -5902,8 +6325,8 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   // in-app link click that means to preserve the current type-list filter. Clear the
   // type/namespace/kind filters so a value left over from Browse elsewhere doesn't hide the
   // restored type from the list (library scope is deliberately left alone: for a platform
-  // link it is already restored by applyPlatformLibraryScope before this runs, and clearing
-  // it here would undo that restoration).
+  // link it is already restored by applyPlatformLibraryScope, and for a package link it is
+  // restored from the selected canonical library before this runs).
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
@@ -5928,15 +6351,6 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   state.platformDrillError = "";
   const restoreType = deep?.type && pkg.types.some(item => item.id === deep.type);
   resetMemberFilters();
-  // Only the .NET Platform pseudo-package's library scope is carried across a restore (via
-  // applyPlatformLibraryScope, which every restore path already runs before reaching here). A
-  // regular package's scope is never part of that restored view, so any value still set here
-  // is leftover session state from a previously viewed package. Clear it before computing a
-  // fallback default type below (not merely after), so that leftover scope can't narrow which
-  // type the fallback picks -- e.g. two unrelated packages happening to share an assembly name.
-  if (!isRuntimePackId(pkg.id)) {
-    state.libraryScope = null;
-  }
   state.selectedTypeId = restoreType
     ? deep?.type ?? ""
     : defaultVisibleTypeId(pkg);
@@ -5949,8 +6363,8 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   const selected = pkg.types.find(item => item.id === state.selectedTypeId);
   if (selected) {
     reconcileAccessibilityFilter(selected);
-    // A regular package's scope was already cleared above. For the platform pseudo-package,
-    // only clear the restored scope if the selected type doesn't actually belong to it --
+    // For the platform pseudo-package, only clear the restored scope if the selected type
+    // doesn't actually belong to it --
     // defaultVisibleTypeId now prefers a type within libraryScope even when none of that
     // scope's types pass the accessibility filter (see its own comment), so this should only
     // trigger when the scope's library genuinely has no types at all.
@@ -5989,6 +6403,45 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
       : "";
     if (deep.memberBrowse && groups.length)
       state.memberBrowseTypeId = type.id;
+    const portableMatches = deep.memberAnchor || deep.memberSignature
+      ? groups.flatMap(group =>
+          group.overloads.map((overload, overloadIndex) => ({
+            group,
+            overload,
+            overloadIndex,
+          }))).filter(candidate =>
+            deep.memberAnchor
+              ? candidate.overload.anchorDigest === deep.memberAnchor
+              : candidate.overload.canonicalSignature === deep.memberSignature)
+      : [];
+    let restoredPortableMember = false;
+    if (deep.memberAnchor || deep.memberSignature) {
+      if (portableMatches.length === 1) {
+        const selection = portableMatches[0]!;
+        state.memberBrowseTypeId = type.id;
+        state.selectedMemberKey = selection.group.key;
+        state.selectedOverloadIndex = selection.overloadIndex;
+        const portableBodyTarget =
+          solePortableBodyTarget(selection.overload);
+        const hasSelectedBody = portableBodyTarget !== null;
+        if (deep.section
+          && isMemberSection(deep.section)
+          && memberSectionIdsFor(
+            selection.group,
+            state.package?.isRuntimePack,
+            hasSelectedBody).includes(deep.section)) {
+          state.memberSection = deep.section;
+          state.selectedBodyTarget = portableBodyTarget;
+        }
+        restoredPortableMember = true;
+      } else {
+        appendQueryNotice(
+          portableMatches.length === 0
+            ? "The shared member is no longer available and was not opened."
+            : "The shared member identity is ambiguous and was not opened.");
+      }
+    }
+    if (!restoredPortableMember) {
     const group = deep.member ? groups.find(item => item.key === deep.member) : null;
     const graphCandidate = deep.member && deep.graphTarget
       ? pkg.isRuntimePack
@@ -6015,8 +6468,7 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
       && deep.graphTarget) {
       state.selectedMemberKey = localGraphSelection.group.key;
       state.selectedOverloadIndex = localGraphSelection.overloadIndex;
-      state.selectedBodyTarget = deep.graphTarget;
-      retainGraphOnlyBodyTarget(
+      state.selectedBodyTarget = retainGraphOnlyImplementationBody(
         localGraphSelection.group.overloads[localGraphSelection.overloadIndex],
         deep.graphTarget);
       state.memberSection = deep.section
@@ -6078,6 +6530,7 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
       if (hasSelectedBody) {
         state.selectedBodyTarget = deep.bodyTarget ?? null;
       }
+    }
     }
   }
   state.typeCursor = Math.max(0, filteredTypes().findIndex(item => item.id === state.selectedTypeId));
@@ -6267,6 +6720,7 @@ const homeShellActions: HomeShellBindingActions = {
   onDismissNotice: () => {
     state.queryNotice = "";
     state.queryNoticeRetryAction = null;
+    failedWorkspaceUrlPreservation = null;
     render();
   },
   onOpenCredits: openCredits,
@@ -6298,7 +6752,9 @@ function runHomeDemo(kind: ProductHomeDemoId) {
     render();
     return;
   }
-  const link = productHomeDemoLocationHref(resolved);
+  const link = productHomeDemoLocationHref(
+    resolved,
+    inspectEncodeWorkspaceShareState);
   if (!link) {
     observeAsync(runCallGraphDemo(kind), "Loading the call graph demo");
     return;
@@ -6471,13 +6927,16 @@ function renderLoading() {
 async function loadSelectedMemberDocumentation() {
   const type = selectedType();
   const member = selectedMember(type);
-  if (!type || !member
-    || (member.overloads.length > 1 && state.selectedOverloadIndex == null)) {
+  if (!type || !member) {
     render();
     return;
   }
-  const overload = member.overloads[state.selectedOverloadIndex ?? 0];
-  if (!overload) return;
+  const overload =
+    selectedConcreteOverload(member.overloads, state.selectedOverloadIndex);
+  if (!overload) {
+    render();
+    return;
+  }
   const signature = memberRequestSignature(type, overload);
   const pkg = currentPackage();
   return memberDetailInspection.loadDocumentation({
@@ -6493,15 +6952,20 @@ async function loadSelectedMemberDocumentation() {
 }
 
 async function loadSelectedMemberSource() {
-  if (activeSourceOperationKind(state) !== "member") {
+  if (currentSourceOperationKind() !== "member") {
     render();
     return;
   }
   const type = selectedType();
   const member = selectedMember(type);
-  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
-  if (!type || !member || !overload) {
+  if (!type || !member) {
     state.memberSourceError = "Select a concrete overload before opening Source.";
+    render();
+    return;
+  }
+  const overload =
+    selectedConcreteOverload(member.overloads, state.selectedOverloadIndex);
+  if (!overload) {
     render();
     return;
   }
@@ -6529,9 +6993,14 @@ async function loadSelectedMemberSource() {
 async function loadSelectedMemberAnnotatedSource() {
   const type = selectedType();
   const member = selectedMember(type);
-  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
-  if (!type || !member || !overload) {
+  if (!type || !member) {
     state.memberAnnotatedError = "Select a concrete overload before opening Annotated source.";
+    render();
+    return;
+  }
+  const overload =
+    selectedConcreteOverload(member.overloads, state.selectedOverloadIndex);
+  if (!overload) {
     render();
     return;
   }
@@ -6557,8 +7026,8 @@ async function loadSelectedMemberAnnotatedSource() {
 }
 
 function memberRequestSignature(
-  type: BrowserTypeSurface,
-  overload: BrowserMemberSurface,
+  type: AppTypeSurface,
+  overload: AppMemberSurface,
   includeBody = false,
   includeTaste = false) {
   const pkg = state.package;
@@ -6586,14 +7055,16 @@ function memberRequestIsCurrent(
   const type = selectedType();
   if (!type) return false;
   const member = selectedMember(type);
-  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+  const overload = member
+    ? selectedConcreteOverload(member.overloads, state.selectedOverloadIndex)
+    : undefined;
   return overload != null
     && memberRequestSignature(type, overload, includeBody, includeTaste)
       === signature;
 }
 
 async function loadSelectedTypeSource() {
-  if (activeSourceOperationKind(state) !== "type") {
+  if (currentSourceOperationKind() !== "type") {
     renderPreservingMemberFocus();
     return;
   }
@@ -6614,7 +7085,7 @@ async function loadSelectedTypeSource() {
     type: type.definitionId ?? type.id,
     taste: JSON.stringify(state.taste),
     isVisible: () =>
-      activeSourceOperationKind(state) === "type"
+      currentSourceOperationKind() === "type"
       && !workbenchModalOwnsFocus(),
   });
 }
@@ -6720,7 +7191,7 @@ function navigateToTypeByName(fullName: string) {
   navigateToType(target);
 }
 
-function navigateToType(target: BrowserTypeSurface) {
+function navigateToType(target: AppTypeSurface) {
   // Clicking a non-public related type (e.g. an internal derived implementer)
   // enables its accessibility bucket so it appears in the nav list rather than
   // being filtered out by the public-by-default view.
@@ -6935,19 +7406,29 @@ function nextPaint() {
 async function loadSelectedMemberCallGraph() {
   const type = selectedType();
   const member = selectedMember(type);
-  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
-  if (!type || !member || !overload) {
+  if (!type || !member) {
     state.memberCallGraphError = "Select a concrete overload before opening Call graph.";
+    render();
+    return;
+  }
+  const overload =
+    selectedConcreteOverload(member.overloads, state.selectedOverloadIndex);
+  if (!overload) {
     render();
     return;
   }
   const signature = memberRequestSignature(type, overload, true);
   const pkg = currentPackage();
   const platformAssembly = assemblyDescriptorForType(pkg.assemblies, type);
-  const workspacePackages =
-    state.packages.filter(packageItem => !packageItem.isRuntimePack);
-  const hasOtherLibraries =
-    workspacePackages.some(packageItem => packageItem !== state.package);
+  let workspacePackages: AppPackage[];
+  try {
+    workspacePackages = selectedCallGraphWorkspacePackages();
+  } catch (error) {
+    state.memberCallGraphError = errorMessage(error);
+    render();
+    return;
+  }
+  const hasOtherLibraries = workspacePackages.length > 1;
   return callGraphInspection.load({
     signature,
     isRuntimePack: Boolean(state.package?.isRuntimePack),
@@ -7145,7 +7626,7 @@ function callGraphNodeBinding(
     ...state.packages.filter(item => item !== state.package),
   ].filter((pkg): pkg is AppPackage => pkg != null);
   const candidate =
-    resolveLoadedGraphTargetCandidate<AppPackage, BrowserTypeSurface>(
+    resolveLoadedGraphTargetCandidate<AppPackage, AppTypeSurface>(
       packages,
       target);
   const pack = runtimePackForFramework(
@@ -7249,7 +7730,7 @@ function resolveLoadedGraphTarget(
   candidate: {
     status: "unique";
     pkg: AppPackage;
-    type: BrowserTypeSurface;
+    type: AppTypeSurface;
   },
 ) {
   const { pkg, type } = candidate;
@@ -7273,7 +7754,7 @@ function resolveLoadedGraphTarget(
 }
 
 function findGraphMemberSelection(
-  type: BrowserTypeSurface,
+  type: AppTypeSurface,
   target: GraphMemberTarget,
 ) {
   const groups = memberGroups(type);
@@ -7287,7 +7768,7 @@ function findGraphMemberSelection(
 
 async function loadGraphMemberSurface(
   pkg: AppPackage,
-  type: BrowserTypeSurface,
+  type: AppTypeSurface,
   target: BrowserCallGraphTarget | GraphMemberShareIdentity,
 ) {
   return inspectGraphMemberSurface(
@@ -7303,7 +7784,7 @@ async function loadGraphMemberSurface(
 
 function stageGraphMemberSelection(
   pkg: AppPackage,
-  type: BrowserTypeSurface,
+  type: AppTypeSurface,
   target: BrowserCallGraphTarget | GraphMemberShareIdentity,
   surface: BrowserMemberSurface,
 ) {
@@ -7312,7 +7793,11 @@ function stageGraphMemberSelection(
     && candidate.canonicalSignature === surface.canonicalSignature);
   const isNew = !member;
   if (!member) {
-    member = { ...surface, graphOnly: true, graphTarget: target };
+    member = {
+      ...createAppMemberSurface(surface),
+      graphOnly: true,
+      graphTarget: target,
+    };
   }
   const stagedType = isNew
     ? { ...type, api: [...(type.api ?? []), member] }
@@ -7333,7 +7818,7 @@ function stageGraphMemberSelection(
 
 function commitGraphMemberSelection(
   pkg: AppPackage,
-  type: BrowserTypeSurface,
+  type: AppTypeSurface,
   target: BrowserCallGraphTarget | GraphMemberShareIdentity,
   staged: ReturnType<typeof stageGraphMemberSelection>,
 ) {
@@ -7342,7 +7827,9 @@ function commitGraphMemberSelection(
     type.api ??= [];
     type.api.push(staged.member);
   }
-  retainGraphOnlyBodyTarget(staged.member, target);
+  const selectedTarget = retainGraphOnlyImplementationBody(
+    staged.member,
+    target);
   const selection = resolveLoadedGraphTarget(
     target,
     { status: "unique", pkg, type });
@@ -7350,7 +7837,11 @@ function commitGraphMemberSelection(
     throw new Error(
       `The graph target '${target.memberName}' was lost while committing its projection.`);
   }
-  return { ...selection, group: selection.group };
+  return {
+    ...selection,
+    group: selection.group,
+    selectedBodyTarget: selectedTarget,
+  };
 }
 
 async function navigateToGraphMember(
@@ -7362,12 +7853,16 @@ async function navigateToGraphMember(
   state.platformDrillLoading = false;
   state.platformDrillError = "";
   if ("group" in loaded) {
+    const overload = loaded.group.overloads[loaded.overloadIndex];
+    const selectedBodyTarget = overload
+      ? retainGraphOnlyImplementationBody(overload, target)
+      : target;
     navigateToMember(
       loaded.pkg,
       loaded.type,
       loaded.group,
       loaded.overloadIndex,
-      target);
+      selectedBodyTarget);
     return;
   }
 
@@ -7381,7 +7876,7 @@ async function navigateToGraphMember(
   state.graphMemberNavigationError = "";
   render();
   try {
-    const surface = await loadGraphMemberSurface(
+    const projection = await loadGraphMemberSurface(
       loaded.pkg,
       loaded.type,
       target);
@@ -7392,15 +7887,18 @@ async function navigateToGraphMember(
       }
       return;
     }
+    const selectedTarget = graphMemberTargetWithSelectedBody(
+      target,
+      projection.selectedBody);
     const staged = stageGraphMemberSelection(
       loaded.pkg,
       loaded.type,
-      target,
-      surface);
+      selectedTarget,
+      projection.member);
     const selection = commitGraphMemberSelection(
       loaded.pkg,
       loaded.type,
-      target,
+      selectedTarget,
       staged);
     state.graphMemberNavigationTitle = "";
     navigateToMember(
@@ -7408,7 +7906,7 @@ async function navigateToGraphMember(
       selection.type,
       selection.group,
       selection.overloadIndex,
-      target);
+      selection.selectedBodyTarget);
   } catch (error) {
     if (!navigationIsCurrent()) {
       if (seq === state.graphMemberNavigationSeq) {
@@ -7452,23 +7950,29 @@ async function restorePendingGraphMember() {
       throw new Error(
         "The graph member's declaring type is no longer available.");
     }
-    const surface = await loadGraphMemberSurface(pkg, type, pending.target);
+    const projection = await loadGraphMemberSurface(
+      pkg,
+      type,
+      pending.target);
     if (!restorationIsCurrent()) {
       discardIfOwned();
       return;
     }
+    const selectedTarget = graphMemberTargetWithSelectedBody(
+      pending.target,
+      projection.selectedBody);
     const staged = stageGraphMemberSelection(
       pkg,
       type,
-      pending.target,
-      surface);
+      selectedTarget,
+      projection.member);
     if (staged.selection.group.key !== pending.member) {
       throw new Error("The shared member identity does not match the graph target.");
     }
     const selection = commitGraphMemberSelection(
       pkg,
       type,
-      pending.target,
+      selectedTarget,
       staged);
     state.pendingGraphMemberDeepLink = null;
     state.graphMemberNavigationTitle = "";
@@ -7482,7 +7986,7 @@ async function restorePendingGraphMember() {
       true).includes(pending.section)
       ? pending.section
       : "overview";
-    state.selectedBodyTarget = pending.target;
+    state.selectedBodyTarget = selection.selectedBodyTarget;
     normalizeCurrentNavEntry();
     render();
     observeAsync(loadSelectionData(), "Loading restored graph member data");
@@ -7514,8 +8018,23 @@ async function drillPlatformNode(
       "the target does not carry a complete navigable identity");
     return;
   }
+  const framework = currentPackage().activeFramework;
+  const runtimePack = runtimePackForFramework(
+    runtimePackPackage(),
+    framework);
+  const runtimeIndex = runtimePack
+    ? state.packages.indexOf(runtimePack)
+    : -1;
+  const captured = capturedShareTabs();
+  const platformVersion = retainedPlatformTargetVersion(
+    captured.preservesBasis && runtimeIndex >= 0
+      ? captured.tabs[runtimeIndex]
+      : null,
+    runtimePack,
+    framework);
   return callGraphInspection.drill({
-    framework: currentPackage().activeFramework,
+    framework,
+    platformVersion,
     assembly: node.assembly,
     pack: platformPackForGraphAssembly(
       node.assembly,
@@ -7593,6 +8112,10 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
     runtimePackPackage(),
     framework);
   if (!pack) {
+    const retainedPlatform = retainedMissingPlatformTarget(
+      state.workspaceShareBasis?.tabs,
+      resolvedWorkspaceShareTabs(),
+      framework);
     state.platformDrillLoading = true;
     state.platformDrillError = "";
     const preservedFocus = renderPreservingMemberFocus();
@@ -7608,9 +8131,19 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
         ? node.assembly
         : `${node.assembly}.dll`,
       targetPack ?? "",
-      navigationIsCurrent);
+      navigationIsCurrent,
+      retainedPlatform?.version ?? "");
     pack = runtimeResult.packageModel;
     if (discardIfStale(preservedFocus)) return;
+    if (pack && retainedPlatform) {
+      const currentIndex = state.packages.indexOf(pack);
+      if (currentIndex >= 0 && currentIndex !== retainedPlatform.tabIndex) {
+        const packages = state.packages.slice();
+        packages.splice(currentIndex, 1);
+        packages.splice(retainedPlatform.tabIndex, 0, pack);
+        state.packages = packages;
+      }
+    }
     state.platformDrillLoading = false;
     if (!pack) {
       state.platformDrillError = runtimeResult.failureMessage
@@ -7648,7 +8181,8 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
         ? node.assembly
         : `${node.assembly}.dll`,
       targetPack ?? "",
-      navigationIsCurrent);
+      navigationIsCurrent,
+      pack.version);
     pack = runtimeResult.packageModel;
     if (!navigationIsCurrent()) {
       if (seq === state.memberCallGraphSeq) {
@@ -7713,7 +8247,7 @@ async function showPlatformTargetError(
 // node) and clears any active platform descent so the new member's graph loads fresh.
 function navigateToRuntimeMember(
   pack: AppPackage,
-  type: BrowserTypeSurface,
+  type: AppTypeSurface,
   group: AppMemberGroup,
   overloadIndex: number,
   bodyTarget: BodyTarget | null = null,
@@ -7866,7 +8400,7 @@ function invalidateSourceCaches() {
 }
 
 function reloadVisibleSource() {
-  switch (sourceReloadKind(state)) {
+  switch (currentSourceReloadKind()) {
     case "graph":
       if (state.graphSourceRequest) {
         observeAsync(
@@ -7964,14 +8498,20 @@ function renderGraphSource() {
 
 function navigateToMember(
   pkg: AppPackage,
-  type: BrowserTypeSurface,
+  type: AppTypeSurface,
   group: AppMemberGroup,
   overloadIndex: number | null = null,
   bodyTarget: BodyTarget | null = null,
 ) {
   invalidateGraphMemberNavigation();
+  let selectedBodyTarget = bodyTarget;
   if (overloadIndex != null) {
-    retainGraphOnlyBodyTarget(group.overloads[overloadIndex], bodyTarget);
+    const overload = group.overloads[overloadIndex];
+    if (overload) {
+      selectedBodyTarget = retainGraphOnlyImplementationBody(
+        overload,
+        bodyTarget);
+    }
   }
   activatePackage(pkg);
   state.typeFilter = "";
@@ -7998,21 +8538,29 @@ function navigateToMember(
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
-  state.selectedBodyTarget = bodyTarget;
+  state.selectedBodyTarget = selectedBodyTarget;
   observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
 }
 
 async function loadSelectedMemberFacts() {
   const type = selectedType();
   const member = selectedMember(type);
-  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
-  if (!type || !member || !overload) {
+  if (!type || !member) {
     state.memberFactsError = "Select a concrete overload before opening Facts.";
     render();
     return;
   }
-  const signature = memberRequestSignature(type, overload);
+  const overload =
+    selectedConcreteOverload(member.overloads, state.selectedOverloadIndex);
+  if (!overload) {
+    render();
+    return;
+  }
+  const signature = memberRequestSignature(type, overload, true);
   const pkg = currentPackage();
+  const implementationBody = graphOnlyImplementationBody(overload);
+  const implementationMetadataToken = implementationBody?.token ?? 0;
+  const implementationBodySelected = implementationMetadataToken !== 0;
   return memberDetailInspection.loadFacts({
     signature,
     packageId: pkg.id,
@@ -8020,9 +8568,17 @@ async function loadSelectedMemberFacts() {
     framework: pkg.activeFramework,
     assembly: type.assembly,
     type: type.queryId ?? type.id,
-    member: overload.name,
+    typeIdentity: type.definitionId ?? type.id,
+    member: implementationBody?.memberName
+      ?? state.selectedBodyTarget?.memberName
+      ?? overload.name,
     memberSignature: overload.signature,
-    isCurrent: () => memberRequestIsCurrent(signature),
+    selectorKey: implementationBody?.selectorKey
+      ?? state.selectedBodyTarget?.selectorKey
+      ?? overload.graphSelectorKey,
+    metadataToken: implementationMetadataToken,
+    implementationBodySelected,
+    isCurrent: () => memberRequestIsCurrent(signature, true),
   });
 }
 
@@ -8033,6 +8589,7 @@ interface LoadPackageOptions {
   replacePackage?: AppPackage | null;
   deepLink?: DeepLink | null;
   retryAction?: RetryAction;
+  invalidateWorkspaceShareBasis?: boolean;
 }
 
 async function loadPackage(
@@ -8083,6 +8640,8 @@ async function loadPackage(
     });
     if (!packageModel) return null;
     if (background) return packageModel;
+    if (options.invalidateWorkspaceShareBasis)
+      state.workspaceShareBasis = null;
     activatePackage(packageModel, { resetAccessibility: true });
     state.typeFilter = "";
     state.namespaceFilter = "";
@@ -8251,9 +8810,18 @@ function isRuntimePackId(id: string | null | undefined) {
 const packageAcquisition = createPackageAcquisition({
   queryPackage: (packageId, version, framework) =>
     inspectPackage(packageId, version, framework),
-  loadRuntimePack: framework => inspectLoadRuntimePack(framework),
-  loadRuntimePackAssembly: (framework, assemblyFileName, pack) =>
-    inspectLoadRuntimePackAssembly(framework, assemblyFileName, pack),
+  loadRuntimePack: (framework, platformVersion) =>
+    inspectLoadRuntimePack(framework, platformVersion),
+  loadRuntimePackAssembly: (
+    framework,
+    platformVersion,
+    assemblyFileName,
+    pack,
+  ) => inspectLoadRuntimePackAssembly(
+    framework,
+    platformVersion,
+    assemblyFileName,
+    pack),
   parseRuntimeSurface: json => parseEngineJson<BrowserPackageSurface>(json),
   runtimePackage: runtimePackPackage,
   retainPackage: retainPackageModel,
@@ -8279,10 +8847,12 @@ interface RuntimeLoadResult {
 async function loadRuntimePack(
   framework: string,
   isCurrent: () => boolean = () => true,
+  platformVersion = "",
 ): Promise<RuntimeLoadResult> {
   const result = await packageAcquisition.loadRuntimePack(
     framework,
-    isCurrent);
+    isCurrent,
+    platformVersion);
   return {
     packageModel: result.packageModel,
     failureMessage: result.error === null ? "" : errorMessage(result.error),
@@ -8294,12 +8864,14 @@ async function loadRuntimePackAssembly(
   assemblyFileName: string,
   pack: string,
   isCurrent: () => boolean = () => true,
+  platformVersion = "",
 ): Promise<RuntimeLoadResult> {
   const result = await packageAcquisition.loadRuntimePackAssembly(
     framework,
     assemblyFileName,
     pack,
-    isCurrent);
+    isCurrent,
+    platformVersion);
   return {
     packageModel: result.packageModel,
     failureMessage: result.error === null ? "" : errorMessage(result.error),
@@ -8402,6 +8974,37 @@ async function runCallGraphDemo(demoId: ProductHomeDemoId) {
     state.selectedMemberKey = member.key;
     state.selectedOverloadIndex = overloadIndex;
     state.memberSection = "call-graph";
+    const captured = capturedShareTabs();
+    const activeIndex = state.packages.indexOf(targetPackage);
+    const participantTabIds = packages.map(packageModel => {
+      const index = state.packages.findIndex(candidate =>
+        packageIdentityEquals(candidate, packageModel));
+      const tab = captured.tabs[index];
+      if (!tab) {
+        throw new Error(
+          "The product demo package is no longer part of the Browser workspace.");
+      }
+      return tab.id;
+    });
+    const topology = callGraphCaptureTopology(
+      captured.tabs,
+      activeIndex,
+      participantTabIds);
+    const activeTab = captured.tabs[activeIndex]!;
+    state.workspaceShareBasis = {
+      tabs: captured.tabs,
+      contexts: topology.contexts,
+      activeTabId: activeTab.id,
+      selectedContextId: topology.selectedContextId,
+      view: {
+        lens: "api",
+        type: type.id,
+        memberAnchor: overload.anchorDigest,
+        memberSignature: null,
+        section: "call-graph",
+        libraries: [],
+      },
+    };
     // This graph is scoped to the product-defined demo workspace, not any
     // unrelated tabs the user may already have open.
     state.memberCallGraph = result.callGraph;
@@ -8428,8 +9031,21 @@ async function restoreWorkspaceFromLocation(
   loc: ParsedLocation,
   deep: DeepLink,
   navigationSeq = navigationSequence.begin(),
+  canonicalSnapshot = loc.hasWorkspaceState
+    ? captureCanonicalWorkspaceRestoreSnapshot()
+    : null,
 ) {
   if (!navigationSequence.isCurrent(navigationSeq)) return;
+  if (loc.hasWorkspaceState && !loc.shareState) {
+    failCanonicalWorkspaceRestore(
+      loc,
+      deep,
+      loc.workspaceNotice
+        || "The shared workspace packet could not be restored.",
+      canonicalSnapshot,
+      null);
+    return;
+  }
   if (!loc.package) return;
   state.queryNotice = loc.workspaceNotice || "";
   state.queryNoticeRetryAction = null;
@@ -8461,7 +9077,10 @@ async function restoreWorkspaceFromLocation(
       === target.framework.toLowerCase();
   const matchesTarget = (tab: RestorableCoordinate) =>
     isRuntimePackId(tab.id)
-      ? isRuntimePackId(target.id) && matchesFramework(tab)
+      ? isRuntimePackId(target.id)
+        && (target.version.toLowerCase() === "latest"
+          || tab.version.toLowerCase() === target.version.toLowerCase())
+        && matchesFramework(tab)
       : (tab.id.toLowerCase() === target.id.toLowerCase()
         && tab.version.toLowerCase() === target.version.toLowerCase()
         && matchesFramework(tab));
@@ -8482,12 +9101,14 @@ async function restoreWorkspaceFromLocation(
   // flashes into view before the target resolves.
   let loadedTargetModel: AppPackage | null = null;
   let runtimeFailureMessage = "";
+  let failedTabCount = 0;
   for (const tab of tabs) {
     let loaded: AppPackage | null;
     if (isRuntimePackId(tab.id)) {
       const runtimeResult = await loadRuntimePack(
         tab.framework,
-        () => navigationSequence.isCurrent(navigationSeq));
+        () => navigationSequence.isCurrent(navigationSeq),
+        tab.version);
       loaded = runtimeResult.packageModel;
       runtimeFailureMessage = runtimeResult.failureMessage;
       if (!loaded && navigationSequence.isCurrent(navigationSeq)) {
@@ -8506,7 +9127,27 @@ async function restoreWorkspaceFromLocation(
       });
     }
     if (!navigationSequence.isCurrent(navigationSeq)) return;
+    if (!loaded) failedTabCount++;
     if (loaded && matchesTarget(tab)) loadedTargetModel = loaded;
+  }
+
+  const resolvedTabs = resolvedWorkspaceShareTabs();
+  const canonicalTabCountPreserved = !loc.shareState
+    || loc.shareState.tabs.length === resolvedTabs.length;
+  const canonicalTabsPreserved = !loc.shareState
+    || workspaceShareTabsMatchResolved(loc.shareState.tabs, resolvedTabs);
+  if (loc.shareState && (failedTabCount > 0 || !canonicalTabsPreserved)) {
+    failCanonicalWorkspaceRestore(
+      loc,
+      deep,
+      state.queryNotice
+        || (failedTabCount > 0
+          ? "The shared workspace could not be restored completely."
+          : canonicalTabCountPreserved
+            ? "A shared workspace tab resolved to a different version or framework than the packet requested."
+            : "The shared workspace tabs did not remain distinct after resolution."),
+      canonicalSnapshot);
+    return;
   }
 
   const targetModel = loadedTargetModel ?? state.packages.find(matchesTarget);
@@ -8524,10 +9165,43 @@ async function restoreWorkspaceFromLocation(
         navigationSeq,
         () => restoreWorkspaceFromLocation(loc, deep));
       if (!navigationSequence.isCurrent(navigationSeq)) return;
-      if (!scoped) return;
+      if (!scoped) {
+        if (loc.shareState) {
+          failCanonicalWorkspaceRestore(
+            loc,
+            deep,
+            `The shared Platform library '${loc.library}' could not be restored.`,
+            canonicalSnapshot);
+        }
+        return;
+      }
       applyLocationView(loc);
+    } else {
+      const libraryFailure = applyLoadedPackageLibraryScope(
+        targetModel,
+        loc.library);
+      if (loc.shareState && libraryFailure) {
+        failCanonicalWorkspaceRestore(
+          loc,
+          deep,
+          libraryFailure,
+          canonicalSnapshot);
+        return;
+      }
+    }
+    const viewFailure = loc.shareState
+      ? canonicalViewRestorationFailure(targetModel, deep, loc.lens)
+      : null;
+    if (loc.shareState && viewFailure) {
+      failCanonicalWorkspaceRestore(
+        loc,
+        deep,
+        viewFailure,
+        canonicalSnapshot);
+      return;
     }
     applyDeepLink(deep);
+    commitWorkspaceShareBasis(loc.shareState);
     state.loading = false;
     render();
     await loadSelectionData();
@@ -8554,6 +9228,42 @@ async function restoreWorkspaceFromLocation(
   }
 }
 
+function failCanonicalWorkspaceRestore(
+  loc: ParsedLocation,
+  deep: DeepLink,
+  message: string,
+  snapshot: CanonicalWorkspaceRestoreSnapshot | null = null,
+  retryAction: RetryAction =
+    () => restoreWorkspaceFromLocation(loc, deep),
+) {
+  if (snapshot?.hasWorkspace) {
+    restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
+    state.credits = false;
+    state.loading = false;
+    state.error = "";
+    state.errorTitle = "";
+    state.errorDetail = "";
+    state.retryAction = null;
+    appendQueryNotice(
+      `Workspace restore failed: ${message}`,
+      retryAction);
+    failedWorkspaceUrlPreservation = {
+      url: location.href,
+      projection: workspaceUrlProjection(),
+    };
+    render();
+    return;
+  }
+  clearWorkspacePackages();
+  state.credits = false;
+  state.loading = false;
+  state.home = false;
+  state.errorTitle = "Workspace restore failed";
+  state.error = message;
+  state.retryAction = retryAction;
+  render();
+}
+
 function applyLocationView(loc: ParsedLocation) {
   state.lens = loc.lens || "api";
   state.atPackageRoot = loc.atPackageRoot || false;
@@ -8565,6 +9275,10 @@ function applyLocationView(loc: ParsedLocation) {
 // cross-package dependency edges come back. Only the focused target restores its deep-link.
 async function restoreInitialWorkspace() {
   const loc = initialWorkspace.resolve();
+  if (loc.hasWorkspaceState && !loc.shareState) {
+    await restoreWorkspaceFromLocation(loc, deepLinkFromLocation(loc));
+    return;
+  }
   const packageId = loc.package;
   if (!packageId) {
     state.loading = false;
@@ -9134,11 +9848,13 @@ function clearNavigationError() {
 
 window.addEventListener("popstate", () => {
   const navigationSeq = navigationSequence.begin();
-  state.memberCallGraphSeq++;
-  state.memberCallGraphExpanding = false;
+  invalidateMemberCallGraphWork(state);
   invalidateGraphMemberNavigation();
   state.loading = false;
   const loc = parseLocation();
+  const canonicalSnapshot = loc.hasWorkspaceState
+    ? captureCanonicalWorkspaceRestoreSnapshot()
+    : null;
   state.queryNotice = loc.workspaceNotice || "";
   state.queryNoticeRetryAction = null;
   if (isCreditsPath(location.pathname)) {
@@ -9147,6 +9863,16 @@ window.addEventListener("popstate", () => {
     state.home = true;
     spotlight.reset();
     render();
+    return;
+  }
+  if (loc.hasWorkspaceState && !loc.shareState) {
+    failCanonicalWorkspaceRestore(
+      loc,
+      loc,
+      loc.workspaceNotice
+        || "The shared workspace packet could not be restored.",
+      canonicalSnapshot,
+      null);
     return;
   }
   const bareHome = !loc.package && !(loc.tabs && loc.tabs.length);
@@ -9164,13 +9890,21 @@ window.addEventListener("popstate", () => {
   const deep = loc;
   if (!state.package) {
     observeAsync(
-      restoreWorkspaceFromLocation(loc, deep, navigationSeq),
+      restoreWorkspaceFromLocation(
+        loc,
+        deep,
+        navigationSeq,
+        canonicalSnapshot),
       "Restoring workspace history");
     return;
   }
   if (loc.tabs?.length && !workspaceCoordinatesMatch(state.packages, loc.tabs)) {
     observeAsync(
-      restoreWorkspaceFromLocation(loc, deep, navigationSeq),
+      restoreWorkspaceFromLocation(
+        loc,
+        deep,
+        navigationSeq,
+        canonicalSnapshot),
       "Restoring workspace history");
     return;
   }
@@ -9179,7 +9913,11 @@ window.addEventListener("popstate", () => {
       packageCoordinateMatchesLocation(candidate, loc));
     if (!target) {
       observeAsync(
-        restoreWorkspaceFromLocation(loc, deep, navigationSeq),
+        restoreWorkspaceFromLocation(
+          loc,
+          deep,
+          navigationSeq,
+          canonicalSnapshot),
         "Restoring workspace history");
       return;
     }
@@ -9193,9 +9931,28 @@ window.addEventListener("popstate", () => {
       // Back/forward within the platform: re-scope to the target library (or the
       // aggregate) before restoring selection, since scope is part of the view.
       observeAsync(
-        restorePlatformScopeThenDeepLink(loc, navigationSeq),
+        restorePlatformScopeThenDeepLink(
+          loc,
+          navigationSeq,
+          canonicalSnapshot),
         "Restoring platform history");
     } else {
+      const libraryFailure = applyLoadedPackageLibraryScope(
+        state.package,
+        loc.library);
+      const viewFailure = loc.shareState
+        ? canonicalViewRestorationFailure(state.package, loc, loc.lens)
+        : null;
+      const restorationFailure = libraryFailure ?? viewFailure;
+      if (loc.shareState && restorationFailure) {
+        failCanonicalWorkspaceRestore(
+          loc,
+          deep,
+          restorationFailure,
+          canonicalSnapshot);
+        return;
+      }
+      commitWorkspaceShareBasis(loc.shareState);
       applyDeepLink(loc);
       render();
       observeAsync(loadSelectionData(), "Loading selection data");
@@ -9204,7 +9961,11 @@ window.addEventListener("popstate", () => {
     // The runtime pack has no nupkg; rebuild it from its TFM instead of 404-ing
     // on a NuGet fetch when back/forward lands on a platform state.
     observeAsync(
-      restoreRuntimePackFromHistory(loc, deep, navigationSeq),
+      restoreRuntimePackFromHistory(
+        loc,
+        deep,
+        navigationSeq,
+        canonicalSnapshot),
       "Restoring runtime-pack history");
   } else {
     observeAsync(
@@ -9223,6 +9984,7 @@ window.addEventListener("popstate", () => {
 async function restorePlatformScopeThenDeepLink(
   loc: ParsedLocation,
   navigationSeq: number,
+  canonicalSnapshot: CanonicalWorkspaceRestoreSnapshot | null = null,
 ) {
   const scoped = await applyPlatformLibraryScope(
     loc.library,
@@ -9230,9 +9992,32 @@ async function restorePlatformScopeThenDeepLink(
     navigationSeq,
     () => restorePlatformScopeThenDeepLink(
       loc,
-      navigationSequence.current()));
+      navigationSequence.current(),
+      canonicalSnapshot));
   if (!navigationSequence.isCurrent(navigationSeq)) return;
-  if (!scoped) return;
+  if (!scoped) {
+    if (loc.shareState) {
+      failCanonicalWorkspaceRestore(
+        loc,
+        loc,
+        `The shared Platform library '${loc.library}' could not be restored.`,
+        canonicalSnapshot);
+    }
+    return;
+  }
+  const pkg = state.package;
+  const viewFailure = pkg && loc.shareState
+    ? canonicalViewRestorationFailure(pkg, loc, loc.lens)
+    : null;
+  if (loc.shareState && viewFailure) {
+    failCanonicalWorkspaceRestore(
+      loc,
+      loc,
+      viewFailure,
+      canonicalSnapshot);
+    return;
+  }
+  commitWorkspaceShareBasis(loc.shareState);
   applyLocationView(loc);
   applyDeepLink(loc);
   state.loading = false;
@@ -9269,6 +10054,24 @@ async function applyPlatformLibraryScope(
     }));
 }
 
+function applyLoadedPackageLibraryScope(
+  pkg: AppPackage,
+  requestedLibraryKey: string | null,
+): string | null {
+  const requested = (requestedLibraryKey ?? "").replace(/\.dll$/i, "");
+  if (!requested) {
+    state.libraryScope = null;
+    return null;
+  }
+  const matchingType = pkg.types.find(type =>
+    libraryKey(type).toLowerCase() === requested.toLowerCase());
+  if (!matchingType) {
+    return `The shared library '${requestedLibraryKey}' is not available in ${pkg.id}.`;
+  }
+  state.libraryScope = new Set([libraryKey(matchingType)]);
+  return null;
+}
+
 // History (back/forward) landed on a .NET Platform state. Its resident pseudo-package
 // has no nupkg, so restore it via loadRuntimePack (usually already resident, so instant),
 // re-scope to the captured library, and re-apply the deep link, mirroring
@@ -9277,10 +10080,12 @@ async function restoreRuntimePackFromHistory(
   loc: ParsedLocation,
   deep: DeepLink,
   navigationSeq: number,
+  canonicalSnapshot: CanonicalWorkspaceRestoreSnapshot | null = null,
 ) {
   const runtimeResult = await loadRuntimePack(
     loc.framework || "",
-    () => navigationSequence.isCurrent(navigationSeq));
+    () => navigationSequence.isCurrent(navigationSeq),
+    loc.version || "");
   const pack = runtimeResult.packageModel;
   if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (pack) {
@@ -9295,12 +10100,43 @@ async function restoreRuntimePackFromHistory(
       () => restoreRuntimePackFromHistory(
         loc,
         deep,
-        navigationSequence.current()));
+        navigationSequence.current(),
+        canonicalSnapshot));
     if (!navigationSequence.isCurrent(navigationSeq)) return;
-    if (!scoped) return;
+    if (!scoped) {
+      if (loc.shareState) {
+        failCanonicalWorkspaceRestore(
+          loc,
+          deep,
+          `The shared Platform library '${loc.library}' could not be restored.`,
+          canonicalSnapshot);
+      }
+      return;
+    }
+    const viewFailure = loc.shareState
+      ? canonicalViewRestorationFailure(pack, deep, loc.lens)
+      : null;
+    if (loc.shareState && viewFailure) {
+      failCanonicalWorkspaceRestore(
+        loc,
+        deep,
+        viewFailure,
+        canonicalSnapshot);
+      return;
+    }
+    commitWorkspaceShareBasis(loc.shareState);
     applyLocationView(loc);
     applyDeepLink(deep);
     state.loading = false;
+  } else if (loc.shareState) {
+    failCanonicalWorkspaceRestore(
+      loc,
+      deep,
+      `The shared Platform could not be restored: ${runtimeResult.failureMessage
+        || state.runtimePackError
+        || "runtime pack acquisition failed."}`,
+      canonicalSnapshot);
+    return;
   } else {
     appendQueryNotice(
       `Workspace restore was incomplete: ${loc.package}: ${runtimeResult.failureMessage
