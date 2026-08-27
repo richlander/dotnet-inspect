@@ -49,6 +49,7 @@ import {
   graphMemberPendingMatchesView,
   graphMemberShareTarget,
   graphMemberSelection,
+  graphMemberTargetWithSelectedBody,
   graphMemberTargetFromPacket,
   graphMemberTargetFromShare,
   graphOnlyBodyTarget,
@@ -583,7 +584,7 @@ test("platform type and member navigation hides package-only operations", () => 
     ["api"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, true),
-    ["overview", "call-graph", "facts"]);
+    ["overview", "call-graph"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, false),
     ["overview", "call-graph", "facts", "source", "annotated"]);
@@ -3080,6 +3081,10 @@ test("member detail adapters preserve exact engine coordinates", () => {
     appSource.match(
       /async function loadSelectedMemberFacts\(\)[\s\S]*?\n}\n\ninterface LoadPackageOptions/)?.[0]
     ?? "";
+  const factsRenderer =
+    appSource.match(
+      /function renderMemberFacts\([\s\S]*?\n}\n\ntype FactTableColumn/)?.[0]
+    ?? "";
 
   assert.match(
     coordinator,
@@ -3092,7 +3097,7 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /const document = result\.document;\s*validateAnnotatedSourceDocument\(document\);\s*return \{ \.\.\.result, document \};/);
   assert.match(
     coordinator,
-    /inspectMemberFacts\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.type,\s*request\.member,\s*request\.memberSignature\)/);
+    /inspectMemberFacts\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.typeIdentity,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.implementationBodySelected\)/);
   assert.match(
     documentationLoader,
     /const signature = memberRequestSignature\(type, overload\)/);
@@ -3104,10 +3109,31 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /loadAnnotated\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*type: type\.queryId \?\? type\.id,\s*member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name,\s*memberSignature: overload\.signature,[\s\S]*taste: JSON\.stringify\(state\.taste\)/);
   assert.match(
     factsLoader,
-    /const signature = memberRequestSignature\(type, overload\)/);
+    /const signature = memberRequestSignature\(type, overload, true\)/);
   assert.match(
     factsLoader,
-    /return memberDetailInspection\.loadFacts\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*type: type\.queryId \?\? type\.id,\s*member: overload\.name,\s*memberSignature: overload\.signature,\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
+    /const implementationBody = graphOnlyImplementationBody\(overload\);\s*const implementationMetadataToken = implementationBody\?\.token \?\? 0;\s*const implementationBodySelected = implementationMetadataToken !== 0;\s*return memberDetailInspection\.loadFacts\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*type: type\.queryId \?\? type\.id,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*member: implementationBody\?\.memberName\s*\?\? state\.selectedBodyTarget\?\.memberName\s*\?\? overload\.name,\s*memberSignature: overload\.signature,\s*selectorKey: implementationBody\?\.selectorKey\s*\?\? state\.selectedBodyTarget\?\.selectorKey\s*\?\? overload\.graphSelectorKey,\s*metadataToken: implementationMetadataToken,\s*implementationBodySelected,\s*isCurrent: \(\) => memberRequestIsCurrent\(signature, true\)/);
+  assert.match(
+    packageAcquisitionSource,
+    /implementationBody\?: BrowserMemberBodySelector/);
+  assert.match(
+    packageAcquisitionSource,
+    /function retainGraphOnlyImplementationBody[\s\S]*overload\.bodySelectors\.find\([\s\S]*overload\.implementationBody = selectedBody;[\s\S]*graphMemberTargetWithSelectedBody\(target, selectedBody\)/);
+  assert.match(
+    appSource,
+    /const selectedTarget = graphMemberTargetWithSelectedBody\(\s*target,\s*projection\.selectedBody\);[\s\S]*stageGraphMemberSelection\([\s\S]*selectedTarget,[\s\S]*projection\.member\);[\s\S]*commitGraphMemberSelection\([\s\S]*selectedTarget,[\s\S]*staged\)/);
+  assert.doesNotMatch(
+    factsLoader,
+    /state\.selectedBodyTarget\?\.metadataToken \?\? overload\.metadataToken/);
+  assert.match(
+    factsRenderer,
+    /const heapAllocations = facts\.allocations\.filter\(a => a\.countedAsHeap\);\s*const allocOffsets = heapAllocations\.map\(a => a\.offset\)/);
+  assert.match(
+    factsRenderer,
+    /\["Heap", row => row\.countedAsHeap \? "yes" : "no"\][\s\S]*No allocation occurrences were found in this method/);
+  assert.match(
+    factsRenderer,
+    /\["Operation", "operation"\],[\s\S]*\["Requirement", "requirement"\],[\s\S]*\["Evidence", "evidence"\]/);
 });
 
 test("type source identity includes decompiler taste", () => {
@@ -3316,12 +3342,12 @@ test("generated source wrappers parse their JSON envelopes", () => {
 
   for (const name of [
     "queryMemberAnnotatedSource",
+    "queryMemberFacts",
     "queryMemberSource",
     "queryTypeMemberSource",
   ]) {
     assert.match(wrapper(name), /return JSON\.parse\(result\);/);
   }
-  assert.doesNotMatch(wrapper("queryMemberFacts"), /JSON\.parse\(result\)/);
 });
 
 test("MethodDef-only member sections are hidden for bodiless APIs", () => {
@@ -4268,7 +4294,7 @@ test("history rebuilds graph-only members through exact pending identity", () =>
     /const hasSelectedBody =\s*graphSelection\?\.group\.key === view\.selectedMemberKey;[\s\S]*?memberSectionIdsFor\(member, pkg\.isRuntimePack, hasSelectedBody\)/);
   assert.match(
     apply,
-    /retainGraphOnlyBodyTarget\(\s*graphSelection\.group\.overloads\[graphSelection\.overloadIndex\],\s*view\.bodyTarget\)/);
+    /state\.selectedBodyTarget = retainGraphOnlyImplementationBody\(\s*graphSelection\.group\.overloads\[graphSelection\.overloadIndex\],\s*view\.bodyTarget\)/);
   assert.match(
     apply,
     /memberSectionIdsFor\(\s*graphSelection\.group,\s*pkg\.isRuntimePack,\s*true\)\.includes\(view\.memberSection\)/);
@@ -4694,13 +4720,43 @@ test("graph-only overloads retain the latest graph-selected body", () => {
     false);
   assert.match(
     appSource,
-    /retainGraphOnlyBodyTarget\(group\.overloads\[overloadIndex\], bodyTarget\)/);
+    /selectedBodyTarget = retainGraphOnlyImplementationBody\(\s*overload,\s*bodyTarget\)/);
   assert.match(
     appSource,
-    /retainGraphOnlyBodyTarget\(staged\.member, target\)/);
+    /const selectedTarget = retainGraphOnlyImplementationBody\(\s*staged\.member,\s*target\)/);
   assert.doesNotMatch(
     appSource,
     /group\.overloads\[overloadIndex\]\.graphTarget = bodyTarget/);
+});
+
+test("selected graph bodies preserve the full navigation identity", () => {
+  const selected = graphMemberTargetWithSelectedBody({
+    assembly: "Example.dll",
+    assemblyVersion: "1.2.3.4",
+    assemblyCulture: null,
+    assemblyPublicKeyToken: "abcdef",
+    typeDefinitionId: "T:Example.Widget",
+    typeMetadataId: "Example.Widget",
+    memberName: "stale",
+    selectorKey: "stale-selector",
+    metadataToken: 0x06000002,
+  }, {
+    token: 0x06000001,
+    memberName: "get_Value",
+    selectorKey: "getter-selector",
+  });
+
+  assert.deepEqual(graphMemberShareTarget(selected), [
+    "Example.dll",
+    "1.2.3.4",
+    null,
+    "abcdef",
+    "T:Example.Widget",
+    "Example.Widget",
+    "get_Value",
+    "getter-selector",
+    0x06000001,
+  ]);
 });
 
 test("call graph navigation keeps identity-unknown targets inert", () => {
