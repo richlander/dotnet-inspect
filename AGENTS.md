@@ -742,11 +742,12 @@ least one reviewer returned a finding.
   unchanged head. Repeat only with concrete transient evidence; otherwise treat
   it as requiring an author change.
 
-If final-gate CI fails after a documentation-only round closes, it does not
-reopen or renumber that completed round. Retry an evidenced transient failure
-at the unchanged head. If the failure requires an author change, remove
-`review-clean`, make the fix, and form a candidate at the next round number,
-respecting the next six-round authorization boundary.
+If final-gate CI reports a non-successful conclusion after a documentation-only
+round closes, it does not reopen or renumber that completed round. Retry a
+failed or cancelled run at the unchanged head only with concrete transient
+evidence. If the result requires an author change, remove `review-clean`, make
+the fix, and form a candidate at the next round number, respecting the next
+six-round authorization boundary.
 
 Never close with a required check red. A superseded attempt spends no round and
 gets no completion report. Let its reviewers finish or have cancellation
@@ -899,6 +900,12 @@ restacking are not strong reasons. Sprawling changes accumulated across review
 comments are themselves a sign that the remaining work should be split into
 focused successors. The same presumption and burden apply at every 6-round
 boundary after round 12.
+
+The split recommendation keeps the locked candidate unchanged while the user
+decides. If approved, publicly map every current claim and unresolved finding
+to a focused successor, close the current PR as superseded without merging it,
+and open the successors from their effective base. Each successor starts at
+round 1; reviews, round counts, and authorization blocks do not carry forward.
 
 At round 12 and every 6-round boundary after (18, 24, and so on), also answer:
 
