@@ -509,8 +509,19 @@ public sealed class ArtifactSetSession : IAsyncDisposable
             return new ArtifactContentReference(
                 this,
                 artifact.Descriptor,
-                artifact.Registration,
                 lease);
+        }
+    }
+
+    internal ArtifactAcquisitionRegistration GetRegistration(
+        ArtifactIdentity identity,
+        ArtifactQueryLease lease)
+    {
+        lock (_gate)
+        {
+            EnsurePublished();
+            _authority.ValidateQueryLease(lease);
+            return FindArtifact(identity).Registration;
         }
     }
 
@@ -519,12 +530,8 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         ArtifactQueryLease lease)
     {
         ArgumentNullException.ThrowIfNull(identity);
-        lock (_gate)
-        {
-            EnsurePublished();
-            _authority.ValidateQueryLease(lease);
-            return FindArtifact(identity).Registration.Provenance;
-        }
+        ArgumentNullException.ThrowIfNull(lease);
+        return GetRegistration(identity, lease).Provenance;
     }
 
     public bool HasRole(

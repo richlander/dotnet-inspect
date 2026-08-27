@@ -7,8 +7,9 @@ namespace DotnetInspector.Artifacts.Workspaces;
 /// registration, roles, and retained content.
 /// </summary>
 /// <remarks>
-/// The query lease remains caller-owned. Role observations and content opens
-/// revalidate it against the issuing session. Binding integrity is gated by
+/// The query lease remains caller-owned. Registration and role observations
+/// and content opens revalidate it against the issuing session. Binding
+/// integrity is gated by
 /// <c>ArtifactContentReference_BindsIdentityRegistrationRoleAndContent</c>.
 /// </remarks>
 public sealed class ArtifactContentReference
@@ -19,18 +20,17 @@ public sealed class ArtifactContentReference
     internal ArtifactContentReference(
         ArtifactSetSession owner,
         ArtifactDescriptor descriptor,
-        ArtifactAcquisitionRegistration registration,
         ArtifactQueryLease lease)
     {
         _owner = owner;
         Descriptor = descriptor;
-        Registration = registration;
         _lease = lease;
     }
 
     public ArtifactDescriptor Descriptor { get; }
 
-    public ArtifactAcquisitionRegistration Registration { get; }
+    public ArtifactAcquisitionRegistration Registration =>
+        _owner.GetRegistration(Descriptor.Identity, _lease);
 
     public bool HasRole(ArtifactWorkspaceRole role) =>
         _owner.HasRole(Descriptor.Identity, role, _lease);

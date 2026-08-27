@@ -651,7 +651,18 @@ public sealed class ArtifactSetSessionTests
                 foreign.Identity,
                 lease));
 
+        firstSession.Revoke(authorization);
+        Assert.Throws<UnauthorizedAccessException>(
+            () => _ = first.Registration);
+        Assert.Throws<UnauthorizedAccessException>(
+            () => first.HasRole(
+                ArtifactWorkspaceRole.CallerDesignated));
+        Assert.Throws<UnauthorizedAccessException>(
+            () => first.OpenRead());
+
         lease.Dispose();
+        Assert.Throws<ObjectDisposedException>(
+            () => _ = first.Registration);
         Assert.Throws<ObjectDisposedException>(
             () => first.HasRole(
                 ArtifactWorkspaceRole.CallerDesignated));

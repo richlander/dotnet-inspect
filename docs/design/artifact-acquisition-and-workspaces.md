@@ -331,9 +331,9 @@ parameterless
 `ArtifactContentReference` is the query-time input to a downstream content
 consumer. The artifact owner issues it for one identity in a sealed generation
 and binds that artifact's descriptor and acquisition registration. Role
-observations and retained-content opens revalidate the query lease supplied
-when the reference was issued. The type makes no claim that the content is a
-managed assembly; Metadata owns that decode and identity.
+and registration observations and retained-content opens revalidate the query
+lease supplied when the reference was issued. The type makes no claim that the
+content is a managed assembly; Metadata owns that decode and identity.
 
 It does not:
 
@@ -904,8 +904,8 @@ or bytes across artifacts or generations.
 missing/limit diagnostics, mutation and deletion resistance, and cancellation
 remaining cancellation. `LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`
 deletes its temporary source after publication, then passes an
-`ArtifactContentReference` with guarded published snapshot access to Metadata,
-so a source-path fallback cannot satisfy the gate.
+`ArtifactContentReference`'s guarded published snapshot opener to Metadata, so
+a source-path fallback cannot satisfy the gate.
 
 Workspace-wide admission budgets, single-flight/reentrancy, directory
 acquisition, content digests, dependent-group quiescence, and Metadata
