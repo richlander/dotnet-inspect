@@ -119,7 +119,10 @@ blob charged the same way, so an assembly-qualified claim repeated across many
 kickoffs cannot re-copy and re-hash the assembly-definition key either. A
 separate cumulative
 signature-work budget charges every
-constructor, method, and TypeSpec blob that is decoded or compared. A cumulative
+constructor, method, and TypeSpec blob that is decoded. (`SameConstructedInterface`
+also charges the TypeSpec blobs it compares, but those blobs are already charged
+by the decode on the same iteration, so that charge is redundant defence rather
+than a load-bearing bound, and no gate names it.) A cumulative
 name-work budget bounds both metadata names materialized while classifying
 distinct constructors and serialized state-machine names before attribute
 decoding. Reading a type-name chain charges every node it consumes, including
@@ -128,7 +131,18 @@ only on decoded length would account for nothing while the read still allocates
 one segment per node, letting a deep chain of nil-named nodes materialize
 proportionally for free. The chain's own structural cost — one reference per
 node in the builder and again in its immutable copy — is charged up front for
-the same reason. State-machine `System.Type` values also receive an individual encoded
+the same reason. Resolving a constructor's declaring type walks its
+resolution-scope chain before any name is read, and that walk is charged on
+every exit rather than only when the chain terminates in a platform assembly.
+Cycle detection rescans the visited prefix at each step, so the walk costs
+work quadratic in the chain's depth; aiming a deep chain at a non-platform
+assembly reference returns before the name read and would otherwise buy that
+work for nothing, once per distinct constructor row. The charge is the number
+of handle comparisons actually performed, so the budget bounds the scan and not
+merely the allocation the scan leads to. This image's own assembly name and
+culture are charged alongside its public key, because an unsigned assembly has
+a nil key blob and would otherwise reach the projection entirely uncharged.
+State-machine `System.Type` values also receive an individual encoded
 byte-length preflight before SRM materializes their strings, and the whole value
 blob is validated before decode: a trusted claim constructor takes exactly one
 `System.Type`, so a value carrying named arguments or trailing bytes is
@@ -150,9 +164,13 @@ results and TypeDef indexing cost;
 `StateMachineRelationshipIndex_ChargesUnrelatedAttributeRows` and
 `StateMachineRelationshipIndex_RejectsOversizedTypeBeforeDecode` gate the
 attribute-row and serialized-name bounds;
-`StateMachineRelationshipIndex_BoundsAttributeNameMaterialization` and
-`StateMachineRelationshipIndex_CachesConstructorAuthentication` gate
-cumulative constructor-name work and reuse; and
+`StateMachineRelationshipIndex_CachesConstructorAuthentication` gates
+constructor-classification reuse;
+`StateMachineRelationshipIndex_BoundsAttributeNameMaterialization` gates that a
+name-work budget is enforced during attribute classification at all, but note
+that its one-unit budget is spent by the assembly-key charge before any
+constructor name is read, so it does not gate the constructor type-name charges
+themselves — `ChargesNilNamedTypeNameChainNodes` is what gates those; and
 `StateMachineRelationshipIndex_BoundsCumulativeConstructorSignatures` and
 `StateMachineRelationshipIndex_BoundsCumulativeSerializedTypeNames` gate the
 remaining cumulative decode and materialization paths.
@@ -169,11 +187,23 @@ cached.
 per-row name charge with several reference rows sharing one oversized name
 string: one arm fails if the charge is removed, the other if it over-charges an
 image the budget should admit.
-`StateMachineRelationshipIndex_ChargesNilNamedTypeNameChainNodes` gates the
-nil-component and structural chain charges together. Its rejecting arm uses a
-budget that admits whenever only one of the two charges is present, so deleting
-either one fails the gate; its admitting arm fails if the charges reject an
-image the budget should admit.
+`StateMachineRelationshipIndex_ChargesNilNamedTypeNameChainNodes` gates every
+name-work charge on the constructor type-name path together: the
+resolution-scope walk, the chain's structural cost, and the per-node name
+components. Rather than picking a literal budget with margin, each arm measures
+the fixture's minimum admitting budget by binary search and asserts it against a
+recorded number, then checks that one unit below that boundary fails visibly.
+A tuned literal only has to fall between the charged and under-charged
+thresholds, so removing one of several charges can leave it on the same side of
+the boundary and the gate stays green while the property it names is gone;
+measuring the boundary makes every charge load-bearing, and two of the four
+charges move it by under three percent, which no literal with usable margin
+would catch. The two arms differ only in whether the chain's nodes are
+nil-named, because the nil and non-nil component charges are separate branches
+of `MetadataTypeNameBudget.TryRead`.
+`StateMachineRelationshipIndex_ChargesUnsignedAssemblyNameAndCulture` gates that
+this image's own assembly name and culture are charged when its key blob is nil,
+a branch `ChargesOwnAssemblyKeyOnce` never reaches.
 `StateMachineRelationshipIndex_RejectsNamedArgumentsBeforeDecode` gates the
 value-blob preflight; and
 `StateMachineRelationshipIndex_ExpandsAmbiguousClaimsOnce` gates that

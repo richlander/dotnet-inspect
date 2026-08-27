@@ -951,60 +951,136 @@ public sealed class StateMachineRelationshipIndexTests
     }
 
     /// <summary>
-    /// Gates that a type-name chain read charges for every node it consumes,
-    /// including nil-named ones. A nil name decodes to zero characters, so a
-    /// charge keyed only on decoded length accounts for nothing while the read
-    /// still allocates one segment per node; distinct constructor rows sharing
-    /// one deep chain leaf then drive proportional materializing work that ends
-    /// as a success-shaped `Absent`. The `false` arm fails if either the nil
-    /// component charge or the chain's structural charge is removed — its
-    /// budget is tuned to admit whenever only one of the two is present; the
-    /// `true` arm fails if the charge rejects an image the budget should admit.
+    /// Gates every name-work charge on the constructor type-name path: the
+    /// resolution-scope walk, the chain's structural cost, and the per-node
+    /// name components including nil-named ones. A nil name decodes to zero
+    /// characters and a non-platform terminal skips the name read entirely, so
+    /// a charge keyed only on decoded length accounts for nothing while the
+    /// walk and the read still do work proportional to depth; distinct
+    /// constructor rows sharing one deep chain leaf then drive that work once
+    /// each and end as a success-shaped `Absent`.
+    ///
+    /// This asserts the fixture's minimum admitting budget itself rather than
+    /// picking a literal with margin. A tuned literal only has to sit
+    /// somewhere between the charged and under-charged thresholds, so removing
+    /// one of several charges can leave it on the same side of the boundary
+    /// and the gate stays green while the property it names is gone. Measuring
+    /// the boundary makes every charge on this path load-bearing: remove one,
+    /// weaken one, or add one, and this number moves and the test says so.
+    ///
+    /// The two arms differ only in whether the chain's nodes are nil-named,
+    /// because the nil and non-nil component charges are separate branches of
+    /// <c>MetadataTypeNameBudget.TryRead</c>; one arm each keeps both branches
+    /// gated here rather than incidentally by another subsystem's tests.
     /// </summary>
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
+    [InlineData(null, 17_702)]
+    [InlineData("Node", 19_238)]
     public void
         StateMachineRelationshipIndex_ChargesNilNamedTypeNameChainNodes(
-            bool admitted)
+            string? nodeName,
+            int expectedMinimumAdmittingBudget)
     {
         const int depth = 64;
         const int constructors = 8;
-        using var image = new LoadedImage(
+
+        byte[] bytes =
             BuildNilNamedChainImage(
                 depth: depth,
-                constructors: constructors));
+                constructors: constructors,
+                nodeName: nodeName);
 
-        // Each read charges roughly `depth` for the chain's structural cost and
-        // roughly `depth` again for its nil name components, so the two halves
-        // together admit only above ~1,062 while either half alone admits above
-        // ~550. A rejecting budget between those makes this arm sensitive to
-        // BOTH charges: delete either one and the image is admitted instead.
-        StateMachineRelationshipIndex index =
-            StateMachineRelationshipIndex.Create(
-                image.Reader,
-                relationshipBudget:
-                    MetadataSafetyPolicy.MaxCorrespondenceMethodRows,
-                nameWorkBudget: admitted ? 4_096 : 700);
+        int measured = MinimumAdmittingNameWorkBudget(bytes);
 
-        StateMachineRelationshipResult result =
-            index.GetByKickoff(
-                MetadataTokens.MethodDefinitionHandle(1));
+        Assert.Equal(expectedMinimumAdmittingBudget, measured);
 
-        if (!admitted)
+        // The boundary is a real behavioral edge, not just a number: one unit
+        // below it the image must fail visibly rather than report an empty
+        // success, and at it the image must be admitted.
+        Assert.IsType<StateMachineRelationshipResult.Absent>(
+            RunWithNameWorkBudget(bytes, measured));
+
+        var rejected =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                RunWithNameWorkBudget(bytes, measured - 1));
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.BudgetExceeded,
+            rejected.Failure.Kind);
+    }
+
+    /// <summary>
+    /// Gates that projecting this image's own assembly identity charges its
+    /// name and culture, not only its public key. An unsigned assembly has a
+    /// nil key blob, so a key-only charge would let the name and culture
+    /// decode entirely uncharged. `ChargesOwnAssemblyKeyOnce` gates the key
+    /// and never reaches this branch, so without this arm the name and culture
+    /// charges are asserted by a comment and enforced by nothing here.
+    /// </summary>
+    [Fact]
+    public void
+        StateMachineRelationshipIndex_ChargesUnsignedAssemblyNameAndCulture()
+    {
+        // No public key: the key charge is skipped entirely, so the boundary
+        // this measures is owned by the name and culture charges alone.
+        byte[] bytes =
+            BuildClaimImage(
+                [StateMachineClaimKind.ClassicAsync],
+                serializedTypeName:
+                    "Fixtures.Owner+Machine, StateMachineClaims",
+                assemblyCulture: new string('c', 400));
+
+        Assert.Equal(561, MinimumAdmittingNameWorkBudget(bytes));
+    }
+
+    /// <summary>
+    /// Binary-searches the smallest name-work budget that admits
+    /// <paramref name="image"/>, where "admits" means the index did not run
+    /// out of name work. Admission is monotonic in the budget: charges do not
+    /// depend on how much budget remains, so a budget that admits implies
+    /// every larger one admits.
+    /// </summary>
+    static int MinimumAdmittingNameWorkBudget(byte[] image)
+    {
+        int low = 1;
+        int high = 1 << 22;
+
+        Assert.True(
+            AdmitsNameWork(image, high),
+            "The fixture must be admitted at the maximum budget, otherwise "
+                + "the measured boundary is not a name-work boundary.");
+
+        while (low < high)
         {
-            var rejected =
-                Assert.IsType<StateMachineRelationshipResult.Rejected>(
-                    result);
-            Assert.Equal(
-                StateMachineRelationshipFailureKind.BudgetExceeded,
-                rejected.Failure.Kind);
-            return;
+            int mid = low + ((high - low) / 2);
+            if (AdmitsNameWork(image, mid))
+                high = mid;
+            else
+                low = mid + 1;
         }
 
-        // The chain leaf is not a recognized state-machine attribute, so an
-        // admitted image reports no relationship rather than a budget failure.
-        Assert.IsType<StateMachineRelationshipResult.Absent>(result);
+        return low;
+    }
+
+    static bool AdmitsNameWork(byte[] image, int nameWorkBudget)
+        => RunWithNameWorkBudget(image, nameWorkBudget)
+            is not StateMachineRelationshipResult.Rejected
+            {
+                Failure.Kind:
+                    StateMachineRelationshipFailureKind.BudgetExceeded,
+            };
+
+    static StateMachineRelationshipResult RunWithNameWorkBudget(
+        byte[] image,
+        int nameWorkBudget)
+    {
+        using var loaded = new LoadedImage(image);
+        return StateMachineRelationshipIndex.Create(
+                loaded.Reader,
+                relationshipBudget:
+                    MetadataSafetyPolicy.MaxCorrespondenceMethodRows,
+                nameWorkBudget: nameWorkBudget)
+            .GetByKickoff(
+                MetadataTokens.MethodDefinitionHandle(1));
     }
 
     /// <summary>
@@ -1012,7 +1088,10 @@ public sealed class StateMachineRelationshipIndexTests
     /// the leaf of a nil-named type-reference chain of the requested depth, so
     /// each distinct constructor row drives one full chain read.
     /// </summary>
-    static byte[] BuildNilNamedChainImage(int depth, int constructors)
+    static byte[] BuildNilNamedChainImage(
+        int depth,
+        int constructors,
+        string? nodeName = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1042,11 +1121,18 @@ public sealed class StateMachineRelationshipIndexTests
                 default,
                 default);
 
+        StringHandle nodeNameHandle =
+            nodeName is null
+                ? default
+                : metadata.GetOrAddString(nodeName);
         EntityHandle scope = platform;
         TypeReferenceHandle leaf = default;
         for (int i = 0; i < depth; i++)
         {
-            leaf = metadata.AddTypeReference(scope, default, default);
+            leaf = metadata.AddTypeReference(
+                scope,
+                default,
+                nodeNameHandle);
             scope = leaf;
         }
 

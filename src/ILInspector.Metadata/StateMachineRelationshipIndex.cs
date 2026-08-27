@@ -1885,14 +1885,30 @@ public sealed class StateMachineRelationshipIndex
             Span<TypeReferenceHandle> chain =
                 stackalloc TypeReferenceHandle[
                     MetadataSafetyPolicy.MaxRelationshipNodes];
-            if (!MetadataRelationshipTraversal
-                    .TryWalkTypeReferenceResolutionScope(
-                        reader,
-                        handle,
-                        chain,
-                        out _,
-                        out EntityHandle terminal,
-                        out _)
+            bool walked = MetadataRelationshipTraversal
+                .TryWalkTypeReferenceResolutionScope(
+                    reader,
+                    handle,
+                    chain,
+                    out int consumedNodes,
+                    out EntityHandle terminal,
+                    out _);
+
+            // The walk itself is attacker-scaled work that happens before any
+            // name is materialized, and it is not free: cycle detection
+            // rescans the visited prefix at every step, so a `consumedNodes`
+            // chain costs `consumedNodes * (consumedNodes - 1) / 2` handle
+            // comparisons. Charging only on the platform-terminating path
+            // would let a chain aimed at a non-platform assembly reference
+            // buy that work for nothing, once per distinct constructor row.
+            // Charge the comparisons actually performed, on every exit, so
+            // the budget bounds the scan rather than only the allocation the
+            // scan leads to.
+            _beforeMaterialize(
+                consumedNodes
+                    + (consumedNodes * (consumedNodes - 1) / 2));
+
+            if (!walked
                 || terminal.Kind
                     != HandleKind.AssemblyReference
                 || !TerminatesInPlatformAssembly(
