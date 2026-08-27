@@ -278,6 +278,58 @@ worktree. A reviewer's own probe can be vacuous — an added rule clause that
 changes nothing for an already-entitled input looks green for the wrong reason —
 so reproduce the finding and measure it before accepting its severity.
 
+### Wording the prompt
+
+Write the prompt as a description of the property under test. A prompt written
+as an attack brief can trip a model's content filter, and **that failure is
+silent**: the reviewer returns an empty or near-empty response with a clean
+worktree, which is indistinguishable from a broken model or a stalled harness.
+
+This has happened here, and it cost most of a day. A seat returned empty
+several times across two heads and was nearly reported to the user as a
+non-functional model in need of repinning. A reviewer from a different family
+then failed with an explicit message naming content filtering as the cause,
+which is the only reason the real explanation surfaced at all. The prompt had
+been written as a catalog of concrete strings to try against a gate that rejects
+markup able to run unreviewed code. Rewording it -- same surfaces, same required
+evidence, same rigor -- produced full reports from both seats on the first
+attempt.
+
+The reviewer was refusing the prompt, not the work. Keep prompts in terms of the
+property:
+
+- **Say what the property actually is.** If the gate enforces static-analysis
+  coverage, say that, and say the concern is unreviewed code rather than
+  attackers. Do not dress a correctness property as a security one for
+  emphasis.
+- **Name constructs structurally rather than quoting them.** Describing an
+  attribute by what a parser does with its contents asks for the same probe as a
+  literal string and reads as a specification. This is the load-bearing rule:
+  quoted strings are what draws the refusal.
+- **Use an inert marker in the required evidence.** Assigning a uniquely named
+  global proves a construct reached the output exactly as well as anything
+  active does, and it is also easier to grep for.
+- **Describe already-closed cases by name, not by spelling**, when listing the
+  floor a reviewer should push past.
+
+Apply the same discipline to notes, issues and documentation, including this
+page. A write-up that reproduces the strings in order to explain them becomes
+the hazard it is describing, for every agent that later reads it. Say what the
+construct was; do not reproduce it. For the same reason, describe an incident by
+what it teaches rather than by pointing at the pull request where it happened,
+so that following the reference is not itself the way to load the problem
+material.
+
+None of this softens the review. "Adversarial" describes the rigor, not a
+simulated attacker, and a reviewer that understands the invariant will find more
+than one handed a list of strings to retry.
+
+When a reviewer returns empty or near-empty, suspect the prompt before the
+model. Check the worktree for artifacts, then re-dispatch the same work to a
+model from a different family: filters differ, and one may state the reason
+where another fails silently. Do not propose repinning a roster seat on
+empty-response evidence alone.
+
 ### Reconciliation
 
 Reconcile the reviews publicly on the PR: attribute findings, state what was
