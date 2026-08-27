@@ -663,6 +663,26 @@ export interface GraphMemberShareIdentity extends CallGraphTarget {
   metadataToken: number | null;
 }
 
+export interface SelectedGraphMemberBody {
+  token: number;
+  memberName: string;
+  selectorKey: string;
+}
+
+export function graphMemberTargetWithSelectedBody<
+  TTarget extends GraphMemberTarget,
+>(
+  target: TTarget,
+  selectedBody: SelectedGraphMemberBody,
+): TTarget & Required<GraphMemberTarget> {
+  return {
+    ...target,
+    memberName: selectedBody.memberName,
+    selectorKey: selectedBody.selectorKey,
+    metadataToken: selectedBody.token,
+  };
+}
+
 function isMethodDefinitionToken(value: unknown): value is number {
   return typeof value === "number"
     && Number.isInteger(value)

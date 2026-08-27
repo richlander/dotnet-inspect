@@ -17,6 +17,7 @@ import {
   graphMemberPendingMatchesView,
   graphMemberShareTarget,
   graphMemberSelection,
+  graphMemberTargetWithSelectedBody,
   graphMemberTargetFromShare,
   graphOnlyBodyTarget,
   MARKDOWN_SANITIZE_OPTIONS,
@@ -276,7 +277,6 @@ import type {
   BrowserCallGraph,
   BrowserCallGraphTarget,
   BrowserHomeDemoRunResult,
-  BrowserMemberBodySelector,
   BrowserMemberSurface,
   BrowserPackageCacheStats,
   BrowserPackageDependencies,
@@ -7834,11 +7834,8 @@ function retainGraphOnlyImplementationBody(
   }
 
   overload.implementationBody = selectedBody;
-  const canonicalTarget = {
-    memberName: selectedBody.memberName,
-    selectorKey: selectedBody.selectorKey,
-    metadataToken: selectedBody.token,
-  };
+  const canonicalTarget =
+    graphMemberTargetWithSelectedBody(target, selectedBody);
   retainGraphOnlyBodyTarget(overload, canonicalTarget);
   return canonicalTarget;
 }
@@ -7847,7 +7844,6 @@ function commitGraphMemberSelection(
   pkg: AppPackage,
   type: AppTypeSurface,
   target: BrowserCallGraphTarget | GraphMemberShareIdentity,
-  selectedBody: BrowserMemberBodySelector,
   staged: ReturnType<typeof stageGraphMemberSelection>,
 ) {
   retainGraphMemberProjection(pkg.types, staged.member);
@@ -7857,11 +7853,7 @@ function commitGraphMemberSelection(
   }
   const selectedTarget = retainGraphOnlyImplementationBody(
     staged.member,
-    {
-      memberName: selectedBody.memberName,
-      selectorKey: selectedBody.selectorKey,
-      metadataToken: selectedBody.token,
-    });
+    target);
   const selection = resolveLoadedGraphTarget(
     target,
     { status: "unique", pkg, type });
@@ -7919,16 +7911,18 @@ async function navigateToGraphMember(
       }
       return;
     }
+    const selectedTarget = graphMemberTargetWithSelectedBody(
+      target,
+      projection.selectedBody);
     const staged = stageGraphMemberSelection(
       loaded.pkg,
       loaded.type,
-      target,
+      selectedTarget,
       projection.member);
     const selection = commitGraphMemberSelection(
       loaded.pkg,
       loaded.type,
-      target,
-      projection.selectedBody,
+      selectedTarget,
       staged);
     state.graphMemberNavigationTitle = "";
     navigateToMember(
@@ -7988,10 +7982,13 @@ async function restorePendingGraphMember() {
       discardIfOwned();
       return;
     }
+    const selectedTarget = graphMemberTargetWithSelectedBody(
+      pending.target,
+      projection.selectedBody);
     const staged = stageGraphMemberSelection(
       pkg,
       type,
-      pending.target,
+      selectedTarget,
       projection.member);
     if (staged.selection.group.key !== pending.member) {
       throw new Error("The shared member identity does not match the graph target.");
@@ -7999,8 +7996,7 @@ async function restorePendingGraphMember() {
     const selection = commitGraphMemberSelection(
       pkg,
       type,
-      pending.target,
-      projection.selectedBody,
+      selectedTarget,
       staged);
     state.pendingGraphMemberDeepLink = null;
     state.graphMemberNavigationTitle = "";

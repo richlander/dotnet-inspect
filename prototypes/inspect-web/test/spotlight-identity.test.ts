@@ -49,6 +49,7 @@ import {
   graphMemberPendingMatchesView,
   graphMemberShareTarget,
   graphMemberSelection,
+  graphMemberTargetWithSelectedBody,
   graphMemberTargetFromPacket,
   graphMemberTargetFromShare,
   graphOnlyBodyTarget,
@@ -3117,10 +3118,10 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /implementationBody\?: BrowserMemberBodySelector/);
   assert.match(
     appSource,
-    /function retainGraphOnlyImplementationBody\([\s\S]*overload\.bodySelectors\.find\([\s\S]*overload\.implementationBody = selectedBody;[\s\S]*metadataToken: selectedBody\.token/);
+    /function retainGraphOnlyImplementationBody\([\s\S]*overload\.bodySelectors\.find\([\s\S]*overload\.implementationBody = selectedBody;[\s\S]*graphMemberTargetWithSelectedBody\(target, selectedBody\)/);
   assert.match(
     appSource,
-    /projection\.selectedBody,\s*staged\)[\s\S]*selection\.selectedBodyTarget/);
+    /const selectedTarget = graphMemberTargetWithSelectedBody\(\s*target,\s*projection\.selectedBody\);[\s\S]*stageGraphMemberSelection\([\s\S]*selectedTarget,[\s\S]*projection\.member\);[\s\S]*commitGraphMemberSelection\([\s\S]*selectedTarget,[\s\S]*staged\)/);
   assert.doesNotMatch(
     factsLoader,
     /state\.selectedBodyTarget\?\.metadataToken \?\? overload\.metadataToken/);
@@ -4722,10 +4723,40 @@ test("graph-only overloads retain the latest graph-selected body", () => {
     /selectedBodyTarget = retainGraphOnlyImplementationBody\(\s*overload,\s*bodyTarget\)/);
   assert.match(
     appSource,
-    /const selectedTarget = retainGraphOnlyImplementationBody\(\s*staged\.member,[\s\S]*metadataToken: selectedBody\.token/);
+    /const selectedTarget = retainGraphOnlyImplementationBody\(\s*staged\.member,\s*target\)/);
   assert.doesNotMatch(
     appSource,
     /group\.overloads\[overloadIndex\]\.graphTarget = bodyTarget/);
+});
+
+test("selected graph bodies preserve the full navigation identity", () => {
+  const selected = graphMemberTargetWithSelectedBody({
+    assembly: "Example.dll",
+    assemblyVersion: "1.2.3.4",
+    assemblyCulture: null,
+    assemblyPublicKeyToken: "abcdef",
+    typeDefinitionId: "T:Example.Widget",
+    typeMetadataId: "Example.Widget",
+    memberName: "stale",
+    selectorKey: "stale-selector",
+    metadataToken: 0x06000002,
+  }, {
+    token: 0x06000001,
+    memberName: "get_Value",
+    selectorKey: "getter-selector",
+  });
+
+  assert.deepEqual(graphMemberShareTarget(selected), [
+    "Example.dll",
+    "1.2.3.4",
+    null,
+    "abcdef",
+    "T:Example.Widget",
+    "Example.Widget",
+    "get_Value",
+    "getter-selector",
+    0x06000001,
+  ]);
 });
 
 test("call graph navigation keeps identity-unknown targets inert", () => {

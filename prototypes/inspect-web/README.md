@@ -503,7 +503,10 @@ fallback; only a graph-only member surface returned by the product authorizes
 fallback, using the graph response's exact selected body name, selector, and
 implementation MethodDef token rather than fields restored from a shared
 target. Owning property and event surfaces retain that selected accessor
-separately from navigation state.
+separately from navigation state. The selected body coordinates overlay rather
+than replace the full graph target, preserving its assembly and type identity
+for history restoration; `selected graph bodies preserve the full navigation
+identity` gates that round trip.
 `BrowserEngineBoundaryTests.MemberFacts_DistinguishesSurfaceAndBodyTokenResolution`
 gates token and accessor provenance, heap classification, unsafe-operation
 deduplication, and constructed generic call identity. The frontend retains at
