@@ -467,14 +467,12 @@ per-row status is authoritative.
 | Analysis operator evidence preserves unknown MemberRefs | `MetadataOperatorFactTests.CrossAssemblyMemberReferences_StayUnknown` | Candidate only; unverified on `main` |
 | Body operator identity and spelling stay separate | `UnresolvedKnownFrameworkOperatorDelegateTarget_DegradesToPartial`, `UnresolvedKnownFrameworkOperatorCall_StaysFull` | Candidate only; unverified on `main` |
 | CLI operator display consumes typed classification | `PopulateMemberSections_FormatsOnlyTypedOperatorsAsOperators` | Candidate only; unverified on `main` |
-| Receiver lowering preserves valid lambda shape | `UncheckedInstanceAssignment_MaterializedReceiverVoidLambdaStaysBlockBodied` | Candidate only; unverified on `main` |
 | C# 14 instance assignment modifiers retain operator identity | `CSharpOperatorDeclaration_AcceptsVirtualInstanceAssignmentOperators`, `ApiSurface_ReportsVirtualInstanceAssignmentOperatorsAsDeclarations` | Candidate only; unverified on `main` |
 | MethodImpl identity preserves recursive assembly scope | `Extract_PreservesExternAliasMethodImplDeclarationsWithDistinctScopes` | Candidate only; unverified on `main` |
 | Metadata cross-reader correspondence returns `Exact`, `Absent`, and wrong-module `Failed` | `MethodCorrespondenceResolverTests.Resolve_ReturnsExactAddressAcrossReadersOfSameArtifact`, `Resolve_ReturnsAbsentForNearMissInAnotherModule`, `Resolve_ReturnsFailedForSourceAddressFromWrongModule` | Enforced on `main` for the named arms |
 | Metadata cross-reader correspondence returns bounded `Ambiguous` evidence | None; the focused Metadata correspondence successor must add an in-budget duplicate-candidate gate | Planned and unverified |
 | RoundTripCompilation preserves `Absent` correspondence as unavailable | `RoundTripComparisonTests.Compare_PreservesAbsentCorrespondenceAsUnavailable` | Enforced on `main` for `Absent` |
 | RoundTripCompilation preserves `Ambiguous` and `Failed` correspondence as unavailable | None; the focused receipt successor must add both result-arm gates | Planned and unverified |
-| Bounded Metadata work avoids repeated materialization and indexes reusable lookup | `FinalizerOwnerClassification_DoesNotRematerializeBaseNamesPerMethod`, `PdbFinalizerClassifier_UsesIndexedModuleScopedLookup`, `TypesOnlyExtraction_DoesNotBuildMemberOrLocalTypeIndexes` | Candidate only; unverified on `main` |
 | Metadata preserves forced budget rejection at its projection boundary | None; the focused Metadata receipt successor must add a forced-exhaustion projection gate | Planned and unverified |
 | `Exact` requires exact interface and MethodImpl obligations | `CompileBackTargets_FullRoundTripsInheritedSameAssemblyInterfacePath`, `CompileBackTargets_ValueTypeImplicitInterfaceMethodsAndAccessorsDeclineWhenOmitted`, `CompileBackTargets_FullRoundTripsImplicitStaticAbstractInterfaceMethod` | Candidate only; unverified on `main` |
 
@@ -512,6 +510,23 @@ Future implementation may reuse a branch's measured fixture or local mechanism
 only after the owning design accepts the contract it enforces. A focused design
 may instead supersede that mechanism. Preserving the finding does not require
 preserving the patch.
+
+Two candidate clusters remain owner-local design inputs rather than
+composition-level target invariants:
+
+- the Metadata performance fixtures
+  `FinalizerOwnerClassification_DoesNotRematerializeBaseNamesPerMethod`,
+  `PdbFinalizerClassifier_UsesIndexedModuleScopedLookup`, and
+  `TypesOnlyExtraction_DoesNotBuildMemberOrLocalTypeIndexes` belong to the
+  bounded-traversal and projection owners, which may adopt or supersede their
+  indexing and materialization mechanisms;
+- the Decompiler fixture
+  `UncheckedInstanceAssignment_MaterializedReceiverVoidLambdaStaysBlockBodied`
+  belongs to the Decompiler owner, which may adopt or supersede its receiver
+  lowering mechanism while preserving valid output and honest fidelity.
+
+They are intentionally absent from the enforcement plan because this map owns
+neither implementation strategy.
 
 ## Non-goals
 
