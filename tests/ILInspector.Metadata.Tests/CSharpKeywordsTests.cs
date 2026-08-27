@@ -34,7 +34,7 @@ public sealed class CSharpKeywordsTests
             var declaration = MetadataDeclarationQuery.GetMethod(
                 reader,
                 type,
-                reader.GetMethodDefinition(methodHandle));
+                methodHandle);
             Assert.Equal($"@{keyword}", declaration.CSharpName);
         }
     }

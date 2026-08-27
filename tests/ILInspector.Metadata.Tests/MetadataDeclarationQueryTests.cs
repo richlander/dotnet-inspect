@@ -24,9 +24,12 @@ public sealed class MetadataDeclarationQueryTests
     public void MethodDeclaration_ExposesAccessibilityModifiersParametersAndReturnAttributes()
     {
         var type = GetTypeDefinition(typeof(MetadataDeclarationQueryFixtures));
-        var method = GetMethod(type, "ProtectedVirtual");
+        var methodHandle = GetMethodHandle(type, "ProtectedVirtual");
 
-        var declaration = MetadataDeclarationQuery.GetMethod(Reader, type, method);
+        var declaration = MetadataDeclarationQuery.GetMethod(
+            Reader,
+            type,
+            methodHandle);
 
         Assert.Equal("protected", declaration.Accessibility);
         Assert.True(declaration.IsPublicOrProtected);
@@ -47,9 +50,14 @@ public sealed class MetadataDeclarationQueryTests
     public void MethodDeclaration_ExposesAttributedDecimalDefaults()
     {
         var type = GetTypeDefinition(typeof(MetadataDeclarationQueryFixtures));
-        var method = GetMethod(type, nameof(MetadataDeclarationQueryFixtures.DecimalDefault));
+        var methodHandle = GetMethodHandle(
+            type,
+            nameof(MetadataDeclarationQueryFixtures.DecimalDefault));
 
-        var declaration = MetadataDeclarationQuery.GetMethod(Reader, type, method);
+        var declaration = MetadataDeclarationQuery.GetMethod(
+            Reader,
+            type,
+            methodHandle);
 
         var parameter = Assert.Single(declaration.Signature.Parameters);
         Assert.Equal("System.Decimal", parameter.Type);
@@ -69,13 +77,18 @@ public sealed class MetadataDeclarationQueryTests
             var typeHandle = reader.TypeDefinitions.Single(handle =>
                 reader.GetString(reader.GetTypeDefinition(handle).Name) == "MissingParamSample");
             var type = reader.GetTypeDefinition(typeHandle);
-            var method = type.GetMethods()
-                .Select(reader.GetMethodDefinition)
-                .Single(candidate => reader.GetString(candidate.Name) == "Echo");
+            var methodHandle = type.GetMethods()
+                .Single(handle =>
+                    reader.GetString(reader.GetMethodDefinition(handle).Name)
+                    == "Echo");
+            var method = reader.GetMethodDefinition(methodHandle);
 
             Assert.Empty(method.GetParameters());
 
-            var declaration = MetadataDeclarationQuery.GetMethod(reader, type, method);
+            var declaration = MetadataDeclarationQuery.GetMethod(
+                reader,
+                type,
+                methodHandle);
             var parameter = Assert.Single(declaration.Signature.Parameters);
 
             Assert.Equal("arg0", parameter.Name);
@@ -142,7 +155,10 @@ public sealed class MetadataDeclarationQueryTests
         var methodHandle = GetMethodHandle(derived, "Value");
         var method = Reader.GetMethodDefinition(methodHandle);
 
-        var declaration = MetadataDeclarationQuery.GetMethod(Reader, derived, method);
+        var declaration = MetadataDeclarationQuery.GetMethod(
+            Reader,
+            derived,
+            methodHandle);
         var slot = MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
             Reader,
             derivedHandle,
@@ -165,7 +181,7 @@ public sealed class MetadataDeclarationQueryTests
         Assert.True(MetadataDeclarationQuery.GetMethod(
             Reader,
             Reader.GetTypeDefinition(resolvedSlot.DeclaringType),
-            baseMethod).IsVirtual);
+            resolvedSlot.Method).IsVirtual);
         Assert.True(MetadataDeclarationQuery.IsSourceDeclarableVirtualMethod(baseMethod));
     }
 
@@ -286,7 +302,10 @@ public sealed class MetadataDeclarationQueryTests
         Assert.True((method.Attributes & MethodAttributes.NewSlot) != 0);
         Assert.Equal(HandleKind.MethodDefinition, implementation.MethodDeclaration.Kind);
 
-        var declaration = MetadataDeclarationQuery.GetMethod(Reader, derived, method);
+        var declaration = MetadataDeclarationQuery.GetMethod(
+            Reader,
+            derived,
+            methodHandle);
         var slot = Assert.IsType<MetadataOverrideSlot>(
             MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
                 Reader,
@@ -372,7 +391,10 @@ public sealed class MetadataDeclarationQueryTests
         Assert.True((method.Attributes & MethodAttributes.NewSlot) != 0);
         Assert.Equal(HandleKind.MethodDefinition, implementation.MethodDeclaration.Kind);
 
-        var declaration = MetadataDeclarationQuery.GetMethod(Reader, derived, method);
+        var declaration = MetadataDeclarationQuery.GetMethod(
+            Reader,
+            derived,
+            methodHandle);
         var slot = Assert.IsType<MetadataOverrideSlot>(
             MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
                 Reader,
@@ -613,7 +635,10 @@ public sealed class MetadataDeclarationQueryTests
                 .BaseType.Kind);
 
         var declaration =
-            MetadataDeclarationQuery.GetMethod(Reader, derived, method);
+            MetadataDeclarationQuery.GetMethod(
+                Reader,
+                derived,
+                methodHandle);
         var slot = Assert.IsType<MetadataOverrideSlot>(
             MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
                 Reader,
@@ -1607,9 +1632,12 @@ public sealed class MetadataDeclarationQueryTests
     {
         var type = GetTypeDefinition(
             typeof(MetadataDeclarationQueryFixtures.IStaticContract));
-        var method = GetMethod(type, "Create");
+        var methodHandle = GetMethodHandle(type, "Create");
 
-        var declaration = MetadataDeclarationQuery.GetMethod(Reader, type, method);
+        var declaration = MetadataDeclarationQuery.GetMethod(
+            Reader,
+            type,
+            methodHandle);
 
         Assert.True(declaration.IsAbstract);
         Assert.False(declaration.IsOverride);
@@ -1632,6 +1660,30 @@ public sealed class MetadataDeclarationQueryTests
         var field = Assert.Single(all.Members, member => member.Name == "_count");
         Assert.Equal("private", field.Accessibility);
         Assert.Equal("int", field.ReturnType);
+    }
+
+    [Fact]
+    public void TypeSurface_ManyMethodsThreadsHandlesWithoutQuadraticAllocation()
+    {
+        const int methodCount = 1_024;
+        using var stream = new MemoryStream(
+            BuildManyMethodSurfaceImage(methodCount));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = reader.TypeDefinitions.Single(handle =>
+            reader.GetString(reader.GetTypeDefinition(handle).Name)
+            == "ManyMethods");
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        ApiType surface = MetadataDeclarationQuery.GetTypeSurface(
+            reader,
+            typeHandle);
+
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(methodCount, surface.Members.Count);
+        Assert.Equal("Method1023", surface.Members[^1].Name);
+        Assert.InRange(allocated, 0, 32 * 1024 * 1024);
     }
 
     [Fact]
@@ -1674,9 +1726,12 @@ public sealed class MetadataDeclarationQueryTests
     public void TypeSurface_EscapesKeywordMemberNames()
     {
         var type = GetTypeDefinition(typeof(MetadataDeclarationQueryFixtures));
-        var method = GetMethod(type, "class");
+        var methodHandle = GetMethodHandle(type, "class");
 
-        var declaration = MetadataDeclarationQuery.GetMethod(Reader, type, method);
+        var declaration = MetadataDeclarationQuery.GetMethod(
+            Reader,
+            type,
+            methodHandle);
         var surface = MetadataDeclarationQuery.GetTypeSurface(Reader, GetTypeDefinitionHandle(typeof(MetadataDeclarationQueryFixtures)));
         var property = Assert.Single(surface.Members, member => member.Name == "while");
         var field = Assert.Single(surface.Members, member => member.Name == "event");
@@ -1734,9 +1789,14 @@ public sealed class MetadataDeclarationQueryTests
     public void MethodDeclaration_PreservesNestedGenericTypeArgumentPlacement()
     {
         var type = GetTypeDefinition(typeof(MetadataDeclarationQueryFixtures));
-        var method = GetMethod(type, nameof(MetadataDeclarationQueryFixtures.NestedGeneric));
+        var methodHandle = GetMethodHandle(
+            type,
+            nameof(MetadataDeclarationQueryFixtures.NestedGeneric));
 
-        var declaration = MetadataDeclarationQuery.GetMethod(Reader, type, method);
+        var declaration = MetadataDeclarationQuery.GetMethod(
+            Reader,
+            type,
+            methodHandle);
 
         const string nestedType =
             "ILInspector.Metadata.Tests.MetadataDeclarationQueryFixtures.Container<int>.Row<string>";
@@ -3880,10 +3940,10 @@ public sealed class MetadataDeclarationQueryTests
     [Fact]
     public void ReusesInheritedVirtualSlot_DeclinesExplicitInterfaceOnlyMethodImpl()
     {
-        var type = Reader.GetTypeDefinition(
-            GetTypeDefinitionHandle(
-                typeof(MetadataDeclarationQueryFixtures
-                    .ExplicitInterfaceOnlyImplementation)));
+        var typeHandle = GetTypeDefinitionHandle(
+            typeof(MetadataDeclarationQueryFixtures
+                .ExplicitInterfaceOnlyImplementation));
+        var type = Reader.GetTypeDefinition(typeHandle);
 
         // The MethodImpl is present; what is absent is any inherited class
         // virtual slot for it to reuse.
@@ -3891,16 +3951,16 @@ public sealed class MetadataDeclarationQueryTests
         Assert.False(
             MetadataDeclarationQuery.ReusesInheritedVirtualSlot(
                 Reader,
-                type));
+                typeHandle));
     }
 
     [Fact]
     public void ReusesInheritedVirtualSlot_AcceptsAuthenticatedClassMethodImpl()
     {
-        var type = Reader.GetTypeDefinition(
-            GetTypeDefinitionHandle(
-                typeof(MetadataDeclarationQueryFixtures
-                    .CovariantReturnDerived)));
+        var typeHandle = GetTypeDefinitionHandle(
+            typeof(MetadataDeclarationQueryFixtures
+                .CovariantReturnDerived));
+        var type = Reader.GetTypeDefinition(typeHandle);
 
         // A covariant return is newslot virtual final plus a MethodImpl, so the
         // attribute test alone cannot see the reuse.
@@ -3908,22 +3968,74 @@ public sealed class MetadataDeclarationQueryTests
         Assert.True(
             MetadataDeclarationQuery.ReusesInheritedVirtualSlot(
                 Reader,
-                type));
+                typeHandle));
     }
 
     [Fact]
     public void ReusesInheritedVirtualSlot_AcceptsInheritedVirtualSlotFlags()
     {
-        var type = Reader.GetTypeDefinition(
-            GetTypeDefinitionHandle(
-                typeof(MetadataDeclarationQueryFixtures
-                    .PlainOverrideDerived)));
+        var typeHandle = GetTypeDefinitionHandle(
+            typeof(MetadataDeclarationQueryFixtures
+                .PlainOverrideDerived));
+        var type = Reader.GetTypeDefinition(typeHandle);
 
         Assert.Empty(type.GetMethodImplementations());
         Assert.True(
             MetadataDeclarationQuery.ReusesInheritedVirtualSlot(
                 Reader,
-                type));
+                typeHandle));
+    }
+
+    [Fact]
+    public void ReusesInheritedVirtualSlot_DeclinesCrossOwnerMethodImplBody()
+    {
+        using var stream = new MemoryStream(
+            BuildCrossOwnerMethodImplImage());
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var victimHandle = reader.TypeDefinitions.Single(handle =>
+            reader.GetString(reader.GetTypeDefinition(handle).Name)
+            == "Victim");
+        var implementation = Assert.Single(
+            reader.GetTypeDefinition(victimHandle)
+                .GetMethodImplementations()
+                .Select(reader.GetMethodImplementation));
+        var bodyHandle =
+            (MethodDefinitionHandle)implementation.MethodBody;
+
+        Assert.NotEqual(
+            victimHandle,
+            reader.GetMethodDefinition(bodyHandle).GetDeclaringType());
+        Assert.False(
+            MetadataDeclarationQuery.ReusesInheritedVirtualSlot(
+                reader,
+                victimHandle));
+    }
+
+    [Fact]
+    public void ReusesInheritedVirtualSlot_AcceptsSameOwnerMethodImplBody()
+    {
+        using var stream = new MemoryStream(
+            BuildCrossOwnerMethodImplImage());
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var siblingHandle = reader.TypeDefinitions.Single(handle =>
+            reader.GetString(reader.GetTypeDefinition(handle).Name)
+            == "Sibling");
+        var implementation = Assert.Single(
+            reader.GetTypeDefinition(siblingHandle)
+                .GetMethodImplementations()
+                .Select(reader.GetMethodImplementation));
+        var bodyHandle =
+            (MethodDefinitionHandle)implementation.MethodBody;
+
+        Assert.Equal(
+            siblingHandle,
+            reader.GetMethodDefinition(bodyHandle).GetDeclaringType());
+        Assert.True(
+            MetadataDeclarationQuery.ReusesInheritedVirtualSlot(
+                reader,
+                siblingHandle));
     }
 
     [Fact]
@@ -5785,6 +5897,184 @@ public sealed class MetadataDeclarationQueryTests
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
             new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildCrossOwnerMethodImplImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("CrossOwnerMethodImpl.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("CrossOwnerMethodImpl"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        var runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        var objectType = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var baseType = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString("Base"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var siblingType = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString("Sibling"),
+            baseType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+        var victimType = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString("Victim"),
+            baseType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(3));
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Void(),
+                _ => { });
+        var signatureHandle = metadata.GetOrAddBlob(signature);
+        var attributes = MethodAttributes.Public
+            | MethodAttributes.Virtual
+            | MethodAttributes.NewSlot;
+        var baseMethod = metadata.AddMethodDefinition(
+            attributes,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Value"),
+            signatureHandle,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        var siblingMethod = metadata.AddMethodDefinition(
+            attributes,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Value"),
+            signatureHandle,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+
+        metadata.AddMethodImplementation(
+            siblingType,
+            siblingMethod,
+            baseMethod);
+        metadata.AddMethodImplementation(
+            victimType,
+            siblingMethod,
+            baseMethod);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildManyMethodSurfaceImage(int methodCount)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("ManyMethods.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("ManyMethods"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        var runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        var objectType = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString("ManyMethods"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Void(),
+                _ => { });
+        var signatureHandle = metadata.GetOrAddBlob(signature);
+        for (int index = 0; index < methodCount; index++)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString($"Method{index}"),
+                signatureHandle,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        }
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
             new BlobBuilder(),
             flags: CorFlags.ILOnly);
         var image = new BlobBuilder();

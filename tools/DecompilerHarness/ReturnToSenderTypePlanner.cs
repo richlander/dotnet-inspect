@@ -1260,7 +1260,11 @@ public static class CompileBackSourceComposer
                     ]
                     : [new CompileBackFact("metadata", "target-property-getter", reader.GetString(reader.GetMethodDefinition(targetGetter).Name))],
                 propertyDeclaration.Attributes,
-                MetadataDeclarationQuery.GetMethod(reader, targetTypeDef, getter, getterSignature).Signature.ReturnAttributes,
+                MetadataDeclarationQuery.GetMethod(
+                    reader,
+                    targetTypeDef,
+                    targetGetter,
+                    getterSignature).Signature.ReturnAttributes,
                 IsAbstract: IsAbstractMethod(getter),
                 IsVirtual: IsVirtualMethod(getter),
                 IsOverride: propertyDeclaration.IsOverride,
@@ -2800,9 +2804,13 @@ public static class CompileBackSourceComposer
         var accessorDeclaration = MetadataDeclarationQuery.GetMethod(
             reader,
             targetTypeDef,
+            targetAccessor,
+            signature);
+        var parameters = MethodParameters(
+            reader,
+            targetAccessor,
             accessor,
             signature);
-        var parameters = MethodParameters(reader, accessor, signature);
         if (parameters.Count != 1)
             throw new InvalidOperationException("Event accessors must have exactly one value parameter.");
 
@@ -2942,14 +2950,23 @@ public static class CompileBackSourceComposer
             && (!method.Attributes.HasFlag(MethodAttributes.SpecialName)
                 || reader.GetString(method.Name).StartsWith("op_", StringComparison.Ordinal));
         var methodDeclaration = isSourceMethodDeclaration
-            ? MetadataDeclarationQuery.GetMethod(reader, targetTypeDef, method, signature)
+            ? MetadataDeclarationQuery.GetMethod(
+                reader,
+                targetTypeDef,
+                targetMethod,
+                signature)
             : null;
         var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
         bool isConstructor = function.MethodKind is IrMethodKind.Constructor or IrMethodKind.StaticConstructor;
         string targetMethodName = MemberIdentifierName(methodName, isConstructor);
         var bodyFacts = isConstructor ? MemberBodyFacts.Constructor(function) : ConstructorBodyFacts.None;
         var primaryConstructor = isConstructor
-            ? PrimaryConstructorFromPrologue(reader, method, bodyFacts.PrimaryConstructorPrologue, targetBody)
+            ? PrimaryConstructorFromPrologue(
+                reader,
+                targetMethod,
+                method,
+                bodyFacts.PrimaryConstructorPrologue,
+                targetBody)
             : PrimaryConstructorFromCapturedFields(reader, targetTypeDef, targetBody);
 
         var diagnostics = new List<CompileBackPlanningDiagnostic>();
@@ -2984,8 +3001,15 @@ public static class CompileBackSourceComposer
         var targetReturnType = isConstructor
             ? null
             : CompileBackTypeSignature.Display(MethodReturnType(reader, targetTypeDef, method));
-        var targetParameters = MethodParameters(reader, method, signature);
-        var targetTypeParameters = MethodTypeParameters(reader, method);
+        var targetParameters = MethodParameters(
+            reader,
+            targetMethod,
+            method,
+            signature);
+        var targetTypeParameters = MethodTypeParameters(
+            reader,
+            targetMethod,
+            method);
         // A class method whose metadata name is an explicit-interface spelling
         // (`IType.Member`) must be reconstructed as an explicit-interface implementation,
         // not a plain method with the dotted name sanitized to `IType_Member`. The latter
@@ -3026,7 +3050,9 @@ public static class CompileBackSourceComposer
                 targetBody,
                 [new CompileBackFact("metadata", isConstructor ? "target-constructor" : "target-method", reader.GetString(method.Name))],
                 isConstructor ? null : MemberAttributes(reader, method.GetCustomAttributes()),
-                isConstructor ? null : MethodReturnAttributes(reader, method),
+                isConstructor
+                    ? null
+                    : MethodReturnAttributes(reader, targetMethod, method),
                 IsAbstract: isSourceMethodDeclaration && IsAbstractMethod(method),
                 IsVirtual: isSourceMethodDeclaration && IsVirtualMethod(method),
                 IsOverride: methodDeclaration?.IsOverride ?? false,
@@ -3224,7 +3250,7 @@ public static class CompileBackSourceComposer
                 || targetTypeDef.BaseType.Kind != HandleKind.TypeDefinition
                 || TypeShellProducer.ReconstructedBaseTypeDisplay(
                     reader,
-                    targetTypeDef,
+                    targetType,
                     isClass: targetShellKind == CompileBackTypeKind.Class) is null)
             {
                 return false;
@@ -3403,6 +3429,7 @@ public static class CompileBackSourceComposer
 
     static IReadOnlyList<CompileBackParameter> MethodParameters(
         MetadataReader reader,
+        MethodDefinitionHandle methodHandle,
         MethodDefinition method,
         MethodSignature<string> signature)
     {
@@ -3410,15 +3437,18 @@ public static class CompileBackSourceComposer
         return ToCompileBackParameters(MetadataDeclarationQuery.GetMethod(
             reader,
             declaringType,
-            method,
+            methodHandle,
             signature).Signature.Parameters);
     }
 
-    static IReadOnlyList<string> MethodReturnAttributes(MetadataReader reader, MethodDefinition method)
+    static IReadOnlyList<string> MethodReturnAttributes(
+        MetadataReader reader,
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition method)
         => MetadataDeclarationQuery.GetMethod(
             reader,
             reader.GetTypeDefinition(method.GetDeclaringType()),
-            method).Signature.ReturnAttributes;
+            methodHandle).Signature.ReturnAttributes;
 
     static string MethodReturnType(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
         => MetadataDeclarationQuery.GetMethodReturnType(reader, typeDef, method);
@@ -3450,20 +3480,24 @@ public static class CompileBackSourceComposer
             var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
             if (!OperatorSignaturesMatch(targetSignature, signature))
                 continue;
-            var methodDeclaration = MetadataDeclarationQuery.GetMethod(reader, typeDef, method, signature);
+            var methodDeclaration = MetadataDeclarationQuery.GetMethod(
+                reader,
+                typeDef,
+                methodHandle,
+                signature);
 
             return new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(typeIdentity.FullName, siblingName, 0, MethodSignatureText(siblingName, signature)),
                 CompileBackMemberKind.Method,
                 method.Attributes.HasFlag(MethodAttributes.Static),
-                MethodParameters(reader, method, signature),
+                MethodParameters(reader, methodHandle, method, signature),
                 CompileBackTypeSignature.Display(signature.ReturnType),
-                MethodTypeParameters(reader, method),
+                MethodTypeParameters(reader, methodHandle, method),
                 CompileBackStubBodyKind.Throw,
                 TargetBody: null,
                 [new CompileBackFact("metadata", "operator-pair-sibling", siblingName)],
                 MemberAttributes(reader, method.GetCustomAttributes()),
-                MethodReturnAttributes(reader, method),
+                MethodReturnAttributes(reader, methodHandle, method),
                 IsAbstract: IsAbstractMethod(method),
                 IsVirtual: IsVirtualMethod(method),
                 IsOverride: methodDeclaration.IsOverride,
@@ -3498,20 +3532,24 @@ public static class CompileBackSourceComposer
             var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
             if (!OperatorSignaturesMatch(targetSignature, signature))
                 continue;
-            var methodDeclaration = MetadataDeclarationQuery.GetMethod(reader, typeDef, method, signature);
+            var methodDeclaration = MetadataDeclarationQuery.GetMethod(
+                reader,
+                typeDef,
+                methodHandle,
+                signature);
 
             return new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(typeIdentity.FullName, siblingName, 0, MethodSignatureText(siblingName, signature)),
                 CompileBackMemberKind.Method,
                 method.Attributes.HasFlag(MethodAttributes.Static),
-                MethodParameters(reader, method, signature),
+                MethodParameters(reader, methodHandle, method, signature),
                 CompileBackTypeSignature.Display(signature.ReturnType),
-                MethodTypeParameters(reader, method),
+                MethodTypeParameters(reader, methodHandle, method),
                 CompileBackStubBodyKind.Throw,
                 TargetBody: null,
                 [new CompileBackFact("metadata", "operator-pair-sibling", siblingName)],
                 MemberAttributes(reader, method.GetCustomAttributes()),
-                MethodReturnAttributes(reader, method),
+                MethodReturnAttributes(reader, methodHandle, method),
                 IsAbstract: IsAbstractMethod(method),
                 IsVirtual: IsVirtualMethod(method),
                 IsOverride: methodDeclaration.IsOverride,
@@ -3680,20 +3718,24 @@ public static class CompileBackSourceComposer
             {
                 continue;
             }
-            var methodDeclaration = MetadataDeclarationQuery.GetMethod(reader, typeDef, method, signature);
+            var methodDeclaration = MetadataDeclarationQuery.GetMethod(
+                reader,
+                typeDef,
+                methodHandle,
+                signature);
 
             return new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(typeIdentity.FullName, "Equals", 0, MethodSignatureText("Equals", signature)),
                 CompileBackMemberKind.Method,
                 method.Attributes.HasFlag(MethodAttributes.Static),
-                MethodParameters(reader, method, signature),
+                MethodParameters(reader, methodHandle, method, signature),
                 CompileBackTypeSignature.Display(signature.ReturnType),
-                MethodTypeParameters(reader, method),
+                MethodTypeParameters(reader, methodHandle, method),
                 CompileBackStubBodyKind.Throw,
                 TargetBody: null,
                 [new CompileBackFact("metadata", "record-equals-sibling", "Equals")],
                 MemberAttributes(reader, method.GetCustomAttributes()),
-                MethodReturnAttributes(reader, method),
+                MethodReturnAttributes(reader, methodHandle, method),
                 IsAbstract: IsAbstractMethod(method),
                 IsVirtual: IsVirtualMethod(method),
                 IsOverride: methodDeclaration.IsOverride,
@@ -3765,14 +3807,18 @@ public static class CompileBackSourceComposer
     static IReadOnlyList<string> MemberAttributes(MetadataReader reader, CustomAttributeHandleCollection attributes)
         => MetadataDeclarationQuery.RenderMemberAttributes(reader, attributes);
 
-    static IReadOnlyList<CompileBackTypeParameter> MethodTypeParameters(MetadataReader reader, MethodDefinition method)
+    static IReadOnlyList<CompileBackTypeParameter> MethodTypeParameters(
+        MetadataReader reader,
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition method)
         => ToCompileBackTypeParameters(MetadataDeclarationQuery.GetMethod(
             reader,
             reader.GetTypeDefinition(method.GetDeclaringType()),
-            method).Signature.TypeParameters);
+            methodHandle).Signature.TypeParameters);
 
     static CompileBackPrimaryConstructor? PrimaryConstructorFromPrologue(
         MetadataReader reader,
+        MethodDefinitionHandle methodHandle,
         MethodDefinition method,
         IReadOnlyList<PrimaryConstructorFieldStore>? prologue,
         string renderedBody)
@@ -3839,7 +3885,14 @@ public static class CompileBackSourceComposer
         if (!RenderedBodyMatchesPrimaryConstructorInitializers(renderedBody, initializerTexts))
             return null;
 
-        var parameters = MethodParameters(reader, method, GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, declaringType, method)));
+        var parameters = MethodParameters(
+            reader,
+            methodHandle,
+            method,
+            GuardedSignatureText.MethodText(
+                reader,
+                method,
+                GenericContext.ForMethod(reader, declaringType, method)));
         return new CompileBackPrimaryConstructor(
             string.Join(", ", parameters.Select(RenderParameter)),
             parameters,
@@ -4961,7 +5014,7 @@ public static class CompileBackSourceComposer
                 if (kind != CompileBackTypeKind.Class
                     || TypeShellProducer.ReconstructedBaseTypeDisplay(
                         reader,
-                        type,
+                        current,
                         isClass: true) is null)
                 {
                     return false;
@@ -5252,7 +5305,11 @@ public static class CompileBackSourceComposer
                     reader,
                     accessor,
                     GenericContext.ForMethod(reader, typeDef, accessor));
-                parameters = MethodParameters(reader, accessor, signature);
+                parameters = MethodParameters(
+                    reader,
+                    accessorHandle,
+                    accessor,
+                    signature);
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
             {
@@ -5262,7 +5319,11 @@ public static class CompileBackSourceComposer
                 return null;
 
             string eventName = Identifier(reader.GetString(eventDefinition.Name));
-            var accessorDeclaration = MetadataDeclarationQuery.GetMethod(reader, typeDef, accessor, signature);
+            var accessorDeclaration = MetadataDeclarationQuery.GetMethod(
+                reader,
+                typeDef,
+                accessorHandle,
+                signature);
             bool hasNoBody = (typeDef.Attributes & TypeAttributes.Interface) != 0 || IsAbstractMethod(accessor);
             return new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(
@@ -5333,7 +5394,11 @@ public static class CompileBackSourceComposer
             var generatedLocalFunction = IsGeneratedLocalFunctionName(name);
             var methodDeclaration = generatedLocalFunction
                 ? null
-                : MetadataDeclarationQuery.GetMethod(reader, typeDef, method, signature);
+                : MetadataDeclarationQuery.GetMethod(
+                    reader,
+                    typeDef,
+                    methodHandle,
+                    signature);
             var parameters = generatedLocalFunction
                 ? Parameters(reader, method, signature)
                 : ToCompileBackParameters(methodDeclaration!.Signature.Parameters);
@@ -5884,7 +5949,10 @@ public static class CompileBackSourceComposer
         static string? ReconstructedSameAssemblyBaseName(MetadataReader reader, TypeDefinitionHandle handle, CompileBackTypeKind kind)
         {
             var typeDef = reader.GetTypeDefinition(handle);
-            if (TypeShellProducer.ReconstructedBaseTypeDisplay(reader, typeDef, kind == CompileBackTypeKind.Class) is null)
+            if (TypeShellProducer.ReconstructedBaseTypeDisplay(
+                    reader,
+                    handle,
+                    kind == CompileBackTypeKind.Class) is null)
                 return null;
             TypeDefinitionHandle baseHandle;
             if (typeDef.BaseType.Kind == HandleKind.TypeDefinition)
@@ -6266,7 +6334,11 @@ public static class CompileBackSourceComposer
                 var generatedLocalFunction = IsGeneratedLocalFunctionName(name);
                 var methodDeclaration = generatedLocalFunction
                     ? null
-                    : MetadataDeclarationQuery.GetMethod(reader, typeDef, method, signature);
+                    : MetadataDeclarationQuery.GetMethod(
+                        reader,
+                        typeDef,
+                        methodHandle,
+                        signature);
                 var parameters = generatedLocalFunction
                     ? Parameters(reader, method, signature)
                     : ToCompileBackParameters(methodDeclaration!.Signature.Parameters);

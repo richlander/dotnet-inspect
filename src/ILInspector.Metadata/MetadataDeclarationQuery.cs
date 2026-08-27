@@ -181,7 +181,7 @@ public static class MetadataDeclarationQuery
             if (methodName.StartsWith('<'))
                 continue;
 
-            var declaration = GetMethod(reader, typeDef, method);
+            var declaration = GetMethod(reader, typeDef, methodHandle);
             if (!includeNonPublicMembers && declaration.Accessibility != "public")
                 continue;
 
@@ -337,17 +337,24 @@ public static class MetadataDeclarationQuery
             expectedIndex: inheritedCount);
     }
 
+    /// <summary>
+    /// Projects one method declaration from its exact metadata handle. Requiring
+    /// the handle keeps type-surface extraction linear in the number of methods;
+    /// <c>TypeSurface_ManyMethodsThreadsHandlesWithoutQuadraticAllocation</c>
+    /// gates that wiring.
+    /// </summary>
     public static MetadataMethodDeclaration GetMethod(
         MetadataReader reader,
         TypeDefinition typeDef,
-        MethodDefinition method)
+        MethodDefinitionHandle methodHandle)
     {
+        var method = reader.GetMethodDefinition(methodHandle);
         var result = GuardedSignatureText.MethodText(
             reader,
             method,
             GenericContext.ForMethod(reader, typeDef, method));
         var signature = ProjectDecode(result, DegradedMethodSignature, out var status);
-        return GetMethod(reader, typeDef, method, signature) with
+        return GetMethod(reader, typeDef, methodHandle, signature) with
         {
             SignatureDecodeStatus = status,
         };
@@ -422,9 +429,10 @@ public static class MetadataDeclarationQuery
     public static MetadataMethodDeclaration GetMethod(
         MetadataReader reader,
         TypeDefinition typeDef,
-        MethodDefinition method,
+        MethodDefinitionHandle methodHandle,
         MethodSignature<string> signature)
     {
+        var method = reader.GetMethodDefinition(methodHandle);
         var name = reader.GetString(method.Name);
         var attributes = method.Attributes;
         var access = attributes & MethodAttributes.MemberAccessMask;
@@ -432,9 +440,7 @@ public static class MetadataDeclarationQuery
         var isSourceDeclarable = IsSourceDeclarableAccessibility(access);
         var isVirtual = (attributes & MethodAttributes.Virtual) != 0;
         var isNewSlot = (attributes & MethodAttributes.NewSlot) != 0;
-        var methodHandle = FindMethodDefinitionHandle(reader, typeDef, method);
         var hasClassMethodImplOverride = isNewSlot
-            && !methodHandle.IsNil
             && GetAuthenticatedClassMethodImplOverrideSlot(
                 reader,
                 method.GetDeclaringType(),
@@ -500,23 +506,7 @@ public static class MetadataDeclarationQuery
     }
 
     /// <summary>
-    /// The same-image class definition instantiated by
-    /// <paramref name="derivedType"/>'s constructed generic base, when it has
-    /// one.
-    ///
-    /// A compiler encodes <c>Derived : Base&lt;string&gt;</c> and
-    /// <c>Derived&lt;T&gt; : Base&lt;T&gt;</c> as a <c>TypeSpec</c> base, so a
-    /// consumer that only reads a <c>TypeDef</c> base cannot see the definition
-    /// the base instantiates. This resolves exactly that one step and keeps the
-    /// exact definition token; it never matches a rendered name.
-    ///
-    /// Fails closed: a base that is not a <c>TypeSpec</c>, a <c>TypeSpec</c>
-    /// that is not a generic instantiation of a definition in this image, and
-    /// an undecodable or over-budget signature all return
-    /// <see langword="false"/>.
-    /// </summary>
-    /// <summary>
-    /// True when <paramref name="typeDef"/> declares a member that occupies a
+    /// True when <paramref name="typeHandle"/> declares a member that occupies a
     /// virtual slot on its base class that it did not introduce: a virtual
     /// method that is not <see cref="MethodAttributes.NewSlot"/>, or the body
     /// of a <c>MethodImpl</c> row whose declaration authenticates to a class
@@ -537,17 +527,22 @@ public static class MetadataDeclarationQuery
     /// rows only; no name or rendered signature participates. A malformed row
     /// fails closed to <see langword="false"/>, which is the drop-the-base
     /// answer. Gated by
+    /// <c>ReusesInheritedVirtualSlot_DeclinesCrossOwnerMethodImplBody</c> and
     /// <c>ReusesInheritedVirtualSlot_DeclinesExplicitInterfaceOnlyMethodImpl</c>,
     /// with
+    /// <c>ReusesInheritedVirtualSlot_AcceptsSameOwnerMethodImplBody</c>,
     /// <c>ReusesInheritedVirtualSlot_AcceptsAuthenticatedClassMethodImpl</c>
     /// and <c>ReusesInheritedVirtualSlot_AcceptsInheritedVirtualSlotFlags</c>
     /// as its non-vacuity controls.
     /// </summary>
-    public static bool ReusesInheritedVirtualSlot(MetadataReader reader, TypeDefinition typeDef)
+    public static bool ReusesInheritedVirtualSlot(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle)
     {
         ArgumentNullException.ThrowIfNull(reader);
         try
         {
+            var typeDef = reader.GetTypeDefinition(typeHandle);
             foreach (var methodHandle in typeDef.GetMethods())
             {
                 var attributes = reader.GetMethodDefinition(methodHandle).Attributes;
@@ -570,10 +565,15 @@ public static class MetadataDeclarationQuery
 
                 var bodyHandle =
                     (MethodDefinitionHandle)implementation.MethodBody;
+                if (reader.GetMethodDefinition(bodyHandle).GetDeclaringType()
+                    != typeHandle)
+                {
+                    continue;
+                }
+
                 if (GetSameAssemblyOverrideSlot(
                         reader,
-                        reader.GetMethodDefinition(bodyHandle)
-                            .GetDeclaringType(),
+                        typeHandle,
                         bodyHandle) is not null)
                 {
                     return true;
@@ -591,6 +591,22 @@ public static class MetadataDeclarationQuery
         return false;
     }
 
+    /// <summary>
+    /// The same-image class definition instantiated by
+    /// <paramref name="derivedType"/>'s constructed generic base, when it has
+    /// one.
+    ///
+    /// A compiler encodes <c>Derived : Base&lt;string&gt;</c> and
+    /// <c>Derived&lt;T&gt; : Base&lt;T&gt;</c> as a <c>TypeSpec</c> base, so a
+    /// consumer that only reads a <c>TypeDef</c> base cannot see the definition
+    /// the base instantiates. This resolves exactly that one step and keeps the
+    /// exact definition token; it never matches a rendered name.
+    ///
+    /// Fails closed: a base that is not a <c>TypeSpec</c>, a <c>TypeSpec</c>
+    /// that is not a generic instantiation of a definition in this image, and
+    /// an undecodable or over-budget signature all return
+    /// <see langword="false"/>.
+    /// </summary>
     public static bool TryGetSameAssemblyConstructedBaseDefinition(
         MetadataReader reader,
         TypeDefinition derivedType,
@@ -740,6 +756,9 @@ public static class MetadataDeclarationQuery
         MethodDefinitionHandle methodHandle)
     {
         var method = reader.GetMethodDefinition(methodHandle);
+        if (method.GetDeclaringType() != declaringTypeHandle)
+            return null;
+
         if ((method.Attributes & MethodAttributes.Static) != 0
             || (method.Attributes & MethodAttributes.Virtual) == 0)
         {
@@ -824,20 +843,6 @@ public static class MetadataDeclarationQuery
         }
 
         return null;
-    }
-
-    static MethodDefinitionHandle FindMethodDefinitionHandle(
-        MetadataReader reader,
-        TypeDefinition typeDef,
-        MethodDefinition method)
-    {
-        foreach (var candidateHandle in typeDef.GetMethods())
-        {
-            if (reader.GetMethodDefinition(candidateHandle).Equals(method))
-                return candidateHandle;
-        }
-
-        return default;
     }
 
     static MetadataOverrideSlot? GetAuthenticatedClassMethodImplOverrideSlot(
@@ -2500,7 +2505,7 @@ public static class MetadataDeclarationQuery
     /// </summary>
     static bool EncodedArgumentCountAgrees(GenericTypeNode type)
     {
-        if (type.MetadataNameParts is not { } parts)
+        if (type.MetadataName is not { } parts)
             return true;
 
         if (parts.IntroducedTypeParameterCounts is { } counts)

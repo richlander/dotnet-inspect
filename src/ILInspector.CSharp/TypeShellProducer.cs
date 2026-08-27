@@ -97,7 +97,7 @@ public static class TypeShellProducer
 
     /// <summary>
     /// The base type name a skeletal type shape should reconstruct for
-    /// <paramref name="typeDef"/>, or <see langword="null"/> when the base should
+    /// <paramref name="typeHandle"/>, or <see langword="null"/> when the base should
     /// be dropped (left to its compiler-implied default).
     ///
     /// Attributes always keep their <c>System.Attribute</c> base. Otherwise only a
@@ -110,8 +110,12 @@ public static class TypeShellProducer
     /// / value-type / delegate bases are left implicit to avoid conflicts. <paramref name="isClass"/> is the caller's
     /// resolved kind (records/structs/enums/delegates pass <see langword="false"/>).
     /// </summary>
-    public static string? ReconstructedBaseTypeName(MetadataReader reader, TypeDefinition typeDef, bool isClass)
+    public static string? ReconstructedBaseTypeName(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        bool isClass)
     {
+        var typeDef = reader.GetTypeDefinition(typeHandle);
         if ((typeDef.Attributes & TypeAttributes.Interface) != 0)
             return null;
         if (typeDef.BaseType.IsNil)
@@ -150,9 +154,11 @@ public static class TypeShellProducer
                     reader,
                     typeDef,
                     out _)
-                || !MetadataDeclarationQuery.ReusesInheritedVirtualSlot(reader, typeDef))
+            || !MetadataDeclarationQuery.ReusesInheritedVirtualSlot(
+                reader,
+                typeHandle))
             {
-                return null;
+            return null;
             }
         }
         else if (typeDef.BaseType.Kind != HandleKind.TypeDefinition)
@@ -188,9 +194,12 @@ public static class TypeShellProducer
     /// surface-representability gate (<see cref="IsUnsupportedSurfaceSignature"/>) so
     /// the seam owns the full base-type spelling decision end to end.
     /// </summary>
-    public static string? ReconstructedBaseTypeDisplay(MetadataReader reader, TypeDefinition typeDef, bool isClass)
+    public static string? ReconstructedBaseTypeDisplay(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        bool isClass)
     {
-        var baseType = ReconstructedBaseTypeName(reader, typeDef, isClass);
+        var baseType = ReconstructedBaseTypeName(reader, typeHandle, isClass);
         if (baseType is null)
             return null;
         string display = CSharpFormatter.CleanTypeDisplay(baseType);
@@ -237,7 +246,10 @@ public static class TypeShellProducer
                     reader,
                     spec.Handle),
             Kind = TypeKindText(spec.Kind),
-            BaseType = ReconstructedBaseTypeDisplay(reader, typeDef, spec.Kind == CSharpTypeShellKind.Class),
+            BaseType = ReconstructedBaseTypeDisplay(
+                reader,
+                spec.Handle,
+                spec.Kind == CSharpTypeShellKind.Class),
             TypeParameters = MetadataDeclarationQuery.GetTypeParameters(reader, typeDef).ToList(),
             Interfaces = spec.InterfaceDisplayNames.ToList(),
             Members = members,

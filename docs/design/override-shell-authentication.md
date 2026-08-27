@@ -86,8 +86,9 @@ mismatch is `Incompatible`, not `Unknown`.
 A virtual `NewSlot` method or property accessor is reconstructed as a source
 `override` only when all of the following hold:
 
-1. An unambiguous class `MethodImpl` maps the body to a virtual declaration on
-   the base-class chain.
+1. An unambiguous class `MethodImpl` owned by the body method's declaring type
+   maps that body to a virtual declaration on the base-class chain. A row owned
+   by one type cannot borrow a sibling type's authenticated body.
 2. The declaration is source-declarable and has compatible accessibility and
    static/instance shape.
 3. Parameters correspond exactly by scoped structural identity and
@@ -420,6 +421,8 @@ assembly. Roslyn participates only in the tools-only compile-back experiment.
 - `SameAssemblyOverrideSlot_DeclinesMalformedSignatureHeader`
 - `SameAssemblyOverrideSlot_AllowsSourceDeclarableSignatureHeader`
 - `ReusesInheritedVirtualSlot_DeclinesExplicitInterfaceOnlyMethodImpl`
+- `ReusesInheritedVirtualSlot_DeclinesCrossOwnerMethodImplBody`
+- `ReusesInheritedVirtualSlot_AcceptsSameOwnerMethodImplBody`
 - `ReusesInheritedVirtualSlot_AcceptsAuthenticatedClassMethodImpl`
 - `ReusesInheritedVirtualSlot_AcceptsInheritedVirtualSlotFlags`
 - `CompileBackTargets_AllFullDoesNotDuplicateTargetedOverrideSlot`
@@ -452,6 +455,7 @@ assembly. Roslyn participates only in the tools-only compile-back experiment.
 
 ### Comparison boundedness
 
+- `TypeSurface_ManyMethodsThreadsHandlesWithoutQuadraticAllocation`
 - `SameAssemblyOverrideSlot_WideGenericParameterDagFailsClosedWithinBudget`
 - `SameAssemblyOverrideSlot_DeepGenericParameterChainFailsClosed`
 - `SameAssemblyOverrideSlot_DeepGenericParameterChainDoesNotCrashProcess`
