@@ -323,8 +323,8 @@ inspection subjects:
 - **Workspace** means the retained set of open inspection coordinates.
 - **Package** means one selected package-adapter coordinate.
 - **Library** means all admitted libraries or one library in that coordinate.
-- **Type** means one selected type in the active Library subject.
-- **Member** means one selected member of the active Type.
+- **Type** means one selected type in its defining Library context.
+- **Member** means one selected member of its containing Type context.
 
 A local file, restored project, or another non-package artifact source occupies
 the same coordinate position without being mislabelled as a Package. Package is
@@ -460,6 +460,11 @@ Library, Type, or Member item remains discoverable with `aria-disabled="true"`
 and an owner-issued reason. Activating a non-active available item submits its
 opaque action ID together with the snapshot generation; the UI renders the
 returned active subject or typed failure without choosing a replacement.
+
+A `SelectionRequired` Member hierarchy state is distinct from unavailable. It
+keeps the owner-issued `Choose a member` guidance visible while the Member
+navigation rows expose the actual activation actions; the UI does not invent a
+default Member.
 
 The inspection command, Workspace, lens strip, and content region all render
 the same returned active-subject identity. The UI does not infer initial,
@@ -998,6 +1003,11 @@ outcomes:
 8. Keep Root active in a multi-Library result and confirm that Package Type
    navigation uses the product-issued Type-inventory Library context without
    activating Library or deriving context from visible rows.
+9. Supply an active Member and confirm that only Member is `Current`; its
+   containing Type and defining Library remain non-active activation targets.
+10. Supply `SelectionRequired` Member context with available Member rows and
+    confirm that the UI exposes the guidance and actions without presenting a
+    valid-empty unavailable state or selecting a default Member.
 
 ### Workspace composition
 

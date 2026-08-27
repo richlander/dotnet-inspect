@@ -78,7 +78,7 @@ The owner returns:
 - ordered Library subject descriptors;
 - Type and Member navigation rows that wrap producer-owned inventory rows with
   activation descriptors;
-- an effective owner-issued lens identity or a typed lens-unavailable outcome;
+- an effective, unavailable, or failed typed lens outcome;
 - scoped diagnostics and partial-result evidence; and
 - a typed transition or reconciliation outcome.
 
@@ -205,8 +205,18 @@ InspectionSubjectNavigationSnapshot
 ```
 
 The active subject is exactly one available structured identity. The lens
-outcome is either an effective available identity, marked as preserved or
-recommended, or a typed lens-unavailable result.
+outcome is:
+
+```text
+Effective(identity, Preserved | Recommended | Fallback, diagnostics)
+Unavailable(reason)
+Failed(diagnostic)
+```
+
+When at least one lens is available, the effective outcome retains any failed
+alternatives as diagnostics. When none is available, completed valid-empty
+availability produces `Unavailable`; any unresolved availability failure
+produces `Failed`.
 
 The Type-inventory Library context is a separate axis from the active subject:
 
@@ -230,10 +240,11 @@ Root, Library, Type, Member order. A descriptor carries:
 - display and accessible labels;
 - whether it is active;
 - an optional recommended lens; and
-- one discriminated availability arm:
+- one discriminated state arm:
 
   ```text
   Available(target, Current | Activate(actionId), diagnostics)
+  SelectionRequired(reason)
   Unavailable(reason)
   Failed(diagnostic)
   ```
@@ -241,7 +252,9 @@ Root, Library, Type, Member order. A descriptor carries:
 Only `Available` carries a target structured identity. Its active descriptor
 carries `Current`; a non-active activatable descriptor carries an opaque action
 ID. Unavailable and failed descriptors never fabricate placeholder identities
-or action tokens.
+or action tokens. `SelectionRequired` is a hierarchy-only contextual arm: one
+or more activation rows exist, but product policy supplies no implicit single
+target.
 
 The Library descriptor is the active Type or Member's defining Library when
 one exists. At Root, its available arm targets the recommended Library subject;
@@ -253,9 +266,12 @@ The Type descriptor is the active Type, the containing Type of an active
 Member, or the owner-recommended Type when no Type is active. When none can be
 established, the descriptor is unavailable or failed and carries no target.
 
-Member has no arbitrary default. It is available only when an exact Member is
-active, retained, or explicitly requested. Otherwise it remains discoverable
-with an owner-issued reason such as `Choose a member`.
+Member has no arbitrary default. Its hierarchy descriptor is available only
+when an exact Member is active, retained, or explicitly requested. When no
+Member is committed but at least one Member activation row is available, the
+hierarchy uses `SelectionRequired` with an owner-issued reason such as
+`Choose a member`. It uses `Unavailable` only when no activatable Member exists,
+and `Failed` when that fact cannot be established.
 
 ### Library descriptors
 
@@ -265,10 +281,11 @@ The Library selector consumes a separate ordered descriptor list:
 2. the coordinate's primary library, when one is supplied; and
 3. remaining admitted libraries in workspace declaration order.
 
-Each entry uses the same discriminated descriptor shape. An available entry
-carries a complete Library subject identity plus `Current` or an action ID;
-unavailable and failed entries carry no target. A consumer does not treat
-assembly count, package kind, filename, or list position as selection policy.
+Each entry uses the `Available`, `Unavailable`, or `Failed` activation arms. An
+available entry carries a complete Library subject identity plus `Current` or
+an action ID; unavailable and failed entries carry no target. A consumer does
+not treat assembly count, package kind, filename, or list position as selection
+policy.
 
 Library selection is single-select. Arbitrary subsets are result filters, not
 Library subject identities.
@@ -317,6 +334,10 @@ Availability has the three semantic arms defined by the descriptor shape.
   target exists under the current coordinate or parent subject.
 - **Failed** means the owner could not establish availability. It must not be
   rendered as a valid empty result.
+
+`SelectionRequired` is not an availability result. It says the hierarchy level
+has available choices but no product-owned default target. Consumers must not
+render it as valid-empty or failure.
 
 Examples:
 
@@ -388,10 +409,11 @@ When no Library is available, the owner recommends Root. A package coordinate
 uses Package Overview. Another coordinate uses its root owner's recommended
 lens.
 
-If the preferred lens is unavailable, the owner selects the first available
-lens in the subject owner's order. If no lens is available, the subject remains
-active and the result carries a typed lens-unavailable outcome. The consumer
-does not choose a lens fallback.
+If the preferred lens is unavailable or failed, the owner selects the first
+available lens in the subject owner's order and retains the non-success
+evidence. If no lens is available, the subject remains active and the lens
+outcome is `Unavailable` when every result is valid-empty, otherwise `Failed`.
+The consumer does not choose a lens fallback.
 
 ## Explicit transitions
 
@@ -414,10 +436,11 @@ Failed(snapshot, diagnostic)
 
 - **Applied** activates exactly the requested subject and returns a complete
   replacement snapshot.
-- **Unavailable** preserves the active subject and returns a complete snapshot
-  reflecting the resolved current availability. When availability changed
-  while an otherwise valid action was being resolved, this is a fresh
-  generation and the unavailable descriptor carries no obsolete action ID.
+- **Unavailable** preserves the active subject while it remains available and
+  returns a complete snapshot reflecting the resolved current availability.
+  When availability changed while an otherwise valid action was being
+  resolved, this is a fresh generation and the unavailable descriptor carries
+  no obsolete action ID.
 - **Rejected** retains the current snapshot because the request is stale,
   foreign, malformed, or otherwise invalid for this generation.
 - **Failed** retains the current snapshot because subject resolution or
@@ -528,8 +551,10 @@ identities, order, and availability without defining them.
   lens became unavailable, no lens was previously committed, or the supplied
   identity is not valid for this subject -- select the subject's recommendation
   when available, then the first available lens in owner-issued order.
-- When no lens is available, return a typed lens-unavailable outcome while
-  keeping the subject active.
+- When an effective lens is selected, retain failed alternatives as diagnostics.
+- When no lens is available, return `Unavailable` only when every lens is
+  validly unavailable; return `Failed` when availability could not be
+  established. The subject remains active in either case.
 - Never carry a same-labelled lens across subject kinds by display text.
 - A failed or unavailable lens remains visible through its owner-issued
   outcome; the consumer does not choose another lens.
@@ -576,8 +601,9 @@ add implicit session state to stateless CLI commands.
 1. Realize a package with a primary Library and at least one default-accessible
    Type.
 2. Confirm that Type is recommended with the API lens.
-3. Confirm that the defining Library, Root, and unavailable Member descriptor
-   are present in hierarchy order.
+3. Confirm that the defining Library, Root, and contextual Member descriptor
+   are present in hierarchy order; Member is `SelectionRequired` when choices
+   exist and `Unavailable` only for valid empty inventory.
 4. Confirm that changing UI filters does not change the active Type.
 
 ### Multi-library package
@@ -693,10 +719,14 @@ does not construct that acquisition result.
    of its available recommendation, then the first owner-ordered available lens
    when the recommendation is unavailable.
 4. Start from a retained subject with no committed lens after a prior
-   lens-unavailable result and confirm the same recommendation-then-owner-order
+   `Unavailable` lens result and confirm the same recommendation-then-owner-order
    selection when lenses become available.
-5. Remove every lens and confirm a typed lens-unavailable outcome with the
-   subject still active.
+5. Make every lens validly unavailable and confirm an `Unavailable` outcome
+   with the subject still active.
+6. Supply no available lens and at least one failed availability result and
+   confirm a `Failed` outcome.
+7. Supply an available fallback plus another failed lens and confirm an
+   effective outcome retaining the failure as diagnostics.
 
 ### Stale action
 
@@ -717,7 +747,9 @@ covering at least:
 - `LibraryDescriptors_PlaceAggregateThenPrimaryThenDeclarationOrder`
 - `InitialLibraryRecommendation_SkipsUnavailableAggregate`
 - `UnavailableDescriptor_HasNoTargetOrActionId`
+- `MemberHierarchy_SelectionRequiredDiffersFromUnavailable`
 - `ActiveDescriptor_IsCurrentWithoutActionId`
+- `MemberSnapshot_LeavesTypeAndLibraryAncestorsNonActive`
 - `AvailableNavigationRow_TargetMatchesWrappedIdentity`
 - `EveryBoundedInventoryRow_IsWrappedInProducerOrder`
 - `TypeActivation_UsesActionIdForNonRecommendedRow`
@@ -728,6 +760,7 @@ covering at least:
 - `PartialTypeInventory_DeterministicallyRetainsCandidateAndFailure`
 - `ExplicitUnavailableTransition_RefreshesAvailabilityWithoutFallback`
 - `UnavailableTransition_ReconcilesIndependentlyInvalidatedActiveSubject`
+- `UnavailableTransition_PreservesSubjectOnlyWhileAvailable`
 - `ForeignOrStaleActionId_IsRejected`
 - `MissingMember_FallsBackToContainingTypeNotAnotherMember`
 - `SameCoordinateUnavailable_FollowsMissingSubjectRules`
@@ -740,10 +773,12 @@ covering at least:
 - `LensReconciliation_PreservesExactCommittedIdentity`
 - `LensReconciliation_SubjectChangeUsesRecommendationThenOwnerOrder`
 - `LensReconciliation_RetainedSubjectWithoutValidLensUsesTotalFallback`
+- `LensOutcome_DistinguishesUnavailableFailedAndPartialFailure`
 - `LensRecommendation_DoesNotCrossSubjectKindsByLabel`
 - `InspectWeb_SubmitsActionIdAndGeneration`
 - `InspectWeb_CoordinateVariationSuppliesPriorNavigationSnapshot`
 - `InspectWeb_UsesProductTypeInventoryLibraryContextAtRoot`
+- `InspectWeb_UsesAncestorContextWithoutActivatingAncestors`
 - `InspectWeb_ConsumesSubjectOutcomeWithoutHostFallback`
 
 Product-side gates should live with the eventual subject-navigation query.
