@@ -169,12 +169,16 @@ query's required closure, transitive cost, and single-query execution plan, and
 passes that cost into the host execution scope. Commands compile multi-query
 plans once and may reuse them across assembly contexts.
 
-`DotnetInspector.Artifacts` now provides the source-neutral floor below these
+`DotnetInspector.Artifacts` provides the source-neutral floor below these
 layers: generation-scoped identity and registration, adapter-owned typed
 provenance and diagnostics, acquisition outcomes, and owner-issued guarded
-admission/query access. It references no project. No current workspace behavior
-has moved onto that floor yet; `ArtifactSetSession`, local acquisition, and
-Metadata consumption remain later migration steps.
+admission/query access. It references no project.
+`DotnetInspector.Artifacts.Workspaces` composes bounded immutable contributions
+into a sealed `ArtifactSetSession`, and `DotnetInspector.Artifacts.Local`
+snapshots explicit files before registration. The package-free host fixture
+passes a guarded session snapshot to Metadata. Core Queries, retained workspaces,
+directory acquisition, and Metadata trust-role consumption remain later
+migration steps.
 
 ### L1 — `DotnetInspector.Queries`
 
