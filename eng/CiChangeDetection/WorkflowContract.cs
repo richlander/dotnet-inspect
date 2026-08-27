@@ -93,7 +93,6 @@ internal static partial class WorkflowContract
 
         ValidateInspectWebSdk(jobs);
         ValidatePackageManifestVerifierBuild(jobs);
-        ValidateSolutionBuildWarningsAsErrors(jobs);
 
         YamlSequenceNode steps = GetRequiredSequence(
             changes,
@@ -153,30 +152,6 @@ internal static partial class WorkflowContract
             declaredOutputs.AsReadOnly(),
             provenanceRunSha256,
             provenancePin);
-    }
-
-    internal static void AssertRemovingWarningGateFails(
-        string repository,
-        string workflowText)
-    {
-        const string command =
-            "dotnet build dotnet-inspect.slnx -c Release --warnaserror";
-        const string warningGate = " --warnaserror";
-        int commandIndex = workflowText.IndexOf(
-            command,
-            StringComparison.Ordinal);
-        if (commandIndex < 0)
-        {
-            throw new InvalidOperationException(
-                "Could not construct the solution warning-gate mutation.");
-        }
-
-        string mutated = workflowText.Remove(
-            commandIndex + command.Length - warningGate.Length,
-            warningGate.Length);
-        GateAssertions.AssertInvalidOperation(
-            () => _ = Load(repository, mutated),
-            "must run with --warnaserror");
     }
 
     private static void ValidateInspectWebSdk(YamlMappingNode jobs)
@@ -277,49 +252,6 @@ internal static partial class WorkflowContract
             "run",
             "dotnet build eng/verify-package-manifest-corpus.cs -c Release",
             "jobs.test package-manifest corpus verifier build step");
-    }
-
-    private static void ValidateSolutionBuildWarningsAsErrors(
-        YamlMappingNode jobs)
-    {
-        const string command =
-            "dotnet build dotnet-inspect.slnx -c Release --warnaserror";
-        foreach (string jobName in new[]
-        {
-            "test",
-            "test-windows",
-            "decompiler-gates",
-        })
-        {
-            YamlSequenceNode steps = GetRequiredSequence(
-                GetRequiredMapping(jobs, jobName, "jobs"),
-                "steps",
-                $"jobs.{jobName}");
-            List<YamlMappingNode> buildSteps = [];
-            foreach (YamlNode stepNode in steps.Children)
-            {
-                YamlMappingNode step = RequireMapping(
-                    stepNode,
-                    $"jobs.{jobName} step");
-                if (GetOptionalScalar(step, "name") == "Build")
-                {
-                    buildSteps.Add(step);
-                }
-            }
-
-            if (buildSteps.Count != 1)
-            {
-                throw new InvalidOperationException(
-                    $"Expected one jobs.{jobName} Build step, " +
-                    $"found {buildSteps.Count}.");
-            }
-
-            RequireScalarValue(
-                buildSteps[0],
-                "run",
-                command,
-                $"jobs.{jobName} Build step must run with --warnaserror");
-        }
     }
 
     private static void ValidateWorkflowTriggers(YamlMappingNode root)

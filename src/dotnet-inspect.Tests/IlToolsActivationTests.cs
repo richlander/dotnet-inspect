@@ -644,7 +644,7 @@ public class IlToolsActivationTests
             StringComparison.Ordinal);
         Assert.True(jobStart >= 0);
         int nextJob = workflow.IndexOf(
-            "\n  decompiler-corpus:",
+            "\n  platform-test:",
             jobStart,
             StringComparison.Ordinal);
         Assert.True(jobStart < nextJob);
@@ -725,15 +725,15 @@ public class IlToolsActivationTests
     }
 
     [Fact]
-    public void WindowsWorkflow_RestoresOraclesAndExposesGitBashBeforeCliTests()
+    public void PlatformWorkflow_RestoresOraclesAndExposesGitBashBeforeCliTests()
     {
         string workflow = File.ReadAllText(
-            Path.Combine(RepoRoot, ".github", "workflows", "ci.yml"));
+            Path.Combine(RepoRoot, ".github", "workflows", "deep-inspect.yml"));
         int jobStart = workflow.IndexOf(
-            "\n  test-windows:\n",
+            "\n  platform-test:\n",
             StringComparison.Ordinal);
         int nextJob = workflow.IndexOf(
-            "\n  build-net10:",
+            "\n  decompiler-corpus:",
             jobStart,
             StringComparison.Ordinal);
         Assert.True(jobStart >= 0);
@@ -743,16 +743,23 @@ public class IlToolsActivationTests
             "\n    steps:\n",
             StringComparison.Ordinal);
         Assert.True(stepsStart >= 0);
-        Assert.Contains("timeout-minutes: 70", job[..stepsStart]);
+        string jobHeader = job[..stepsStart];
+        Assert.Contains("inputs.lane == 'test'", jobHeader);
+        Assert.Contains("inputs.lane == 'platform-test'", jobHeader);
+        Assert.Contains("inputs.lane == 'all'", jobHeader);
+        Assert.Contains("- os: windows-latest\n            rid: win-x64", jobHeader);
+        Assert.Contains("- os: macos-latest\n            rid: osx-arm64", jobHeader);
+        Assert.Contains("- os: ubuntu-26.04\n            rid: linux-x64", jobHeader);
+        Assert.Contains("timeout-minutes: 90", jobHeader);
 
         int install = job.IndexOf(
-            "- name: Install ilasm/ildasm",
+            "- name: Install ilasm/ildasm/mdv",
             StringComparison.Ordinal);
         int cliTests = job.IndexOf(
             "- name: Run CLI tests (all)",
             StringComparison.Ordinal);
         int terminalCheck = job.IndexOf(
-            "- name: Check ilasm/ildasm result",
+            "- name: Check ilasm/ildasm/mdv result",
             StringComparison.Ordinal);
         Assert.True(install >= 0);
         Assert.True(install < cliTests);
@@ -768,8 +775,9 @@ public class IlToolsActivationTests
         Assert.Contains("timeout-minutes: 5", installStep);
         Assert.Contains("shell: bash", installStep);
         Assert.Contains("ILTOOLS_BASH=", installStep);
+        Assert.Contains("if [ \"$RUNNER_OS\" = Windows ]; then", installStep);
         Assert.Contains(
-            "eng/restore-iltools.sh --rid win-x64 --native-paths >> \"$GITHUB_PATH\"",
+            "eng/restore-iltools.sh --rid ${{ matrix.rid }} --mdv --native-paths >> \"$GITHUB_PATH\"",
             installStep);
 
         string checkStep = job[terminalCheck..];
@@ -802,14 +810,17 @@ public class IlToolsActivationTests
         Assert.True(certification >= 0);
         Assert.True(certification < nextJob);
         string job = workflow[certification..nextJob];
-        Assert.Contains("needs: [test, decompiler-corpus]", job);
+        Assert.Contains("needs: [test, platform-test, decompiler-corpus]", job);
         Assert.Contains("inputs.lane == 'test'", job);
         Assert.Contains("inputs.lane == 'all'", job);
         Assert.Contains("TEST_RESULT: ${{ needs.test.result }}", job);
-        Assert.Contains("CORPUS_RESULT: ${{ needs.decompiler-corpus.result }}", job);
         Assert.Contains(
-            "if [ \"$TEST_RESULT\" != success ] || [ \"$CORPUS_RESULT\" != success ]",
+            "PLATFORM_RESULT: ${{ needs.platform-test.result }}",
             job);
+        Assert.Contains("CORPUS_RESULT: ${{ needs.decompiler-corpus.result }}", job);
+        Assert.Contains("[ \"$TEST_RESULT\" != success ] ||", job);
+        Assert.Contains("[ \"$PLATFORM_RESULT\" != success ] ||", job);
+        Assert.Contains("[ \"$CORPUS_RESULT\" != success ]; then", job);
     }
 
     [Fact]
