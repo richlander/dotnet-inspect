@@ -711,10 +711,11 @@ export function renderExplorerCard(t: ExplorerDirectoryEntry, context: ExplorerR
         const to = win2.startRowId + rows.length - 1;
         const hasPrev = from > 1;
         const hasNext = to < win2.rowCount;
+        const pageSize = Math.max(1, win?.maxRows ?? rows.length);
         return `<div class="mde-pager">
           <span>rows ${from.toLocaleString()}–${to.toLocaleString()} of ${win2.rowCount.toLocaleString()}</span>
           <span class="mde-pager-btns">
-            <button type="button" data-mde-page="${t.index}:${Math.max(1, from - rows.length)}" ${hasPrev ? "" : "disabled"}>‹ prev</button>
+            <button type="button" data-mde-page="${t.index}:${Math.max(1, from - pageSize)}" ${hasPrev ? "" : "disabled"}>‹ prev</button>
             <button type="button" data-mde-page="${t.index}:${to + 1}" ${hasNext ? "" : "disabled"}>next ›</button>
           </span>
         </div>`;

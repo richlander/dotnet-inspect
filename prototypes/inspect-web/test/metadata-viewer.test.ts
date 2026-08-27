@@ -648,6 +648,38 @@ test("a loaded table card pages within its row count", () => {
   assert.doesNotMatch(html, /data-mde-page="2:3" disabled/);
 });
 
+test("a partial final page returns to the preceding requested window", () => {
+  const data = {
+    index: 2,
+    name: "TypeDef",
+    rowCount: 101,
+    startRowId: 101,
+    columns: [{ name: "Name", kind: "String" }],
+    rows: [
+      {
+        rowId: 101,
+        token: 0x02000065,
+        cells: [{ kind: "scalar", display: "Final" }],
+      },
+    ],
+  };
+  const html = renderMetadataExplorer(context({
+    windows: {
+      2: {
+        loading: false,
+        error: "",
+        data,
+        startRowId: 101,
+        maxRows: 50,
+      },
+    },
+  }));
+
+  assert.match(html, /rows 101–101 of 101/);
+  assert.match(html, /data-mde-page="2:51"/);
+  assert.doesNotMatch(html, /data-mde-page="2:100"/);
+});
+
 test("a table window error is shown rather than an empty grid", () => {
   const html = renderMetadataExplorer(context({
     windows: { 2: { loading: false, error: "table read failed", data: null } },
