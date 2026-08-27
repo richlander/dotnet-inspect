@@ -364,8 +364,9 @@ text:
    byte length and encode the port as an unsigned 16-bit big-endian value.
 3. Prefix the exact canonical path with the fixed ASCII relative-path sentinel
    `p`, pass that value to `UrlRedaction.ForDiagnostics`, and frame the
-   resulting `InertString` text as the path component. The sentinel remains in
-   the framed value. It forces the redaction owner down its relative-path
+   UTF-8 bytes of the resulting `InertString` text as the path component. Its
+   unsigned 32-bit frame length is the UTF-8 byte count. The sentinel remains
+   in the framed value. It forces the redaction owner down its relative-path
    contract, so the authoritative credential-slot rule runs without a second
    URI reconstruction.
 4. Concatenate scheme, host, port, and safe-path frames in that order and hash
@@ -420,6 +421,22 @@ canonical paths that full-URL diagnostic rendering normalizes together,
 including encoded trailing whitespace after a non-ASCII segment. An
 implementation that erases every path, retains an unredacted path frame, or
 hashes only display cannot pass.
+
+`PackageSourceIdentity_KeyVersionVectorsAreExactAndComplete` owns the fixed
+digest table for `p1-http-`. The gate asserts both the exact expected digest and
+the complete required case-name set, so a missing or stale vector fails. Its
+required inventory covers:
+
+- HTTP and HTTPS with default and non-default ports;
+- DNS case, IDN, IPv4, unscoped IPv6, and scoped IPv6 hosts;
+- empty/root, double-root, and optional trailing-slash paths;
+- valid percent escapes with alternate hex case;
+- an owner-recognized credential slot and its rotation; and
+- distinct canonical paths that full-URL display reconstruction folds,
+  including encoded trailing whitespace after a non-ASCII segment.
+
+Relational fold and separation gates remain in addition to this table; they do
+not substitute for exact version vectors.
 
 ### Typed result and failure contract
 
@@ -514,6 +531,7 @@ The following gates run in `src/NuGetFetch.Tests` in Release:
 - `PackageSourceIdentity_FullUrlDisplayFoldsDoNotFoldKey`;
 - `PackageSourceIdentity_GalleryAndV3ShareNuGetOrgProducer`;
 - `PackageSourceIdentity_KeyIsOpaqueStableAndPortable`;
+- `PackageSourceIdentity_KeyVersionVectorsAreExactAndComplete`;
 - `PackageSourceIdentity_CredentialPathRotationKeepsProducer`;
 - `PackageSourceIdentity_CredentialPathIsNotRetained`;
 - `PackageSourceIdentity_DisplayIsInertAndNonAuthoritative`;
