@@ -414,10 +414,10 @@ Research execution, L1 snapshots and seals:
   an explicit `Before` or `After` side.
 
 This is the complete **query input population**. It is not the later set of
-resolved methods, Research subjects, attempts, work items, or producer
-dispositions. Target expansion and body-presence resolution consume this
-population in the Research-owned follow-up design; they cannot add query input
-members retroactively.
+resolved methods, Research subjects, attempts, correspondence outcomes, work
+items, or producer results. Target expansion and target correspondence consume
+this population in the Research-owned follow-up design; they cannot add query
+input members retroactively.
 
 The operation, question, and input ids are identity. Assembly names, paths,
 MVIDs, list positions, rendered labels, filter text, and Research subject ids
@@ -567,8 +567,9 @@ closure and remains the dependency-direction proof.
 This boundary does not define:
 
 - package-role realization, resource ownership, cleanup, or budgets;
-- Research target requests, attempts, body-presence outcomes, work items,
-  producer execution, completion, or comparison semantics;
+- Research target requests, attempts, correspondence outcomes, work items,
+  producer-specific inspection topology, producer execution, completion, or
+  comparison semantics;
 - direct-member designation or comparison;
 - Source, PDB, network, or authored-source behavior;
 - outer result publication, failure composition, CLI projection, or output
