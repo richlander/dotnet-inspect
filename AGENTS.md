@@ -878,7 +878,7 @@ candidate cycle; do not ask for approval, set `HELP`, or wait for user input.
 Approval is required only before rounds 7, 13, 19, and so on. Each approval
 allows at most six more rounds; stop sooner when review converges. At a block
 boundary, conflict recovery may resolve and push immediately, but reviewers
-still wait for approval.
+still wait for approval, unless an immutable split decision hold is active.
 
 Before requesting another block, answer:
 
@@ -910,12 +910,13 @@ boundary after round 12.
 After round 12 or a later six-round boundary closes, the split recommendation
 puts the completed head in an immutable decision hold while the user decides.
 This is not a round lock; do not mutate the head or dispatch another round
-during the hold. If approved, publicly assign every current change, claim, and
-finding — including resolved or dismissed findings and their resulting changes
-or rationale — to a focused successor, or explicitly record why an item is
-being dropped. Close the current PR as superseded without merging it, and open
-the successors from their effective base. Each successor starts at round 1;
-reviews, round counts, and authorization blocks do not carry forward.
+during the hold, including for conflict recovery. If approved, publicly assign
+every current change, claim, and finding — including resolved or dismissed
+findings and their resulting changes or rationale — to a focused successor, or
+explicitly record why an item is being dropped. Close the current PR as
+superseded without merging it, and open the successors from their effective
+base. Each successor starts at round 1; reviews, round counts, and authorization
+blocks do not carry forward.
 
 At round 12 and every 6-round boundary after (18, 24, and so on), also answer:
 

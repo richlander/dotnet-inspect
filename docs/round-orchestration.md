@@ -304,8 +304,10 @@ a blocker, and it clears only when every listed predicate clears.
   author or review round is needed, but `ci-required` remains pending or
   missing, use `Waiting: check:ci-required` and `Recommendation: wait`. Use
   `Waiting: check:ci-required,merge` when live mergeability is also unresolved.
-  An intermediate or fix-producing round still reports `continue` and does not
-  wait for CI.
+  An intermediate or fix-producing round reports `continue` without waiting for
+  CI only when the next round remains inside the current authorized block. At a
+  six-round boundary, use the applicable approval, split, or stop recommendation
+  without waiting for CI.
 - `split into focused successors` is valid at round 12 and later six-round
   boundaries after the required checkpoint. It requests the user's split
   decision and follows the transition in
