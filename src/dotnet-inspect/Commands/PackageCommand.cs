@@ -1946,6 +1946,9 @@ public class PackageCommand
         if (options.ListLayout) conflicts.Add("--layout");
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.Print) conflicts.Add("--print");
+        if (options.Value) conflicts.Add("--value");
+        if (options.Urls) conflicts.Add("--urls");
+        if (options.Paths) conflicts.Add("--paths");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         else if (options.Tree && options.Discover == null && !options.Count) conflicts.Add("--tree");
         if (options.PackageLibrary != null) conflicts.Add("--library");

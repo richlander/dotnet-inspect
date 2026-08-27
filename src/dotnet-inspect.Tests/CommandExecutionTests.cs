@@ -11339,6 +11339,50 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task ProjectedJsonRoutingAudit_EffectiveDiscoveryProjectionPreservesRows()
+    {
+        var count = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-D", "--json", "--count", "--tips", "q");
+        var typed = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-D", "--json", "--tips", "q");
+        var projected = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-D", "--json", "--columns", "Name", "--tips", "q");
+        var structural = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-D", "--schema", "--json", "--tips", "q");
+
+        foreach (var result in new[] { count, typed, projected, structural })
+        {
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+        }
+
+        using var typedDocument = JsonDocument.Parse(typed.Output);
+        using var projectedDocument = JsonDocument.Parse(projected.Output);
+        using var structuralDocument = JsonDocument.Parse(structural.Output);
+        var typedNames = typedDocument.RootElement.EnumerateArray()
+            .Select(row => row.GetProperty("name").GetString())
+            .ToArray();
+        var projectedNames = projectedDocument.RootElement.EnumerateArray()
+            .Select(row => row.GetProperty("name").GetString())
+            .ToArray();
+        var structuralNames = structuralDocument.RootElement.EnumerateArray()
+            .Select(row => row.GetProperty("name").GetString())
+            .ToArray();
+
+        Assert.Equal(typedNames.Length, int.Parse(count.Output, CultureInfo.InvariantCulture));
+        Assert.Equal(typedNames, projectedNames);
+        Assert.Contains(
+            structuralNames,
+            name => name is not null
+                && name.StartsWith('@')
+                && !typedNames.Contains(name));
+    }
+
+    [Fact]
     public async Task Router_RewrittenCommand_IsAudited()
     {
         // The router captures projection flags as raw tokens, so the outer invocation records
@@ -22308,6 +22352,36 @@ public partial class CommandExecutionTests
             Assert.Empty(output);
             Assert.Contains("Multiple package output requires --json or a row format", error);
             Assert.DoesNotContain("No columns matched projection", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("--value")]
+    [InlineData("--urls")]
+    [InlineData("--paths")]
+    public async Task ProjectedJsonRoutingAudit_MultiPackagePayloadProjectionsFailClosed(
+        string projection)
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.MultiPayloadProjection",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, packagePath,
+                "-S", "Package Info",
+                "--json", "--fields", "Version", projection, "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                $"Multiple package inspection cannot be combined with {projection}",
+                error);
         }
         finally
         {

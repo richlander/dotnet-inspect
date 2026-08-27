@@ -230,6 +230,9 @@ public static class DiscoverOutput
             else
                 filtered.AddSection(name);
         }
+        var effectiveSectionCategories = FilterCategories(
+            sectionCategories,
+            filtered.SectionNames);
 
         string[]? projectedColumns = null;
         if (IsProjectedJson(json, projection)
@@ -279,14 +282,14 @@ public static class DiscoverOutput
                 discover,
                 filtered,
                 sectionCostAnnotations,
-                sectionCategories,
+                effectiveSectionCategories,
                 catalogHiddenSections,
                 listedCategoryDoors,
                 projection!,
                 projectedColumns);
         }
 
-        return Execute(discover, filtered, tree, markdown, json, tsv, jsonl, verbosity, rootLabel, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors, projection);
+        return Execute(discover, filtered, tree, markdown, json, tsv, jsonl, verbosity, rootLabel, sectionCostAnnotations, effectiveSectionCategories, catalogHiddenSections, listedCategoryDoors, projection);
     }
 
     /// <summary>

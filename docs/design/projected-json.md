@@ -625,8 +625,10 @@ Existing pilot coverage proves only the currently wired slice:
   and inherited options. The
   `ProjectedJsonRoutingAudit_*TypedDocumentFailsClosed`,
   `ProjectedJsonRoutingAudit_*DiscoveryOwnsProjectedJson`,
+  `ProjectedJsonRoutingAudit_EffectiveDiscoveryProjectionPreservesRows`,
   `ProjectedJsonRoutingAudit_EmptyEffectiveDiscoveryValidatesProjection`,
   `ProjectedJsonRoutingAudit_IlOffsetsProjectionFailsClosed`,
+  `ProjectedJsonRoutingAudit_MultiPackagePayloadProjectionsFailClosed`,
   `ProjectedJsonRoutingAudit_PackageLensRoutesFailClosed`, and
   `ProjectedJsonRoutingAudit_PackageSearchInheritedProjectionFailsClosed`
   tests, together with the existing `type`, `member`, `project`, `find`,
