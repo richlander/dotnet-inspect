@@ -159,6 +159,10 @@ act on them**:
   and nothing is openable — a check that has not reported yet is not a defect
   and does not deserve an issue.
 
+`waiting=merge` is valid only after current-head `ci-required` is confirmed
+green. It retains that fixed-head evidence, so a scheduled successor reads only
+PR lifecycle and mergeability; a head change invalidates the evidence.
+
 `rec=wait` is coherent when either is populated. `blocked=ci` is the specific
 error this split exists to remove: it names nothing a person can open and
 nothing a tool can evaluate, so it reads as a wait on nothing.

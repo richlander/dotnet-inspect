@@ -77,7 +77,8 @@ gh api "repos/{owner}/{repo}/pulls/$pr_number" \
 If that tool call fails, apply the rate-limit, transient, or terminal rule
 above before doing anything else. If it succeeds, apply the lifecycle, head,
 and `mergeable: false` transitions below. Only when those permit the second
-request, copy the validated 40-character head SHA into this separate tool call:
+request and the retained predicate is `waiting=checks`, copy the validated
+40-character head SHA into this separate tool call:
 
 ```bash
 head_sha="replace-with-validated-head-sha"
@@ -90,6 +91,12 @@ Apply the same failure rules if the second tool call fails. Because the PR
 request succeeded but check state remains unknown, publish `waiting=checks`
 before arming any transient or rate-limit successor; retain the existing
 `goal`.
+
+`waiting=merge` records that `ci-required` was already confirmed green for the
+expected head, whether by the preceding snapshot or a trusted user statement.
+After the PR request validates that same head, retain that evidence and do not
+repeat the check-runs request. Read only lifecycle and mergeability until the
+predicate resolves; any returned-head mismatch invalidates the evidence.
 
 `--include` exposes the HTTP status and the `Retry-After`,
 `x-ratelimit-remaining`, and `x-ratelimit-reset` headers without another API
@@ -188,7 +195,9 @@ merge attempt. Then schedule exactly one status run for the next useful time:
 push otherwise, or five minutes later when CI is already green and mergeability
 alone is unresolved. Run immediately if that target time has already passed.
 The future turn is intentional; do not reject scheduling because it consumes
-one, and do not wait for the user to volunteer status.
+one, and do not wait for the user to volunteer status. Publish `waiting=merge`
+only when current-head CI is already green; its successor spends only the PR
+request.
 
 Retain the active schedule ID beside its expected head, waiting predicate, goal,
 and attempt when present. Cancel it immediately when the predicate clears, the
