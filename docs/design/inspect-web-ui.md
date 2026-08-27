@@ -232,10 +232,15 @@ repeat that identity merely to create a local hero heading.
 
 The API and Source lenses begin with their primary content. Their accessible
 heading relationship includes both the product-owned active-subject label from
-the inspection command and the active lens label. The always-present
-active-subject token is the visible level-one heading for a root, Library, Type,
-or Member subject. The lens panel's `aria-labelledby` references that label and
-the active lens tab.
+the inspection command and the active lens label. While an inspection surface
+is active, the active-subject token is the visible level-one heading for a root,
+Library, Type, or Member subject. The lens panel's `aria-labelledby` references
+that label and the active lens tab.
+
+Home, Workspace, and Diagnostics replace the inspection-command region with
+their own visible level-one heading. Returning to an inspection surface restores
+the command and its active-subject heading; two visible level-one headings are
+never rendered for one routed surface.
 
 They do not repeat:
 
@@ -330,13 +335,13 @@ tablist are removed. One single-line inspection command identifies the
 Workspace root, active coordinate, and current leaf subject:
 
 ```text
-dotnet-inspect  System.Text.Json@10.0.0/net10.0  System.Text.Json.JsonSerializer.DeserializeAsync
-dotnet-inspect  MyAssembly.dll                   MyNamespace.MyType
-dotnet-inspect  DotnetInspect.TestAssets.ToolV2  Package
+dotnet-inspect  System.Text.Json@10.0.0/net10.0  System.Text.Json.JsonSerializer.DeserializeAsync  Copy target
+dotnet-inspect  MyAssembly.dll                   MyNamespace.MyType                              Copy target
+dotnet-inspect  DotnetInspect.TestAssets.ToolV2  Package                                         Copy target
 ```
 
 The command starts without a separator glyph. Spacing and typography distinguish
-its three roles:
+its three identity roles:
 
 1. `dotnet-inspect` is the Workspace root.
 2. The coordinate identifies the active package, platform, project, file, or
@@ -344,6 +349,8 @@ its three roles:
 3. The current subject identifies the active root, Library, Type, or Member.
    At a package root its label is `Package`; another coordinate kind uses its
    owner-issued root label.
+
+One trailing visible `Copy target` button follows those identity roles.
 
 The displayed subject need not mechanically repeat every parent. A Type or
 Member normally uses its product-owned qualified display identity. A defining
@@ -355,8 +362,8 @@ qualification elides before the coordinate or leaf subject. The complete
 product-owned identity remains in the accessible name and focused or expanded
 presentation.
 
-Each visible role is a real interactive control rather than click behavior
-attached to inert text:
+Each identity role and the trailing action is a real interactive control rather
+than click behavior attached to inert text:
 
 - activating `dotnet-inspect` opens Workspace;
 - activating the coordinate opens a coordinate menu whose first action
@@ -519,15 +526,11 @@ The active library subject remains visible while the library list is filtered
 or collapsed. A lens heading distinguishes aggregate results from a
 single-library result.
 
-Package and Type navigation honor the same active Library subject. With
-`All libraries`, their type lists include every admitted library; with one
-library selected, they include only that library's types. The type-navigation
-heading shows `All libraries` or the selected library as context and links back
-to the Library subject for changes. It is not a second library selector.
-
-The active Library subject also constrains the eligible Type and Member
-subjects. A Type from another library is not retained merely because it still
-exists elsewhere in the package coordinate.
+Package and Type navigation render the owner-issued Type and Member descriptors
+returned for the active Library subject. The type-navigation heading shows
+`All libraries` or the selected library as context and links back to the
+Library subject for changes. It is not a second library selector, and the UI
+does not recalculate eligibility or retention from assembly membership.
 
 When the product surface identifies colliding types under `All libraries`, type
 navigation qualifies only those rows with their product-owned defining library.
@@ -599,7 +602,10 @@ workspace state is portable and how it is encoded, decoded, and restored. The
 UI receives a typed projectable, non-projectable, or failed outcome; it never
 inspects compact fields.
 
-- A projectable outcome supplies the canonical URL.
+- A projectable outcome supplies the opaque canonical packet and an optional
+  product-issued package courtesy identity. The UI location adapter composes
+  `w=<packet>` and, only when that courtesy identity is present,
+  `package=<identity>`.
 - A non-projectable outcome leaves the current presentation session-local and
   supplies the visible reason used by explicit Share.
 - A failed transition retains the prior workspace and URL and surfaces the
@@ -650,11 +656,18 @@ Spotlight, Open, Settings, and the narrow navigation drawer are modal dialogs:
 - Tab and Shift+Tab remain within the dialog;
 - Escape closes it unless an owner-issued destructive confirmation is active;
   and
-- closing returns focus to the invoking control.
+- ordinary dismissal returns focus to the invoking control.
 
-Workspace and Diagnostics are routed full-bleed surfaces rather than dialogs.
-Navigation places focus on their visible level-one heading. Browser Back returns
-to the prior routed surface and restores focus through the history transition.
+Opening or closing a modal does not create a browser-history entry. When a modal
+action routes to Home, Workspace, or Diagnostics, the modal closes without
+returning focus to its invoker; the destination's visible level-one heading
+receives focus. Browser Back returns to the prior routed surface without
+reopening the modal.
+
+Home, Workspace, and Diagnostics are routed full-bleed surfaces rather than
+dialogs. Navigation places focus on their visible level-one heading. Browser
+Back returns to the prior routed surface and restores focus through the history
+transition.
 
 ### Search
 
@@ -815,6 +828,7 @@ One information hierarchy adapts across viewport sizes:
 - narrow layouts replace the navigation pane with a visible
   `Types` or `Members` button that opens the shared modal navigation drawer;
 - the inspection command remains one line;
+- `Copy target` remains a visible trailing action;
 - coordinate and leaf subject have highest truncation priority;
 - intermediate qualification elides first;
 - lens navigation scrolls horizontally instead of wrapping; and
@@ -909,6 +923,8 @@ outcomes:
    uses the owner-issued root label and still opens the hierarchy menu.
 5. Supply a typed transition failure and confirm that it is visible without the
    UI selecting another subject.
+6. Confirm that the trailing `Copy target` button remains visible and copies
+   the product-issued canonical target rather than display text.
 
 ### Workspace composition
 
@@ -921,12 +937,15 @@ outcomes:
 
 ### Canonical adapter
 
-1. Supply a projectable outcome and confirm that the UI adopts its canonical
-   URL with the transition's push or replace history classification.
-2. Supply a non-projectable outcome and confirm that explicit Share presents
+1. Supply a projectable outcome containing an opaque packet and package courtesy
+   identity and confirm that the UI composes both query fields with the
+   transition's push or replace history classification.
+2. Supply a projectable non-package outcome and confirm that the UI composes
+   only `w` without placing a local coordinate in readable URL state.
+3. Supply a non-projectable outcome and confirm that explicit Share presents
    the owner-issued reason without claiming refresh portability.
-3. Supply a failed outcome and confirm that the prior workspace and URL remain.
-4. Confirm that route preflight, refresh, and shared-link activation never parse
+4. Supply a failed outcome and confirm that the prior workspace and URL remain.
+5. Confirm that route preflight, refresh, and shared-link activation never parse
    compact packet fields or use the readable package courtesy identity as a
    fallback workspace.
 
@@ -998,10 +1017,12 @@ outcomes:
    Escape.
 2. Confirm accessible naming, initial focus, modal containment, inert
    background content, and focus return for each.
-3. Navigate to Workspace and Diagnostics and confirm that they are routed
-   surfaces with visible level-one headings rather than modal dialogs.
-4. Use Browser Back and confirm that the prior routed surface and focus context
-   return.
+3. Launch Diagnostics from Settings and Spotlight and confirm that focus moves
+   to the routed Diagnostics heading rather than back to the modal invoker.
+4. Navigate to Home, Workspace, and Diagnostics and confirm that each is a
+   routed surface with one visible level-one heading and no inspection command.
+5. Use Browser Back and confirm that the prior routed surface and focus context
+   return without reopening the dismissed modal.
 
 ### Data and diagnostics
 
