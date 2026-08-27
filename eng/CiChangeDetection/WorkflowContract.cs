@@ -91,6 +91,7 @@ internal static partial class WorkflowContract
         }
 
         ValidateInspectWebSdk(jobs);
+        ValidatePackageManifestVerifierBuild(jobs);
 
         YamlSequenceNode steps = GetRequiredSequence(
             changes,
@@ -191,6 +192,47 @@ internal static partial class WorkflowContract
             "dotnet-quality",
             "preview",
             "jobs.inspect-web setup-dotnet.with");
+    }
+
+    private static void ValidatePackageManifestVerifierBuild(
+        YamlMappingNode jobs)
+    {
+        YamlMappingNode test = GetRequiredMapping(
+            jobs,
+            "test",
+            "jobs");
+        YamlSequenceNode steps = GetRequiredSequence(
+            test,
+            "steps",
+            "jobs.test");
+        List<YamlMappingNode> verifierBuildSteps = [];
+        foreach (YamlNode stepNode in steps.Children)
+        {
+            YamlMappingNode step = RequireMapping(
+                stepNode,
+                "jobs.test step");
+            if (GetOptionalScalar(step, "name") ==
+                "Build package-manifest corpus verifier")
+            {
+                verifierBuildSteps.Add(step);
+            }
+        }
+
+        if (verifierBuildSteps.Count != 1)
+        {
+            throw new InvalidOperationException(
+                "Expected one jobs.test package-manifest corpus verifier build step.");
+        }
+
+        RequireExactKeys(
+            verifierBuildSteps[0],
+            ["name", "run"],
+            "jobs.test package-manifest corpus verifier build step");
+        RequireScalarValue(
+            verifierBuildSteps[0],
+            "run",
+            "dotnet build eng/verify-package-manifest-corpus.cs -c Release",
+            "jobs.test package-manifest corpus verifier build step");
     }
 
     private static void ValidateCheckoutStep(YamlSequenceNode steps)

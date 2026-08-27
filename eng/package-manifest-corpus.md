@@ -5,12 +5,15 @@ packages without checking third-party content into the repository. The catalog
 at `eng/package-manifest-corpus.json` contains only package coordinates,
 SHA-256 hashes, and the compatibility shapes each entry covers.
 
-| Package | Version | SHA-256 |
-| --- | --- | --- |
-| `Newtonsoft.Json` | `3.5.8` | `7990b971ca0f217da4c82a9a4606e5cbf08746857ad7ee7541559c80750fdfdb` |
-| `dotnet-ef` | `9.0.0` | `7a6d4b662a24af6192ac0262c433f7a11d95f9a79a705888554ec242799160a3` |
-| `Spectre.Console` | `0.49.1` | `12a7877ded4a2d3d96db03432d65afeeb8b8b7936894a722ef6b2a507a679379` |
-| `Microsoft.SourceLink.GitHub` | `8.0.0` | `b1081e636501a0cdcf7b6e93ff97783d263d30b7b745f12ef4a266d3aa402cd6` |
+| Package | Version |
+| --- | --- |
+| `Newtonsoft.Json` | `3.5.8` |
+| `dotnet-ef` | `9.0.0` |
+| `Spectre.Console` | `0.49.1` |
+| `Microsoft.SourceLink.GitHub` | `8.0.0` |
+
+The exact SHA-256 values live in the catalog and are pinned by the offline
+coordinate-and-hash gate rather than duplicated here.
 
 Together these manifests cover a namespace-free root, a root schema
 namespace, legacy metadata namespace placement, grouped and ungrouped
@@ -40,8 +43,8 @@ the product manifest byte limit, verifies its SHA-256 hash, runs
 NuGet.Packaging oracle. The pinned baseline is four passing entries with all
 declared compatibility shapes observed.
 
-`PackageManifestCorpusTests.Catalog_PinsExpectedCoordinatesAndCoversEveryShape`
-gates the coordinate set and required shape coverage.
+`PackageManifestCorpusTests.Catalog_PinsExpectedCoordinatesHashesAndCoversEveryShape`
+gates the coordinate-and-hash set and required shape coverage.
 `PackageManifestCorpusTests.Verifier_RejectsHashMismatchBeforeProjection` and
 `PackageManifestCorpusTests.Comparer_ReportsOracleDisagreementWithoutValues`
 gate visible, content-free failures. The live command is the acquisition and
@@ -60,9 +63,9 @@ dotnet run eng/verify-package-manifest-corpus.cs
 ```
 
 `--refresh` writes new hashes only after product/oracle agreement and declared
-coverage checks pass. Review every changed hash and update this table and the
-recorded baseline. Prefer adding a coordinate for a newly required shape over
-replacing an entry that supplies distinct historical coverage.
+coverage checks pass. Review every changed hash and update the offline expected
+set and recorded baseline. Prefer adding a coordinate for a newly required
+shape over replacing an entry that supplies distinct historical coverage.
 
 Do not vendor downloaded manifests or packages. Purpose-built first-party
 hosted fixtures have a different immutability and publication contract owned by

@@ -9,19 +9,19 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class PackageManifestCorpusTests
 {
     [Fact]
-    public void Catalog_PinsExpectedCoordinatesAndCoversEveryShape()
+    public void Catalog_PinsExpectedCoordinatesHashesAndCoversEveryShape()
     {
         PackageManifestCorpusCatalog catalog = LoadCatalog();
 
         Assert.Equal(
             [
-                "Newtonsoft.Json@3.5.8",
-                "dotnet-ef@9.0.0",
-                "Spectre.Console@0.49.1",
-                "Microsoft.SourceLink.GitHub@8.0.0",
+                "Newtonsoft.Json@3.5.8:7990b971ca0f217da4c82a9a4606e5cbf08746857ad7ee7541559c80750fdfdb",
+                "dotnet-ef@9.0.0:7a6d4b662a24af6192ac0262c433f7a11d95f9a79a705888554ec242799160a3",
+                "Spectre.Console@0.49.1:12a7877ded4a2d3d96db03432d65afeeb8b8b7936894a722ef6b2a507a679379",
+                "Microsoft.SourceLink.GitHub@8.0.0:b1081e636501a0cdcf7b6e93ff97783d263d30b7b745f12ef4a266d3aa402cd6",
             ],
             catalog.Packages.Select(entry =>
-                $"{entry.Id}@{entry.Version}"));
+                $"{entry.Id}@{entry.Version}:{entry.Sha256}"));
         Assert.Equal(
             Enum.GetValues<PackageManifestCorpusCoverage>()
                 .Order(),
@@ -195,6 +195,40 @@ public sealed class PackageManifestCorpusTests
                 $"{entry.Id}@{entry.Version}:{entry.Sha256}"),
             roundTripped.Packages.Select(entry =>
                 $"{entry.Id}@{entry.Version}:{entry.Sha256}"));
+    }
+
+    [Fact]
+    public void Oracle_RejectsMixedDependencyLayoutsExplicitly()
+    {
+        byte[] manifestBytes = Encoding.UTF8.GetBytes(
+            """
+            <package>
+              <metadata>
+                <id>Example.Package</id>
+                <version>1.0.0</version>
+                <authors>Example Authors</authors>
+                <description>Example description</description>
+                <dependencies>
+                  <group targetFramework="net8.0">
+                    <dependency id="Grouped.Dependency" version="1.0.0" />
+                  </group>
+                  <dependency id="Ungrouped.Dependency" version="2.0.0" />
+                </dependencies>
+              </metadata>
+            </package>
+            """);
+
+        InvalidDataException exception = Assert.Throws<
+            InvalidDataException>(() =>
+                PackageManifestCorpusVerifier.ProjectOracle(
+                    manifestBytes,
+                    XDocument.Parse(
+                        Encoding.UTF8.GetString(manifestBytes))));
+
+        Assert.Contains(
+            "does not support mixed grouped and ungrouped dependencies",
+            exception.Message,
+            StringComparison.Ordinal);
     }
 
     private static PackageManifestCorpusCatalog LoadCatalog()

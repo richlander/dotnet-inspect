@@ -299,6 +299,13 @@ public static class PackageManifestCorpusVerifier
         XElement? dependencies = metadata.Element(ns + "dependencies");
         bool hasUngroupedDependencies =
             dependencies?.Elements(ns + "dependency").Any() == true;
+        bool hasGroupedDependencies =
+            dependencies?.Elements(ns + "group").Any() == true;
+        if (hasGroupedDependencies && hasUngroupedDependencies)
+        {
+            throw new InvalidDataException(
+                "The package-manifest corpus oracle does not support mixed grouped and ungrouped dependencies.");
+        }
 
         RepositoryMetadata repository = reader.GetRepositoryMetadata();
         LicenseMetadata? license = reader.GetLicenseMetadata();
