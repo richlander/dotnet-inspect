@@ -414,6 +414,36 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void GenericMethodDeclaration_ContainsTypeParameterWithoutCollapsingSyntax()
+    {
+        const string parameterName = "T\u202E";
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Map",
+            Kind = "method",
+            Signature = $"void Map<{parameterName}>()",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "void",
+                MemberName = $"Map<{parameterName}>",
+                TypeParameters = [new TypeParameter { Name = parameterName }],
+            },
+        };
+
+        string declaration =
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+        string compatibility =
+            new CSharpFormatter()
+                .FormatCompatibilityMemberSignature(type, member);
+
+        Assert.Contains(@"Map<T\u202E>()", declaration);
+        Assert.Contains(@"Map<T\u202E>()", compatibility);
+        Assert.DoesNotContain("Map_T", declaration);
+        Assert.DoesNotContain("Map_T", compatibility);
+    }
+
+    [Fact]
     public void MethodDeclaration_CanRenderStructuredParameterAttributes()
     {
         var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
@@ -1527,6 +1557,21 @@ public sealed class CSharpDeclarationWriterTests
 
         Assert.Contains(@"Name\\Path", contained);
         Assert.Contains("Bad\"Name", contained);
+    }
+
+    [Fact]
+    public void BalancedMetadataQuotes_DoNotDisableCompatibilityContainment()
+    {
+        const string signature =
+            "N.Bad\"Balanced\"Name\\Path Run(string text = \"line\\n\")";
+
+        string contained =
+            CSharpFormatter.ContainCompatibilitySignature(signature);
+
+        Assert.Contains(@"Name\\Path", contained);
+        Assert.Contains("Bad\"Balanced\"Name", contained);
+        Assert.Contains("= \"line\\n\"", contained);
+        Assert.DoesNotContain(@"line\\n", contained);
     }
 
     [Theory]

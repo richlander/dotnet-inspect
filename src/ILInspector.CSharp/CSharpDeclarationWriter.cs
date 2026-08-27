@@ -1803,9 +1803,11 @@ internal static class CSharpDeclarationWriter
         for (int index = 0; index < signature.Length;)
         {
             int literalEnd;
-            if (IsStringLiteralStart(signature, index))
+            if (IsDefaultValueLiteralStart(signature, index)
+                && IsStringLiteralStart(signature, index))
                 literalEnd = SkipStringLiteral(signature, index);
-            else if (signature[index] == '\'')
+            else if (signature[index] == '\''
+                && IsDefaultValueLiteralStart(signature, index))
                 literalEnd = SkipCharLiteral(signature, index);
             else
             {
@@ -1832,6 +1834,14 @@ internal static class CSharpDeclarationWriter
             CSharpIdentifierCore.ContainRawComposedName(
                 signature[chunkStart..]));
         return builder.ToString();
+    }
+
+    static bool IsDefaultValueLiteralStart(string signature, int index)
+    {
+        int previous = index - 1;
+        while (previous >= 0 && char.IsWhiteSpace(signature[previous]))
+            previous--;
+        return previous >= 0 && signature[previous] == '=';
     }
 
     internal static string RenderCompatibilityMemberSignature(
@@ -1952,7 +1962,7 @@ internal static class CSharpDeclarationWriter
             && model.ReturnType is { Length: > 0 } returnType)
         {
             signature =
-                $"{EscapeTypeKeywords(returnType)} {ContainMemberName(memberName)}({parameters})";
+                $"{EscapeTypeKeywords(returnType)} {ContainStructuredMethodName(memberName, model.TypeParameters)}({parameters})";
             if (!compatibilityShape)
             {
                 signature = AppendMemberTypeParameterConstraints(
@@ -2657,6 +2667,27 @@ internal static class CSharpDeclarationWriter
         => name.Contains('.', StringComparison.Ordinal)
             ? ContainQualifiedName(name)
             : SanitizeIdentifier(name);
+
+    static string ContainStructuredMethodName(
+        string name,
+        IReadOnlyList<TypeParameter> typeParameters)
+    {
+        if (typeParameters.Count == 0)
+            return ContainMemberName(name);
+
+        string rawSuffix =
+            $"<{string.Join(", ", typeParameters.Select(parameter => parameter.Name))}>";
+        if (!name.EndsWith(rawSuffix, StringComparison.Ordinal))
+            return ContainMemberName(name);
+
+        string methodName = ContainMemberName(name[..^rawSuffix.Length]);
+        string parameters = string.Join(
+            ", ",
+            typeParameters.Select(parameter =>
+                CSharpIdentifierCore.ContainRawComposedName(
+                    EscapeIdentifier(parameter.Name))));
+        return $"{methodName}<{parameters}>";
+    }
 
     public static string EscapeIdentifier(string name)
         => CSharpKeywords.RequiresDeclarationEscape(name) ? "@" + name : name;

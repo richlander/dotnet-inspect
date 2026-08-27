@@ -103,11 +103,22 @@ type syntax and doubles literal backslashes, so a referenced type containing
 literal `\u0041` cannot masquerade as a generated escape. Structured member
 signatures apply that boundary to each raw return, parameter, constraint, base,
 and interface type before composing the declaration; existing C# default-value
-escapes remain presentation syntax and are not doubled. All member kinds with
-an `ApiSignature` use that structured provenance rather than reinterpreting
-their mixed-provenance compatibility text. Legacy or degraded model-free text
-uses conservative compatibility containment; when that changes the spelling,
-document JSON reports `signature_decode_status: Degraded`. When a
+escapes remain presentation syntax and are not doubled. Generic method syntax
+is composed only after the base name and each type-parameter name cross their
+own boundaries, so containment cannot collapse `<...>` into one identifier.
+Raw attribute and named-argument identifiers likewise cross the raw-name
+boundary before composition with already-rendered argument values. All member
+kinds with an `ApiSignature` use that structured provenance rather than
+reinterpreting their mixed-provenance compatibility text. Persisted
+compatibility signatures keep raw method and parameter name slots (while
+retaining ordinary keyword escapes), so losing the non-persisted `ApiSignature`
+cannot add a second containment layer.
+
+Legacy or degraded model-free text uses conservative compatibility containment.
+Only a quote where a default value may begin opens a rendered C# literal;
+balanced quote characters inside metadata names do not hide the remaining
+signature from containment. When compatibility containment changes the
+spelling, document JSON reports `signature_decode_status: Degraded`. When a
 literal backslash in a structured raw slot requires disambiguation, document
 JSON prepares that declaration without mutating `ApiMember`; benign signatures
 stay byte-neutral, while a degraded compatibility signature remains visibly
@@ -122,12 +133,17 @@ rather than re-importing its visible spelling as clean text.
 `SemanticTypeOutputContainmentTests.PreparedJsonSignature_DistinguishesRawParameterNameEscapes`,
 `SemanticTypeOutputContainmentTests.PreparedJsonSignature_ModelFreeHazardsRemainDistinctAndVisible`,
 `SemanticTypeOutputContainmentTests.PreparedJsonSignature_DegradedFallbackRemainsVisible`,
+`SemanticTypeOutputContainmentTests.CompatibilitySignature_PersistenceRoundTripIsPresentationIdempotent`,
+`SemanticTypeOutputContainmentTests.PreparedJsonSignature_BalancedMetadataQuotesRemainContainedAndDegraded`,
 `SemanticTypeOutputContainmentTests.TypeParameterJson_PreservesSyntaxAndContainsRawTypes`,
 `SemanticTypeOutputContainmentTests.CSharpCodeText_PreservesContainmentEvidence`,
 `UntrustedLibraryViewContainmentTests.TypeJson_WithLiteralEscapeMetadataName_PreservesIdentity`,
 `CSharpDeclarationWriterTests.CompatibilitySignature_ContainsCodeButPreservesLiteralEscapes`,
 `CSharpDeclarationWriterTests.StructuredOperator_DoesNotRecontainCompatibilityNames`,
 `CSharpDeclarationWriterTests.UnterminatedMetadataQuote_DoesNotDisableCompatibilityContainment`,
+`CSharpDeclarationWriterTests.BalancedMetadataQuotes_DoNotDisableCompatibilityContainment`,
+`CSharpDeclarationWriterTests.GenericMethodDeclaration_ContainsTypeParameterWithoutCollapsingSyntax`,
+`AttributeReaderTests.AttributeIdentifiers_DistinguishLiteralEscapesFromScalars`,
 `CSharpFormatterTests.FormatTypeParameterConstraints_PreservesConstraintSyntax`,
 `CSharpFormatterTests.FormatTypeName_ExactSegmentDisambiguatesLiteralBackslashOnce`,
 and the `ContainIdentifier_*`, `ContainRawComposedName_*`, and
@@ -137,15 +153,16 @@ and the `ContainIdentifier_*`, `ContainRawComposedName_*`, and
 Documentation is free-form text rather than C# syntax. Extraction folds its
 lines and retains the result using the actual `InertString` field codec; API
 views and document JSON import that encoded value instead of decoding or
-encoding it again. Ordinary persistence JSON decodes that known encoded
-currency before the model setter retains it, so serialization round trips do
-not add another layer. The reader proves the spelling is canonical by
-re-encoding it before decoding and rejects any decode that would introduce a
-line terminator for the model setter to fold; noncanonical legacy text and
-canonical-looking legacy line tokens remain literal.
+encoding it again. Ordinary persistence JSON writes decoded untreated
+documentation and reads untreated text through the model setter, so there is
+exactly one containment boundary. The writer proves the in-memory spelling is
+canonical by decoding and re-encoding it. The reader does not guess whether a
+legacy escape-looking spelling is encoded: legacy literal `\u202E` and an
+actual U+202E scalar therefore remain distinct.
 `SemanticTypeOutputContainmentTests.DocumentationEncoding_PreservesLiteralEscapeIdentity`,
 `SemanticTypeOutputContainmentTests.DocumentationEncoding_RoundTripsThroughPersistenceJson`,
 `SemanticTypeOutputContainmentTests.DocumentationPersistence_LegacyLiteralEscapeRemainsLiteral`,
+`SemanticTypeOutputContainmentTests.DocumentationPersistence_LegacyHazardousEscapeRemainsLiteral`,
 `SemanticTypeOutputContainmentTests.DocumentationPersistence_LegacyLineTokenRemainsLiteral`,
 `SemanticTypeOutputContainmentTests.SurfaceDescription_ImportsDocumentationEncodingOnce`,
 `SemanticTypeOutputContainmentTests.SurfaceDescription_TruncatesWithoutSplittingEncodedToken`,

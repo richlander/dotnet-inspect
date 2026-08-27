@@ -81,14 +81,14 @@ public class DocComment
 }
 
 /// <summary>
-/// Restores serialized documentation to untreated text before
-/// <see cref="DocComment"/> retains it through the field codec again.
+/// Persists documentation as untreated text while <see cref="DocComment"/>
+/// retains canonical field-contained text in memory.
 /// </summary>
 /// <remarks>
 /// <c>SemanticTypeOutputContainmentTests.DocumentationEncoding_RoundTripsThroughPersistenceJson</c>
-/// gates the non-vacuity of this persistence boundary. Only a canonical field
-/// spelling is decoded; <c>DocumentationPersistence_LegacyLiteralEscapeRemainsLiteral</c>
-/// gates compatibility with untreated legacy persistence.
+/// gates the non-vacuity of this persistence boundary.
+/// <c>DocumentationPersistence_LegacyHazardousEscapeRemainsLiteral</c> gates
+/// compatibility with untreated legacy persistence.
 /// </remarks>
 public sealed class EncodedDocTextJsonConverter : JsonConverter<string>
 {
@@ -100,29 +100,26 @@ public sealed class EncodedDocTextJsonConverter : JsonConverter<string>
         if (reader.TokenType != JsonTokenType.String)
             throw new JsonException("Encoded documentation must be a string.");
 
-        string encoded = reader.GetString()!;
-        if (VisualEncoder.TryDecode(encoded, out string? untreated)
-            && !ContainsLineTerminator(untreated)
-            && string.Equals(
-                new InertString(TextPolicy.Field, untreated).ToString(),
-                encoded,
-                StringComparison.Ordinal))
-            return untreated;
-
-        return encoded;
-
-        static bool ContainsLineTerminator(string value)
-            => !string.Equals(
-                value,
-                value.ReplaceLineEndings(" "),
-                StringComparison.Ordinal);
+        return reader.GetString()!;
     }
 
     public override void Write(
         Utf8JsonWriter writer,
         string value,
-        JsonSerializerOptions options) =>
-        writer.WriteStringValue(value);
+        JsonSerializerOptions options)
+    {
+        if (!VisualEncoder.TryDecode(value, out string? untreated)
+            || !string.Equals(
+                new InertString(TextPolicy.Field, untreated).ToString(),
+                value,
+                StringComparison.Ordinal))
+        {
+            throw new JsonException(
+                "Documentation text is not canonically field-contained.");
+        }
+
+        writer.WriteStringValue(untreated);
+    }
 }
 
 /// <summary>
@@ -1032,10 +1029,10 @@ public class ApiMember
     /// Legacy compatibility spelling of the member signature.
     /// </summary>
     /// <remarks>
-    /// This string combines raw metadata type slots, contained identifier
-    /// spellings, and rendered C# default literals. Consumers must not infer a
-    /// single provenance for the whole value: use <see cref="SignatureModel"/>
-    /// when present and treat a model-free fallback as degraded.
+    /// This string combines raw metadata slots and rendered C# default literals.
+    /// Consumers must not infer a single provenance for the whole value: use
+    /// <see cref="SignatureModel"/> when present and treat a model-free fallback
+    /// as degraded.
     /// </remarks>
     public string? Signature { get; set; }
 

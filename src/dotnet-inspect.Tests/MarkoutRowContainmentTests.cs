@@ -420,6 +420,14 @@ public class MarkoutRowContainmentTests
             6,
             checkedPropertiesByType.GetValueOrDefault(
                 typeof(DotnetInspector.Views.PackageSourceIntegritySection)));
+        Assert.Equal(
+            10,
+            checkedPropertiesByType.GetValueOrDefault(
+                typeof(DotnetInspector.Views.TypeInfoSection)));
+        Assert.Equal(
+            4,
+            checkedPropertiesByType.GetValueOrDefault(
+                typeof(DotnetInspector.Views.MemberSourceLocationRow)));
 
         Assert.Equal(OutOfReach, declined.Order(StringComparer.Ordinal).ToArray());
 
@@ -624,6 +632,11 @@ public class MarkoutRowContainmentTests
         if (underlying == typeof(InertString))
         {
             return new InertString(TextPolicy.Field, Hostile);
+        }
+
+        if (underlying == typeof(CSharpPresentationText))
+        {
+            return ApiPresentationText.CSharpField(Hostile);
         }
 
         if (underlying is not null)

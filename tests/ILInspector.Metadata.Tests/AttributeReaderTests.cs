@@ -77,4 +77,21 @@ public class AttributeReaderTests
         Assert.NotNull(method);
         Assert.Equal(expected, method!.Invoke(null, [fullName]));
     }
+
+    [Theory]
+    [InlineData(@"Samples.Lit\u202EAttribute", @"Samples.Lit\\u202E")]
+    [InlineData("Samples.Lit\u202EAttribute", @"Samples.Lit\u202E")]
+    public void AttributeIdentifiers_DistinguishLiteralEscapesFromScalars(
+        string fullName,
+        string expected)
+    {
+        Assert.Equal(
+            expected,
+            AttributeReader.RenderAttributeName(fullName, qualifyName: true));
+
+        string identifier = fullName["Samples.".Length..^"Attribute".Length];
+        Assert.Equal(
+            expected["Samples.".Length..],
+            AttributeReader.RenderAttributeIdentifier(identifier));
+    }
 }

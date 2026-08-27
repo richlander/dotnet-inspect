@@ -272,7 +272,7 @@ public static partial class AttributeReader
     {
         if (AttributeDecoder.TryDecode(reader, attr, beforeMaterialize) is not { } value)
             return null;
-        string name = qualifyName ? GetQualifiedAttributeName(typeName) : TypeMatcher.GetShortAttributeName(typeName);
+        string name = RenderAttributeName(typeName, qualifyName);
         var args = new List<string>();
         foreach (var arg in value.FixedArguments)
         {
@@ -282,9 +282,10 @@ public static partial class AttributeReader
         }
         foreach (var named in value.NamedArguments)
         {
-            if (RenderArgument(named.Type, named.Value) is not { } text)
+            if (named.Name is not { Length: > 0 } namedName
+                || RenderArgument(named.Type, named.Value) is not { } text)
                 return null;
-            args.Add($"{named.Name} = {text}");
+            args.Add($"{RenderAttributeIdentifier(namedName)} = {text}");
         }
         return args.Count == 0 ? name : $"{name}({string.Join(", ", args)})";
     }
@@ -299,6 +300,17 @@ public static partial class AttributeReader
             ? fullName
             : trimmed;
     }
+
+    internal static string RenderAttributeName(
+        string typeName,
+        bool qualifyName)
+        => RenderAttributeIdentifier(
+            qualifyName
+                ? GetQualifiedAttributeName(typeName)
+                : TypeMatcher.GetShortAttributeName(typeName));
+
+    internal static string RenderAttributeIdentifier(string name)
+        => CSharpIdentifierCore.ContainRawComposedName(name);
 
     /// <summary>Renders one attribute-argument value, or null when its shape is not faithfully spellable (arrays, unknown).</summary>
     static string? RenderArgument(string type, object? value) => value switch

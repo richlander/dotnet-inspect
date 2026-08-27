@@ -1761,7 +1761,8 @@ public static class ApiSurfaceExtractor
                     Name = eventName,
                     Kind = "event",
                     ReturnType = eventType,
-                    Signature = $"{eventType} {SanitizeIdentifier(eventName)}",
+                    Signature =
+                        $"{eventType} {EscapeIdentifierUntreated(eventName)}",
                     SignatureModel = new ApiSignature
                     {
                         ReturnType = eventType,
@@ -3458,13 +3459,9 @@ public static class ApiSurfaceExtractor
         var methodName = context.MethodParameters.Count > 0
             ? $"{name}<{string.Join(", ", methodTypeParameters.Select(parameter => parameter.Name))}>"
             : name;
-        // MemberName carries identity (ApiMemberIdentity parses it for docids and
-        // the generic-parameter map), so it keeps the raw metadata spelling; only
-        // the rendered signature is sanitized (issue #3319).
-        var displayName = context.MethodParameters.Count > 0
-            ? $"{SanitizeMemberDisplayName(name)}<{string.Join(", ", methodTypeParameters.Select(parameter => SanitizeIdentifier(parameter.Name)))}>"
-            : SanitizeMemberDisplayName(name);
-        return ($"{returnType} {displayName}({paramStr2})", new ApiSignature
+        // Signature remains a persistence/compatibility model. Its metadata
+        // slots stay raw; typed presentation contains them at the output seam.
+        return ($"{returnType} {methodName}({paramStr2})", new ApiSignature
         {
             ExtensionReceiverType = extensionReceiverType,
             ReturnType = returnType,
@@ -3911,7 +3908,7 @@ public static class ApiSurfaceExtractor
         object? defaultValue,
         string? defaultValueText)
     {
-        var escapedName = SanitizeIdentifier(name);
+        var escapedName = EscapeIdentifierUntreated(name);
         var parameter = modifier is null ? $"{type} {escapedName}" : $"{modifier} {type} {escapedName}";
         if (!hasDefault)
             return parameter;
@@ -3926,24 +3923,13 @@ public static class ApiSurfaceExtractor
     }
 
     /// <summary>
-    /// The spelling for a metadata name entering emitted C# declaration text.
-    /// Keyword escaping alone leaves an unspellable name (one carrying a line
-    /// terminator, say) intact, which lets it break out of the surrounding code
-    /// fence or tree layout; sanitizing folds it to identifier characters
-    /// instead (issue #3319). Byte-neutral for names that are already legal
-    /// identifiers, which covers every well-formed assembly.
+    /// Applies C# keyword syntax without importing a raw metadata name into a
+    /// presentation containment boundary.
     /// </summary>
-    /// <summary>
-    /// The display spelling of a member name. A member name is not always a simple
-    /// identifier — <c>.ctor</c>, and an explicit interface implementation spells
-    /// <c>System.IConvertible.ToBoolean</c> — so this contains it rather than
-    /// sanitizing it into one, which would mangle both.
-    /// </summary>
-    private static string SanitizeMemberDisplayName(string name)
-        => CSharpIdentifierCore.ContainRawComposedName(name);
-
-    private static string SanitizeIdentifier(string name)
-        => CSharpIdentifierCore.ContainIdentifier(name, CSharpKeywords.RequiresDeclarationEscape);
+    private static string EscapeIdentifierUntreated(string name)
+        => CSharpKeywords.RequiresDeclarationEscape(name)
+            ? $"@{name}"
+            : name;
 
     private static string FormatDecimalLiteral(decimal value)
         => value.ToString("G29", CultureInfo.InvariantCulture) + "m";
@@ -4636,7 +4622,7 @@ public static class ApiSurfaceExtractor
                     || treeSignature.ParameterTypes.Any(parameter => parameter.IsDegraded));
 
         return (
-            $"{requiredPrefix}{returnType} {SanitizeIdentifier(name)} {accessorStr}",
+            $"{requiredPrefix}{returnType} {EscapeIdentifierUntreated(name)} {accessorStr}",
             model,
             treeSignature.ReturnType.IsDegraded
                 || treeSignature.ParameterTypes.Any(parameter => parameter.IsDegraded));

@@ -537,6 +537,98 @@ public sealed class SemanticTypeOutputContainmentTests
     }
 
     [Fact]
+    public void CompatibilitySignature_PersistenceRoundTripIsPresentationIdempotent()
+    {
+        const string rawName = @"Run\u202E";
+        const string rawParameterName = @"arg\u202E";
+        var type = new ApiType
+        {
+            Name = "Probe",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = rawName,
+                    Kind = "method",
+                    Signature =
+                        $"void {rawName}(string {rawParameterName})",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "void",
+                        MemberName = rawName,
+                        Parameters =
+                        [
+                            new ApiParameter
+                            {
+                                Type = "string",
+                                Name = rawParameterName,
+                            },
+                        ],
+                    },
+                },
+            ],
+        };
+
+        string persistenceJson = JsonSerializer.Serialize(
+            type,
+            ApiTypeJsonContext.Default.ApiType);
+        ApiType restored = JsonSerializer.Deserialize(
+            persistenceJson,
+            ApiTypeJsonContext.Default.ApiType)!;
+
+        Assert.Equal(type.Members[0].Signature, restored.Members[0].Signature);
+        Assert.Equal(
+            PreparedSignature(type),
+            PreparedSignature(restored));
+
+        static string PreparedSignature(ApiType value)
+        {
+            ApiArtifactJson.Prepare(value);
+            using JsonDocument document = JsonDocument.Parse(
+                JsonSerializer.Serialize(value, ApiArtifactJson.Type));
+            return document.RootElement
+                .GetProperty("members")[0]
+                .GetProperty("signature")
+                .GetString()!;
+        }
+    }
+
+    [Fact]
+    public void PreparedJsonSignature_BalancedMetadataQuotesRemainContainedAndDegraded()
+    {
+        const string signature =
+            "N.Bad\"Balanced\"Name\\Path Run()";
+        var type = new ApiType
+        {
+            Name = "Probe",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Run",
+                    Kind = "method",
+                    Signature = signature,
+                },
+            ],
+        };
+
+        ApiArtifactJson.Prepare(type);
+        using JsonDocument document = JsonDocument.Parse(
+            JsonSerializer.Serialize(type, ApiArtifactJson.Type));
+        JsonElement member = document.RootElement
+            .GetProperty("members")[0];
+
+        Assert.Contains(
+            @"Name\\Path",
+            member.GetProperty("signature").GetString()!);
+        Assert.Equal(
+            "Degraded",
+            member.GetProperty("signature_decode_status").GetString());
+    }
+
+    [Fact]
     public void TypeParameterJson_PreservesSyntaxAndContainsRawTypes()
     {
         var parameter = new TypeParameter
@@ -614,12 +706,35 @@ public sealed class SemanticTypeOutputContainmentTests
         string json = JsonSerializer.Serialize(
             type,
             ApiTypeJsonContext.Default.ApiType);
+        using JsonDocument document = JsonDocument.Parse(json);
+        Assert.Equal(
+            "before\u202Eafter literal \\u0041",
+            document.RootElement
+                .GetProperty("documentation")
+                .GetProperty("summary")
+                .GetString());
+
         ApiType restored = JsonSerializer.Deserialize(
             json,
             ApiTypeJsonContext.Default.ApiType)!;
 
         Assert.Equal(
             type.Documentation.Summary,
+            restored.Documentation.Summary);
+    }
+
+    [Fact]
+    public void DocumentationPersistence_LegacyHazardousEscapeRemainsLiteral()
+    {
+        const string json =
+            """{"documentation":{"summary":"literal \\u202E scalar \u202E"}}""";
+
+        ApiType restored = JsonSerializer.Deserialize(
+            json,
+            ApiTypeJsonContext.Default.ApiType)!;
+
+        Assert.Equal(
+            @"literal \\u202E scalar \u202E",
             restored.Documentation.Summary);
     }
 
