@@ -61,7 +61,6 @@ The owner consumes:
 - product-owned accessibility descriptors;
 - exact type-definition identities and member anchors;
 - view-facet registry descriptors plus subject applicability and availability;
-- an optional committed owner-issued lens identity;
 - an optional prior navigation snapshot; and
 - an optional explicit subject or lens request or typed resolution outcome.
 
@@ -83,7 +82,7 @@ The owner returns:
 - owner-ordered lens descriptors with their owner-issued identity, labels, and
   per-descriptor availability state;
 - an effective, unavailable, or failed typed lens outcome;
-- scoped diagnostics and partial-result evidence; and
+- scoped diagnostics and partial-result evidence;
 - a typed transition or reconciliation outcome; and
 - opaque navigation-intent and post-result effect authority for retained hosts.
 
@@ -219,7 +218,12 @@ The conceptual authority currencies are:
 
 ```text
 NavigationIntentToken
-NavigationEffectAuthority(snapshot generation, intent token)
+NavigationMaintenanceSequence
+NavigationEffectAuthority(
+  session identity,
+  snapshot generation,
+  intent token,
+  effect epoch)
 ```
 
 Beginning an explicit subject, lens, coordinate, or canonical-restoration
@@ -227,6 +231,10 @@ intent issues a new token and immediately supersedes every older explicit or
 maintenance operation. A coordinate operation obtains its token before
 acquisition and returns the realized coordinate and typed resolution outcomes
 to this session under that same token.
+
+Each standalone maintenance request receives the next opaque maintenance
+sequence value. The session compares that value internally; consumers neither
+submit nor interpret it.
 
 Inventory refresh and reconciliation initiated independently of an explicit
 operation are snapshot maintenance, not new user intent. Standalone maintenance
@@ -238,13 +246,28 @@ atomically inside it. Maintenance started earlier cannot replace a newer
 explicit intent, and maintenance completed against an older snapshot basis
 cannot replace a newer generation.
 
+The session serializes standalone maintenance in owner-issued request order.
+Only one maintenance result is admitted at a time. Later requests may gather
+facts concurrently, but they wait in issuance order and must revalidate or
+rebuild from the then-current snapshot after the prior result's visible effect
+is acknowledged or abandoned. Completion timing cannot select the final
+snapshot. A newer explicit intent may begin immediately and supersedes admitted
+and queued maintenance.
+
 Every result that may replace or retain the installed snapshot is admitted by
-the session against its captured basis and token. A current result returns
-effect authority bound to the returned snapshot generation and the same intent
-token. A host accepts the returned snapshot for rendering only while that
-authority remains current and revalidates it again when each deferred visible
-effect executes. Installing the result alone is not lasting authority to move
-focus or surface an outcome.
+the session against its captured basis and token. Admission advances an opaque
+effect epoch even when the result retains the same snapshot generation. A
+returned effect authority is current only when all four components exactly
+match the retaining session's current unconsumed authority.
+
+A host accepts the returned snapshot for rendering only while that predicate
+holds and revalidates it again when each deferred visible effect executes. It
+then acknowledges the authority after installation and all required focus and
+outcome effects complete, or explicitly abandons it when the owning surface is
+destroyed. Until then, maintenance may gather facts but cannot install or
+surface another result. A newer explicit intent invalidates the authority
+immediately and does not wait for acknowledgement. Installing the result alone
+is not lasting authority to move focus or surface an outcome.
 
 ## Navigation snapshot
 
@@ -626,6 +649,13 @@ outcome attached to its subject transition. It consumes view-facet registry
 identity, labels, order, and availability facts without redefining them, then
 issues the subject-scoped navigation lens identity defined above.
 
+For a retained session, the installed prior snapshot is the only source of
+committed lens state. Its exact effective lens identity is committed when the
+outcome is `Effective`; `Unavailable` or `Failed` means no lens is committed.
+A caller cannot supply a second committed-lens value. Stateless initial
+evaluation has no committed lens, and canonical restoration supplies any lens
+as an explicit request rather than retained state.
+
 Explicit lens activation is not a subject action-ID transition. A consumer
 requests a new explicit intent token from the navigation session, then submits
 the returned owner-issued lens identity with the issuing snapshot generation,
@@ -646,8 +676,9 @@ prior effective lens. Rejected and failed results retain the prior snapshot.
 Superseded carries no state or visible effect. The consumer never mutates
 effective lens state locally.
 
-- Preserve the committed current lens when the active subject identity is
-  retained and that exact owner-issued lens identity remains available.
+- Preserve the installed snapshot's committed lens when the active subject
+  identity is retained and that exact owner-issued lens identity remains
+  available.
 - Whenever no valid committed lens remains -- because the subject changed, the
   lens became unavailable, no lens was previously committed, or the supplied
   identity is not valid for this subject -- select the subject's recommendation
@@ -849,6 +880,13 @@ does not construct that acquisition result.
    executes, and confirm that the older effect authority no longer validates.
 4. Begin canonical restoration and confirm that it supersedes older subject,
    lens, coordinate, and maintenance work.
+5. Queue refresh and reconciliation together and confirm that request order,
+   not reversed fact-completion timing, determines the final snapshot.
+6. Return two failures that retain one generation and confirm that their
+   distinct effect epochs prevent an older deferred outcome from surfacing.
+7. Complete an explicit transition while maintenance facts are ready and
+   confirm that maintenance cannot install until the explicit focus/outcome
+   authority is acknowledged or abandoned.
 
 ## Required gates
 
@@ -881,8 +919,13 @@ covering at least:
 - `NavigationSession_IssuesMonotonicOpaqueIntentTokens`
 - `ExplicitIntent_SupersedesOlderExplicitAndMaintenanceWork`
 - `Maintenance_CannotInvalidateInFlightExplicitIntent`
+- `MaintenanceSequence_IsOwnerIssuedAndOpaque`
+- `Maintenance_SerializesInRequestOrderAcrossCompletionTiming`
+- `Maintenance_WaitsForCurrentEffectAcknowledgement`
 - `MaintenanceResult_CannotReplaceNewerSnapshot`
 - `TransitionEffectAuthority_UsesReturnedSnapshotGeneration`
+- `TransitionEffectAuthority_RequiresExactUnconsumedEpoch`
+- `RetainedSameGenerationResults_HaveDistinctEffectEpochs`
 - `CanonicalRestoration_BeginsExplicitIntent`
 - `MissingMember_FallsBackToContainingTypeNotAnotherMember`
 - `SameCoordinateUnavailable_FollowsMissingSubjectRules`
@@ -899,6 +942,7 @@ covering at least:
 - `EffectiveLens_MatchesExactlyOneReturnedAvailableDescriptor`
 - `LensDescriptors_PreserveOwnerOrderAndPerDescriptorState`
 - `LensIdentity_ComposesSubjectAndRegistryIdentity`
+- `CommittedLens_DerivesOnlyFromInstalledSnapshot`
 - `LensRecommendation_DoesNotCrossSubjectKindsByLabel`
 - `ExplicitLensActivation_IsResolvedBySubjectNavigation`
 - `InspectWeb_SubmitsActionIdAndGeneration`
@@ -919,6 +963,8 @@ covering at least:
 - `InspectWeb_LatestLensIntentWinsAcrossCompletionOrders`
 - `InspectWeb_NewerNavigationIntentInvalidatesOlderSubjectResult`
 - `InspectWeb_DeferredFocusRevalidatesEffectAuthority`
+- `InspectWeb_AcknowledgesOrAbandonsEffectAuthority`
+- `InspectWeb_MaintenanceCannotStrandExplicitFocus`
 - `InspectWeb_SupersededOutcomeHasNoVisibleEffect`
 - `InspectWeb_SubjectNonAppliedOutcomeReturnsFocusToInvoker`
 - `InspectWeb_ConsumesSubjectOutcomeWithoutHostFallback`

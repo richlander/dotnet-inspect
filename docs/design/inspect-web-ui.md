@@ -468,7 +468,9 @@ retains the prior snapshot and active subject while surfacing the typed outcome.
 A superseded transition has no visible effect. The UI uses the returned effect
 authority before installing the returned rendered snapshot and for outcome
 presentation and focus; any deferred effect revalidates that authority with the
-navigation session when it executes.
+navigation session when it executes. It acknowledges the authority only after
+installation and all required outcome and focus work complete, or explicitly
+abandons it if the owning surface is destroyed.
 
 An unavailable lens remains in its owning strip with `aria-disabled="true"`
 and an accessible description of the owner-issued reason. A failed lens is
@@ -726,7 +728,8 @@ moment focus or outcome presentation executes.
 Before installing any returned rendered snapshot, the UI validates its effect
 authority with the navigation session. It repeats that validation inside each
 scheduled focus or outcome callback rather than treating earlier installation
-as continuing authority.
+as continuing authority, then acknowledges it after those effects complete.
+Destroying the owning surface explicitly abandons unconsumed authority.
 
 Subject, lens, version, TFM, and canonical-restoration transitions request
 opaque intent tokens from one retained Inspection Subject Navigation session.
@@ -737,8 +740,11 @@ snapshot, visible outcome, or focus.
 
 Inventory refresh and reconciliation initiated outside an explicit transition
 do not create newer user intent. They enter the session as maintenance under
-the current token. Maintenance cannot install while an explicit operation under
-that token is unresolved and cannot replace a newer snapshot generation.
+the current token. The session serializes result admission in request order;
+later work may gather facts concurrently but revalidates or rebuilds from the
+then-current snapshot rather than racing installation by completion timing.
+Maintenance cannot install while an explicit operation or its returned effect
+authority remains unresolved and cannot replace a newer snapshot generation.
 Reconciliation needed to complete an explicit transition remains atomic within
 that transition.
 
@@ -1083,6 +1089,11 @@ outcomes:
     explicit result.
 14. Install a result, begin a newer intent before its scheduled focus callback,
     and confirm that the older callback cannot move focus.
+15. Complete an explicit transition while refresh facts are ready and confirm
+    that refresh waits until heading focus or non-applied outcome focus is
+    acknowledged.
+16. Queue refresh and reconciliation with reversed fact-completion timing and
+    confirm that request order determines the installed result.
 
 ### No effective lens
 
@@ -1102,9 +1113,8 @@ outcomes:
 6. Activate an available non-effective tab and confirm that the UI submits its
    owner-issued lens identity through Inspection Subject Navigation, never a
    subject action ID.
-7. Return an applied result and confirm that the committed identity is supplied
-   to navigation and the complete replacement snapshot is installed before tab
-   or panel selection changes.
+7. Return an applied result and confirm that its complete replacement snapshot
+   commits the identity before tab or panel selection changes.
 8. Return an unavailable result and confirm that its fresh snapshot is
    installed, the requested descriptor becomes unavailable, and the active
    subject plus prior effective lens remain when still valid.
