@@ -14,6 +14,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     readonly Action<string>? _beforeRetain;
     readonly Action<int>? _beforeMaterialize;
     readonly bool _scopeNamedTypeIdentity;
+    readonly bool _requireScopedNamedTypeIdentity;
     readonly AssemblyReferenceProjectionCache?
         _assemblyReferenceProjection;
     readonly ConditionalWeakTable<MetadataReader, ReaderNameCache> _readerNames = new();
@@ -22,12 +23,15 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         Action<string>? beforeRetain = null,
         Action<int>? beforeMaterialize = null,
         bool scopeNamedTypeIdentity = false,
+        bool requireScopedNamedTypeIdentity = false,
         AssemblyReferenceProjectionCache?
             assemblyReferenceProjection = null)
     {
         _beforeRetain = beforeRetain;
         _beforeMaterialize = beforeMaterialize;
         _scopeNamedTypeIdentity = scopeNamedTypeIdentity;
+        _requireScopedNamedTypeIdentity =
+            requireScopedNamedTypeIdentity;
         _assemblyReferenceProjection =
             assemblyReferenceProjection;
     }
@@ -151,16 +155,23 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
             _beforeRetain?.Invoke(read.Name!);
             RetainAssemblyIdentity(read.AssemblyIdentity);
             bool isRef = rawTypeKind != 0x11; // 0x11 = ELEMENT_TYPE_VALUETYPE
-            return new NamedTypeNode(
-                read.Name!,
-                isRef,
-                metadataName: read.MetadataName,
-                scopedIdentity: _scopeNamedTypeIdentity
+            ScopedNamedTypeIdentity? scopedIdentity =
+                _scopeNamedTypeIdentity
                     ? ScopedNamedTypeIdentity(
                         reader,
                         handle,
                         rawTypeKind)
-                    : null,
+                    : null;
+            if (_requireScopedNamedTypeIdentity
+                && scopedIdentity is null)
+            {
+                return new DegradedTypeNode();
+            }
+            return new NamedTypeNode(
+                read.Name!,
+                isRef,
+                metadataName: read.MetadataName,
+                scopedIdentity: scopedIdentity,
                 assemblyIdentity: read.AssemblyIdentity);
         }
 
@@ -581,6 +592,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         return new GenericParameterNode(
             name,
             hasValueTypeConstraint: context?.HasMethodParameterValueTypeConstraint(index) == true,
+            hasReferenceTypeConstraint: context?.HasMethodParameterReferenceTypeConstraint(index) == true,
             isMethodParameter: true,
             index);
     }
@@ -593,6 +605,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         return new GenericParameterNode(
             name,
             hasValueTypeConstraint: context?.HasTypeParameterValueTypeConstraint(index) == true,
+            hasReferenceTypeConstraint: context?.HasTypeParameterReferenceTypeConstraint(index) == true,
             isMethodParameter: false,
             index);
     }

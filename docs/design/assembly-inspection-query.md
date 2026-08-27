@@ -430,6 +430,13 @@ accessible-parameterless-constructor and abstractness facts onto transient
 constructor shape: special and runtime-special names, a default managed signature with no
 explicit `this`, no generic parameters, `void` return, no parameters, and accessible
 visibility.
+
+The source-level override, constructor, property-accessibility, and harness-consumption
+decisions built from these facts are owned by
+[override-shell authentication](override-shell-authentication.md). This document owns the
+resolution and provenance inputs; the focused document owns the downstream authentication
+decisions and their enforcement map.
+
 Missing or ambiguous base bindings produce no evidence, so the harness cannot substitute a
 same-named type from another assembly. The compile-back reference resolver matches the
 case-insensitive assembly name plus culture and public-key token exactly (normalizing only neutral
@@ -447,6 +454,10 @@ reuse-slot methods and properties as override stubs with metadata accessibility,
 abstract slots remain implemented and target bodies may still construct their own declaring type.
 Recompiled targets are found by canonical member signature rather than their original same-name
 ordinal, so scaffold changes cannot shift a target onto a sibling overload.
+Constructor retention and synthesis, same-assembly covariant override closure, generic
+conversion evidence, full member-surface preservation, property accessibility, and malformed
+relationship traversal follow
+[override-shell authentication](override-shell-authentication.md).
 Unselected `System.Exception` support types additionally require the referenced assembly to bind
 through the platform scope before retaining their base clause. Manifest-less modules begin from
 the base `TypeRef`'s platform reference, then use the Metadata resolution catalog to follow
@@ -526,8 +537,12 @@ matching and trusted-platform upgrade-only unification,
 `SkeletonRetainsSignalForAbstractExternalBase` and
 `SkeletonKeepsConcreteTypeForAbstractBaseWithoutAbstractMembers` gate concrete abstract-base
 scaffolding, `SkeletonFindsTargetByCanonicalSignatureAfterOverrideScaffolding` gates target
-identity after scaffold changes, `SkeletonEmitsExplicitInterfaceTargets` gates selected explicit
-methods and accessors,
+identity after scaffold changes,
+and the focused constructor, override, covariance, property-traversal, and compile-back gates are
+indexed by [override-shell authentication](override-shell-authentication.md).
+`SkeletonEmitsExplicitInterfaceTargets` gates
+selected explicit methods and
+accessors,
 `SkeletonExplicitInterfaceWholeMemberHonorsRequestedView` gates whole-member production rendering
 the requested body view and printer options,
 `SkeletonDoesNotTreatOrdinaryAccessorPrefixesAsSemantics` gates token mapping, and

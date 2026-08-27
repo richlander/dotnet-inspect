@@ -247,6 +247,31 @@ public sealed class TypeShellProducerTests
         Assert.True(body.IsReplacementTarget);
     }
 
+    [Theory]
+    [InlineData(CSharpShellAccessibility.Public, "public")]
+    [InlineData(CSharpShellAccessibility.Protected, "protected")]
+    [InlineData(CSharpShellAccessibility.Internal, "internal")]
+    [InlineData(CSharpShellAccessibility.PrivateProtected, "private protected")]
+    [InlineData(CSharpShellAccessibility.ProtectedInternal, "protected internal")]
+    [InlineData(CSharpShellAccessibility.Private, "private")]
+    public void MemberShellProducer_PreservesAccessibility(
+        CSharpShellAccessibility accessibility,
+        string expected)
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "Run",
+            Kind: CSharpShellMemberKind.Method,
+            IsStatic: false,
+            Parameters: [],
+            ReturnType: "void",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.Throw,
+            Body: null,
+            Accessibility: accessibility));
+
+        Assert.Equal(expected, policy.Member.Accessibility);
+    }
+
     [Fact]
     public void MemberShellProducer_ComposesExplicitInterfaceMethodDeclaration()
     {
@@ -266,6 +291,7 @@ public sealed class TypeShellProducerTests
             ],
             BodyKind: CSharpShellBodyKind.TargetBody,
             Body: "return default;",
+            Accessibility: CSharpShellAccessibility.Private,
             ExplicitInterfaceMemberName: "Samples.IRunner.Run",
             DeclarationSignature: "this harness text must not be used"));
 
@@ -287,6 +313,10 @@ public sealed class TypeShellProducerTests
 
         Assert.Contains(
             "T? Samples.IRunner.Run<T>(ref int value)",
+            Assert.Single(result.Units).Source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "private T? Samples.IRunner.Run<T>(ref int value)",
             Assert.Single(result.Units).Source,
             StringComparison.Ordinal);
         Assert.Contains(

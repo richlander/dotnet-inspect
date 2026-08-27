@@ -39,6 +39,10 @@ public enum CSharpShellAccessibility
 {
     Public,
     Protected,
+    Internal,
+    PrivateProtected,
+    ProtectedInternal,
+    Private,
 }
 
 public sealed record CSharpShellParameter(
@@ -81,6 +85,8 @@ public sealed record CSharpMemberShellSpec(
     int? MetadataToken = null,
     int? GetterToken = null,
     int? SetterToken = null,
+    string? GetterAccessibility = null,
+    string? SetterAccessibility = null,
     int? AdderToken = null,
     int? RemoverToken = null);
 
@@ -271,6 +277,10 @@ public static class CSharpMemberShellProducer
             {
                 CSharpShellAccessibility.Public => "public",
                 CSharpShellAccessibility.Protected => "protected",
+                CSharpShellAccessibility.Internal => "internal",
+                CSharpShellAccessibility.PrivateProtected => "private protected",
+                CSharpShellAccessibility.ProtectedInternal => "protected internal",
+                CSharpShellAccessibility.Private => "private",
                 _ => throw new NotSupportedException(
                     $"Unsupported C# shell accessibility '{spec.Accessibility}'."),
             },
@@ -582,13 +592,26 @@ public static class CSharpMemberShellProducer
             accessors.Add(new ApiAccessor
             {
                 Kind = "get",
+                Accessibility = spec.GetterAccessibility,
                 ReturnAttributes = spec.ReturnAttributes?.ToList() ?? [],
             });
         }
         if (hasSetter)
-            accessors.Add(new ApiAccessor { Kind = setterIsInit ? "init" : "set" });
+        {
+            accessors.Add(new ApiAccessor
+            {
+                Kind = setterIsInit ? "init" : "set",
+                Accessibility = spec.SetterAccessibility,
+            });
+        }
         if (isAutoGetInit)
-            accessors.Add(new ApiAccessor { Kind = "init" });
+        {
+            accessors.Add(new ApiAccessor
+            {
+                Kind = "init",
+                Accessibility = spec.SetterAccessibility,
+            });
+        }
         return accessors;
     }
 

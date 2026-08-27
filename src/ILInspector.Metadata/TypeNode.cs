@@ -402,6 +402,8 @@ internal sealed class GenericTypeNode(
     public ApiAssemblyIdentity? DefinitionAssemblyIdentity =>
         definitionAssemblyIdentity;
     public MetadataTypeNameParts? MetadataName => metadataName;
+    internal ScopedNamedTypeIdentity? ScopedIdentity
+        => scopedIdentity;
     public ImmutableArray<TypeNode> Arguments => arguments;
     public override bool IsReferenceType => isReferenceType;
     public override bool IsDegraded => degradedGenericType
@@ -711,10 +713,19 @@ internal sealed class ByRefTypeNode(TypeNode elementType) : TypeNode
 internal sealed class GenericParameterNode(
     string name,
     bool hasValueTypeConstraint,
+    bool hasReferenceTypeConstraint,
     bool isMethodParameter,
     int index) : TypeNode
 {
-    public override bool IsReferenceType => false;
+    internal bool HasValueTypeConstraint
+        => hasValueTypeConstraint;
+    internal bool HasReferenceTypeConstraint
+        => hasReferenceTypeConstraint;
+    internal bool IsMethodParameter
+        => isMethodParameter;
+    internal int Index
+        => index;
+    public override bool IsReferenceType => hasReferenceTypeConstraint;
     public override long EstimatedRenderedLength => name.Length + 1L;
 
     internal override string StructuralIdentity()
@@ -847,6 +858,8 @@ internal class PassthroughTypeNode(TypeNode inner) : TypeNode
 /// <summary>Custom-modified types pass through for rendering while preserving declaration-site evidence.</summary>
 internal sealed class ModifiedTypeNode(TypeNode modifier, TypeNode inner, bool isRequired) : PassthroughTypeNode(inner)
 {
+    public TypeNode Modifier => modifier;
+    public bool IsRequired => isRequired;
     internal override bool HasStructuralPayload => true;
     public override bool IsDegraded => modifier.IsDegraded || base.IsDegraded;
 
