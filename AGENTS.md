@@ -131,8 +131,8 @@ to whichever window is *current*, which is somebody else's.
 Always target `"${TMUX_PANE:?}"`. The state must include
 `head` and either `pr` or, before a PR exists, `issue`; add `round`, `reviews`,
 `blocked`, `waiting`, and `rec` when applicable. Values contain no spaces. `rec`
-is `continue`, `wait`, `merge`, `approve`, or `stop`. Clear both options when the
-window no longer owns the work.
+is `continue`, `wait`, `merge`, `split`, `approve`, or `stop`. Clear both
+options when the window no longer owns the work.
 
 `blocked` and `waiting` are both things you are waiting on, split by **who can
 act on them**:
@@ -901,11 +901,14 @@ comments are themselves a sign that the remaining work should be split into
 focused successors. The same presumption and burden apply at every 6-round
 boundary after round 12.
 
-The split recommendation keeps the locked candidate unchanged while the user
-decides. If approved, publicly map every current claim and unresolved finding
-to a focused successor, close the current PR as superseded without merging it,
-and open the successors from their effective base. Each successor starts at
-round 1; reviews, round counts, and authorization blocks do not carry forward.
+After round 12 closes, the split recommendation puts the completed head in an
+immutable decision hold while the user decides. This is not a round lock; do
+not mutate the head or dispatch another round during the hold. If approved,
+publicly map every current claim and every finding — including resolved or
+dismissed findings and their resulting changes or rationale — to a focused
+successor, close the current PR as superseded without merging it, and open the
+successors from their effective base. Each successor starts at round 1;
+reviews, round counts, and authorization blocks do not carry forward.
 
 At round 12 and every 6-round boundary after (18, 24, and so on), also answer:
 

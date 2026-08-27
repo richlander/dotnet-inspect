@@ -247,6 +247,10 @@ shared failure. `Waiting` records a predicate tooling can evaluate, such as
   not ask, set `HELP`, or wait for user input.
 - `wait` requires a non-empty `Blocked` or `Waiting` field and means the agent
   will resume when it clears.
+- When a completed documentation-only round is otherwise ready but
+  `ci-required` remains pending or missing, use
+  `Waiting: check:ci-required` and `Recommendation: wait`. Add `merge` to
+  `Waiting` when live mergeability is also unresolved.
 - `split into focused successors` is valid at round 12 and later six-round
   boundaries after the required checkpoint. It requests the user's split
   decision and follows the transition in
