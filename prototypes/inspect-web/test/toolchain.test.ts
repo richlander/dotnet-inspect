@@ -28,6 +28,7 @@ import {
   verifyAnalysisHost,
 } from "../scripts/verify-analysis-host.ts";
 import { verifySiteArtifact } from "../scripts/verify-site-artifact.ts";
+import { bundlerReadFiles } from "./vite-audit.ts";
 
 interface PackageLockEntry {
   readonly link?: boolean;
@@ -102,18 +103,6 @@ function readJson<T>(specifier: string): T {
   );
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   return parsed as T;
-}
-
-// The source maps read further down are Vite's output rather than a repo-owned config,
-// so they are narrowed rather than asserted. These mirror the guards `verify-site-artifact`
-// uses for the same reason: `JSON.parse` hands back `any`, and letting that spread would
-// switch off the very checking this file exists to enforce.
-function isObjectLike(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isList(value: unknown): value is readonly unknown[] {
-  return Array.isArray(value);
 }
 
 const packageLock = readJson<PackageLock>("../package-lock.json");
@@ -485,10 +474,14 @@ function programFiles(): Set<string> {
 // The compiler reports its own dependencies and the sibling prototypes it imports from,
 // neither of which this project's gates govern. Only paths inside this project, and
 // outside its dependency directory, are this project's to answer for.
-function isProjectOwned(file: string, root: string): boolean {
+function isInsideProject(file: string, root: string): boolean {
   const path = projectRelative(root, file);
-  return !path.startsWith("..") && !isAbsolute(path)
-    && !path.split("/").includes("node_modules");
+  return !path.startsWith("..") && !isAbsolute(path);
+}
+
+function isProjectOwned(file: string, root: string): boolean {
+  return isInsideProject(file, root)
+    && !projectRelative(root, file).split("/").includes("node_modules");
 }
 
 test("every TypeScript file belongs to a compiler project", () => {
@@ -594,107 +587,106 @@ test("every source file is covered by a lint target", () => {
 // the walk, outside the program, and outside every gate built on either -- an unsafe
 // `any` shipped in `dist/` with all four commands green.
 //
-// The same round (Sol) found the other half from the other direction: `publicDir` copies
-// files into `dist/` verbatim, with no bundler and no compiler involved at all.
+// Round 7 asked the bundler through the `sources` of the source maps it emits. Round 8
+// (Sol) showed that this reads the module graph and mistakes it for the build. A file
+// referenced by `new URL("...", import.meta.url)` travels Vite's *asset* pipeline: over
+// the inline limit it is emitted as a separate asset, and under it the bytes are base64'd
+// into a chunk with no asset file, no manifest entry and no map entry at all. Either way
+// it ships and runs, and either way no source map ever names it.
 //
-// Between them those are the only two ways Vite emits into `dist/`, so this asks Vite
-// about both rather than predicting either. Both reviewers proposed widening an
-// enumeration -- more extensions, a ban on `index.html` script shapes -- which is the
-// move that failed in rounds 3, 4 and 5. Vite reports the modules it read in the
-// `sources` of the source maps it emits, whatever referenced them and whatever they are
-// called, so the bundler is asked directly. The build runs into a scratch directory so
-// the shipped artifact keeps its current shape and gains no source maps.
-function bundledSources(root: string): string[] {
-  const out = mkdtempSync(join(tmpdir(), "inspect-web-bundle-"));
-  try {
-    const built = spawnSync(
-      "npx",
-      ["vite", "build", "--sourcemap", "true",
-        "--outDir", out, "--emptyOutDir", "--logLevel", "error"],
-      { cwd: root, encoding: "utf8" },
-    );
-    assert.equal(built.status, 0,
-      `vite build failed, so this gate cannot see what ships: ${built.stderr}`);
-
-    const maps: string[] = [];
-    for (const entry of readdirSync(out, { recursive: true, withFileTypes: true })) {
-      if (entry.isFile() && entry.name.endsWith(".map")) {
-        maps.push(join(entry.parentPath, entry.name));
-      }
-    }
-    // No maps means no visibility. Reporting "nothing unowned" from an empty reading is
-    // the success-shaped emptiness the rest of this file exists to prevent.
-    assert.ok(maps.length > 0,
-      "the build emitted no source maps, so this gate read nothing and proved nothing");
-
-    const sources = new Set<string>();
-    for (const map of maps) {
-      const parsed: unknown = JSON.parse(readFileSync(map, "utf8"));
-      const listed = isObjectLike(parsed) ? parsed["sources"] : undefined;
-      assert.ok(isList(listed),
-        `${basename(map)} reports no source list, so its modules cannot be accounted for`);
-      for (const source of listed) {
-        assert.equal(typeof source, "string",
-          `${basename(map)} lists a non-string source, which this gate cannot resolve`);
-        if (typeof source === "string") {
-          sources.add(resolve(dirname(map), source));
-        }
-      }
-    }
-    return [...sources];
-  } finally {
-    rmSync(out, { recursive: true, force: true });
-  }
-}
-
-test("the lint covers every module the bundler ships", () => {
+// So the question moved from what the bundler emitted to what it read. `getWatchFiles`
+// is Rollup's own record of that, and it does not care how a file was referenced or what
+// it is called -- modules, entry HTML, assets emitted or inlined, plugin reads. Both
+// reviewers across both rounds proposed widening an enumeration instead: more extensions,
+// a ban on script shapes, an audit of asset `originalFileNames`. That is the move that
+// failed in rounds 3, 4 and 5, and the asset pipeline is exactly what it would have
+// missed again.
+test("the lint covers every file the bundler reads", async () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
-  const bundled = bundledSources(root).filter(file => isProjectOwned(file, root));
-  assert.ok(bundled.length > 20,
-    `expected the bundled modules, found ${bundled.length}; a build that reads almost `
-      + "nothing would satisfy the emptiness assertions below without covering anything");
 
-  // Vite compiles each inline `<script type="module">` in `index.html` into a virtual
-  // module of its own. This gate found one, which is issue #4783: the JavaScript written
-  // inside `index.html` is bundled and executed while no lint target and no compiler
-  // project can name it. That gap predates this branch -- the script is untouched here --
-  // so it is recorded rather than closed, and recorded as an exact list rather than a
-  // pattern. A second inline script, or any other module the gates cannot see, changes
-  // this list and fails. Closing #4783 also changes it, which is the point: the pin has
-  // to be deleted deliberately rather than quietly outliving the gap it describes.
-  const knownUnreadByGates = ["index.html?html-proxy&index=0.js"];
+  // Round 8 (Gemini 3.1 Pro) attacked the *filter* rather than the oracle. `node_modules`
+  // is third-party by convention, not by nature, and `isProjectOwned` says so by name:
+  // an authored payload written into a directory of that name and referenced from
+  // `index.html` was bundled and executed while this gate discarded it as somebody
+  // else's code. Reading the name is the enumeration this file keeps removing, so
+  // ownership is derived instead -- from the lockfile, which is npm's own account of
+  // what is allowed to be in there. A path under `node_modules` is third-party when some
+  // package directory above it is one the lock declares, and is this project's problem
+  // otherwise. The gate that pins the lock's contents runs above, so this cannot be
+  // satisfied by inventing a lock entry either.
+  const declaredDependency = (file: string): boolean => {
+    const path = projectRelative(root, file);
+    if (!path.split("/").includes("node_modules")) {
+      return false;
+    }
+    for (let directory = dirname(path);
+      directory !== "." && directory !== "";
+      directory = dirname(directory)) {
+      if (Object.hasOwn(packageLock.packages, directory)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const read = (await bundlerReadFiles(root))
+    .map(file => resolve(file))
+    .filter(file => isInsideProject(file, root) && !declaredDependency(file));
+  assert.ok(read.length > 20,
+    `expected the files the build reads, found ${read.length}; a build that reads almost `
+      + "nothing would satisfy the assertion below without covering anything");
+
+  // Three files this build reads are not checked source, and each is already accounted
+  // for elsewhere, so they are pinned as an exact list rather than filtered by a rule
+  // that would also let a payload through.
+  //
+  // `index.html` is the entry document. The JavaScript written inside it is bundled and
+  // executed while no lint target and no compiler project can name it, which is issue
+  // #4783; that gap predates this branch and the file is untouched here.
+  //
+  // `package.json` is read for dependency resolution rather than compiled, and the gates
+  // above already assert its contents field by field.
+  //
+  // `src/styles.css` is style content. It sits under a lint target, but oxlint reads
+  // script and the compiler has no account of a stylesheet at all, so it cannot clear
+  // either half of the test below. It is also not a vector for the thing this gate
+  // exists to stop: a browser will not execute it.
+  //
+  // Pinning the exact list is what makes this fail closed. Anything else the build reads
+  // changes it and fails -- including a second stylesheet, which is a small cost for a
+  // gate that otherwise has to guess which extensions are harmless. Closing #4783
+  // changes it too, so the pin has to be deleted deliberately rather than quietly
+  // outliving the gap it describes.
+  const knownReadButUngated = ["index.html", "package.json", "src/styles.css"];
 
   const targets = lintTargets;
   const covered = (file: string): boolean => {
     const path = projectRelative(root, file);
     return targets.some(target => path === target || path.startsWith(`${target}/`));
   };
-  const unlinted = bundled
-    .filter(file => !covered(file))
-    .map(file => projectRelative(root, file))
-    .sort();
-  assert.deepEqual(unlinted, knownUnreadByGates,
-    "Vite bundles these files into the shipped output but the lint never reads them; "
-      + "they are reachable from `index.html` or an import, not from any lint target");
-
-  // Lint coverage and type checking are separate defeats, and the entry-point vector
-  // evades both, so the bundled set is held to the compiler's account as well.
+  // Lint coverage and type checking are separate defeats and the bundler vectors evade
+  // both, so a file has to clear both accounts to be considered gated.
   const checked = programFiles();
-  const untyped = bundled
-    .filter(file => !checked.has(file))
+  const ungated = read
+    .filter(file => !covered(file) || !checked.has(file))
     .map(file => projectRelative(root, file))
     .sort();
-  assert.deepEqual(untyped, knownUnreadByGates,
-    "Vite bundles these files but no compiler project includes them, so they ship "
-      + "without ever being type checked");
+
+  assert.deepEqual(ungated, knownReadButUngated,
+    "the build reads these files, but they are outside the lint targets or outside "
+      + "every compiler project, so they reach the shipped output without being "
+      + "checked; they are reachable from `index.html`, an import, or an asset "
+      + "reference, and no gate above can see them");
 });
 
 // `publicDir` is the bundler's verbatim-copy path: anything in it lands in `dist/`
 // unread by Vite, unparsed by the compiler and unlinted, whatever its extension. Round 7
-// (Sol) shipped a payload that way. This project has no such directory and does not need
-// one -- `manifest.json` is Vite's own build manifest and `assets/` is imported through
-// the bundler -- so the path is switched off rather than policed, and pinned here so it
-// cannot come back without this gate being answered.
+// (Sol) shipped a payload that way. The gate above cannot see this one, and that is the
+// point of keeping both: it audits what the build *reads*, and a verbatim copy is never
+// read. This project has no such directory and does not need one -- `manifest.json` is
+// Vite's own build manifest and `assets/` is imported through the bundler -- so the path
+// is switched off rather than policed, and pinned here so it cannot come back without
+// this gate being answered.
 test("the bundler has no unread path into the shipped output", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const config = readFileSync(new URL("../vite.config.ts", import.meta.url), "utf8");
