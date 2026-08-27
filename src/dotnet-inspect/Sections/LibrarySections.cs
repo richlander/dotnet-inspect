@@ -7,9 +7,12 @@ using ILInspector.Metadata;
 namespace DotnetInspector.Sections;
 
 public sealed record LibrarySectionCatalog(
-    SectionPipeline<LibraryInspection> Pipeline,
+    SectionCatalog<LibraryInspection> Sections,
     InspectionQueryCatalog<InspectionQueryContext> QueryCatalog,
-    InspectionQueryCatalog<AssemblyContextGroup> GroupQueryCatalog);
+    InspectionQueryCatalog<AssemblyContextGroup> GroupQueryCatalog)
+{
+    public SectionPipeline<LibraryInspection> Pipeline => Sections.Pipeline;
+}
 
 /// <summary>
 /// Section descriptors for the library command.
@@ -26,20 +29,19 @@ public static class LibrarySections
     public static InspectionQueryCatalog<AssemblyContextGroup> GroupQueryCatalog { get; } =
         BuildGroupQueryCatalog();
 
+    /// <summary>The reusable fixed-domain catalog for library sections and query-demand plans.</summary>
+    public static SectionCatalog<LibraryInspection> SectionCatalog { get; } =
+        CreatePipeline().Compile();
+
+    /// <summary>The complete reusable library section and query catalog.</summary>
+    public static LibrarySectionCatalog Catalog { get; } =
+        new(SectionCatalog, QueryCatalog, GroupQueryCatalog);
+
     /// <summary>
     /// Builds the library catalog from typed query catalogs, so section costs, demand, and
     /// execution use the same immutable declarations.
     /// </summary>
-    public static LibrarySectionCatalog CreateCatalog()
-    {
-        return new LibrarySectionCatalog(
-            CreatePipeline(
-                query => GroupQueryCatalog.RegisteredQueries.Contains(query)
-                    ? GroupQueryCatalog.CostOf(query)
-                    : QueryCatalog.CostOf(query)),
-            QueryCatalog,
-            GroupQueryCatalog);
-    }
+    public static LibrarySectionCatalog CreateCatalog() => Catalog;
 
     /// <summary>Builds the section pipeline with all library sections registered.</summary>
     public static SectionPipeline<LibraryInspection> CreatePipeline()

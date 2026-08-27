@@ -187,6 +187,8 @@
              Link="AuthoredSourceHarvest.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AuthoredCorpusBenchmark.cs"
              Link="AuthoredCorpusBenchmark.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\AuthoredSourceOracleManifest.cs"
+             Link="AuthoredSourceOracleManifest.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AuthoredCorpusRatchet.cs"
              Link="AuthoredCorpusRatchet.cs" />
   </ItemGroup>
