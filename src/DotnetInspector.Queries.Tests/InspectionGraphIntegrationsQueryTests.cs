@@ -668,6 +668,155 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
+    public void Execute_ExplicitInducedSetOmitsOutOfContextBindingMissing()
+    {
+        using var fixture = IntegrationFixture.Create(
+            omitBedrockRuntime: true);
+        InspectionGraphDocument workspace =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+        InspectionGraphFailure missing = Assert.Single(
+            workspace.Failures,
+            failure =>
+                Assert.IsType<InspectionGraphIntegrationFailureEvidence>(
+                    failure.Evidence).Details.Any(detail =>
+                        detail.Producer == "extensions"
+                        && detail.Kind
+                            == InspectionGraphIntegrationFailureKind
+                                .BindingMissing));
+        InspectionGraphSubject missingSource =
+            workspace.Nodes[missing.Target!.Value.Id].Subject;
+        InspectionGraphSubject.PackageSubject adapter =
+            PackageSubject(
+                workspace,
+                "awssdk.extensions.bedrock.meai");
+
+        InspectionGraphDocument selected =
+            InspectionGraphIntegrationsQuery.Execute(
+                fixture.Context,
+                new InspectionGraphInducedSetRequest(
+                    [adapter],
+                    [
+                        InspectionGraphIntegrationsCatalog
+                            .Extension,
+                    ],
+                    InspectionGraphInducedSetAdmissionRule
+                        .BothEndpointsWithinSubjectClosure));
+
+        Assert.Empty(selected.Failures);
+        Assert.DoesNotContain(
+            selected.Nodes,
+            node => node.Subject == missingSource);
+    }
+
+    [Fact]
+    public void Execute_ExplicitInducedSetRetainsActionableMixedFailureDetail()
+    {
+        using var fixture = IntegrationFixture.Create(
+            omitBedrockRuntime: true);
+        InspectionGraphDocument workspace =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+        InspectionGraphFailure missing = Assert.Single(
+            workspace.Failures,
+            failure =>
+                Assert.IsType<InspectionGraphIntegrationFailureEvidence>(
+                    failure.Evidence).Details.Any(detail =>
+                        detail.Kind
+                            == InspectionGraphIntegrationFailureKind
+                                .BindingMissing));
+        var missingEvidence =
+            Assert.IsType<InspectionGraphIntegrationFailureEvidence>(
+                missing.Evidence);
+        InspectionGraphIntegrationFailureDetail missingDetail =
+            Assert.Single(missingEvidence.Details);
+        InspectionGraphIntegrationFailureDetail unavailableDetail =
+            missingDetail with
+            {
+                Kind = InspectionGraphIntegrationFailureKind
+                    .BindingUnavailable,
+            };
+        InspectionGraphFailure mixed = missing with
+        {
+            Evidence = new InspectionGraphIntegrationFailureEvidence(
+                [missingDetail, unavailableDetail]),
+        };
+        var source = new InspectionGraphDocument(
+            workspace.Scope,
+            workspace.ModeRequest,
+            workspace.Nodes,
+            workspace.Groups,
+            workspace.Edges,
+            workspace.Occurrences,
+            workspace.Characteristics,
+            workspace.Seeds,
+            workspace.Limits,
+            [mixed]);
+        InspectionGraphSubject.PackageSubject adapter =
+            PackageSubject(
+                workspace,
+                "awssdk.extensions.bedrock.meai");
+        var request = new InspectionGraphInducedSetRequest(
+            [adapter],
+            [
+                InspectionGraphIntegrationsCatalog
+                    .Extension,
+            ],
+            InspectionGraphInducedSetAdmissionRule
+                .BothEndpointsWithinSubjectClosure);
+
+        InspectionGraphDocument selected =
+            InspectionGraphInducedSetProjection.Project(
+                source,
+                request);
+
+        InspectionGraphFailure failure = Assert.Single(
+            selected.Failures);
+        InspectionGraphIntegrationFailureDetail detail =
+            Assert.Single(
+                Assert.IsType<
+                    InspectionGraphIntegrationFailureEvidence>(
+                        failure.Evidence).Details);
+        Assert.Equal(
+            InspectionGraphIntegrationFailureKind.BindingUnavailable,
+            detail.Kind);
+    }
+
+    [Fact]
+    public void Execute_ExplicitInducedSetRetainsUnavailableSelectedBinding()
+    {
+        using var fixture = IntegrationFixture.Create(
+            unavailableOpenAiBinding: true);
+        InspectionGraphDocument workspace =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+        InspectionGraphSubject.PackageSubject azure =
+            PackageSubject(workspace, "azure.ai.openai");
+
+        InspectionGraphDocument selected =
+            InspectionGraphIntegrationsQuery.Execute(
+                fixture.Context,
+                new InspectionGraphInducedSetRequest(
+                    [azure],
+                    [
+                        InspectionGraphIntegrationsCatalog
+                            .MetadataReference,
+                    ],
+                    InspectionGraphInducedSetAdmissionRule
+                        .BothEndpointsWithinSubjectClosure));
+
+        InspectionGraphFailure failure = Assert.Single(
+            selected.Failures);
+        InspectionGraphIntegrationFailureDetail detail =
+            Assert.Single(
+                Assert.IsType<
+                    InspectionGraphIntegrationFailureEvidence>(
+                        failure.Evidence).Details);
+        Assert.Equal("references", detail.Producer);
+        Assert.Equal(
+            InspectionGraphIntegrationFailureKind.BindingUnavailable,
+            detail.Kind);
+        Assert.Equal("OpenAI", detail.Reference?.Name);
+    }
+
+    [Fact]
     public void Execute_ExplicitInducedSetRejectsUnsupportedRelationshipFirst()
     {
         using var fixture = IntegrationFixture.Create();
@@ -2314,7 +2463,8 @@ public sealed class InspectionGraphIntegrationsQueryTests
             bool overloadedOpenAiAdapter = false,
             bool overBudgetIntegrationTypeName = false,
             bool includeMalformedExtensionParticipant = false,
-            bool includeRejectedDeclarationParticipant = false)
+            bool includeRejectedDeclarationParticipant = false,
+            bool omitBedrockRuntime = false)
         {
             (
                 PersistedAssemblyBuilder abstractions,
@@ -2413,6 +2563,11 @@ public sealed class InspectionGraphIntegrationsQueryTests
                 "awssdk.extensions.bedrock.meai",
                 "azure.ai.openai",
             ];
+            if (omitBedrockRuntime)
+            {
+                builders.RemoveAt(2);
+                packageIds.RemoveAt(2);
+            }
             if (duplicateHubAssembly)
             {
                 builders.Add(Abstractions().Builder);
