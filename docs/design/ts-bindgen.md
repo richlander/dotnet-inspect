@@ -182,10 +182,10 @@ the consumer's compiler own JavaScript and optional declaration emission.
 
 | Owner | Owns | Does not own |
 | --- | --- | --- |
-| .NET JavaScript interop | `[JSExport]` selection, generated managed thunks, marshalling descriptors, registration, generic runtime support | application JSON meaning, TypeScript facade policy |
+| .NET JavaScript interop | `[JSExport]` selection, generated managed thunks, marshalling descriptors, registration, generic runtime support, and the SDK-owned `dotnet.d.ts` description of `dotnet.js` | application JSON meaning, assembly-specific export shape, TypeScript facade policy |
 | `ILInspector.JsExportSurface` | C#-faithful export facts, runtime-publication evidence, authenticated JSON wire evidence | TypeScript names, syntax, wrappers, compiler configuration |
-| `ts-bindgen` | deterministic TypeScript facade source from one `JsExportSurface` | thunk generation, runtime implementation, TypeScript compilation, browser publication |
-| Consumer | TypeScript compiler configuration, derived artifacts, module resolution, and hosting | reinterpreting or weakening the `JsExportSurface` input |
+| `ts-bindgen` | deterministic TypeScript facade source and assembly-specific export shape from one `JsExportSurface` | thunk generation, generic runtime declarations, runtime implementation, TypeScript compilation, browser publication |
+| Consumer | TypeScript compiler configuration, availability of the SDK-owned runtime declaration, derived artifacts, module resolution, and hosting | reinterpreting or weakening the `JsExportSurface` input |
 
 These boundaries are intentionally asymmetric. `ts-bindgen` may reject an input
 surface it cannot faithfully represent in TypeScript. It must not broaden
@@ -327,9 +327,16 @@ weakening the generated module's one-to-one correspondence with the runtime
 exports.
 
 The module imports only the generic .NET runtime JavaScript module at runtime.
-It does not import a sibling declaration module because its TypeScript source
-already contains the implementation and types. If a consumer emits
-declarations, `tsc` derives them from that source.
+The same module specifier resolves against the SDK-owned `dotnet.d.ts` during
+TypeScript compilation; generated source does not explicitly import a
+declaration file. The generated module supplies its own implementation, public
+facade types, and assembly-specific narrowing, while the SDK declaration
+supplies the generic `dotnet`, `RuntimeAPI`, `runMain()`, and
+`getAssemblyExports()` contracts.
+
+If a consumer emits declarations for the facade, `tsc` derives them from the
+generated TypeScript source. Those facade declarations are distinct from the
+SDK's declaration for the runtime module.
 
 Generated identifiers must be valid, collision-free TypeScript bindings.
 Reserved module bindings, helper names, wrapper-local names, DTO names,
@@ -349,9 +356,22 @@ TypeScript source module. A consumer can include that source directly in a
 TypeScript program, compile it to JavaScript, or additionally emit declarations
 for a compiled module boundary.
 
+The generated source has one external declaration dependency: the
+`dotnet.d.ts` supplied by the same .NET SDK/runtime pack as the imported
+`dotnet.js`. At compile time, it describes the generic runtime API. Its
+`getAssemblyExports()` result is necessarily application-agnostic, so
+`ts-bindgen` generates the private structural type for the inspected assembly
+and performs one explicit narrowing at that boundary. The generator must not
+copy, synthesize, or hand-maintain a substitute declaration for the generic
+runtime API.
+
+The declaration has no runtime role. The emitted JavaScript imports
+`dotnet.js`; it does not load `dotnet.d.ts`, and deployment does not require the
+declaration merely to execute already-compiled JavaScript.
+
 The two consumption forms are distinct:
 
-| Consumption form | Files consumed | Role of `.d.ts` |
+| Consumption form | Facade files consumed | Role of a facade `.d.ts` |
 | --- | --- | --- |
 | TypeScript source | generated `.ts` | none; the source contains implementation and types |
 | Compiled module or package | emitted `.js` plus emitted `.d.ts` | describes the JavaScript API when the `.ts` source is not consumed |
@@ -363,9 +383,10 @@ does not require consumers to create or distribute one.
 
 The tool's immediate output obligation is valid, deterministic TypeScript whose
 runtime import and public facade semantics survive TypeScript compilation.
-Output placement, declaration emission, module resolution, bundling,
-stale-derived-artifact checks, and publication belong to the consumer and are
-not specified here.
+The consumer must make the matching SDK-owned runtime declaration available to
+that compilation. Output placement, facade declaration emission, module
+resolution, bundling, stale-derived-artifact checks, and publication belong to
+the consumer and are not specified here.
 
 ## Related tool categories
 
@@ -472,8 +493,9 @@ Adopting the generated TypeScript in inspect-web is a separate focused effort
 owned by inspect-web. That effort must decide compiler configuration, source
 and derived-artifact placement, application module resolution, Vite
 externalization, startup policy including `ConfigureHost`, build ordering,
-stale-output checks, and publication. This document supplies the TypeScript
-module handoff but does not decide those consumer contracts.
+availability of the SDK-owned `dotnet.d.ts`, stale-output checks, and
+publication. This document supplies the TypeScript module handoff but does not
+decide those consumer contracts.
 
 ## Acceptance
 
@@ -495,6 +517,9 @@ The target remains unverified until all of these gates exist:
   types;
 - close-negative tests keep direct interop values distinct from authenticated
   JSON wire values;
+- a compiler test resolves the generated runtime import against the
+  SDK-owned `dotnet.d.ts`, with no generator-owned ambient or copied substitute,
+  and proves the assembly-specific `getAssemblyExports()` narrowing;
 - a compiler test proves the generated TypeScript emits executable JavaScript
   without changing runtime import or public facade semantics;
 - runtime tests prove initialization failure, one-runtime reuse,
