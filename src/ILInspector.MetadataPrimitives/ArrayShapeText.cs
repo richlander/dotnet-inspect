@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection.Metadata;
 using System.Text;
 
@@ -64,7 +65,16 @@ public static class ArrayShapeText
     public static string FormatDimensions(int rank)
         => IsLoadableRank(rank)
             ? new string(',', rank - 1)
-            : $"/* invalid rank {rank} */";
+            : $"/* invalid rank {Invariant(rank)} */";
+
+    /// <summary>
+    /// <paramref name="elementType"/> followed by rank-only dimensions, preserving the
+    /// rank-1 multi-dimensional array distinction without exposing explicit ILAsm bounds.
+    /// </summary>
+    public static string FormatRankOnly(string elementType, int rank)
+        => rank == 1
+            ? $"{elementType}[...]"
+            : $"{elementType}[{FormatDimensions(rank)}]";
 
     /// <summary>
     /// <paramref name="elementType"/> followed by <paramref name="shape"/> in IL-assembler
@@ -82,13 +92,29 @@ public static class ArrayShapeText
     {
         int rank = shape.Rank;
         if (!IsLoadableRank(rank))
-            return $"{elementType}[/* invalid rank {rank} */]";
+            return $"{elementType}[/* invalid rank {Invariant(rank)} */]";
 
         if (shape.Sizes.Length > rank)
-            return $"{elementType}[/* invalid size count {shape.Sizes.Length} for rank {rank} */]";
+            return $"{elementType}[/* invalid size count {Invariant(shape.Sizes.Length)} for rank {Invariant(rank)} */]";
 
         if (shape.LowerBounds.Length > rank)
-            return $"{elementType}[/* invalid lower-bound count {shape.LowerBounds.Length} for rank {rank} */]";
+            return $"{elementType}[/* invalid lower-bound count {Invariant(shape.LowerBounds.Length)} for rank {Invariant(rank)} */]";
+
+        for (int dimension = 0; dimension < shape.Sizes.Length; dimension++)
+        {
+            int size = shape.Sizes[dimension];
+            if (size < 0)
+            {
+                return $"{elementType}[/* invalid size {Invariant(size)} at dimension "
+                    + $"{Invariant(dimension)} */]";
+            }
+        }
+
+        if (shape.Sizes.Length > shape.LowerBounds.Length)
+        {
+            return $"{elementType}[/* unrepresentable shape: {Invariant(shape.Sizes.Length)} sizes, "
+                + $"{Invariant(shape.LowerBounds.Length)} lower bounds */]";
+        }
 
         var text = new StringBuilder(elementType);
         text.Append('[');
@@ -102,24 +128,32 @@ public static class ArrayShapeText
             if (hasSize)
             {
                 int size = shape.Sizes[dimension];
-                if (size < 0)
-                    return $"{elementType}[/* invalid size {size} at dimension {dimension} */]";
-
                 int lowerBound = hasLowerBound ? shape.LowerBounds[dimension] : 0;
-                if (lowerBound == 0)
+                if (size == 0 && lowerBound != 0)
                 {
-                    text.Append(size);
+                    if (dimension == shape.Sizes.Length - 1)
+                    {
+                        return $"{elementType}[/* unrepresentable zero size with lower bound "
+                            + $"{Invariant(lowerBound)} at dimension {Invariant(dimension)} */]";
+                    }
+
+                    text.Append(Invariant(lowerBound));
+                    text.Append("...");
+                }
+                else if (lowerBound == 0)
+                {
+                    text.Append(Invariant(size));
                 }
                 else
                 {
-                    text.Append(lowerBound);
+                    text.Append(Invariant(lowerBound));
                     text.Append("...");
-                    text.Append((long)lowerBound + size - 1L);
+                    text.Append(Invariant((long)lowerBound + size - 1L));
                 }
             }
             else if (hasLowerBound)
             {
-                text.Append(shape.LowerBounds[dimension]);
+                text.Append(Invariant(shape.LowerBounds[dimension]));
                 text.Append("...");
             }
             else if (rank == 1)
@@ -131,4 +165,7 @@ public static class ArrayShapeText
         text.Append(']');
         return text.ToString();
     }
+
+    static string Invariant(int value) => value.ToString(CultureInfo.InvariantCulture);
+    static string Invariant(long value) => value.ToString(CultureInfo.InvariantCulture);
 }

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 
@@ -56,13 +57,68 @@ public class ArrayShapeTextTests
             ArrayShapeText.Format("int32", new ArrayShape(2, [6, 6], [0, -2])));
         Assert.Equal(
             "int32[6,,]",
-            ArrayShapeText.Format("int32", new ArrayShape(3, [6], [])));
+            ArrayShapeText.Format("int32", new ArrayShape(3, [6], [0])));
+        Assert.Equal(
+            "int32[0]",
+            ArrayShapeText.Format("int32", new ArrayShape(1, [0], [0])));
         Assert.Equal(
             "int32[-2...,,]",
             ArrayShapeText.Format("int32", new ArrayShape(3, [], [-2])));
         Assert.Equal(
             "int32[0...,]",
             ArrayShapeText.Format("int32", new ArrayShape(2, [], [0])));
+    }
+
+    [Fact]
+    public void SignatureDecoderKeepsCSharpArraySpellingRankOnly()
+    {
+        Assert.Equal(
+            "int[,]",
+            new SignatureDecoder().GetArrayType(
+                "int",
+                new ArrayShape(2, [], [0, 0])));
+    }
+
+    [Fact]
+    public void RendersAZeroSizePrefixAsAnUnboundedDimension()
+    {
+        Assert.Equal(
+            "int32[-2...,6]",
+            ArrayShapeText.Format("int32", new ArrayShape(2, [0, 6], [-2, 0])));
+    }
+
+    [Fact]
+    public void MarksShapesWhoseSizesHaveNoCorrespondingLowerBounds()
+    {
+        Assert.Equal(
+            "int32[/* unrepresentable shape: 1 sizes, 0 lower bounds */]",
+            ArrayShapeText.Format("int32", new ArrayShape(1, [6], [])));
+    }
+
+    [Fact]
+    public void MarksATerminalZeroSizeWithANonzeroLowerBound()
+    {
+        Assert.Equal(
+            "int32[/* unrepresentable zero size with lower bound 1 at dimension 0 */]",
+            ArrayShapeText.Format("int32", new ArrayShape(1, [0], [1])));
+    }
+
+    [Fact]
+    public void RendersNumericTokensWithInvariantCulture()
+    {
+        CultureInfo previous = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fi-FI");
+
+            Assert.Equal(
+                "int32[6,-2...3]",
+                ArrayShapeText.Format("int32", new ArrayShape(2, [6, 6], [0, -2])));
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previous;
+        }
     }
 
     [Fact]

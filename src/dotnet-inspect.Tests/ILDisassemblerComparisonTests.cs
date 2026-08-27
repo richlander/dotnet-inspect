@@ -187,6 +187,8 @@ public class ILDisassemblerComparisonTests
             "int32[,]",
             "int32[0...,0...]",
             "int32[0...,]",
+            "int32[0,6]",
+            "int32[-2...,6]",
             "int32[6,-2...3]",
         ];
         var tempDir = Path.Combine(Path.GetTempPath(), $"array-shape-fidelity-{Guid.NewGuid():N}");
