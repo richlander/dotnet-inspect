@@ -161,6 +161,12 @@ public sealed class SignatureSpellability
                     if (!IsExternallyVisible(reader, handle))
                         nonPublicTypes.Add(fullName);
                 }
+                foreach (var handle in reader.ExportedTypes)
+                {
+                    var exportedType = reader.GetExportedType(handle);
+                    if (exportedType.IsForwarder)
+                        definedTypes.Add(reader.GetFullTypeName(exportedType));
+                }
             }
         }
         catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
