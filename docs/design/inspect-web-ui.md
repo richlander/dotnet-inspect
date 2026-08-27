@@ -693,6 +693,10 @@ Opening or closing a modal does not create a browser-history entry. When a modal
 action commits navigation, the modal closes without returning focus to its
 invoker. An inspection destination focuses its active-subject level-one heading;
 Home, Workspace, or Diagnostics focuses the routed surface's level-one heading.
+If the transition returns a typed failure, the prior surface and history remain
+active, the failure is visible, and focus moves to the modal's stable invoking
+control when it is still rendered, otherwise to the retained surface's
+level-one heading. The failed modal does not reopen.
 Browser Back or Forward while a modal is open first dismisses it without
 returning focus to the invoker, then performs the history transition. History
 navigation focuses the restored destination heading without reopening the
@@ -886,10 +890,12 @@ the selected coordinate, subject, lens, filters, or canonical packet.
 
 When narrowing replaces a navigation pane while focus is inside it, focus moves
 to the new `Types` or `Members` drawer button without opening the drawer. When
-widening replaces that button or an open drawer, the drawer closes without
-returning focus to its removed invoker and focus moves to the equivalent
-visible navigation item, or to the active-subject heading when no equivalent
-item is rendered.
+widening replaces an open drawer, the drawer closes without returning focus to
+its removed invoker and focus moves to the equivalent visible navigation item,
+or to the active-subject heading when no equivalent item is rendered. When a
+closed drawer button is replaced, the same transfer occurs only if that button
+owned focus; otherwise the current focus remains unchanged. In particular,
+widening does not move focus out of another open modal.
 
 Density comes from removing duplication and conditionally presenting
 navigation, not from making text or controls too small to use.
@@ -1086,7 +1092,9 @@ outcomes:
 6. Open the drawer, restore the wide viewport, and confirm that the drawer
    closes and focus moves to the equivalent visible navigation item or the
    active-subject heading.
-7. Confirm that coordinate, subject, lens,
+7. Open Settings at the narrow viewport, restore the wide viewport, and confirm
+   that focus remains contained in Settings.
+8. Confirm that coordinate, subject, lens,
    filters, and canonical state did not change.
 
 ### Modal and routed surfaces
@@ -1099,15 +1107,18 @@ outcomes:
    to the routed Diagnostics heading rather than back to the modal invoker.
 4. Commit navigation from Search, Open, and the narrow drawer and confirm that
    focus moves to the resulting active-subject heading.
-5. Open and close the full-bleed Annotated Source viewer and confirm the shared
+5. Return typed failures from Search, Open, and the narrow drawer and confirm
+   that the prior surface and history remain active, the failure is visible,
+   and focus moves to the surviving modal invoker or retained surface heading.
+6. Open and close the full-bleed Annotated Source viewer and confirm the shared
    modal focus, Escape, containment, and history behavior.
-6. From that viewer, open Decompiler style Settings and confirm that the viewer
+7. From that viewer, open Decompiler style Settings and confirm that the viewer
    closes, Settings receives focus, and closing Settings returns to inline
    Annotated Source without reopening the viewer.
-7. Navigate to Home, Workspace, and Diagnostics and confirm that each is a
+8. Navigate to Home, Workspace, and Diagnostics and confirm that each is a
    routed surface with one visible level-one heading, no coordinate/subject
    command, and a persistent `dotnet-inspect` control that opens Workspace.
-8. Use Browser Back and Forward while a modal is open and confirm that the
+9. Use Browser Back and Forward while a modal is open and confirm that the
    modal is dismissed, the restored destination heading receives focus, and the
    modal does not reopen.
 
