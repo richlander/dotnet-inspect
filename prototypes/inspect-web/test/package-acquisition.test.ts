@@ -2,16 +2,20 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  createAppMemberSurface,
   createNuGetPackageModel,
   createPackageAcquisition,
   createRuntimePackageModel,
+  graphOnlyImplementationBody,
   mergeRuntimePackageSurface,
+  retainGraphOnlyImplementationBody,
   runtimeAssemblyIsResident,
   type AppPackage,
   type PackageAcquisitionDependencies,
 } from "../src/package-acquisition.ts";
 import type {
   BrowserAssemblySurface,
+  BrowserMemberSurface,
   BrowserPackageSurface,
   BrowserTypeSurface,
 } from "../src/inspect-web-engine.d.ts";
@@ -59,6 +63,43 @@ function typeSurface(
   };
 }
 
+function memberSurface(): BrowserMemberSurface {
+  return {
+    name: "Value",
+    kind: "property",
+    signature: "int Value { get; set; }",
+    accessibility: "public",
+    isStatic: false,
+    isUnsafe: false,
+    isVirtual: false,
+    isAbstract: false,
+    isOverride: false,
+    isExtension: false,
+    isObsolete: false,
+    genericArity: 0,
+    metadataToken: null,
+    returnType: "int",
+    parameters: [],
+    documentationId: "P:Example.Widget.Value",
+    summary: null,
+    returns: null,
+    exceptions: [],
+    stableSelector: "Value",
+    anchorDigest: "value",
+    canonicalSignature: "int Example.Widget.Value",
+    graphSelectorKey: "Value",
+    bodySelectors: [{
+      token: 0x06000001,
+      memberName: "get_Value",
+      selectorKey: "getter",
+    }, {
+      token: 0x06000002,
+      memberName: "set_Value",
+      selectorKey: "setter",
+    }],
+  };
+}
+
 function packageSurface(
   overrides: Partial<BrowserPackageSurface> = {},
 ): BrowserPackageSurface {
@@ -101,6 +142,58 @@ function generatedPackageSurfaceRejectsMutation(
   type.api[0] = member;
 }
 void generatedPackageSurfaceRejectsMutation;
+
+test("graph-only implementation bodies select, switch, and clear", () => {
+  const overload = {
+    ...createAppMemberSurface(memberSurface()),
+    graphOnly: true,
+  };
+  const navigationTarget = {
+    assembly: "Example.dll",
+    assemblyVersion: "1.2.3.4",
+    assemblyCulture: null,
+    assemblyPublicKeyToken: null,
+    typeDefinitionId: "T:Example.Widget",
+    typeMetadataId: "Example.Widget",
+    memberName: "stale",
+    selectorKey: "stale",
+    metadataToken: 0x06000003,
+  };
+
+  const getter = retainGraphOnlyImplementationBody(overload, {
+    ...navigationTarget,
+    memberName: "get_Value",
+    selectorKey: "getter",
+  });
+  assert.equal(graphOnlyImplementationBody(overload)?.token, 0x06000001);
+  assert.equal(getter?.assembly, "Example.dll");
+  assert.equal(getter?.typeDefinitionId, "T:Example.Widget");
+  assert.equal(getter?.metadataToken, 0x06000001);
+
+  const setter = retainGraphOnlyImplementationBody(overload, {
+    ...navigationTarget,
+    memberName: "set_Value",
+    selectorKey: "setter",
+  });
+  assert.equal(graphOnlyImplementationBody(overload)?.token, 0x06000002);
+  assert.equal(setter?.selectorKey, "setter");
+  assert.equal(setter?.metadataToken, 0x06000002);
+
+  const unmatched = retainGraphOnlyImplementationBody(
+    overload,
+    navigationTarget);
+  assert.equal(unmatched, navigationTarget);
+  assert.equal(graphOnlyImplementationBody(overload), undefined);
+
+  retainGraphOnlyImplementationBody(overload, {
+    ...navigationTarget,
+    memberName: "get_Value",
+    selectorKey: "getter",
+  });
+  assert.ok(graphOnlyImplementationBody(overload));
+  assert.equal(retainGraphOnlyImplementationBody(overload, null), null);
+  assert.equal(graphOnlyImplementationBody(overload), undefined);
+});
 
 function runtimeSurface(
   assemblyId: string,
