@@ -698,16 +698,19 @@ reopen the locked candidate.
 | Attempt | Required before reviewer dispatch | May remain pending |
 | --- | --- | --- |
 | First attempt at round 1 | Pushed settled head, recorded effective base, focused gate | CI and mergeability |
-| Documentation-only attempt at any round | Pushed settled head, recorded effective base, zero conflicts, pre-commit `markdownlint` | CI and mergeability |
 | Ordinary subsequent round | First-attempt requirements, zero conflicts, green current-head `ci-required` | Nothing required |
 | Conflict-recovery attempt | Resolution head pushed, round number authorized | Post-push local gates, CI, mergeability |
 | Failed-gate restart | Required fix pushed, zero conflicts, green current-head `ci-required` | Nothing required |
 
-The documentation-only row overrides the other attempt rows. Run `markdownlint`
-before committing every documentation change. Once that commit is pushed,
-review may dispatch and the round may close without waiting for CI.
-`ci-required` remains mandatory for final merge readiness. The user may
-authorize review in parallel with CI for other changes.
+Documentation-only candidates do not wait for CI before review. Read the
+applicable attempt row with only two substitutions: `markdownlint` must pass
+before commit and replaces any requirement for green current-head
+`ci-required`, and `ci-required` may remain pending. Every other requirement
+still applies, including the settled push, recorded effective base, zero
+conflicts where required, and round authorization. A documentation-only round
+may close after reconciliation and the local lint gate; `ci-required` remains
+mandatory for final merge readiness. The user may authorize review in parallel
+with CI for other changes.
 
 #### Review-clean, and what it gates
 
@@ -738,6 +741,12 @@ least one reviewer returned a finding.
 - **Cancelled or evidenced transient failure:** keep the lock and retry the
   unchanged head. Repeat only with concrete transient evidence; otherwise treat
   it as requiring an author change.
+
+If final-gate CI fails after a documentation-only round closes, it does not
+reopen or renumber that completed round. Retry an evidenced transient failure
+at the unchanged head. If the failure requires an author change, remove
+`review-clean`, make the fix, and form a candidate at the next round number,
+respecting the next six-round authorization boundary.
 
 Never close with a required check red. A superseded attempt spends no round and
 gets no completion report. Let its reviewers finish or have cancellation
