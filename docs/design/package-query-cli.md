@@ -150,9 +150,14 @@ decoupled, and the migration landed first. The next slice (wiring nuspec-tier
 The pending #4677 L3 design alone decides its replacement and compatibility
 policy; package-query work must not establish either by precedent.
 
-### `-t` is the wrong flag to build on; `-n` owns the corpus limit
+### Historical flag proposal: replace `-t` with `-n`
 
-The `-t 100` `find --package-prefix` uses reuses `find`'s own pre-existing
+> [!NOTE]
+> This subsection records the superseded umbrella proposal so the later L3
+> design can evaluate its evidence. It does not authorize a spelling,
+> compatibility policy, or implementation change.
+
+The `-t 100` `find --package-prefix` form reuses `find`'s own pre-existing
 `-t`, whose description #4551 widens from "Limit type count (`-t 5`) or
 filter by glob (`-t *Json*`)" to "Limit result count... or filter API types
 by glob." That reuse is real and merged, and it is not a precedent this
@@ -178,9 +183,9 @@ A corpus-match query that names a ranking field (for example, "top 500 by
 download count") uses `--top 500 --order-by "DownloadCount desc"`; a plain
 "first 500 that match" uses `-n 500`.
 
-The Sections-registry migration was the right moment to apply the settled
-contract, but it landed without that part: `find --package-prefix` rows are
-now declared sections, yet the corpus limit is still `-t`, not `-n`. See
+Under that proposal, the Sections-registry migration was the intended moment to
+change the spelling. It landed without that part: `find --package-prefix` rows
+are now declared sections, while the corpus limit remains `-t`. See
 [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing)
 for the resulting follow-up.
 
@@ -260,7 +265,12 @@ document proposes:
   work than anything in this document, and it should not be reimplemented as
   a flat facet-match row.
 
-## Completion and bound honesty parity with the browser
+## Historical completion and bound proposal
+
+> [!NOTE]
+> This section records source and ordering reasoning from the superseded
+> umbrella design. The focused source-pushdown and L3 designs may adopt,
+> revise, or reject it; no implementation may treat it as authority.
 
 `find --package-prefix` (#4551, merged) already reports truncation
 ("Package discovery reached the requested package limit" /
@@ -289,11 +299,10 @@ question matters because a predicate can shrink what the bound counts:
   fewer matches than its candidate bound is a true, bounded-complete result
   over that candidate set, not a truncated one.
 
-The implementation must preserve both distinct orderings: nuspec predicates
-run before the semantic `-n` result limit, while `--deepen` bounds candidates
-before promoted IL evaluation. Help text and rendered completion state must
-name the candidate bound, and the asserted ordering must name its enforcing
-gate.
+The proposal required nuspec predicates to run before its semantic result
+limit, while `--deepen` bounded candidates before promoted IL evaluation. Any
+focused successor that adopts those orderings must name its enforcing gate and
+must define the associated help and completion contract.
 
 ## Shared request/outcome shape with the browser
 
@@ -341,7 +350,7 @@ the CLI's named facets as canonical for the browser's facet rail.
    [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing).
 3. **Wire nuspec-tier `--where`** onto package-profile rows without changing
    `-t`, deciding and documenting the filter-before-bound ordering from
-   [Completion and bound honesty parity](#completion-and-bound-honesty-parity-with-the-browser).
+   [Historical completion and bound proposal](#historical-completion-and-bound-proposal).
    This has not landed yet.
 4. **Add the promoted-tier capability gate and `--deepen`-bounded IL
    evaluation**, including the L2 tier-gating error for an ungated

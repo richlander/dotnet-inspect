@@ -79,8 +79,11 @@ optimizer may avoid acquiring that complete sequence only when it can prove the
 same selected values, order, and strict-range outcome. The
 source-pushdown design owns how that proof is represented and obtained.
 
-The project references only the BCL. It has no dependency on Sections, Queries,
-Packages, Services, or Markout. A static product-closure gate prohibits console,
+The evaluated Release compile/runtime closure contains only framework
+references and this component. The project has no product `PackageReference`,
+direct assembly asset, native asset, or `ProjectReference`; repository-wide
+build-only analyzers and targets remain allowed only when they contribute no
+compile/runtime asset. A static product-closure gate prohibits console,
 filesystem, network, process, dedicated-thread, parallel-loop, and native
 interop APIs. Its public execution surface is synchronous and deterministic,
 making it usable by NativeAOT and single-threaded Browser/Wasm consumers.
@@ -119,6 +122,35 @@ misuse, not a semantic range failure.
 
 An empty plan preserves every input value and its order without invoking the
 comparer resolver.
+
+## Public surface and immutability
+
+The allowed public product surface is:
+
+| Type | Role |
+| --- | --- |
+| `RowSelectionStageKind` | Closed `Head`, `Tail`, `Range`, and `Top` discriminator. |
+| `RowSelectionStage<TOrder>` | Immutable stage value with validating named factories and kind-checked accessors. |
+| `RowSelectionPlan<TOrder>` | Immutable ordered stage snapshot with `Empty`, validating `Create`, read-only `Stages`, and functional `Append`. |
+| `NamedRowSequence<TKey, T>` | Immutable opaque key plus complete read-only values. |
+| `RowSelectionExecutor` | Synchronous `Apply` and `ApplyNamed` entry points. |
+| `RowSelectionResult<T>` | Immutable single-sequence success-or-range-failure result. |
+| `NamedRowSelectionResult<TKey, T>` | Immutable all-named-sequences-success-or-one-failure result. |
+| `RowRangeFailure` | Unkeyed structured strict-range failure. |
+| `NamedRowRangeFailure<TKey>` | Opaque key plus `RowRangeFailure`. |
+
+No public constructor bypasses the validating stage factories or plan creation
+path. `Create` defensively copies the caller's stage collection, `Stages`
+exposes no mutable collection, and `Append` returns a new plan without changing
+the prior value. Stage values copy their opaque `TOrder`; callers must supply an
+immutable order value whose equality and meaning do not change after plan
+construction.
+
+The expected public type and member set is derived from this table. A fixture
+project outside the component compiles against every row and executes every
+entry point. The same gate rejects extra public constructors, mutators,
+asynchronous protocols, or host-shaped overloads, so an empty or exclusion-only
+API cannot satisfy the design.
 
 ## Stage semantics
 
@@ -290,7 +322,7 @@ The implementation must add these named Release gates:
 | --- | --- |
 | `SelectionStagesComposeInDeclaredOrder` | Reversing `Head`, `Tail`, `Range`, or `Top` stages changes results exactly as the reference examples require; every stage reads positions beginning at 1 from the preceding output. |
 | `SelectionCountsAreLenientAndRangesAreStrict` | Oversized `Head`, `Tail`, and `Top` return the complete current input, while closed and open ranges fail unless their required endpoint exists at that stage. |
-| `RowSelectionPlanRejectsInvalidStages` | Nonpositive counts, nonpositive range coordinates, and a closed end before its start reject during construction rather than becoming an empty or unlimited stage. |
+| `RowSelectionPlanRejectsInvalidStages` | Every public construction path rejects nonpositive counts, nonpositive range coordinates, and a closed end before its start rather than creating an empty or unlimited stage. |
 | `EmptyRowSelectionPlanIsIdentity` | An empty plan returns every original value in order and never invokes the comparer resolver. |
 | `TopRequiresResolvedComparer` | A resolver that returns no comparer identifies the `Top` stage and rejects as caller misuse before any selected result is returned. |
 | `StrictRangesValidateNamedSequencesAtomically` | A strict-range miss in any one of several keyed sequences identifies the key and stage and returns no selected sequence collection. |
@@ -298,10 +330,12 @@ The implementation must add these named Release gates:
 | `RowRangeFailureShapeIsExact` | Unkeyed failures contain exactly stage number, required position, and available count; named failures add only the opaque key. Closed ranges report their end and open ranges report their start against the post-predecessor count. |
 | `TopRetainsCurrentOrderForEqualRanks` | Equal comparer results preserve current sequence order, including after an earlier stage changed the current sequence. |
 | `SelectionReturnsOriginalValuesInOrder` | The executor returns the original caller-owned values without cloning, wrapping, relabeling, or deriving identity from stage positions. |
-| `RowSelectionHasOnlyBclDependencies` | The project-reference closure permits only the BCL and rejects Sections, Queries, Packages, Services, Markout, and host projects. |
+| `RowSelectionPlanIsImmutableSnapshot` | Mutating a caller-owned stage collection after `Create` cannot change the plan; `Stages` exposes no mutable collection; `Append` leaves the prior plan unchanged; every stage remains immutable. |
+| `RowSelectionPublicSurfaceIsExact` | A generated expected set derived from [Public surface and immutability](#public-surface-and-immutability) rejects missing or extra public types, constructors, members, mutators, host-shaped overloads, and asynchronous protocols. |
+| `RowSelectionExternalConsumerExercisesSurface` | A separate fixture project constructs every stage and plan form, invokes both executor entry points, and observes every success and failure result; removing any intended public wiring fails the gate. |
+| `RowSelectionHasOnlyFrameworkRuntimeDependencies` | Evaluated Release references and resolved compile/runtime/native assets contain only framework references and this component; build-only tooling is allowed only when it contributes no product asset. |
 | `RowSelectionForbidsHostApis` | A static product-closure gate rejects console, filesystem, network, process, dedicated-thread, parallel-loop, and native-interop APIs even though those APIs are in the BCL. |
 | `RowSelectionRunsOnNativeAotAndBrowser` | The reference stage matrix executes in Release under NativeAOT and single-threaded Browser/Wasm hosts. |
-| `RowSelectionPublicApiIsSynchronous` | A signature-closure gate rejects `Task`/`ValueTask`, `Thread`, `Stream`/`TextReader`/`TextWriter`, `Uri`/`HttpClient`, `FileSystemInfo`, and `Process` from public members. |
 
 The source-pushdown successor must add an equivalence gate comparing every
 optimized plan it supports with this complete-sequence reference executor,
