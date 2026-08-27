@@ -149,7 +149,12 @@ public sealed record AssemblyReferenceIdentity(
         StringHandle handle)
         => handle.IsNil ? null : reader.GetString(handle);
 
-    static string NormalizeCulture(string? value) =>
+    /// <summary>
+    /// Collapses the three spellings of a neutral culture — absent, empty, and
+    /// the literal <c>neutral</c> — onto one value so callers can compare an
+    /// assembly-name culture qualifier against a projected identity.
+    /// </summary>
+    internal static string NormalizeCulture(string? value) =>
         string.IsNullOrEmpty(value)
             || value.Equals("neutral", StringComparison.OrdinalIgnoreCase)
                 ? ""

@@ -410,7 +410,7 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
         if (serializedName.Length
             > MetadataSafetyPolicy.MaxTypeNameCharacters)
         {
-            return Reject(
+            return RejectSerialized(
                 MetadataTypeNameRejectionKind.SegmentsTooLong);
         }
 
@@ -423,17 +423,24 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
                 out TypeName? parsed,
                 options))
         {
-            return Reject(
+            return RejectSerialized(
                 MetadataTypeNameRejectionKind.InvalidSerializedName);
         }
         if (parsed.AssemblyName is not null)
         {
-            return Reject(
+            return RejectSerialized(
                 MetadataTypeNameRejectionKind.AssemblyQualifiedSerializedName);
         }
+        return FromParsedSerializedName(parsed);
+    }
+
+    internal static MetadataTypeDefinitionNameResult
+        FromParsedSerializedName(TypeName parsed)
+    {
+        ArgumentNullException.ThrowIfNull(parsed);
         if (!parsed.IsSimple)
         {
-            return Reject(
+            return RejectSerialized(
                 MetadataTypeNameRejectionKind.NonDefinitionSerializedName);
         }
 
@@ -441,12 +448,12 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
         TypeName current = parsed;
         while (true)
         {
-            if (current.AssemblyName is not null || !current.IsSimple)
+            if (!current.IsSimple)
             {
-                return Reject(
+                return RejectSerialized(
                     MetadataTypeNameRejectionKind.NonDefinitionSerializedName);
             }
-            segments.Add(current.Name);
+            segments.Add(TypeName.Unescape(current.Name));
             if (!current.IsNested)
                 break;
             current = current.DeclaringType;
@@ -455,13 +462,16 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
             ImmutableArray.CreateBuilder<string>(segments.Count);
         for (int i = segments.Count - 1; i >= 0; i--)
             rootToLeaf.Add(segments[i]);
-        return Create(current.Namespace, rootToLeaf.MoveToImmutable());
+        return Create(
+            TypeName.Unescape(current.Namespace),
+            rootToLeaf.MoveToImmutable());
 
-        static MetadataTypeDefinitionNameResult Reject(
-            MetadataTypeNameRejectionKind kind) =>
-            new MetadataTypeDefinitionNameResult.Rejected(
-                new MetadataTypeNameRejection(kind));
     }
+
+    static MetadataTypeDefinitionNameResult RejectSerialized(
+        MetadataTypeNameRejectionKind kind) =>
+        new MetadataTypeDefinitionNameResult.Rejected(
+            new MetadataTypeNameRejection(kind));
 
     public bool Equals(MetadataTypeDefinitionName? other)
     {
@@ -795,6 +805,10 @@ internal static class MetadataTypeDefinitionNameReader
         where THandle : struct
         where TRow : struct, IMetadataTypeNameRow<THandle>
     {
+        // The builder and its ToImmutable() copy each allocate one reference
+        // per chain node before any name is read, so charge that structural
+        // cost up front rather than relying on the per-component charges alone.
+        beforeMaterialize?.Invoke(rootToLeaf.Length);
         var segments = ImmutableArray.CreateBuilder<string>(rootToLeaf.Length);
         string? @namespace = null;
         var budget = new MetadataTypeNameBudget();
