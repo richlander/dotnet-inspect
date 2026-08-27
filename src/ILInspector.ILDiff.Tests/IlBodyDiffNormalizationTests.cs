@@ -137,21 +137,50 @@ public class IlBodyDiffNormalizationTests
     }
 
     [Fact]
-    public void CompareMembers_DistinguishesUnrepresentableArrayOperandShapes()
+    public void CompareMembers_DistinguishesRejectedArrayOperandShapes()
     {
-        var oldImage = BuildCallImage(
-            "Shapes",
-            "Library",
-            targetSignature: ArrayParameterSignature(size: 6));
-        var newImage = BuildCallImage(
-            "Shapes",
-            "Library",
-            targetSignature: ArrayParameterSignature(size: 7));
+        AssertArrayOperandDiff(
+            ArrayParameterSignature(1, [6], []),
+            ArrayParameterSignature(1, [7], []));
+        AssertArrayOperandDiff(
+            ArrayParameterSignature(1, [6], []),
+            ArrayParameterSignature(2, [6], []));
+        AssertArrayOperandDiff(
+            ArrayParameterSignature(1, [0], [1]),
+            ArrayParameterSignature(2, [0], [1]));
+        AssertArrayOperandDiff(
+            ArrayParameterSignature(33, [6], []),
+            ArrayParameterSignature(33, [7], []));
 
-        var diff = CompareImages(oldImage, newImage);
+        int[] oldSizes = new int[33];
+        int[] newSizes = new int[33];
+        newSizes[^1] = 1;
+        int[] lowerBounds = new int[33];
+        AssertArrayOperandDiff(
+            ArrayParameterSignature(33, oldSizes, lowerBounds),
+            ArrayParameterSignature(33, newSizes, lowerBounds));
+    }
 
-        Assert.Equal(IlBodyDiffOutcome.OperandDiff, diff.Outcome);
-        Assert.False(diff.IsExact);
+    [Fact]
+    public void CompareStreams_DoesNotAlignMethodsWithDifferentRejectedArraySignatures()
+    {
+        using var oldStream = new MemoryStream(BuildCallImage(
+            "Shapes",
+            methodSignature: ArrayParameterSignature(33, [6], []),
+            emitCall: false));
+        using var newStream = new MemoryStream(BuildCallImage(
+            "Shapes",
+            methodSignature: ArrayParameterSignature(33, [7], []),
+            emitCall: false));
+
+        var result = IlAssemblyDiff.CompareStreams(
+            oldStream,
+            "old.dll",
+            newStream,
+            "new.dll").Diff;
+
+        Assert.Equal(0, result.ComparedBodyCount);
+        Assert.Equal(0, result.PairExactCount);
     }
 
     [Fact]
@@ -289,12 +318,25 @@ public class IlBodyDiffNormalizationTests
             normalization: normalization).Diff;
     }
 
+    static void AssertArrayOperandDiff(byte[] oldSignature, byte[] newSignature)
+    {
+        var oldImage = BuildCallImage("Shapes", "Library", targetSignature: oldSignature);
+        var newImage = BuildCallImage("Shapes", "Library", targetSignature: newSignature);
+
+        var diff = CompareImages(oldImage, newImage);
+
+        Assert.Equal(IlBodyDiffOutcome.OperandDiff, diff.Outcome);
+        Assert.False(diff.IsExact);
+    }
+
     static byte[] BuildCallImage(
         string assemblyName,
         string? referenceAssemblyName = null,
         string? memberName = null,
         string? typeName = null,
-        byte[]? targetSignature = null)
+        byte[]? targetSignature = null,
+        byte[]? methodSignature = null,
+        bool emitCall = true)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -352,9 +394,12 @@ public class IlBodyDiffNormalizationTests
 
         var il = new BlobBuilder();
         var encoder = new InstructionEncoder(il, new ControlFlowBuilder());
-        if (targetSignature is not null)
-            encoder.OpCode(ILOpCode.Ldnull);
-        encoder.Call(target);
+        if (emitCall)
+        {
+            if (targetSignature is not null || methodSignature is not null)
+                encoder.OpCode(ILOpCode.Ldnull);
+            encoder.Call(target);
+        }
         encoder.OpCode(ILOpCode.Ret);
         var methodBodies = new BlobBuilder();
         int bodyOffset = new MethodBodyStreamEncoder(methodBodies).AddMethodBody(encoder);
@@ -362,7 +407,7 @@ public class IlBodyDiffNormalizationTests
             MethodAttributes.Public | MethodAttributes.Static,
             MethodImplAttributes.IL,
             metadata.GetOrAddString("Caller"),
-            metadata.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x01 }),
+            metadata.GetOrAddBlob(methodSignature ?? [0x00, 0x00, 0x01]),
             bodyOffset,
             MetadataTokens.ParameterHandle(1));
 
@@ -376,18 +421,23 @@ public class IlBodyDiffNormalizationTests
         return image.ToArray();
     }
 
-    static byte[] ArrayParameterSignature(byte size) =>
-    [
-        0x00, // default method signature
-        0x01, // one parameter
-        0x01, // void return type
-        0x14, // ARRAY
-        0x08, // int32 element type
-        0x01, // rank 1
-        0x01, // one size
-        size,
-        0x00, // no lower bounds
-    ];
+    static byte[] ArrayParameterSignature(int rank, int[] sizes, int[] lowerBounds)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00); // default method signature
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x01); // void return type
+        signature.WriteByte(0x14); // ARRAY
+        signature.WriteByte(0x08); // int32 element type
+        signature.WriteCompressedInteger(rank);
+        signature.WriteCompressedInteger(sizes.Length);
+        foreach (int size in sizes)
+            signature.WriteCompressedInteger(size);
+        signature.WriteCompressedInteger(lowerBounds.Length);
+        foreach (int lowerBound in lowerBounds)
+            signature.WriteCompressedSignedInteger(lowerBound);
+        return signature.ToArray();
+    }
 
     static byte[] BuildStringImage(string assemblyName, string value)
     {

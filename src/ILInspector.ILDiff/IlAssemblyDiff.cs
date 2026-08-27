@@ -409,7 +409,9 @@ public static class IlAssemblyDiff
 
         string instance = signature.Header.IsInstance ? "instance" : "static";
         string genericArity = signature.GenericParameterCount > 0 ? $"<{signature.GenericParameterCount}>" : "";
-        string signatureText = $"{instance} {signature.ReturnType}({string.Join(", ", signature.ParameterTypes)})";
+        string signatureText = context.HasUnrenderableArrayShape
+            ? GuardedProviderDecode.RejectedIdentity(reader, method.Signature)
+            : $"{instance} {signature.ReturnType}({string.Join(", ", signature.ParameterTypes)})";
         return new MethodIdentityResult(
             $"{resolvedType.Value}::{name}{genericArity}#{signatureText}",
             null);
@@ -463,9 +465,13 @@ public static class IlAssemblyDiff
 sealed class SignatureIdentityContext
 {
     public MetadataTypeNameFailure? Failure { get; private set; }
+    public bool HasUnrenderableArrayShape { get; private set; }
 
     public void Reject(MetadataTypeNameFailure failure)
         => Failure ??= failure;
+
+    public void RejectArrayShape()
+        => HasUnrenderableArrayShape = true;
 }
 
 sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, SignatureIdentityContext>
@@ -538,7 +544,14 @@ sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, Signatur
     }
 
     public string GetSZArrayType(string elementType) => $"{elementType}[]";
-    public string GetArrayType(string elementType, ArrayShape shape) => ArrayShapeText.Format(elementType, shape);
+    public string GetArrayType(string elementType, ArrayShape shape)
+    {
+        if (ArrayShapeText.TryFormat(elementType, shape, out string text))
+            return text;
+
+        _context.RejectArrayShape();
+        return text;
+    }
     public string GetByReferenceType(string elementType) => $"{elementType}&";
     public string GetPointerType(string elementType) => $"{elementType}*";
     public string GetPinnedType(string elementType) => $"{elementType} pinned";

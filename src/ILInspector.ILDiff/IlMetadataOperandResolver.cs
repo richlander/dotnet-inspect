@@ -115,15 +115,7 @@ public static partial class IlBodyDiff
         string FormatMethodDefinition(MethodDefinitionHandle handle)
         {
             var method = reader.GetMethodDefinition(handle);
-            var signature = GuardedProviderDecode.TryMethod(
-                reader,
-                method,
-                SignatureIdentityProvider.Instance,
-                context: null,
-                out var decoded)
-                ? decoded
-                : GuardedProviderDecode.FallbackSignature(
-                    GuardedProviderDecode.RejectedIdentity(reader, method.Signature));
+            var signature = DecodeMethod(method);
             return FormatCall(signature, FormatType(method.GetDeclaringType()), MethodName(handle, method), genericArgs: null);
         }
 
@@ -133,29 +125,14 @@ public static partial class IlBodyDiff
             if (member.GetKind() != MemberReferenceKind.Method)
                 throw new BadImageFormatException("Expected method member reference.");
 
-            var signature = GuardedProviderDecode.TryMemberRefMethod(
-                reader,
-                member,
-                SignatureIdentityProvider.Instance,
-                context: null,
-                out var decoded)
-                ? decoded
-                : GuardedProviderDecode.FallbackSignature(
-                    GuardedProviderDecode.RejectedIdentity(reader, member.Signature));
+            var signature = DecodeMemberReferenceMethod(member);
             return FormatCall(signature, FormatMemberParent(member.Parent), reader.GetString(member.Name), genericArgs: null);
         }
 
         string FormatMethodSpecification(MethodSpecificationHandle handle)
         {
             var spec = reader.GetMethodSpecification(handle);
-            var typeArguments = GuardedProviderDecode.TryMethodSpec(
-                reader,
-                spec,
-                SignatureIdentityProvider.Instance,
-                context: null,
-                out var decoded)
-                ? decoded
-                : [GuardedProviderDecode.RejectedIdentity(reader, spec.Signature)];
+            var typeArguments = DecodeMethodSpecification(spec);
             string genericArgs = $"<{string.Join(", ", typeArguments)}>";
 
             return spec.Method.Kind switch
@@ -169,15 +146,7 @@ public static partial class IlBodyDiff
         string FormatMethodSpecificationDefinition(MethodDefinitionHandle handle, string genericArgs)
         {
             var method = reader.GetMethodDefinition(handle);
-            var signature = GuardedProviderDecode.TryMethod(
-                reader,
-                method,
-                SignatureIdentityProvider.Instance,
-                context: null,
-                out var decoded)
-                ? decoded
-                : GuardedProviderDecode.FallbackSignature(
-                    GuardedProviderDecode.RejectedIdentity(reader, method.Signature));
+            var signature = DecodeMethod(method);
             return FormatCall(signature, FormatType(method.GetDeclaringType()), MethodName(handle, method), genericArgs);
         }
 
@@ -190,29 +159,14 @@ public static partial class IlBodyDiff
             if (member.GetKind() != MemberReferenceKind.Method)
                 throw new BadImageFormatException("Expected method member reference.");
 
-            var signature = GuardedProviderDecode.TryMemberRefMethod(
-                reader,
-                member,
-                SignatureIdentityProvider.Instance,
-                context: null,
-                out var decoded)
-                ? decoded
-                : GuardedProviderDecode.FallbackSignature(
-                    GuardedProviderDecode.RejectedIdentity(reader, member.Signature));
+            var signature = DecodeMemberReferenceMethod(member);
             return FormatCall(signature, FormatMemberParent(member.Parent), reader.GetString(member.Name), genericArgs);
         }
 
         string FormatFieldDefinition(FieldDefinitionHandle handle)
         {
             var field = reader.GetFieldDefinition(handle);
-            string fieldType = GuardedProviderDecode.TryField(
-                reader,
-                field,
-                SignatureIdentityProvider.Instance,
-                context: null,
-                out var decoded)
-                ? decoded
-                : GuardedProviderDecode.RejectedIdentity(reader, field.Signature);
+            string fieldType = DecodeField(field);
             return $"{fieldType} {FormatType(field.GetDeclaringType())}::{FieldName(handle, field)}";
         }
 
@@ -222,14 +176,7 @@ public static partial class IlBodyDiff
             if (member.GetKind() != MemberReferenceKind.Field)
                 throw new BadImageFormatException("Expected field member reference.");
 
-            string fieldType = GuardedProviderDecode.TryMemberRefField(
-                reader,
-                member,
-                SignatureIdentityProvider.Instance,
-                context: null,
-                out var decoded)
-                ? decoded
-                : GuardedProviderDecode.RejectedIdentity(reader, member.Signature);
+            string fieldType = DecodeMemberReferenceField(member);
             // A MemberReference names a field the definition-handle correspondence never
             // indexed, so it keeps its raw name.
             return $"{fieldType} {FormatMemberParent(member.Parent)}::{reader.GetString(member.Name)}";
@@ -265,14 +212,63 @@ public static partial class IlBodyDiff
         string FormatTypeSpecification(TypeSpecificationHandle handle)
         {
             var specification = reader.GetTypeSpecification(handle);
+            var provider = new SignatureIdentityProvider();
             return GuardedProviderDecode.TryTypeSpec(
                 reader,
                 handle,
-                SignatureIdentityProvider.Instance,
+                provider,
                 null,
                 out var decoded)
+                && !provider.HasUnrenderableArrayShape
                 ? decoded
                 : GuardedProviderDecode.RejectedIdentity(reader, specification.Signature);
+        }
+
+        MethodSignature<string> DecodeMethod(MethodDefinition method)
+        {
+            var provider = new SignatureIdentityProvider();
+            return GuardedProviderDecode.TryMethod(reader, method, provider, null, out var decoded)
+                && !provider.HasUnrenderableArrayShape
+                ? decoded
+                : GuardedProviderDecode.FallbackSignature(
+                    GuardedProviderDecode.RejectedIdentity(reader, method.Signature));
+        }
+
+        MethodSignature<string> DecodeMemberReferenceMethod(MemberReference member)
+        {
+            var provider = new SignatureIdentityProvider();
+            return GuardedProviderDecode.TryMemberRefMethod(reader, member, provider, null, out var decoded)
+                && !provider.HasUnrenderableArrayShape
+                ? decoded
+                : GuardedProviderDecode.FallbackSignature(
+                    GuardedProviderDecode.RejectedIdentity(reader, member.Signature));
+        }
+
+        ImmutableArray<string> DecodeMethodSpecification(MethodSpecification specification)
+        {
+            var provider = new SignatureIdentityProvider();
+            return GuardedProviderDecode.TryMethodSpec(reader, specification, provider, null, out var decoded)
+                && !provider.HasUnrenderableArrayShape
+                ? decoded
+                : [GuardedProviderDecode.RejectedIdentity(reader, specification.Signature)];
+        }
+
+        string DecodeField(FieldDefinition field)
+        {
+            var provider = new SignatureIdentityProvider();
+            return GuardedProviderDecode.TryField(reader, field, provider, null, out var decoded)
+                && !provider.HasUnrenderableArrayShape
+                ? decoded
+                : GuardedProviderDecode.RejectedIdentity(reader, field.Signature);
+        }
+
+        string DecodeMemberReferenceField(MemberReference member)
+        {
+            var provider = new SignatureIdentityProvider();
+            return GuardedProviderDecode.TryMemberRefField(reader, member, provider, null, out var decoded)
+                && !provider.HasUnrenderableArrayShape
+                ? decoded
+                : GuardedProviderDecode.RejectedIdentity(reader, member.Signature);
         }
 
         string FormatTypeDefinition(TypeDefinitionHandle handle)
@@ -399,8 +395,6 @@ public static partial class IlBodyDiff
 
     sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, object?>
     {
-        public static SignatureIdentityProvider Instance { get; } = new();
-
         // Malformed metadata can make a declaring type or resolution-scope chain cyclic, so
         // the TypeName climbs below would recurse until an uncatchable StackOverflowException.
         // Cap the climb ([ThreadStatic] so the shared Instance stays thread-safe) and degrade
@@ -408,6 +402,8 @@ public static partial class IlBodyDiff
         [ThreadStatic]
         static int s_climbDepth;
         const int MaxClimbDepth = 256;
+
+        public bool HasUnrenderableArrayShape { get; private set; }
 
         public string GetPrimitiveType(PrimitiveTypeCode typeCode)
             => typeCode switch
@@ -453,7 +449,14 @@ public static partial class IlBodyDiff
         }
 
         public string GetSZArrayType(string elementType) => $"{elementType}[]";
-        public string GetArrayType(string elementType, ArrayShape shape) => ArrayShapeText.Format(elementType, shape);
+        public string GetArrayType(string elementType, ArrayShape shape)
+        {
+            if (ArrayShapeText.TryFormat(elementType, shape, out string text))
+                return text;
+
+            HasUnrenderableArrayShape = true;
+            return text;
+        }
         public string GetByReferenceType(string elementType) => $"{elementType}&";
         public string GetPointerType(string elementType) => $"{elementType}*";
         public string GetPinnedType(string elementType) => $"{elementType} pinned";

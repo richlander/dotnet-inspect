@@ -95,13 +95,17 @@ public class ArrayShapeTextTests
 
         Assert.Equal(
             "int32[/* unrepresentable shape: 1 sizes, 0 lower bounds; "
-                + "sizes=[6], lower bounds=[] */ invalid]",
+                + "rank=1, sizes=[6], lower bounds=[] */ invalid]",
             sizeSix);
         Assert.Equal(
             "int32[/* unrepresentable shape: 1 sizes, 0 lower bounds; "
-                + "sizes=[7], lower bounds=[] */ invalid]",
+                + "rank=1, sizes=[7], lower bounds=[] */ invalid]",
             sizeSeven);
         Assert.NotEqual(sizeSix, sizeSeven);
+
+        string rankTwo = ArrayShapeText.Format("int32", new ArrayShape(2, [6], []));
+        Assert.Contains("rank=2", rankTwo, StringComparison.Ordinal);
+        Assert.NotEqual(sizeSix, rankTwo);
     }
 
     [Fact]
@@ -109,8 +113,26 @@ public class ArrayShapeTextTests
     {
         Assert.Equal(
             "int32[/* unrepresentable zero size with lower bound 1 at dimension 0; "
-                + "sizes=[0], lower bounds=[1] */ invalid]",
+                + "rank=1, sizes=[0], lower bounds=[1] */ invalid]",
             ArrayShapeText.Format("int32", new ArrayShape(1, [0], [1])));
+    }
+
+    [Fact]
+    public void TryFormatReportsWhetherTheShapeHasFaithfulILAsmSyntax()
+    {
+        Assert.True(
+            ArrayShapeText.TryFormat(
+                "int32",
+                new ArrayShape(2, [6, 6], [0, -2]),
+                out string rendered));
+        Assert.Equal("int32[6,-2...3]", rendered);
+
+        Assert.False(
+            ArrayShapeText.TryFormat(
+                "int32",
+                new ArrayShape(1, [6], []),
+                out string rejected));
+        Assert.Contains("invalid", rejected, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -205,7 +227,7 @@ public class ArrayShapeTextTests
     public void MarksANegativeSize()
     {
         Assert.Equal(
-            "int32[/* invalid size -1 at dimension 0; sizes=[-1], "
+            "int32[/* invalid size -1 at dimension 0; rank=1, sizes=[-1], "
                 + "lower bounds=[0] */ invalid]",
             ArrayShapeText.Format("int32", new ArrayShape(1, [-1], [0])));
     }

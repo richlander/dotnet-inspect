@@ -98,22 +98,37 @@ public static class ArrayShapeText
     /// </remarks>
     public static string Format(string elementType, ArrayShape shape)
     {
+        _ = TryFormat(elementType, shape, out string text);
+        return text;
+    }
+
+    /// <summary>
+    /// Attempts to render <paramref name="shape"/> faithfully in IL-assembler syntax.
+    /// The output remains a visibly non-assembling marker when the shape is rejected.
+    /// </summary>
+    public static bool TryFormat(string elementType, ArrayShape shape, out string text)
+    {
         int rank = shape.Rank;
         if (!IsLoadableRank(rank))
-            return Failure(elementType, $"invalid rank {Invariant(rank)}");
+        {
+            text = Failure(elementType, $"invalid rank {Invariant(rank)}");
+            return false;
+        }
 
         if (shape.Sizes.Length > rank)
         {
-            return Failure(
+            text = Failure(
                 elementType,
                 $"invalid size count {Invariant(shape.Sizes.Length)} for rank {Invariant(rank)}");
+            return false;
         }
 
         if (shape.LowerBounds.Length > rank)
         {
-            return Failure(
+            text = Failure(
                 elementType,
                 $"invalid lower-bound count {Invariant(shape.LowerBounds.Length)} for rank {Invariant(rank)}");
+            return false;
         }
 
         for (int dimension = 0; dimension < shape.Sizes.Length; dimension++)
@@ -121,10 +136,11 @@ public static class ArrayShapeText
             int size = shape.Sizes[dimension];
             if (size < 0 || size > MaxEncodedSize)
             {
-                return ShapeFailure(
+                text = ShapeFailure(
                     elementType,
                     $"invalid size {Invariant(size)} at dimension {Invariant(dimension)}",
                     shape);
+                return false;
             }
         }
 
@@ -133,28 +149,30 @@ public static class ArrayShapeText
             int lowerBound = shape.LowerBounds[dimension];
             if (lowerBound < MinEncodedLowerBound || lowerBound > MaxEncodedLowerBound)
             {
-                return ShapeFailure(
+                text = ShapeFailure(
                     elementType,
                     $"invalid lower bound {Invariant(lowerBound)} at dimension {Invariant(dimension)}",
                     shape);
+                return false;
             }
         }
 
         if (shape.Sizes.Length > shape.LowerBounds.Length)
         {
-            return ShapeFailure(
+            text = ShapeFailure(
                 elementType,
                 $"unrepresentable shape: {Invariant(shape.Sizes.Length)} sizes, "
                     + $"{Invariant(shape.LowerBounds.Length)} lower bounds",
                 shape);
+            return false;
         }
 
-        var text = new StringBuilder(elementType);
-        text.Append('[');
+        var builder = new StringBuilder(elementType);
+        builder.Append('[');
         for (int dimension = 0; dimension < rank; dimension++)
         {
             if (dimension > 0)
-                text.Append(',');
+                builder.Append(',');
 
             bool hasSize = dimension < shape.Sizes.Length;
             bool hasLowerBound = dimension < shape.LowerBounds.Length;
@@ -166,40 +184,42 @@ public static class ArrayShapeText
                 {
                     if (dimension == shape.Sizes.Length - 1)
                     {
-                        return ShapeFailure(
+                        text = ShapeFailure(
                             elementType,
                             $"unrepresentable zero size with lower bound {Invariant(lowerBound)} "
                                 + $"at dimension {Invariant(dimension)}",
                             shape);
+                        return false;
                     }
 
-                    text.Append(Invariant(lowerBound));
-                    text.Append("...");
+                    builder.Append(Invariant(lowerBound));
+                    builder.Append("...");
                 }
                 else if (lowerBound == 0)
                 {
-                    text.Append(Invariant(size));
+                    builder.Append(Invariant(size));
                 }
                 else
                 {
-                    text.Append(Invariant(lowerBound));
-                    text.Append("...");
-                    text.Append(Invariant((long)lowerBound + size - 1L));
+                    builder.Append(Invariant(lowerBound));
+                    builder.Append("...");
+                    builder.Append(Invariant((long)lowerBound + size - 1L));
                 }
             }
             else if (hasLowerBound)
             {
-                text.Append(Invariant(shape.LowerBounds[dimension]));
-                text.Append("...");
+                builder.Append(Invariant(shape.LowerBounds[dimension]));
+                builder.Append("...");
             }
             else if (rank == 1)
             {
-                text.Append("...");
+                builder.Append("...");
             }
         }
 
-        text.Append(']');
-        return text.ToString();
+        builder.Append(']');
+        text = builder.ToString();
+        return true;
     }
 
     static string Failure(string elementType, string detail)
@@ -210,7 +230,9 @@ public static class ArrayShapeText
         var text = new StringBuilder(elementType);
         text.Append("[/* ");
         text.Append(detail);
-        text.Append("; sizes=[");
+        text.Append("; rank=");
+        text.Append(Invariant(shape.Rank));
+        text.Append(", sizes=[");
         AppendValues(text, shape.Sizes);
         text.Append("], lower bounds=[");
         AppendValues(text, shape.LowerBounds);
