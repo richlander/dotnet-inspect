@@ -8,6 +8,8 @@ configuration, authentication, timeout ownership, and presentation.
 
 The implementation plan is tracked by
 [#4239](https://github.com/richlander/dotnet-inspect/issues/4239).
+The focused typed source-result identity contract is tracked by
+[#4795](https://github.com/richlander/dotnet-inspect/issues/4795).
 
 ## Scope
 
@@ -302,6 +304,178 @@ listed fail-open data. Replacing that desktop behavior and its
 Markdown/TSV/JSONL projection remains implementation work for
 [#4239](https://github.com/richlander/dotnet-inspect/issues/4239).
 
+## Typed source-result identity and safe retention
+
+This section owns one NuGetFetch contract: the identity carried by typed source
+clients and operation results, and the subset of source information safe to
+retain after an operation. It does not define a consumer's package-source
+authorization identity. The target properties are unverified until the
+[identity gates](#identity-gates) run in the NuGetFetch Release suite.
+
+### Identity responsibility
+
+`PackageSourceIdentity` answers one question:
+
+> Which immutable package producer did this NuGetFetch client query?
+
+It is the producer identity returned by `IPackageSourceClient.Identity` and
+carried by candidate observations, manifests, payloads, and source failures.
+Every result from one client carries an identity equal to that client. A
+transport family, runtime endpoint, credential scope, registry ID, display
+name, or consumer cache authority is not a producer identity.
+
+The canonical producer locator consists of the lowercase scheme, normalized
+IDN host, explicit port, and endpoint path. IPv6 hosts retain URI brackets,
+valid percent-escape hex digits use uppercase, and one optional trailing slash
+is folded. Path case and repeated trailing slashes remain distinct. Query and
+fragment are runtime transport data and do not enter producer identity. This
+preserves one producer across rotation of a signed query. A feed that serves
+distinct immutable content domains based on query credentials is incompatible
+with this contract and requires distinct endpoint paths.
+
+NuGet Gallery and the canonical NuGet.org v3 client intentionally share one
+producer identity while retaining different transport kinds. Other paths
+remain distinct even when they share an origin. These properties are gated by
+`PackageSourceIdentity_SignedQueryRotationKeepsProducer`,
+`PackageSourceIdentity_DistinctPathsRemainDistinct`, and
+`PackageSourceIdentity_GalleryAndV3ShareNuGetOrgProducer`.
+
+### Opaque key and safe display
+
+The identity retains no raw or credential-bearing producer locator.
+Construction derives two values and then discards the raw canonical locator:
+
+- `Key` is a versioned, fixed-width opaque digest of the canonical producer
+  locator. Equality, hashing, NuGetFetch-owned cache keys, and serialization
+  use this value.
+- `Display` is the `InertString` result of `UrlRedaction.ForDiagnostics` over
+  the canonical locator. Consumers may convert it to text for diagnostics; it
+  does not participate in equality or authorization.
+
+The HTTP key format is `p1-http-` followed by the lowercase hexadecimal
+SHA-256 digest. The version and source-kind namespace permit a future
+canonicalization change or a non-HTTP source to use a distinct key space
+instead of aliasing existing identities. The digest is computed over UTF-8
+bytes and is identical on desktop and Browser/Wasm. A consumer never parses
+the key to recover an endpoint.
+
+A credential-bearing path such as `/auth/SECRET/` therefore contributes to the
+opaque key without retaining `SECRET` in the identity object, while `Display`
+uses the shared URL-redaction owner to replace the credential-bearing segment.
+Signed query text is absent from the canonical locator and can appear only as
+the redactor's fixed query marker when a runtime endpoint is displayed
+separately.
+
+`PackageSourceIdentity` defines equality and hashing from `Key` alone rather
+than from all stored record fields. `Display` is necessarily many-to-one:
+distinct credential-bearing paths can have the same redacted display while
+remaining distinct producers. That collision is why display text cannot
+participate in equality, cache keys, or authorization.
+
+`PackageSourceIdentity_KeyIsOpaqueStableAndPortable`,
+`PackageSourceIdentity_CredentialPathIsNotRetained`, and
+`PackageSourceIdentity_DisplayIsInertAndNonAuthoritative` gate these
+properties. The existing
+`HttpProducerIdentityFoldsIdnAndPercentEscapeSpelling` gate remains part of the
+canonicalization contract. Each gate includes a nearby non-secret path so an
+implementation that erases every path cannot pass.
+
+### Typed result and failure contract
+
+Typed operation successes retain the producer identity:
+
+- every `PackageCandidateObservation` in search or version results;
+- `PackageSourceManifest`;
+- `PackageSourcePayload`; and
+- every future source-owned result that claims producer provenance.
+
+`PackageSourceFailure` retains the same safe identity, transport kind,
+capability, exact coordinate when applicable, failure kind, and an
+owner-authored fixed summary. It does not retain a runtime endpoint, raw URI,
+exception message, response text, authorization data, or any other
+feed-controlled scalar. New diagnostic context must use `Display` or another
+owner-issued inert value rather than interpolating identity or exception text.
+
+The identity is immutable before an operation begins. Projection rejects a
+success or failure whose producer identity differs from the client that issued
+it. This prevents a transport profile or response from rewriting provenance
+after the caller selected a producer.
+
+`PackageSourceResults_AllProducerBearingShapesUseClientIdentity` derives its
+expected shape set from the source-result declarations so both a missing and a
+new ungated producer-bearing result fail. Its non-vacuity case attempts to
+project a mismatched identity.
+`PackageSourceFailure_RetainsNoLocatorOrRemoteText` derives its expected field
+set from the failure declaration, then exercises signed-query, credential-path,
+exception-message, response-body, and authorization-header secrets against
+every retained field and its diagnostic projection. Both a new ungated field
+and a retained secret fail the gate.
+
+### Consumer association boundary
+
+A consumer may apply a stricter authorization identity than NuGetFetch's
+immutable producer identity. For example, a desktop package cache may keep two
+query-distinct configured endpoints separate even though NuGetFetch treats
+their rotating signatures as transports for one producer.
+
+The association point is the exact `IPackageSourceClient` handle the consumer
+invokes. A consumer mints its authority while classifying the configured
+source, carries it alongside that handle, and wraps the returned operation
+result without deriving authority from `PackageSourceIdentity.Key`, `Display`,
+or a runtime endpoint. NuGetFetch neither accepts nor interprets that consumer
+authority. This keeps protocol provenance and consumer authorization separate
+while allowing the consumer to retain both typed identities.
+
+This handoff is consumed by the focused package composition effort
+[#4797](https://github.com/richlander/dotnet-inspect/issues/4797). Its
+non-vacuity gate must invoke two client handles with the same NuGetFetch
+producer identity and different consumer authorities, then prove that the
+returned candidate and payload associations remain distinct.
+
+The current internal `Value` property is also consumed as a raw display value
+and as input to query-sensitive package credential and cache canonicalization.
+Replacing it with `Key` and `Display` is therefore a coordinated internal API
+migration, not a compatible representation change. The NuGetFetch
+implementation must not land until #4797 preserves the package owner's
+query-sensitive configured-endpoint authority, stops feeding either new
+identity field to `NuGetCache.GetSourceKey`, selects `Display` explicitly for
+diagnostics, and records any cache migration consequence. Those are consumer
+obligations owned and gated by #4797, not behaviors redefined here.
+
+### Identity gates
+
+The following gates run in `src/NuGetFetch.Tests` in Release:
+
+- `PackageSourceIdentity_SignedQueryRotationKeepsProducer`;
+- `PackageSourceIdentity_DistinctPathsRemainDistinct`;
+- `PackageSourceIdentity_GalleryAndV3ShareNuGetOrgProducer`;
+- `PackageSourceIdentity_KeyIsOpaqueStableAndPortable`;
+- `PackageSourceIdentity_CredentialPathIsNotRetained`;
+- `PackageSourceIdentity_DisplayIsInertAndNonAuthoritative`;
+- `HttpProducerIdentityFoldsIdnAndPercentEscapeSpelling`;
+- `PackageSourceResults_AllProducerBearingShapesUseClientIdentity`; and
+- `PackageSourceFailure_RetainsNoLocatorOrRemoteText`.
+
+The gates use the real identity constructor and typed result projection. A
+fixture-only redactor, a test-created replacement identity, or an assertion
+against only the friendly display cannot satisfy the contract.
+
+### Non-claims
+
+This identity owner does not define:
+
+- package-source mapping, configured-alias collapse, consumer cache
+  authorization, or multi-source aggregation;
+- operation deadline fields, which belong to
+  [#4770](https://github.com/richlander/dotnet-inspect/issues/4770);
+- credential-plugin eligibility, which belongs to
+  [#4776](https://github.com/richlander/dotnet-inspect/issues/4776);
+- Core offline diagnostic rendering, which belongs to
+  [#4766](https://github.com/richlander/dotnet-inspect/issues/4766);
+- source-client transport construction, endpoint validation, protocol retry,
+  or payload-stream lifetime; or
+- browser registry, persistence, source-bundle, and presentation policy.
+
 ## Cache and provenance
 
 Candidate and payload caches are source-scoped:
@@ -575,7 +749,7 @@ The first two implementation slices establish the typed source identity,
 credential-free descriptor, capability, runtime-client, and factory contracts
 in NuGetFetch. It adapts the existing desktop `PackageSource` input to a NuGet
 v3 client without migrating current consumers, and centralizes canonical HTTP
-producer identity so credential scope and future transports use the same key.
+producer identity independently from runtime credential scope.
 Portable descriptors reject user information, queries, and fragments. The
 desktop compatibility adapter keeps established query-bearing signed service
 indexes as runtime-only configuration rather than admitting them into a
@@ -663,7 +837,10 @@ transport profile, capability, and exact coordinate when applicable, and
 distinguish unsupported capability, exact payload absence, authentication,
 timeout, malformed metadata, bounded-response rejection, and transport
 failure. Their retained messages are source-safe summaries rather than
-transport URLs or response text. Caller cancellation remains cancellation,
+transport URLs or response text. The identity and retained-failure target is
+defined by
+[Typed source-result identity and safe retention](#typed-source-result-identity-and-safe-retention).
+Caller cancellation remains cancellation,
 deadline aborts are typed timeouts, and transport-originated cancellation with
 neither condition active is a typed transport failure.
 `V3SearchCallerCancellationRemainsCancellation`,
