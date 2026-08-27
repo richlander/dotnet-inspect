@@ -5,22 +5,24 @@ import {
   type PackageIdentity,
 } from "./data.ts";
 import type {
-  BrowserMemberSurface,
   BrowserPackageDependencies,
   BrowserPackageIntegrations,
   BrowserPackageOpportunities,
   BrowserPackagePerformance,
   BrowserPerformanceMember,
-  BrowserTypeSurface,
 } from "./inspect-web-engine.d.ts";
 import type { PackageMetadata } from "./metadata-viewer.ts";
-import type { AppPackage } from "./package-acquisition.ts";
+import type {
+  AppMemberSurface,
+  AppPackage,
+  AppTypeSurface,
+} from "./package-acquisition.ts";
 
 export type PackagePerformance = BrowserPackagePerformance;
 
 export interface ResolvedPackagePerformanceMember {
-  type: BrowserTypeSurface;
-  member: BrowserMemberSurface;
+  type: AppTypeSurface;
+  member: AppMemberSurface;
 }
 
 export function resolvePackagePerformanceMember(

@@ -86,6 +86,22 @@ function packageSurface(
   };
 }
 
+function generatedPackageSurfaceRejectsMutation(
+  surface: BrowserPackageSurface,
+): void {
+  // @ts-expect-error Generated wire properties are producer-owned snapshots.
+  surface.version = "application state";
+  // @ts-expect-error Generated wire collections are readonly.
+  surface.types[0] = typeSurface("Application.Type");
+  const type = surface.types[0];
+  if (!type) return;
+  const member = type.api[0];
+  if (!member) return;
+  // @ts-expect-error Nested generated wire collections are readonly.
+  type.api[0] = member;
+}
+void generatedPackageSurfaceRejectsMutation;
+
 function runtimeSurface(
   assemblyId: string,
   assemblyName: string,
@@ -93,10 +109,14 @@ function runtimeSurface(
   totalMembers = 2,
   platformPack = "netcore.app",
 ): BrowserPackageSurface {
-  const primary = assembly(assemblyId, assemblyName);
-  primary.platformPack = platformPack;
-  const type = typeSurface(typeId, assemblyName);
-  type.platformPack = platformPack;
+  const primary = {
+    ...assembly(assemblyId, assemblyName),
+    platformPack,
+  };
+  const type = {
+    ...typeSurface(typeId, assemblyName),
+    platformPack,
+  };
   return packageSurface({
     package: "Microsoft.NETCore.App",
     version: "10.0.0",
@@ -130,8 +150,12 @@ function runtimeSurfaceWithInvalidAssemblyIds(
     // A whitespace-only id is the case a length-only guard would accept: the
     // descriptor would match itself and produce a model with a blank identity.
     const blank = mode === "empty" ? "" : "   ";
-    result.defaultAssemblyId = blank;
-    selected.id = blank;
+    return {
+      ...result,
+      defaultAssemblyId: blank,
+      assemblies: result.assemblies.map(candidate =>
+        candidate === selected ? { ...candidate, id: blank } : candidate),
+    };
   }
   return result;
 }
@@ -192,6 +216,21 @@ test("NuGet projection selects the declared assembly and preserves package total
       defaultAssemblyId: "missing",
     })),
     /did not return its selected assembly descriptor/);
+});
+
+test("package projection copies only application-owned mutable collections", () => {
+  const surface = packageSurface();
+  const model = createNuGetPackageModel(surface);
+
+  assert.notEqual(model.frameworks, surface.frameworks);
+  assert.notEqual(model.assemblies, surface.assemblies);
+  assert.equal(model.assemblies[0], surface.assemblies[0]);
+  assert.notEqual(model.types, surface.types);
+  assert.notEqual(model.types[0], surface.types[0]);
+  assert.notEqual(model.types[0]?.api, surface.types[0]?.api);
+  assert.notEqual(model.accessibility, surface.accessibility);
+  assert.equal(model.accessibility[0], surface.accessibility[0]);
+  assert.notEqual(model.documents, surface.documents);
 });
 
 test("runtime assembly acquisition reports a missing selected descriptor", async () => {
@@ -419,24 +458,28 @@ test("a truncated full-pack surface merges into a compatible resident", async ()
 });
 
 test("repeating a partial surface merge does not inflate resident evidence", () => {
-  const residentSurface =
-    runtimeSurface("corelib", "System.Private.CoreLib", "System.Object");
-  residentSurface.inspectionErrors = [
+  const residentNotices = [
     "System.Private.CoreLib: extraction truncated; "
       + "0 assembly(ies) were not projected.",
     "System.Text.Json: extraction truncated; "
       + "0 assembly(ies) were not projected.",
   ];
-  residentSurface.inspectionError = residentSurface.inspectionErrors.join("; ");
+  const residentSurface = {
+    ...runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"),
+    inspectionErrors: residentNotices,
+    inspectionError: residentNotices.join("; "),
+  };
   const resident = createRuntimePackageModel(residentSurface);
-  const partial = runtimeSurface(
-    "json",
-    "System.Text.Json",
-    "System.Text.Json.JsonDocument");
-  const partialNotice = residentSurface.inspectionErrors?.[1];
+  const partialNotice = residentNotices[1];
   assert.ok(partialNotice);
-  partial.inspectionErrors = [partialNotice];
-  partial.inspectionError = partialNotice;
+  const partial = {
+    ...runtimeSurface(
+      "json",
+      "System.Text.Json",
+      "System.Text.Json.JsonDocument"),
+    inspectionErrors: [partialNotice],
+    inspectionError: partialNotice,
+  };
 
   mergeRuntimePackageSurface(resident, partial);
   mergeRuntimePackageSurface(resident, partial);
@@ -613,9 +656,14 @@ test("runtime acquisition serializes and merges full-pack and assembly requests"
         "System.Text.Json",
         "System.Text.Json.JsonDocument",
         3);
-      surface.inspectionError = "System.Text.Json: omitted 2 metadata rows.";
-      surface.types.unshift(typeSurface("System.Object", "System.Private.CoreLib"));
-      return JSON.stringify(surface);
+      return JSON.stringify({
+        ...surface,
+        inspectionError: "System.Text.Json: omitted 2 metadata rows.",
+        types: [
+          typeSurface("System.Object", "System.Private.CoreLib"),
+          ...surface.types,
+        ],
+      });
     },
     runtimePackage: () => resident,
     retainPackage: packageModel => {
@@ -635,10 +683,10 @@ test("runtime acquisition serializes and merges full-pack and assembly requests"
   assert.deepEqual(calls, ["pack:net10.0"]);
   assert.deepEqual(status, ["begin"]);
 
-  const coreSurface =
-    runtimeSurface("corelib", "System.Private.CoreLib", "System.Object");
-  coreSurface.inspectionError =
-    "System.Private.CoreLib: omitted 1 metadata row.";
+  const coreSurface = {
+    ...runtimeSurface("corelib", "System.Private.CoreLib", "System.Object"),
+    inspectionError: "System.Private.CoreLib: omitted 1 metadata row.",
+  };
   fullPack.resolve(JSON.stringify(coreSurface));
   const [packResult, mergedResult] = await Promise.all([
     packRequest,
@@ -920,8 +968,10 @@ test("an exact platform version bypasses a different resident patch", async () =
       calls.push(`${framework}@${platformVersion}`);
       const surface =
         runtimeSurface("corelib", "System.Private.CoreLib", "System.Object");
-      surface.version = platformVersion;
-      return JSON.stringify(surface);
+      return JSON.stringify({
+        ...surface,
+        version: platformVersion,
+      });
     },
     runtimePackage: () => resident,
     retainPackage: packageModel => {
@@ -1149,10 +1199,12 @@ test("runtime assembly acquisition exposes an empty surface failure", async () =
         "missing",
         "System.Missing",
         "System.Missing.Type");
-      surface.assemblies = [];
-      surface.types = [];
-      surface.inspectionError = "System.Missing was rejected.";
-      return JSON.stringify(surface);
+      return JSON.stringify({
+        ...surface,
+        assemblies: [],
+        types: [],
+        inspectionError: "System.Missing was rejected.",
+      });
     },
   }));
 
@@ -1176,10 +1228,12 @@ test("resident runtime model retains an empty assembly result as inspection evid
         "missing",
         "System.Missing",
         "System.Missing.Type");
-      surface.assemblies = [];
-      surface.types = [];
-      surface.inspectionError = "System.Missing was rejected.";
-      return JSON.stringify(surface);
+      return JSON.stringify({
+        ...surface,
+        assemblies: [],
+        types: [],
+        inspectionError: "System.Missing was rejected.",
+      });
     },
     runtimePackage: () => resident,
   }));
