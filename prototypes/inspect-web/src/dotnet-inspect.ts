@@ -82,6 +82,7 @@ import {
 } from "./member-filtering.ts";
 import {
   bindWorkspaceLinkNavigation,
+  bindWorkspaceRetryToUrl,
   browserCreatedCallGraphTabIds,
   buildPackageRootStateUrl,
   callGraphCaptureTopology,
@@ -91,13 +92,14 @@ import {
   retainedMissingPlatformTarget,
   retainedPlatformTargetVersion,
   selectedBrowserCallGraphPackageTabIds,
-  workspaceUrlPreservationApplies,
+  retainWorkspaceUrlPreservation,
   workspaceShareTabsMatchResolved,
   workspaceShareCaptureTopology,
   workspaceViewSignature,
   type NavigationHistorySnapshot,
   type ParsedWorkspaceLocation,
   type WorkspaceDeepLink,
+  type WorkspaceUrlPreservation,
   type WorkspaceUrlState,
   type WorkspaceView,
 } from "./workspace-navigation.ts";
@@ -755,11 +757,11 @@ interface StateOverrides {
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
 
 const state: AppState = initialState;
-let routeFailureNotice: string | null = null;
-let failedWorkspaceUrlPreservation: {
-  url: string;
-  projection: string;
-} | null = null;
+type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
+  | { kind: "canonical" }
+  | { kind: "route"; notice: string }
+);
+let failedWorkspaceUrlState: FailedWorkspaceUrlState | null = null;
 
 interface CanonicalWorkspaceRestoreSnapshot {
   state: AppState;
@@ -2446,6 +2448,7 @@ function render() {
     renderLoading();
     return;
   }
+  retainFailedWorkspaceUrl();
   if (state.home) {
     renderHomeView();
     return;
@@ -6199,13 +6202,7 @@ function workspaceUrlProjection() {
 }
 
 function syncUrl() {
-  if (workspaceUrlPreservationApplies(
-      failedWorkspaceUrlPreservation,
-      location.href,
-      workspaceUrlProjection())) {
-    return;
-  }
-  failedWorkspaceUrlPreservation = null;
+  if (retainFailedWorkspaceUrl()) return;
   try {
     if (state.atPackageRoot && state.package && !state.loading) {
       document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
@@ -6621,22 +6618,35 @@ function appendQueryNotice(message: string, retryAction: RetryAction = null) {
 }
 
 function visibleQueryNotice() {
-  return [state.queryNotice, routeFailureNotice]
+  const routeNotice = failedWorkspaceUrlState?.kind === "route"
+    ? failedWorkspaceUrlState.notice
+    : null;
+  return [state.queryNotice, routeNotice]
     .filter(Boolean)
     .join(" ");
 }
 
+function retainFailedWorkspaceUrl() {
+  failedWorkspaceUrlState = retainWorkspaceUrlPreservation(
+    failedWorkspaceUrlState,
+    location.href,
+    workspaceUrlProjection());
+  return failedWorkspaceUrlState !== null;
+}
+
 function clearWorkspaceRouteFailure() {
-  if (!routeFailureNotice) return;
-  routeFailureNotice = null;
-  failedWorkspaceUrlPreservation = null;
+  if (failedWorkspaceUrlState?.kind !== "route") return;
+  failedWorkspaceUrlState = null;
 }
 
 function dismissQueryNotice() {
+  const routeFailureOnHome =
+    failedWorkspaceUrlState?.kind === "route" && state.home;
   state.queryNotice = "";
   state.queryNoticeRetryAction = null;
   clearWorkspaceRouteFailure();
-  failedWorkspaceUrlPreservation = null;
+  failedWorkspaceUrlState = null;
+  if (routeFailureOnHome) workspaceLocation.replace("/");
   render();
 }
 
@@ -9218,8 +9228,9 @@ function failWorkspaceRoute(message: string) {
     state.errorTitle = "";
     state.errorDetail = "";
     state.retryAction = null;
-    routeFailureNotice = `Package route failed: ${message}`;
-    failedWorkspaceUrlPreservation = {
+    failedWorkspaceUrlState = {
+      kind: "route",
+      notice: `Package route failed: ${message}`,
       url: location.href,
       projection: workspaceUrlProjection(),
     };
@@ -9245,6 +9256,13 @@ function failCanonicalWorkspaceRestore(
   retryAction: RetryAction =
     () => restoreWorkspaceFromLocation(loc, deep),
 ) {
+  const failedUrl = location.href;
+  const ownedRetryAction = retryAction
+    ? bindWorkspaceRetryToUrl(
+      failedUrl,
+      url => workspaceLocation.replace(url),
+      retryAction)
+    : null;
   if (snapshot?.hasWorkspace) {
     restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
     state.credits = false;
@@ -9255,9 +9273,10 @@ function failCanonicalWorkspaceRestore(
     state.retryAction = null;
     appendQueryNotice(
       `Workspace restore failed: ${message}`,
-      retryAction);
-    failedWorkspaceUrlPreservation = {
-      url: location.href,
+      ownedRetryAction);
+    failedWorkspaceUrlState = {
+      kind: "canonical",
+      url: failedUrl,
       projection: workspaceUrlProjection(),
     };
     render();
@@ -9269,7 +9288,7 @@ function failCanonicalWorkspaceRestore(
   state.home = false;
   state.errorTitle = "Workspace restore failed";
   state.error = message;
-  state.retryAction = retryAction;
+  state.retryAction = ownedRetryAction;
   render();
 }
 

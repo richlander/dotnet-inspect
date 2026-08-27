@@ -2449,7 +2449,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /loc\.hasWorkspaceState && !loc\.shareState[\s\S]*restoreWorkspaceFromLocation\([\s\S]*return;[\s\S]*const packageId = loc\.package/);
   assert.match(
     appSource,
-    /function failCanonicalWorkspaceRestore\([\s\S]*snapshot\?\.hasWorkspace[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\)[\s\S]*state\.credits = false;[\s\S]*failedWorkspaceUrlPreservation = \{[\s\S]*projection: workspaceUrlProjection\(\)[\s\S]*render\(\);\s*return/);
+    /function failCanonicalWorkspaceRestore\([\s\S]*const failedUrl = location\.href;[\s\S]*bindWorkspaceRetryToUrl\(\s*failedUrl,\s*url => workspaceLocation\.replace\(url\),\s*retryAction\)[\s\S]*snapshot\?\.hasWorkspace[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\)[\s\S]*appendQueryNotice\([\s\S]*ownedRetryAction\);[\s\S]*failedWorkspaceUrlState = \{\s*kind: "canonical",\s*url: failedUrl,[\s\S]*projection: workspaceUrlProjection\(\)[\s\S]*render\(\);\s*return/);
   assert.match(
     restore,
     /loc\.hasWorkspaceState && !loc\.shareState[\s\S]*canonicalSnapshot,\s*null\)/);
@@ -2461,7 +2461,13 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /preserveUrlThroughNextRender/);
   assert.match(
     sync,
-    /workspaceUrlPreservationApplies\([\s\S]*failedWorkspaceUrlPreservation[\s\S]*workspaceUrlProjection\(\)[\s\S]*return;[\s\S]*failedWorkspaceUrlPreservation = null/);
+    /if \(retainFailedWorkspaceUrl\(\)\) return;/);
+  assert.match(
+    appSource,
+    /function retainFailedWorkspaceUrl\(\) \{\s*failedWorkspaceUrlState = retainWorkspaceUrlPreservation\(\s*failedWorkspaceUrlState,\s*location\.href,\s*workspaceUrlProjection\(\)\);\s*return failedWorkspaceUrlState !== null;\s*\}/);
+  assert.match(
+    appSource,
+    /if \(state\.loading \|\| state\.error\) \{[\s\S]*return;\s*\}\s*retainFailedWorkspaceUrl\(\);\s*if \(state\.home\)/);
   assert.match(
     appSource,
     /navigation: navigationHistory\.snapshot\(\)[\s\S]*navigationHistory\.restore\(snapshot\.navigation\)/);
@@ -2545,16 +2551,16 @@ test("malformed package routes use the contained restore failure path", () => {
     ?? "";
   assert.match(
     failure,
-    /function failWorkspaceRoute\(message: string\) \{\s*if \(state\.package\)[\s\S]*routeFailureNotice = `Package route failed: \$\{message\}`;[\s\S]*state\.errorTitle = "Package route failed";[\s\S]*state\.error = message;[\s\S]*state\.retryAction = retryUnavailable/);
+    /function failWorkspaceRoute\(message: string\) \{\s*if \(state\.package\)[\s\S]*failedWorkspaceUrlState = \{\s*kind: "route",\s*notice: `Package route failed: \$\{message\}`,[\s\S]*state\.errorTitle = "Package route failed";[\s\S]*state\.error = message;[\s\S]*state\.retryAction = retryUnavailable/);
   assert.match(
     appSource,
     /function goHome\(\) \{[\s\S]*invalidateGraphMemberNavigation\(\);\s*clearNavigationError\(\);\s*clearWorkspaceRouteFailure\(\);[\s\S]*workspaceLocation\.push\("\/"\);[\s\S]*render\(\)/);
   assert.match(
     appSource,
-    /function visibleQueryNotice\(\) \{\s*return \[state\.queryNotice, routeFailureNotice\]\s*\.filter\(Boolean\)\s*\.join\(" "\);\s*\}/);
+    /function visibleQueryNotice\(\) \{\s*const routeNotice = failedWorkspaceUrlState\?\.kind === "route"\s*\? failedWorkspaceUrlState\.notice\s*: null;\s*return \[state\.queryNotice, routeNotice\]\s*\.filter\(Boolean\)\s*\.join\(" "\);\s*\}/);
   assert.match(
     appSource,
-    /function clearWorkspaceRouteFailure\(\) \{\s*if \(!routeFailureNotice\) return;\s*routeFailureNotice = null;\s*failedWorkspaceUrlPreservation = null;\s*\}[\s\S]*function dismissQueryNotice\(\) \{\s*state\.queryNotice = "";\s*state\.queryNoticeRetryAction = null;\s*clearWorkspaceRouteFailure\(\);\s*failedWorkspaceUrlPreservation = null;\s*render\(\);\s*\}/);
+    /function clearWorkspaceRouteFailure\(\) \{\s*if \(failedWorkspaceUrlState\?\.kind !== "route"\) return;\s*failedWorkspaceUrlState = null;\s*\}[\s\S]*function dismissQueryNotice\(\) \{\s*const routeFailureOnHome =\s*failedWorkspaceUrlState\?\.kind === "route" && state\.home;\s*state\.queryNotice = "";\s*state\.queryNoticeRetryAction = null;\s*clearWorkspaceRouteFailure\(\);\s*failedWorkspaceUrlState = null;\s*if \(routeFailureOnHome\) workspaceLocation\.replace\("\/"\);\s*render\(\);\s*\}/);
   assert.match(
     appSource,
     /const workbenchShellActions: WorkbenchShellBindingActions = \{\s*onDismissNotice: dismissQueryNotice,/);

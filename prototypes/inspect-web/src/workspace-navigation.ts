@@ -344,6 +344,29 @@ export function workspaceUrlPreservationApplies(
     && preservation.projection === projection;
 }
 
+export function retainWorkspaceUrlPreservation<
+  TPreservation extends WorkspaceUrlPreservation,
+>(
+  preservation: TPreservation | null,
+  url: string,
+  projection: string,
+): TPreservation | null {
+  return workspaceUrlPreservationApplies(preservation, url, projection)
+    ? preservation
+    : null;
+}
+
+export function bindWorkspaceRetryToUrl<TResult>(
+  failedUrl: string,
+  replace: (url: string) => void,
+  retry: () => TResult,
+): () => TResult {
+  return () => {
+    replace(failedUrl);
+    return retry();
+  };
+}
+
 export function callGraphCaptureTopology(
   tabs: readonly BrowserWorkspaceShareTab[],
   activeIndex: number,

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  bindWorkspaceRetryToUrl,
   browserCreatedCallGraphTabIds,
   buildPackageRootStateUrl,
   buildWorkspaceStateUrl,
@@ -13,6 +14,7 @@ import {
   parseWorkspaceRoute,
   retainedMissingPlatformTarget,
   retainedPlatformTargetVersion,
+  retainWorkspaceUrlPreservation,
   resolveWorkspaceRoute,
   selectedBrowserCallGraphPackageTabIds,
   shouldInterceptLinkClick,
@@ -816,6 +818,42 @@ test("failed URL retention survives automatic renders until navigation changes",
       preservation.url,
       "changed-workspace"),
     false);
+});
+
+test("failed URL state is retained and retired atomically", () => {
+  const routeFailure = {
+    kind: "route",
+    notice: "Package route failed",
+    url: "https://inspect.example/packages/%E0%A4%A/1.0.0",
+    projection: "resident-workspace",
+  } as const;
+
+  assert.equal(
+    retainWorkspaceUrlPreservation(
+      routeFailure,
+      routeFailure.url,
+      routeFailure.projection),
+    routeFailure);
+  assert.equal(
+    retainWorkspaceUrlPreservation(
+      routeFailure,
+      routeFailure.url,
+      "changed-workspace"),
+    null);
+});
+
+test("workspace retry restores its owned URL before running", () => {
+  let currentUrl = "https://inspect.example/packages/%E0%A4%A/1.0.0";
+  const failedUrl = "https://inspect.example/?w=canonical";
+  const retry = bindWorkspaceRetryToUrl(
+    failedUrl,
+    url => {
+      currentUrl = url;
+    },
+    () => currentUrl);
+
+  assert.equal(retry(), failedUrl);
+  assert.equal(currentUrl, failedUrl);
 });
 
 test("workspace route resolution skips the decoder without packet state", () => {
