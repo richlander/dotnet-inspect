@@ -35,6 +35,319 @@ family.
   members present on both sides. A disagreement is retained as a per-member
   `Failed` diagnostic; it does not abort healthy members in the same diff.
 
+## Research target and body-presence boundary
+
+**Status:** target design for #4771; unimplemented and unverified until the
+named gates in
+[Target-resolution migration and gates](#target-resolution-migration-and-gates)
+land.
+
+This boundary is owned by `ILInspector.Research` and this document. It consumes
+one already-admitted comparison population, resolves exact member-selection
+intent into side-local attempts, establishes correspondence only from complete
+scope-local evidence, and determines body-presence dispositions before any
+producer runs.
+
+The adjacent
+[Queries-to-Research population boundary](inspection-layers.md#queries-to-research-population-boundary)
+owns Queries population sealing and the correspondence receipt.
+`ILInspector.Metadata` remains the owner of single-surface member selection,
+`MemberAnchor`, exact metadata addresses, and target diagnostics. Research
+imports those typed facts; it does not parse their display text, reconstruct
+their identity, or change their failure meaning.
+
+### Current target-resolution gap
+
+The current CLI resolves one member selector independently against the old and
+new `ApiSurface` values, then flattens stable selectors, canonical signatures,
+and Research body aliases into one `HashSet<string>`.
+`ImplementationComparisonInput`, `ImplementationDiffOptions`, and
+`ResearchDiffOptions` pass that untyped set through to mechanism-specific
+filters. This loses the selection occurrence, side, admitted input, resolution
+attempt, typed diagnostic, accessor role, and proof that a one-sided target is
+absent rather than unavailable.
+
+The body paths then disagree about missing evidence. Semantic IL comparison
+intersects method keys and can omit a one-sided member; retained IL Finding
+comparison unions them and synthesizes absence. A method whose RVA is zero is
+reported as a decode failure in one path, while another path translates
+old-body-missing and new-body-missing failures into added and removed changes.
+Properties and events are excluded from the body-identity bridge rather than
+preserving the selected accessor.
+
+The target contract replaces those accidental decisions. It does not replace
+the current result or producer models in this slice.
+
+### Research admission and identity
+
+Research admission returns one immutable `ResearchAdmittedPopulation`. It owns
+opaque identities for:
+
+- one `ResearchComparisonOperationId`;
+- each `ResearchComparisonQuestionId`, parented by that operation; and
+- each side-local `ResearchComparisonInputId`, parented by one operation and
+  question and carrying an explicit `Before` or `After` side.
+
+These are sealed owner-issued reference identities with non-public
+constructors. They are not strings, ordinals, MVIDs, assembly names, paths,
+`ResearchSubjectKey` values, or conversions from Queries identities. Repeating
+the same borrowed input value mints a distinct Research input identity for each
+admitted occurrence.
+
+The admission API returns each Research identity together with the exact input
+occurrence for which it was issued in the same atomic result. This is the
+Research-owned association required by the Queries companion to build its
+receipt; the companion does not recover correspondence by ordinal, content,
+display value, or structural equality. Admission either returns the complete
+operation, question, and input population or exposes none of it.
+
+Admission copies all caller-owned collections. It may borrow the exact
+profile-specific assembly descriptor, resolver, body index, and typed selection
+intent while target resolution is active, but those values are evidence rather
+than identity. Invalid profile input produces a typed Research admission
+rejection before target requests are minted.
+
+### Side-local requests and attempts
+
+Each immutable member-selection occurrence within one admitted question mints
+one `ResearchTargetScopeId`. The scope contains the exact admitted Before and
+After input populations against which that one selection intent may be
+resolved. A type filter or member selector is intent inside the scope, never
+the scope identity.
+
+Research then mints one `ResearchTargetRequestId` and one
+`ResearchTargetAttemptId` for each required side-local input evaluation. The
+request retains:
+
+- its operation, question, scope, admitted input, and side;
+- the exact typed `MemberTargetSelector` and declaring-type intent;
+- whether the target is exact or carried from API selection to a physical body
+  coordinate; and
+- one `ResearchTargetRelationshipRole`: `Method`, `Getter`, `Setter`, `Adder`,
+  or `Remover`.
+
+Side and relationship role participate in request identity. An exact address
+is evaluated only in its designated side-local input. A carried selector is
+resolved only through the Metadata surface and body participant admitted for
+that request. No request, selector, address, or successful target fans across
+sides, inputs, questions, operations, or scopes.
+
+Exactly one terminal attempt outcome exists for every request in a completed
+resolution:
+
+- `Resolved` retains the exact Metadata-issued `ResolvedMemberTarget`,
+  `MemberAnchor`, durable method address when one exists, and relationship
+  role;
+- `NotFound` retains the exact Metadata-owned missing-member diagnostic when
+  the declaring type exists, or one bounded Research-owned
+  `DeclaringTypeAbsent` diagnostic when that type is absent from the admitted
+  input;
+- `Ambiguous` retains the exact Metadata-owned ambiguity diagnostic and
+  candidate evidence;
+- `Unavailable` retains one bounded Research diagnostic when the admitted
+  input cannot supply an implementation target, including a reference-only
+  role; or
+- `Failed` retains one bounded Research diagnostic for Research validation or
+  resolution failure.
+
+`NotFound` is an input-local fact, not yet semantic absence. An exception,
+diagnostic message, candidate display string, or empty result never substitutes
+for one of these typed arms. Expected resolution outcomes do not throw.
+
+### Complete census and correspondence
+
+After every attempt in a scope is terminal, Research performs one complete
+side-local census. It derives typed `ResearchStrictTargetKey` and
+`ResearchTargetCorrespondenceKey` values from owner-issued target evidence.
+The strict key identifies one resolved physical target in one admitted input.
+The correspondence key deliberately erases only the version-local
+discriminators Research declares irrelevant to this comparison. Relationship
+role remains part of both keys.
+
+The key grammar and constructors are Research-owned. Metadata does not bucket
+scope collisions, and callers do not author or parse either key. Assembly
+names, list position, normalized display text, selector strings, and
+`ResearchSubjectKey.Id` are not correspondence keys.
+
+Correspondence is scope-local and has these closed outcomes:
+
+- `Paired` names exactly one Before and one After strict target with the same
+  correspondence key and relationship role;
+- `BeforeOnly` names one Before target plus a complete After-side
+  `ResearchTargetAbsenceProof`;
+- `AfterOnly` names one After target plus a complete Before-side absence proof;
+- `Absent` retains complete side-local absence proof when neither side resolves
+  a target;
+- `Ambiguous` retains every colliding strict target and attempt when more than
+  one distinct strict target on one side has the same correspondence key and
+  role; or
+- `CounterpartUnavailable` retains each otherwise-resolved target whose
+  opposite census is failed, ambiguous, unavailable, or incomplete.
+
+Absence proof is minted only from the complete admitted side population when
+every required attempt is terminal and no target resolves. A missing type or
+member in one input is insufficient while another admitted input remains
+unevaluated. A failed, ambiguous, reference-only, or incomplete attempt is not
+absence. Cancellation aborts the whole invocation before any census or
+resolution result is exposed.
+
+An ambiguity bucket is keyed by scope, side, correspondence key, and role. It
+retains every colliding attempt, strict key, and exact imported diagnostic.
+Every opposite-side target that depended on that key becomes an individual
+`CounterpartUnavailable` outcome. Collisions never collapse into a pair, and
+counterpart failure never becomes a healthy one-sided addition or removal.
+
+Distinct correspondence keys in an otherwise complete, failure-free scope
+remain distinct `BeforeOnly` and `AfterOnly` outcomes. Research does not guess
+signature drift correspondence from similar names or display text.
+
+### Body presence and pre-producer disposition
+
+For each resolved strict target, Research establishes one body coordinate
+before producer execution:
+
+- `Bodyful` retains the durable method address and validated body-presence
+  evidence for the exact admitted input;
+- `Bodyless` retains the exact target and a bounded reason derived from
+  Metadata body facts, including abstract, interface, P/Invoke, runtime, or
+  other declared no-body methods; or
+- `NotMethodLike` retains a successfully resolved target that has no physical
+  method coordinate.
+
+Bodyless is a resolved coordinate, not a decode or target-resolution failure.
+Research validates body-presence evidence against the same admitted input; it
+does not borrow a body index, MethodDef token, or RVA from another module.
+Accessor requests preserve their exact relationship role through this check.
+
+Each correspondence outcome then receives one Research-owned pre-producer
+disposition:
+
+| Correspondence and body presence | Disposition |
+| --- | --- |
+| `Paired(Bodyful, Bodyful)` | `ProducerEligible` with the exact two coordinates |
+| `Paired(Bodyful, Bodyless)` | `BodyRemoved` |
+| `Paired(Bodyless, Bodyful)` | `BodyAdded` |
+| `Paired(Bodyless, Bodyless)` | `NoBody` |
+| proven `BeforeOnly(Bodyful)` | `BodyRemoved` |
+| proven `AfterOnly(Bodyful)` | `BodyAdded` |
+| proven one-sided `Bodyless` | `NoBody` |
+| `Absent` | `TargetAbsent` |
+| ambiguity or unavailable counterpart | `Unavailable` |
+
+`BodyAdded` and `BodyRemoved` are typed `Different` conclusions whose authority
+is `ResearchBodyPresence`; they do not require a native C#, IL, or Source row.
+`NoBody` and `TargetAbsent` are non-failing terminal dispositions.
+`ProducerEligible` is only permission for the rank-4 Research session to create
+work; it is not a work item, producer invocation, comparison verdict, or
+published change.
+
+The body-presence disposition is authoritative for these states. A later
+producer cannot reinterpret missing-body payloads as comparison failure,
+replace a session-owned body change, or manufacture a body change where
+counterpart evidence was unavailable.
+
+### Resolution result and failure boundary
+
+One `ResearchTargetResolution` accounts for the complete admitted operation. It
+contains immutable operation, question, scope, input, request, and attempt
+identities; every terminal attempt outcome; every correspondence outcome; and
+every pre-producer disposition. Its expected identity and result domains are
+derived from the admitted population and target scopes, so both missing and
+stale entries reject construction.
+
+Every request has exactly one attempt and every attempt has exactly one
+terminal outcome. Every resolved attempt appears in exactly one scope-local
+correspondence outcome. Every correspondence outcome has exactly one
+pre-producer disposition. Aliasing two selection occurrences to the same
+physical target may share immutable resolved evidence within one scope, but it
+does not erase either request or attempt identity and never aliases across
+scopes.
+
+The result is inert. It may retain opaque Research identities, side,
+relationship role, exact owner-issued Metadata target and diagnostic values,
+durable metadata addresses, typed keys, absence proofs, body-presence facts,
+and Research diagnostics. It retains no metadata reader, PE reader, stream,
+assembly group, workspace callback, producer, scratch state, lease, cleanup
+authority, raw exception, display row, or rendered diagnostic text.
+
+Cancellation remains cancellation and is not a sixth attempt outcome. If it is
+observed after internal identities or partial attempt evidence have been
+created, the invocation exposes none of them and returns no
+`ResearchTargetResolution`; a later invocation mints a fresh operation.
+There is no resource cleanup or competing terminal-primary policy in this
+boundary because all readers, snapshots, and body indexes are borrowed for the
+resolution call and remain owned by their admitting component.
+
+### Target-resolution migration and gates
+
+Migration preserves owner and dependency direction:
+
+1. Research adds the opaque admission identities, atomic
+   `ResearchAdmittedPopulation`, side-local target scopes, requests, attempts,
+   and purpose-built fixtures.
+2. Research adds the Metadata-target adapter, exact relationship roles, durable
+   target keys, body-presence coordinates, and typed expected-failure outcomes.
+   Metadata's resolver and diagnostics remain unchanged.
+3. Research adds complete scope-local census, correspondence, absence proof,
+   and pre-producer disposition. No producer is invoked.
+4. The ResearchQueries companion consumes the admission API and constructs its
+   Queries-owned receipt. The current query and CLI paths remain compatibility
+   adapters until the dependent session and publication efforts land.
+5. Rank 4 consumes `ProducerEligible` dispositions to create work items and run
+   cataloged local producers. Rank 6 later replaces the string-keyed public
+   target path and publishes the outer result.
+
+The target contract remains unimplemented until these named non-vacuity gates
+land:
+
+- `ResearchAdmission_MintsFreshParentedIdentitiesForEveryOccurrence`
+- `ResearchAdmission_ReturnsAtomicExactInputAssociations`
+- `ResearchTargetRequests_AreStrictlySideInputAndScopeLocal`
+- `ResearchTargetAttempts_AccountForEveryRequestExactlyOnce`
+- `ResearchTargetResolution_PreservesMetadataDiagnosticsAndAccessorRoles`
+- `ResearchTargetKeys_AreOwnerIssuedAndNotDisplayDerived`
+- `ResearchTargetCensus_DerivesCompleteAttemptAndCorrespondenceDomains`
+- `ResearchTargetCensus_IsolatesAmbiguityAndTaintsCounterparts`
+- `ResearchTargetAbsence_RequiresCompleteFailureFreeSideCensus`
+- `ResearchTargetFailure_NeverBecomesSemanticAdditionOrRemoval`
+- `ResearchBodyPresence_TreatsBodylessAsResolved`
+- `ResearchBodyPresence_RejectsCrossModuleBodyEvidence`
+- `ResearchBodyPresence_DecidesMixedAndOneSidedTransitionsBeforeProducers`
+- `ResearchBodyPresence_BothBodyfulOnlyEstablishesProducerEligibility`
+- `ResearchTargetResolution_RetainsNoBorrowedResourcesOrPresentation`
+- `ResearchTargetCancellation_ExposesNoPartialPopulationOrResult`
+- `ResearchTargetPath_HasNoStringKeyedIdentityBag`
+
+The expected admission, request, attempt, correspondence, and disposition sets
+must be derived from their declarations. The totality gates fail for both
+missing and extra entries. The body-presence precedence gate derives every
+disposition from purpose-built fixtures and asserts that only a paired
+bodyful/bodyful case becomes `ProducerEligible`; no producer seam exists or is
+invoked in this slice. The string-key gate inspects the new target-path public
+and internal signatures rather than only exercising a successful fixture;
+explicit compatibility adapters remain until the dependent migration removes
+them.
+
+### Target-resolution non-goals
+
+This boundary does not define:
+
+- Queries population identity, sealing, projection receipt, or public result
+  shape;
+- Metadata selector parsing, single-surface resolution, anchor/address
+  construction, or diagnostic semantics;
+- package acquisition, role planning, workspace composition, resource cleanup,
+  or budgets;
+- work-item construction, producer cataloging or execution, native C#/IL
+  comparison, scratch state, or Research completion;
+- direct-member comparison adapters, designated arbitrary method pairing, or
+  ReturnToSender behavior;
+- outer-result publication, CLI selection or presentation, row integrity, or
+  exit behavior;
+- Source, PDB, network, cache, retry, or authored-source acquisition; or
+- a global stage catalog, shared attempt ledger, cross-component lifecycle, or
+  end-to-end revival of the abandoned implementation-diff design.
+
 ### Structural body comparison
 
 `CSharpBodyDiff.IssueCorrespondence` is the product correspondence owner for
