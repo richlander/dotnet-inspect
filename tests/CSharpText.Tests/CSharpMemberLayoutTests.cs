@@ -1,13 +1,16 @@
 using System.Text;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace CSharpText.Tests;
 
 public sealed class CSharpMemberLayoutTests
 {
-    static string Render(string head, string? body, int indent, bool wrapExpressionBodyArrow = false, bool bodyIsSingleExpressionBody = false, bool disableSignatureWrapping = false)
+    static string Render(string head, string? body, int indent, bool wrapExpressionBodyArrow = false, bool bodyIsSingleExpressionBody = false, bool disableOneLinerWrapping = false)
     {
         var sb = new StringBuilder();
-        CSharpMemberLayout.Append(sb, head, body, indent, wrapExpressionBodyArrow, bodyIsSingleExpressionBody, disableSignatureWrapping);
+        CSharpMemberLayout.Append(sb, head, body, indent, wrapExpressionBodyArrow, bodyIsSingleExpressionBody, disableOneLinerWrapping);
         return sb.ToString().Replace("\r\n", "\n");
     }
 
@@ -216,7 +219,23 @@ public sealed class CSharpMemberLayoutTests
     public void Append_LongSignature_DisableOptOut_KeepsSingleLine()
         => Assert.Equal(
             "    " + LongParseHead + " => JsonDocument.ParseValue(utf8Json, options).RootElement;\n",
-            Render(LongParseHead, "return JsonDocument.ParseValue(utf8Json, options).RootElement;", indent: 4, disableSignatureWrapping: true));
+            Render(LongParseHead, "return JsonDocument.ParseValue(utf8Json, options).RootElement;", indent: 4, disableOneLinerWrapping: true));
+
+    [Fact]
+    public void Append_DisableSignatureWrappingNamedArgument_RemainsAccepted()
+    {
+        var sb = new StringBuilder();
+        CSharpMemberLayout.Append(
+            sb,
+            LongParseHead,
+            "return JsonDocument.ParseValue(utf8Json, options).RootElement;",
+            4,
+            disableSignatureWrapping: true);
+
+        Assert.Equal(
+            "    " + LongParseHead + " => JsonDocument.ParseValue(utf8Json, options).RootElement;\n",
+            sb.ToString().Replace("\r\n", "\n"));
+    }
 
     [Fact]
     public void Append_ShortSignature_StaysInline()
@@ -229,11 +248,282 @@ public sealed class CSharpMemberLayoutTests
         => Assert.Equal(
             "    public static void RegisterLongDescriptiveFactoryMethod<TService, TImpl>(\n"
             + "        IServiceCollection services,\n"
-            + "        string longParameterName) where TImpl : TService, new();\n",
+            + "        string longParameterName)\n"
+            + "        where TImpl : TService, new();\n",
             Render(
                 "public static void RegisterLongDescriptiveFactoryMethod<TService, TImpl>(IServiceCollection services, string longParameterName) where TImpl : TService, new()",
                 body: null,
                 indent: 4));
+
+    [Fact]
+    public void Append_GenericConstraints_UseIndentedContinuationLines()
+        => Assert.Equal(
+            "    public override T? Pick<T>(T? value)\n"
+            + "        where T : class => value;\n",
+            Render(
+                "public override T? Pick<T>(T? value) where T : class",
+                "return value;",
+                indent: 4));
+
+    [Fact]
+    public void Append_MultipleGenericConstraints_UseOneLineEach()
+        => Assert.Equal(
+            "    public override T? Pick<T, U>(T? value)\n"
+            + "        where T : U\n"
+            + "        where U : class => value;\n",
+            Render(
+                "public override T? Pick<T, U>(T? value) where T : U where U : class",
+                "return value;",
+                indent: 4));
+
+    [Fact]
+    public void Append_UnicodeGenericConstraints_UseContinuationLines()
+        => Assert.Equal(
+            "    public void Pick<T\u0301, T\u203FValue, T\u200CValue, \U00010400>()\n"
+            + "        where T\u0301 : class\n"
+            + "        where T\u203FValue : class\n"
+            + "        where T\u200CValue : class\n"
+            + "        where \U00010400 : class;\n",
+            Render(
+                "public void Pick<T\u0301, T\u203FValue, T\u200CValue, \U00010400>()"
+                + " where T\u0301 : class"
+                + " where T\u203FValue : class"
+                + " where T\u200CValue : class"
+                + " where \U00010400 : class",
+                body: null,
+                indent: 4));
+
+    [Fact]
+    public void Append_InvalidConstraintIdentifier_DoesNotWrap()
+        => Assert.Equal(
+            "    public void Pick<T>() where T-Value : class;\n",
+            Render(
+                "public void Pick<T>() where T-Value : class",
+                body: null,
+                indent: 4));
+
+    [Fact]
+    public void Append_GenericConstraint_BlockBraceFollowsConstraintLine()
+        => Assert.Equal(
+            "    public T Pick<T>(T value)\n"
+            + "        where T : class\n"
+            + "    {\n"
+            + "        Log(value);\n"
+            + "        return value;\n"
+            + "    }\n",
+            Render(
+                "public T Pick<T>(T value) where T : class",
+                "Log(value);\nreturn value;",
+                indent: 4));
+
+    [Fact]
+    public void Append_WhereInsideParameterLiteral_DoesNotStartConstraintClause()
+        => Assert.Equal(
+            "    public void Log<T>(string text = \" where U : class\")\n"
+            + "        where T : class;\n",
+            Render(
+                "public void Log<T>(string text = \" where U : class\") where T : class",
+                body: null,
+                indent: 4));
+
+    [Fact]
+    public void Append_ContextualWhereMethodName_DoesNotStartConstraintClause()
+        => Assert.Equal(
+            "    public (int, int) where(int value) => (value, value);\n",
+            Render(
+                "public (int, int) where(int value)",
+                "return (value, value);",
+                indent: 4));
+
+    [Fact]
+    public void Append_WhereInsideLineComment_DoesNotBecomeLiveConstraint()
+        => Assert.Equal(
+            "    public void Log<T>() // mentions where U : class\n"
+            + "    {\n"
+            + "        Log();\n"
+            + "        Log();\n"
+            + "    }\n",
+            Render(
+                "public void Log<T>() // mentions where U : class",
+                "Log();\nLog();",
+                indent: 4));
+
+    [Fact]
+    public void Append_LineComment_NullBody_PutsSemicolonOnFollowingLine()
+        => Assert.Equal(
+            "    public void M<T>() // note\n"
+            + "        ;\n",
+            Render(
+                "public void M<T>() // note",
+                body: null,
+                indent: 4));
+
+    [Fact]
+    public void Append_BlockComment_NullBody_KeepsSemicolonInline()
+        => Assert.Equal(
+            "    public void M<T>() /* note */;\n",
+            Render(
+                "public void M<T>() /* note */",
+                body: null,
+                indent: 4));
+
+    [Fact]
+    public void Append_LineComment_ExpressionBody_PutsTailOnFollowingLine()
+        => Assert.Equal(
+            "    public int E<T>() // note\n"
+            + "        => 42;\n",
+            Render(
+                "public int E<T>() // note",
+                "return 42;",
+                indent: 4));
+
+    [Fact]
+    public void Append_LineComment_MultilineExpressionBody_UsesFollowingLineIndentation()
+        => Assert.Equal(
+            "    public int E<T>() // note\n"
+            + "        => shape switch\n"
+            + "        {\n"
+            + "            Dot d => d.Radius,\n"
+            + "            _ => -1,\n"
+            + "        };\n",
+            Render(
+                "public int E<T>() // note",
+                SwitchReturnBody,
+                indent: 4,
+                bodyIsSingleExpressionBody: true));
+
+    [Fact]
+    public void Append_BlockComment_ExpressionBody_KeepsTailInline()
+        => Assert.Equal(
+            "    public int E<T>() /* note */ => 42;\n",
+            Render(
+                "public int E<T>() /* note */",
+                "return 42;",
+                indent: 4));
+
+    [Fact]
+    public void Append_LineCommentTails_CompileAndPreserveTokens()
+    {
+        string semicolonMember = Render(
+            "public void M<T>() // note",
+            body: null,
+            indent: 4);
+        string expressionMember = Render(
+            "public int E<T>() // note",
+            "return 42;",
+            indent: 4);
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var tree = CSharpSyntaxTree.ParseText(
+            "public interface C\n{\n"
+            + semicolonMember
+            + expressionMember
+            + "}\n",
+            new CSharpParseOptions(LanguageVersion.Preview),
+            cancellationToken: cancellationToken);
+        var compilation = CSharpCompilation.Create(
+            "LineCommentTailLayout",
+            [tree],
+            [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        Assert.DoesNotContain(
+            compilation.GetDiagnostics(cancellationToken),
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+
+        MethodDeclarationSyntax[] methods =
+            [.. tree.GetRoot(cancellationToken).DescendantNodes().OfType<MethodDeclarationSyntax>()];
+        Assert.Equal(2, methods.Length);
+        Assert.Equal(
+            ["public", "void", "M", "<", "T", ">", "(", ")", ";"],
+            methods[0].DescendantTokens().Select(token => token.Text));
+        Assert.Equal(
+            ["public", "int", "E", "<", "T", ">", "(", ")", "=>", "42", ";"],
+            methods[1].DescendantTokens().Select(token => token.Text));
+        Assert.All(
+            methods,
+            method => Assert.Contains(
+                method.DescendantTrivia(),
+                trivia => trivia.IsKind(SyntaxKind.SingleLineCommentTrivia)
+                    && trivia.ToString() == "// note"));
+    }
+
+    [Fact]
+    public void LayOutDeclarationHead_WhereInsideLineComment_DoesNotBecomeLiveConstraint()
+    {
+        const string head =
+            "public void Log<T>() // mentions where U : class";
+
+        Assert.Equal(
+            head,
+            CSharpMemberLayout.LayOutDeclarationHead(head));
+    }
+
+    [Fact]
+    public void Append_WhereInsideBlockComment_IsIgnoredWhileRealConstraintWraps()
+        => Assert.Equal(
+            "    public void Log<T>() /* mentions where U : class */\n"
+            + "        where T : class;\n",
+            Render(
+                "public void Log<T>() /* mentions where U : class */ where T : class",
+                body: null,
+                indent: 4));
+
+    [Fact]
+    public void Append_LineCommentMarkerInsideBlockComment_DoesNotDisableConstraintWrapping()
+        => Assert.Equal(
+            "    public void Log<T>() /* // mentions where U : class */\n"
+            + "        where T : class;\n",
+            Render(
+                "public void Log<T>() /* // mentions where U : class */ where T : class",
+                body: null,
+                indent: 4));
+
+    [Fact]
+    public void Append_QuoteInsideBlockComment_DoesNotHideInterpolatedStringDefault()
+    {
+        const string head =
+            """public void Log<T>(string text = /* " */ $"{Format(" where U : class")}") where T : class""";
+        Assert.Equal("    " + head + ";\n", Render(head, body: null, indent: 4));
+    }
+
+    [Fact]
+    public void Append_QuoteInsideBlockComment_DoesNotForceBroadConstraintFallback()
+    {
+        const string head =
+            """public void Log<T>(string text = /* " */ " where U : class") where T : class""";
+        Assert.Equal(
+            "    public void Log<T>(string text = /* \" */ \" where U : class\")\n"
+            + "        where T : class;\n",
+            Render(head, body: null, indent: 4));
+    }
+
+    [Fact]
+    public void Append_GenericConstraints_DisableOneLinerWrapping_StayInline()
+        => Assert.Equal(
+            "    public override T? Pick<T, U>(T? value) where T : U where U : class => value;\n",
+            Render(
+                "public override T? Pick<T, U>(T? value) where T : U where U : class",
+                "return value;",
+                indent: 4,
+                disableOneLinerWrapping: true));
+
+    [Fact]
+    public void Append_GenericConstraints_AreWhitespaceVariantOfInline()
+    {
+        static string Collapse(string value)
+            => string.Concat(value.Where(c => !char.IsWhiteSpace(c)));
+
+        const string head =
+            "public override T? Pick<T, U>(T? value) where T : U where U : class";
+        string wrapped = Render(head, "return value;", indent: 4);
+        string inline = Render(
+            head,
+            "return value;",
+            indent: 4,
+            disableOneLinerWrapping: true);
+
+        Assert.Equal(Collapse(inline), Collapse(wrapped));
+    }
 
     [Fact]
     public void Append_LongGenericSignature_KeepsGenericArgCommasIntact()
@@ -312,6 +602,18 @@ public sealed class CSharpMemberLayoutTests
         string head = OverBudgetPrefix + "(string s = \"\"\"a,b\"\"\", int x = 0)";
         Assert.Equal("    " + head + ";\n", Render(head, body: null, indent: 4));
     }
+
+    [Fact]
+    public void Append_LongSignature_BlockCommentPunctuation_DoesNotBreakParameterWrapping()
+        => Assert.Equal(
+            "    " + OverBudgetPrefix + "(\n"
+            + "        int first /* ) , hidden separator */,\n"
+            + "        int second,\n"
+            + "        int third);\n",
+            Render(
+                OverBudgetPrefix + "(int first /* ) , hidden separator */, int second, int third)",
+                body: null,
+                indent: 4));
 
     [Fact]
     public void Append_LongSignature_ConventionalStringWithComma_WrapsWithoutSplittingLiteral()

@@ -71,10 +71,11 @@ public sealed record DecompilerOptions
     public bool WrapSplittableExpressions { get; init; }
 
     /// <summary>
-    /// The always-on width-based wrappers (long fluent chains, long member
-    /// signatures) may be suppressed so a wide construct stays on one physical
-    /// line. Off by default; wrapping is the shipped house style. A whitespace-only
-    /// user compactness preference that leaves the tokens and IL unchanged.
+    /// The always-on layout wrappers (long fluent chains, long member signatures,
+    /// and generic <c>where</c> clauses) may be suppressed so the declaration stays
+    /// on one physical line. Off by default; wrapping is the shipped house style. A
+    /// whitespace-only user compactness preference that leaves the tokens and IL
+    /// unchanged.
     /// </summary>
     public bool DisableOneLinerWrapping { get; init; }
 

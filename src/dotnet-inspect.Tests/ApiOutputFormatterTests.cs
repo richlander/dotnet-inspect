@@ -941,18 +941,77 @@ public class ApiOutputFormatterTests
                 UnsafeOperations: false)));
         var sections = new MemberCodeView();
 
-        // A second type parameter exists only on the rows that need one to constrain T.
-        string signature = memberName is nameof(RestatementRowFixture.Transitive)
+        // Selected-member and whole-type projections share the runtime-style
+        // constraint layout owned by CSharpText.
+        string compactSignature = memberName is nameof(RestatementRowFixture.Transitive)
             or nameof(RestatementRowFixture.OpenChain)
             ? $"{memberName}<T, U>(T? value) where T : {expected} where U : {expected}"
             : $"{memberName}<T>(T? value) where T : {expected}";
+        string selectedMemberSignature = memberName is nameof(RestatementRowFixture.Transitive)
+            or nameof(RestatementRowFixture.OpenChain)
+            ? $"{memberName}<T, U>(T? value)\n    where T : {expected}\n    where U : {expected}"
+            : $"{memberName}<T>(T? value)\n    where T : {expected}";
+        string wholeTypeSignature = memberName is nameof(RestatementRowFixture.Transitive)
+            or nameof(RestatementRowFixture.OpenChain)
+            ? $"{memberName}<T, U>(T? value)\n        where T : {expected}\n        where U : {expected}"
+            : $"{memberName}<T>(T? value)\n        where T : {expected}";
 
         Assert.True(ApiOutputFormatter.PopulateCSharpSections(sections, type, member, collected.Code));
-        Assert.Contains(signature, sections.DecompiledSourceCode.Content, StringComparison.Ordinal);
+        Assert.Contains(
+            selectedMemberSignature,
+            sections.DecompiledSourceCode.Content,
+            StringComparison.Ordinal);
+
+        var compactCollected = Assert.Single(MemberCodeProvider.Collect(
+            type,
+            [member],
+            path,
+            overloadIndex: 0,
+            new MemberCodeProvider.Request(
+                DecompiledSource: true,
+                AnnotatedSource: false,
+                CostOverlay: false,
+                SemanticsOverlay: false,
+                IL: false,
+                Attributes: false,
+                Calls: false,
+                Callers: false,
+                CallGraph: false,
+                UnsafeOperations: false),
+            renderOptions: ILInspector.Decompiler.Pipeline.PrinterOptions.Default with
+            {
+                DisableOneLinerWrapping = true
+            }));
+        var compactSections = new MemberCodeView();
+        Assert.True(ApiOutputFormatter.PopulateCSharpSections(
+            compactSections,
+            type,
+            member,
+            compactCollected.Code));
+        Assert.Contains(
+            compactSignature,
+            compactSections.DecompiledSourceCode.Content,
+            StringComparison.Ordinal);
 
         var typeSource = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
         Assert.NotNull(typeSource);
-        Assert.Contains(signature, typeSource, StringComparison.Ordinal);
+        Assert.Contains(wholeTypeSignature, typeSource, StringComparison.Ordinal);
+
+        var compactTypeSource = MemberBodyProducer.Project(
+            type,
+            path,
+            pdbPath: null,
+            printerOptions: ILInspector.Decompiler.Pipeline.PrinterOptions.Default with
+            {
+                DisableOneLinerWrapping = true
+            }).Output;
+        Assert.NotNull(compactTypeSource);
+        Assert.Contains(compactSignature, compactTypeSource, StringComparison.Ordinal);
+
+        static string WithoutWhitespace(string value)
+            => string.Concat(value.Where(c => !char.IsWhiteSpace(c)));
+
+        Assert.Equal(WithoutWhitespace(compactTypeSource), WithoutWhitespace(typeSource));
     }
 
     [Theory]
