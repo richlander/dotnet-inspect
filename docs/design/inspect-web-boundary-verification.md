@@ -161,6 +161,25 @@ The numeric capability's initial transfer roots are `DOMStringMap`,
 methods. `Element`, `HTMLElement`, and `Document` are numeric operation
 receivers, not numeric transfer roots.
 
+Operation receivers have a separate erasure rule. A conversion is rejected
+when its source retains a configured receiver identity but its target loses
+that identity while exposing a structurally compatible covered property or
+method. This catches `Element` converted to a local
+`{ getAttribute(name: string): string | null }` or `{ dataset: ... }` surface
+without treating every `Element` transfer as numeric-carrier movement.
+
+The rule applies at the source-to-target edges below and at generic calls. For a
+generic call, the verifier checks both the instantiated signature and its
+original type-parameter constraints. A receiver passed to a type parameter
+whose declaration exposes a capability-shaped structural constraint without
+retaining the platform identity is rejected. A call that accepts a receiver
+but returns a capability-shaped erased surface is rejected too.
+
+Type-preserving receiver transfer remains valid. Conversion to a platform base
+that does not expose the covered capability, followed by a TypeScript-recognized
+narrowing back to the receiver type, also remains valid: the later operation
+again has its platform declaration and is checked at its source module.
+
 The selector capability's transfer roots include the characterized DOM receiver
 types that expose covered selectors and callable values resolved from those
 selector declarations. Moving those receivers can hide selector authority, so
@@ -261,17 +280,26 @@ reference-transfer verifier to recover.
 
 The verifier therefore does not claim primitive taint tracking or prove an
 adapter's decoder implementation. Each numeric descriptor names the
-owner-issued decoder and its protected output type. Numeric decoders return an
-opaque validated number type, or a result that visibly represents rejection.
-DOM-facing action and controller parameters for that attribute accept the
-protected type, not plain `number`.
+owner-issued decoder and its validated output class. Numeric decoders return an
+owner-constructed nominal value object, or a result that visibly represents
+rejection. DOM-facing action and controller parameters for that attribute
+accept the value object, not plain `number`.
 
-Only the numeric owner may construct a protected output type. The verifier
-rejects assertions, annotated returns, or other explicit construction of that
-type outside its owner. Existing type-aware lint remains responsible for unsafe
-`any` flows. This makes `Number(raw)` and `NaN` unable to satisfy a protected
-DOM-facing contract without a separately diagnosed escape, while ordinary
-controller arithmetic may consume the protected type as a number.
+The value object's runtime representation is part of the boundary:
+
+- its class has owner-private construction and private nominal state;
+- it is not assignable to `number` and defines no implicit numeric coercion;
+- it exposes the accepted number only through a read-only accessor; and
+- the instance is frozen and has no mutator, so a structurally widened alias
+  cannot replace the accepted value.
+
+Only the numeric owner may construct the value object. The verifier rejects
+`new`, assertions, annotated returns, object-literal substitutes, or other
+explicit construction outside its owner. Existing type-aware lint remains
+responsible for unsafe `any` flows. This makes `Number(raw)` and `NaN` unable to
+satisfy a protected DOM-facing contract without a separately diagnosed escape.
+The receiving controller explicitly unwraps the value only after its typed
+boundary.
 
 Behavioral adapter tests remain required to prove that missing, malformed,
 non-integer, and out-of-range inputs are rejected and that accepted values are
@@ -381,8 +409,8 @@ It contains:
 
 A numeric descriptor also names:
 
-- the owner-issued decoder callable and protected output type; and
-- the DOM-facing action or controller parameter that consumes that type.
+- the owner-issued decoder callable and validated output class; and
+- the DOM-facing action or controller parameter that consumes its value object.
 
 An entry-point reference must resolve to an exported callable declared in the
 same module as the descriptor. Its listed parameter must have a specific
@@ -405,7 +433,7 @@ expressions and duplicated string lists.
 The verifier rejects duplicate capability identifiers, duplicate selectors
 with conflicting owners, unresolved descriptor imports, unresolved platform
 identities, invalid or stale entry-point references, empty covered-key sets,
-numeric entries without protected decoder and sink contracts, and catalog
+numeric entries without validated decoder and sink contracts, and catalog
 entries without test witnesses. A second verifier-owned key or selector list
 is prohibited.
 
@@ -424,6 +452,8 @@ The implementation adds an `inspect-web-boundaries` script and makes
    cases include raw and higher-order generic laundering, carrier-bearing
    aggregates, rest parameters, imported consumers, sync and async returns,
    `yield`, `yield*`, aggregate storage, and adapter-return escape.
+   Receiver-erasure cases include structural assignment, structural generic
+   constraints, erased generic results, and close type-preserving transfers.
 3. **Close-negative corpus:** accepts lexical shadows, same-named properties on
    unrelated types, unrelated intrinsic-like objects, type-preserving transfer
    of numeric-only operation receivers that contain no repository-authored
@@ -437,9 +467,11 @@ The implementation adds an `inspect-web-boundaries` script and makes
    proves that removing the verifier from `npm run analyze` fails.
 6. **Diagnostic snapshots:** assert rule identifiers, locations, stable
    ordering, owning-adapter guidance, and explicit semantic-service failures.
-7. **Protected outputs:** proves raw numbers, `NaN`, assertions outside the
-   owner, wrong decoder outputs, and plain-number DOM action parameters fail;
-   valid decoder results and ordinary numeric consumption pass.
+7. **Validated outputs:** proves raw numbers, `NaN`, external construction,
+   assertions outside the owner, wrong decoder outputs, mutable structural
+   aliases, and plain-number DOM action parameters cannot corrupt or satisfy
+   the nominal contract. Valid decoder results and explicit post-boundary
+   unwrapping pass.
 
 The implementation gate is:
 
@@ -464,9 +496,9 @@ Migration is replacement, not indefinite layering:
    every direct, alias, computed, destructuring, reflection, wrapper,
    dynamic-key, attribute-method, `NamedNodeMap`, type-erasure, decoder-shadow,
    generic-transfer, and lexical-shadow case.
-3. Introduce protected numeric output types and change DOM-facing action and
-   controller parameters to consume them. Add behavioral decoder tests for
-   every numeric descriptor.
+3. Introduce runtime-immutable nominal numeric value objects and change
+   DOM-facing action and controller parameters to consume them. Add behavioral
+   decoder and mutable-alias tests for every numeric descriptor.
 4. Establish parity and non-vacuity for numeric payload acquisition, then
    remove only the superseded numeric OXC reconstruction.
 5. Extract product-owned selector descriptors from the modules whose ownership
