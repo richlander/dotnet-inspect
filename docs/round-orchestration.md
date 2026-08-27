@@ -34,6 +34,13 @@ without advancing the PR. If REST is rate-limited, publish the gating predicate
 as `waiting`, schedule one retry after the reported reset, and yield. If the
 reset is unavailable, wait at least one hour.
 
+For a transport failure or GitHub 5xx response, retain `attempt=<n>` and
+schedule one successor after 10 minutes plus jitter, then 30 minutes, then one
+hour for later consecutive failures. Remove `attempt` after a successful
+snapshot. A 401, non-rate-limit 403, 404, or malformed response is not pending:
+surface the concrete error and stop rather than scheduling a success-shaped
+retry.
+
 Use GraphQL only when the task genuinely requires graph-shaped data that the
 REST pair cannot provide economically, such as review threads with their
 comments or a single consistent snapshot of several related objects. Never use
@@ -81,6 +88,11 @@ head SHA locally. Do not scatter discovery beyond the pair or the single query;
 additional calls are for pagination and one-off details, after the head is
 confirmed.
 
+The PR request comes first. If its returned head differs from the expected
+head, do not make the check-runs request. Clear the old wait and route the
+returned head through candidate formation or the applicable recovery
+transition; it never inherits the old head's schedule.
+
 ### Four traps in the result
 
 - **Green CI does not imply mergeable.** The two are independent; a PR can
@@ -92,9 +104,10 @@ confirmed.
 - **A missing `ci-required` is inconclusive**, not green: the aggregate may not
   have registered yet. No PR is green until its current-head `ci-required` has
   completed with a `SUCCESS` conclusion.
-- **A skipped job is not evidence.** `COMPLETED`/`SKIPPED` does not block, but
-  never cite it as validation. If a change should have triggered a job that
-  skipped, the path filter is the bug.
+- **A skipped leaf job is not evidence.** `COMPLETED`/`SKIPPED` does not block,
+  but never cite it as validation. The aggregate `ci-required` still must
+  conclude `success`. If a change should have triggered a job that skipped, the
+  path filter is the bug.
 
 ### Resolving unknown mergeability
 
@@ -139,18 +152,19 @@ with `sleep`, or make extra status calls in the same run.
 
 | Status run says | Do this |
 | --- | --- |
-| `ci-required` failed or was cancelled | Classify it and apply the applicable [recovery transition](../AGENTS.md#recovery-transitions). A settled red result is an answer, not something to wait out. |
 | `mergeable: false` | Apply the conflict transition in [Canonical round flow](../AGENTS.md#canonical-round-flow), then schedule one new five-minute check when status gates progress again. |
+| `ci-required` completed with a conclusion other than `success` | Classify it and apply the applicable [recovery transition](../AGENTS.md#recovery-transitions). A terminal non-green result is an answer, not something to wait out. |
 | `mergeable: true`, `ci-required` green at this head | **Done.** Clear the waiting state and proceed to whatever waited on the answer. |
 | `mergeable: null`, CI green | Schedule one REST snapshot for five minutes later; see [resolving unknown mergeability](#resolving-unknown-mergeability). |
 | `mergeable: null`, CI pending or missing | Schedule one successor 10 minutes plus jitter after this snapshot for documentation-only changes, or 30 minutes after this snapshot otherwise. |
 | `mergeable: true`, documentation-only | Treat it as the expected CI completion check. If CI is unexpectedly pending, schedule one successor 10 minutes plus jitter after this snapshot. |
 | `mergeable: true`, not documentation-only | Schedule one successor about 30 minutes after this snapshot. |
 
-Read the table top-down: the first matching row wins. A failed or cancelled
-check outranks every mergeability value, because `mergeable: true` describes
-the merge path and never means green. The green row is the exit; every pending
-row creates one later run, not a polling loop.
+Read the table top-down: the first matching row wins. Conflict recovery has
+first priority, including when CI is also terminal non-green. A terminal
+non-green `ci-required` outranks the remaining mergeability values because
+`mergeable: true` describes the merge path and never means green. The green row
+is the exit; every pending row creates one later run, not a polling loop.
 
 Every successor delay is relative to the snapshot that just completed, never
 to the original push. If both mergeability and CI remain unresolved, keep at
@@ -159,8 +173,10 @@ five-minute cadence once CI is green and mergeability is the only unknown.
 
 These intervals are minimums, not targets: wait longer when no decision depends
 on an immediate result. A pending result always ends the current run after its
-single replacement has been scheduled. Do not use `gh run watch`,
-`gh pr checks --watch`, repeated ad hoc turns, or any polling loop.
+single replacement has been scheduled. A REST request failure follows the
+backoff or explicit-error rule above; it never silently leaves `waiting` set
+without a successor. Do not use `gh run watch`, `gh pr checks --watch`,
+repeated ad hoc turns, or any polling loop.
 
 ## Running a round
 

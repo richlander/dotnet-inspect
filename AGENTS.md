@@ -136,7 +136,8 @@ window no longer owns the work.
 
 Add `schedule=<id>` whenever a delayed status run is armed. Remove it when the
 schedule is cancelled or fires; it is valid only for the recorded `head` and
-`waiting` predicate. Follow
+`waiting` predicate. Add `attempt=<n>` while backing off from consecutive
+transient GitHub failures, and remove it after a successful snapshot. Follow
 [Status discovery](docs/round-orchestration.md#status-discovery) for the
 one-shot scheduling protocol.
 
