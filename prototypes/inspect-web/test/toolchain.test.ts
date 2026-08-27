@@ -1,16 +1,26 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
@@ -102,6 +112,31 @@ const testTsconfig = readJson<TsconfigFile>("tsconfig.json");
 const nodeTsconfig = readJson<TsconfigFile>("../tsconfig.node.json");
 const staticWebAppConfig
   = readJson<StaticWebAppConfig>("../staticwebapp.config.json");
+
+// Every path comparison in this file is a root-relative string match, and round 3 (Sol)
+// pointed out that `relative` returns them separator-native: on Windows `src\main.ts`
+// matches no `src/` prefix and `node_modules\vite` contains no `node_modules` component,
+// so the gates would report the project's own source as unlinted and its dependencies as
+// project-owned. Comparisons are against paths spelled in `package.json` and tsconfig
+// files, which are always `/`, so the fix is to speak that dialect everywhere rather than
+// to compare separator-native strings against portable ones.
+function projectRelative(root: string, file: string): string {
+  return relative(root, file).split(sep).join("/");
+}
+
+// The lint targets are read here rather than inside the gate that checks coverage,
+// because the pruning rules below also need to know which directories hold authored
+// source. Both answers come from the one `lint` script, so neither can drift from it.
+const lintTokens = (() => {
+  const lint = packageJson.scripts?.lint ?? "";
+  const oxlintCall = lint.slice(lint.indexOf("oxlint "));
+  return oxlintCall.split(/\s+/u).slice(1);
+})();
+const lintTargets = lintTokens.filter(token => !token.startsWith("-"));
+const lintTargetDirectories = lintTargets.filter(target => {
+  const full = fileURLToPath(new URL(`../${target}`, import.meta.url));
+  return existsSync(full) && statSync(full).isDirectory();
+});
 const siteIndexHtml = readFileSync(
   new URL("../index.html", import.meta.url),
   "utf8",
@@ -244,7 +279,22 @@ for (const [name, project] of [
 // project root, but the name alone means nothing anywhere else. `public/bin/probe.js`
 // (Sol) and `public/dist/bypass.js` (Gemini 3.1 Pro) each shipped through that hole. A
 // directory is therefore pruned for what produced it, not for what it is called.
+//
+// Round 3 showed that reasoning is still not enough on its own, because it asks only what
+// produced a directory and never where the directory sits. Sol put a file in
+// `public/node_modules`, and Gemini dropped an empty `src/fake.csproj` next to a `src/bin`
+// -- both spoofing a role test that was perfectly correct in isolation. Neither location
+// is a place build output can legitimately be: `public` is copied into the site verbatim,
+// and the lint targets are where the project's authored source lives. Inside those roots
+// nothing is pruned at all, whatever it calls itself and whatever sits beside it, so
+// there is no role left to spoof.
+const unprunedRoots = ["public", ...lintTargetDirectories];
+
 function isGenerated(directory: string, name: string, root: string): boolean {
+  const [outermost] = projectRelative(root, join(directory, name)).split("/");
+  if (outermost !== undefined && unprunedRoots.includes(outermost)) {
+    return false;
+  }
   if (name === "node_modules") {
     return true;
   }
@@ -319,7 +369,7 @@ test("no source directory reaches content through a symbolic link", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
 
   assert.deepEqual(
-    symbolicLinks().map(link => relative(root, link)).sort(),
+    symbolicLinks().map(link => projectRelative(root, link)).sort(),
     [],
     "a symbolic link is followed by the bundler but not by the checks above, so its "
       + "target ships without having been compiled or linted");
@@ -335,8 +385,11 @@ const javaScriptExtensions = [".js", ".mjs", ".cjs", ".jsx"] as const;
 
 
 test("no source file suppresses type checking", () => {
-  const root = new URL("../", import.meta.url);
-  const files = projectFiles([".ts"]);
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  // Round 3 (Sol) hid a suppression directive in `scripts/probe.mts`: the scan asked only
+  // for `.ts` while the compiler happily reads all four TypeScript extensions, so a file
+  // the program did type-check could turn that checking off and say nothing.
+  const files = projectFiles(typeScriptExtensions);
 
   assert.ok(files.length > 50, `expected the TypeScript sources, found ${files.length}`);
   const suppressionPattern = new RegExp(
@@ -350,7 +403,7 @@ test("no source file suppresses type checking", () => {
   const suppressed = files.filter(file =>
     suppressionPattern.test(readFileSync(file, "utf8")));
   assert.deepEqual(
-    suppressed.map(file => file.slice(fileURLToPath(root).length)),
+    suppressed.map(file => projectRelative(root, file)).sort(),
     [],
     "these files opt out of type checking; use a narrowing guard or @ts-expect-error");
 });
@@ -368,7 +421,7 @@ test("no source file suppresses type checking", () => {
 test("the only JavaScript is the file the lint exemption names", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const present = projectFiles(javaScriptExtensions)
-    .map(file => file.slice(root.length))
+    .map(file => projectRelative(root, file))
     .sort();
   const exempted = (oxlintConfig.overrides ?? [])
     .filter(override => override.rules !== undefined)
@@ -421,7 +474,7 @@ function programFiles(): Set<string> {
 // neither of which this project's gates govern. Only paths inside this project, and
 // outside its dependency directory, are this project's to answer for.
 function isProjectOwned(file: string, root: string): boolean {
-  const path = relative(root, file);
+  const path = projectRelative(root, file);
   return !path.startsWith("..") && !isAbsolute(path)
     && !path.split("/").includes("node_modules");
 }
@@ -457,7 +510,7 @@ test("every TypeScript file belongs to a compiler project", () => {
       && typeScriptExtensions.some(extension => file.toLowerCase().endsWith(extension))
       && !walked.has(file)
       && !prunedAway(file))
-    .map(file => relative(root, file))
+    .map(file => projectRelative(root, file))
     .sort();
   assert.deepEqual(missedByWalk, [],
     "the compiler reads these files but the directory walk did not find them, so the "
@@ -465,7 +518,7 @@ test("every TypeScript file belongs to a compiler project", () => {
 
   const unchecked = authored
     .filter(file => !checked.has(resolve(file)))
-    .map(file => relative(root, file))
+    .map(file => projectRelative(root, file))
     .sort();
 
   assert.deepEqual(unchecked, [],
@@ -478,9 +531,6 @@ test("every TypeScript file belongs to a compiler project", () => {
 // nothing, which is how a root-level script escaped the `no-unsafe-*` rules entirely.
 test("every source file is covered by a lint target", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
-  const lint = packageJson.scripts?.lint ?? "";
-  const oxlintCall = lint.slice(lint.indexOf("oxlint "));
-  const tokens = oxlintCall.split(/\s+/u).slice(1);
 
   // Round 2 (Sol) turned this parse against itself with `--ignore-pattern public`: the
   // operand does not start with `-`, so it was read as a target, and `public/` counted as
@@ -489,14 +539,14 @@ test("every source file is covered by a lint target", () => {
   // parse fails closed instead. Only flags known to take no operand are allowed, and
   // anything else stops the gate rather than being silently classified.
   const operandlessFlags = new Set(["--no-ignore", "--disable-nested-config"]);
-  const flags = tokens.filter(token => token.startsWith("-"));
+  const flags = lintTokens.filter(token => token.startsWith("-"));
   const unknown = flags.filter(flag => !operandlessFlags.has(flag));
   assert.deepEqual(unknown, [],
     "this gate reads the remaining arguments as paths, which is only sound while every "
       + "flag is known to take no separate operand; add the flag to the allowed set once "
       + "its arity is accounted for");
 
-  const targets = tokens.filter(token => !token.startsWith("-"));
+  const targets = lintTargets;
   assert.ok(targets.length > 0, "the lint script names no files to lint");
 
   const sources = projectFiles([...typeScriptExtensions, ...javaScriptExtensions]);
@@ -511,17 +561,54 @@ test("every source file is covered by a lint target", () => {
   // the walk reaches it or not.
   const compiled = [...programFiles()].filter(file => isProjectOwned(file, root));
   const covered = (file: string): boolean => {
-    const path = relative(root, file);
+    const path = projectRelative(root, file);
     return targets.some(target => path === target || path.startsWith(`${target}/`));
   };
   const unlinted = [...new Set([...sources.map(file => resolve(file)), ...compiled])]
     .filter(file => !covered(file))
-    .map(file => relative(root, file))
+    .map(file => projectRelative(root, file))
     .sort();
 
   assert.deepEqual(unlinted, [],
     "these files are outside every path the lint script passes to oxlint; add the path "
       + "to the `lint` script rather than leaving the file unlinted");
+});
+
+// Being under a lint target turns out not to mean the lint reads the file. oxlint applies
+// the repository's `.gitignore` while it walks a directory, and `--no-ignore` does not
+// change that -- it governs `.eslintignore` and `--ignore-pattern`. Round 3 (Gemini 3.1
+// Pro) put an unsafe `any` in `src/test-results/bypass.ts`, which the coverage gate above
+// counted as covered because the path does start with `src/`, and which oxlint then
+// skipped in silence while Vite bundled it.
+//
+// So coverage is asked of the ignore rules directly, with git as the oracle for its own
+// file. Anything the project compiles or ships that git would ignore is a file the lint
+// cannot see, whatever its path looks like.
+test("no file the build compiles is hidden from the lint by an ignore rule", () => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const sources = projectFiles([...typeScriptExtensions, ...javaScriptExtensions]);
+  const compiled = [...programFiles()].filter(file => isProjectOwned(file, root));
+  const candidates = [...new Set([...sources.map(file => resolve(file)), ...compiled])];
+  assert.ok(candidates.length > 50,
+    `expected the project sources, found ${candidates.length}`);
+
+  // `check-ignore` exits 0 when it ignored something, 1 when it ignored nothing, and
+  // anything else is a real failure that must not read as "nothing ignored".
+  const checked = spawnSync("git", ["check-ignore", "--stdin"],
+    { cwd: root, encoding: "utf8", input: candidates.join("\n") });
+  assert.ok(checked.status === 0 || checked.status === 1,
+    `git check-ignore failed: ${checked.stderr}`);
+
+  const ignored = checked.stdout.split("\n")
+    .map(line => line.trim())
+    .filter(line => line.length > 0)
+    .map(file => projectRelative(root, file))
+    .sort();
+
+  assert.deepEqual(ignored, [],
+    "oxlint applies .gitignore while walking, so these files are compiled or shipped but "
+      + "never linted; move them out of the ignored path rather than relying on being "
+      + "under a lint target");
 });
 
 // Sol also walked past the assertion above entirely by turning a rule off at the top
