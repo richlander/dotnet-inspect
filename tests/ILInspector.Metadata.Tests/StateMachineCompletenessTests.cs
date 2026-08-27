@@ -84,29 +84,56 @@ public sealed class StateMachineCompletenessTests
         Assert.SkipWhen(
             string.IsNullOrWhiteSpace(root),
             $"Set {CorpusVariable} to a directory to run the corpus sweep.");
-        Assert.SkipWhen(
-            !Directory.Exists(root),
-            $"{CorpusVariable} is not a directory: {root}");
+
+        // Once the variable is supplied the sweep is opted in, so a path that
+        // does not resolve is a configuration error rather than a reason to
+        // skip. Skipping here would turn a typo into a green corpus gate.
+        Assert.True(
+            Directory.Exists(root),
+            $"{CorpusVariable} is set to '{root}', which is not a directory. "
+                + "Unset it to skip the corpus sweep.");
 
         var totals = new CompletenessReport();
         var offenders = new List<string>();
+        var undecodable = new List<string>();
+        var inaccessible = new List<string>();
         int assemblies = 0;
+        int notManaged = 0;
+
+        // IgnoreInaccessible keeps one unreadable subdirectory from aborting a
+        // sweep of a shared or system-wide corpus.
+        var enumeration = new EnumerationOptions
+        {
+            RecurseSubdirectories = true,
+            IgnoreInaccessible = true,
+        };
 
         foreach (string path in
-            Directory.EnumerateFiles(root!, "*.dll", SearchOption.AllDirectories))
+            Directory.EnumerateFiles(root!, "*.dll", enumeration))
         {
-            CompletenessReport report;
-            try
+            switch (TryMeasure(path, out CompletenessReport report, out string? detail))
             {
-                report = Measure(path);
-            }
-            catch (BadImageFormatException)
-            {
-                continue;
-            }
-            catch (IOException)
-            {
-                continue;
+                case CorpusOutcome.Measured:
+                    break;
+
+                // Not a managed assembly at all: a native DLL, or a file that is
+                // not a PE. Counted so an empty sweep cannot masquerade as a
+                // clean one, but not a failure — it carries no claim to check.
+                case CorpusOutcome.NotManaged:
+                    notManaged++;
+                    continue;
+
+                // Environmental, not evidence about the index. Reported rather
+                // than dropped so a systematically unreadable corpus is visible.
+                case CorpusOutcome.Inaccessible:
+                    inaccessible.Add($"{Path.GetFileName(path)}: {detail}");
+                    continue;
+
+                // A managed assembly whose metadata would not decode. This is a
+                // real failure: a candidate existed and could not be evaluated.
+                default:
+                    undecodable.Add($"{Path.GetFileName(path)}: {detail}");
+                    continue;
             }
 
             assemblies++;
@@ -120,21 +147,49 @@ public sealed class StateMachineCompletenessTests
             }
         }
 
-        Assert.NotEqual(0, assemblies);
-        Assert.NotEqual(0, totals.Structural);
+        string surveyed =
+            $"{assemblies} managed assemblies measured, {notManaged} "
+                + $"non-managed skipped, {inaccessible.Count} unreadable.";
+
+        Assert.True(
+            undecodable.Count == 0,
+            $"""
+            {undecodable.Count} managed assembly/assemblies failed to decode, so
+            their state machines could not be evaluated at all. That is a decode
+            failure, not a clean sweep, and it is reported rather than skipped.
+
+            {surveyed}
+
+            Undecodable:
+              {string.Join("\n  ", undecodable.Take(25))}
+            """);
+
+        Assert.True(assemblies != 0, $"No managed assemblies found. {surveyed}");
+        Assert.True(
+            totals.Structural != 0,
+            $"No structural state machines found, so this sweep proves nothing. "
+                + surveyed);
 
         Assert.True(
             totals.Rejected == 0,
             $"""
-            {totals.Rejected} structural state machine(s) were claimed by an
-            attribute and then refused authentication, across {assemblies}
-            assemblies ({totals.Structural} structural, {totals.Resolved}
-            resolved, {totals.Absent} absent).
+            {totals.Rejected} structural state machine(s) were refused
+            authentication, across {assemblies} assemblies ({totals.Structural}
+            structural, {totals.Resolved} resolved, {totals.Absent} absent).
 
-            A known cause is trimming: ILLink removes SetStateMachine, which both
-            ClassicAsync and AsyncIterator require, so every async claim in a
-            trimmed assembly is refused (see #4827). If this corpus contains
-            trimmed output that is expected rather than a regression.
+            A refusal has two possible causes, distinguished by the failure kinds
+            listed below. Either an attribute claimed the type and the claim
+            failed its role requirements, or the module failed to index at all,
+            in which case every structural machine in it reports Rejected
+            regardless of whether anything claimed it (see #4833).
+
+            A known cause of the first is trimming: ILLink removes
+            SetStateMachine, which both ClassicAsync and AsyncIterator require,
+            so every async claim in a trimmed assembly is refused (see #4827).
+            If this corpus contains trimmed output, that is expected rather than
+            a regression.
+
+            {surveyed}
 
             Offenders:
               {string.Join("\n  ", offenders.Take(25))}
@@ -142,18 +197,132 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
-    /// Classifies every TypeDef that structurally implements
-    /// <c>IAsyncStateMachine</c> against the index's own verdict for that type.
+    /// Why a corpus entry did or did not contribute a measurement. Every file
+    /// the sweep touches lands in exactly one of these, so nothing is silently
+    /// dropped.
+    /// </summary>
+    enum CorpusOutcome
+    {
+        /// <summary>Measured normally.</summary>
+        Measured,
+
+        /// <summary>Not a managed assembly: a native PE, or not a PE at all.</summary>
+        NotManaged,
+
+        /// <summary>Could not be opened or read: permissions, locking, or I/O.</summary>
+        Inaccessible,
+
+        /// <summary>A managed assembly whose metadata would not decode.</summary>
+        DecodeFailed,
+    }
+
+    /// <summary>
+    /// Corpus-tolerant wrapper over <see cref="Measure"/>. It separates
+    /// environmental problems, which say nothing about the index, from genuine
+    /// metadata decode failures, which do. Callers must account for every
+    /// outcome rather than swallowing any of them.
+    /// </summary>
+    static CorpusOutcome TryMeasure(
+        string assemblyPath,
+        out CompletenessReport report,
+        out string? detail)
+    {
+        report = new CompletenessReport();
+        detail = null;
+
+        FileStream stream;
+        try
+        {
+            stream = File.OpenRead(assemblyPath);
+        }
+        catch (Exception ex)
+            when (ex is UnauthorizedAccessException or IOException)
+        {
+            detail = ex.Message;
+            return CorpusOutcome.Inaccessible;
+        }
+
+        using (stream)
+        {
+            PEReader pe;
+            try
+            {
+                pe = new PEReader(stream, PEStreamOptions.PrefetchEntireImage);
+            }
+            catch (BadImageFormatException)
+            {
+                return CorpusOutcome.NotManaged;
+            }
+            catch (Exception ex)
+                when (ex is UnauthorizedAccessException or IOException)
+            {
+                detail = ex.Message;
+                return CorpusOutcome.Inaccessible;
+            }
+
+            using (pe)
+            {
+                MetadataReader reader;
+                try
+                {
+                    if (!pe.HasMetadata)
+                        return CorpusOutcome.NotManaged;
+
+                    reader = pe.GetMetadataReader();
+                }
+                catch (BadImageFormatException)
+                {
+                    // PrefetchEntireImage defers format validation, so a file
+                    // that is not a PE at all surfaces here rather than from the
+                    // constructor. Not having readable headers means this is not
+                    // a managed assembly, not that a managed assembly failed to
+                    // decode. Real package caches contain such files.
+                    return CorpusOutcome.NotManaged;
+                }
+
+                try
+                {
+                    report = Measure(reader);
+                    return CorpusOutcome.Measured;
+                }
+                catch (BadImageFormatException ex)
+                {
+                    // A MetadataReader was obtained, so this genuinely is a
+                    // managed assembly, and its metadata still failed to read.
+                    // That is a decode failure and must not be silently skipped.
+                    detail = ex.Message;
+                    return CorpusOutcome.DecodeFailed;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Measures one assembly by path. Used for assemblies this repository
+    /// builds, where any failure to open or decode is a genuine bug rather than
+    /// corpus noise, so nothing is caught here. The corpus sweep uses
+    /// <see cref="TryMeasure"/> instead.
     /// </summary>
     static CompletenessReport Measure(string assemblyPath)
     {
         using FileStream stream = File.OpenRead(assemblyPath);
         using var pe = new PEReader(stream, PEStreamOptions.PrefetchEntireImage);
-        var report = new CompletenessReport();
-        if (!pe.HasMetadata)
-            return report;
 
-        MetadataReader reader = pe.GetMetadataReader();
+        Assert.True(
+            pe.HasMetadata,
+            $"'{assemblyPath}' has no managed metadata, so it cannot be one of "
+                + "this repository's own build outputs.");
+
+        return Measure(pe.GetMetadataReader());
+    }
+
+    /// <summary>
+    /// Classifies every TypeDef that structurally implements
+    /// <c>IAsyncStateMachine</c> against the index's own verdict for that type.
+    /// </summary>
+    static CompletenessReport Measure(MetadataReader reader)
+    {
+        var report = new CompletenessReport();
         StateMachineRelationshipIndex index =
             StateMachineRelationshipIndex.Create(reader);
 
