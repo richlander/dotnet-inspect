@@ -2,8 +2,8 @@
 
 This document owns the presentation and interaction language of the
 `dotnet-inspect` website. It records reusable visual rules so equivalent
-controls communicate state consistently across package, type, member, and
-metadata surfaces.
+controls communicate state consistently across workspace, package, library,
+type, member, metadata, source, and settings surfaces.
 
 The rules are normative targets for `prototypes/inspect-web`. When the current
 implementation differs, this document describes the intended behavior rather
@@ -15,19 +15,37 @@ The Inspect Web UI owner defines:
 
 - the visual meaning of shared control states;
 - the interaction grammar for recurring website controls; and
-- the composition rules that make equivalent controls look and behave alike.
+- the composition rules that make equivalent controls look and behave alike;
+- the shell hierarchy and responsive presentation of product-issued subjects;
+- browser-history, canonical-state, and restoration expectations at the UI
+  boundary; and
+- the placement of Settings, Diagnostics, source provenance, and product
+  promotion.
 
 It consumes product-owned identities, labels, ordering, defaults, availability,
-and query semantics. In particular,
-[Product Vocabulary](vocabulary.md) remains authoritative for vocabulary values
-and selection semantics. Individual inspect-web components retain their
-rendering, binding, and state-transition responsibilities.
+query semantics, workspace state, artifact-acquisition outcomes, and
+package-source descriptors. In particular:
+
+- [Product Vocabulary](vocabulary.md) remains authoritative for vocabulary
+  values and selection semantics;
+- [Artifact acquisition and workspaces](artifact-acquisition-and-workspaces.md)
+  owns admitted inputs, provenance, workspace composition, and failures;
+- [Browser package sources](browser-package-sources.md) owns browser source
+  registration, eligibility, credentials, and producer identity; and
+- [Untrusted data threat model](untrusted-data-threat-model.md) owns rejection
+  and failure behavior for local and network inputs.
+
+Individual inspect-web components retain their rendering, binding, and
+state-transition responsibilities.
 
 This document does not own:
 
 - inspection or acquisition behavior;
 - API, metadata, package, type, or member classification;
 - vocabulary identities, labels, ordering, or defaults;
+- artifact validation, grouping, provenance, or acquisition failure semantics;
+- package-source resolution, authorization, credentials, or cache authority;
+- canonical packet encoding or decoding;
 - CLI and library output formatting; or
 - the internal implementation boundaries among inspect-web modules.
 
@@ -38,26 +56,32 @@ independent cosmetic changes.
 
 | Area | Direction |
 | ---- | --------- |
-| Primary navigation | Use Package, Library, Type, and Member views |
-| Package coordinate | Remove the persistent row and edit version and TFM in Package |
+| Subject navigation | Use one single-line Workspace, coordinate, and current-subject command |
+| Workspace selection | Replace package tabs with a Workspace surface |
+| Package coordinate | Keep a compact package, version, and TFM argument beside `dotnet-inspect` |
 | Library inspection | Select all libraries or one library within Library |
-| Type headings | Keep API and Source name-only; retain detail in Metadata |
+| Default view | Open ordinary inspectable artifacts on Type API |
+| Type headings | Let the inspection command identify API and Source; retain detail in Metadata |
 | Filters | Collapse selector rows by default and summarize hidden restrictions |
 | Selected controls | Use one accent selected-state treatment across selector families |
 | Source provenance | Use a compact status/action row without validation prose or link glyphs |
+| Search and opening | Use Spotlight for search and a separate local-artifact Open flow |
+| Settings | Use one Settings experience with contextual entry points |
+| Data bar | Show build identity, acquired source, CLI, and skill links on one line |
 
 Together, these decisions move subject-specific controls and detail into the
-view that owns them. Persistent chrome carries only workspace identity and
-navigation. Content views spend their vertical space on the package, library,
-type, member, API, metadata, or source material the user selected.
+view that owns them. Persistent chrome carries one compact inspection command,
+shell actions, lens navigation, and one data line. Content views spend their
+vertical space on the package, library, type, member, API, metadata, or source
+material the user selected.
 
 ## Selector controls
 
 Selector controls are compact pill-shaped buttons used to choose a value or
 filter a result set. Type kind, member kind, accessibility, and member trait
 controls use the same state language even when their values and selection
-semantics differ. This section applies to selector pills, not to primary-view
-or lens navigation.
+semantics differ. This section applies to selector pills, not to subject or lens
+navigation.
 
 ### Selected state
 
@@ -134,10 +158,10 @@ pane:
 - member kind, accessibility, and trait selectors expand together; and
 - collapsing the region never clears or changes a selection.
 
-The Type view does not retain a second library filter. The active Library
-subject controls whether Package and Type navigation show types from all
-libraries or one library. Library selection is view context, not a hidden Type
-filter dimension.
+The Type navigation pane does not retain a second library filter. The active
+Library subject controls whether Package and Type navigation show types from
+all libraries or one library. Library selection is subject context, not a hidden
+Type filter dimension.
 
 The disclosure state is user-controlled after the pane first appears. It
 survives rerenders and selector changes while that pane remains active so
@@ -180,21 +204,26 @@ one restrictive dimension.
 - The collapsed summary supplements the visible result count. It does not
   replace result text such as `20 of 84 member groups`.
 
-## Type page headings
+## Subject headings
 
-Type pages use lens-specific information hierarchy. A shared type selection
-does not require every lens to repeat the same heading detail.
+The single-line inspection command is the common orientation point for the
+current Package, Library, Type, or Member subject. A content lens does not
+repeat that identity merely to create a local hero heading.
 
 ### API and Source lenses
 
-The API and Source lenses retain only the selected type's name above their
-primary content. The name is the page heading and uses the product-owned type
-display label.
+The API and Source lenses begin with their primary content. Their accessible
+heading relationship includes both the product-owned active-subject label from
+the inspection command and the active lens label. The active-subject token is
+the visible level-one heading: the coordinate token for a Package or other root
+subject, and the current-subject token for Library, Type, or Member. The lens
+panel's `aria-labelledby` references that label and the active lens tab.
 
-These compact headings do not repeat:
+They do not repeat:
 
 - the kind icon;
 - the namespace eyebrow;
+- the type or member name;
 - the declaration signature;
 - the member count;
 - the accessibility summary;
@@ -202,10 +231,10 @@ These compact headings do not repeat:
 - the library; or
 - the package and version.
 
-API content begins immediately after the type name. Source places only its
-compact provenance and action row between the type name and source content.
-The removed fields do not leave placeholders or reserved vertical space. They
-are also not moved into collapsed duplicate headers on either lens.
+API content begins immediately after lens navigation. Source places only its
+compact provenance and action row before source content. The removed fields do
+not leave placeholders or reserved vertical space. They are also not moved
+into collapsed duplicate headers on either lens.
 
 This makes the API surface or source document the primary content of its page
 and increases the amount visible without scrolling.
@@ -216,9 +245,9 @@ The Metadata lens retains the detailed type heading. It is the type-level view
 for kind, namespace, declaration shape, target framework, library, package, and
 version context.
 
-The type name remains the common orientation point between the API and Metadata
-lenses and the Source lens. Switching lenses changes the amount of surrounding
-detail, not the selected type or its display identity.
+The inspection command remains the common orientation point between API,
+Metadata, and Source. Switching lenses changes the amount of surrounding detail,
+not the selected subject or its display identity.
 
 ## Source provenance
 
@@ -226,11 +255,10 @@ Successful source provenance is presented as a compact status and action row,
 not as an explanation of the product's safety mechanisms. This rule applies to
 type, member, and graph source surfaces.
 
-In the Type view, the Source lens is ordered as:
+In the Type or Member view, a Source lens is ordered as:
 
-1. Type name.
-2. Compact source provenance and actions.
-3. Source content.
+1. Compact source provenance and actions.
+2. Source content.
 
 No type metrics or metadata summary appears between these elements.
 
@@ -260,116 +288,186 @@ If a PDB source attempt failed and the product returned a meaningful limitation
 with a fallback, that limitation remains visible as a separate failure note.
 Successful provenance text must not be used to explain every validation step.
 
-## Primary views
+## Subject hierarchy and inspection command
 
-A package and a library are different inspection subjects:
+Workspace, Package, Library, Type, and Member are progressively narrower
+inspection subjects:
 
-- **Package** means the selected NuGet package or platform package coordinate.
-- **Library** means one assembly contained in that active package coordinate.
-- **Type** means one selected type from the active package coordinate.
-- **Member** means one selected member of the active type.
+- **Workspace** means the retained set of open inspection coordinates.
+- **Package** means one selected NuGet or platform package coordinate.
+- **Library** means all admitted libraries or one library in that coordinate.
+- **Type** means one selected type in the active Library subject.
+- **Member** means one selected member of the active Type.
 
-The primary view control presents four choices:
+A local file, restored project, or another non-package artifact source occupies
+the same coordinate position without being mislabelled as a Package. Package is
+one common root subject, not the universal acquisition model. A non-package
+coordinate uses its product-owned root subject and overview when no Library,
+Type, or Member is active. This document does not invent package lenses for it.
 
-| View | Subject |
-| ---- | ------- |
-| Package | Package-wide identity and relationships |
-| Library | All libraries in the package or one selected library |
-| Type | One selected type |
-| Member | One selected member |
+### Single-line inspection command
 
-View labels name the kind of subject, not its cardinality. The label is
-`Library` even when its selected subject is `All libraries`.
+Package workspace tabs and the Package, Library, Type, and Member primary
+tablist are removed. One single-line inspection command identifies the
+Workspace root, active coordinate, and current leaf subject:
 
-### Navigation semantics
+```text
+dotnet-inspect  System.Text.Json@10.0.0/net10.0  System.Text.Json.JsonSerializer.DeserializeAsync
+dotnet-inspect  MyAssembly.dll                   MyNamespace.MyType
+```
 
-The primary view control is a tablist. Package, Library, Type, and Member are
-tabs with `role="tab"` and `aria-selected`. An unavailable tab remains focusable
-in the tablist with `aria-disabled="true"` so its existence is discoverable;
-activation is suppressed. View tabs do not use `aria-pressed`.
+The command starts without a separator glyph. Spacing and typography distinguish
+its three roles:
 
-Each view's lens strip is a separate tablist. Every lens or member section is a
+1. `dotnet-inspect` is the Workspace root.
+2. The coordinate identifies the active package, platform, project, file, or
+   other product-owned workspace input.
+3. The current subject identifies the active Library, Type, or Member.
+
+The displayed subject need not mechanically repeat every parent. A Type or
+Member normally uses its product-owned qualified display identity. A defining
+Library appears when it is the active subject or when the product reports that
+qualification is required to disambiguate identity.
+
+The command remains one line. When space is constrained, intermediate
+qualification elides before the coordinate or leaf subject. The complete
+product-owned identity remains in the accessible name and focused or expanded
+presentation.
+
+Each visible role is a real interactive control rather than click behavior
+attached to inert text:
+
+- activating `dotnet-inspect` opens Workspace;
+- activating the coordinate opens its applicable package, version, TFM, or
+  acquisition-detail controls;
+- activating an ancestor portion of the current subject moves to that subject;
+  and
+- `Copy target` copies the product-issued canonical current target.
+
+Copying a target and copying a restorable workspace URL are different actions.
+`Copy target` does not reconstruct identity from display text. The `share`
+command continues to copy the canonical workspace link.
+
+Browser Back and Forward own navigation history. The secondary row that
+repeated back/forward buttons, package identity, active lens, Copy, and Taste is
+removed.
+
+### Workspace surface
+
+The Workspace surface replaces the package tab strip. It consumes
+product-issued descriptors for every open coordinate and shows:
+
+- coordinate identity and acquisition kind;
+- the retained current Library, Type, or Member path;
+- loading, ready, or failed state;
+- an activation action; and
+- an explicit Close action.
+
+Activating an entry restores its retained subject and lens. Closing one entry
+requests the product-owned workspace transition. The returned state identifies
+the next active entry or an empty Home state; the UI does not choose a successor
+by package label or visual order. Separate coordinates remain separate even
+when their display package IDs match.
+
+Workspace also exposes the same Search and Open actions as the shell. It does
+not infer source identity, package equivalence, or local-file correspondence
+from display labels.
+
+### Lens navigation semantics
+
+Each subject's lens strip remains a tablist. Every lens or member section is a
 tab with `role="tab"` and `aria-selected`, including identically labelled tabs
-owned by different views. The active lens must therefore be available
+owned by different subjects. The active lens must therefore be available
 programmatically rather than conveyed by color alone.
 
-Each tablist has an accessible name: `Primary view` for the view control and
-`<View> lenses` for its lens strip. A tab references its panel with
-`aria-controls`; the panel uses `role="tabpanel"` and `aria-labelledby`.
+Each tablist has the accessible name `<Subject> lenses`. A tab references its
+panel with `aria-controls`; the panel uses `role="tabpanel"` and
+`aria-labelledby`.
 
-Tablists use one tab stop and manual activation:
+Lens tablists use one tab stop and manual activation:
 
 - `Tab` enters on the tab with `tabindex="0"`, initially the active tab, and
   leaves the tablist from the focused tab.
 - Left and Right Arrow move focus through the horizontal tabs.
 - Home and End move focus to the first and last tab.
-- Arrow navigation includes `aria-disabled` tabs so they remain discoverable.
 - Enter or Space activates a focused available tab.
 - Activating an `aria-disabled` tab has no effect.
 
 Roving `tabindex` keeps only the focused tab at `tabindex="0"`. Moving focus
 does not change `aria-selected` or start lens work until activation.
 
-### View availability and reconciliation
+### Subject availability and reconciliation
 
-The four view controls remain visible so the information architecture does not
-shift as subjects are selected:
+Subject availability remains explicit even though unavailable levels no longer
+occupy permanent primary tabs:
 
-- Package is available whenever a package workspace is active.
+- A root subject is available whenever a coordinate workspace is active.
+- Package is that root subject only for a package-backed coordinate.
 - Library is available when the product supplies a validated, non-empty Library
   subject descriptor set for the active coordinate.
 - Type is available when Library is available and the workspace has a current
-  type selection.
-- Member is available when Type is available and the current type has a current
-  member selection.
-
-An unavailable view is `aria-disabled`, not natively disabled. It is not hidden,
-does not activate, and does not retain stale content. Native disabled semantics
-remain appropriate for unavailable selector pills outside the tablist.
+  Type selection.
+- Member is available when Type is available and the current Type has a current
+  Member selection.
 
 Reconciliation first computes subjects, then decides whether navigation must
 move:
 
 1. The product supplies the validated Library subject descriptor set for the
    new coordinate.
-2. If the set is empty or malformed, the UI clears the Library, Type, and Member
-   subjects, makes all three dependent views unavailable, surfaces the producer
-   failure, and stops subject reconciliation. It does not guess a subject.
-3. A validated non-empty set has exactly one owner-issued default. If the
+2. A successful empty set is valid. The UI clears the Library, Type, and Member
+   subjects and leaves the coordinate on its root subject without presenting a
+   producer failure.
+3. A malformed set or producer failure also clears the dependent subjects, but
+   surfaces the typed failure and stops subject reconciliation. The UI does not
+   guess a subject.
+4. A validated non-empty set has exactly one owner-issued default. If the
    previous Library subject is absent, the UI selects that default. The default
    may be `All libraries` or one library.
-4. The host asks the owning product model to resolve the existing Type within
+5. The host asks the owning product model to resolve the existing Type within
    both the active coordinate and active Library subject.
-5. It resolves Member only when the retained Type still owns that Member.
-6. A missing Type or Member selection is cleared. Reconciliation does not
+6. It resolves Member only when the retained Type still owns that Member.
+7. A missing Type or Member selection is cleared. Reconciliation does not
    silently substitute another Type or Member.
 
-Subject invalidation in a non-active view only disables that view's tab. It
-does not move the user away from Package or Library.
-
-Initial workspace activation may accept an owner-issued default Type only after
-a valid Library subject exists. That initial choice is distinct from replacing
-a user's invalidated selection after a coordinate or Library-subject change.
-
-Navigation changes only when the active view becomes unavailable:
+Navigation changes only when the active subject becomes unavailable:
 
 - Member moves to Type when Type remains available, otherwise to Library when
-  Library remains available, otherwise to Package.
-- Type moves to Library when Library remains available, otherwise to Package.
-- Library moves to Package when no valid Library subject descriptor set is
-  available.
-- Package remains active through coordinate reconciliation.
+  Library remains available, otherwise to the coordinate root.
+- Type moves to Library when Library remains available, otherwise to the
+  coordinate root.
+- Library moves to the coordinate root when no valid Library subject descriptor
+  is available.
+- The coordinate root remains active through coordinate reconciliation.
 
 Resolving a missing Library subject to the owner-issued default happens before
-Type and Member reconciliation. It keeps an active Library view available but
-does not itself redirect navigation.
+Type and Member reconciliation. It keeps an active Library subject available
+but does not itself redirect navigation.
+
+### Initial subject and lens
+
+A newly acquired coordinate starts at the deepest preferred subject the product
+can validly supply:
+
+1. Type API when a valid default Library subject and Type exist.
+2. The owner-issued initial Library lens when a Library exists but no Type does.
+3. The coordinate's root overview when no inspectable Library or Type exists.
+
+This default applies only to initial workspace creation. Browser refresh,
+history navigation, and shared-link restoration use the canonical packet
+instead of reapplying the default.
+
+A tools v2 pointer package is the required Package-fallback case. Acquisition
+succeeds, Package identity and metadata remain available, Library, Type, and
+Member are unavailable, and the workspace opens Package Overview without
+presenting the absence of types as an inspection failure.
 
 ### Lens ownership
 
 Lenses are grouped by the subject they inspect:
 
-| View | Lenses |
-| ---- | ------ |
+| Subject | Lenses |
+| ------- | ------ |
 | Package | Overview, Dependencies |
 | Library | References, Integrations, Opportunities, Analysis, Metadata |
 | Type | API, Metadata, Source |
@@ -380,15 +478,15 @@ framework. Direct assembly references belong to Library References.
 Integrations, Opportunities, Analysis, and Library Metadata also describe
 assembly content.
 
-A lens appears only in its owning view. The UI does not retain one mixed lens
+A lens appears only in its owning subject. The UI does not retain one mixed lens
 strip under Package or repeat library lenses in both Package and Library.
-Lens identity is scoped by its owning view, so Library Metadata and Type
+Lens identity is scoped by its owning subject, so Library Metadata and Type
 Metadata are distinct lenses that may share a display label.
 
 ### Library selection
 
-The Library view lists every library admitted from the active package
-coordinate and an `All libraries` subject when the product admits aggregate
+The Library view lists every library admitted from the active coordinate and an
+`All libraries` subject when the product admits aggregate
 inspection for that coordinate.
 
 The product supplies ordered Library subject descriptors and an owner-issued
@@ -431,7 +529,8 @@ Native `select` uses the platform's equivalent selection and commit behavior.
 
 The selected subject controls every Library lens:
 
-- `All libraries` requests a package-wide result over the complete library set.
+- `All libraries` requests a coordinate-wide result over the complete library
+  set.
 - An individual library requests the same lens for only that assembly.
 - The selected subject persists when switching among References, Integrations,
   Opportunities, Analysis, and Metadata.
@@ -449,7 +548,7 @@ Package and Type navigation honor the same active Library subject. With
 `All libraries`, their type lists include every admitted library; with one
 library selected, they include only that library's types. The type-navigation
 heading shows `All libraries` or the selected library as context and links back
-to Library for changes. It is not a second library selector.
+to the Library subject for changes. It is not a second library selector.
 
 The active Library subject also constrains the eligible Type and Member
 subjects. A Type from another library is not retained merely because it still
@@ -458,8 +557,8 @@ exists elsewhere in the package coordinate.
 When the product surface identifies colliding types under `All libraries`, type
 navigation qualifies only those rows with their product-owned defining library.
 If a colliding Type is selected, compact workspace context also shows its
-defining library. API and Source retain their name-only content heading;
-disambiguation does not restore the removed metadata block.
+defining library. API and Source continue to rely on the inspection command for
+that identity; disambiguation does not restore the removed metadata block.
 
 ### Aggregate results
 
@@ -481,50 +580,404 @@ must not infer capability from source family or transport method.
 
 ## Package coordinate controls
 
-The persistent `PACKAGE` row is removed from the workspace chrome. Package
-identity, version selection, TFM selection, and resolved asset detail do not
-occupy vertical space above every package, type, member, and lens view.
+The old full-width `PACKAGE` row remains removed. Package identity, version,
+and TFM are instead one compact coordinate argument immediately after
+`dotnet-inspect`:
 
-The two package surfaces have distinct responsibilities:
+```text
+dotnet-inspect  System.Text.Json@10.0.0/net10.0  System.Text.Json.JsonSerializer
+```
 
-| Surface | Responsibility |
-| ------- | -------------- |
-| Package tab | Select an open package workspace and summarize its active coordinate |
-| Package view | Present package details and edit the active version and TFM |
+The coordinate remains visible across Package, Library, Type, and Member
+subjects. Activating it opens the applicable package, version, and TFM controls
+without adding another persistent row. Changing the coordinate updates the
+shared workspace and runs subject reconciliation.
 
-The active package tab retains a compact version and TFM summary while a
-workspace is active so the coordinate remains visible in Library, Type, and
-Member views. It does not contain the full selectors.
+Package Overview presents package details, but it is no longer the only place
+from which the coordinate may be edited. Existing package fields do not repeat
+the same version and TFM beside the command control.
 
-### Package view
+Resolved assembly assets are Library details and do not enter the package
+coordinate or Package Overview.
 
-The Package view is the editing surface for the package coordinate. It contains:
+Non-package inputs use their product-owned coordinate display instead of
+inventing package/version/TFM fields.
 
-- the package identity;
-- a version selector;
-- a TFM selector.
+## Canonical location and refresh
 
-These controls integrate with the package content rather than recreating the
-removed full-width row. Existing package heading fields must not duplicate the
-same version and TFM values beside the selectors.
+For a package-backed workspace, the visible URL keeps only a human-readable
+package courtesy identity. Durable workspace state remains in the
+product-owned canonical packet:
 
-Resolved assembly assets are library details and appear in the Library view,
-not in the Package view.
+```text
+?package=System.Text.Json&w=<opaque-canonical-packet>
+```
 
-Changing version or TFM updates the shared package workspace. The resulting
-coordinate applies when the user moves among Package, Library, Type, and Member
-views.
+The UI does not expand Package, Library, Type, Member, filter, or source
+identity into readable path segments merely to make them URL-addressable. A
+non-package workspace omits the `package` courtesy field rather than placing a
+local path or other sensitive coordinate in readable URL state.
 
-### Type navigation remains available
+Browser refresh must restore the same committed inspection view. Every
+committed state transition therefore participates in canonical state when the
+product packet owns a representation for it, including:
 
-The type navigation list remains available in both the Package and Type views.
-Moving the coordinate selectors into Package does not make the user leave the
-package experience to browse its types.
+- open workspace coordinates and the active entry;
+- package version and TFM;
+- current Package, Library, Type, or Member subject;
+- active lens or Member section;
+- committed Library selection;
+- selected Type, Member, overload, or body target;
+- result-affecting filters; and
+- selected source or body target when portable identity exists.
 
-The Type view does not repeat version and TFM selectors. The active package tab
-provides compact context, and the Package view is the single place to change
-the coordinate.
+Transient interaction state is excluded: hover, keyboard focus, an uncommitted
+listbox option, animation, incidental scroll position, and whether a disclosure
+is momentarily open.
 
-This placement rule does not prescribe which TypeScript module renders or binds
-the controls. Component ownership may remain separate from where the controls
-are composed on screen.
+If restoration cannot resolve an artifact or product identity, it follows the
+visible failure and reconciliation rules. It does not silently open a different
+subject.
+
+## Shell actions
+
+The global shell uses visible text actions:
+
+```text
+Home   Search   Open   Settings
+```
+
+An optional decorative glyph does not replace any visible label.
+
+### Search
+
+The persistent `Package or Package@version` input is removed. Search opens
+Spotlight as the one search experience for:
+
+- packages;
+- loaded coordinates;
+- Libraries;
+- Types;
+- Members;
+- platform inputs; and
+- commands.
+
+The coordinate control may open Spotlight directly in its package scope.
+Search and coordinate selection use the same result identities and acquisition
+path.
+
+Spotlight reacts to every supported way its input value changes, including
+typing, paste, drag and drop of text, autofill where applicable, and input
+method composition. Pasting a package coordinate updates results immediately;
+it is not dependent on keyboard events that paste does not emit.
+
+### Open
+
+Open admits user-provided artifacts rather than searching package sources. Its
+overlay provides:
+
+- a native file picker;
+- a drag-and-drop target;
+- a focused paste target for clipboard file items; and
+- visible per-input progress, rejection, and failure results.
+
+It may accept multiple related files when the artifact-acquisition owner
+authorizes that input shape. The UI consumes owner-issued accepted-input
+descriptors and outcomes; it does not infer supported extensions,
+correspondence, or workspace composition. Arbitrary pasted text is not guessed
+to be binary or base64.
+
+### Settings
+
+Settings opens the one shared configuration experience. Separate persistent
+theme controls, a global Taste button, and duplicate settings popovers are
+removed.
+
+## Working surfaces
+
+Source, Annotated Source, Metadata explorers, and Diagnostics are working
+surfaces rather than documents inset inside a general page.
+
+### Source and Annotated Source
+
+Source and Annotated Source use the full area to the right of Type or Member
+navigation. They do not retain the old breadcrumb row, subject hero, metadata
+summary, centered maximum-width column, or inset source card.
+
+Their layout is:
+
+```text
+Types or Members | PDB Source                    open source   copy
+                 | source content
+```
+
+The compact provenance/action row remains attached to the source pane. The
+navigation pane and source content may scroll independently. Collapsing
+navigation gives the working surface the full viewport width.
+
+Annotated Source appears inline by default and may open a full-bleed viewer,
+matching the full-bleed Metadata viewer composition. This document owns that
+composition, not the Annotated Source document model or viewer internals.
+
+Decompiler style is contextual:
+
+- Settings owns the persistent Decompiler style preference.
+- Decompiled Source, Annotated Source, and decompiled call-graph source may
+  link directly to that Settings section.
+- PDB Source does not show the control because authored source is unaffected.
+
+Changing style regenerates only affected decompiler output. The preference is
+not part of the visible inspection command and a shared workspace does not
+impose the sender's style preference on its recipient.
+
+### Type navigation
+
+Type navigation remains beside Type and Member working surfaces. Package and
+Library navigation may also expose Types where their owning lens requires it,
+but no second Library filter is introduced.
+
+## Unified Settings
+
+Settings is one surface with focused sections:
+
+- Appearance;
+- Decompiler style; and
+- Package sources.
+
+Contextual entry points open the same surface at the relevant section. Settings
+preserves the current workspace and returns to the same inspection view when
+closed. Changes may apply live, but every setting is rendered and owned by the
+same component and state.
+
+Diagnostics is a separate full-bleed experience launched from Settings or
+Spotlight. It is not another settings implementation.
+
+## Package-source presentation
+
+[Browser package sources](browser-package-sources.md) owns source
+registration, eligibility, capabilities, credentials, source-scoped caching,
+and producer provenance. This UI owner consumes those typed results and does
+not redefine them.
+
+The initial UI does not expose feed tabs or in-workspace source switching.
+Settings presents registered sources and one visible `Default feed` choice for
+ordinary new package search and acquisition. That choice is a host shortcut
+over the package-source owner's registration and selected-source contracts. It
+does not claim one global endpoint, source-order precedence, or that only one
+producer may be eligible.
+
+Once a package is acquired, Workspace shows its product-reported producer as
+read-only context. Changing `Default feed` updates later source-owner search and
+acquisition inputs; it does not reinterpret bytes already loaded into a
+Workspace. Inspecting the same coordinate from another producer is a new
+acquisition.
+
+Session authentication uses the credential contract from
+[Browser credentials](browser-package-sources.md#browser-credentials).
+Credential entry and authentication state appear only for the owning source.
+Refresh may restore the selected source and workspace identity while visibly
+requesting authentication again; it does not silently switch producers.
+
+Source-scoped persistent package payloads may appear in Diagnostics and cache
+management. Credentials never appear there.
+
+Search results and version choices show producer labels when source identity is
+needed to explain availability or distinguish results. The UI uses
+owner-issued redacted labels rather than parsing endpoints.
+
+## Command palette
+
+The existing command palette is the keyboard counterpart to the visible
+inspection command. It uses the same product-issued coordinates, subjects, and
+lenses:
+
+```text
+package System.Text.Json
+version 10.0.0
+framework net10.0
+library System.Text.Json.dll
+type System.Text.Json.JsonSerializer
+member DeserializeAsync
+show source
+share
+```
+
+Command execution uses the same state transitions as pointer interaction and
+updates canonical state after commit.
+
+The persistent inspection command is navigation context, not an always-editable
+text input. The site does not introduce a broad set of single-letter page
+shortcuts. One discoverable palette shortcut plus ordinary control-specific
+keyboard behavior is sufficient.
+
+## Responsive composition
+
+One information hierarchy adapts across viewport sizes:
+
+- wide layouts retain Type or Member navigation beside a full working surface;
+- narrow layouts move navigation into an explicit drawer or overlay;
+- the inspection command remains one line;
+- coordinate and leaf subject have highest truncation priority;
+- intermediate qualification elides first;
+- lens navigation scrolls horizontally instead of wrapping; and
+- full identities remain available through accessible labels and focused or
+  expanded states.
+
+Responsive layout is not workspace state. Changing viewport size does not alter
+the selected coordinate, subject, lens, filters, or canonical packet.
+
+Density comes from removing duplication and conditionally presenting
+navigation, not from making text or controls too small to use.
+
+## Data bar and Diagnostics
+
+The bottom data bar is one compact product-information line. It does not wrap,
+expand, or host runtime diagnostics:
+
+```text
+dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · Package source: Corporate mirror · CLI tool · Agent skill
+```
+
+The data bar includes:
+
+- dotnet-inspect version;
+- linked short commit;
+- concise UTC build date without a `built` prefix;
+- read-only package producer, or the applicable non-package acquisition kind;
+- the same `CLI tool` link used on Home; and
+- the same `agent skill` link used on Home.
+
+On a narrow viewport, the line remains non-wrapping and horizontally scrollable.
+It does not discard the source or promotional actions to fit.
+
+The data bar does not contain:
+
+- Wasm-ready prose;
+- download, startup, precompute, or total timings;
+- package-cache counts;
+- assembly or framework duplication;
+- an API-surface label; or
+- an expansion toggle.
+
+Diagnostics opens as a full-bleed surface and may include:
+
+- runtime and Wasm state;
+- network operations and typed failures;
+- exact build provenance;
+- package-source health;
+- candidate and payload cache contents;
+- coordinate, producer, size, and persistence for each cache entry;
+- cache limits and eviction state; and
+- owner-authorized cache-management actions.
+
+Diagnostics consumes owner-issued data and actions. It does not infer package
+source, cache authority, or credential state.
+
+## Reference-product boundary
+
+[npmx.dev](https://npmx.dev/) is an interaction reference for density,
+shareable state, code-first working surfaces, keyboard access, and persistent
+package context. It is not the website's information architecture.
+
+Inspect Web does not copy:
+
+- npm-style `main`, `docs`, `code`, `diff`, `changelog`, and `stats` hierarchy;
+- a package-only subject model;
+- duplicated version and dependency sidebars;
+- a README-centric landing page;
+- social, popularity, installation, or registry-administration emphasis;
+- a package file tree as the default Source navigation model;
+- a broad set of single-letter shortcuts; or
+- npmx branding and component styling.
+
+Package, Library, Type, and Member ownership and their local lenses remain the
+dotnet-inspect model. Npmx influences interaction quality without redefining
+the product domain.
+
+## Acceptance scenarios
+
+The redesign is not complete unless these outcomes hold:
+
+### Ordinary package
+
+1. Open a package with an owner-issued default Library and Type.
+2. Confirm that the workspace starts on Type API.
+3. Confirm that the inspection command shows the active package coordinate and
+   Type without a package-tab or primary-view row.
+4. Switch to Metadata and confirm that detailed Type identity appears there
+   without returning to API or Source.
+
+### Tools v2 pointer package
+
+1. Open the pinned `DotnetInspect.TestAssets.ToolV2` pointer-package fixture.
+2. Confirm that acquisition succeeds with no inspectable Library or Type.
+3. Confirm that the workspace opens Package Overview.
+4. Confirm that absence of types is disclosed as ordinary availability rather
+   than a malformed-workspace or inspection failure.
+
+### Refresh restoration
+
+1. Open two coordinates.
+2. Select the second coordinate, one Library, a Type, a Member, a non-default
+   lens, and result-affecting filters.
+3. Refresh the browser.
+4. Confirm that the same coordinate, subject, lens, and committed filters are
+   restored from the canonical packet.
+5. Confirm that keyboard focus, hover, an uncommitted Library option, and
+   incidental scroll position are not restored.
+
+### Package-source authentication
+
+1. Register an authenticated browser source and select it as `Default feed`.
+2. Acquire a package and confirm that Workspace and the data bar show the
+   owner-issued producer label.
+3. Refresh after session credentials are discarded.
+4. Confirm that restoration pauses with a visible authentication requirement
+   and does not switch the workspace to another producer.
+
+### Search input
+
+1. Open Spotlight.
+2. Paste a complete package coordinate without pressing another key.
+3. Confirm that results update immediately.
+4. Select the result and confirm that the same acquisition transition is used
+   as pointer-driven package selection.
+
+### Local Open
+
+1. Open the local-artifact overlay.
+2. Add supported files through the picker, drag and drop, and clipboard file
+   paste.
+3. Confirm that each path produces the same owner-issued workspace result.
+4. Paste arbitrary text and confirm that the UI does not guess that it is
+   binary content.
+
+### Source working surface
+
+1. Open Type Source with Type navigation visible.
+2. Confirm that the source pane uses all remaining width and begins with only
+   compact provenance and actions.
+3. Collapse Type navigation and confirm that source content expands to the full
+   viewport width.
+4. Open PDB Source and confirm that no Decompiler style control appears.
+5. Open Decompiled Source and confirm that its style action opens the shared
+   Settings section.
+
+### Narrow viewport
+
+1. Start from a committed Type Source state.
+2. Narrow the viewport until Type navigation moves to its drawer.
+3. Confirm that the inspection command and lens strip remain single-line
+   scrolling or truncating surfaces rather than wrapping.
+4. Restore the wide viewport and confirm that coordinate, subject, lens,
+   filters, and canonical state did not change.
+
+### Data and diagnostics
+
+1. Confirm that version, commit, UTC date, acquired producer, CLI tool, and
+   agent skill occupy one non-expanding data-bar line.
+2. Confirm that timings, cache counts, runtime readiness, assembly identity,
+   and framework do not appear in that line.
+3. Open Diagnostics and confirm that detailed runtime, source, and cache
+   evidence and owner-authorized cache actions appear in the full-bleed
+   surface.
