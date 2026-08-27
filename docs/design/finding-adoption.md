@@ -162,7 +162,7 @@ regression can escape by falling into an excluded failure bucket.
 **Rule.** An N-address consumer routes whole-census state through
 `FindingCensusCorrelation<T>` and exact-identity tracks through `Correlate(key)`.
 It must not build a private per-cell state model, and it must not merge the two
-vocabularies: `Complete` is a census inspection state, not a fifth exact-identity
+vocabularies: `Complete` is a census inspection state, not an exact-identity
 correlation state (see [Finding Nomenclature](finding-nomenclature.md)).
 
 `Unevaluated` is a presentation join of the address space against the evaluated
