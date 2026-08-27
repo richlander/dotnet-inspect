@@ -11,6 +11,8 @@ stages: `Top` carries a resolved ranking order and composes sequentially with
 `Head`, `Tail`, and strict `Range`. The exact CLI spelling and argv lowering
 belong to the pending L3 design listed in
 [Item and line selection composition](item-and-line-limits.md).
+CLI snippets below retain the historical `--top` placeholder only to
+illustrate row-query interactions; they do not settle that spelling.
 
 [The package query CLI](package-query-cli.md) proposes reusing this model's
 `--where` grammar, unchanged, as the nuspec/promoted facet vocabulary for
@@ -237,23 +239,12 @@ dotnet-inspect library MyApp.dll -S "Performance Triage" \
   --columns "Member,Shape,Allocation,Path,PathConfidence,PostDominance,RootReach,IL"
 ```
 
-Compact human output names the explicit ranking:
+The row-query owner supplies the resolved ranking identity and distinguishes a
+ranking order from a stable sequence. The pending L3 design owns whether and
+how human output describes ranked versus positional selection, including exact
+wording, format suppression, and CLI spellings.
 
-```text
-Showing top 10 by RootReach desc after 2 row filters.
-```
-
-For a schema-declared ranking default:
-
-```text
-Showing top 20 by Performance Triage default order: Loop, Confidence, RootReach.
-```
-
-Suppress these notes for `--tsv`, `--jsonl`, `--json`, and quiet output.
-Plain `-n` uses "first N" or "last N" wording even when an explicit order is
-present; it never upgrades itself to a ranking claim.
-
-## Compatibility and lowering
+## Compatibility and conceptual lowering
 
 Existing focused flags remain for compatibility, but should lower to row
 predicates internally:
@@ -263,10 +254,10 @@ predicates internally:
 | `--loop` | `--where "Loop=loop"` or section-specific loop predicate |
 | `--min-confidence medium` | `--where "Confidence>=medium"` |
 | `--triage-shape box-value-type` | `--where "Shape=box-value-type"` |
-| `--top 20` | ranked semantic cap using the declared Performance Triage default order |
 
 This lets command-specific UX remain stable while new columns avoid bespoke
-flags.
+flags. A semantic `Top` stage may carry the declared Performance Triage
+ranking order, but the pending L3 design owns the gesture that constructs it.
 
 ## Section descriptor contract
 

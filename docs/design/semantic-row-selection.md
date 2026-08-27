@@ -433,10 +433,10 @@ semantic range failure.
 ## Markout boundary
 
 Markout receives rows after semantic selection. Its table row window can remain
-a single-table presentation utility, but dotnet-inspect must not lower a
-multi-stage `RowSelectionPlan` into that option. Doing so would move
-strictness, reindexing, and source evidence into a renderer that does not own
-them.
+a single-table presentation utility, but dotnet-inspect must not lower any
+`RowSelectionStage` or `RowSelectionPlan` into that option, including a
+single-stage plan. Doing so would move strictness, reindexing, and source
+evidence into a renderer that does not own them.
 
 No Markout behavior or package release is required to implement this
 component.
@@ -452,6 +452,7 @@ The implementation must add these named Release gates:
 | `RowSelectionPlanRejectsInvalidStages` | Every public construction path rejects nonpositive counts, nonpositive range coordinates, and a closed end before its start rather than creating an empty or unlimited stage. |
 | `EmptyRowSelectionPlanIsIdentity` | An empty plan returns an immutable snapshot containing every original value in order and never invokes the comparer resolver. |
 | `TopRequiresResolvedComparer` | A resolver that returns no comparer identifies the `Top` stage and rejects as caller misuse before any selected result is returned. |
+| `SelectionCallbackExceptionsPropagateUnchanged` | Both executor entry points propagate the exact sentinel exception instance thrown by the comparer resolver or comparer; no sorting path wraps, substitutes, or suppresses it. |
 | `RowSelectionRejectsNullBoundaryInputs` | Every required reference argument rejects null; a null resolver is accepted only without `Top`; nullable row values remain ordinary selected values. |
 | `StageAccessorsRejectWrongKind` | Each kind exposes only its documented values; every wrong-kind `Count`, `Start`, `End`, or `Order` access throws rather than returning a plausible default. |
 | `StrictRangesValidateNamedSequencesAtomically` | A strict-range miss in any one of several keyed sequences identifies the key and stage and returns no selected sequence collection. |

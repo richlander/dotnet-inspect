@@ -52,7 +52,9 @@ Related docs:
 - [Inspection layers](inspection-layers.md) assigns sections and shapes to L2
   and format selection to L3.
 - [Progressive disclosure](progressive-disclosure.md) defines section
-  selection, projection validation, and row windows.
+  selection and projection validation.
+- [Semantic row selection](semantic-row-selection.md) defines ordered
+  selection over complete logical row sequences.
 - [Output composition](output-composition.md) defines writer capability and
   single- versus multi-section constraints.
 

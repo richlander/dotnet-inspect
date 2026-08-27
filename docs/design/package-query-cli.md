@@ -348,10 +348,12 @@ the CLI's named facets as canonical for the browser's facet rail.
    bespoke implementation. Replacement of `-t` remains with the pending L3
    design, and `-S`/`--where` remain unwired. See
    [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing).
-3. **Wire nuspec-tier `--where`** onto package-profile rows without changing
-   `-t`, deciding and documenting the filter-before-bound ordering from
-   [Historical completion and bound proposal](#historical-completion-and-bound-proposal).
-   This has not landed yet.
+3. **Settle source pushdown before wiring nuspec-tier `--where`.** The focused
+   source-pushdown successor must define predicate/bound ordering, required
+   provider extent, and completion evidence. Only then may the package-predicate
+   slice wire `--where` onto package-profile rows without changing current `-t`;
+   it must not infer that interaction from the historical proposal above. This
+   has not landed yet.
 4. **Add the promoted-tier capability gate and `--deepen`-bounded IL
    evaluation**, including the L2 tier-gating error for an ungated
    promoted-tier field.
