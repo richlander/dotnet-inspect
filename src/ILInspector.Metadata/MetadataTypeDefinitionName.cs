@@ -775,6 +775,10 @@ internal static class MetadataTypeDefinitionNameReader
         where THandle : struct
         where TRow : struct, IMetadataTypeNameRow<THandle>
     {
+        // The builder and its ToImmutable() copy each allocate one reference
+        // per chain node before any name is read, so charge that structural
+        // cost up front rather than relying on the per-component charges alone.
+        beforeMaterialize?.Invoke(rootToLeaf.Length);
         var segments = ImmutableArray.CreateBuilder<string>(rootToLeaf.Length);
         string? @namespace = null;
         var budget = new MetadataTypeNameBudget();

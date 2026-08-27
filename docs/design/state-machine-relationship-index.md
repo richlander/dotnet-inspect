@@ -122,7 +122,13 @@ signature-work budget charges every
 constructor, method, and TypeSpec blob that is decoded or compared. A cumulative
 name-work budget bounds both metadata names materialized while classifying
 distinct constructors and serialized state-machine names before attribute
-decoding. State-machine `System.Type` values also receive an individual encoded
+decoding. Reading a type-name chain charges every node it consumes, including
+nil-named ones: a nil component decodes to zero characters, so a charge keyed
+only on decoded length would account for nothing while the read still allocates
+one segment per node, letting a deep chain of nil-named nodes materialize
+proportionally for free. The chain's own structural cost — one reference per
+node in the builder and again in its immutable copy — is charged up front for
+the same reason. State-machine `System.Type` values also receive an individual encoded
 byte-length preflight before SRM materializes their strings, and the whole value
 blob is validated before decode: a trusted claim constructor takes exactly one
 `System.Type`, so a value carrying named arguments or trailing bytes is
@@ -162,6 +168,11 @@ cached.
 `StateMachineRelationshipIndex_ChargesRepeatedAssemblyRowNames` gates the
 per-row name charge with several reference rows sharing one oversized name
 string: one arm fails if the charge is removed, the other if it over-charges an
+image the budget should admit.
+`StateMachineRelationshipIndex_ChargesNilNamedTypeNameChainNodes` gates the
+nil-component and structural chain charges together. Its rejecting arm uses a
+budget that admits whenever only one of the two charges is present, so deleting
+either one fails the gate; its admitting arm fails if the charges reject an
 image the budget should admit.
 `StateMachineRelationshipIndex_RejectsNamedArgumentsBeforeDecode` gates the
 value-blob preflight; and

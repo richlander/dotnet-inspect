@@ -951,6 +951,173 @@ public sealed class StateMachineRelationshipIndexTests
     }
 
     /// <summary>
+    /// Gates that a type-name chain read charges for every node it consumes,
+    /// including nil-named ones. A nil name decodes to zero characters, so a
+    /// charge keyed only on decoded length accounts for nothing while the read
+    /// still allocates one segment per node; distinct constructor rows sharing
+    /// one deep chain leaf then drive proportional materializing work that ends
+    /// as a success-shaped `Absent`. The `false` arm fails if either the nil
+    /// component charge or the chain's structural charge is removed — its
+    /// budget is tuned to admit whenever only one of the two is present; the
+    /// `true` arm fails if the charge rejects an image the budget should admit.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void
+        StateMachineRelationshipIndex_ChargesNilNamedTypeNameChainNodes(
+            bool admitted)
+    {
+        const int depth = 64;
+        const int constructors = 8;
+        using var image = new LoadedImage(
+            BuildNilNamedChainImage(
+                depth: depth,
+                constructors: constructors));
+
+        // Each read charges roughly `depth` for the chain's structural cost and
+        // roughly `depth` again for its nil name components, so the two halves
+        // together admit only above ~1,062 while either half alone admits above
+        // ~550. A rejecting budget between those makes this arm sensitive to
+        // BOTH charges: delete either one and the image is admitted instead.
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(
+                image.Reader,
+                relationshipBudget:
+                    MetadataSafetyPolicy.MaxCorrespondenceMethodRows,
+                nameWorkBudget: admitted ? 4_096 : 700);
+
+        StateMachineRelationshipResult result =
+            index.GetByKickoff(
+                MetadataTokens.MethodDefinitionHandle(1));
+
+        if (!admitted)
+        {
+            var rejected =
+                Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                    result);
+            Assert.Equal(
+                StateMachineRelationshipFailureKind.BudgetExceeded,
+                rejected.Failure.Kind);
+            return;
+        }
+
+        // The chain leaf is not a recognized state-machine attribute, so an
+        // admitted image reports no relationship rather than a budget failure.
+        Assert.IsType<StateMachineRelationshipResult.Absent>(result);
+    }
+
+    /// <summary>
+    /// Builds an image whose custom-attribute constructors are all parented on
+    /// the leaf of a nil-named type-reference chain of the requested depth, so
+    /// each distinct constructor row drives one full chain read.
+    /// </summary>
+    static byte[] BuildNilNamedChainImage(int depth, int constructors)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("NilChain.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("NilChain"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+
+        AssemblyReferenceHandle platform =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Private.CoreLib"),
+                new Version(10, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0xb0, 0x3f, 0x5f, 0x7f, 0x11, 0xd5, 0x0a, 0x3a,
+                    }),
+                default,
+                default);
+
+        EntityHandle scope = platform;
+        TypeReferenceHandle leaf = default;
+        for (int i = 0; i < depth; i++)
+        {
+            leaf = metadata.AddTypeReference(scope, default, default);
+            scope = leaf;
+        }
+
+        TypeReferenceHandle systemType =
+            metadata.AddTypeReference(
+                platform,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Type"));
+
+        var ctorSig = new BlobBuilder();
+        new BlobEncoder(ctorSig)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(
+                1,
+                r => r.Void(),
+                p => p.AddParameter().Type().Type(
+                    systemType,
+                    isValueType: false));
+        BlobHandle ctorSignature = metadata.GetOrAddBlob(ctorSig);
+
+        var staticVoid = new BlobBuilder();
+        new BlobEncoder(staticVoid)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(0, r => r.Void(), p => { });
+        BlobHandle staticVoidSignature = metadata.GetOrAddBlob(staticVoid);
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteSerializedString("Fixtures.Owner+Machine");
+        value.WriteUInt16(0);
+        BlobHandle claimValue = metadata.GetOrAddBlob(value);
+
+        MethodDefinitionHandle kickoff =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Kickoff"),
+                staticVoidSignature,
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+
+        StringHandle ctorName = metadata.GetOrAddString(".ctor");
+        for (int i = 0; i < constructors; i++)
+        {
+            metadata.AddCustomAttribute(
+                kickoff,
+                metadata.AddMemberReference(leaf, ctorName, ctorSignature),
+                claimValue);
+        }
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    /// <summary>
     /// Gates that projecting an assembly-reference row charges the name it
     /// decodes. Distinct rows sharing one oversized name `StringHandle` defeat
     /// row-keyed projection caching, so the decode repeats per row; without a
