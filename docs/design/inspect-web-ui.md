@@ -88,10 +88,11 @@ independent cosmetic changes.
 | Data bar | Show build identity, acquired source, CLI, and skill links on one line |
 
 Together, these decisions move subject-specific controls and detail into the
-view that owns them. Persistent chrome carries one compact inspection command,
-shell actions, lens navigation, and one data line. Content views spend their
-vertical space on the package, library, type, member, API, metadata, or source
-material the user selected.
+view that owns them. Persistent chrome carries the `dotnet-inspect` Workspace
+root control, shell actions, and one data line. Inspection surfaces add the
+compact coordinate/subject command and lens navigation. Content views spend
+their vertical space on the package, library, type, member, API, metadata, or
+source material the user selected.
 
 ## Selector controls
 
@@ -237,10 +238,12 @@ is active, the active-subject token is the visible level-one heading for a root,
 Library, Type, or Member subject. The lens panel's `aria-labelledby` references
 that label and the active lens tab.
 
-Home, Workspace, and Diagnostics replace the inspection-command region with
-their own visible level-one heading. Returning to an inspection surface restores
-the command and its active-subject heading; two visible level-one headings are
-never rendered for one routed surface.
+Home, Workspace, and Diagnostics replace the coordinate, subject, and
+`Copy target` portion of the inspection-command region with their own visible
+level-one heading. The persistent `dotnet-inspect` root control remains
+available and opens Workspace. Returning to an inspection surface restores the
+complete command and its active-subject heading; two visible level-one headings
+are never rendered for one routed surface.
 
 They do not repeat:
 
@@ -606,8 +609,11 @@ inspects compact fields.
   product-issued package courtesy identity. The UI location adapter composes
   `w=<packet>` and, only when that courtesy identity is present,
   `package=<identity>`.
-- A non-projectable outcome leaves the current presentation session-local and
-  supplies the visible reason used by explicit Share.
+- A non-projectable outcome leaves the current presentation session-local,
+  supplies the visible reason used by explicit Share, and removes any prior
+  `w` and package courtesy fields before the transition's push or replace.
+  Session history may retain the live presentation, but refresh starts without
+  a stale canonical workspace.
 - A failed transition retains the prior workspace and URL and surfaces the
   typed failure.
 
@@ -648,7 +654,8 @@ reasons remain discoverable; Enter activates only an available item. Escape
 closes the menu and returns focus to the invoker. Outside pointer dismissal or
 tabbing away preserves the new focus destination instead.
 
-Spotlight, Open, Settings, and the narrow navigation drawer are modal dialogs:
+Spotlight, Open, Settings, the narrow navigation drawer, and full-bleed
+Annotated Source and Metadata viewers are modal dialogs:
 
 - each has a visible accessible name and close action;
 - opening moves focus to its primary input, current selection, or heading;
@@ -659,9 +666,10 @@ Spotlight, Open, Settings, and the narrow navigation drawer are modal dialogs:
 - ordinary dismissal returns focus to the invoking control.
 
 Opening or closing a modal does not create a browser-history entry. When a modal
-action routes to Home, Workspace, or Diagnostics, the modal closes without
-returning focus to its invoker; the destination's visible level-one heading
-receives focus. Browser Back returns to the prior routed surface without
+action commits navigation, the modal closes without returning focus to its
+invoker. An inspection destination focuses its active-subject level-one heading;
+Home, Workspace, or Diagnostics focuses the routed surface's level-one heading.
+Browser Back and Forward focus the restored destination heading without
 reopening the modal.
 
 Home, Workspace, and Diagnostics are routed full-bleed surfaces rather than
@@ -942,8 +950,9 @@ outcomes:
    transition's push or replace history classification.
 2. Supply a projectable non-package outcome and confirm that the UI composes
    only `w` without placing a local coordinate in readable URL state.
-3. Supply a non-projectable outcome and confirm that explicit Share presents
-   the owner-issued reason without claiming refresh portability.
+3. Starting from a projectable location, supply a non-projectable outcome and
+   confirm that explicit Share presents the owner-issued reason and that the
+   location removes the stale `w` and package courtesy fields.
 4. Supply a failed outcome and confirm that the prior workspace and URL remain.
 5. Confirm that route preflight, refresh, and shared-link activation never parse
    compact packet fields or use the readable package courtesy identity as a
@@ -1019,10 +1028,15 @@ outcomes:
    background content, and focus return for each.
 3. Launch Diagnostics from Settings and Spotlight and confirm that focus moves
    to the routed Diagnostics heading rather than back to the modal invoker.
-4. Navigate to Home, Workspace, and Diagnostics and confirm that each is a
-   routed surface with one visible level-one heading and no inspection command.
-5. Use Browser Back and confirm that the prior routed surface and focus context
-   return without reopening the dismissed modal.
+4. Commit navigation from Search, Open, and the narrow drawer and confirm that
+   focus moves to the resulting active-subject heading.
+5. Open and close full-bleed Annotated Source and Metadata viewers and confirm
+   the shared modal focus, Escape, containment, and history behavior.
+6. Navigate to Home, Workspace, and Diagnostics and confirm that each is a
+   routed surface with one visible level-one heading, no coordinate/subject
+   command, and a persistent `dotnet-inspect` control that opens Workspace.
+7. Use Browser Back and Forward and confirm that the restored destination
+   heading receives focus without reopening the dismissed modal.
 
 ### Data and diagnostics
 
