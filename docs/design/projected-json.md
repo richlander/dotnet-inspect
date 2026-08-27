@@ -625,7 +625,9 @@ Existing pilot coverage proves only the currently wired slice:
   and inherited options. The
   `ProjectedJsonRoutingAudit_*TypedDocumentFailsClosed`,
   `ProjectedJsonRoutingAudit_*DiscoveryOwnsProjectedJson`,
-  `ProjectedJsonRoutingAudit_IlOffsetsProjectionFailsClosed`, and
+  `ProjectedJsonRoutingAudit_EmptyEffectiveDiscoveryValidatesProjection`,
+  `ProjectedJsonRoutingAudit_IlOffsetsProjectionFailsClosed`,
+  `ProjectedJsonRoutingAudit_PackageLensRoutesFailClosed`, and
   `ProjectedJsonRoutingAudit_PackageSearchInheritedProjectionFailsClosed`
   tests, together with the existing `type`, `member`, `project`, `find`,
   `vocabulary`, and payload-projection tests, gate that every current route

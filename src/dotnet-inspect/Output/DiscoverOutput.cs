@@ -51,40 +51,24 @@ public static class DiscoverOutput
                 : 0;
         }
 
-        bool projectedJson = json
-            && projection is not null
-            && (projection.Fields is { Length: > 0 }
-                || projection.Columns is { Length: > 0 });
+        bool projectedJson = IsProjectedJson(json, projection);
         if (projectedJson)
         {
-            if (tree)
-            {
-                CommandError.Write(
-                    "--fields/--columns cannot be combined with --tree for discovery.");
+            if (!TryResolveProjectedJsonColumns(
+                    tree,
+                    projection!,
+                    out var projectedColumns))
                 return 1;
-            }
 
-            var projectedRows = GetDiscoveryRows(
+            return WriteProjectedJson(
                 discover,
                 schema,
                 sectionCostAnnotations,
                 sectionCategories,
                 catalogHiddenSections,
-                listedCategoryDoors);
-            if (projectedRows == null)
-                return 1;
-
-            if (!LensProjection.TryResolveColumns(
-                    projection!,
-                    "-D/--discover",
-                    ["Name", "Kind"],
-                    out var projectedColumns))
-                return 1;
-
-            WriteProjectedJson(
-                [.. RowWindow.Apply(projection!.Rows, projectedRows)],
+                listedCategoryDoors,
+                projection!,
                 projectedColumns);
-            return 0;
         }
 
         // Auto-promote to tree when discovering items from multiple sections
@@ -143,6 +127,61 @@ public static class DiscoverOutput
         return 0;
     }
 
+    private static bool IsProjectedJson(
+        bool json,
+        IProjectionOptions? projection)
+        => !LensProjection.IsRequested(projection)
+            && json
+            && projection is not null
+            && (projection.Fields is { Length: > 0 }
+                || projection.Columns is { Length: > 0 });
+
+    private static bool TryResolveProjectedJsonColumns(
+        bool tree,
+        IProjectionOptions projection,
+        out string[] projectedColumns)
+    {
+        projectedColumns = [];
+        if (tree)
+        {
+            CommandError.Write(
+                "--fields/--columns cannot be combined with --tree for discovery.");
+            return false;
+        }
+
+        return LensProjection.TryResolveColumns(
+            projection,
+            "-D/--discover",
+            ["Name", "Kind"],
+            out projectedColumns);
+    }
+
+    private static int WriteProjectedJson(
+        string[]? discover,
+        DocumentSchema schema,
+        IReadOnlyDictionary<string, string>? sectionCostAnnotations,
+        IReadOnlyDictionary<string, string[]>? sectionCategories,
+        IReadOnlySet<string>? catalogHiddenSections,
+        IReadOnlySet<string>? listedCategoryDoors,
+        IProjectionOptions projection,
+        IReadOnlyList<string> columns)
+    {
+        var rows = GetDiscoveryRows(
+            discover,
+            schema,
+            sectionCostAnnotations,
+            sectionCategories,
+            catalogHiddenSections,
+            listedCategoryDoors);
+        if (rows == null)
+            return 1;
+
+        WriteProjectedJson(
+            [.. RowWindow.Apply(projection.Rows, rows)],
+            columns);
+        return 0;
+    }
+
     private static void WriteProjectedJson(
         IReadOnlyList<DiscoveryRow> rows,
         IReadOnlyList<string> columns)
@@ -192,6 +231,16 @@ public static class DiscoverOutput
                 filtered.AddSection(name);
         }
 
+        string[]? projectedColumns = null;
+        if (IsProjectedJson(json, projection)
+            && !TryResolveProjectedJsonColumns(
+                tree,
+                projection!,
+                out projectedColumns))
+        {
+            return 1;
+        }
+
         // For a specific section query, distinguish a valid section that simply has no data for
         // this input from a genuinely unknown section. The full schema lets us recognize the
         // former and report it clearly instead of the misleading "Section not found".
@@ -214,9 +263,27 @@ public static class DiscoverOutput
                         ? emptyProjectionExitCode
                         : 0;
                 }
+                if (projectedColumns is not null)
+                {
+                    WriteProjectedJson([], projectedColumns);
+                    return 0;
+                }
                 return 0;
             }
             discover = remaining;
+        }
+
+        if (projectedColumns is not null)
+        {
+            return WriteProjectedJson(
+                discover,
+                filtered,
+                sectionCostAnnotations,
+                sectionCategories,
+                catalogHiddenSections,
+                listedCategoryDoors,
+                projection!,
+                projectedColumns);
         }
 
         return Execute(discover, filtered, tree, markdown, json, tsv, jsonl, verbosity, rootLabel, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors, projection);

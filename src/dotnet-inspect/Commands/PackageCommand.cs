@@ -175,6 +175,13 @@ public class PackageCommand
                 return 1;
             }
 
+            // These lenses return before the typed-document guard and may acquire package data.
+            if ((options.ListVersions || options.ListLayout || options.ListTfms)
+                && ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+            {
+                return 1;
+            }
+
             if (!ValidateDependencyTreeProjection(options))
                 return 1;
 

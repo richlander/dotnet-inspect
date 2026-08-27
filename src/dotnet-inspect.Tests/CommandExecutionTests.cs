@@ -11218,6 +11218,35 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageLensRoutesFailClosed()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var versions = await RunAppAsync(
+                "package", "ThisQueryMustNotReachTheNetwork",
+                "--versions", "1", "--json", "--columns", "Version", "--tips", "q");
+            var tfms = await RunAppAsync(
+                "package", packagePath,
+                "--tfms", "--json", "--columns", "TFM", "--tips", "q");
+            var layout = await RunAppAsync(
+                "package", packagePath,
+                "--layout", "--json", "--columns", "Path", "--tips", "q");
+
+            foreach (var result in new[] { versions, tfms, layout })
+            {
+                Assert.Equal(1, result.Exit);
+                Assert.Empty(result.Output);
+                Assert.Contains("requires lowered JSON", result.Error);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task ProjectedJsonRoutingAudit_IlOffsetsProjectionFailsClosed()
     {
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
@@ -11248,25 +11277,65 @@ public partial class CommandExecutionTests
         var projected = await RunAppAsync(
             "library", TestAssemblyPath,
             "-D", "Library Info", "--json", "--columns", "Name", "--tips", "q");
+        var wildcard = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-D", "Library Info", "--json", "--columns", "Nam*", "--rows", "1", "--tips", "q");
+        var allColumns = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-D", "Library Info", "--json", "--columns", "*", "--rows", "1", "--tips", "q");
+        var overlapping = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-D", "Library Info", "--json",
+            "--fields", "Nam*", "--columns", "N*", "--rows", "1", "--tips", "q");
         var invalid = await RunAppAsync(
             "library", TestAssemblyPath,
             "-D", "Library Info", "--json", "--columns", "NoSuchColumn", "--tips", "q");
 
-        Assert.Equal(0, projected.Exit);
-        Assert.Empty(projected.Error);
-        using (var document = JsonDocument.Parse(projected.Output))
-        {
-            Assert.NotEmpty(document.RootElement.EnumerateArray());
-            Assert.All(
-                document.RootElement.EnumerateArray(),
-                row => Assert.Equal(
-                    ["name"],
-                    row.EnumerateObject().Select(property => property.Name)));
-        }
+        AssertProjectedProperties(projected, ["name"]);
+        AssertProjectedProperties(wildcard, ["name"]);
+        AssertProjectedProperties(allColumns, ["name", "kind"]);
+        AssertProjectedProperties(overlapping, ["name"]);
 
         Assert.Equal(1, invalid.Exit);
         Assert.Empty(invalid.Output);
         Assert.Contains("NoSuchColumn", invalid.Error);
+
+        static void AssertProjectedProperties(
+            (int Exit, string Output, string Error) result,
+            string[] expected)
+        {
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            using var document = JsonDocument.Parse(result.Output);
+            Assert.NotEmpty(document.RootElement.EnumerateArray());
+            Assert.All(
+                document.RootElement.EnumerateArray(),
+                row => Assert.Equal(
+                    expected,
+                    row.EnumerateObject().Select(property => property.Name)));
+        }
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_EmptyEffectiveDiscoveryValidatesProjection()
+    {
+        var invalid = await RunAppAsync(
+            "type", "SampleClassForTesting", "--library", TestAssemblyPath,
+            "-D", "Custom Attributes", "--json", "--columns", "NoSuchColumn", "--tips", "q");
+        var valid = await RunAppAsync(
+            "type", "SampleClassForTesting", "--library", TestAssemblyPath,
+            "-D", "Custom Attributes", "--json", "--columns", "Name", "--tips", "q");
+
+        Assert.Equal(1, invalid.Exit);
+        Assert.Empty(invalid.Output);
+        Assert.Contains("NoSuchColumn", invalid.Error);
+        Assert.DoesNotContain("has no data", invalid.Error);
+
+        Assert.Equal(0, valid.Exit);
+        Assert.Equal("[]", valid.Output.Trim());
+        Assert.Contains(
+            "section 'Custom Attributes' has no data for this query",
+            valid.Error);
     }
 
     [Fact]
