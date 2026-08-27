@@ -373,14 +373,15 @@ than click behavior attached to inert text:
   navigates to the Package or other root overview and whose remaining controls
   change applicable version, TFM, or acquisition detail;
 - activating the always-present current subject opens a hierarchy menu
-  containing every applicable root, Library, Type, and Member ancestor with its
-  availability state; and
+  containing every ordered applicable root, Library, Type, and Member
+  descriptor supplied by #4794, including unavailable descendants with their
+  reasons; and
 - `Copy target` copies the product-issued canonical current target.
 
 The coordinate and subject menus are not primary-view tablists. Their items use
 the product-issued subject identities and availability results. They make root
-and ancestor navigation reachable even when the compact command omits parent
-labels.
+and every applicable subject level reachable even when the compact command
+omits other labels.
 
 Copying a target and copying a restorable workspace URL are different actions.
 `Copy target` does not reconstruct identity from display text. The `share`
@@ -661,6 +662,9 @@ reasons remain discoverable; Enter activates only an available item. Escape
 closes the menu and returns focus to the invoker. Outside pointer dismissal or
 tabbing away preserves the new focus destination instead.
 
+When a menu item opens a modal, the menu closes without returning focus to its
+invoker and the modal applies its initial-focus rule.
+
 Spotlight, Open, Settings, the narrow navigation drawer, and the full-bleed
 Annotated Source viewer are modal dialogs:
 
@@ -671,6 +675,11 @@ Annotated Source viewer are modal dialogs:
 - Escape closes it unless an owner-issued destructive confirmation is active;
   and
 - ordinary dismissal returns focus to the invoking control.
+
+Only one modal is open at a time. A modal action that opens another modal closes
+the first without returning focus, then applies the second modal's
+initial-focus rule. Dismissing the second modal returns to the originating
+non-modal inspection or routed surface and does not reopen the first modal.
 
 Opening or closing a modal does not create a browser-history entry. When a modal
 action commits navigation, the modal closes without returning focus to its
@@ -699,9 +708,10 @@ Spotlight as the one search experience for:
 - platform inputs; and
 - commands.
 
-The coordinate control may open Spotlight directly in its package scope.
-Search and coordinate selection use the same result identities and acquisition
-path.
+Coordinate activation always opens the coordinate menu. That menu contains an
+explicit `Search packages` action that closes the menu and opens Spotlight in
+package scope. Search and coordinate selection use the same result identities
+and acquisition path.
 
 Spotlight reacts to every supported way its input value changes, including
 typing, paste, drag and drop of text, autofill where applicable, and input
@@ -732,8 +742,9 @@ removed.
 
 ## Working surfaces
 
-Source, Annotated Source, Metadata explorers, and Diagnostics are working
-surfaces rather than documents inset inside a general page.
+Source, Annotated Source, and Diagnostics are working surfaces rather than
+documents inset inside a general page. This redesign does not change Metadata
+viewer composition.
 
 ### Source and Annotated Source
 
@@ -762,6 +773,10 @@ Decompiler style is contextual:
 - Decompiled Source, Annotated Source, and decompiled call-graph source may
   link directly to that Settings section.
 - PDB Source does not show the control because authored source is unaffected.
+
+From the full-bleed Annotated Source viewer, that action closes the viewer and
+opens Settings. Closing Settings returns to inline Annotated Source without
+reopening the viewer; any changed style regenerates the affected inline output.
 
 Changing style regenerates only affected decompiler output. The preference is
 not part of the visible inspection command and a shared workspace does not
@@ -931,13 +946,14 @@ outcomes:
 ### Subject composition
 
 1. Supply an owner result whose active subject is a Type and whose hierarchy
-   contains available and unavailable ancestors.
+   contains available and unavailable descriptors above and below that Type.
 2. Confirm that the inspection command uses the active Type as its level-one
    heading and the subject menu renders every descriptor and unavailable reason.
-3. Activate an available ancestor and confirm that the UI submits only its
+3. Activate an available descriptor and confirm that the UI submits only its
    opaque identity and renders the returned outcome.
 4. Supply a root-only result and confirm that the always-present subject control
-   uses the owner-issued root label and still opens the hierarchy menu.
+   uses the owner-issued root label and the hierarchy menu still exposes every
+   unavailable lower-level descriptor and reason.
 5. Supply a typed transition failure and confirm that it is visible without the
    UI selecting another subject.
 6. Confirm that the trailing `Copy target` button remains visible and copies
@@ -996,10 +1012,13 @@ outcomes:
 
 ### Search input
 
-1. Open Spotlight.
-2. Paste a complete package coordinate without pressing another key.
-3. Confirm that results update immediately.
-4. Select the result and confirm that the same acquisition transition is used
+1. Activate the coordinate and confirm that its menu opens rather than
+   Spotlight.
+2. Activate `Search packages` and confirm that the menu closes and
+   package-scoped Spotlight receives initial focus.
+3. Paste a complete package coordinate without pressing another key.
+4. Confirm that results update immediately.
+5. Select the result and confirm that the same acquisition transition is used
    as pointer-driven package selection.
 
 ### Local Open
@@ -1046,10 +1065,13 @@ outcomes:
    focus moves to the resulting active-subject heading.
 5. Open and close the full-bleed Annotated Source viewer and confirm the shared
    modal focus, Escape, containment, and history behavior.
-6. Navigate to Home, Workspace, and Diagnostics and confirm that each is a
+6. From that viewer, open Decompiler style Settings and confirm that the viewer
+   closes, Settings receives focus, and closing Settings returns to inline
+   Annotated Source without reopening the viewer.
+7. Navigate to Home, Workspace, and Diagnostics and confirm that each is a
    routed surface with one visible level-one heading, no coordinate/subject
    command, and a persistent `dotnet-inspect` control that opens Workspace.
-7. Use Browser Back and Forward while a modal is open and confirm that the
+8. Use Browser Back and Forward while a modal is open and confirm that the
    modal is dismissed, the restored destination heading receives focus, and the
    modal does not reopen.
 
