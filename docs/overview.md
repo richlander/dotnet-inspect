@@ -71,7 +71,9 @@ substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.Services/` contains shared services such as assembly-set
   and PDB acquisition, platform/package resolution, dependency resolution,
   signatures, SourceLink availability/integrity operations, source fetching,
-  and nuspec parsing.
+  and nuspec parsing. It owns the accepted package/metadata XML structure
+  defined by [nuspec structural compatibility](design/nuspec-structural-compatibility.md);
+  Queries owns manifest identity, dependency validation, and resource policy.
 - `src/DotnetInspector.Core/` is the reference-free tool runtime kernel beneath
   Packages, Services, and the CLI: cache roots and eviction (`CoreCache`,
   `AsyncCache`), the single `HttpClientFactory` seam with offline and
