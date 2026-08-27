@@ -20,7 +20,8 @@ static class TypeScriptIdentifier
     private static readonly HashSet<string> ForbiddenTypeDeclarationNames = new(
         [
             "any", "bigint", "boolean", "never", "number", "object", "string",
-            "symbol", "undefined", "unknown", "Promise", "Record",
+            "symbol", "undefined", "unknown", "Promise", "Readonly",
+            "ReadonlyArray", "Record",
         ],
         StringComparer.Ordinal);
 

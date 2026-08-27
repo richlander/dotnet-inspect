@@ -334,6 +334,9 @@ static partial class AuthoredCorpusHistoryStore
 
     sealed record RowCensus(
         int Correct,
+        int PrinterExact,
+        int PrinterDifferent,
+        int PrinterNotRecorded,
         int Lowering,
         int KnownTaste,
         int FrontierIlExact,
@@ -358,7 +361,8 @@ static partial class AuthoredCorpusHistoryStore
 
     static RowCensus Census(IReadOnlyList<AuthoredCorpusBenchmark.RowReport> rows)
     {
-        int correct = 0, lowering = 0, knownTaste = 0, frontierIlExact = 0, frontierIlDiff = 0;
+        int correct = 0, printerExact = 0, printerDifferent = 0, printerNotRecorded = 0;
+        int lowering = 0, knownTaste = 0, frontierIlExact = 0, frontierIlDiff = 0;
         int frontierIlNoVerdict = 0, invalid = 0, notFull = 0, drift = 0, unsupported = 0, unknownOutcome = 0;
         int invalidProduct = 0, invalidHarness = 0, invalidUnclassified = 0;
         int frontierProduct = 0, frontierHarness = 0, frontierFloor = 0, frontierUnclassified = 0;
@@ -384,6 +388,8 @@ static partial class AuthoredCorpusHistoryStore
                     "compileBackStatus");
             ReturnToSenderInvalidKind? invalidKind =
                 ParseOptionalEnum<ReturnToSenderInvalidKind>(row.InvalidKind, "invalidKind");
+            PrinterExactOutcome printerOutcome =
+                ParseRequiredEnum<PrinterExactOutcome>(row.PrinterExact, "printerExact");
             ReturnToSender.FaultIsolationKind? faultIsolation =
                 ParseOptionalEnum<ReturnToSender.FaultIsolationKind>(
                     row.FaultIsolation,
@@ -418,11 +424,23 @@ static partial class AuthoredCorpusHistoryStore
                     $"Benchmark row invalidKind '{row.InvalidKind}' does not match "
                     + $"outcome/fault-isolation/detail facts ('{expectedInvalidKind}').");
             }
+            if (printerOutcome == PrinterExactOutcome.Exact
+                && outcome != ReturnToSenderSourceOutcome.ValidMatch)
+            {
+                throw new InvalidDataException(
+                    "Benchmark row reports Printer exact without being Correct.");
+            }
 
             switch (taste)
             {
                 case AuthoredCorpusBenchmark.TasteBucket.Correct:
                     correct++;
+                    switch (printerOutcome)
+                    {
+                        case PrinterExactOutcome.Exact: printerExact++; break;
+                        case PrinterExactOutcome.Different: printerDifferent++; break;
+                        default: printerNotRecorded++; break;
+                    }
                     break;
                 case AuthoredCorpusBenchmark.TasteBucket.Lowering:
                     lowering++;
@@ -485,6 +503,9 @@ static partial class AuthoredCorpusHistoryStore
 
         return new RowCensus(
             correct,
+            printerExact,
+            printerDifferent,
+            printerNotRecorded,
             lowering,
             knownTaste,
             frontierIlExact,
@@ -575,6 +596,11 @@ static partial class AuthoredCorpusHistoryStore
         var invalid = report.InvalidBreakdown;
 
         if (report.Correct != census.Correct
+            || report.PrinterComparisonVersion
+                != AuthoredSourceOracleManifest.PrinterComparisonVersion
+            || report.PrinterExact != census.PrinterExact
+            || report.PrinterDifferent != census.PrinterDifferent
+            || report.PrinterNotRecorded != census.PrinterNotRecorded
             || report.ValidDifferent != census.ValidDifferent
             || valid.Total != census.ValidDifferent
             || valid.Lowering != census.Lowering
