@@ -59,10 +59,9 @@ public static class TypeResolutionEnumWidth
 
     /// <summary>
     /// Resolves each planned request against the frozen generation and
-    /// returns a decoder callback keyed by
-    /// <see cref="MetadataTypeDefinitionName.ToMetadataFullName"/>. Names the
-    /// generation did not resolve, and names shared by distinct structured
-    /// requests that the callback cannot distinguish, stay
+    /// returns a decoder callback keyed by SRM's normalized serialized-name
+    /// projection. Names the generation did not resolve, and names shared by
+    /// distinct structured requests that the callback cannot distinguish, stay
     /// <see cref="PrimitiveTypeCode.Int32"/>.
     /// </summary>
     public static Func<string, PrimitiveTypeCode> CreateResolver(
@@ -154,26 +153,7 @@ public static class TypeResolutionEnumWidth
                 publicKeyToken);
         }
 
-        var segments = ImmutableArray.CreateBuilder<string>();
-        TypeName current = parsed;
-        while (true)
-        {
-            if (!current.IsSimple)
-                return false;
-
-            segments.Add(current.Name);
-            if (!current.IsNested)
-                break;
-            current = current.DeclaringType;
-        }
-
-        var rootToLeaf = ImmutableArray.CreateBuilder<string>(segments.Count);
-        for (int i = segments.Count - 1; i >= 0; i--)
-            rootToLeaf.Add(segments[i]);
-
-        if (MetadataTypeDefinitionName.Create(
-                current.Namespace,
-                rootToLeaf.MoveToImmutable())
+        if (MetadataTypeDefinitionName.FromParsedSerializedName(parsed)
             is not MetadataTypeDefinitionNameResult.Valid valid)
         {
             return false;

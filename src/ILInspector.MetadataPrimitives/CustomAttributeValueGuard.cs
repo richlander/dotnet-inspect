@@ -690,8 +690,7 @@ public static class CustomAttributeValueGuard
             return name is null
                 ? PrimitiveTypeCode.Int32
                 : EnumUnderlyingPrimitive.Normalize(
-                    enumUnderlyingType(
-                        EnumUnderlyingPrimitive.NormalizeSerializedName(name)));
+                    enumUnderlyingType(name));
         }
 
         if (handle.Kind == HandleKind.TypeDefinition)
@@ -723,10 +722,9 @@ public static class CustomAttributeValueGuard
     {
         if (enumName is null)
             return PrimitiveTypeCode.Int32;
-        string normalized = EnumUnderlyingPrimitive.NormalizeSerializedName(enumName);
         return enumUnderlyingType is not null
-            ? EnumUnderlyingPrimitive.Normalize(enumUnderlyingType(normalized))
-            : EnumUnderlyingPrimitive.FromSerializedName(reader, normalized);
+            ? EnumUnderlyingPrimitive.Normalize(enumUnderlyingType(enumName))
+            : EnumUnderlyingPrimitive.FromSerializedName(reader, enumName);
     }
 
     static Result SkipSerString(

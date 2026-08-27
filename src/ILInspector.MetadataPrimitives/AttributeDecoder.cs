@@ -382,8 +382,7 @@ public static class AttributeDecoder
         {
             if (preserveSerializedTypeNames)
                 return name;
-            int comma = name.IndexOf(',');
-            return comma >= 0 ? name[..comma] : name;
+            return EnumUnderlyingPrimitive.WithoutAssemblyQualification(name);
         }
 
         public PrimitiveTypeCode GetUnderlyingEnumType(string type)

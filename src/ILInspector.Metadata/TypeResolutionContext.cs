@@ -907,6 +907,11 @@ public sealed class TypeResolutionContext : IDisposable
                 {
                     return false;
                 }
+                if (definition.Kind
+                    != MetadataTypeDefinitionKind.ValueType)
+                {
+                    return false;
+                }
 
                 CandidateSessionResult session =
                     _catalog.Acquisition.OpenSession(definition.Assembly);

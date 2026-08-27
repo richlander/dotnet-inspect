@@ -156,11 +156,72 @@ static class EnumUnderlyingPrimitive
     }
 
     /// <summary>
-    /// Matches <c>ArgTypeProvider.GetTypeFromSerializedName</c> (strip the
-    /// assembly suffix) and the metadata index key (nested types use
-    /// <c>.</c>, not the serialized <c>+</c>).
+    /// Projects a reflection-serialized name to the exact metadata index key:
+    /// assembly qualification is removed, escaped metadata characters are
+    /// restored, and nested segments use <c>.</c>.
     /// </summary>
     public static string NormalizeSerializedName(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        if (!TryParse(name, out TypeName? parsed)
+            || !parsed.IsSimple)
+        {
+            return LegacyNormalize(name);
+        }
+
+        var segments = ImmutableArray.CreateBuilder<string>();
+        TypeName current = parsed;
+        while (true)
+        {
+            if (!current.IsSimple)
+                return LegacyNormalize(name);
+
+            segments.Add(TypeName.Unescape(current.Name));
+            if (!current.IsNested)
+                break;
+            current = current.DeclaringType;
+        }
+
+        var rootToLeaf = ImmutableArray.CreateBuilder<string>(segments.Count);
+        for (int i = segments.Count - 1; i >= 0; i--)
+            rootToLeaf.Add(segments[i]);
+
+        string typeName = string.Join(".", rootToLeaf);
+        string ns = TypeName.Unescape(current.Namespace);
+        return ns.Length == 0 ? typeName : ns + "." + typeName;
+    }
+
+    public static string WithoutAssemblyQualification(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        if (TryParse(name, out TypeName? parsed))
+            return parsed.FullName;
+
+        int comma = name.IndexOf(',');
+        return comma >= 0 ? name[..comma] : name;
+    }
+
+    static bool TryParse(
+        string name,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+        out TypeName? parsed)
+    {
+        if (name.Length > MetadataSafetyPolicy.MaxTypeNameCharacters)
+        {
+            parsed = null;
+            return false;
+        }
+
+        return TypeName.TryParse(
+            name,
+            out parsed,
+            new TypeNameParseOptions
+            {
+                MaxNodes = MetadataSafetyPolicy.MaxRelationshipNodes,
+            });
+    }
+
+    static string LegacyNormalize(string name)
     {
         int comma = name.IndexOf(',');
         if (comma >= 0)
