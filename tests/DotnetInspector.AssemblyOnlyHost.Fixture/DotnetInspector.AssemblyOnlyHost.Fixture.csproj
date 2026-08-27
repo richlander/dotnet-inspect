@@ -7,6 +7,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../src/DotnetInspector.Artifacts.Local/DotnetInspector.Artifacts.Local.csproj" />
+    <ProjectReference Include="../../src/DotnetInspector.Artifacts.Workspaces/DotnetInspector.Artifacts.Workspaces.csproj" />
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
   </ItemGroup>
 </Project>

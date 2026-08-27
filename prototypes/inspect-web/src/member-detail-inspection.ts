@@ -2,43 +2,14 @@ import { sourceRequestNeedsLoad } from "./data.ts";
 import type { AnnotatedSourceResult } from "./annotated-source.ts";
 import type {
   BrowserMemberDocumentation,
+  BrowserMemberFacts,
 } from "./inspect-web-engine.d.ts";
 import type { MemberFocusSnapshot } from "./member-focus.ts";
 import type { AppMemberSurface } from "./package-acquisition.ts";
 
 export type DocumentableMemberSurface = AppMemberSurface;
 
-export interface MemberFactRow {
-  offset: string;
-  [key: string]: unknown;
-}
-
-export interface MemberFacts {
-  signals: {
-    allocations: number;
-    copies: number;
-    reflection: number;
-    throws: number;
-    catches: number;
-    finallys: number;
-    unsafe: boolean;
-    allocatesInLoop: boolean;
-  };
-  allocations: Array<MemberFactRow & { inLoop?: boolean }>;
-  calls: MemberFactRow[];
-  safety: MemberFactRow[];
-  exceptionRegions: MemberFactRow[];
-  performanceOpportunities: Array<{
-    shape: string;
-    confidence: string;
-    offset?: string;
-    evidence: string;
-    fix: string;
-    caveat?: string;
-    provenance?: string;
-    finding?: string;
-  }>;
-}
+export type MemberFacts = BrowserMemberFacts;
 
 interface MemberCoordinates {
   packageId: string;
@@ -72,6 +43,10 @@ export interface MemberAnnotatedRequest extends MemberCoordinates {
 
 export interface MemberFactsRequest extends MemberCoordinates {
   signature: string;
+  typeIdentity: string;
+  selectorKey: string;
+  metadataToken: number;
+  implementationBodySelected: boolean;
   isCurrent(): boolean;
 }
 
@@ -131,6 +106,8 @@ export function createMemberDetailInspectionCoordinator(
   dependencies: MemberDetailInspectionDependencies,
 ): MemberDetailInspectionCoordinator {
   const { state } = dependencies;
+  const memberFactsQueries = new Map<string, Promise<MemberFacts>>();
+  let memberFactsRequestId = 0;
 
   return {
     async loadDocumentation(request) {
@@ -228,11 +205,13 @@ export function createMemberDetailInspectionCoordinator(
 
     async loadFacts(request) {
       if (state.memberFactsKey === request.signature
+        && !state.memberFactsLoading
         && (state.memberFacts || state.memberFactsError)) {
         dependencies.render();
         return;
       }
 
+      const requestId = ++memberFactsRequestId;
       state.memberFactsKey = request.signature;
       state.memberFacts = null;
       state.memberFactsLoading = true;
@@ -240,19 +219,30 @@ export function createMemberDetailInspectionCoordinator(
       state.memberAnnotated = null;
       state.memberAnnotatedError = "";
       const preservedFocus = dependencies.renderPreservingMemberFocus();
+      let query = memberFactsQueries.get(request.signature);
+      if (!query) {
+        query = (async () => dependencies.queryFacts(request))();
+        memberFactsQueries.set(request.signature, query);
+      }
       try {
-        const result = await dependencies.queryFacts(request);
+        const result = await query;
         if (request.isCurrent()
-          && state.memberFactsKey === request.signature) {
+          && state.memberFactsKey === request.signature
+          && memberFactsRequestId === requestId) {
           state.memberFacts = result;
         }
       } catch (error) {
         if (request.isCurrent()
-          && state.memberFactsKey === request.signature) {
+          && state.memberFactsKey === request.signature
+          && memberFactsRequestId === requestId) {
           state.memberFactsError = dependencies.describeError(error);
         }
       } finally {
-        if (state.memberFactsKey === request.signature) {
+        if (memberFactsQueries.get(request.signature) === query) {
+          memberFactsQueries.delete(request.signature);
+        }
+        if (state.memberFactsKey === request.signature
+          && memberFactsRequestId === requestId) {
           state.memberFactsLoading = false;
           if (request.isCurrent()) {
             dependencies.renderPreservingMemberFocus(preservedFocus);

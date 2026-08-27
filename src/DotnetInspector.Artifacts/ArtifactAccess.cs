@@ -87,6 +87,15 @@ public sealed class ArtifactContributionScope : IDisposable
             kind);
     }
 
+    /// <summary>
+    /// Reports whether this scope minted the supplied contribution.
+    /// </summary>
+    public bool Owns(ArtifactContribution contribution)
+    {
+        ArgumentNullException.ThrowIfNull(contribution);
+        return ReferenceEquals(contribution.Scope, this);
+    }
+
     internal void ThrowIfDisposed() =>
         ObjectDisposedException.ThrowIf(
             Volatile.Read(ref _disposed) != 0,
@@ -112,17 +121,20 @@ public sealed class ArtifactContribution
     internal ArtifactContribution(
         ArtifactGenerationAuthority authority,
         ArtifactAdmissionAuthorization authorization,
+        ArtifactContributionScope scope,
         ArtifactDescriptor descriptor,
         ArtifactAcquisitionRegistration registration,
         Func<Stream> openRead)
     {
         _authority = authority;
         _authorization = authorization;
+        Scope = scope;
         Descriptor = descriptor;
         Registration = registration;
         _openRead = openRead;
     }
 
+    internal ArtifactContributionScope Scope { get; }
     public ArtifactDescriptor Descriptor { get; }
     public ArtifactAcquisitionRegistration Registration { get; }
 
@@ -203,6 +215,9 @@ public sealed class ArtifactGenerationAuthority
     private readonly object _gate = new();
     private readonly HashSet<ArtifactAuthorization> _authorizations =
         new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<ArtifactAcquisitionRegistration, bool>
+        _registrations =
+            new(ReferenceEqualityComparer.Instance);
     private ArtifactAdmissionAuthorization? _admission;
     private long _nextOrdinal;
     private int _activeContributionScopes;
@@ -272,10 +287,26 @@ public sealed class ArtifactGenerationAuthority
             }
 
             EnsureOwned(registration);
-            return new RetainedArtifactContent(
+            if (!_registrations.TryGetValue(
+                    registration,
+                    out bool retained))
+            {
+                throw new ArgumentException(
+                    "The artifact registration was not minted by this authority.",
+                    nameof(registration));
+            }
+            if (retained)
+            {
+                throw new InvalidOperationException(
+                    "Retained content already exists for this artifact registration.");
+            }
+
+            var content = new RetainedArtifactContent(
                 this,
                 registration,
                 openRead);
+            _registrations[registration] = true;
+            return content;
         }
     }
 
@@ -294,6 +325,11 @@ public sealed class ArtifactGenerationAuthority
             {
                 throw new InvalidOperationException(
                     "Admission cannot complete while a contribution scope is active.");
+            }
+            if (_registrations.Values.Any(static retained => !retained))
+            {
+                throw new InvalidOperationException(
+                    "Admission cannot complete until every registered artifact has retained content.");
             }
 
             _admissionCompleted = true;
@@ -371,6 +407,20 @@ public sealed class ArtifactGenerationAuthority
             foreach (ArtifactAuthorization authorization in _authorizations)
                 authorization.Revoke();
             _authorizations.Clear();
+            _registrations.Clear();
+        }
+    }
+
+    /// <summary>
+    /// Validates that a query lease is current for this generation.
+    /// </summary>
+    public void ValidateQueryLease(ArtifactQueryLease lease)
+    {
+        ArgumentNullException.ThrowIfNull(lease);
+        lock (_gate)
+        {
+            EnsureQueryPhase();
+            lease.EnsureAccess(this);
         }
     }
 
@@ -394,9 +444,11 @@ public sealed class ArtifactGenerationAuthority
                 new ArtifactAcquisitionRegistration(identity, provenance);
             var descriptor =
                 new ArtifactDescriptor(identity, mediaType, kind);
+            _registrations.Add(registration, false);
             return new ArtifactContribution(
                 this,
                 authorization,
+                scope,
                 descriptor,
                 registration,
                 openRead);
