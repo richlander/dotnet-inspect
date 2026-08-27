@@ -2,24 +2,34 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  browserCreatedCallGraphTabIds,
+  buildPackageRootStateUrl,
   buildWorkspaceStateUrl,
+  callGraphCaptureTopology,
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
   parseWorkspaceLocation,
   parseWorkspaceRoute,
-  resolveWorkspaceMemberFilters,
-  resolveWorkspaceMemberOverload,
-  resolveWorkspaceMemberSection,
+  retainedMissingPlatformTarget,
+  retainedPlatformTargetVersion,
   resolveWorkspaceRoute,
+  selectedBrowserCallGraphPackageTabIds,
   shouldInterceptLinkClick,
-  unavailableWorkspaceMemberContextFields,
+  workspaceUrlPreservationApplies,
+  workspaceShareTabsMatchResolved,
+  workspaceShareCaptureTopology,
   workspaceViewSignature,
   type LinkNavigationClick,
   type WorkspaceLocationSnapshot,
   type WorkspaceUrlState,
   type WorkspaceView,
 } from "../src/workspace-navigation.ts";
+import type {
+  BrowserWorkspaceShareDecodeResult,
+  BrowserWorkspaceShareEncodeResult,
+  BrowserWorkspaceShareState,
+} from "../src/inspect-web-engine.d.ts";
 
 interface TestView {
   id: string;
@@ -42,41 +52,71 @@ function workspaceState(
   return {
     package: "Example.Second",
     tabs: [
-      { id: "Example.First", version: "1.0.0", framework: "net9.0" },
-      { id: "Example.Second", version: "2.0.0", framework: "net10.0" },
+      {
+        id: "t0",
+        kind: "package",
+        source: "Example.First",
+        version: "1.0.0",
+        framework: "net10.0",
+        runtimeIdentifier: null,
+      },
+      {
+        id: "t1",
+        kind: "package",
+        source: "Example.Second",
+        version: "2.0.0",
+        framework: "net10.0",
+        runtimeIdentifier: null,
+      },
     ],
-    active: 1,
-    lens: "api",
-    atPackageRoot: false,
-    packageLens: "overview",
-    library: null,
-    libraryPack: null,
-    selectedTypeId: "Example.Widget",
-    selectedMemberKey: "method:Build",
-    selectedOverloadIndex: 2,
-    memberSection: "facts",
-    selectedBodyTarget: {
-      memberName: "Build",
-      selectorKey: "method",
-      metadataToken: 42,
+    contexts: [{
+      id: "g0",
+      tabIds: ["t0", "t1"],
+    }],
+    activeTabId: "t1",
+    selectedContextId: "g0",
+    view: {
+      lens: "api",
+      type: "Example.Widget",
+      memberAnchor: "0123456789",
+      memberSignature: null,
+      section: "facts",
+      libraries: ["Example.Second"],
     },
-    graphTarget: null,
-    memberBrowse: true,
-    memberTextFilter: "build",
-    memberKindFilter: "method",
-    memberAccessibilityFilter: "public",
-    memberTraitFilter: "isStatic",
     ...overrides,
   };
 }
 
-function sharePacket(url: URL): Record<string, unknown> {
-  const encoded = url.searchParams.get("w");
-  assert.ok(encoded);
-  const value: unknown = JSON.parse(
-    Buffer.from(encoded, "base64url").toString("utf8"));
-  assert.ok(value && typeof value === "object" && !Array.isArray(value));
-  return Object.fromEntries(Object.entries(value));
+function decoded(
+  state: BrowserWorkspaceShareState = workspaceState(),
+): BrowserWorkspaceShareDecodeResult {
+  return {
+    succeeded: true,
+    state,
+    failure: null,
+  };
+}
+
+function rejected(message: string): BrowserWorkspaceShareDecodeResult {
+  return {
+    succeeded: false,
+    state: null,
+    failure: {
+      kind: "InvalidShape",
+      path: "packet",
+      message,
+    },
+  };
+}
+
+function encoded(
+  packet = "canonical-packet",
+): BrowserWorkspaceShareEncodeResult {
+  return {
+    succeeded: true,
+    packet,
+    failure: null,
+  };
 }
 
 function workspaceView(
@@ -252,6 +292,28 @@ test("navigation history normalizes the current captured view", () => {
   ]);
 });
 
+test("navigation history restores a pre-activation transaction snapshot", () => {
+  let current: TestView | null = { id: "stable", revision: 1 };
+  const history = createNavigationHistory({
+    capture: () => current && { ...current },
+    signature: view => `${view.id}:${view.revision}`,
+    apply: view => {
+      current = { ...view };
+      return true;
+    },
+    onExhausted() {},
+  });
+
+  history.record();
+  const snapshot = history.snapshot();
+  current = { id: "partial", revision: 1 };
+  history.record();
+  history.restore(snapshot);
+
+  assert.equal(history.canBack(), false);
+  assert.equal(history.canForward(), false);
+});
+
 test("navigation sequence has one monotonic cancellation authority", () => {
   const sequence = createNavigationSequence();
   assert.equal(sequence.current(), 0);
@@ -265,134 +327,347 @@ test("navigation sequence has one monotonic cancellation authority", () => {
   assert.equal(sequence.current(), 3);
 });
 
-test("rich workspace URLs round-trip coordinates, scope, and member selection", () => {
-  const state = workspaceState({
-    library: "System.Private.CoreLib",
-    libraryPack: "netcore.app",
-  });
+test("workspace URLs delegate canonical encoding and product-decoded activation", () => {
+  const state = workspaceState();
+  const encodedStates: unknown[] = [];
   const url = buildWorkspaceStateUrl(
     "https://inspect.example/packages/old?stale=1#metadata",
-    state);
+    state,
+    stateJson => {
+      encodedStates.push(JSON.parse(stateJson) as unknown);
+      return encoded();
+    });
 
   assert.equal(url.pathname, "/");
   assert.equal(url.searchParams.get("package"), "Example.Second");
+  assert.equal(url.searchParams.get("w"), "canonical-packet");
   assert.equal(url.hash, "");
-  const parsed = parseWorkspaceLocation(locationSnapshot(url));
-  assert.deepEqual(parsed.tabs, state.tabs);
+  const encodedState = encodedStates[0];
+  assert.ok(encodedState && typeof encodedState === "object");
+  assert.ok("contexts" in encodedState);
+  assert.ok("activeTabId" in encodedState);
+  assert.ok("selectedContextId" in encodedState);
+  assert.deepEqual(encodedState.contexts, state.contexts);
+  assert.equal(encodedState.activeTabId, "t1");
+  assert.equal(encodedState.selectedContextId, "g0");
+
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot(url),
+    () => decoded());
+  assert.deepEqual(
+    parsed.tabs.map(tab => [tab.id, tab.version, tab.framework]),
+    [
+      ["Example.First", "1.0.0", "net10.0"],
+      ["Example.Second", "2.0.0", "net10.0"],
+    ]);
   assert.equal(parsed.active, 1);
   assert.equal(parsed.package, "Example.Second");
   assert.equal(parsed.version, "2.0.0");
   assert.equal(parsed.framework, "net10.0");
-  assert.equal(parsed.lens, null);
-  assert.equal(parsed.library, "System.Private.CoreLib");
-  assert.equal(parsed.libraryPack, "netcore.app");
+  assert.equal(parsed.lens, "api");
+  assert.equal(parsed.library, "Example.Second");
+  assert.equal(parsed.libraryPack, null);
   assert.equal(parsed.type, "Example.Widget");
-  assert.equal(parsed.member, "method:Build");
-  assert.equal(parsed.overload, 2);
+  assert.equal(parsed.member, null);
+  assert.equal(parsed.memberAnchor, "0123456789");
+  assert.equal(parsed.memberSignature, null);
+  assert.equal(parsed.overload, null);
   assert.equal(parsed.section, "facts");
-  assert.deepEqual(parsed.bodyTarget, state.selectedBodyTarget);
-  assert.equal(parsed.memberBrowse, true);
-  assert.equal(parsed.memberTextFilter, "build");
-  assert.equal(parsed.memberKindFilter, "method");
-  assert.equal(parsed.memberAccessibilityFilter, "public");
-  assert.equal(parsed.memberTraitFilter, "isStatic");
+  assert.deepEqual(parsed.contexts, state.contexts);
+  assert.equal(parsed.selectedContextId, "g0");
   assert.equal(parsed.workspaceNotice, "");
 });
 
-test("member share context reports unavailable filters and overloads", () => {
-  assert.deepEqual(
-    unavailableWorkspaceMemberContextFields({
-      member: "method:Missing",
-      overload: 1,
-      section: "source",
-      bodyTarget: {
-        memberName: "Missing",
-        selectorKey: "method",
-        metadataToken: 42,
+test("canonical context capture does not broaden a selected subset for Call Graph", () => {
+  const basis: BrowserWorkspaceShareState = {
+    tabs: [
+      {
+        id: "t0",
+        kind: "package",
+        source: "A",
+        version: "1.0.0",
+        framework: "net10.0",
+        runtimeIdentifier: null,
       },
-      memberBrowse: true,
-      memberTextFilter: "missing",
-      memberKindFilter: "method",
-      memberAccessibilityFilter: "public",
-      memberTraitFilter: "isStatic",
-    }, true),
-    [
-      "member",
-      "overload",
-      "member section",
-      "member body",
-      "member browse",
-      "member text filter",
-      "member kind filter",
-      "member accessibility filter",
-      "member trait filter",
-    ]);
-  assert.deepEqual(
-    unavailableWorkspaceMemberContextFields({
-      section: "overview",
-      memberKindFilter: "all",
-      memberAccessibilityFilter: "all",
-    }, false),
-    []);
+      {
+        id: "t1",
+        kind: "package",
+        source: "B",
+        version: "1.0.0",
+        framework: "net10.0",
+        runtimeIdentifier: null,
+      },
+      {
+        id: "t2",
+        kind: "package",
+        source: "C",
+        version: "1.0.0",
+        framework: "net10.0",
+        runtimeIdentifier: null,
+      },
+    ],
+    contexts: [{ id: "g0", tabIds: ["t0", "t1"] }],
+    activeTabId: "t0",
+    selectedContextId: "g0",
+    view: {
+      lens: "api",
+      type: null,
+      memberAnchor: null,
+      memberSignature: null,
+      section: "Call Graph",
+      libraries: [],
+    },
+  };
 
+  const captured = workspaceShareCaptureTopology(
+    basis.tabs,
+    0,
+    basis,
+    true,
+    true);
+
+  assert.deepEqual(captured, {
+    contexts: [{ id: "g0", tabIds: ["t0", "t1"] }],
+    selectedContextId: "g0",
+  });
+});
+
+test("Browser-created Call Graph state synthesizes root-first package context", () => {
+  const tabs = workspaceState().tabs;
+
+  const captured = workspaceShareCaptureTopology(
+    tabs,
+    1,
+    null,
+    false,
+    true);
+
+  assert.deepEqual(captured.contexts.at(-1), {
+    id: "g2",
+    tabIds: ["t1", "t0"],
+  });
+  assert.equal(captured.selectedContextId, "g2");
+});
+
+test("reminted tab IDs cannot preserve stale canonical contexts", () => {
+  const basis: BrowserWorkspaceShareState = {
+    ...workspaceState(),
+    contexts: [{ id: "g0", tabIds: ["t1"] }],
+    selectedContextId: "g0",
+  };
+  const reminted = basis.tabs.map((tab, index) => ({
+    ...tab,
+    source: `Replacement.${index}`,
+  }));
+
+  const captured = workspaceShareCaptureTopology(
+    reminted,
+    0,
+    basis,
+    false,
+    false);
+
+  assert.deepEqual(captured, {
+    contexts: [
+      { id: "g0", tabIds: ["t0"] },
+      { id: "g1", tabIds: ["t1"] },
+    ],
+    selectedContextId: "g0",
+  });
+});
+
+test("Browser-created Call Graph contexts include only binding-compatible tabs", () => {
+  const tabs = workspaceState().tabs.map((tab, index) => ({
+    ...tab,
+    framework: index === 0 ? "net10.0" : "net6.0",
+  }));
+
+  assert.deepEqual(browserCreatedCallGraphTabIds(tabs, 0), ["t0"]);
   assert.deepEqual(
-    resolveWorkspaceMemberFilters({
-      memberKindFilter: "unknown-kind",
-      memberAccessibilityFilter: "unknown-accessibility",
-      memberTraitFilter: "unknown-trait",
-    }, {
-      kinds: ["method", "property"],
-      accessibilities: ["public", "protected"],
-      traits: ["isStatic", "isVirtual"],
-    }),
+    workspaceShareCaptureTopology(tabs, 0, null, false, true),
     {
-      kind: "all",
-      accessibility: "all",
-      trait: "",
-      rejectedFields: [
-        "member kind filter",
-        "member accessibility filter",
-        "member trait filter",
+      contexts: [
+        { id: "g0", tabIds: ["t0"] },
+        { id: "g1", tabIds: ["t1"] },
       ],
+      selectedContextId: "g0",
     });
-  assert.deepEqual(
-    resolveWorkspaceMemberFilters({
-      memberKindFilter: "method",
-      memberAccessibilityFilter: "public",
-      memberTraitFilter: "isStatic",
-    }, {
-      kinds: ["method"],
-      accessibilities: ["public"],
-      traits: ["isStatic"],
-    }),
-    {
-      kind: "method",
-      accessibility: "public",
-      trait: "isStatic",
-      rejectedFields: [],
-    });
+});
+
+test("executed Call Graph topology preserves exact product order and excludes unrelated tabs", () => {
+  const tabs = workspaceState().tabs.concat({
+    id: "t2",
+    kind: "package",
+    source: "Unrelated.Package",
+    version: "1.0.0",
+    framework: "net10.0",
+    runtimeIdentifier: null,
+  });
 
   assert.deepEqual(
-    resolveWorkspaceMemberOverload(2, 2),
-    { overload: null, rejected: true });
+    callGraphCaptureTopology(tabs, 1, ["t0", "t1"]),
+    {
+      contexts: [
+        { id: "g0", tabIds: ["t0"] },
+        { id: "g1", tabIds: ["t1"] },
+        { id: "g2", tabIds: ["t2"] },
+        { id: "g3", tabIds: ["t0", "t1"] },
+      ],
+      selectedContextId: "g3",
+    });
+  assert.throws(
+    () => callGraphCaptureTopology(tabs, 1, ["t0", "t2"]),
+    /active package is not part/);
+});
+
+test("Platform drill target version preserves exact versus floating packet identity", () => {
+  const runtimePack = {
+    version: "10.0.10",
+    activeFramework: "net10.0",
+  };
+  const tab = {
+    id: "t0",
+    kind: "group",
+    source: ":Platform",
+    version: "10.0.10",
+    framework: "net10.0",
+    runtimeIdentifier: null,
+  };
+
+  assert.equal(
+    retainedPlatformTargetVersion(tab, runtimePack, "net10.0"),
+    "10.0.10");
+  assert.equal(
+    retainedPlatformTargetVersion(
+      { ...tab, version: null },
+      runtimePack,
+      "net10.0"),
+    "");
+  assert.equal(
+    retainedPlatformTargetVersion(tab, runtimePack, "net9.0"),
+    "");
+  assert.equal(
+    retainedPlatformTargetVersion(null, runtimePack, "net10.0"),
+    "");
+});
+
+test("canonical tabs must remain distinct and ordered after resolution", () => {
+  const requested = workspaceState().tabs;
+  const resolved = requested.map(tab => ({
+    ...tab,
+    version: tab.version ?? "10.0.11",
+    framework: tab.framework ?? "net10.0",
+  }));
+
+  assert.equal(workspaceShareTabsMatchResolved(requested, resolved), true);
+  assert.equal(
+    workspaceShareTabsMatchResolved(requested, resolved.slice(0, 1)),
+    false);
+  assert.equal(
+    workspaceShareTabsMatchResolved(
+      requested,
+      [resolved[1]!, resolved[0]!]),
+    false);
+});
+
+test("missing Platform reacquisition retains only an aligned canonical pin", () => {
+  const packageTab = workspaceState().tabs[0]!;
+  const platformTab = {
+    id: "platform",
+    kind: "group",
+    source: ":Platform",
+    version: "10.0.10",
+    framework: "net10.0",
+    runtimeIdentifier: null,
+  };
+  const basis = [packageTab, platformTab];
+
   assert.deepEqual(
-    resolveWorkspaceMemberOverload(1, 2),
-    { overload: 1, rejected: false });
+    retainedMissingPlatformTarget(basis, [packageTab], "net10.0"),
+    { tabIndex: 1, version: "10.0.10" });
   assert.deepEqual(
-    resolveWorkspaceMemberOverload(-0, 2),
-    { overload: null, rejected: true });
-  assert.deepEqual(
-    resolveWorkspaceMemberOverload(null, 1),
-    { overload: null, rejected: false });
-  assert.deepEqual(
-    resolveWorkspaceMemberSection("facts", ["overview", "source"]),
-    { section: "overview", rejected: true });
-  assert.deepEqual(
-    resolveWorkspaceMemberSection("source", ["overview", "source"]),
-    { section: "source", rejected: false });
-  assert.deepEqual(
-    resolveWorkspaceMemberSection(null, ["overview"]),
-    { section: "overview", rejected: false });
+    retainedMissingPlatformTarget(
+      [{ ...platformTab, version: null }, packageTab],
+      [packageTab],
+      "net10.0"),
+    { tabIndex: 0, version: "" });
+  assert.equal(
+    retainedMissingPlatformTarget(basis, [packageTab], "net9.0"),
+    null);
+  assert.equal(
+    retainedMissingPlatformTarget(
+      [{ ...platformTab, framework: null }, packageTab],
+      [packageTab],
+      "net10.0"),
+    null);
+  assert.equal(
+    retainedMissingPlatformTarget(
+      basis,
+      [{ ...packageTab, source: "Replacement.Package" }],
+      "net10.0"),
+    null);
+});
+
+test("package-root URLs discard stale workspace state and restore the package lens", () => {
+  const url = buildPackageRootStateUrl(
+    "https://inspect.example/?package=Old&w=stale#api",
+    {
+      package: "Example.Package",
+      version: "1.2.3",
+      framework: "net10.0",
+      lens: "dependencies",
+    });
+
+  assert.equal(url.searchParams.get("w"), null);
+  assert.equal(url.searchParams.get("package"), "Example.Package");
+  assert.equal(url.hash, "#pkg:dependencies");
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot(url),
+    () => rejected("unexpected"));
+  assert.equal(parsed.atPackageRoot, true);
+  assert.equal(parsed.packageLens, "dependencies");
+  assert.equal(parsed.version, "1.2.3");
+});
+
+test("unsupported canonical lenses fail visibly before activation", () => {
+  const state = workspaceState();
+  state.view.lens = "future-lens";
+
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot("https://inspect.example/?package=Visible&w=opaque"),
+    () => decoded(state));
+
+  assert.deepEqual(parsed.tabs, []);
+  assert.match(parsed.workspaceNotice, /future-lens.*not supported/);
+});
+
+test("multiple canonical Platform tabs fail visibly before activation", () => {
+  const state = workspaceState();
+  state.tabs = [
+    {
+      id: "t0",
+      kind: "group",
+      source: ":Platform",
+      version: "10.0.10",
+      framework: "net10.0",
+      runtimeIdentifier: null,
+    },
+    {
+      id: "t1",
+      kind: "group",
+      source: ":Platform",
+      version: "10.0.11",
+      framework: "net10.0",
+      runtimeIdentifier: null,
+    },
+  ];
+
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot("https://inspect.example/?package=Visible&w=opaque"),
+    () => decoded(state));
+
+  assert.deepEqual(parsed.tabs, []);
+  assert.match(parsed.workspaceNotice, /multiple Platform tabs/);
 });
 
 test("workspace route preflight defers packet decoding", () => {
@@ -410,7 +685,7 @@ test("workspace route preflight defers packet decoding", () => {
   const resolved = resolveWorkspaceRoute(route, value => {
     decodeCalls++;
     assert.equal(value, "opaque");
-    return { error: "The product decoder rejected this packet." };
+    return rejected("The product decoder rejected this packet.");
   });
 
   assert.equal(decodeCalls, 1);
@@ -418,7 +693,89 @@ test("workspace route preflight defers packet decoding", () => {
   assert.deepEqual(resolved.tabs, []);
   assert.equal(
     resolved.workspaceNotice,
-    "The product decoder rejected this packet.");
+    "The shared workspace state was rejected (InvalidShape): "
+      + "The product decoder rejected this packet.");
+});
+
+test("authoritative packets bypass malformed courtesy paths", () => {
+  let decodeCalls = 0;
+  const parsed = parseWorkspaceLocation({
+    href: "https://inspect.example/packages/%E0%A4%A/1.0.0"
+      + "?package=Visible.Package&w=opaque",
+    pathname: "/packages/%E0%A4%A/1.0.0",
+    search: "?package=Visible.Package&w=opaque",
+    hash: "",
+  }, () => {
+    decodeCalls++;
+    return rejected("The packet is invalid.");
+  });
+
+  assert.equal(decodeCalls, 1);
+  assert.equal(parsed.hasWorkspaceState, true);
+  assert.equal(parsed.shareState, null);
+  assert.equal(parsed.package, "Visible.Package");
+  assert.match(parsed.workspaceNotice, /packet is invalid/);
+});
+
+test("an empty workspace parameter remains authoritative", () => {
+  const route = parseWorkspaceRoute(locationSnapshot(
+    "https://inspect.example/?package=Visible.Package&w=#metadata"));
+
+  assert.equal(route.encodedWorkspaceState, "");
+  assert.equal(route.hasWorkspaceState, true);
+  assert.equal(route.visible.hasWorkspaceState, true);
+});
+
+test("Browser Call Graph contexts reject Platform participants", () => {
+  const state = workspaceState();
+  state.tabs = [
+    state.tabs[0]!,
+    {
+      id: "t1",
+      kind: "group",
+      source: ":Platform",
+      version: "10.0.11",
+      framework: "net10.0",
+      runtimeIdentifier: null,
+    },
+  ];
+  state.contexts = [{ id: "g0", tabIds: ["t0", "t1"] }];
+  state.selectedContextId = "g0";
+
+  assert.throws(
+    () => selectedBrowserCallGraphPackageTabIds(state),
+    /Platform participant.*cannot realize/);
+
+  state.contexts = [{ id: "g0", tabIds: ["t0"] }];
+  assert.deepEqual(
+    selectedBrowserCallGraphPackageTabIds(state),
+    ["t0"]);
+});
+
+test("failed URL retention survives automatic renders until navigation changes", () => {
+  const preservation = {
+    url: "https://inspect.example/?package=Failed&w=opaque",
+    projection: "old-workspace",
+  };
+
+  assert.equal(
+    workspaceUrlPreservationApplies(
+      preservation,
+      preservation.url,
+      preservation.projection),
+    true);
+  assert.equal(
+    workspaceUrlPreservationApplies(
+      preservation,
+      "https://inspect.example/?package=Other",
+      preservation.projection),
+    false);
+  assert.equal(
+    workspaceUrlPreservationApplies(
+      preservation,
+      preservation.url,
+      "changed-workspace"),
+    false);
 });
 
 test("workspace route resolution skips the decoder without packet state", () => {
@@ -427,7 +784,7 @@ test("workspace route resolution skips the decoder without packet state", () => 
   let decodeCalls = 0;
   const resolved = resolveWorkspaceRoute(route, () => {
     decodeCalls++;
-    return { error: "unexpected" };
+    return rejected("unexpected");
   });
 
   assert.equal(route.encodedWorkspaceState, null);
@@ -448,6 +805,12 @@ test("location preflight snapshots once and defers decoding", () => {
     },
     replace() {},
     push() {},
+    decode(value) {
+      decodeCalls++;
+      assert.equal(value, "opaque");
+      return rejected("The product decoder rejected this packet.");
+    },
+    encode: () => encoded(),
   });
 
   const preflight = persistence.preflightCurrent();
@@ -458,67 +821,14 @@ test("location preflight snapshots once and defers decoding", () => {
   assert.equal(preflight.startsAtHome, false);
   assert.equal(preflight.visibleNotice, "");
 
-  const resolved = preflight.resolve(value => {
-    decodeCalls++;
-    assert.equal(value, "opaque");
-    return { error: "The product decoder rejected this packet." };
-  });
+  const resolved = preflight.resolve();
 
   assert.equal(currentCalls, 1);
   assert.equal(decodeCalls, 1);
   assert.equal(
     resolved.workspaceNotice,
-    "The product decoder rejected this packet.");
-});
-
-test("location preflight preserves malformed visible-coordinate notices for home", () => {
-  let href = "https://inspect.example/packages/%/1.0.0";
-  const persistence = createWorkspaceLocationPersistence({
-    current: () => locationSnapshot(href),
-    replace() {},
-    push() {},
-  });
-
-  for (const [url, field] of [
-    ["https://inspect.example/packages/%/1.0.0", "package"],
-    ["https://inspect.example/?overload=abc", "overload"],
-  ] as const) {
-    href = url;
-    const preflight = persistence.preflightCurrent();
-    assert.equal(preflight.visible.package, null);
-    assert.equal(preflight.hasWorkspaceState, false);
-    assert.equal(preflight.startsAtHome, true);
-    assert.match(preflight.visibleNotice, new RegExp(field));
-  }
-});
-
-test("graph member URLs retain exact identity instead of a lossy body target", () => {
-  const graphTarget = {
-    assembly: "Example.Second",
-    assemblyVersion: "2.0.0.0",
-    assemblyCulture: null,
-    assemblyPublicKeyToken: "0011223344556677",
-    typeDefinitionId: "T:Example.Widget",
-    typeMetadataId: "Example.Widget",
-    memberName: "Build",
-    selectorKey: "Build|System.String",
-    metadataToken: 0x0600002a,
-  };
-  const state = workspaceState({
-    selectedBodyTarget: graphTarget,
-    graphTarget,
-  });
-  const url = buildWorkspaceStateUrl("https://inspect.example/", state);
-  const packet = sharePacket(url);
-  const parsed = parseWorkspaceLocation(locationSnapshot(url));
-
-  assert.equal(Object.hasOwn(packet, "g"), true);
-  assert.equal(Object.hasOwn(packet, "d"), false);
-  assert.deepEqual(parsed.graphTarget, graphTarget);
-  assert.equal(parsed.bodyTarget, null);
-  assert.equal(parsed.type, state.selectedTypeId);
-  assert.equal(parsed.member, state.selectedMemberKey);
-  assert.equal(parsed.overload, state.selectedOverloadIndex);
+    "The shared workspace state was rejected (InvalidShape): "
+      + "The product decoder rejected this packet.");
 });
 
 test("history signatures distinguish exact graph member identity", () => {
@@ -559,66 +869,10 @@ test("history signatures distinguish captured library scope", () => {
     })));
 });
 
-test("package-root URLs omit stale type selection and retain their package lens", () => {
-  const url = buildWorkspaceStateUrl(
-    "https://inspect.example/",
-    workspaceState({
-      atPackageRoot: true,
-      packageLens: "dependencies",
-      graphTarget: {
-        assembly: "Example.Second",
-        assemblyVersion: "2.0.0.0",
-        assemblyCulture: null,
-        assemblyPublicKeyToken: null,
-        typeDefinitionId: "T:Example.Widget",
-        typeMetadataId: "Example.Widget",
-        memberName: "Build",
-        selectorKey: "Build|",
-        metadataToken: 0x0600002a,
-      },
-    }));
-  const packet = sharePacket(url);
-  const parsed = parseWorkspaceLocation(locationSnapshot(url));
-
-  assert.equal(parsed.atPackageRoot, true);
-  assert.equal(parsed.packageLens, "dependencies");
-  assert.equal(parsed.type, null);
-  assert.equal(parsed.member, null);
-  assert.equal(parsed.overload, null);
-  assert.equal(parsed.section, null);
-  assert.equal(parsed.bodyTarget, null);
-  assert.equal(parsed.graphTarget, null);
-  assert.equal(Object.hasOwn(packet, "g"), false);
-  assert.equal(parsed.memberBrowse, false);
-  assert.equal(parsed.memberTextFilter, "");
-  assert.equal(parsed.memberKindFilter, "all");
-  assert.equal(parsed.memberAccessibilityFilter, "all");
-  assert.equal(parsed.memberTraitFilter, "");
-});
-
-test("legacy workspace packets retain visible-location authority", () => {
-  const packet = Buffer.from(JSON.stringify([
-    ["Example.First", "1.0.0", "net9.0"],
-    ["Example.Second", "2.0.0", "net10.0"],
-  ])).toString("base64url");
-  const parsed = parseWorkspaceLocation(locationSnapshot(
-    `https://inspect.example/?package=Example.Second&version=9.9.9`
-      + `&framework=net8.0&type=Visible.Type&w=${packet}#source`));
-
-  assert.equal(parsed.package, "Example.Second");
-  assert.equal(parsed.version, "9.9.9");
-  assert.equal(parsed.framework, "net8.0");
-  assert.equal(parsed.type, "Visible.Type");
-  assert.equal(parsed.lens, "source");
-  assert.equal(parsed.active, 1);
-});
-
-test("unknown workspace view and member-section tokens are rejected visibly", () => {
-  // These used to be silently dropped, so a stale or mistyped shared link looked like it had
-  // worked while showing a different view. The valid coordinates are still recovered.
+test("unknown workspace view and member-section tokens are ignored", () => {
   const unknownLens = parseWorkspaceLocation(locationSnapshot(
     "https://inspect.example/?package=Example.Package"
-      + "&section=history#implementation"));
+      + "&section=history#implementation"), () => rejected("unused"));
   assert.equal(unknownLens.lens, null);
   assert.equal(unknownLens.atPackageRoot, false);
   assert.equal(unknownLens.packageLens, null);
@@ -629,13 +883,15 @@ test("unknown workspace view and member-section tokens are rejected visibly", ()
   assert.match(unknownLens.workspaceNotice, /view/);
 
   const unknownPackageLens = parseWorkspaceLocation(locationSnapshot(
-    "https://inspect.example/?package=Example.Package#pkg:files"));
+    "https://inspect.example/?package=Example.Package#pkg:files"),
+  () => rejected("unused"));
   assert.equal(unknownPackageLens.atPackageRoot, true);
   assert.equal(unknownPackageLens.packageLens, "overview");
   assert.match(unknownPackageLens.workspaceNotice, /could not be read/);
 
   const extraPackageLens = parseWorkspaceLocation(locationSnapshot(
-    "https://inspect.example/?package=Example.Package#pkg:dependencies:garbage"));
+    "https://inspect.example/?package=Example.Package#pkg:dependencies:garbage"),
+  () => rejected("unused"));
   assert.equal(extraPackageLens.atPackageRoot, true);
   assert.equal(extraPackageLens.packageLens, "overview");
   assert.match(extraPackageLens.workspaceNotice, /view/);
@@ -653,7 +909,9 @@ test("a recognized view and an absent hash produce no rejection notice", () => {
     "https://inspect.example/?package=Example.Package&overload=0",
   ]) {
     assert.equal(
-      parseWorkspaceLocation(locationSnapshot(href)).workspaceNotice,
+      parseWorkspaceLocation(
+        locationSnapshot(href),
+        () => rejected("unused")).workspaceNotice,
       "",
       `${href} should not report a rejection`);
   }
@@ -667,7 +925,9 @@ test("versionless package routes produce no rejection notice", () => {
     "https://inspect.example/packages/Example.Package/",
   ]) {
     assert.equal(
-      parseWorkspaceLocation(locationSnapshot(href)).workspaceNotice,
+      parseWorkspaceLocation(
+        locationSnapshot(href),
+        () => rejected("unused")).workspaceNotice,
       "",
       `${href} should not report an absent route coordinate`);
   }
@@ -683,7 +943,7 @@ test("a malformed percent-escape in a package route fails visibly instead of thr
       pathname,
       search: "",
       hash: "",
-    });
+    }, () => rejected("unused"));
     assert.equal(parsed.package, null);
     assert.match(parsed.workspaceNotice, /could not be read/);
     assert.match(parsed.workspaceNotice, /package/);
@@ -694,7 +954,7 @@ test("a malformed percent-escape in a package route fails visibly instead of thr
     pathname: "/packages/Example.Package/%zz",
     search: "",
     hash: "",
-  });
+  }, () => rejected("unused"));
   assert.equal(badVersion.package, "Example.Package");
   assert.equal(badVersion.version, null);
   assert.match(badVersion.workspaceNotice, /version/);
@@ -704,7 +964,7 @@ test("a malformed percent-escape in a package route fails visibly instead of thr
     pathname: "/packages//1.0.0",
     search: "",
     hash: "",
-  });
+  }, () => rejected("unused"));
   assert.equal(missingPackage.package, null);
   assert.equal(missingPackage.version, "1.0.0");
   assert.match(missingPackage.workspaceNotice, /package/);
@@ -715,250 +975,86 @@ test("the overload coordinate is parsed once, canonically, at the URL boundary",
   // every one of these aliases selected a real overload.
   for (const alias of ["+1", " 1", "1e0", "01", "-0", "1.0", "0x1", "Infinity", ""]) {
     const parsed = parseWorkspaceLocation(locationSnapshot(
-      `https://inspect.example/?package=Example.Package&overload=${encodeURIComponent(alias)}`));
+      `https://inspect.example/?package=Example.Package&overload=${encodeURIComponent(alias)}`),
+    () => rejected("unused"));
     assert.equal(parsed.overload, null, `overload=${JSON.stringify(alias)} should be rejected`);
     assert.match(parsed.workspaceNotice, /overload/);
   }
 
   const accepted = parseWorkspaceLocation(locationSnapshot(
-    "https://inspect.example/?package=Example.Package&overload=1"));
+    "https://inspect.example/?package=Example.Package&overload=1"),
+  () => rejected("unused"));
   assert.equal(accepted.overload, 1);
   assert.equal(accepted.workspaceNotice, "");
 
-  // A share packet is untrusted URL input too, so it takes the same parse.
-  const packet = Buffer.from(JSON.stringify({
-    t: [["Example.Package", "1.0.0", "net10.0"]],
-    a: 0,
-    y: "Example.Widget",
-    m: "method:Serialize",
-    o: "01",
-  })).toString("base64url");
-  const shared = parseWorkspaceLocation(locationSnapshot(
-    `https://inspect.example/?w=${packet}`));
-  assert.equal(shared.overload, null);
-  assert.match(shared.workspaceNotice, /invalid and was ignored/);
-  const negativeZeroPacket = Buffer.from(
-    '{"t":[["Example.Package","1.0.0","net10.0"]],"a":0,"o":-0}')
-    .toString("base64url");
-  const negativeZero = parseWorkspaceLocation(locationSnapshot(
-    `https://inspect.example/?w=${negativeZeroPacket}`));
-  assert.equal(negativeZero.overload, null);
-  assert.match(negativeZero.workspaceNotice, /invalid and was ignored/);
 });
 
-test("invalid and oversized workspace packets stay visible", () => {
-  const invalid = parseWorkspaceLocation(locationSnapshot(
-    "https://inspect.example/?package=Example.Package&w=not-base64"));
-  assert.equal(invalid.package, "Example.Package");
-  assert.match(invalid.workspaceNotice, /invalid and was ignored/);
+test("product decoder failures preserve visible location authority", () => {
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot(
+      "https://inspect.example/?package=Visible.Package&w=legacy"),
+    () => rejected("Legacy packets are not supported."));
 
-  const structurallyInvalid = parseWorkspaceLocation(locationSnapshot(
-    "https://inspect.example/?package=Example.Package&w=e30"));
-  assert.equal(structurallyInvalid.package, "Example.Package");
-  assert.match(structurallyInvalid.workspaceNotice, /invalid and was ignored/);
-
-  const oversized = parseWorkspaceLocation({
-    href: "https://inspect.example/",
-    pathname: "/",
-    search: `?w=${"x".repeat(65537)}`,
-    hash: "",
-  });
-  assert.match(oversized.workspaceNotice, /65536-character limit/);
-});
-
-test("rich workspace packets keep valid member sections and drop invalid ones", () => {
-  function richPacket(section: unknown) {
-    return Buffer.from(JSON.stringify({
-      t: [["Example.Package", "1.0.0", "net10.0"]],
-      a: 0,
-      y: "Example.Widget",
-      m: "method:Serialize",
-      c: section,
-    })).toString("base64url");
-  }
-
-  const valid = parseWorkspaceLocation(locationSnapshot(
-    `https://inspect.example/?w=${richPacket("call-graph")}`));
-  assert.equal(valid.section, "call-graph");
-  assert.equal(valid.workspaceNotice, "");
-
-  // The share packet is untrusted input, so an unknown token must not reach the
-  // MemberSection-typed field just because it is a string.
-  for (const hostile of ["history", "", "Overview", "call-graph "]) {
-    const parsed = parseWorkspaceLocation(locationSnapshot(
-      `https://inspect.example/?w=${richPacket(hostile)}`));
-    assert.equal(parsed.section, null, hostile);
-    assert.equal(parsed.type, "Example.Widget", hostile);
-    assert.match(parsed.workspaceNotice, /section/, hostile);
-  }
-
-  const nonString = parseWorkspaceLocation(locationSnapshot(
-    `https://inspect.example/?w=${richPacket(7)}`));
-  assert.equal(nonString.section, null);
-  assert.match(nonString.workspaceNotice, /invalid and was ignored/);
-});
-
-test("malformed rich packet fields cannot override the visible package", () => {
-  const base = {
-    t: [["Hidden.Package", "1.0.0", "net10.0"]],
-    a: 0,
-  };
-  const invalidPackets: Record<string, unknown>[] = [
-    { ...base, a: undefined },
-    { ...base, a: "0" },
-    { ...base, a: 0.5 },
-    { ...base, a: -1 },
-    { ...base, a: 1 },
-    ...["l", "v", "y", "m", "c", "q", "k", "e", "r"]
-      .map(key => ({ ...base, [key]: 1 })),
-    ...[null, "", "not-a-platform-pack", 1]
-      .map(p => ({ ...base, p })),
-    ...[null, "0", -1, 0.5, Number.MAX_SAFE_INTEGER + 1]
-      .map(o => ({ ...base, o })),
-    ...[
-      null,
-      "body",
-      [],
-      [null, null, null],
-      ["Build", null, 0.5],
-      [null, null, -1],
-      [null, null, 0x1_0000_0000],
-      [null, null, Number.MAX_SAFE_INTEGER + 1],
-    ]
-      .map(d => ({ ...base, d })),
-    ...[null, 0, true, "1"]
-      .map(b => ({ ...base, b })),
-  ];
-  const missingActive = invalidPackets[0];
-  assert.ok(missingActive);
-  delete missingActive.a;
-  const negativeZeroActive = Buffer.from(
-    '{"t":[["Hidden.Package","1.0.0","net10.0"]],"a":-0}')
-    .toString("base64url");
-  const rejectedNegativeZero = parseWorkspaceLocation(locationSnapshot(
-    `https://inspect.example/?package=Visible.Package&w=${negativeZeroActive}`));
-  assert.equal(rejectedNegativeZero.package, "Visible.Package");
-  assert.deepEqual(rejectedNegativeZero.tabs, []);
-  assert.equal(
-    rejectedNegativeZero.workspaceNotice,
-    "The shared workspace state is invalid and was ignored.");
-  const negativeZeroBody = Buffer.from(
-    '{"t":[["Hidden.Package","1.0.0","net10.0"]],"a":0,"d":[null,null,-0]}')
-    .toString("base64url");
-  const rejectedNegativeZeroBody = parseWorkspaceLocation(locationSnapshot(
-    `https://inspect.example/?package=Visible.Package&w=${negativeZeroBody}`));
-  assert.equal(rejectedNegativeZeroBody.package, "Visible.Package");
-  assert.deepEqual(rejectedNegativeZeroBody.tabs, []);
-  assert.equal(
-    rejectedNegativeZeroBody.workspaceNotice,
-    "The shared workspace state is invalid and was ignored.");
-
-  for (const packet of invalidPackets) {
-    const encoded = Buffer.from(JSON.stringify(packet)).toString("base64url");
-    const parsed = parseWorkspaceLocation(locationSnapshot(
-      `https://inspect.example/?package=Visible.Package&w=${encoded}`));
-    assert.equal(parsed.package, "Visible.Package");
-    assert.deepEqual(parsed.tabs, []);
-    assert.equal(
-      parsed.workspaceNotice,
-      "The shared workspace state is invalid and was ignored.");
-  }
-});
-
-test("invalid graph identities reject the rich packet without hiding the visible package", () => {
-  const validGraph = [
-    "Example.Second",
-    "2.0.0.0",
-    null,
-    null,
-    "T:Example.Widget",
-    "Example.Widget",
-    "Build",
-    "Build|",
-    0x0600002a,
-  ];
-  const packets = [
-    {
-      t: [["Hidden.Package", "1.0.0", "net10.0"]],
-      a: 0,
-      y: "Example.Widget",
-      m: "method:Build",
-      g: [...validGraph.slice(0, 8), "not-a-token"],
-    },
-    {
-      t: [["Hidden.Package", "1.0.0", "net10.0"]],
-      a: 0,
-      y: "Example.Widget",
-      m: "method:Build",
-      o: 0,
-      g: [validGraph[0], "", ...validGraph.slice(2)],
-    },
-    ...[
-      -1,
-      0,
-      0x02000001,
-      0x06000000,
-      0x07000000,
-      0x106000001,
-    ].map(metadataToken => ({
-      t: [["Hidden.Package", "1.0.0", "net10.0"]],
-      a: 0,
-      y: "Example.Widget",
-      m: "method:Build",
-      o: 0,
-      g: [...validGraph.slice(0, 8), metadataToken],
-    })),
-    {
-      t: [["Hidden.Package", "1.0.0", "net10.0"]],
-      a: 0,
-      y: "Example.Widget",
-      m: "method:Build",
-      g: validGraph,
-    },
-    {
-      t: [["Hidden.Package", "1.0.0", "net10.0"]],
-      a: 0,
-      y: "Example.Widget",
-      m: "method:Build",
-      o: "0",
-      g: validGraph,
-    },
-  ];
-
-  for (const packet of packets) {
-    const encoded = Buffer.from(JSON.stringify(packet)).toString("base64url");
-    const parsed = parseWorkspaceLocation(locationSnapshot(
-      `https://inspect.example/?package=Visible.Package&w=${encoded}`));
-    assert.equal(parsed.package, "Visible.Package");
-    assert.deepEqual(parsed.tabs, []);
-    assert.equal(parsed.graphTarget, null);
-    assert.equal(
-      parsed.workspaceNotice,
-      "The shared graph member target is invalid and was ignored.");
-  }
-
-  const negativeZero = Buffer.from(
-    `{"t":[["Hidden.Package","1.0.0","net10.0"]],"a":0,`
-    + `"y":"Example.Widget","m":"method:Build","o":-0,`
-    + `"g":${JSON.stringify(validGraph)}}`)
-    .toString("base64url");
-  const parsed = parseWorkspaceLocation(locationSnapshot(
-    `https://inspect.example/?package=Visible.Package&w=${negativeZero}`));
   assert.equal(parsed.package, "Visible.Package");
+  assert.equal(parsed.hasWorkspaceState, true);
   assert.deepEqual(parsed.tabs, []);
-  assert.equal(parsed.overload, null);
-  assert.equal(parsed.graphTarget, null);
-  assert.match(parsed.workspaceNotice, /invalid and was ignored/);
+  assert.match(parsed.workspaceNotice, /Legacy packets are not supported/);
+});
+
+test("canonical packets without a lens discard legacy hash state", () => {
+  const state = workspaceState();
+  state.view.lens = null;
+
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot(
+      "https://inspect.example/?package=Visible.Package&w=canonical#metadata"),
+    () => decoded(state));
+
+  assert.equal(parsed.shareState?.view.lens, null);
+  assert.equal(parsed.lens, null);
+  assert.equal(parsed.atPackageRoot, false);
+});
+
+test("unsupported canonical Browser views fail visibly without partial state", () => {
+  const unsupported = workspaceState({
+    view: {
+      ...workspaceState().view,
+      section: "History",
+    },
+  });
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot(
+      "https://inspect.example/?package=Visible.Package&w=canonical"),
+    () => decoded(unsupported));
+
+  assert.equal(parsed.package, "Visible.Package");
+  assert.equal(parsed.hasWorkspaceState, true);
+  assert.deepEqual(parsed.tabs, []);
+  assert.match(parsed.workspaceNotice, /not supported by this browser/);
 });
 
 test("location persistence contains sync failures but leaves direct build failures visible", () => {
   const current = locationSnapshot("https://inspect.example/");
   const replaced: string[] = [];
   const pushed: string[] = [];
+  let failEncoding = false;
+  const encode = (): BrowserWorkspaceShareEncodeResult => failEncoding
+    ? {
+      succeeded: false,
+      packet: null,
+      failure: {
+        kind: "InvalidTopology",
+        path: "context[g0]",
+        message: "The selected context is not projectable.",
+      },
+    }
+    : encoded();
   const persistence = createWorkspaceLocationPersistence({
     current: () => current,
     replace: url => replaced.push(url),
     push: url => pushed.push(url),
+    decode: () => rejected("unused"),
+    encode,
   });
 
   persistence.sync(workspaceState());
@@ -968,9 +1064,8 @@ test("location persistence contains sync failures but leaves direct build failur
   assert.equal(new URL(replacedUrl).searchParams.get("package"), "Example.Second");
   assert.deepEqual(pushed, ["/"]);
   const replacedCount = replaced.length;
-  assert.doesNotThrow(() => persistence.sync(workspaceState({
-    memberTextFilter: "x".repeat(65537),
-  })));
+  failEncoding = true;
+  assert.doesNotThrow(() => persistence.sync(workspaceState()));
   assert.equal(replaced.length, replacedCount);
 
   const blocked = createWorkspaceLocationPersistence({
@@ -981,14 +1076,14 @@ test("location persistence contains sync failures but leaves direct build failur
     push: () => {
       throw new DOMException("blocked");
     },
+    decode: () => rejected("unused"),
+    encode: () => encoded(),
   });
   assert.doesNotThrow(() => blocked.sync(workspaceState()));
   assert.doesNotThrow(() => blocked.push("/"));
   assert.throws(
-    () => blocked.build(workspaceState({
-      memberTextFilter: "x".repeat(65537),
-    })),
-    /65536-character limit/);
+    () => persistence.build(workspaceState()),
+    /selected context is not projectable/);
 });
 
 function linkClick(overrides: Partial<LinkNavigationClick> = {}): LinkNavigationClick {

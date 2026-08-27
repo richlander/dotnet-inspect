@@ -1040,20 +1040,136 @@ const unsupportedReflectiveReads = new Set([
   "Reflect.getOwnPropertyDescriptor",
 ]);
 
+interface IntrinsicAliases {
+  globals: Set<string>;
+  objects: Map<string, Set<string>>;
+}
+
+function intrinsicObjectNames(
+  node: Node,
+  aliases: IntrinsicAliases,
+): Set<string> {
+  const expression = unwrapExpression(node);
+  if (expression.type === "Identifier") {
+    if (expression.name === "Reflect" || expression.name === "Object") {
+      return new Set([expression.name]);
+    }
+    return new Set(aliases.objects.get(expression.name) ?? []);
+  }
+  if (expression.type !== "MemberExpression"
+    || expression.object.type !== "Identifier"
+    || !aliases.globals.has(expression.object.name)) {
+    return new Set();
+  }
+  const name = memberName(expression);
+  return name === "Reflect" || name === "Object"
+    ? new Set([name])
+    : new Set();
+}
+
+function reflectiveIntrinsicAliases(program: Program): IntrinsicAliases {
+  const aliases: IntrinsicAliases = {
+    globals: new Set(["globalThis", "self", "window"]),
+    objects: new Map(),
+  };
+  const addObjectAlias = (name: string, values: ReadonlySet<string>) => {
+    const current = aliases.objects.get(name) ?? new Set<string>();
+    const before = current.size;
+    for (const value of values) current.add(value);
+    aliases.objects.set(name, current);
+    return current.size !== before;
+  };
+  let changed = true;
+  while (changed) {
+    changed = false;
+    walk(program, node => {
+      if (node.type !== "VariableDeclarator"
+        && node.type !== "AssignmentExpression") {
+        return;
+      }
+      const binding: unknown = Reflect.get(
+        node,
+        node.type === "VariableDeclarator" ? "id" : "left");
+      const value: unknown = Reflect.get(
+        node,
+        node.type === "VariableDeclarator" ? "init" : "right");
+      if (!isNode(binding) || !isNode(value)) return;
+      if (binding.type === "Identifier") {
+        if (value.type === "Identifier"
+          && aliases.globals.has(value.name)
+          && !aliases.globals.has(binding.name)) {
+          aliases.globals.add(binding.name);
+          changed = true;
+        }
+        if (addObjectAlias(
+            binding.name,
+            intrinsicObjectNames(value, aliases))) {
+          changed = true;
+        }
+        return;
+      }
+      if (binding.type !== "ObjectPattern"
+        || value.type !== "Identifier"
+        || !aliases.globals.has(value.name)) {
+        return;
+      }
+      const properties: unknown = Reflect.get(binding, "properties");
+      if (!Array.isArray(properties)) return;
+      for (const property of properties) {
+        if (!isNode(property) || property.type !== "Property") continue;
+        const intrinsic = propertyName(Reflect.get(property, "key"));
+        if (intrinsic !== "Reflect" && intrinsic !== "Object") continue;
+        for (const name of bindingNames(Reflect.get(property, "value"))) {
+          if (addObjectAlias(name, new Set([intrinsic]))) changed = true;
+        }
+      }
+    });
+  }
+  return aliases;
+}
+
 function reflectiveReadViolations(files: readonly SourceFile[]): string[] {
   const violations: string[] = [];
   for (const file of files) {
-    const aliases = domAliases(file.program);
+    const dom = domAliases(file.program);
+    const intrinsics = reflectiveIntrinsicAliases(file.program);
     walk(file.program, node => {
-      if (node.type !== "MemberExpression"
-        || node.object.type !== "Identifier") {
+      if (node.type === "VariableDeclarator"
+        || node.type === "AssignmentExpression") {
+        const binding: unknown = Reflect.get(
+          node,
+          node.type === "VariableDeclarator" ? "id" : "left");
+        const value: unknown = Reflect.get(
+          node,
+          node.type === "VariableDeclarator" ? "init" : "right");
+        if (!isNode(binding)
+          || binding.type !== "ObjectPattern"
+          || !isNode(value)) {
+          return;
+        }
+        const objects = intrinsicObjectNames(value, intrinsics);
+        const properties: unknown = Reflect.get(binding, "properties");
+        if (!Array.isArray(properties)) return;
+        for (const property of properties) {
+          if (!isNode(property) || property.type !== "Property") continue;
+          const method = propertyName(Reflect.get(property, "key"));
+          if (![...objects].some(object =>
+              unsupportedReflectiveReads.has(`${object}.${method}`))) {
+            continue;
+          }
+          violations.push(
+            `${file.name}:${lineOf(file.text, property.start)}: `
+            + file.text.slice(property.start, property.end));
+        }
         return;
       }
-      const method = resolvedMemberName(node, aliases);
-      const call = method
-        ? `${node.object.name}.${method}`
-        : "";
-      if (!unsupportedReflectiveReads.has(call)) return;
+      if (node.type !== "MemberExpression") return;
+      const method = resolvedMemberName(node, dom);
+      const objects = intrinsicObjectNames(node.object, intrinsics);
+      if (![...objects].some(object =>
+          unsupportedReflectiveReads.has(`${object}.${method}`))) {
+        return;
+      }
       violations.push(
         `${file.name}:${lineOf(file.text, node.start)}: `
         + file.text.slice(node.start, node.end));
@@ -1192,8 +1308,15 @@ const reflectMethod = "get" as const;
 Reflect[reflectMethod](button, key);
 Object.getOwnPropertyDescriptor(button, key);
 const erasedGet = Reflect.get;
+globalThis.Reflect.get(button, key);
+const globalReflector = globalThis.Reflect;
+const reflector = globalReflector;
+reflector.get(button, key);
+const { get: reflectedGet } = reflector;
+const { Reflect: destructuredReflect } = globalThis;
+destructuredReflect.get(button, key);
 `);
-  assert.equal(reflectiveReadViolations([reflectionProbe]).length, 4);
+  assert.equal(reflectiveReadViolations([reflectionProbe]).length, 8);
 });
 
 test("the gate tracks dataset destructuring and rejects object escapes", () => {

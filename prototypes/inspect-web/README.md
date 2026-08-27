@@ -146,9 +146,15 @@ evicted cumulative workspace can be re-acquired without version drift or lost
 participants. Every archive is temporarily leased as soon as acquisition
 returns it and until the cumulative candidate is registered or abandoned, so a
 later family download cannot evict bytes that the unregistered candidate still
-holds. Shared links carry the selected library's exact pack token, and initial
-member graphs use the same escaped definition identity as subsequent graph
-descent. Platform graph loads and descents also carry the target's complete
+holds. Shared links carry the canonical `:Platform` group version and selected library
+identity. An exact version bypasses discovery, keys retained Platform state
+separately from floating acquisition, and follows every later assembly and
+query operation; a different resident patch cannot satisfy it. A missing pin or
+the Browser `latest` sentinel remains floating and uses version discovery.
+`PlatformWorkspace_ExactVersionSkipsDiscoveryAndDoesNotReuseLatestState` and
+`PlatformWorkspace_LatestSentinelUsesVersionDiscovery` gate those behaviors.
+Initial member graphs use the same escaped definition identity
+as subsequent graph descent. Platform graph loads and descents also carry the target's complete
 assembly identity and reject an acquired root that is not binding-equivalent,
 rather than applying a valid selector to a different assembly version or
 public-key token. A selected Platform coordinate that matches multiple full
@@ -219,6 +225,7 @@ assemblies that receive a .NET platform lookup on click.
 | `engine/Program.cs` | the entry point, and nothing else |
 | `engine/BannedSymbols.txt` | the compiler-enforced workspace rule |
 | `engine/BrowserContracts.cs` | the transport records and their source-generated JSON context |
+| `engine/BrowserWorkspaceShareOperations.cs` | typed Browser adaptation over the product-owned workspace packet codec and transposer |
 | `engine/BrowserPackageWorkspace.cs` | the Browser adapter over shared package acquisition, the session cache/capacity policy, and the bounded workspace registry |
 | `engine/BrowserPlatformWorkspace.cs` | content-backed platform acquisition, exact family pins, cumulative group replacement, and shared package/workspace accounting |
 | `engine/BrowserApiSurfacePolicy.cs` | the explicit participant/type/member bounds every API-surface projection runs under |
@@ -651,13 +658,15 @@ attribute-to-decoder catalog, and rejects direct `Number`, `parseInt`, or unary
 `+` coercions plus numeric attributes read raw elsewhere.
 Dataset aliases and destructuring remain visible to the gate, dataset objects
 cannot escape to unaudited helpers, dynamic or reflective property reads cannot
-masquerade as named attributes, alternate attribute APIs fail closed, and only
-unshadowed imports from `dom-data` count as canonical decoders.
+masquerade as named attributes, and receiver aliases and destructuring remain
+traceable through browser globals such as `globalThis`. Alternate attribute
+APIs fail closed, and only unshadowed imports from `dom-data` count as canonical
+decoders.
 A malformed URL field -- a bad percent-escape in a package route, an unknown
 lens or member section, a non-canonical overload, or a member filter, section,
 or overload that is unavailable in the restored type or inconsistent with its
-exact graph target -- is reported in the workspace notice rather than becoming
-a default view.
+exact graph or body target -- is reported in the workspace notice rather than
+becoming a default view.
 
 Oxlint checks both checked-in tsbindgen outputs as consumer contracts:
 `src/inspect-web-engine.d.ts` receives the TypeScript rules, while
@@ -792,14 +801,63 @@ state: changing either resolves a different workspace. Lenses this engine does
 not answer report the engine's failure rather than fixture results.
 
 `src/workspace-navigation.ts` owns the in-memory view history, monotonic
-navigation generation, share-packet encoding and decoding, URL routing and
-building, the browser-history port, and the single delegated click listener
+navigation generation, URL routing and building, typed adaptation to the
+generated workspace-state bridge, the browser-history port, and the single delegated click listener
 that intercepts same-origin in-app anchor clicks
 (`bindWorkspaceLinkNavigation`/`shouldInterceptLinkClick`) — a modified click,
 `target`-scoped link, `download` link, or cross-origin href keeps native
 browser behavior. Initial routing records the opaque `w=` value without decoding
 it, which preserves the bare-home paint before WebAssembly while allowing shared
 workspace resolution to run only after the engine is ready.
+`BrowserWorkspaceShareOperations` then routes decode through
+`WorkspaceSharePacketCodec` and `WorkspaceSharePacketTransposer`; encoding
+reverses the same path. TypeScript neither understands compact packet fields nor
+owns base64url. Packet-local tabs, independent navigation focus and selected
+binding context, portable member anchors/signatures, section, and sorted library
+scope cross the generated bridge as long-form records. The selected context,
+not every open tab, bounds package Call Graph expansion. Browser-created Call
+Graph state composes only package tabs with the active tab's framework and RID;
+incompatible tabs remain separate contexts. Product-run Call Graph demos install
+their exact executed package order as the selected context, and expanded queries
+send that complete ordered context to the product engine.
+
+Browser activation supports package tabs and one exact or floating `:Platform`
+group tab without RIDs. Canonical activation is atomic: any unavailable tab,
+library, type, member, applicable member section, or many-to-one or
+coordinate-changing tab resolution leaves the original URL intact, retains the
+prior workbench when one exists, and reports the failed restore rather than
+activating a partial workspace.
+Unsupported groups, multiple Platform tabs, runtime identifiers,
+multiple selected libraries, unknown lenses or sections, package-root facets,
+unresolved graph targets,
+ambiguous overloads, graph-discovered members, accessor-specific bodies, and
+members without a portable product identity fail visibly rather than producing
+lossy state. These boundaries are gated by `canonical tabs must remain distinct
+and ordered after resolution`, `missing Platform reacquisition retains only an
+aligned canonical pin`, and `canonical restoration is atomic and history adopts
+the active packet basis`. A present `w=` remains authoritative even when
+decoding or Browser adaptation rejects it; the visible package label is never a
+fallback workspace, and malformed courtesy paths cannot preempt packet handling.
+Failed packet URLs survive automatic nested renders until the projected
+workspace changes. Successful packet activation discards any prior graph-source
+modal, and explicit version or framework changes discard a floating packet basis
+before URL capture only after acquisition succeeds. A failed Platform switch
+retains its resident workspace. A selected Call Graph context containing a
+Platform participant fails visibly because the Browser transport realizes only
+package participants. `an empty workspace parameter remains authoritative`,
+`authoritative packets bypass malformed courtesy paths`, `failed URL retention
+survives automatic renders until navigation changes`, `Browser Call Graph
+contexts reject Platform participants`, `explicit coordinate changes discard a
+floating canonical basis`, and `canonical commit clears a settled graph source
+without rendering` gate those boundaries.
+`canonical transitions cancel visible source work before snapshot` and
+`canonical transitions settle annotated source before snapshot` specifically
+gate source-request settlement. Filters and browse presentation stay
+session-local. A package-root view drops stale `w=` state and uses the ordinary
+Browser package route for address-bar synchronization and explicit Share until
+product facet ids exist. Other transient,
+non-projectable views retain the last valid canonical URL; explicit Share
+reports the refusal.
 `test/workspace-navigation.test.ts` gates that the route preflight cannot decode
 the packet and that later resolution invokes exactly one decoder.
 `dotnet-inspect.ts` remains the sole mutable
@@ -836,9 +894,9 @@ handled fallthrough, exact modifiers, conflict reporting, disposal, and the
 original stack-navigation collision. `test/spotlight-identity.test.js` gates
 the single-listener wiring and the complete workbench priority order.
 `test/workspace-navigation.test.ts` gates
-history traversal, stale-entry removal, navigation cancellation, rich and
-legacy URL compatibility, visible invalid-state failures, sandboxed history
-errors, and the link-interception rule.
+history traversal, stale-entry removal, navigation cancellation, generated
+codec delegation, canonical topology and identity adaptation, visible typed
+failures, sandboxed history errors, and the link-interception rule.
 
 `src/package-acquisition.ts` owns NuGet and runtime-pack engine invocation,
 surface-to-workspace-model projection, serialized runtime-pack loading, and
@@ -849,6 +907,8 @@ activation, workspace restoration, notices, retries, and rendering.
 ordering, runtime request serialization and merging, cancellation after queued
 or in-flight work, request-local failure reporting, replacement-slot
 preservation, retry after failure, and resident-pack reuse;
+exact Platform pins additionally gate version-aware resident reuse and engine
+invocation;
 `test/spotlight-identity.test.js` gates provenance, failure adaptation, and
 composition-root wiring.
 

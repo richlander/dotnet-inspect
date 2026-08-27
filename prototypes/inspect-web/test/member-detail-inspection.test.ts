@@ -5,6 +5,7 @@ import { sampleDocument } from "../../annotated-source-viewer/src/sample-documen
 import type { AnnotatedSourceResult } from "../src/annotated-source.ts";
 import { validateAnnotatedSourceDocument } from "../src/annotated-source-view.ts";
 import {
+  cancelAnnotatedSourceRequest,
   createMemberDetailInspectionCoordinator,
   type DocumentableMemberSurface,
   type MemberAnnotatedRequest,
@@ -644,6 +645,20 @@ test("duplicate in-flight annotated requests do not query or mutate state", asyn
   assert.equal(renders, 1);
   assert.equal(state.memberAnnotated, null);
   assert.equal(state.memberAnnotatedLoading, true);
+});
+
+test("canonical transitions settle annotated source before snapshot", () => {
+  const state = inspectionState({
+    memberAnnotatedLoading: true,
+    memberAnnotatedKey: "annotated",
+    memberAnnotatedError: "stale",
+  });
+
+  assert.equal(cancelAnnotatedSourceRequest(state), true);
+  assert.equal(state.memberAnnotatedLoading, false);
+  assert.equal(state.memberAnnotatedKey, "");
+  assert.equal(state.memberAnnotatedError, "");
+  assert.equal(cancelAnnotatedSourceRequest(state), false);
 });
 
 test("another member starts while an annotated request is in flight", async () => {
