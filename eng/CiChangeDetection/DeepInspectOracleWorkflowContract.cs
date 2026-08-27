@@ -72,6 +72,11 @@ internal static class DeepInspectOracleWorkflowContract
             "Deep Inspect source-oracle contract accepted a disabled job.");
         AssertMutationRejected(
             workflow,
+            JobConditionYaml,
+            JobConditionYaml + "\n    needs: nightly",
+            "Deep Inspect source-oracle contract accepted a dependent job.");
+        AssertMutationRejected(
+            workflow,
             $"    - cron: '{WeeklyCron}'\n",
             "",
             "Deep Inspect source-oracle contract accepted a missing weekly trigger.");
@@ -111,6 +116,7 @@ internal static class DeepInspectOracleWorkflowContract
             "if",
             JobCondition,
             $"jobs.{JobName}");
+        RequireAbsent(job, "needs", $"jobs.{JobName}");
         RequireAbsent(job, "continue-on-error", $"jobs.{JobName}");
         RequireAbsent(job, "defaults", $"jobs.{JobName}");
 
@@ -309,6 +315,12 @@ internal static class DeepInspectOracleWorkflowContract
             oldValue,
             newValue,
             message);
+        using (TextReader reader = new StringReader(mutated))
+        {
+            YamlStream syntax = [];
+            syntax.Load(reader);
+        }
+
         try
         {
             ValidateWorkflow(mutated);
