@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
@@ -234,8 +235,8 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
-    /// Yields every <c>*.dll</c> beneath <paramref name="root"/>, recording any
-    /// directory it could not read into <paramref name="inaccessible"/>.
+    /// Yields every assembly beneath <paramref name="root"/>, recording anything
+    /// it could not read into <paramref name="inaccessible"/>.
     ///
     /// The obvious spelling — <see cref="Directory.EnumerateFiles(string, string, EnumerationOptions)"/>
     /// with <c>IgnoreInaccessible</c> — is wrong for a gate. It keeps one
@@ -245,24 +246,42 @@ public sealed class StateMachineCompletenessTests
     /// then sweeps green while proving nothing about them. Walking explicitly
     /// keeps the sweep robust and the hole visible, which is the property that
     /// actually matters here.
+    ///
+    /// The walk reads each directory once with
+    /// <see cref="Directory.GetFileSystemEntries(string)"/> and classifies every
+    /// entry itself, rather than taking a <c>GetDirectories</c>/<c>GetFiles</c>
+    /// split as the classification. Those two calls do not partition a
+    /// directory: a symbolic link whose target sits under a search-denied parent
+    /// is absent from the first and present in the second, so the split
+    /// presented an unreadable subtree as a file and then dropped it for having
+    /// no assembly extension. Anything that is neither a readable directory nor
+    /// a candidate file is now recorded rather than assumed uninteresting.
+    ///
+    /// A <c>visited</c> set keyed on identity, resolved through the final link
+    /// target, terminates cycles. A link pointing at its own ancestor otherwise
+    /// walks until the operating system's <c>ELOOP</c> limit stops it — measured
+    /// at 204 wasted directory reads — and then reports the resulting
+    /// <see cref="IOException"/> as a hole, which is a true statement about a
+    /// corpus with no hole in it.
     /// </summary>
     static IEnumerable<string> EnumerateCandidates(
         string root,
         List<string> inaccessible)
     {
         var pending = new Stack<string>();
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+
         pending.Push(root);
+        visited.Add(DirectoryIdentity(root));
 
         while (pending.Count != 0)
         {
             string directory = pending.Pop();
 
-            string[] subdirectories;
-            string[] files;
+            string[] entries;
             try
             {
-                subdirectories = Directory.GetDirectories(directory);
-                files = Directory.GetFiles(directory);
+                entries = Directory.GetFileSystemEntries(directory);
             }
             catch (Exception ex)
                 when (ex is UnauthorizedAccessException or IOException)
@@ -271,18 +290,98 @@ public sealed class StateMachineCompletenessTests
                 continue;
             }
 
-            foreach (string subdirectory in subdirectories)
+            foreach (string entry in entries)
             {
-                pending.Push(subdirectory);
-            }
-
-            foreach (string file in files)
-            {
-                if (IsAssemblyExtension(Path.GetExtension(file.AsSpan())))
+                FileAttributes attributes;
+                try
                 {
-                    yield return file;
+                    attributes = File.GetAttributes(entry);
+                }
+                catch (Exception ex)
+                    when (ex is UnauthorizedAccessException or IOException)
+                {
+                    inaccessible.Add($"{entry} ({ex.Message})");
+                    continue;
+                }
+
+                if ((attributes & FileAttributes.Directory) != 0)
+                {
+                    // Identity, not path, so that a link pointing back at an
+                    // ancestor is visited once instead of walked until the
+                    // operating system's symlink depth limit stops it.
+                    if (visited.Add(DirectoryIdentity(entry)))
+                    {
+                        pending.Push(entry);
+                    }
+
+                    continue;
+                }
+
+                if (IsAssemblyExtension(Path.GetExtension(entry.AsSpan())))
+                {
+                    yield return entry;
+                    continue;
+                }
+
+                if ((attributes & FileAttributes.ReparsePoint) == 0)
+                {
+                    // An ordinary file that is not named like an assembly. This
+                    // is the only entry the sweep skips without accounting for
+                    // it, and it is the only one it can skip safely.
+                    continue;
+                }
+
+                // A link that did not present itself as a directory. It may still
+                // be one: a link whose target sits under a directory without
+                // search permission is reported by GetFileSystemEntries but is
+                // missing the Directory attribute, so treating it as an ordinary
+                // file would drop an entire subtree in silence -- the same
+                // false-clean sweep an ignored unreadable directory used to
+                // cause. Ask directly rather than assume.
+                bool walkable;
+                try
+                {
+                    Directory.GetFileSystemEntries(entry);
+                    walkable = true;
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    inaccessible.Add(
+                        $"{entry} (link to an unreadable target: {ex.Message})");
+                    continue;
+                }
+                catch (Exception ex) when (ex is IOException)
+                {
+                    // Not a directory at all: a dangling link, or a link to a
+                    // file that is not named like an assembly. Nothing is hidden.
+                    walkable = false;
+                }
+
+                if (walkable && visited.Add(DirectoryIdentity(entry)))
+                {
+                    pending.Push(entry);
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// A directory's identity for cycle detection: the final target of any link
+    /// chain, falling back to the full path when the entry is not a link or the
+    /// target cannot be resolved.
+    /// </summary>
+    static string DirectoryIdentity(string path)
+    {
+        try
+        {
+            return new DirectoryInfo(path)
+                    .ResolveLinkTarget(returnFinalTarget: true)?.FullName
+                ?? Path.GetFullPath(path);
+        }
+        catch (Exception ex)
+            when (ex is IOException or UnauthorizedAccessException)
+        {
+            return Path.GetFullPath(path);
         }
     }
 
@@ -306,6 +405,95 @@ public sealed class StateMachineCompletenessTests
     static bool IsAssemblyExtension(ReadOnlySpan<char> extension) =>
         extension.Equals(".dll", StringComparison.OrdinalIgnoreCase)
             || extension.Equals(".exe", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// A link the sweep cannot follow must be recorded, not skipped. When a
+    /// link's target sits under a directory without search permission,
+    /// <c>GetFileSystemEntries</c> reports the link but it carries no
+    /// <c>Directory</c> attribute, so the old <c>GetDirectories</c>/<c>GetFiles</c>
+    /// split showed it as a file; having no assembly extension, it was then
+    /// dropped without a word, and every assembly behind it went unexamined
+    /// while the sweep reported success.
+    /// </summary>
+    [Fact]
+    public void EnumerateCandidates_LinkToUnreadableDirectory_IsRecorded()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        string temp = Path.Combine(
+            Path.GetTempPath(),
+            $"sm-link-{Guid.NewGuid():N}");
+        string corpus = Path.Combine(temp, "corpus");
+        string restricted = Path.Combine(temp, "restricted");
+        string hidden = Path.Combine(restricted, "hidden");
+        Directory.CreateDirectory(corpus);
+        Directory.CreateDirectory(hidden);
+
+        try
+        {
+            File.WriteAllBytes(Path.Combine(corpus, "visible.dll"), []);
+            File.WriteAllBytes(Path.Combine(hidden, "concealed.dll"), []);
+            Directory.CreateSymbolicLink(Path.Combine(corpus, "link"), hidden);
+            File.SetUnixFileMode(restricted, UnixFileMode.None);
+
+            var inaccessible = new List<string>();
+            string[] found = EnumerateCandidates(corpus, inaccessible)
+                .Select(path => Path.GetFileName(path)!)
+                .ToArray();
+
+            Assert.Equal(new[] { "visible.dll" }, found);
+            Assert.Single(inaccessible);
+            Assert.Contains("link", inaccessible[0]);
+        }
+        finally
+        {
+            File.SetUnixFileMode(
+                restricted,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            Directory.Delete(temp, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A link pointing back at an ancestor must be visited once. Without
+    /// identity tracking the walk descends until the operating system's symlink
+    /// depth limit stops it — 204 directory reads for a single link in
+    /// measurement, ending in an <c>ELOOP</c> reported as an unreadable entry,
+    /// which is a confusing failure for a corpus that is merely unusual.
+    /// </summary>
+    [Fact]
+    public void EnumerateCandidates_SymlinkCycle_TerminatesAndReportsNothing()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"sm-cycle-{Guid.NewGuid():N}");
+        string inner = Path.Combine(root, "inner");
+        Directory.CreateDirectory(inner);
+
+        try
+        {
+            File.WriteAllBytes(Path.Combine(inner, "only.dll"), []);
+            Directory.CreateSymbolicLink(Path.Combine(inner, "loop"), root);
+
+            var inaccessible = new List<string>();
+            string[] found = EnumerateCandidates(root, inaccessible).ToArray();
+
+            Assert.Empty(inaccessible);
+            Assert.Single(found);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
 
     /// <summary>
     /// Enumeration must not decide what the corpus covers by way of a platform
@@ -351,6 +539,50 @@ public sealed class StateMachineCompletenessTests
         finally
         {
             Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Damage to the CLI header's directory *size* alone must reach
+    /// <c>DecodeFailed</c>. This is a different seam from the metadata-signature
+    /// case below: SRM rejects the PE headers outright, so
+    /// <c>HasMetadata</c> throws exactly as it does for a file that is not a PE,
+    /// and the file was classified <c>NotManaged</c> and skipped. A corpus
+    /// holding this specimen beside one valid assembly swept green.
+    /// </summary>
+    [Fact]
+    public void TryMeasure_DamagedCliDirectory_ReportsDecodeFailed()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(StateMachineCompletenessTests).Assembly.Location);
+
+        int peOffset = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(0x3C));
+        int optional = peOffset + 4 + 20;
+        int directories =
+            BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(optional)) == 0x20B
+                ? 112
+                : 96;
+        int cliSize = optional + directories + (14 * 8) + 4;
+
+        Assert.NotEqual(0u, BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(cliSize)));
+        BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(cliSize), 0);
+
+        string damaged = Path.Combine(
+            Path.GetTempPath(),
+            $"sm-cli-{Guid.NewGuid():N}.dll");
+
+        try
+        {
+            File.WriteAllBytes(damaged, image);
+
+            Assert.Equal(
+                CorpusOutcome.DecodeFailed,
+                TryMeasure(damaged, out _, out string? detail));
+            Assert.NotNull(detail);
+        }
+        finally
+        {
+            File.Delete(damaged);
         }
     }
 
@@ -490,14 +722,45 @@ public sealed class StateMachineCompletenessTests
 
         using (stream)
         {
+            // Whether the file claims to be managed is decided here, before SRM
+            // is consulted, and deliberately without using SRM.
+            //
+            // Round 4 showed why. Zeroing only the CLI header's directory *size*
+            // makes SRM reject the PE headers wholesale: `HasMetadata`,
+            // `PEHeaders.PEHeader.CorHeaderTableDirectory`, and
+            // `GetMetadataReader` all throw BadImageFormatException, exactly as
+            // they do for a file that is not a PE at all. Asking SRM to
+            // distinguish "not managed" from "managed but damaged" therefore
+            // cannot work: once it rejects the headers it will not tell us
+            // whether a CLI directory was claimed, so damage was laundered into
+            // NotManaged and skipped in silence.
+            //
+            // The independent read below answers only that one question, which
+            // also makes it a genuine oracle rather than a restatement of the
+            // thing under test.
+            ManagedClaim claim = ReadManagedClaim(stream, ref detail);
+            if (claim == ManagedClaim.Unreadable)
+            {
+                return CorpusOutcome.Inaccessible;
+            }
+
+            // A file that claims to be managed and will not decode is a decode
+            // failure at every seam below, and must fail the sweep.
+            CorpusOutcome undecodable = claim == ManagedClaim.Yes
+                ? CorpusOutcome.DecodeFailed
+                : CorpusOutcome.NotManaged;
+
+            stream.Position = 0;
+
             PEReader pe;
             try
             {
                 pe = new PEReader(stream, PEStreamOptions.PrefetchEntireImage);
             }
-            catch (BadImageFormatException)
+            catch (BadImageFormatException ex)
             {
-                return CorpusOutcome.NotManaged;
+                detail = $"{ex.GetType().Name}: {ex.Message}";
+                return undecodable;
             }
             catch (Exception ex)
                 when (ex is UnauthorizedAccessException or IOException)
@@ -508,36 +771,21 @@ public sealed class StateMachineCompletenessTests
 
             using (pe)
             {
-                // The seam between "not managed" and "managed but undecodable"
-                // is here, and it used to sit one step too late. HasMetadata
-                // reads the PE headers and the CLI directory entry; if that
-                // throws, or reports no CLI directory, the file is not a managed
-                // assembly and skipping it is right. Once it reports true the
-                // file claims to be managed, so any later failure is a decode
-                // failure and must fail the sweep rather than be laundered into
-                // NotManaged.
-                //
-                // Measured, not assumed: corrupting the "BSJB" metadata
-                // signature of a real assembly leaves HasMetadata true and makes
-                // GetMetadataReader throw "Invalid COR20 header signature". A
-                // single catch spanning both calls classified that damaged
-                // managed assembly as NotManaged and swept green.
                 bool hasMetadata;
                 try
                 {
                     hasMetadata = pe.HasMetadata;
                 }
-                catch (BadImageFormatException)
+                catch (BadImageFormatException ex)
                 {
-                    // PrefetchEntireImage defers format validation, so a file
-                    // that is not a PE at all surfaces here rather than from the
-                    // constructor. Real package caches contain such files.
-                    return CorpusOutcome.NotManaged;
+                    detail = $"{ex.GetType().Name}: {ex.Message}";
+                    return undecodable;
                 }
 
                 if (!hasMetadata)
                 {
-                    return CorpusOutcome.NotManaged;
+                    detail ??= "the CLI directory is present but carries no metadata";
+                    return undecodable;
                 }
 
                 try
@@ -561,6 +809,112 @@ public sealed class StateMachineCompletenessTests
                     return CorpusOutcome.DecodeFailed;
                 }
             }
+        }
+    }
+
+    /// <summary>Whether a file's PE headers claim it carries a CLI image.</summary>
+    enum ManagedClaim
+    {
+        /// <summary>No CLI data directory: a native PE, or not a PE at all.</summary>
+        No,
+
+        /// <summary>A non-empty CLI data directory: the file claims to be managed.</summary>
+        Yes,
+
+        /// <summary>The headers could not be read for environmental reasons.</summary>
+        Unreadable,
+    }
+
+    /// <summary>
+    /// Reads the PE optional header's CLI data directory (index 14) directly and
+    /// reports whether it is present, leaving <paramref name="stream"/> at an
+    /// unspecified position.
+    ///
+    /// This is an independent oracle, not a reimplementation of anything the
+    /// product owns: it exists precisely because SRM cannot answer this question
+    /// once it has rejected a file's headers, and because using SRM to classify
+    /// SRM's own failures would make the classification circular. It reads
+    /// nothing beyond the directory's RVA, and answers <see cref="ManagedClaim.No"/>
+    /// for every malformed or truncated shape rather than guessing.
+    /// </summary>
+    static ManagedClaim ReadManagedClaim(Stream stream, ref string? detail)
+    {
+        try
+        {
+            stream.Position = 0;
+
+            Span<byte> dos = stackalloc byte[64];
+            if (stream.ReadAtLeast(dos, dos.Length, throwOnEndOfStream: false) < dos.Length
+                || dos[0] != (byte)'M'
+                || dos[1] != (byte)'Z')
+            {
+                return ManagedClaim.No;
+            }
+
+            int peOffset = BinaryPrimitives.ReadInt32LittleEndian(dos[0x3C..]);
+            if (peOffset < 0 || peOffset > stream.Length - 24)
+            {
+                return ManagedClaim.No;
+            }
+
+            stream.Position = peOffset;
+
+            // PE signature (4) followed by the COFF header (20).
+            Span<byte> coff = stackalloc byte[24];
+            if (stream.ReadAtLeast(coff, coff.Length, throwOnEndOfStream: false) < coff.Length
+                || coff[0] != (byte)'P'
+                || coff[1] != (byte)'E'
+                || coff[2] != 0
+                || coff[3] != 0)
+            {
+                return ManagedClaim.No;
+            }
+
+            // A real optional header is at most a few hundred bytes. A wild value
+            // means this is not a PE worth believing, not something to allocate for.
+            int optionalSize = BinaryPrimitives.ReadUInt16LittleEndian(coff[^4..]);
+            if (optionalSize is < 2 or > 1024)
+            {
+                return ManagedClaim.No;
+            }
+
+            byte[] optional = new byte[optionalSize];
+            if (stream.ReadAtLeast(optional, optionalSize, throwOnEndOfStream: false) < optionalSize)
+            {
+                return ManagedClaim.No;
+            }
+
+            // The CLI directory is the fifteenth of the optional header's data
+            // directories, which begin after the standard fields: 96 bytes for
+            // PE32, 112 for PE32+.
+            const int CliDirectoryIndex = 14;
+            int directories = BinaryPrimitives.ReadUInt16LittleEndian(optional) switch
+            {
+                0x10B => 96,
+                0x20B => 112,
+                _ => -1,
+            };
+
+            if (directories < 0)
+            {
+                return ManagedClaim.No;
+            }
+
+            int cli = directories + (CliDirectoryIndex * 8);
+            if (optionalSize < cli + 8)
+            {
+                return ManagedClaim.No;
+            }
+
+            return BinaryPrimitives.ReadUInt32LittleEndian(optional.AsSpan(cli)) != 0
+                ? ManagedClaim.Yes
+                : ManagedClaim.No;
+        }
+        catch (Exception ex)
+            when (ex is IOException or UnauthorizedAccessException)
+        {
+            detail = ex.Message;
+            return ManagedClaim.Unreadable;
         }
     }
 
