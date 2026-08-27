@@ -644,7 +644,7 @@ public class IlToolsActivationTests
             StringComparison.Ordinal);
         Assert.True(jobStart >= 0);
         int nextJob = workflow.IndexOf(
-            "\n  decompiler-corpus:",
+            "\n  platform-test:",
             jobStart,
             StringComparison.Ordinal);
         Assert.True(jobStart < nextJob);
