@@ -343,8 +343,8 @@ reference owner contracts rather than restating participating components'
 internal inventories or policies. When another component needs prerequisite
 work, file or record that residual and handle it as an independently reviewable
 effort or stack slice. Do not expand the current design merely to make the whole
-end-to-end system appear closed. The preference for fewer coherent PRs does not
-justify combining independently owned component designs.
+end-to-end system appear closed. PR coherence does not justify combining
+independently owned component designs.
 
 A **broad design** sweeps an end-to-end lifecycle such as acquisition,
 analysis, publication, and presentation or, outside the bounded one-donor
@@ -875,6 +875,17 @@ Before requesting another block, answer:
    decision is not standing authorization; identify the new evidence that makes
    implementation rounds the better investment.
 
+When a PR reaches round 12, split the remaining work into focused successors
+unless the checkpoint establishes a strong reason to keep the PR intact and
+the user explicitly approves that exception. The strong reason must explain
+why the remaining claims cannot become independently reviewable successors,
+why the reviews are still converging, and why continuing the same PR is safer
+than splitting it. Reviewer familiarity, sunk cost, or the inconvenience of
+restacking are not strong reasons. Sprawling changes accumulated across review
+comments are themselves a sign that the remaining work should be split into
+focused successors. The same presumption and burden apply at every 6-round
+boundary after round 12.
+
 At round 12 and every 6-round boundary after (18, 24, and so on), also answer:
 
 1. **Would a design doc better define the design space?** Foundational APIs
@@ -883,11 +894,11 @@ At round 12 and every 6-round boundary after (18, 24, and so on), also answer:
    hardening to followup work would unlock this PR's value for other agent
    work sooner.
 
-State the proposed remedy and end with one recommendation: approve the next
-implementation block, switch to a docs-only design PR, or stop. If consecutive
-rounds only strengthen the harness while the product goes unchallenged, report
-that count and recommend a final round or a stop waiver rather than continuing
-by reflex.
+State the proposed remedy and end with one recommendation: split into focused
+successors, approve the next implementation block under the strong-reason
+exception, switch to a docs-only design PR, or stop. If consecutive rounds only
+strengthen the harness while the product goes unchallenged, report that count
+and recommend splitting or stopping rather than continuing by reflex.
 
 Publish the complete checkpoint as normal session output before opening the
 approval prompt. The prompt asks only which recommended action to authorize; it
@@ -914,8 +925,6 @@ Put it under `## Demo` above validation in the PR body.
 
 ## PR and CI discipline
 
-- Prefer fewer coherent PRs over mechanical splits; use a stack for genuinely
-  independent slices.
 - Keep concurrent agents modest and avoid unnecessary churn in central files.
 - Label a documentation-only PR (no product code, test, or build changes)
   `documentation` when opening it.
@@ -925,6 +934,13 @@ Put it under `## Demo` above validation in the PR body.
   flag distinction, not platform-specific. Verify with
   `gh pr view <n> --json body -q .body` after creating or editing a PR body
   this way.
+- Avoid high-level `gh` commands when they fail by querying deprecated GraphQL
+  fields. In particular, `gh pr edit` may hit the removed Projects (classic)
+  fields even when changing unrelated metadata. Do not retry it; use the
+  operation-specific REST endpoint through `gh api` instead, such as
+  `PATCH repos/{owner}/{repo}/pulls/{n}` for PR title, body, or base changes,
+  and the corresponding issue endpoint for labels, assignees, or milestones.
+  Verify the resulting metadata after the REST update.
 - Treat CI as confirmation: run the focused local gate, then push promptly.
   Run eligible local suites, CI, and review concurrently.
 - Use [status discovery](docs/round-orchestration.md#status-discovery): REST by
