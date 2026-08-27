@@ -5,11 +5,12 @@
 Design proposal. This document describes a future query model; it does not
 describe behavior that exists today.
 
-[Item and line limits](item-and-line-limits.md) settles the adjacent
-[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) vocabulary:
-`-n`/bare `-N` is the plain first/last item count, `--rows` carries only
-absolute ranges, and `--top` is a validated ranked count composed with
-`--order-by`.
+[Semantic row selection](semantic-row-selection.md) owns the adjacent
+[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) normalized
+stages: `Top` carries a resolved ranking order and composes sequentially with
+`Head`, `Tail`, and strict `Range`. The exact CLI spelling and argv lowering
+belong to the pending L3 design listed in
+[Item and line selection composition](item-and-line-limits.md).
 
 [The package query CLI](package-query-cli.md) proposes reusing this model's
 `--where` grammar, unchanged, as the nuspec/promoted facet vocabulary for
@@ -35,8 +36,8 @@ adding more command-specific flags.
 
 1. Let users filter rows by section field/column without adding bespoke flags.
 2. Make default row ordering discoverable through `--schema`.
-3. Keep `--top` meaningful by requiring a ranking order and defining it as a
-   post-filter, post-order semantic row cap.
+3. Keep `Top` meaningful by resolving a ranking order and lowering both into
+   one argv-ordered semantic stage.
 4. Preserve `--columns` and `--fields` as projection, not filtering.
 5. Let existing focused flags, such as `--loop`, lower to the same row-predicate
    engine for compatibility.
@@ -48,8 +49,7 @@ adding more command-specific flags.
 - Do not add a general expression language in the first version.
 - Do not make row predicates span multiple sections.
 - Do not change section selection or scanner backpressure.
-- Do not make `--top` a plain result count; `-n N` owns that role.
-- Do not make `--top` an absolute row range; `--rows N..M` owns that role.
+- Do not make `Top` a plain result count or an absolute row range.
 - Do not require every section to be sortable or filterable.
 
 ## Proposed command model
@@ -92,28 +92,28 @@ through `--schema`.
 
 ### Top
 
-`--top N` means "rank the filtered rows by the effective order, then take the
-first N." N is one positive decimal integer; zero, negative, overflowed, and
-duplicate values reject rather than removing the bound. It requires an
-explicit `--order-by` unless the section declares that its default order is a
-ranking order. Alphabetical, insertion, and upstream listing order are stable
-sequences, not ranking defaults.
+The row-query owner resolves the opaque order carried by `Top(N, order)`.
+An explicit order supplies ranking intent; a default order may do so only when
+the section declares it as a ranking order. Alphabetical, insertion, and
+upstream listing order are stable sequences, not ranking defaults.
+[Semantic row selection](semantic-row-selection.md) owns rank-then-take,
+leniency, and stable tie behavior.
 
-`--top` is mutually exclusive with item-mode `-n`, either item-mode direction,
-and `--count`. It may combine with `-n N --lines` and either line-mode
-direction. An absolute `--rows` range may select positions within the ranked
-result.
+L3 owns which CLI tokens construct this complete stage and which combinations
+it rejects. Once constructed, `Top` may appear anywhere in the normalized plan
+and later stages operate on its ranked, reindexed output.
 
 Pipeline:
 
 ```text
-select section -> collect rows -> apply --where -> apply effective ranking order
--> apply --top -> intersect --rows range -> project --columns/--fields -> render
+select section -> collect rows -> apply --where -> establish baseline order
+-> execute ordered semantic selection stages -> project --columns/--fields
+-> render
 ```
 
-Plain `-n N` follows the same pipeline but makes no ranking claim. `--count`
-branches after filtering and rejects item/range windows. The full cross-shape
-pipeline lives in [Item and line limits](item-and-line-limits.md).
+A `Top` stage applies its own resolved ranking order to its current input.
+The complete cross-component flow lives in
+[Item and line selection composition](item-and-line-limits.md).
 
 ## Predicate grammar
 

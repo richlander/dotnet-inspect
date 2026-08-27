@@ -38,10 +38,11 @@ The pilots do not yet satisfy the full contract. In particular, the current
 global rendered-line limiter can truncate their lowered JSON, section and field
 keys are still derived from display headings, and section-scoped projection has
 not been proven over broad multi-section documents.
-[Item and line limits](item-and-line-limits.md) now owns the settled target:
-semantic item/range windows happen before encoding, and line windows modify
-each printable content value rather than truncating serialized JSON. These are
-hardening targets, not accepted compatibility behavior.
+[Semantic row selection](semantic-row-selection.md) now owns the focused
+pre-encoding item-stage semantics. The pending payload/line design listed in
+[Item and line selection composition](item-and-line-limits.md) will settle how
+complete JSON values carry line-selected content. These are hardening targets,
+not accepted compatibility behavior.
 
 Related docs:
 
@@ -122,7 +123,8 @@ layout, and other lens-owned output either honors its own accepted projection
 or rejects it under the lens contract; a central JSON router may not pull that
 request into the normal lowered-document path.
 
-The settled [item and line limit](item-and-line-limits.md) contract imposes
+The focused owners in
+[Item and line selection composition](item-and-line-limits.md) must preserve
 three format requirements:
 
 - limit flags do not choose the typed or lowered dialect;
@@ -654,7 +656,8 @@ JSON.
 - No general field-to-column alias; the shipped `vocabulary` exception is
   command-owned and gated.
 - No second item-domain, range, line-window, or multi-print contract; this
-  document consumes [Item and line limits](item-and-line-limits.md).
+  document consumes the focused owners listed in
+  [Item and line selection composition](item-and-line-limits.md).
 - No silent fallback from requested lowered JSON to typed or unprojected JSON.
 - No reconstruction of sections, rows, or trees from rendered Markdown.
 - No assumption that a future typed Markout seam may change the shipped lowered

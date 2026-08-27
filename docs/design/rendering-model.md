@@ -4,9 +4,10 @@ This document describes the conceptual model for how dotnet-inspect commands con
 
 See also [Output Composition Model](output-composition.md) for how section
 selection, filtering, and writer capabilities compose end-to-end.
-[Item and line limits](item-and-line-limits.md) owns the approved target for
-multi-item print projection; released behavior remains unary until that
-implementation lands.
+[Item and line selection composition](item-and-line-limits.md) maps the focused
+row-selection, CLI, source, payload, and rendering designs replacing the former
+umbrella target. Released behavior remains unary until those designs and their
+implementation land.
 
 ## Two Axes of Control
 

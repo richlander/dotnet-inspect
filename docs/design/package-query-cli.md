@@ -20,11 +20,17 @@ not `find --package-prefix`'s corpus-streaming query. See
 [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing)
 for what shipped and what did not.
 
-Still proposal-only, not present on `main`: the facet/predicate layer, the
-tier capability gate, and — despite the Sections migration landing —
-`find --package-prefix`'s corpus limit is still spelled `-t`, not the settled
-`-n` target from [Item and line limits](item-and-line-limits.md), which
-resolves the repository-wide flag-numbering problem this document surfaced.
+Still proposal-only, not present on `main`: the facet/predicate layer and the
+tier capability gate. Despite the Sections migration landing,
+`find --package-prefix`'s corpus limit is still spelled `-t`. Its replacement
+belongs to the pending L3 design in
+[Item and line selection composition](item-and-line-limits.md).
+
+The exact #4677 limit grammar, fixed pipeline order, and provider-extent rules
+below predate the focused-design split and are not implementation authority.
+[Semantic row selection](semantic-row-selection.md) now owns result-stage
+semantics. A focused source-pushdown successor will reconcile package-search
+pagination and completion; the pending L3 successor will settle CLI spelling.
 
 Related docs:
 
@@ -159,8 +165,8 @@ row-count flag.
 
 Working through this surfaced a repository-wide flag-numbering problem:
 rendered-line `-n`, count-form `--rows`, ranked `--top`, and command-owned
-`-t`/`-m`/`--take` counts all answered adjacent "how many" questions.
-[Item and line limits](item-and-line-limits.md) settles them:
+`-t`/`-m`/`--take` counts all answered adjacent "how many" questions. The
+superseded umbrella design proposed:
 
 - `-n`/bare `-N` is the universal first/last item count;
 - `--rows` carries only absolute row ranges;
@@ -267,10 +273,9 @@ the CLI should not reinvent that wording, and the browser experience should
 not need to translate a differently-shaped CLI completion signal.
 
 One ordering question is new once `--where` and `--deepen` exist: does the
-corpus bound apply before or after a nuspec-tier predicate runs?
-[Item and line limits](item-and-line-limits.md) settles `-n` as post-filter and
-post-order. The same before/after question matters because a predicate can
-shrink what the bound counts:
+corpus bound apply before or after a nuspec-tier predicate runs? The superseded
+umbrella design proposed a post-filter, post-order bound. The same before/after
+question matters because a predicate can shrink what the bound counts:
 
 - **Nuspec-tier `--where`** should filter before `-n` truncates: `-n 500`
   should mean "the first 500 packages that match," not "the first 500

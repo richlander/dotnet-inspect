@@ -221,10 +221,11 @@ than add one flag per column. See
 
 ## Counts and limits
 
-The examples and semantics in this section describe the approved
-[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) target, not
-released behavior. [Item and line limits](item-and-line-limits.md) records the
-current implementation status and required gates.
+The examples and semantics in this section came from the superseded umbrella
+[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) design, not
+released behavior or current implementation authority.
+[Item and line selection composition](item-and-line-limits.md) tracks the
+focused replacements.
 
 Use built-in limiters instead of shell pipes:
 

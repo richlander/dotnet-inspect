@@ -8,10 +8,14 @@ shared vocabulary for the output flags
 `--print`, `--bare`, …) and for deciding what a new flag should
 do.
 
-The item-limit and multi-item print passages describe the approved
-[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) target, not
-released behavior. [Item and line limits](item-and-line-limits.md) records its
-implementation status and required gates.
+The older item-limit and multi-item print passages are design history from the
+superseded umbrella
+[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) proposal, not
+released behavior or current implementation authority.
+[Semantic row selection](semantic-row-selection.md) now owns ordered item-stage
+semantics. [Item and line selection composition](item-and-line-limits.md) lists
+the focused successors that will reconcile CLI, source, payload, and line
+behavior with this shape contract.
 
 Related docs:
 
@@ -20,9 +24,10 @@ Related docs:
 - [Rendering model](rendering-model.md) — verbosity vs mode-switch flags
 - [Schema query](schema-query.md) — `-D` discovery of sections and columns
 - [Command model](command-model.md) — command surface and shared options
-- [Item and line limits](item-and-line-limits.md) — the approved target for
-  `-n`, range-only `--rows`, ranked `--top`, line windows, and multi-item
-  printable payloads
+- [Item and line selection composition](item-and-line-limits.md) — ownership
+  and sequencing for the focused #4677 designs
+- [Semantic row selection](semantic-row-selection.md) — ordered semantic
+  selection over complete logical sequences
 - [The package query CLI](package-query-cli.md) — a facet-matched package
   corpus row applying this ladder's "declared row unit" discipline, and the
   source of the item-limit design
@@ -51,22 +56,16 @@ descend to a Scalar by selecting a section, then columns, then collapsing.
 Most sections are Tables, but a section can also be a key-value field set, a
 list, a code/text blob, a tree, or a graph. Those are still "one section" — the
 Table rung — and they collapse to Scalars the same way. For a call graph, the
-declared row unit is a directed edge: `--count` counts relationships, `-n`
-limits them, and `--rows` selects an absolute range of the same ordered
-relationships whether the graph is rendered as a Markdown edge table,
-standalone tree, standalone Mermaid diagram, or tabular stream. Tree nodes are
-presentation context, not additional rows.
+declared row unit is a directed edge. Count reduction and future semantic row
+selection operate on those relationship values before they are rendered as a
+Markdown edge table, standalone tree, standalone Mermaid diagram, or tabular
+stream. Tree nodes are presentation context, not additional rows.
 `graph integrations` uses the same row contract: one row is one directed
 logical relationship. Its package groups and finer member/type nodes are
-presentation context, while `--count`, `-n`, and `--rows` count, limit, or
-select logical edges consistently across Markdown, tree, Mermaid, tabular, and
-structured output. Isolated explicit packages remain node/group context in
-graph and JSON views, but never become empty data rows in the default Markdown
-edge table.
-`OutputModes_UseTheSameWindowedLogicalEdges` gates the same selected logical
-edges across the non-count output modes. Its current windowed-count assertion
-migrates to `CountRejectsItemAndLineWindows`: the target rejects `--count` with
-`--rows` instead of returning the size of the selected edge window.
+presentation context. Every format must receive the same selected logical
+edges. Isolated explicit packages remain node/group context in graph and JSON
+views, but never become empty data rows in the default Markdown edge table.
+The pending L2 integration design must name the common-handoff gate.
 
 The `graph integrations --json` failure array preserves both presentation and
 typed addressing: each failure carries its rendered target plus
@@ -262,10 +261,10 @@ do for graph nodes.
 
 ### Printable payload projections
 
-The target contract from
-[Item and line limits](item-and-line-limits.md) makes normal `--print` a batch
-projection over the selected rows. Every selected row is projected to its
-declared printable payload:
+The former umbrella design proposed making normal `--print` a batch projection
+over selected rows. The focused payload design listed in
+[Item and line selection composition](item-and-line-limits.md) must settle this
+contract before implementation:
 
 | Selected rows | `--print` | `--print --row N\|first\|last` |
 | ---: | --- | --- |
@@ -364,28 +363,11 @@ exact byte-transfer contract. A caller printing a manifest in order to hash or
 diff it uses unary `--out`, which preserves the package bytes exactly,
 including any byte order mark.
 
-`-n N` and bare `-N` are semantic item windows applied independently to each
-declared row set after filtering and ordering. `--head` names the first-N
-direction explicitly, and `--tail` selects the last N items. Non-row sections
-remain unchanged:
-
-```text
---print -n 1
-  select the first declared row -> emit its framed print success or failure
-
---print --rows 2..5 -n 20 --lines
-  select rows 2 through 5 -> fetch each payload -> render its first 20 lines
-```
-
-`--rows` carries only absolute row ranges:
-
-- `--rows 2..10` keeps the rows numbered 2 through 10 inclusive — nine rows.
-- `--rows 2+10` keeps ten rows starting at row 2.
-- `--rows 10..` keeps row 10 through the last row.
-
-Count-form `--rows 6` and `--rows 6 --tail` retire in favor of `-n 6` and
-`-n 6 --tail`. A range may intersect an `-n` or `--top` result without
-renumbering stable row addresses.
+The former item/range grammar and independent-window text in this section is
+superseded. [Semantic row selection](semantic-row-selection.md) now defines a
+sequential, reindexing plan over complete logical sequences. The pending L3
+design will define its command spellings and its relationship to payload-line
+selection.
 
 In `package --all-libraries`, singular sections retain one table per library
 for windowing even when a row format flattens them with provenance; aggregate
@@ -398,17 +380,10 @@ tests gate both scopes and their count/row-format parity.
 and `PackageCommand_AllLibraries_OpportunityRowFormat_WindowSameRowAsMarkdown`
 gate selected-row identity at the window boundary.
 
-A count and a range are different kinds, not two spellings of one: a count
-anchors to an end and a range does not. Bare `--rows 2..10 --tail` is rejected.
-`-n 20 --tail --rows 90..95` is valid because `--tail` belongs to the item
-count; `--rows 2..10 --print -n 20 --lines --tail` is valid because it belongs
-to the independent line window.
-
-`--lines` changes the unit carried by `-n` from items to rendered lines. For an
-ordinary report it windows the report; for multi-item `--print` it windows each
-payload independently, excluding separators. `--tail-lines` is sugar for
-`--lines --tail`. A single `-n` cannot carry both an item count and a line
-count; use `--rows 1..M --print -n N --lines` when both dimensions are needed.
+Item selection must complete before this shape owner projects rows into values,
+addresses, or printable payloads. Rendered-line selection remains a separate
+L3 concern after report or payload text exists; it never changes the selected
+logical items.
 
 Printability is a row capability, not a property implied by Table or Vector
 shape. Multi-item `--print` may not:
@@ -524,7 +499,7 @@ Every command that exposes `--print` also exposes and wires unary `--bare` and
 the projection rather than accidents of its parent command. Structured
 multi-item `--out` is a different mode: after atomic preflight it may publish
 complete result records incrementally, including typed row failures, as
-specified by [Item and line limits](item-and-line-limits.md).
+the pending focused payload design must specify.
 
 Tool-authored companion sections still use the stream split: for example,
 `package X -S "Package README file" --print --info` writes the framed, encoded
@@ -567,17 +542,12 @@ the caller made.
 | Flag | Effect |
 | --- | --- |
 | `--markdown` | force the full Markdown Document format |
-| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). Accepted lenses and payload projections claim their own output first. Plain document `--json` keeps the pre-lowered typed document; an otherwise-unclaimed, non-empty `--fields`/`--columns` request names lowered vocabulary and opts into the lowered display view (#3494), with the same machine table keys as `--jsonl` and with semantic item/range windows and `--compact` preserved. `find` and `vocabulary` currently wire the lowered path; `type` and `member` reject unsupported combinations, while some other paths still succeed after silently dropping the projection. Complete structured values under item and line limits remain unverified; `ProjectedJsonWindowingTests` and the gates in [Item and line limits](item-and-line-limits.md) own the target. See [Projected JSON output](projected-json.md) for routing, representability, diagnostics, and compatibility. |
+| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). Accepted lenses and payload projections claim their own output first. Plain document `--json` keeps the pre-lowered typed document; an otherwise-unclaimed, non-empty `--fields`/`--columns` request names lowered vocabulary and opts into the lowered display view (#3494), with the same machine table keys as `--jsonl` and with semantic item selection and `--compact` preserved. `find` and `vocabulary` currently wire the lowered path; `type` and `member` reject unsupported combinations, while some other paths still succeed after silently dropping the projection. Complete structured values under future line selection remain unverified and belong to the pending payload design in [Item and line selection composition](item-and-line-limits.md). See [Projected JSON output](projected-json.md) for routing, representability, diagnostics, and compatibility. |
 | `--tsv` / `--jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector) |
 | `--table` | render the single selected section as a space-padded pretty table |
 | `--no-header` (`--no-headers`) | drop the Table header row |
-| `-n N` / numeric shorthand such as `-20` | keep the first N declared items per row set |
-| `-n N --head` | keep the first N declared items with the default direction explicit |
-| `-n N --tail` | keep the last N declared items per row set |
-| `--rows N..M` / `--rows N+K` / `--rows N..` | keep the **rows those stable numbers name**, inclusive; absolute, so no item direction applies |
-| `-n N --lines` | keep the first N lines of the rendered report, or of each multi-print payload |
-| `-n N --lines --head` | keep the first N lines with the default direction explicit |
-| `-n N --tail-lines` | keep the last N lines; sugar for `--lines --tail` |
+| Item-selection gestures | select logical values before this presentation layer; exact CLI spellings are pending |
+| Rendered-line gestures | select report or payload lines after text projection; exact CLI spellings are pending |
 | `--bare` | render the selected payload without document decoration; multi-item print rejects it because framing carries row identity |
 | `--plaintext` | render a whole-document plain-text view; distinct from `--bare` |
 
@@ -772,24 +742,20 @@ for exact payload export.
 
 ## Design discipline for future flags
 
-The stable vocabulary is:
+The stable shape vocabulary is:
 
 - `--count` is a shape-reduction selector: it collapses a selected table/vector to a
   single scalar count. It rejects row addresses and item/line windows rather
   than silently ignoring them.
-- `-n N` / bare `-N` select the first N declared items per row set after
-  filtering and ordering. `--head` names that direction explicitly and
-  `--tail` reverses it when the producer can establish a truthful suffix.
-- `--rows` selects absolute stable row ranges and carries no count-only form.
+- Semantic item selection consumes declared row values before projection.
+  Its future CLI spellings are owned by the focused L3 design, not this shape
+  document.
 - Normal `--print` projects every selected row to one framed or structured
   success/failure result. Unary `--bare` and unstructured `--out` carry no
   result envelope. None of these modes invents printability or evaluates new
   addresses.
-- `--lines` changes the `-n` unit to rendered lines. For multi-item print the
-  line window applies independently to each payload.
-- `--head` / `--tail` name a direction, not a count. They require and modify an
-  active item or line `-n` window; they never modify an absolute row range or
-  ranking.
+- Rendered-line selection is a presentation operation over report or payload
+  text. It does not select rows.
 - `--row` addresses a rendered row by its position in the section, counting from
   1. Any future selector that takes an ordinal joins this rule: the number a
   reader arrives at by counting rows is the number that can be addressed, and no
