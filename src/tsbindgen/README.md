@@ -9,10 +9,10 @@ from repository source rather than distributed as a NuGet package. It does not
 add a `dotnet-inspect` subcommand.
 
 > **Target architecture:** This implementation is transitioning to
-> `ts-bindgen`, which generates one native TypeScript facade and leaves
+> `ts-jsexport`, which generates one native TypeScript facade and leaves
 > compilation and optional declaration emission to the consumer's TypeScript
 > compiler.
-> [`ts-bindgen` TypeScript facade generation](../../docs/design/ts-bindgen.md)
+> [`ts-jsexport` TypeScript facade generation](../../docs/design/ts-jsexport.md)
 > owns that decision, its boundaries, and the current implementation
 > mismatches. The usage below describes the current command until that migration
 > lands.

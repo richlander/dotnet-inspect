@@ -4,7 +4,7 @@
 `[JSExport]` wasm/JS interop surface, projected from `ILInspector.Metadata`'s
 `ApiSurface`/`ApiSurfaceExtractor`.
 
-It is a host-side inspection and binding-generation library. `ts-bindgen`
+It is a host-side inspection and binding-generation library. `ts-jsexport`
 references it while reading a compiled assembly as metadata and IL data; the
 inspected assembly does not execute or reference this project, and browser
 applications do not need it in their runtime bundle.
@@ -51,7 +51,7 @@ applications do not need it in their runtime bundle.
 This library intentionally stays free of any target-language opinion (naming
 policy, `Promise` unwrapping, `.d.ts` syntax); that "personality" belongs to a
 consumer such as the proposed
-[`ts-bindgen` TypeScript facade](../../docs/design/ts-bindgen.md).
+[`ts-jsexport` TypeScript facade](../../docs/design/ts-jsexport.md).
 The single-argument `Build(surface)` overload is a declaration-only
 compatibility seam for metadata-focused tests and hand-composed surfaces. It
 does not establish runtime publication; the product path always supplies

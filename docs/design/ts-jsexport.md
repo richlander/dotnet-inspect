@@ -1,11 +1,11 @@
-# `ts-bindgen` TypeScript facade generation
+# `ts-jsexport` TypeScript facade generation
 
 Status: **proposed**. The current `tsbindgen` implementation emits TypeScript
 declarations and can also emit a JavaScript runtime wrapper. This document
 defines the replacement architecture; its target properties are **unverified**
 until the gates under [Acceptance](#acceptance) exist.
 
-This is the owning document for the `ts-bindgen` TypeScript facade. It defines
+This is the owning document for the `ts-jsexport` TypeScript facade. It defines
 how one
 [`JsExportSurface`](../../src/ILInspector.JsExportSurface/README.md) becomes one
 TypeScript source module. It does not own .NET JavaScript interop thunk
@@ -14,7 +14,7 @@ browser hosting.
 
 ## Decision
 
-`ts-bindgen` generates TypeScript source from a compiled .NET assembly's
+`ts-jsexport` generates TypeScript source from a compiled .NET assembly's
 `[JSExport]` surface. The generated module is an opinionated developer facade
 over the already-callable API returned by `getAssemblyExports()`.
 
@@ -24,7 +24,7 @@ when richer wire types are wanted, supported System.Text.Json source-generated
 contracts. Inspect-web is the first real consumer and repository canary, not a
 hard-coded target or the definition of the tool's domain.
 
-The current tool must be built from this repository's source; no `ts-bindgen`
+The current tool must be built from this repository's source; no `ts-jsexport`
 package from this project has been distributed on NuGet. Distribution may
 change without changing this architecture. The design neither requires nor
 forbids a future .NET tool package.
@@ -34,7 +34,7 @@ JavaScript. A consumer may also emit `.d.ts` declarations when it maintains a
 compiled module or package boundary. Within one TypeScript source environment,
 the generated `.ts` file supplies both implementation and types.
 
-`ts-bindgen` does not generate derived JavaScript or declarations itself:
+`ts-jsexport` does not generate derived JavaScript or declarations itself:
 
 ```text
 compiled .NET assembly
@@ -44,7 +44,7 @@ ILInspector.JsExportSurface
         |
         | runtime-publishable functions and authenticated JSON wire contracts
         v
-ts-bindgen
+ts-jsexport
         |
         | TypeScript source
         v
@@ -59,7 +59,7 @@ consumer-owned tsc
 This repository contains three similarly named but operationally separate
 parts:
 
-1. **`ts-bindgen` is a build-time tool.** It reads a compiled assembly as
+1. **`ts-jsexport` is a build-time tool.** It reads a compiled assembly as
    metadata and IL data and generates a TypeScript facade for the type paths and
    static methods represented by its `[JSExport]` surface.
 2. **Inspect-web is a consumer of the tool.** Its managed
@@ -68,7 +68,7 @@ parts:
 3. **`ILInspector.JsExportSurface` is part of the tool's implementation.** It
    is a host-side library over Metadata- and Analysis-owned facts. It constructs
    the target-language-neutral export and wire-evidence model consumed by
-   `ts-bindgen`.
+   `ts-jsexport`.
 
 `ILInspector.JsExportSurface` is not the generated binding, an API that
 application TypeScript calls, or a library required by the browser runtime. The
@@ -79,7 +79,7 @@ browser.
 The phases compose as follows:
 
 ```text
-ts-bindgen process on a developer or CI host
+ts-jsexport process on a developer or CI host
 
 InspectWeb.Engine.dll --read as PE/IL data--> Metadata and Analysis facts
                                                     |
@@ -106,32 +106,8 @@ inspect-web-engine.js --> dotnet.js / dotnet.runtime.js
 
 The compiler step between the diagrams derives
 `inspect-web-engine.js` from `inspect-web-engine.ts`. Neither the
-`ts-bindgen` executable nor its `ILInspector.JsExportSurface` implementation
+`ts-jsexport` executable nor its `ILInspector.JsExportSurface` implementation
 library crosses into the browser execution phase.
-
-## Name
-
-The command, tool package, and user-facing product name are `ts-bindgen`.
-The hyphen follows the established `*-bindgen` naming convention and
-distinguishes this tool from the unrelated `tsbindgen` package on NuGet.
-
-`ts-bindgen` names the tool's target-language personality, not every constraint
-on its input. Its one-line contract supplies the necessary scope:
-
-> Generate a TypeScript facade from a .NET assembly's `[JSExport]` surface.
-
-`ts-jsexport-bindgen` would encode more of the current input but would still be
-incomplete: the tool also authenticates and projects System.Text.Json wire
-contracts that are not present in `[JSExport]` signatures. Encoding both input
-mechanisms would make the name longer without making the contract complete.
-Names such as `jsexport-bindgen` or `dotnet-js-bindgen` would instead suggest
-ownership of the low-level JavaScript ABI glue that remains with .NET.
-
-The shorter name is therefore deliberate. Documentation and diagnostics must
-consistently say that the input is a compiled .NET assembly's `[JSExport]`
-surface; the name alone must not be used to imply arbitrary
-C#-to-TypeScript generation. Support and evidence requirements belong in the
-technical contract rather than the product name or tagline.
 
 ## Why this layer generates TypeScript
 
@@ -142,7 +118,7 @@ wrapper, stub, marshalling descriptor, and registration initializer.
 turns those registrations into the object returned by
 `getAssemblyExports()`.
 
-That raw object is usable without `ts-bindgen`:
+That raw object is usable without `ts-jsexport`:
 
 ```js
 const runtime = await dotnet.create();
@@ -161,7 +137,7 @@ unopinionated. It targets JavaScript and marshals the declared runtime values,
 but it should not infer that a string contains JSON, choose an application DTO,
 or prescribe a frontend source language.
 
-`ts-bindgen` sits above that boundary. It deliberately chooses TypeScript and
+`ts-jsexport` sits above that boundary. It deliberately chooses TypeScript and
 adds application-facing policy:
 
 - TypeScript names and syntax;
@@ -184,10 +160,10 @@ the consumer's compiler own JavaScript and optional declaration emission.
 | --- | --- | --- |
 | .NET JavaScript interop | `[JSExport]` selection, generated managed thunks, marshalling descriptors, registration, generic runtime support, and the SDK-owned `dotnet.d.ts` description of `dotnet.js` | application JSON meaning, assembly-specific export shape, TypeScript facade policy |
 | `ILInspector.JsExportSurface` | C#-faithful export facts, runtime-publication evidence, authenticated JSON wire evidence | TypeScript names, syntax, wrappers, compiler configuration |
-| `ts-bindgen` | deterministic TypeScript facade source and assembly-specific export shape from one `JsExportSurface` | thunk generation, generic runtime declarations, runtime implementation, TypeScript compilation, browser publication |
+| `ts-jsexport` | deterministic TypeScript facade source and assembly-specific export shape from one `JsExportSurface` | thunk generation, generic runtime declarations, runtime implementation, TypeScript compilation, browser publication |
 | Consumer | TypeScript compiler configuration, availability of the SDK-owned runtime declaration, derived artifacts, module resolution, and hosting | reinterpreting or weakening the `JsExportSurface` input |
 
-These boundaries are intentionally asymmetric. `ts-bindgen` may reject an input
+These boundaries are intentionally asymmetric. `ts-jsexport` may reject an input
 surface it cannot faithfully represent in TypeScript. It must not broaden
 acceptance by reimplementing or weakening the evidence rules owned by
 `ILInspector.JsExportSurface`.
@@ -279,7 +255,7 @@ an empty interface, or an untyped success-shaped wrapper.
 
 ## Generated module
 
-For one input assembly, `ts-bindgen` emits one self-contained TypeScript module
+For one input assembly, `ts-jsexport` emits one self-contained TypeScript module
 containing:
 
 1. public enum and DTO declarations for reached wire contracts;
@@ -308,13 +284,13 @@ parse are defined facade transformations; they do not create another managed
 operation.
 
 Inspect-web intentionally presents its boundary as one managed type containing
-static `[JSExport]` methods. `ts-bindgen` can retain qualified declaring-type
+static `[JSExport]` methods. `ts-jsexport` can retain qualified declaring-type
 paths from another supported surface, but it does not project managed classes,
 instances, constructors, inheritance, properties, or overload resolution into
 a TypeScript object model. A rich C# implementation can sit behind an exported
 static method; that implementation remains managed code running in WebAssembly.
 
-`ts-bindgen` is not a C#-to-TypeScript compiler or an IL-to-TypeScript
+`ts-jsexport` is not a C#-to-TypeScript compiler or an IL-to-TypeScript
 translator. It reads narrow IL evidence only to establish that generated
 runtime publication exists and that a specific JSON wire contract reaches an
 exported argument or result. It never translates the exported method body,
@@ -344,21 +320,21 @@ function names, and nested managed-export paths are validated as one composed
 module before any output is published.
 
 The current exact `ConfigureHost(string)` browser bootstrap is consumer policy,
-not a general implication of `[JSExport]`. `ts-bindgen` emits it as an ordinary
+not a general implication of `[JSExport]`. `ts-jsexport` emits it as an ordinary
 facade function and does not call it implicitly. Any required invocation,
 argument, or ordering belongs to the consumer. No exported method name carries
 hidden bootstrap semantics.
 
 ## Compiler handoff
 
-`ts-bindgen` does not embed, acquire, or configure TypeScript. Its output is one
+`ts-jsexport` does not embed, acquire, or configure TypeScript. Its output is one
 TypeScript source module. A consumer can include that source directly in a
 TypeScript program, compile it to JavaScript, or additionally emit declarations
 for a compiled module boundary.
 
 The generated source has one external declaration dependency: the
 `dotnet.d.ts` supplied by the same .NET SDK/runtime pack as the imported
-`dotnet.js`. `ts-bindgen` does not parse that declaration or derive facade
+`dotnet.js`. `ts-jsexport` does not parse that declaration or derive facade
 operations from it. Instead, it emits TypeScript written against the SDK-owned
 contract, just as authored TypeScript would be.
 
@@ -372,7 +348,7 @@ invent a partial local runtime interface that could drift from the selected
 
 `dotnet.d.ts` does not supply the richer facade. Its `getAssemblyExports()`
 result is necessarily application-agnostic. `ILInspector.JsExportSurface`
-supplies the assembly-specific export and wire facts; `ts-bindgen` turns those
+supplies the assembly-specific export and wire facts; `ts-jsexport` turns those
 facts into the private raw-export structure, public facade types, and one
 explicit narrowing at the generic runtime boundary. The generator must not
 copy, synthesize, or hand-maintain a substitute declaration for the generic
@@ -398,7 +374,7 @@ The two consumption forms are distinct:
 
 The `.d.ts` file is never a second implementation and is not required merely
 because the consumer uses TypeScript. It is a declaration-only description of
-compiled JavaScript, analogous to a public interface artifact. `ts-bindgen`
+compiled JavaScript, analogous to a public interface artifact. `ts-jsexport`
 does not require consumers to create or distribute one.
 
 The tool's immediate output obligation is valid, deterministic TypeScript whose
@@ -413,7 +389,7 @@ the consumer and are not specified here.
 Other generators answer different questions. Similar output syntax does not
 make them the same architectural layer.
 
-### Binary and in-process ABI binding generators
+### ABI and component binding generators
 
 [`wasm-bindgen`](https://rustwasm.github.io/docs/wasm-bindgen/) and
 [Emscripten Embind](https://emscripten.org/docs/porting/connecting_cpp_and_javascript/embind.html)
@@ -421,11 +397,34 @@ generate essential glue between JavaScript and a low-level Wasm ABI.
 [`napi-rs`](https://napi.rs/) similarly packages JavaScript loaders and
 declarations around native Node-API or Wasm binaries.
 
-Their JavaScript commonly performs conversions without which the binary API
-would not be naturally callable. That responsibility corresponds most closely
-to the combination of .NET's generated `[JSExport]` thunks and generic
-JavaScript runtime, not to `ts-bindgen`. The `.d.ts` generation those tools may
-also provide corresponds to only part of `ts-bindgen`.
+[`componentize-dotnet`](https://github.com/bytecodealliance/componentize-dotnet)
+orchestrates a different low-level boundary: it turns .NET projects into
+WASI 0.2 WebAssembly components. It wraps `wit-bindgen` so WIT contracts
+generate corresponding C# imports or exports, then composes NativeAOT-LLVM and
+WebAssembly component tooling into the build. The resulting contract is
+language-neutral WIT and the component model, not a browser TypeScript module,
+`[JSExport]`, or `dotnet.js`.
+
+These tools own low-level ABI or component bindings. The JavaScript-facing
+tools commonly perform conversions without which the binary API would not be
+naturally callable. That responsibility corresponds most closely to the
+combination of .NET's generated `[JSExport]` thunks and generic JavaScript
+runtime, not to `ts-jsexport`. Any `.d.ts` generation they provide corresponds
+to only part of `ts-jsexport`.
+
+### Compiler-facing CLR binding generators
+
+Tsonic's
+[`tsbindgen`](https://tsonic.org/tsbindgen/) reflects broad CLR and framework
+surfaces into TypeScript declaration packages and CLR binding metadata. Tsonic
+uses those packages when compiling TypeScript that calls .NET APIs into
+target-native source. Its generated JavaScript modules are resolution stubs,
+not browser implementations of the declared APIs.
+
+That is the general managed-API projection that `ts-jsexport` intentionally
+does not perform. `ts-jsexport` starts from the narrower runtime-publishable
+`[JSExport]` surface and emits an executable browser facade over
+`getAssemblyExports()`.
 
 ### Network client generators
 
@@ -436,9 +435,9 @@ clients that call a service over HTTP or an RPC transport. They own request
 construction, transport invocation, response decoding, and public client
 types.
 
-That is a fair comparison for the *shape* of `ts-bindgen` output: both produce
+That is a fair comparison for the *shape* of `ts-jsexport` output: both produce
 an opinionated TypeScript facade with application-level results. It is not the
-same transport. `ts-bindgen` invokes an in-browser managed runtime directly;
+same transport. `ts-jsexport` invokes an in-browser managed runtime directly;
 it does not define a network protocol, HTTP client, proxy, or server endpoint.
 
 ### Shape-only DTO generators
@@ -449,13 +448,13 @@ it does not define a network protocol, HTTP client, proxy, or server endpoint.
 or transport. They are often used beside a web API, but they can describe
 shared files, messages, or other values just as well.
 
-These tools are closest to `ts-bindgen`'s DTO projection, but not to its runtime
+These tools are closest to `ts-jsexport`'s DTO projection, but not to its runtime
 initialization, export lookup, invocation, or authenticated method-body
 evidence.
 
 ## Non-goals
 
-`ts-bindgen` does not:
+`ts-jsexport` does not:
 
 - generate or replace .NET's `[JSExport]` ABI thunks;
 - teach `dotnet.js` or `dotnet.runtime.js` new marshalling types;
@@ -483,10 +482,7 @@ The current implementation predates this decision:
 - the runtime wrapper is untyped JavaScript; and
 - `ConfigureHost(string)` is an implicit name-and-signature convention.
 
-Those are migration inputs, not compatibility requirements. This repository is
-the tool's only consumer, and it has not distributed its configured package.
-The unrelated `tsbindgen` NuGet package establishes no compatibility obligation
-for this project.
+Those are migration inputs, not compatibility requirements.
 
 The replacement should retain the surface-authentication and mapping work while
 removing the dual-emitter and direct-JavaScript architecture.
@@ -496,7 +492,7 @@ removing the dual-emitter and direct-JavaScript architecture.
 The implementation effort should:
 
 1. rename the command, package, project-facing documentation, and generated
-   headers to `ts-bindgen`;
+   headers to `ts-jsexport`;
 2. replace direct `.d.ts` and JavaScript facade emission with one TypeScript
    module emitter;
 3. retain explicit raw interop, wire, and public signatures in the generator
@@ -522,7 +518,7 @@ decide those consumer contracts.
 The target remains unverified until all of these gates exist:
 
 - a project-graph and publish-artifact gate proves that inspect-web's runtime
-  dependency closure contains neither `ts-bindgen` nor
+  dependency closure contains neither `ts-jsexport` nor
   `ILInspector.JsExportSurface`;
 - a set-equality gate proves that supported `[JSExport]` methods and generated
   managed-operation facade functions have exact one-to-one correspondence,
