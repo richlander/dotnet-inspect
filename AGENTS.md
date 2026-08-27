@@ -96,14 +96,15 @@ before reporting the new state. Neither label authorizes a merge.
   carry-forward path, replace it with `carry-forward`.
 - **`carry-forward`:** add it when the
   [clean-review carry-forward rule](#clean-reviews-are-not-spent-by-main-moving)
-  applies and analysis or approval is the next action. Keep it while that
-  analysis or decision is pending, including when another base movement requires
-  re-analysis. Remove it when carry-forward is unavailable or declined, before
-  integrating an approved tip, or when the review-clean evidence is otherwise
-  invalidated.
+  applies and the landed range is not yet classified. Keep it while
+  classification is pending, including when another base movement arrives
+  first. Remove it once the range is classified: before integrating a
+  no-interaction tip, when interaction starts a new round, or when the
+  review-clean evidence is otherwise invalidated.
 
-Never leave both labels on a PR. A successful approved carry-forward may restore
-`ready-to-merge` only after the new head again satisfies its conditions.
+Never leave both labels on a PR. A successful no-interaction carry-forward may
+restore `ready-to-merge` only after the new head again satisfies its
+conditions.
 
 ### Publish your state where tooling can read it
 
@@ -765,31 +766,37 @@ below.
 ### Clean reviews are not spent by main moving
 
 When a `main`-targeting PR has a review-clean current head and `origin/main`
-moves, **stop and ask**; do not integrate or start another round. This also
-applies to the bottom open stack slice. An upper slice follows its parent, so
-parent movement is a restack and requires review at the new head.
+moves, assess the landed range before doing anything else; do not integrate
+blindly and do not start another round by default. This also applies to the
+bottom open stack slice. An upper slice follows its parent, so parent movement
+is a restack and requires review at the new head.
 
-After a non-mutating fetch, analyze the exact landed range. If it cannot affect
-the change and the user approves, integrate that exact tip and carry the clean
-reviews to the new head without another round. If the tip moves again before
-integration, re-analyze and ask again. A decline leaves the reviewed head
-blocked; do not re-ask.
+After a non-mutating fetch, classify the exact landed range into exactly one
+outcome and act on it directly — the classification drives the response, not a
+per-movement approval prompt:
 
-Publish the analysis and recommendation as normal session output before opening
-the approval prompt. The prompt asks only whether to carry the clean reviews
-forward to the named tip.
+- **No interaction.** The range does not touch files, contracts, or behavior
+  this change touches. Remove `carry-forward`, integrate the exact analyzed tip
+  by SHA, and carry the clean reviews forward — skip re-running validation,
+  CI, and review. This is the common case on a fast-moving `main` and is what
+  ends the poll-and-rerun loop: repeated non-interacting movement never
+  demands another gate. Merging itself still needs the standing merge
+  authorization (see invariant 8 under [Adversarial review](#adversarial-review));
+  base movement alone does not grant it.
+- **Significant interaction, no conflict.** The range touches related files,
+  contracts, or behavior but merges cleanly. Remove `carry-forward`, integrate
+  the tip, re-run the applicable validation and current-head CI, and
+  re-dispatch the required reviewers at the new head as a normal round; the
+  prior clean reviews do not carry forward.
+- **Merge conflict.** Remove `carry-forward` and treat it as an author change:
+  integrate, resolve the conflict, rebuild and re-test, and re-dispatch the
+  required reviewers at the new head, following the ordinary [conflict recovery
+  transition](#recovery-transitions).
 
-If the range can interact, carry-forward is unavailable. Ask whether to
-integrate, validate, and re-review, or leave the PR blocked. Do not re-ask after
-a decline. Evaluate eligibility from the latest review-clean result.
-Carry-forward is unavailable when a finding remains unresolved or the head
-moved after that result because of an author change, conflict resolution, or
-restack.
-
-After an approved carry-forward, re-run the applicable validation and
-current-head CI. Failure ends the candidate and requires a normal replacement
-round. Repeat the analysis and approval for every later base movement. Follow
-the full
+Report the classification and the action taken as normal session output before
+changing labels or dispatching reviewers. Re-classify only when the landed
+range itself changes — a later, distinct base movement — not on every poll of
+an already-classified range. Follow the full
 [carry-forward procedure](docs/round-orchestration.md#carry-forward-after-clean-reviews).
 
 ### A quick read is not a round

@@ -266,8 +266,9 @@ include more detail when the findings or fixes warrant it.
 ## Carry-forward after clean reviews
 
 [Clean reviews are not spent by main
-moving](../AGENTS.md#clean-reviews-are-not-spent-by-main-moving) states when this
-path applies and when it does not. This is the procedure once it does.
+moving](../AGENTS.md#clean-reviews-are-not-spent-by-main-moving) states when
+this path applies and how each landed-range classification resolves. This is
+the procedure once it does.
 
 1. **Detect movement.** Compare the candidate's recorded base tip with the live
    tip in `baseRef.target.oid`. `baseRefOid` is the base commit recorded for the
@@ -275,19 +276,24 @@ path applies and when it does not. This is the procedure once it does.
    before beginning the analysis.
 2. **Inspect without integrating.** A non-mutating fetch is permitted solely to
    read the exact landed range.
-3. **Report, then ask.** As normal session output, report which commits touch
-   files this change touches, which relied-on behavior they alter, and any
-   conflict a textual merge would resolve silently but wrongly. Say plainly
-   when nothing interacts. Remove `carry-forward` before reporting an outcome
-   where the path is unavailable. After that output is visible, open a separate
-   prompt that asks only whether to carry the clean reviews forward to the named
-   tip.
-4. **Execute the rule's decision.** Exactly one of its outcomes runs here: when
-   it authorizes carry-forward, remove `carry-forward`, integrate that exact
-   analyzed tip by SHA, not a moving branch ref, and re-run the claimed
-   validation and current-head CI. Remove `carry-forward` when the user declines.
-   Every other outcome — interacting or that re-run failing — returns to the
-   rule for its terminal action, which this document does not restate.
+3. **Classify and report.** As normal session output, report which commits
+   touch files this change touches, which relied-on behavior they alter, and
+   any conflict a textual merge would resolve silently but wrongly. State the
+   classification plainly: no interaction, significant interaction, or
+   conflict.
+4. **Act on the classification — no approval prompt.**
+   - *No interaction:* remove `carry-forward`, integrate the exact analyzed tip
+     by SHA (not a moving branch ref), and carry the clean reviews forward.
+     Skip re-running validation, CI, and review. Merging itself still needs the
+     standing merge authorization; base movement alone does not grant it.
+   - *Significant interaction, no conflict:* remove `carry-forward`, integrate
+     the tip, re-run the claimed validation and current-head CI, and
+     re-dispatch the required reviewers at the new head as a normal round.
+   - *Conflict:* remove `carry-forward`, resolve it as an author change under
+     [conflict recovery](../AGENTS.md#recovery-transitions), and re-dispatch the
+     required reviewers at the new head.
 
-For an approved carry-forward, record the reviewed head, the old and approved
-new tips, the non-interaction analysis, and the user's decision on the PR.
+For a no-interaction carry-forward, record the reviewed head, the old and
+integrated tips, and the non-interaction analysis on the PR. For the other two
+outcomes, record the classification and the action taken, and produce the
+resulting round's normal [round report](#the-round-report).
