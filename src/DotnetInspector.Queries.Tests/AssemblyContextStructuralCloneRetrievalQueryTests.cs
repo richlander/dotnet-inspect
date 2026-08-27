@@ -547,6 +547,182 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
+    public void Execute_VirtualMethodTokenIsATypedMissingSeed()
+    {
+        ImmutableArray<byte> image =
+            Image(typeof(StructuralCloneFixture).Assembly.Location);
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(
+                                unchecked((int)0x86000001)),
+                        new StructuralCloneQueryPopulation
+                            .WholeAssembly())));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.SeedMethodNotFound,
+            failed.Failure.Kind);
+        Assert.Equal(
+            StructuralCloneQueryParticipantRole.Seed,
+            failed.Failure.Role);
+    }
+
+    [Fact]
+    public void Execute_RepeatedLongLeafTypeLookupFailsAtAggregateBudget()
+    {
+        const string Namespace = "N";
+        string longLeaf = new('T', 4_000);
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildRepeatedTypeNameAssembly(
+                    Namespace,
+                    longLeaf,
+                    typeCount: 1_100));
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(0x06000001),
+                        new StructuralCloneQueryPopulation.Type(
+                            TypeName(
+                                $"{Namespace}.{longLeaf}")))));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Equal(
+            StructuralCloneQueryParticipantRole.Candidate,
+            failed.Failure.Role);
+        Assert.Contains(
+            "structural-name work budget",
+            failed.Failure.Detail);
+    }
+
+    [Fact]
+    public void Execute_NearLimitMemberAnchorsShareOneWorkBudget()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildHostileMemberIdentityAssembly(
+                    methodCount: 64,
+                    parameterCount: 30,
+                    genericArity: 2_030));
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+        StructuralCloneQuerySeed.Member seed =
+            MemberSeed(
+                Image(typeof(StructuralCloneFixture).Assembly.Location),
+                typeof(StructuralCloneFixture).FullName!,
+                nameof(StructuralCloneFixture.ExactPositiveA));
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed.Member(
+                            TypeName("C"),
+                            seed.MemberIdentity),
+                        new StructuralCloneQueryPopulation
+                            .WholeAssembly())));
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread()
+            - allocatedBefore;
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Contains(
+            "anchor-signature work budget",
+            failed.Failure.Detail);
+        Assert.True(
+            allocated < 24 * 1024 * 1024,
+            $"Exact member lookup allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void Execute_ExtensionContainerAttributesAreInspectedOnce()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildAttributedMethodAssembly(
+                    methodCount: 32,
+                    attributeCount: 128,
+                    attributeTypeNameLength: 3_000));
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+        StructuralCloneQuerySeed.Member seed =
+            MemberSeed(
+                Image(typeof(StructuralCloneFixture).Assembly.Location),
+                typeof(StructuralCloneFixture).FullName!,
+                nameof(StructuralCloneFixture.ExactPositiveA));
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed.Member(
+                            TypeName("C"),
+                            seed.MemberIdentity),
+                        new StructuralCloneQueryPopulation
+                            .WholeAssembly())));
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread()
+            - allocatedBefore;
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.SeedMemberNotFound,
+            failed.Failure.Kind);
+        Assert.True(
+            allocated < 4 * 1024 * 1024,
+            $"Extension-container lookup allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void Execute_HealthyExactTypeSurvivesMalformedNeighbor()
     {
         ImmutableArray<byte> image =
@@ -1131,6 +1307,246 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
             new MetadataRootBuilder(
                 metadata,
                 suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildRepeatedTypeNameAssembly(
+        string @namespace,
+        string name,
+        int typeCount)
+    {
+        var metadata = CreateMetadata(
+            "RepeatedTypeNames",
+            new Guid(
+                "25043D73-D794-4DBE-8738-B52F7888F720"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString("SeedHost"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        for (int index = 0; index < typeCount; index++)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString(@namespace),
+                metadata.GetOrAddString(name),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(2));
+        }
+
+        var bodies = new BlobBuilder();
+        var encoder = new MethodBodyStreamEncoder(bodies);
+        AddSyntheticMethod(metadata, encoder, "Seed");
+        return Serialize(metadata, bodies);
+    }
+
+    static byte[] BuildHostileMemberIdentityAssembly(
+        int methodCount,
+        int parameterCount,
+        int genericArity)
+    {
+        var metadata = CreateMetadata(
+            "HostileMemberIdentity",
+            new Guid(
+                "AFB9127C-3340-48C3-B6E4-94C3D38370D2"));
+        AssemblyReferenceHandle assembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Dependency"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("T"));
+        metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("G"));
+
+        var typeSpecSignature = new BlobBuilder();
+        typeSpecSignature.WriteByte(0x15);
+        typeSpecSignature.WriteByte(0x12);
+        typeSpecSignature.WriteCompressedInteger((2 << 2) | 1);
+        typeSpecSignature.WriteCompressedInteger(genericArity);
+        for (int index = 0; index < genericArity; index++)
+        {
+            typeSpecSignature.WriteByte(0x12);
+            typeSpecSignature.WriteCompressedInteger((1 << 2) | 1);
+        }
+        TypeSpecificationHandle typeSpec =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(typeSpecSignature));
+        int typeSpecCodedIndex =
+            (MetadataTokens.GetRowNumber(typeSpec) << 2) | 2;
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(parameterCount);
+        signature.WriteByte(0x01);
+        for (int index = 0; index < parameterCount; index++)
+        {
+            signature.WriteByte(0x20);
+            signature.WriteCompressedInteger(typeSpecCodedIndex);
+            signature.WriteByte(0x08);
+        }
+        BlobHandle signatureBlob =
+            metadata.GetOrAddBlob(signature);
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString("C"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        for (int index = 0; index < methodCount; index++)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString($"M{index}"),
+                signatureBlob,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        }
+
+        return Serialize(metadata, new BlobBuilder());
+    }
+
+    static byte[] BuildAttributedMethodAssembly(
+        int methodCount,
+        int attributeCount,
+        int attributeTypeNameLength)
+    {
+        var metadata = CreateMetadata(
+            "AttributedMethods",
+            new Guid(
+                "00EAA672-B296-413F-B968-F4D2F02D94C1"));
+        AssemblyReferenceHandle assembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Dependency"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle attributeType =
+            metadata.AddTypeReference(
+                assembly,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(
+                    new string(
+                        'A',
+                        attributeTypeNameLength)));
+        var constructorSignature = new BlobBuilder();
+        new BlobEncoder(constructorSignature)
+            .MethodSignature(
+                SignatureCallingConvention.Default,
+                genericParameterCount: 0,
+                isInstanceMethod: true)
+            .Parameters(
+                parameterCount: 0,
+                returnType => returnType.Void(),
+                parameters => { });
+        MemberReferenceHandle constructor =
+            metadata.AddMemberReference(
+                attributeType,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(
+                    constructorSignature));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle type =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Sealed,
+                default,
+                metadata.GetOrAddString("C"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        BlobHandle attributeValue =
+            metadata.GetOrAddBlob(
+                new byte[] { 1, 0, 0, 0 });
+        for (int index = 0; index < attributeCount; index++)
+        {
+            metadata.AddCustomAttribute(
+                type,
+                constructor,
+                attributeValue);
+        }
+
+        var bodies = new BlobBuilder();
+        var encoder = new MethodBodyStreamEncoder(bodies);
+        for (int index = 0; index < methodCount; index++)
+        {
+            AddSyntheticMethod(
+                metadata,
+                encoder,
+                $"M{index}");
+        }
+        return Serialize(metadata, bodies);
+    }
+
+    static MetadataBuilder CreateMetadata(
+        string assemblyName,
+        Guid moduleVersionId)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            metadata.GetOrAddString($"{assemblyName}.dll"),
+            metadata.GetOrAddGuid(moduleVersionId),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        return metadata;
+    }
+
+    static byte[] Serialize(
+        MetadataBuilder metadata,
+        BlobBuilder bodies)
+    {
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
             bodies,
             flags: CorFlags.ILOnly);
         var image = new BlobBuilder();

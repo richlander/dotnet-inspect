@@ -705,14 +705,19 @@ addresses, and the four product dispositions remain owned by Analysis.
 Acquisition rejection, missing or ambiguous exact targets, and pre-retrieval
 metadata failure are separate typed query outcomes. The query is `Unbounded`;
 whole-assembly scope is explicit, and Analysis method, result, and
-body-production limits remain the visible work controls. It introduces no
-network, source, Research, Finding, Decompiler, or presentation capability.
+body-production limits remain the visible work controls. Exact selection still
+uses Metadata-owned cumulative name, member-anchor, method-row, decode-failure,
+and custom-attribute work ceilings, so malformed metadata fails visibly before
+retrieval rather than multiplying per-row work. It introduces no network,
+source, Research, Finding, Decompiler, or presentation capability.
 `AssemblyContextStructuralCloneRetrievalQueryTests` gates A-vs-A and A-vs-B
 product-result preservation, type and whole-assembly population behavior,
 exact-member, extension-member, and token selection, ambiguity, limit
 separation, unsupported bodies, seed-before-candidate failure precedence,
 malformed acquisition and metadata-neighbor isolation, and same-MVID
-independent-reader handling.
+independent-reader handling. Its virtual-token, repeated-long-leaf,
+near-limit-member-anchor, and repeated-container-attribute cases gate the
+pre-retrieval work ceilings.
 
 Other domain catalogs, query authorization, concurrent execution, and broader
 command migration remain later slices.

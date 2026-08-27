@@ -293,7 +293,9 @@ one mutually exclusive `RetrieveSimilar` path and returns the complete product
 result unchanged beside the selected assembly subjects. The exactly-once call
 count is unverified beyond direct inspection. It does not add ranking,
 comparison, correspondence, semantic, provenance, or vulnerability
-conclusions.
+conclusions. Query-owned exact selection uses Metadata safety ceilings for
+cumulative name, member-anchor, method-row, decode-failure, and attribute work;
+selection-budget exhaustion is a typed pre-retrieval metadata failure.
 
 ## Correspondence and automorphisms
 

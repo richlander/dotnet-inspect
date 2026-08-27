@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text;
 
 using ILInspector.Analysis;
 using ILInspector.Metadata;
@@ -467,7 +468,7 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
     {
         int row = MetadataTokens.GetRowNumber(
             MetadataTokens.EntityHandle(metadataToken));
-        if (row == 0
+        if (row <= 0
             || row > reader.GetTableRowCount(TableIndex.MethodDef))
         {
             return SeedResolution.Failed(
@@ -495,28 +496,78 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
 
         MethodDefinitionHandle match = default;
         int matches = 0;
+        int inspectedMethods = 0;
+        int identityDecodeFailures = 0;
+        int anchorWorkRemaining =
+            MetadataSafetyPolicy.MaxClassificationScanWorkChars;
         Exception? rejected = null;
         TypeDefinition definition =
             reader.GetTypeDefinition(type.Handle);
+        var attributeBudget = new AttributeInspectionBudget();
+        bool isExtensionContainer =
+            definition.Attributes.HasFlag(TypeAttributes.Abstract)
+            && definition.Attributes.HasFlag(TypeAttributes.Sealed)
+            && HasExtensionAttribute(
+                reader,
+                definition.GetCustomAttributes(),
+                attributeBudget);
         foreach (MethodDefinitionHandle methodHandle
             in definition.GetMethods())
         {
+            inspectedMethods++;
+            if (inspectedMethods
+                > MetadataSafetyPolicy.MaxCorrespondenceMethodRows)
+            {
+                throw new BadImageFormatException(
+                    "The exact seed member lookup exceeds the MethodDef "
+                        + "row budget.");
+            }
+
             MethodDefinition method =
                 reader.GetMethodDefinition(methodHandle);
             MemberAnchor anchor;
             try
             {
-                anchor = ApiMemberIdentity.CreateMethodAnchor(
-                    reader,
-                    type.Handle,
-                    method,
-                    IsExtensionMethod(
+                bool isExtensionMethod =
+                    isExtensionContainer
+                    && method.Attributes.HasFlag(
+                        MethodAttributes.Static)
+                    && HasExtensionAttribute(
                         reader,
-                        definition,
-                        method));
+                        method.GetCustomAttributes(),
+                        attributeBudget);
+                anchor = ApiMemberIdentity.CreateMethodAnchorInfo(
+                        reader,
+                        type.Handle,
+                        method,
+                        ref anchorWorkRemaining,
+                        isExtensionMethod)
+                    .Anchor;
             }
             catch (Exception ex) when (IsMalformedMetadata(ex))
             {
+                if (ex is AttributeInspectionBudgetException)
+                {
+                    throw;
+                }
+                if (anchorWorkRemaining <= 0)
+                {
+                    throw new BadImageFormatException(
+                        "The exact seed member lookup exceeds the "
+                            + "anchor-signature work budget.",
+                        ex);
+                }
+                identityDecodeFailures++;
+                if (identityDecodeFailures
+                    >= MetadataSafetyPolicy
+                        .MaxClassificationIdentityDecodeFailures)
+                {
+                    throw new BadImageFormatException(
+                        "The exact seed member lookup exceeds the "
+                            + "method-identity decode failure budget.",
+                        ex);
+                }
+
                 rejected ??= ex;
                 continue;
             }
@@ -585,10 +636,58 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
     {
         TypeDefinitionHandle match = default;
         int matches = 0;
+        long comparisonWork = Encoding.UTF8.GetByteCount(
+            name.Namespace);
+        foreach (string segment in name.Segments)
+        {
+            comparisonWork +=
+                Encoding.UTF8.GetByteCount(segment);
+        }
+        comparisonWork = Math.Max(comparisonWork, 1);
+        if (comparisonWork
+            > MetadataSafetyPolicy.MaxStructuralSignatureWorkChars)
+        {
+            throw new BadImageFormatException(
+                "The exact TypeDef name exceeds the structural-name "
+                    + "work budget.");
+        }
+        long remainingComparisonWork =
+            MetadataSafetyPolicy.MaxStructuralSignatureWorkChars;
+        int leafUtf8Length = Encoding.UTF8.GetByteCount(
+            name.Segments[^1]);
         MetadataTypeNameFailure? rejected = null;
         foreach (TypeDefinitionHandle candidate
             in reader.TypeDefinitions)
         {
+            bool leafCouldMatch;
+            try
+            {
+                TypeDefinition definition =
+                    reader.GetTypeDefinition(candidate);
+                leafCouldMatch =
+                    reader.GetBlobReader(definition.Name).Length
+                    == leafUtf8Length;
+            }
+            catch (Exception ex) when (IsMalformedMetadata(ex))
+            {
+                rejected ??=
+                    MetadataTypeNameFailure.Malformed(
+                        candidate,
+                        ex.Message);
+                continue;
+            }
+
+            if (leafCouldMatch)
+            {
+                remainingComparisonWork -= comparisonWork;
+                if (remainingComparisonWork < 0)
+                {
+                    throw new BadImageFormatException(
+                        "The exact TypeDef lookup exceeded its "
+                            + "structural-name work budget.");
+                }
+            }
+
             MetadataTypeDefinitionNameMatchResult result =
                 MetadataTypeDefinitionName.Matches(
                     reader,
@@ -670,19 +769,17 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
         return methods.ToImmutable();
     }
 
-    static bool IsExtensionMethod(
+    static bool HasExtensionAttribute(
         MetadataReader reader,
-        TypeDefinition type,
-        MethodDefinition method)
-        => type.Attributes.HasFlag(TypeAttributes.Abstract)
-            && type.Attributes.HasFlag(TypeAttributes.Sealed)
-            && method.Attributes.HasFlag(MethodAttributes.Static)
-            && AttributeReader.HasExtensionAttribute(
-                reader,
-                type.GetCustomAttributes())
-            && AttributeReader.HasExtensionAttribute(
-                reader,
-                method.GetCustomAttributes());
+        CustomAttributeHandleCollection attributes,
+        AttributeInspectionBudget budget)
+    {
+        budget.Admit(attributes);
+        return AttributeReader.HasExtensionAttribute(
+            reader,
+            attributes,
+            budget.ObserveMaterialization);
+    }
 
     static AssemblyContextStructuralCloneRetrievalResult MetadataFailure(
         AssemblyContextSubject seedSubject,
@@ -749,4 +846,34 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
     readonly record struct TypeResolution(
         TypeDefinitionHandle Handle,
         StructuralCloneQueryFailure? Failure);
+
+    sealed class AttributeInspectionBudget
+    {
+        const int MinimumRowCharge = 64;
+        int remaining =
+            MetadataSafetyPolicy.MaxStructuralSignatureWorkChars;
+
+        internal void Admit(
+            CustomAttributeHandleCollection attributes)
+            => Charge(
+                (long)attributes.Count * MinimumRowCharge);
+
+        internal void ObserveMaterialization(int work)
+            => Charge(Math.Max(work, 1));
+
+        void Charge(long work)
+        {
+            if (work > remaining)
+            {
+                throw new AttributeInspectionBudgetException(
+                    "The exact seed member lookup exceeds the custom "
+                        + "attribute work budget.");
+            }
+
+            remaining -= (int)work;
+        }
+    }
+
+    sealed class AttributeInspectionBudgetException(string message)
+        : BadImageFormatException(message);
 }
