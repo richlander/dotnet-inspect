@@ -395,15 +395,17 @@ public static partial class InspectionEngine
                                     ", ",
                                     call.Callee.TypeArguments.Select(
                                         argument =>
-                                            argument.ToDisplayString()))}>";
+                                            argument
+                                                .ToQualifiedDisplayString()))}>";
                         return new BrowserCallFact(
-                            $"{call.Callee.DeclaringType.ToDisplayString()}."
+                            $"{call.Callee.DeclaringType.ToQualifiedDisplayString()}."
                             + $"{call.Callee.Name}{typeArguments}("
                             + string.Join(
                                 ", ",
                                 call.Callee.ParameterTypes.Select(
                                     parameter =>
-                                        parameter.ToDisplayString()))
+                                        parameter
+                                            .ToQualifiedDisplayString()))
                             + ")",
                             FormatOffset(call.ILOffset),
                             string.IsNullOrEmpty(call.Opcode)

@@ -494,14 +494,14 @@ index lifetime. The browser only formats signals, allocation and call
 occurrences, unsafe evidence, exception regions, opportunities, and visible
 diagnostics. Allocation occurrences retain the product's heap-counting
 discriminator, and safety rows use the product's deduplicated semantic
-projection. Constructed generic call rows retain their method type arguments.
-Selected graph-only accessor bodies use their body selector and token, and
-ref/lib MethodDef row numbers are validated rather than treated as cross-image
-identities. Surface selections use structural correspondence without offering
-their reference-image token as an implementation fallback; only a graph-only
-member surface returned by the product authorizes fallback, using that surface's
-member name, selector, and implementation MethodDef token rather than fields
-restored from a shared target.
+projection. Call rows use qualified type spelling and retain constructed
+generic method type arguments. Selected graph-only accessor bodies use their
+body selector and token, and ref/lib MethodDef row numbers are validated rather
+than treated as cross-image identities. Surface selections use structural
+correspondence without offering their reference-image token as an implementation
+fallback; only a graph-only member surface returned by the product authorizes
+fallback, using that surface's member name, selector, and implementation
+MethodDef token rather than fields restored from a shared target.
 `BrowserEngineBoundaryTests.MemberFacts_DistinguishesSurfaceAndBodyTokenResolution`
 gates token provenance, heap classification, unsafe-operation deduplication, and
 constructed generic call identity. The frontend retains at most one in-flight

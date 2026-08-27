@@ -44,6 +44,8 @@ public sealed class BrowserEngineBoundaryTests
     {
         PerformanceGenericCallTarget<int>();
         PerformanceGenericCallTarget<string>();
+        PerformanceGenericCallTarget<System.Threading.Timer>();
+        PerformanceGenericCallTarget<System.Timers.Timer>();
         return 0;
     }
 
@@ -3297,10 +3299,20 @@ public sealed class BrowserEngineBoundaryTests
                         StringComparison.Ordinal))
                 .Distinct(),
         ];
-        Assert.Equal(2, genericCallees.Length);
+        Assert.Equal(4, genericCallees.Length);
         Assert.All(
             genericCallees,
             callee => Assert.Contains("<", callee));
+        Assert.Contains(
+            genericCallees,
+            callee => callee.Contains(
+                "<System.Threading.Timer>",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            genericCallees,
+            callee => callee.Contains(
+                "<System.Timers.Timer>",
+                StringComparison.Ordinal));
 
         int implementationToken = typeof(BrowserEngineBoundaryTests)
             .GetMethod(nameof(PerformanceBoxingProbe))!
