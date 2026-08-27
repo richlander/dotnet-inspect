@@ -28,11 +28,14 @@ below.
 
 Implementation is partial. `find` type/member search and `vocabulary` have
 lowered JSON paths; the main `type` and `member` document paths still reject
-column projection under `--json`. Other projection-capable paths, including
-current `library` and `package` routes, can still accept the flags and return
-the full typed document instead. New command families adopt this contract
-individually rather than treating the existing formatter as evidence that every
-section or route is correct.
+column projection under `--json`. `project` also rejects projection, while
+`library`, `package`, `timeline`, `implements`, and `extensions` reject
+otherwise-unclaimed `--json --fields/--columns` requests at the typed-document
+serializer boundary. Discovery owns projected JSON for its `Name`/`Kind` row
+schema under the lens contract; unadopted lens and nested routes such as
+`library --il-offsets` and `package search` reject. New command families adopt
+this contract individually rather than treating the existing formatter as
+evidence that every section or route is correct.
 
 The pilots do not yet satisfy the full contract. In particular, the current
 global rendered-line limiter can truncate their lowered JSON, section and field
@@ -528,12 +531,15 @@ Replacing a genuinely fail-closed `--json --fields/--columns` combination with
 this output is additive. That applies to routes such as current `type` and
 `member`, which reject rather than return a document.
 
-It does not apply where a command currently succeeds after silently dropping
-the projection. Changing `library`, `package`, or another such route from a full
-typed document to lowered JSON changes a successful machine response. The
-adoption slice must identify that compatibility change explicitly and first
-establish visible fail-closed routing or an approved migration; it may not call
-the change additive.
+Before the routing audit, `library`, `package`, `timeline`, `implements`, and
+`extensions`, plus early-return discovery, IL-offset, and nested package-search
+routes, succeeded after silently dropping the projection. Establishing visible
+routing was therefore an explicit compatibility change: discovery now honors
+the request under its lens contract, while the unadopted routes reject before
+writing stdout. Replacing those rejections with conforming lowered JSON is
+additive. A future route found to succeed after dropping projection must
+likewise establish visible fail-closed routing or an approved migration before
+adoption; it may not call the change additive.
 
 Once a command ships lowered JSON, changing its strings to inferred native JSON
 types is breaking. A future typed Markout seam may support a separately designed
@@ -614,14 +620,54 @@ Existing pilot coverage proves only the currently wired slice:
 - The mixed-content, duplicate-key, over-wide-row, and streaming-callback tests
   in `JsonSectionFormatterTests` gate visible failure for the formatter's known
   loss cases.
+- `ProjectedJsonRoutingAudit_InventoryIncludesEveryProjectionCapableCommand`
+  recursively fixes the audited executable-route set using each route's own
+  and inherited options. The
+  `ProjectedJsonRoutingAudit_*TypedDocumentFailsClosed`,
+  `ProjectedJsonRoutingAudit_*DiscoveryOwnsProjectedJson`,
+  `ProjectedJsonRoutingAudit_EffectiveDiscoveryProjectionPreservesRows`,
+  `ProjectedJsonRoutingAudit_EmptyEffectiveDiscoveryValidatesProjection`,
+  `ProjectedJsonRoutingAudit_IlOffsetsProjectionFailsClosed`,
+  `ProjectedJsonRoutingAudit_MultiPackagePayloadProjectionsFailClosed`,
+  `ProjectedJsonRoutingAudit_NarrowedDiscoveryOwnsProjectionValidation`,
+  `ProjectedJsonRoutingAudit_PackageLensFieldsFailBeforeAcquisition`,
+  `ProjectedJsonRoutingAudit_PackageLensPayloadFailsBeforeAcquisition`,
+  `ProjectedJsonRoutingAudit_PackageLensRoutesFailClosed`,
+  `ProjectedJsonRoutingAudit_PackageSearchCountProjectionCountsAfterPreflight`,
+  `ProjectedJsonRoutingAudit_PackageSearchCountProjectionFailsBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_PackageSearchEmptyWindowIsNotAnEmptySearch`,
+  `ProjectedJsonRoutingAudit_PackageSearchDirectionRequiresCarrier`,
+  `ProjectedJsonRoutingAudit_PackageSearchInheritedDiscoveryFailsBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_PackageSearchInheritedModesFailBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_PackageSearchInheritedPayloadFailsBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_PackageSearchInheritedProjectionFailsClosed`,
+  `ProjectedJsonRoutingAudit_PackageSearchInheritedInvalidItemLimitFailsBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_PackageSearchInheritedWindowAndDestinationAreApplied`,
+  `ProjectedJsonRoutingAudit_PackageSearchInheritsPrerelease`,
+  `ProjectedJsonRoutingAudit_PackageSearchInvalidItemLimitFailsBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_PackageSearchMalformedLimitWithRowsIsContained`,
+  `ProjectedJsonRoutingAudit_PackageSearchItemLimitBypassesHostLineWindow`,
+  `ProjectedJsonRoutingAudit_PackageSearchItemLimitConflictsFailBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_PackageSearchItemLimitSpellingsAreEquivalent`,
+  `ProjectedJsonRoutingAudit_PackageSearchItemLimitWorksAfterSubcommand`,
+  `ProjectedJsonRoutingAudit_PackageSearchInvalidWindowFailsBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_PackageSearchOutputPathFailsBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_PackageSearchParentTargetFailsBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_PackageSearchProjectionListFailsBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_PackageSearchTailItemLimitFailsBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_PackageSearchWindowConflictsFailBeforeNetwork`,
+  `ProjectedJsonRoutingAudit_TypeShapeFailsClosed`, and
+  `ProjectedJsonRoutingAudit_TypeShapePayloadProjectionsFailClosed`
+  tests, together with the existing `type`, `member`, `project`, `find`,
+  `vocabulary`, and payload-projection tests, gate that every current route
+  lowers, rejects, or is claimed before typed-document serialization.
 
-The full contract remains **unverified** until these required future gates are
+The full contract remains **unverified** until these remaining future gates are
 implemented:
 
 | Required future gate | Claim it must enforce |
 | --- | --- |
 | `JsonDialectRoutingTests` | Lenses and payload projections claim requests first; only otherwise-unclaimed, non-empty `--fields`/`--columns` select lowered JSON, while `-S`, `--rows`, and `--compact` do not lower. |
-| `ProjectedJsonRoutingAuditTests` | Every projection-capable command either honors an accepted lens/payload, emits lowered JSON, or rejects visibly; no route succeeds after dropping the projection. |
 | `ProjectedJsonTypedCompatibilityTests` | Adopting a command does not change its plain typed `--json` schema or value kinds. |
 | `ProjectedJsonSectionConformanceTests` | Every adopted section kind maps to the documented envelope and arity. |
 | `ProjectedJsonLabeledArrayTests` | Labeled-array keys, empty applicable labels, section object type, and sibling boundaries survive; labeled/unlabeled mixtures and mapped-key collisions fail before stdout. |
