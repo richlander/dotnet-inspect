@@ -2,8 +2,8 @@
 
 This document owns the correctness contract for one
 `AssemblyInspectionSession`: which assembly bytes its readers inspect, how long
-those bytes remain stable, what an MVID proves, and which cache lifetimes may
-reuse the resulting metadata.
+those bytes remain stable, what an MVID proves, and which outer lifetime scopes
+cache owners may use.
 
 It is a focused sub-contract of the
 [assembly inspection query](assembly-inspection-query.md) design. Artifact
@@ -11,6 +11,11 @@ acquisition still owns how content is obtained, storage owns retained bytes,
 workspace composition owns admission and binding, and Metadata owns facts
 decoded from the retained image. This document owns only the image lifetime
 between those boundaries.
+
+Persistent derived-result cache keys remain owned by
+[inspection-space.md](../inspection-space.md#cache-correctness-contract) and
+[artifact acquisition](artifact-acquisition-and-workspaces.md#storage-boundary).
+This document neither replaces nor weakens their owner-computed digest rule.
 
 The target contract is **unverified** until the gates under
 [Required gates](#required-gates) exist. Existing snapshot gates establish
@@ -42,7 +47,7 @@ change from A to B and back to A between observations.
 
 - the retained assembly image used by all inspection producers in the session;
 - the lifetime of readers over that image;
-- session-scoped metadata addresses and caches;
+- bound metadata addresses and caches during the session;
 - visible failure when the retained image cannot remain available.
 
 It consumes:
@@ -79,9 +84,11 @@ boundary, and this design does not require it to resist a producer that
 deliberately emits the same MVID for different bytes.
 
 No cache or correspondence operation may therefore treat an MVID alone as a
-global artifact identity. MVID-scoped row addresses remain inside the owning
-image generation. Artifact generation or immutable source coordinate supplies
-the outer scope.
+global artifact identity. Bound handles and dereference authority remain inside
+the owning image generation. A durable MVID-scoped address value may cross that
+lifetime, but it becomes useful again only when its owner binds it to an
+authorized artifact generation and revalidates the MVID, table, and row.
+Artifact identity or immutable source coordinate supplies the outer scope.
 
 ## Source stability
 
@@ -93,17 +100,19 @@ is immutable for one package ID and normalized version: the owner may unlist
 that version, but it cannot replace its payload. Repository gates do not prove
 this service property.
 
-An exact nuget.org package coordinate can therefore support reacquisition or
-cache reuse across tool runs. The cache identity must still include the source,
-normalized package ID and version, and selected asset path; an assembly MVID is
-not the package cache key.
+An exact nuget.org package coordinate can therefore support payload
+reacquisition or retained-package reuse across tool runs. That outer scope
+includes the source, normalized package ID and version, and selected asset
+path; an assembly MVID is not the package cache key. A persistent derived-result
+cache additionally follows its owner's digest and semantic-key contract.
 
 Two different immutable package assets could accidentally carry the same MVID,
 but their package and asset scopes remain different, so they do not alias in
 this design. The low collision probability matters only to MVID's
 defense-in-depth value when detecting an address presented at the wrong
 boundary. It is not a reason to add an eager content digest to every
-inspection.
+assembly session merely to authenticate the MVID. A persistent derived-result
+cache may independently require a digest.
 
 This immutability assumption is specific to nuget.org. Another package source
 may opt into the same behavior only through an explicit immutable-coordinate
@@ -122,15 +131,19 @@ generation.
 
 Derived metadata for a local binary is not cached across tool runs. A path,
 timestamp, length, assembly identity, or MVID does not authorize such reuse.
-Run-local caches may key by the owning image generation and may retain row
-addresses only while that generation remains alive.
+Run-local caches may key by the owning image generation.
+
+A durable address supplied to a later run is input, not a cached result. The
+owner captures a fresh local image and revalidates the address against it before
+dereference.
 
 ### Other sources
 
 Project outputs, platform installations, CI artifacts, and non-nuget.org
 package sources must declare whether their coordinate is immutable. Without
-that contract they receive the local rule: one retained image per run and no
-cross-run derived-result reuse.
+that contract they cannot reuse payload merely by coordinate. A persistent
+derived-result cache remains subject to its owner-computed content digest and
+source-specific policy.
 
 This document does not define those source-specific coordinates. It defines
 the conservative assembly-session behavior when their owners provide no
@@ -156,29 +169,37 @@ improvement, not the lifetime solution. A single retained image removes the
 time-of-check/time-of-use gap and also handles a deliberately repeated MVID
 without needing to classify it as hostile.
 
-### Metadata addresses stay generation-scoped
+### Address values are portable; dereference authority is not
 
-`MetadataMethodAddress` is MVID plus MethodDef row. A consumer reopening a
-reader over the same retained image revalidates both before dereferencing the
-row. The address does not outlive the artifact generation, enter a global
-cache, or authorize a read from another acquired artifact.
+`MetadataMethodAddress` is MVID plus MethodDef row. The value may be rendered or
+persisted. It does not carry artifact identity or permission to open content.
+
+Inside a live session, a consumer binds the address to a reader over the same
+retained image and revalidates both fields before dereferencing the row. In a
+later context, an acquisition or workspace owner first authorizes and retains
+the candidate artifact; Metadata then validates MVID, table, and row against
+that reader. A mutable local path is captured afresh rather than reopened as a
+continuation of the prior session.
 
 Cross-image API correspondence remains a separate operation. It may produce a
-new address in the target image; it does not make the source address portable.
+new address in the target image; address equality alone does not establish
+correspondence between artifacts.
 
 ### Cache lifetime follows source stability
 
 Reader-local and session-local caches end with their image generation.
 
-Cross-run cache reuse is allowed only when the cache owner has a source
-coordinate whose contract makes the payload immutable, such as exact
-`package@version` from nuget.org. The complete immutable coordinate and asset
-selection scope the entry. Dynamic authorization and policy are still checked
-for the current operation.
+Persistent derived-result caches follow the contract in
+[inspection-space.md](../inspection-space.md#cache-correctness-contract): the
+acquisition owner computes the content digest over retained immutable bytes,
+and the cold gate, producer, and publication use that same snapshot. The
+immutable nuget.org coordinate scopes reacquisition and provenance; it does not
+replace the digest in the current derived-cache contract. Dynamic authorization
+and policy are still checked for the current operation.
 
-Local assembly facts are recomputed in each tool run. A future persistent local
-cache would require a separately approved content-identity design; it is not
-part of this contract.
+This design adds a stricter source-lifetime decision for local assemblies:
+their derived facts are recomputed in each tool run even when a digest could
+make a persistent entry content-correct.
 
 ### Failures remain visible
 
@@ -199,8 +220,10 @@ session. It does not need collision-resistant content identity solely to defend
 against deliberately duplicated MVIDs.
 
 For nuget.org, immutable package coordinate plus selected asset path provides
-the outer reusable scope. For local content, the retained per-run snapshot
-provides the scope and derived results do not survive the run.
+the outer reacquisition and provenance scope. For local content, the retained
+per-run snapshot provides the scope and derived results do not survive the run.
+If either path publishes a persistent derived result, the existing cache owner
+still requires a digest computed over the retained snapshot.
 
 This narrows the collision requirement raised in PR #4623: correctness requires
 generation-scoped bytes and addresses, not treating arbitrary inspected
@@ -242,6 +265,22 @@ This non-goal is narrow. Existing limits and visible failures for malformed or
 adversarial metadata remain required. Only deliberate same-MVID,
 different-content construction is excluded from the identity guarantee.
 
+## Current mismatch
+
+The default `effective-v28` library catalog currently persists facts for direct
+local-file inspection across tool runs. Its key includes the resolved path and
+a SHA-256 digest computed during a separate source open. That rejects ordinary
+stable replacement builds, but it does not prove that the later cold producer
+read the hashed bytes; the source can change between opens. `MDP017` already
+owns the retained-snapshot cutover for that pre-existing cache correctness
+gap.
+
+The implementation must disable or remove that cross-run cache route for local
+subjects rather than carry its separate-process direct-file requirements into
+the successor cache. Package and platform routes retain `MDP017`'s digest and
+snapshot contract. This PR records the mismatch; it does not change shipping
+cache behavior.
+
 ## Required gates
 
 Existing gates prove narrower pieces:
@@ -255,9 +294,9 @@ The complete contract remains unverified until equivalent gates exist for:
 
 - `AssemblyInspectionSession_OneImageFeedsEveryProducer`;
 - `MemberSourceCorrespondence_UsesTheSessionRuntimeImage`;
-- `MetadataMethodAddress_CannotCrossImageGeneration`;
+- `MetadataAddress_RebindingRequiresOwnerAndMvidValidation`;
 - `LocalAssemblyFacts_DoNotEnterACrossRunCache`;
-- `NuGetOrgCacheIdentity_IncludesSourceCoordinateAndAssetPath`;
+- `NuGetOrgReacquisition_PreservesCoordinateAndAssetPath`;
 - `MutablePackageSource_DefaultsToRunLocalImageLifetime`.
 
 The gate names describe required outcomes, not prescribed test classes or an
@@ -265,7 +304,9 @@ implementation sequence.
 
 ## Non-goals
 
-- Requiring an eager digest for every assembly.
+- Requiring an eager digest merely to retain one assembly session or validate
+  an MVID-scoped address.
+- Replacing the persistent derived-result cache contract.
 - Treating MVID as artifact identity or security evidence.
 - Detecting deliberate MVID collisions.
 - Defining package-feed immutability for sources other than nuget.org.
