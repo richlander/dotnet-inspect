@@ -205,7 +205,8 @@ Registration and selection are different:
 - an **eligible source** is active and authorized for the package ID after
   package source mapping or an equivalent host policy.
 
-The website provides a Package sources page from the home screen. It supports:
+Inspect Web UI owns where package-source operations appear. The package-source
+owner supplies descriptors and typed actions for:
 
 - viewing the built-in NuGet Gallery source;
 - registering, editing, and removing HTTPS NuGet v3 sources;
@@ -464,8 +465,8 @@ the import leaves existing configuration untouched.
 Every imported string is untrusted presentation data. Source IDs use a narrow
 ASCII grammar; display names and endpoints cross into the page through inert
 text or DOM `textContent`, never HTML interpolation. The same rule applies to
-the confirmation preview, settings page, source badges, errors, and provenance
-output.
+the confirmation preview, configuration surfaces, source badges, errors, and
+provenance output.
 
 Manual registration and editing use the same admission and inert-rendering
 path. Changing kind or endpoint discards the old session credential, resolved
@@ -474,7 +475,7 @@ sent to the replacement endpoint.
 
 ## Browser credentials
 
-The Package sources page may accept a short-lived packaging-read PAT for a
+Package-source configuration may accept a short-lived packaging-read PAT for a
 source that declares Basic PAT authentication. The session credential contains
 both the configured username and the secret; the wire form is
 `Authorization: Basic base64(username:PAT)`. A source-specific UI may suggest a
@@ -556,10 +557,12 @@ addition to display names. Every human and structured endpoint projection uses
 the shared URL-redaction policy; signed queries and other credential-bearing
 components are never rendered.
 
-The website shows source badges in search results, version choices, package
-tabs, and package headings. A version advertised upstream but unavailable from
-a selected mirror is shown as a source-specific availability fact, not as a
-contradictory global package state.
+The website renders the owner-issued compact producer label on every
+source-bearing surface designated by
+[Inspect Web UI](inspect-web-ui.md#package-source-presentation), including
+search results and version choices. A version advertised upstream but
+unavailable from a selected mirror is shown as a source-specific availability
+fact, not as a contradictory global package state.
 
 ## Implementation direction
 
