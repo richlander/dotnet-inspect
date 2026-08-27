@@ -490,14 +490,18 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    residual: ambiguous testimony, cross-family (true disjoint ranges),
    element-store identity recovery (the #1751 char class — the printer
    re-types those slots, which a materialized local would foreclose), incomplete
-   slot-copy components, and nested `Lambda`/`LocalFunctionStatement` scopes
-   (blocked on the inner printer threading outer taken names — #2275). Direct
-   slot-copy components now materialize atomically when every member clears the
-   same type, scope, and rendering gates; otherwise every member stays
-   printer-owned. `MaterializesCompleteDirectCopyComponent` and
+   slot-copy components, and nested `Lambda`/`LocalFunctionStatement` scopes.
+   The nested-name prerequisite #2275 landed in #2356; recursively materializing
+   each nested body's own locals table remains. Direct slot-copy components now
+   materialize atomically when every member clears the same type, scope, and
+   rendering gates; otherwise every member stays printer-owned.
+   `MaterializesCompleteDirectCopyComponent` and
    `DefersWholeDirectCopyComponentWhenOneSlotIsUndecided` gate both sides of
-   that boundary. The C2 deletion and the invariant extension follow once the
-   residual census reaches the printer-owned floor.
+   that boundary. `SlotMaterializationPass.Analyze` owns the overlapping veto
+   attribution consumed by `--slot-residual-census`; the census fails unless
+   every post-F2 slot web is accounted for as materialized or retained. The C2
+   deletion and the invariant extension follow once the residual census reaches
+   the printer-owned floor.
 
 Each slice reports the standard decompiler-affecting-PR evidence: focused tests,
 the corpus quality-diff card, and improved/still-flat examples. As ReturnToSender
