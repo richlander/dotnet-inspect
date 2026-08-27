@@ -183,12 +183,32 @@ and rejects the capability-shaped structural target. The comparison is
 cycle-safe and uses the same characterized standard wrappers as transfer-root
 classification.
 
+Call and construct parameters are compared contravariantly. When a callback or
+method accepting a capability-shaped structural parameter is assigned where a
+real platform receiver will be supplied, the target parameter is the receiver
+source and the implementation parameter is the erased target. This comparison
+covers functions, methods, constructors, overloads, optional parameters, and
+each represented rest position.
+
 The rule applies at the source-to-target edges below and at generic calls. For a
 generic call, the verifier checks both the instantiated signature and its
 original type-parameter constraints. A receiver passed to a type parameter
 whose declaration exposes a capability-shaped structural constraint without
 retaining the platform identity is rejected. A call that accepts a receiver
 but returns a capability-shaped erased surface is rejected too.
+
+Conversion of a receiver or receiver-bearing repository wrapper to an opaque
+target also fails closed. Opaque targets are `unknown`, `object`, `{}`, an
+unbound generic, or a wrapper position containing one of those in place of the
+receiver. These targets discard the identity needed to distinguish later
+structural narrowing from an unrelated close negative.
+
+Configured platform base types retain a receiver-lineage marker even when they
+do not expose the covered operation directly. A type predicate, inferred
+control-flow narrowing, or generic constraint that moves that lineage to a
+capability-shaped structural type without restoring a configured platform
+receiver is rejected. Narrowing is classified from TypeScript's narrowed type
+and predicate target, not from the guard function's name.
 
 Type-preserving receiver transfer remains valid. Conversion to a platform base
 that does not expose the covered capability, followed by a TypeScript-recognized
@@ -482,7 +502,9 @@ The implementation adds an `inspect-web-boundaries` script and makes
    `yield`, `yield*`, aggregate storage, and adapter-return escape.
    Receiver-erasure cases include structural assignment, structural generic
    constraints, erased generic results, nested object, array, callback, and
-   standard-wrapper positions, and close type-preserving transfers.
+   standard-wrapper positions, contravariant callback and method parameters,
+   opaque conversions, structural type predicates and inferred narrowings, and
+   close type-preserving or platform-restoring transfers.
 3. **Close-negative corpus:** accepts lexical shadows, same-named properties on
    unrelated types, unrelated intrinsic-like objects, type-preserving transfer
    of numeric-only operation receivers that contain no repository-authored
