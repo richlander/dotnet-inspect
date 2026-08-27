@@ -3111,7 +3111,19 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /const signature = memberRequestSignature\(type, overload, true\)/);
   assert.match(
     factsLoader,
-    /const implementationMetadataToken =\s*overload\.graphOnly \? overload\.metadataToken \?\? 0 : 0;\s*const implementationBodySelected = implementationMetadataToken !== 0;\s*return memberDetailInspection\.loadFacts\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*type: type\.queryId \?\? type\.id,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*member: implementationBodySelected\s*\? overload\.name\s*: state\.selectedBodyTarget\?\.memberName \?\? overload\.name,\s*memberSignature: overload\.signature,\s*selectorKey: implementationBodySelected\s*\? overload\.graphSelectorKey\s*: state\.selectedBodyTarget\?\.selectorKey \?\? overload\.graphSelectorKey,\s*metadataToken: implementationMetadataToken,\s*implementationBodySelected,\s*isCurrent: \(\) => memberRequestIsCurrent\(signature, true\)/);
+    /const implementationBody =\s*overload\.graphOnly \? overload\.implementationBody : undefined;\s*const implementationMetadataToken = implementationBody\?\.token \?\? 0;\s*const implementationBodySelected = implementationMetadataToken !== 0;\s*return memberDetailInspection\.loadFacts\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*type: type\.queryId \?\? type\.id,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*member: implementationBody\?\.memberName\s*\?\? state\.selectedBodyTarget\?\.memberName\s*\?\? overload\.name,\s*memberSignature: overload\.signature,\s*selectorKey: implementationBody\?\.selectorKey\s*\?\? state\.selectedBodyTarget\?\.selectorKey\s*\?\? overload\.graphSelectorKey,\s*metadataToken: implementationMetadataToken,\s*implementationBodySelected,\s*isCurrent: \(\) => memberRequestIsCurrent\(signature, true\)/);
+  assert.match(
+    packageAcquisitionSource,
+    /implementationBody\?: BrowserMemberBodySelector/);
+  assert.match(
+    appSource,
+    /function retainGraphOnlyImplementationBody\([\s\S]*overload\.bodySelectors\.find\([\s\S]*overload\.implementationBody = selectedBody;[\s\S]*metadataToken: selectedBody\.token/);
+  assert.match(
+    appSource,
+    /projection\.selectedBody,\s*staged\)[\s\S]*selection\.selectedBodyTarget/);
+  assert.doesNotMatch(
+    factsLoader,
+    /state\.selectedBodyTarget\?\.metadataToken \?\? overload\.metadataToken/);
   assert.match(
     factsRenderer,
     /const heapAllocations = facts\.allocations\.filter\(a => a\.countedAsHeap\);\s*const allocOffsets = heapAllocations\.map\(a => a\.offset\)/);
@@ -4281,7 +4293,7 @@ test("history rebuilds graph-only members through exact pending identity", () =>
     /const hasSelectedBody =\s*graphSelection\?\.group\.key === view\.selectedMemberKey;[\s\S]*?memberSectionIdsFor\(member, pkg\.isRuntimePack, hasSelectedBody\)/);
   assert.match(
     apply,
-    /retainGraphOnlyBodyTarget\(\s*graphSelection\.group\.overloads\[graphSelection\.overloadIndex\],\s*view\.bodyTarget\)/);
+    /state\.selectedBodyTarget = retainGraphOnlyImplementationBody\(\s*graphSelection\.group\.overloads\[graphSelection\.overloadIndex\],\s*view\.bodyTarget\)/);
   assert.match(
     apply,
     /memberSectionIdsFor\(\s*graphSelection\.group,\s*pkg\.isRuntimePack,\s*true\)\.includes\(view\.memberSection\)/);
@@ -4707,10 +4719,10 @@ test("graph-only overloads retain the latest graph-selected body", () => {
     false);
   assert.match(
     appSource,
-    /retainGraphOnlyBodyTarget\(group\.overloads\[overloadIndex\], bodyTarget\)/);
+    /selectedBodyTarget = retainGraphOnlyImplementationBody\(\s*overload,\s*bodyTarget\)/);
   assert.match(
     appSource,
-    /retainGraphOnlyBodyTarget\(staged\.member, target\)/);
+    /const selectedTarget = retainGraphOnlyImplementationBody\(\s*staged\.member,[\s\S]*metadataToken: selectedBody\.token/);
   assert.doesNotMatch(
     appSource,
     /group\.overloads\[overloadIndex\]\.graphTarget = bodyTarget/);

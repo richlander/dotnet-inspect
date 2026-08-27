@@ -6,6 +6,7 @@ import type {
   BrowserAccessibilityDescriptor,
   BrowserAssemblySurface,
   BrowserExceptionSurface,
+  BrowserMemberBodySelector,
   BrowserMemberSurface,
   BrowserPackageDocument,
   BrowserPackageSurface,
@@ -31,6 +32,7 @@ export interface AppMemberSurface
   documentationLoaded?: boolean;
   graphOnly?: boolean;
   graphTarget?: BodyTarget;
+  implementationBody?: BrowserMemberBodySelector;
 }
 
 export interface AppTypeSurface extends Omit<BrowserTypeSurface, "api"> {

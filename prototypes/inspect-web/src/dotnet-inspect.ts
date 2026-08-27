@@ -276,6 +276,7 @@ import type {
   BrowserCallGraph,
   BrowserCallGraphTarget,
   BrowserHomeDemoRunResult,
+  BrowserMemberBodySelector,
   BrowserMemberSurface,
   BrowserPackageCacheStats,
   BrowserPackageDependencies,
@@ -1107,8 +1108,7 @@ function applyView(view: WorkspaceView) {
     state.selectedMemberKey = graphSelection.group.key;
     state.memberBrowseTypeId = type.id;
     state.selectedOverloadIndex = graphSelection.overloadIndex;
-    state.selectedBodyTarget = view.bodyTarget;
-    retainGraphOnlyBodyTarget(
+    state.selectedBodyTarget = retainGraphOnlyImplementationBody(
       graphSelection.group.overloads[graphSelection.overloadIndex],
       view.bodyTarget);
     state.memberSection = isMemberSection(view.memberSection)
@@ -6467,8 +6467,7 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
       && deep.graphTarget) {
       state.selectedMemberKey = localGraphSelection.group.key;
       state.selectedOverloadIndex = localGraphSelection.overloadIndex;
-      state.selectedBodyTarget = deep.graphTarget;
-      retainGraphOnlyBodyTarget(
+      state.selectedBodyTarget = retainGraphOnlyImplementationBody(
         localGraphSelection.group.overloads[localGraphSelection.overloadIndex],
         deep.graphTarget);
       state.memberSection = deep.section
@@ -7816,10 +7815,39 @@ function stageGraphMemberSelection(
   };
 }
 
+function retainGraphOnlyImplementationBody(
+  overload: AppMemberSurface | null | undefined,
+  target: BodyTarget | null | undefined,
+): BodyTarget | null {
+  if (!overload?.graphOnly) return target ?? null;
+  if (!target) {
+    delete overload.implementationBody;
+    return null;
+  }
+  const selectedBody = overload.bodySelectors.find(body =>
+    body.memberName === target.memberName
+    && body.selectorKey === target.selectorKey);
+  if (!selectedBody) {
+    delete overload.implementationBody;
+    retainGraphOnlyBodyTarget(overload, target);
+    return target;
+  }
+
+  overload.implementationBody = selectedBody;
+  const canonicalTarget = {
+    memberName: selectedBody.memberName,
+    selectorKey: selectedBody.selectorKey,
+    metadataToken: selectedBody.token,
+  };
+  retainGraphOnlyBodyTarget(overload, canonicalTarget);
+  return canonicalTarget;
+}
+
 function commitGraphMemberSelection(
   pkg: AppPackage,
   type: AppTypeSurface,
   target: BrowserCallGraphTarget | GraphMemberShareIdentity,
+  selectedBody: BrowserMemberBodySelector,
   staged: ReturnType<typeof stageGraphMemberSelection>,
 ) {
   retainGraphMemberProjection(pkg.types, staged.member);
@@ -7827,7 +7855,13 @@ function commitGraphMemberSelection(
     type.api ??= [];
     type.api.push(staged.member);
   }
-  retainGraphOnlyBodyTarget(staged.member, target);
+  const selectedTarget = retainGraphOnlyImplementationBody(
+    staged.member,
+    {
+      memberName: selectedBody.memberName,
+      selectorKey: selectedBody.selectorKey,
+      metadataToken: selectedBody.token,
+    });
   const selection = resolveLoadedGraphTarget(
     target,
     { status: "unique", pkg, type });
@@ -7835,7 +7869,11 @@ function commitGraphMemberSelection(
     throw new Error(
       `The graph target '${target.memberName}' was lost while committing its projection.`);
   }
-  return { ...selection, group: selection.group };
+  return {
+    ...selection,
+    group: selection.group,
+    selectedBodyTarget: selectedTarget,
+  };
 }
 
 async function navigateToGraphMember(
@@ -7847,12 +7885,16 @@ async function navigateToGraphMember(
   state.platformDrillLoading = false;
   state.platformDrillError = "";
   if ("group" in loaded) {
+    const overload = loaded.group.overloads[loaded.overloadIndex];
+    const selectedBodyTarget = overload
+      ? retainGraphOnlyImplementationBody(overload, target)
+      : target;
     navigateToMember(
       loaded.pkg,
       loaded.type,
       loaded.group,
       loaded.overloadIndex,
-      target);
+      selectedBodyTarget);
     return;
   }
 
@@ -7866,7 +7908,7 @@ async function navigateToGraphMember(
   state.graphMemberNavigationError = "";
   render();
   try {
-    const surface = await loadGraphMemberSurface(
+    const projection = await loadGraphMemberSurface(
       loaded.pkg,
       loaded.type,
       target);
@@ -7881,11 +7923,12 @@ async function navigateToGraphMember(
       loaded.pkg,
       loaded.type,
       target,
-      surface);
+      projection.member);
     const selection = commitGraphMemberSelection(
       loaded.pkg,
       loaded.type,
       target,
+      projection.selectedBody,
       staged);
     state.graphMemberNavigationTitle = "";
     navigateToMember(
@@ -7893,7 +7936,7 @@ async function navigateToGraphMember(
       selection.type,
       selection.group,
       selection.overloadIndex,
-      target);
+      selection.selectedBodyTarget);
   } catch (error) {
     if (!navigationIsCurrent()) {
       if (seq === state.graphMemberNavigationSeq) {
@@ -7937,7 +7980,10 @@ async function restorePendingGraphMember() {
       throw new Error(
         "The graph member's declaring type is no longer available.");
     }
-    const surface = await loadGraphMemberSurface(pkg, type, pending.target);
+    const projection = await loadGraphMemberSurface(
+      pkg,
+      type,
+      pending.target);
     if (!restorationIsCurrent()) {
       discardIfOwned();
       return;
@@ -7946,7 +7992,7 @@ async function restorePendingGraphMember() {
       pkg,
       type,
       pending.target,
-      surface);
+      projection.member);
     if (staged.selection.group.key !== pending.member) {
       throw new Error("The shared member identity does not match the graph target.");
     }
@@ -7954,6 +8000,7 @@ async function restorePendingGraphMember() {
       pkg,
       type,
       pending.target,
+      projection.selectedBody,
       staged);
     state.pendingGraphMemberDeepLink = null;
     state.graphMemberNavigationTitle = "";
@@ -7967,7 +8014,7 @@ async function restorePendingGraphMember() {
       true).includes(pending.section)
       ? pending.section
       : "overview";
-    state.selectedBodyTarget = pending.target;
+    state.selectedBodyTarget = selection.selectedBodyTarget;
     normalizeCurrentNavEntry();
     render();
     observeAsync(loadSelectionData(), "Loading restored graph member data");
@@ -8485,8 +8532,14 @@ function navigateToMember(
   bodyTarget: BodyTarget | null = null,
 ) {
   invalidateGraphMemberNavigation();
+  let selectedBodyTarget = bodyTarget;
   if (overloadIndex != null) {
-    retainGraphOnlyBodyTarget(group.overloads[overloadIndex], bodyTarget);
+    const overload = group.overloads[overloadIndex];
+    if (overload) {
+      selectedBodyTarget = retainGraphOnlyImplementationBody(
+        overload,
+        bodyTarget);
+    }
   }
   activatePackage(pkg);
   state.typeFilter = "";
@@ -8513,7 +8566,7 @@ function navigateToMember(
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
-  state.selectedBodyTarget = bodyTarget;
+  state.selectedBodyTarget = selectedBodyTarget;
   observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
 }
 
@@ -8533,8 +8586,9 @@ async function loadSelectedMemberFacts() {
   }
   const signature = memberRequestSignature(type, overload, true);
   const pkg = currentPackage();
-  const implementationMetadataToken =
-    overload.graphOnly ? overload.metadataToken ?? 0 : 0;
+  const implementationBody =
+    overload.graphOnly ? overload.implementationBody : undefined;
+  const implementationMetadataToken = implementationBody?.token ?? 0;
   const implementationBodySelected = implementationMetadataToken !== 0;
   return memberDetailInspection.loadFacts({
     signature,
@@ -8544,13 +8598,13 @@ async function loadSelectedMemberFacts() {
     assembly: type.assembly,
     type: type.queryId ?? type.id,
     typeIdentity: type.definitionId ?? type.id,
-    member: implementationBodySelected
-      ? overload.name
-      : state.selectedBodyTarget?.memberName ?? overload.name,
+    member: implementationBody?.memberName
+      ?? state.selectedBodyTarget?.memberName
+      ?? overload.name,
     memberSignature: overload.signature,
-    selectorKey: implementationBodySelected
-      ? overload.graphSelectorKey
-      : state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
+    selectorKey: implementationBody?.selectorKey
+      ?? state.selectedBodyTarget?.selectorKey
+      ?? overload.graphSelectorKey,
     metadataToken: implementationMetadataToken,
     implementationBodySelected,
     isCurrent: () => memberRequestIsCurrent(signature, true),

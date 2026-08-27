@@ -1232,10 +1232,16 @@ public static partial class InspectionEngine
                 resolution.Type,
                 resolution.Member,
                 textBudget);
+        BrowserMemberBodySelector selectedBody =
+            member.BodySelectors.SingleOrDefault(
+                body => body.Token == resolution.BodyToken)
+            ?? throw new InvalidOperationException(
+                $"The projected member '{member.Name}' does not retain "
+                + $"body 0x{resolution.BodyToken:X8}.");
         textBudget.CommitParticipant();
         return JsonSerializer.Serialize(
-            member,
-            BrowserJsonContext.Default.BrowserMemberSurface);
+            new BrowserGraphMemberSurface(member, selectedBody),
+            BrowserJsonContext.Default.BrowserGraphMemberSurface);
     }
 
     /// <summary>

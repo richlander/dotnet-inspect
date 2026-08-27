@@ -3222,6 +3222,65 @@ public sealed class BrowserEngineBoundaryTests
             candidate =>
                 candidate.GetProperty("name").GetString()
                 == nameof(PerformanceBoxingProbe));
+        JsonElement property = Assert.Single(
+            type.GetProperty("api").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("name").GetString()
+                == nameof(PerformanceBoxingProperty));
+        JsonElement getter = Assert.Single(
+            property.GetProperty("bodySelectors").EnumerateArray());
+
+        string graphMemberJson =
+            await InspectionEngine.QueryGraphMemberSurface(
+                PackageId,
+                "1.0.0",
+                "net11.0",
+                type.GetProperty("assembly").GetString()!,
+                type.GetProperty("definitionId").GetString()!,
+                getter.GetProperty("memberName").GetString()!,
+                "stale-selector",
+                getter.GetProperty("token").GetInt32());
+        using JsonDocument graphMemberDocument =
+            JsonDocument.Parse(graphMemberJson);
+        JsonElement graphMember = graphMemberDocument.RootElement;
+        Assert.Equal(
+            JsonValueKind.Null,
+            graphMember.GetProperty("member")
+                .GetProperty("metadataToken").ValueKind);
+        Assert.Equal(
+            getter.GetProperty("token").GetInt32(),
+            graphMember.GetProperty("selectedBody")
+                .GetProperty("token").GetInt32());
+        Assert.Equal(
+            getter.GetProperty("memberName").GetString(),
+            graphMember.GetProperty("selectedBody")
+                .GetProperty("memberName").GetString());
+        Assert.Equal(
+            getter.GetProperty("selectorKey").GetString(),
+            graphMember.GetProperty("selectedBody")
+                .GetProperty("selectorKey").GetString());
+
+        string accessorFactsJson =
+            await InspectionEngine.QueryMemberFacts(
+                PackageId,
+                "1.0.0",
+                "net11.0",
+                type.GetProperty("assembly").GetString()!,
+                type.GetProperty("definitionId").GetString()!,
+                graphMember.GetProperty("selectedBody")
+                    .GetProperty("memberName").GetString()!,
+                property.GetProperty("signature").GetString()!,
+                graphMember.GetProperty("selectedBody")
+                    .GetProperty("selectorKey").GetString()!,
+                graphMember.GetProperty("selectedBody")
+                    .GetProperty("token").GetInt32(),
+                implementationBodySelected: true);
+        using JsonDocument accessorFactsDocument =
+            JsonDocument.Parse(accessorFactsJson);
+        Assert.Equal(
+            getter.GetProperty("token").GetInt32(),
+            accessorFactsDocument.RootElement
+                .GetProperty("metadataToken").GetInt32());
 
         string json = await InspectionEngine.QueryMemberFacts(
             PackageId,

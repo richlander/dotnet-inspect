@@ -122,6 +122,14 @@ public sealed record BrowserMemberBodySelector(
     string MemberName,
     string SelectorKey);
 
+/// <summary>
+/// The owning API member and exact physical body selected by a graph query.
+/// <c>MemberFacts_DistinguishesSurfaceAndBodyTokenResolution</c> gates this provenance.
+/// </summary>
+public sealed record BrowserGraphMemberSurface(
+    BrowserMemberSurface Member,
+    BrowserMemberBodySelector SelectedBody);
+
 public sealed record BrowserParameterSurface(
     string Name,
     string Type,
@@ -706,6 +714,7 @@ public sealed record BrowserWorkspacePackage(
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserPackageSurface))]
 [JsonSerializable(typeof(BrowserMemberSurface))]
+[JsonSerializable(typeof(BrowserGraphMemberSurface))]
 [JsonSerializable(typeof(BrowserPackageDocumentContent))]
 [JsonSerializable(typeof(BrowserMemberDocumentation))]
 [JsonSerializable(typeof(BrowserPackageCacheStats))]
