@@ -138,9 +138,12 @@ Add `schedule=<id>` and `goal=advance|merge` whenever a delayed status run is
 armed. `advance` means status gates round completion or reviewer dispatch;
 `merge` means it gates a readiness statement or merge attempt. Remove
 `schedule` when it is cancelled or fires; it is valid only for the recorded
-`head`, `waiting`, and `goal`. Add `attempt=<n>` while backing off from
-consecutive transient GitHub failures, and remove it after a successful
-snapshot. Follow
+`head`, `waiting`, `goal`, and `attempt` when present. Add `attempt=<n>` for
+each automated successor while that state remains unresolved by pending or
+missing CI, null mergeability, rate limiting, or a transient GitHub failure.
+Reset it when `head`, `waiting`, or `goal` changes; remove it when the predicate
+resolves or automated retry stops. At most three successors may run for one
+state. Follow
 [Status discovery](docs/round-orchestration.md#status-discovery) for the
 one-shot scheduling protocol.
 
@@ -761,8 +764,10 @@ a resume and for the carry-forward analysis below.
 
 Before merge, re-read GitHub state and confirm the expected head, non-draft
 status, positive mergeability, and successful current-head `ci-required`.
-`BLOCKED`, `DRAFT`, `UNKNOWN`, a missing check, or a check from another head is
-not ready. Follow
+REST `mergeable_state: "blocked"` (GraphQL `mergeStateStatus: BLOCKED`), a true
+REST or GraphQL draft flag, REST `mergeable: null` (GraphQL
+`mergeable: UNKNOWN`), a missing check, or a check from another head is not
+ready. Follow
 [status discovery](docs/round-orchestration.md#status-discovery).
 
 For stacks, every open layer must meet its applicable eligibility row. A
