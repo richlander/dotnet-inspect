@@ -351,13 +351,25 @@ public sealed class ResolvedAssemblyReference
 
         string fullPath = System.IO.Path.GetFullPath(path);
         using FileStream stream = File.OpenRead(fullPath);
+        System.Reflection.PortableExecutable.PEReader? peReader = null;
         try
         {
-            using var peReader =
+            peReader =
                 new System.Reflection.PortableExecutable.PEReader(stream);
             if (!peReader.HasMetadata)
+            {
+                peReader.Dispose();
                 return null;
+            }
+        }
+        catch (BadImageFormatException)
+        {
+            peReader?.Dispose();
+            return null;
+        }
 
+        using (peReader)
+        {
             MetadataReader metadata = peReader.GetMetadataReader();
             if (metadata.IsAssembly)
                 return null;
@@ -365,7 +377,10 @@ public sealed class ResolvedAssemblyReference
             ModuleDefinition module = metadata.GetModuleDefinition();
             string moduleName = metadata.GetString(module.Name);
             if (string.IsNullOrWhiteSpace(moduleName))
-                return null;
+            {
+                throw new BadImageFormatException(
+                    "The opened netmodule must declare a non-empty module name.");
+            }
 
             return new ResolvedAssemblyReference(
                 new AssemblyAcquisitionRegistration(),
@@ -379,10 +394,6 @@ public sealed class ResolvedAssemblyReference
                 () => File.OpenRead(fullPath),
                 provenance,
                 File.GetLastWriteTimeUtc(stream.SafeFileHandle));
-        }
-        catch (BadImageFormatException)
-        {
-            return null;
         }
     }
 

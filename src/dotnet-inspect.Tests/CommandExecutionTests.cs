@@ -263,6 +263,66 @@ public partial class CommandExecutionTests
         File.WriteAllBytes(path, image.ToArray());
     }
 
+    private static void WriteRejectedManagedImage(
+        string path,
+        bool isAssembly,
+        bool blankModuleName,
+        bool nilMvid)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: blankModuleName
+                ? default
+                : metadata.GetOrAddString(
+                    Path.GetFileName(path)),
+            mvid: nilMvid
+                ? default
+                : metadata.GetOrAddGuid(
+                    Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        if (isAssembly)
+        {
+            metadata.AddAssembly(
+                metadata.GetOrAddString("RejectedAssembly"),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKey: default,
+                flags: default,
+                hashAlgorithm: default);
+        }
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList:
+                MetadataTokens.FieldDefinitionHandle(1),
+            methodList:
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Visible"),
+            baseType: default,
+            fieldList:
+                MetadataTokens.FieldDefinitionHandle(1),
+            methodList:
+                MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
+    }
+
     private static void WriteBlankAssemblyNameAssembly(string path)
     {
         var metadata = new MetadataBuilder();
@@ -19340,11 +19400,49 @@ public partial class CommandExecutionTests
             Assert.Equal(1, exit);
             Assert.Empty(output);
             Assert.Contains(
-                $"Could not read library: {path}",
+                $"Could not acquire library '{path}'",
                 error,
                 StringComparison.Ordinal);
             Assert.DoesNotContain(
                 "Arg_OverflowException",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData(true, false, true)]
+    [InlineData(false, false, true)]
+    [InlineData(false, true, false)]
+    public async Task LibraryCommand_RejectedAcquisitionFailsClosed(
+        bool isAssembly,
+        bool blankModuleName,
+        bool nilMvid)
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"rejected-library-{Guid.NewGuid():N}.dll");
+        WriteRejectedManagedImage(
+            path,
+            isAssembly,
+            blankModuleName,
+            nilMvid);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                path,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                $"Could not acquire library '{path}'",
                 error,
                 StringComparison.Ordinal);
         }

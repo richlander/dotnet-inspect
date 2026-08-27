@@ -633,20 +633,12 @@ public class LibraryCommand
                     integrations?.AssemblyForInspection(resolvedPath!);
                 if (inspectionAssemblyReference is null)
                 {
-                    try
-                    {
-                        inspectionAssemblyReference =
-                            ResolvedAssemblyReference
-                                .CreateInspectionReferenceFromPathIfManaged(
-                                    resolvedPath!,
-                                    inspectionProvenance);
-                    }
-                    catch (Exception ex) when (
-                        IsAssemblyAcquisitionFailure(ex))
-                    {
-                        // InspectAsync owns the visible, path-qualified
-                        // acquisition failure below.
-                    }
+                    (inspectionAssemblyReference, bool acquisitionFailed) =
+                        CreateInspectionReferenceOrReportFailure(
+                            resolvedPath!,
+                            inspectionProvenance);
+                    if (acquisitionFailed)
+                        return 1;
                 }
 
                 // Network-free SourceLink availability probe: drives the SourceLink section
@@ -956,20 +948,12 @@ public class LibraryCommand
                     integrations?.AssemblyForInspection(assemblyPath!);
                 if (inspectionAssemblyReference is null)
                 {
-                    try
-                    {
-                        inspectionAssemblyReference =
-                            ResolvedAssemblyReference
-                                .CreateInspectionReferenceFromPathIfManaged(
-                                    assemblyPath!,
-                                    inspectionProvenance);
-                    }
-                    catch (Exception ex) when (
-                        IsAssemblyAcquisitionFailure(ex))
-                    {
-                        // InspectAsync owns the visible, path-qualified
-                        // acquisition failure below.
-                    }
+                    (inspectionAssemblyReference, bool acquisitionFailed) =
+                        CreateInspectionReferenceOrReportFailure(
+                            assemblyPath!,
+                            inspectionProvenance);
+                    if (acquisitionFailed)
+                        return 1;
                 }
 
                 // Network-free SourceLink availability probe (see platform branch).
@@ -2974,6 +2958,32 @@ public class LibraryCommand
             or BadImageFormatException
             or ArgumentOutOfRangeException
             or OverflowException;
+
+    static (
+        ResolvedAssemblyReference? Assembly,
+        bool Failed)
+        CreateInspectionReferenceOrReportFailure(
+            string path,
+            AssemblyResolutionProvenance provenance)
+    {
+        try
+        {
+            return (
+                ResolvedAssemblyReference
+                    .CreateInspectionReferenceFromPathIfManaged(
+                        path,
+                        provenance),
+                Failed: false);
+        }
+        catch (Exception ex) when (
+            IsAssemblyAcquisitionFailure(ex))
+        {
+            CommandError.Write(
+                $"Could not acquire library '{path}': "
+                + ex.Message);
+            return (Assembly: null, Failed: true);
+        }
+    }
 
     private static AssemblyResolutionProvenance PackageIntegrationProvenance(
         string assemblyPath,

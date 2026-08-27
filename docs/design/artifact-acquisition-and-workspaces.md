@@ -165,12 +165,17 @@ immutable content generation that it selects. Factories that already have open
 metadata bind at descriptor creation; lazy descriptors bind on their first
 verified open. Every later open, including a content snapshot, must carry the
 same MVID. Registration equality permits direct token reuse only after both
-descriptors have passed that validation. It does not permit a path replacement
-or same-identity content swap to reinterpret a token RID. When initial
-inspection instead selects the fallback identity for malformed, native,
-netmodule, or nil-MVID content, that rejection is permanent for the descriptor
-and every derived view; replacing its opener or supplying a valid snapshot
-cannot turn the rejected acquisition into a participant.
+descriptors have passed that validation. The MVID check detects ordinary
+compiler-produced replacement generations; it is not a collision-resistant
+content identity and does not claim to detect deliberately altered content that
+preserves its MVID. Source-owner retention establishes the immutable generation:
+package content remains bound to its exact package coordinate and producer,
+while the local adapter takes a fresh operation-scoped snapshot rather than
+persistently reusing local binary content. When initial inspection instead
+selects the fallback identity for malformed, native, netmodule, or nil-MVID
+content, that rejection is permanent for the descriptor and every derived
+view; replacing its opener or supplying a valid snapshot cannot turn the
+rejected acquisition into a participant.
 `InspectionAcquisitionPlanTests.WithContentSnapshot_RejectsDifferentBoundModuleGeneration`,
 `StreamFallbackFactory_BindsObservedModuleGeneration`,
 `StreamFallbackFactory_FallbackRejectionIsSticky`,
@@ -179,6 +184,10 @@ cannot turn the rejected acquisition into a participant.
 `RetainedSnapshot_RejectsDifferentRegisteredModuleGeneration`, plus
 `PrefetchedEmbeddedPdbOpen_RejectsDifferentRegisteredModuleGeneration` gate
 this bind-once rule across descriptor, retained-image, and prefetched PDB paths.
+`WorkspaceContextLoaderTests.ExactPin_SelectsAnUnlistedVersionWithoutDiscovery`
+gates exact package-version realization, and
+`LocalArtifactSourceTests.SourceMutationAfterAcquire_DoesNotChangePublishedContent`
+gates the operation-scoped local snapshot.
 
 Metadata tokens are acquisition-local addresses and never establish
 correspondence between registrations. When an API member selected from a
