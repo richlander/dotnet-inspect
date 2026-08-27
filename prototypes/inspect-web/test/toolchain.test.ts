@@ -631,14 +631,27 @@ test("the lint covers every file the bundler reads", async () => {
 
   const read = (await bundlerReadFiles(root))
     .map(file => resolve(file))
-    .filter(file => isInsideProject(file, root) && !declaredDependency(file));
+    .filter(file => !declaredDependency(file));
   assert.ok(read.length > 20,
     `expected the files the build reads, found ${read.length}; a build that reads almost `
       + "nothing would satisfy the assertion below without covering anything");
 
-  // Three files this build reads are not checked source, and each is already accounted
+  // Five files this build reads are not checked source, and each is already accounted
   // for elsewhere, so they are pinned as an exact list rather than filtered by a rule
   // that would also let a payload through.
+  //
+  // Round 9 (Gemini 3.1 Pro) removed the last such rule. This gate used to discard
+  // everything outside the project directory, which reads as "not ours" but behaves as a
+  // blanket suppression: a payload committed one level up at `prototypes/payload.js` and
+  // imported through `new URL("../../payload.js", import.meta.url)` was base64'd into the
+  // bundle and executed with all four commands green. Sitting outside the directory says
+  // nothing about whether the build ships it, so the filter is gone and the two files it
+  // was really there for are named instead.
+  //
+  // `../annotated-source-viewer/*` is the sibling prototype this project imports from.
+  // Its `document-model.js` is in the TypeScript program but covered by no lint target,
+  // which is issue #4780, and its `package.json` is read for resolution. Both predate
+  // this branch.
   //
   // `index.html` is the entry document. The JavaScript written inside it is bundled and
   // executed while no lint target and no compiler project can name it, which is issue
@@ -649,15 +662,20 @@ test("the lint covers every file the bundler reads", async () => {
   //
   // `src/styles.css` is style content. It sits under a lint target, but oxlint reads
   // script and the compiler has no account of a stylesheet at all, so it cannot clear
-  // either half of the test below. It is also not a vector for the thing this gate
-  // exists to stop: a browser will not execute it.
+  // either half of the test below. A browser will not execute it either.
   //
   // Pinning the exact list is what makes this fail closed. Anything else the build reads
   // changes it and fails -- including a second stylesheet, which is a small cost for a
-  // gate that otherwise has to guess which extensions are harmless. Closing #4783
-  // changes it too, so the pin has to be deleted deliberately rather than quietly
-  // outliving the gap it describes.
-  const knownReadButUngated = ["index.html", "package.json", "src/styles.css"];
+  // gate that otherwise has to guess which extensions are harmless. Closing #4780 or
+  // #4783 changes it too, so the pin has to be deleted deliberately rather than quietly
+  // outliving the gaps it describes.
+  const knownReadButUngated = [
+    "../annotated-source-viewer/package.json",
+    "../annotated-source-viewer/src/document-model.js",
+    "index.html",
+    "package.json",
+    "src/styles.css",
+  ];
 
   const targets = lintTargets;
   const covered = (file: string): boolean => {
@@ -687,6 +705,20 @@ test("the lint covers every file the bundler reads", async () => {
 // Vite's own build manifest and `assets/` is imported through the bundler -- so the path
 // is switched off rather than policed, and pinned here so it cannot come back without
 // this gate being answered.
+//
+// Round 9 (Sol) found the second path of the same kind. A Vite plugin can read a file
+// with `readFileSync` and splice it into a module in `transform`. Nothing registers that
+// file with Rollup, so it never appears in `getWatchFiles` and the audit above is blind
+// to it; the payload shipped with all four commands green. A plugin is code in a file
+// that is linted and type checked, but the *text* it injects is not, and it need not be
+// hostile to do this -- a plugin that stamps a banner from a file has the same shape.
+// This project declares no plugins, so that path is pinned shut too.
+//
+// Both pins read the config source rather than the resolved config, which is a weaker
+// check than the derivations above: it stops the setting reappearing, not a determined
+// author who spells it differently. That is the right depth here. The gates exist to
+// keep unchecked source from arriving by accident or convenience, and `vite.config.ts`
+// is itself reviewed, linted and type checked.
 test("the bundler has no unread path into the shipped output", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const config = readFileSync(new URL("../vite.config.ts", import.meta.url), "utf8");
@@ -696,6 +728,11 @@ test("the bundler has no unread path into the shipped output", () => {
   assert.ok(!existsSync(join(root, "public")),
     "a `public/` directory exists; with `publicDir` disabled it ships nothing, so "
       + "remove it rather than leaving a directory that reads as shipped content");
+  assert.doesNotMatch(config, /\bplugins\s*:/u,
+    "vite.config.ts declares plugins; a plugin can read a file and splice it into a "
+      + "module without Rollup ever watching it, which is invisible to the gate above. "
+      + "Adding one means answering for what it injects, so this gate has to be "
+      + "reckoned with rather than edited away");
 });
 
 // Being under a lint target turns out not to mean the lint reads the file. oxlint applies
