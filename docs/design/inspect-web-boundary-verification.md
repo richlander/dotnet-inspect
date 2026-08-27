@@ -122,24 +122,63 @@ including:
 - object destructuring;
 - local, imported, and destructured aliases;
 - bound, called, and extracted methods;
-- `Element.getAttribute`, `Element.getAttributeNS`,
-  `Element.getAttributeNode`, and `Element.getAttributeNodeNS`;
-- `Element.attributes` and indexed, `item`, `getNamedItem`, `getNamedItemNS`,
-  spread, and iterable paths through its `NamedNodeMap`;
+- string-returning `Element.getAttribute` and `Element.getAttributeNS` calls
+  with cataloged or dynamic names;
+- every `Attr`-returning `Element` method, including `getAttributeNode` and
+  `getAttributeNodeNS`;
+- `Element.attributes` and every operation on its `NamedNodeMap` whose result
+  is or contains `Attr`, including indexed access, `item`, named lookup,
+  mutation, spread, and iteration;
 - `Reflect.get`, `Reflect.apply`, and corresponding covered `Object`
   operations; and
 - parenthesized, asserted, or otherwise transparent wrapper expressions.
 
 Dynamic property names that cannot be reduced to a catalog key are not silently
 accepted. For a covered carrier they produce an unsupported-dynamic-access
-diagnostic outside its adapter. Indexed, `item`, spread, or iterable
-`NamedNodeMap` acquisition is likewise unsupported outside the numeric adapter:
-the resulting `Attr` no longer proves its originating attribute name. The
-verifier is not required to evaluate arbitrary JavaScript expressions.
+diagnostic outside its adapter. Every `Attr`-producing operation is unsupported
+outside the numeric adapter, even when it is addressed by a constant
+non-catalog name: the resulting `Attr` type no longer proves its originating
+attribute name. This rule covers new `NamedNodeMap` methods by semantic result
+type rather than a closed method-name list. The verifier is not required to
+evaluate arbitrary JavaScript expressions.
 
 Lexically shadowed locals remain valid close negatives. A local named
 `document`, `Reflect`, `Object`, `window`, or `self` is not a browser capability
 unless TypeScript resolves it to the corresponding platform declaration.
+
+### Carrier-bearing types
+
+Transfer policy applies to a recursive type closure, not only to a raw platform
+type. A type is carrier-bearing when any of these is true:
+
+- it is a configured platform carrier or a callable whose signature resolves
+  to a covered platform method declaration;
+- a union, intersection, type parameter, base type, or apparent type contains a
+  carrier-bearing constituent or constraint;
+- a readable property, tuple element, array element, or index result is
+  carrier-bearing;
+- its call or construct signature returns a carrier-bearing type; or
+- a characterized standard `Promise`, `Iterable`, `Iterator`, `Generator`,
+  `AsyncIterable`, or `AsyncIterator` type argument is carrier-bearing.
+
+The computation is cycle-safe and memoized by TypeScript type identity. It is
+fail-closed for unresolved, `any`, or unknown generic positions reached while
+classifying a value already known to contain a carrier. Ordinary unrelated
+`any` and `unknown` values do not become carriers merely because their
+structure is unavailable. Characterization tests pin the standard wrapper
+symbols and their produced-type argument positions from the configured
+TypeScript libraries.
+
+Examples of carrier-bearing types include `DOMStringMap`,
+`() => DOMStringMap`, `{ data: DOMStringMap }`,
+`Promise<DocumentFragment>`, and `Iterable<Attr>`. This closure lets the
+verifier recognize higher-order and aggregate transport without reconstructing
+runtime value provenance.
+
+Classification is intentionally conservative: a value whose declared type has
+an optional carrier-bearing property is carrier-bearing even when that property
+is absent at runtime. Migration must split or encapsulate such aggregate types;
+the verifier does not add flow-sensitive exemptions for currently empty values.
 
 ### Carrier transfer and type erasure
 
@@ -147,24 +186,28 @@ TypeScript permits a platform carrier to be assigned to a structurally
 compatible type that no longer retains its platform declaration. The verifier
 does not assume semantic identity survives that conversion.
 
-A configured carrier must not cross a conversion that erases the identity
-needed by its rule, including inside an adapter. The verifier compares the
-source type with the contextual or target type at:
+A carrier-bearing value must not cross a semantic source-to-target edge that
+erases the identity needed by its rule, including inside an adapter. The
+verifier compares source and target types for every TypeScript edge that binds,
+stores, transports, or produces a value, including:
 
-- variable declarations and assignments;
-- arguments and parameters;
-- returns;
+- variable, property, element, object, array, and destructuring initializers or
+  assignments;
+- arguments and their resolved parameters;
+- synchronous returns and async resolved returns;
+- `yield` and `yield*` against the generator's yield type;
 - type assertions and `satisfies` expressions;
 - object spread and destructuring rest; and
 - calls to copy or reflection intrinsics that receive the carrier.
 
-Type-preserving aliases within one module remain valid. A call is a separate
-transfer boundary: outside an owning adapter, a raw carrier may be passed only
-to an exact callable declaration registered as an entry point by the owning
-adapter's descriptor. Inside an adapter, a carrier may also pass to helpers
-declared in that same module. Passing it to an arbitrary local, imported,
-generic, rest-parameter, or intrinsic call is rejected even when the resolved
-parameter type preserves the carrier identity.
+Type-preserving aliases within one module remain valid. A call is also a
+transfer boundary independent of conversion: outside an owning adapter, a
+carrier-bearing value may be passed only to an exact callable declaration and
+parameter position registered by the owning adapter's descriptor. Inside an
+adapter, it may also pass to helpers declared in that same module. Passing it
+to an arbitrary local, imported, generic, higher-order, rest-parameter, or
+intrinsic call is rejected even when the resolved parameter type remains
+carrier-bearing.
 
 Entry-point authority applies only to receiving the carrier for the declared
 capability. It does not transfer adapter authority to the caller. Adapter
@@ -173,19 +216,21 @@ or structurally erased forms of either. Descriptor completeness and
 carrier-transfer mutations gate those public surfaces.
 
 Passing `DOMStringMap` as `Record<string, string | undefined>`, passing
-`Document` as a local structural selector interface, or copying either carrier
-therefore produces a carrier-escape diagnostic at the conversion. Aliases that
-retain the configured platform type remain classifiable by that type. A
-structurally similar value whose source type is not a configured platform
-carrier remains a close negative.
+`() => DOMStringMap` through a generic callback, yielding a `DOMStringMap` as a
+structural type, passing `Document` as a local structural selector interface,
+or copying any of those values therefore produces a carrier-escape diagnostic.
+Aliases and wrappers that retain carrier-bearing identity remain classifiable.
+A structurally similar value whose source type is not carrier-bearing remains a
+close negative.
 
 The transfer rule closes generic laundering without interprocedural
-value-provenance inference. For example, `erase<T>(document)` is rejected at
-the call because `erase` is not a registered adapter entry point, even if its
-resolved parameter is `Document` and its return type has already erased that
-identity. If a carrier reaches a use without either retained semantic identity
-or a checked transfer or conversion, the claimed boundary is not proven and
-the old enforcement cannot be retired.
+value-provenance inference. For example, both `erase<T>(document)` and
+`erase(() => element.dataset)` are rejected because `erase` is not a
+registered adapter entry point, even if the instantiated parameter preserves
+the raw or callback type while the return type has already erased it. If a
+carrier reaches a use without either retained carrier-bearing identity or a
+checked transfer edge, the claimed boundary is not proven and the old
+enforcement cannot be retired.
 
 Selector ownership is based on cataloged selector and identifier constants, not
 every call to `querySelector`, `querySelectorAll`, or `getElementById`. Product
@@ -248,7 +293,9 @@ the verifier, initially:
 - resolve the type at an expression;
 - resolve the signature and declaration selected for a call;
 - reduce a property expression to a TypeScript constant when available;
-- compare source and contextual types at a conversion; and
+- enumerate constituents, constraints, properties, indexes, signatures, and
+  language-defined produced types for cycle-safe carrier classification;
+- compare source and contextual types at every binding or production edge;
 - resolve a call to its exact declaration and instantiated parameter and return
   types; and
 - compare declarations with configured DOM library and product declarations.
@@ -279,7 +326,17 @@ It contains:
 
 - a stable capability identifier;
 - platform symbol or type identities needed for recognition; and
-- property keys or methods covered by the boundary.
+- property keys or methods covered by the boundary; and
+- exact callable references and parameter positions authorized to receive each
+  carrier-bearing type.
+
+An entry-point reference must resolve to an exported callable declared in the
+same module as the descriptor. Its listed parameter must have a specific
+carrier-bearing type; `any`, `unknown`, unbound generic, and rest parameters are
+invalid authority. The verifier rejects stale entries and calls through an
+unlisted overload or parameter position. Same-module private helpers need no
+entry-point listing because they cannot transfer the carrier out of the
+adapter.
 
 The declaring module is the exact owner; an independently stated path is not
 needed. Migration introduces the numeric adapter and its
@@ -293,8 +350,9 @@ expressions and duplicated string lists.
 
 The verifier rejects duplicate capability identifiers, duplicate selectors
 with conflicting owners, unresolved descriptor imports, unresolved platform
-identities, empty covered-key sets, and catalog entries without test witnesses.
-A second verifier-owned key or selector list is prohibited.
+identities, invalid or stale entry-point references, empty covered-key sets,
+and catalog entries without test witnesses. A second verifier-owned key or
+selector list is prohibited.
 
 ## Gate and evidence
 
@@ -308,8 +366,9 @@ The implementation adds an `inspect-web-boundaries` script and makes
 2. **Positive mutation corpus:** rejects direct, computed, destructured,
    aliased, extracted, reflective, bound, wrapped, attribute-based, and
    type-erased access for each capability outside its adapter. Carrier-transfer
-   cases include generic laundering, rest parameters, imported consumers,
-   aggregate storage, and adapter-return escape.
+   cases include raw and higher-order generic laundering, carrier-bearing
+   aggregates, rest parameters, imported consumers, sync and async returns,
+   `yield`, `yield*`, aggregate storage, and adapter-return escape.
 3. **Close-negative corpus:** accepts lexical shadows, same-named properties on
    unrelated types, unrelated intrinsic-like objects, and authorized adapter
    access.
@@ -351,7 +410,8 @@ Migration is replacement, not indefinite layering:
 4. Extract product-owned selector descriptors from the modules whose ownership
    is currently asserted in `test/spotlight-identity.test.ts`. Move the
    selector alias, computed-key, destructuring, method-extraction, reflection,
-   wrapper, and lexical-shadow corpus into verifier fixtures.
+   wrapper, higher-order transfer, generator, and lexical-shadow corpus into
+   verifier fixtures.
 5. Run the semantic verifier and selector OXC checks together until the
    semantic gate has catalog completeness, real-tree non-vacuity, and parity
    for the retained selector corpus.
