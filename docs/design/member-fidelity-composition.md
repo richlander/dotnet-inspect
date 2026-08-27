@@ -58,7 +58,7 @@ policy to this document.
 
 | Owner | Existing authority | Immediate composition obligation | Non-claim |
 | --- | --- | --- | --- |
-| Resolved assembly reference | Selected managed-assembly identity, guarded repeatable content access, and the current opaque acquisition registration | Supply selected-entry identity and content to Metadata's candidate-open validation before session construction | Does not own artifact acquisition, adapter provenance, or PE lifetime |
+| Resolved assembly reference | Selected managed-assembly identity, current unguarded opener and optional path, source-specific provenance, and opaque acquisition registration | Supply selected-entry identity and content to Metadata's candidate-open validation before session construction | Does not own artifact acquisition, adapter provenance policy, or PE lifetime |
 | Assembly inspection session | One opened PE lifetime and session-scoped operations | Keep the reader/image coherent and live while Metadata materializes escaping facts | Does not own artifact identity, assembly selection, or Metadata facts |
 | `ILInspector.MetadataPrimitives` | Bounded SRM mechanics, neutral structural identity, raw MethodSemantics rows, and work budgets | Return typed rejection or exhaustion without display or fallback policy | Does not own API identity, fidelity, or reconstruction |
 | `ILInspector.Metadata` | Metadata facts, API models, declaration identity, operator classification, MethodImpl relationships, cross-reader method correspondence, and PDB correlations | Materialize reader-local evidence into owner-issued facts carrying every discriminator required by declared consumers | Does not decide body fidelity or render C# |
@@ -359,7 +359,11 @@ forms.
 
 **Owner:** `ILInspector.Decompiler`.
 
-**Owning document:** [Decompiler correctness pipeline](../decompiler-correctness-pipeline.md).
+**Owning document:** [Decompiler design](../decompiler.md).
+
+**Supporting contracts:** [IR and importer design](../decompiler-ir.md) owns the
+importer/IR substrate; [Decompiler correctness pipeline](../decompiler-correctness-pipeline.md)
+owns validation.
 
 **Claim:** define how the importer, raisers, and printer consume
 Metadata-issued operator evidence, how call and method-group body spellability
