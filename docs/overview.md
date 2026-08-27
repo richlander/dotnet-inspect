@@ -112,9 +112,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   physical occurrences into the inspection-graph descriptor model.
 - [Type, member, and API representation](design/type-member-api-representation.md): authoritative currency map for lookup, shape, identity, correspondence, location, selectors, and display.
 - [Member fidelity evidence composition](design/member-fidelity-composition.md):
-  broad composition map for typed handoffs among Metadata, Decompiler, CSharp,
-  Research, ReturnToSender, the round-trip harness, and CLI output. It owns no
-  component-internal contract.
+  broad composition map for typed handoffs among Metadata, Analysis,
+  Decompiler, CSharp, Research, ReturnToSender, the round-trip harness, and CLI
+  output. It owns no component-internal contract.
 - [Structured type-forwarding resolution](design/type-forwarding-resolution.md): typed reference-to-definition resolution, forwarding evidence, binding policy, outcomes, and consumer migration.
 - [Signals](assembly-audit.md): package/library signal semantics and network scope.
 - [PDB acquisition](pdb-acquisition.md): symbols and SourceLink acquisition.
