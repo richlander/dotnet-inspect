@@ -29,6 +29,9 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     readonly Func<DecodedInstruction, bool>
         _isStableReceiverGetter;
     readonly Action? _asyncStateMachineTypesBuilt;
+    readonly Lazy<Dictionary<
+        MetadataTypeDefinitionName,
+        TypeDefinitionHandle>> _localTypeDefinitions;
     // Build owns the only async-state-machine classification cache and prewarms it before
     // parallel method analysis. OptimizationOpportunities_AsyncStateMachineTypesArePrewarmedBeforeParallelAnalysis
     // gates that the consumed cache, rather than a duplicate, is initialized exactly once.
@@ -61,6 +64,9 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         _asyncStateMachineTypesBuilt =
             asyncStateMachineTypesBuilt;
         _memorySafetyRulesEnabled = DetectMemorySafetyRules();
+        _localTypeDefinitions = new(
+            BuildLocalTypeDefinitions,
+            LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     internal bool MemorySafetyRulesEnabled =>
@@ -395,6 +401,39 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
 
         public int DefinitionToken(int operandToken)
             => owner.PeelToDefinitionToken(operandToken);
+
+        public TypeRef ResolveType(int token)
+            => owner.ResolveTypeToken(token, scope);
+
+        public (TypeRef? DeclaringType, string? Name) ResolveFieldOwner(
+            int fieldToken)
+            => owner.ResolveFieldOwner(fieldToken, scope);
+
+        public FieldIdentity? ResolveFieldIdentity(int fieldToken)
+            => owner.ResolveFieldIdentity(fieldToken, scope);
+
+        public string? ResolveUserString(int token)
+        {
+            if ((token & unchecked((int)0xFF000000))
+                    != 0x70000000)
+            {
+                return null;
+            }
+
+            try
+            {
+                return owner._reader.GetUserString(
+                    MetadataTokens.UserStringHandle(
+                        token & 0x00FFFFFF));
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException
+                    or ArgumentException
+                    or InvalidOperationException)
+            {
+                return null;
+            }
+        }
     }
 
     // A value-type `newobj` whose operand is an unresolvable external TypeRef is still
@@ -448,6 +487,200 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         {
             return (null, null);
         }
+    }
+
+    FieldIdentity? ResolveFieldIdentity(
+        int fieldToken,
+        GenericScope callerScope)
+    {
+        try
+        {
+            EntityHandle handle = MetadataTokens.EntityHandle(fieldToken);
+            (TypeRef? declaringType, string? name) =
+                ResolveFieldOwner(fieldToken, callerScope);
+            FieldIdentity? fallback =
+                FieldIdentity.TryCreate(declaringType, name);
+            if (fallback is null)
+                return null;
+
+            if (handle.Kind == HandleKind.FieldDefinition)
+            {
+                return FieldIdentity.CreateLocal(
+                    declaringType!,
+                    name!,
+                    fieldToken);
+            }
+            if (handle.Kind != HandleKind.MemberReference)
+                return fallback;
+
+            MemberReference member =
+                _reader.GetMemberReference((MemberReferenceHandle)handle);
+            TypeDefinitionHandle parent;
+            if (member.Parent.Kind == HandleKind.TypeDefinition)
+            {
+                parent = (TypeDefinitionHandle)member.Parent;
+            }
+            else if (CouldReferenceCurrentModule(declaringType!))
+            {
+                if (!CanCanonicalizeCurrentModuleReference(
+                        declaringType!)
+                    || !TryResolveLocalTypeDefinition(
+                        declaringType!,
+                        out parent))
+                {
+                    return null;
+                }
+            }
+            else
+            {
+                return fallback;
+            }
+
+            FieldDefinitionHandle[] matches =
+            [
+                .. _reader
+                    .GetTypeDefinition(parent)
+                    .GetFields()
+                    .Where(field =>
+                        FieldMatchesMemberReference(
+                            member,
+                            field,
+                            name!)),
+            ];
+            return matches is [var match]
+                ? FieldIdentity.CreateLocal(
+                    declaringType!,
+                    name!,
+                    MetadataTokens.GetToken(match))
+                : null;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or InvalidOperationException
+            or ArgumentException
+            or OverflowException
+            or IndexOutOfRangeException)
+        {
+            return null;
+        }
+    }
+
+    bool CouldReferenceCurrentModule(TypeRef type)
+    {
+        TypeRef definition = type.Kind == TypeRefKind.GenericInstance
+            ? type.ElementType ?? type
+            : type;
+        return definition.Resolution?.Origin switch
+        {
+            TypeReferenceOrigin.CurrentAssembly => true,
+            TypeReferenceOrigin.AssemblyReference assembly =>
+                _reader.IsAssembly
+                && assembly.Assembly.Name.Equals(
+                    _reader.GetString(
+                        _reader.GetAssemblyDefinition().Name),
+                    StringComparison.OrdinalIgnoreCase),
+            TypeReferenceOrigin.ModuleReference module =>
+                module.ModuleName.Equals(
+                    _reader.GetString(
+                        _reader.GetModuleDefinition().Name),
+                    StringComparison.OrdinalIgnoreCase),
+            _ => false,
+        };
+    }
+
+    bool CanCanonicalizeCurrentModuleReference(TypeRef type)
+    {
+        TypeRef definition = type.Kind == TypeRefKind.GenericInstance
+            ? type.ElementType ?? type
+            : type;
+        return definition.Resolution?.Origin switch
+        {
+            TypeReferenceOrigin.CurrentAssembly => true,
+            TypeReferenceOrigin.AssemblyReference assembly =>
+                _reader.IsAssembly
+                && assembly.Assembly.IsEquivalentTo(
+                    AssemblyReferenceIdentity.FromAssemblyDefinition(
+                        _reader)),
+            TypeReferenceOrigin.ModuleReference module =>
+                module.ModuleName.Equals(
+                    _reader.GetString(
+                        _reader.GetModuleDefinition().Name),
+                    StringComparison.OrdinalIgnoreCase),
+            _ => false,
+        };
+    }
+
+    bool TryResolveLocalTypeDefinition(
+        TypeRef type,
+        out TypeDefinitionHandle handle)
+    {
+        TypeRef definition = type.Kind == TypeRefKind.GenericInstance
+            ? type.ElementType ?? type
+            : type;
+        if (definition.Resolution is not { Type: var name }
+            || !_localTypeDefinitions.Value.TryGetValue(
+                name,
+                out handle)
+            || handle.IsNil)
+        {
+            handle = default;
+            return false;
+        }
+
+        return true;
+    }
+
+    Dictionary<MetadataTypeDefinitionName, TypeDefinitionHandle>
+        BuildLocalTypeDefinitions()
+    {
+        var definitions = new Dictionary<
+            MetadataTypeDefinitionName,
+            TypeDefinitionHandle>();
+        foreach (TypeDefinitionHandle handle in _reader.TypeDefinitions)
+        {
+            TypeRef type = TypeRefDecoder.Instance.GetTypeFromDefinition(
+                _reader,
+                handle,
+                0);
+            if (type.Resolution is not { Type: var name })
+                continue;
+
+            if (!definitions.TryAdd(name, handle))
+                definitions[name] = default;
+        }
+
+        return definitions;
+    }
+
+    bool FieldMatchesMemberReference(
+        MemberReference member,
+        FieldDefinitionHandle fieldHandle,
+        string name)
+    {
+        FieldDefinition field =
+            _reader.GetFieldDefinition(fieldHandle);
+        if (_reader.GetString(field.Name) != name
+            || !SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                _reader,
+                member.Signature,
+                SignatureBlobGuard.Kind.Field)
+            || !SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                _reader,
+                field.Signature,
+                SignatureBlobGuard.Kind.Field))
+        {
+            return false;
+        }
+
+        BlobReader left = _reader.GetBlobReader(member.Signature);
+        BlobReader right = _reader.GetBlobReader(field.Signature);
+        if (left.Length != right.Length)
+            return false;
+        while (left.RemainingBytes > 0)
+        {
+            if (left.ReadByte() != right.ReadByte())
+                return false;
+        }
+        return true;
     }
 
     bool IsDelegateConstructorToken(int operandToken, MemberRef constructor)

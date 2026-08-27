@@ -28,6 +28,31 @@ public sealed class BrowserEngineBoundaryTests
 
     public static object PerformanceBoxingProbe(int value) => value;
 
+    public static int PerformanceNoAllocationProbe(int value) => value;
+
+    public static Guid PerformanceValueTypeConstructionProbe(byte[] bytes) =>
+        new(bytes);
+
+    public static int PerformanceStackAllocProbe(int value)
+    {
+        Span<int> values = stackalloc int[1];
+        values[0] = value;
+        return values[0];
+    }
+
+    public static int PerformanceGenericCallProbe()
+    {
+        PerformanceGenericCallTarget<int>();
+        PerformanceGenericCallTarget<string>();
+        PerformanceGenericCallTarget<System.Threading.Timer>();
+        PerformanceGenericCallTarget<System.Timers.Timer>();
+        return 0;
+    }
+
+    static void PerformanceGenericCallTarget<T>()
+    {
+    }
+
     public static object PerformanceBoxingProperty => 42;
 
     public static class PerformanceNestedProbe
@@ -602,6 +627,81 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PlatformWorkspace_LatestSentinelUsesVersionDiscovery()
+    {
+        const string packageId =
+            "microsoft.netcore.app.runtime.linux-x64";
+        const string discoveredVersion = "11.0.75";
+        byte[] nupkg = PlatformPackage(
+            ("System.Private.CoreLib.dll",
+                File.ReadAllBytes(typeof(object).Assembly.Location)));
+        var handler = new PlatformVersionHandler(
+            packageId,
+            discoveredVersion,
+            nupkg);
+        using var client = new HttpClient(handler);
+        var authorization =
+            new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+
+        using BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                "net11.0-latest-platform-sentinel",
+                "latest",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(discoveredVersion, resolution.Coordinate.Version);
+    }
+
+    [Fact]
+    public async Task PlatformWorkspace_ExactVersionSkipsDiscoveryAndDoesNotReuseLatestState()
+    {
+        const string packageId =
+            "microsoft.netcore.app.runtime.linux-x64";
+        const string latestVersion = "11.0.76";
+        const string exactVersion = "11.0.77";
+        const string framework = "net11.0-exact-platform-version";
+        byte[] nupkg = PlatformPackage(
+            ("System.Private.CoreLib.dll",
+                File.ReadAllBytes(typeof(object).Assembly.Location)));
+        var latestHandler = new PlatformVersionHandler(
+            packageId,
+            latestVersion,
+            nupkg);
+        var exactHandler = new PlatformVersionHandler(
+            packageId,
+            exactVersion,
+            nupkg);
+        using var latestClient = new HttpClient(latestHandler);
+        using var exactClient = new HttpClient(exactHandler);
+        var authorization =
+            new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+
+        using BrowserPlatformScopeResolution latest =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                framework,
+                latestClient,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        using BrowserPlatformScopeResolution exact =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                framework,
+                exactVersion,
+                exactClient,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(latestVersion, latest.Coordinate.Version);
+        Assert.Equal(exactVersion, exact.Coordinate.Version);
+        Assert.NotSame(latest.Scope, exact.Scope);
+        Assert.Equal(1, exactHandler.Requests);
+    }
+
+    [Fact]
     public async Task PlatformWorkspace_LeasesArchivesUntilCandidateRegistration()
     {
         const string runtimePackage =
@@ -934,8 +1034,8 @@ public sealed class BrowserEngineBoundaryTests
                     "Targets",
                     BindingFlags.Static | BindingFlags.NonPublic)!
                 .GetValue(null));
-        Assert.False(targets.Contains(frameworks[0]));
-        Assert.True(targets.Contains(frameworks[^1]));
+        Assert.False(targets.Contains($"{frameworks[0]}@latest"));
+        Assert.True(targets.Contains($"{frameworks[^1]}@latest"));
     }
 
     [Fact]
@@ -1029,8 +1129,8 @@ public sealed class BrowserEngineBoundaryTests
                             "Targets",
                             BindingFlags.Static | BindingFlags.NonPublic)!
                         .GetValue(null));
-            Assert.True(targets.Contains(frameworks[0]));
-            Assert.False(targets.Contains(frameworks[1]));
+            Assert.True(targets.Contains($"{frameworks[0]}@latest"));
+            Assert.False(targets.Contains($"{frameworks[1]}@latest"));
         }
         finally
         {
@@ -2023,6 +2123,115 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void MemberCallGraphRequests_PreserveContextOrderAndLocateNonFirstRoot()
+    {
+        (BrowserPackageRequest[] requests, int rootIndex) =
+            InspectionEngine.MemberCallGraphRequests(
+                "Root.Package",
+                "1.0.0",
+                "net11.0",
+                """
+                [
+                  {
+                    "package": "Binding.First",
+                    "version": "2.0.0",
+                    "framework": "net11.0"
+                  },
+                  {
+                    "package": "Root.Package",
+                    "version": "1.0.0",
+                    "framework": "net11.0"
+                  }
+                ]
+                """);
+
+        Assert.Equal(1, rootIndex);
+        Assert.Collection(
+            requests,
+            first => Assert.Equal("Binding.First", first.PackageId),
+            root => Assert.Equal("Root.Package", root.PackageId));
+    }
+
+    [Fact]
+    public void MemberCallGraphRequests_RequireOneRootInExpandedContext()
+    {
+        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(
+            () => InspectionEngine.MemberCallGraphRequests(
+                "Root.Package",
+                "1.0.0",
+                "net11.0",
+                """
+                [
+                  {
+                    "package": "Other.Package",
+                    "version": "2.0.0",
+                    "framework": "net11.0"
+                  }
+                ]
+                """));
+
+        Assert.Contains(
+            "active package coordinate exactly once",
+            failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task QueryMemberCallGraph_RejectsCollapsedContextCoordinates()
+    {
+        byte[] rootImage =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] duplicateImage =
+            File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
+        _ = Coordinate(
+            "CallGraph.Root",
+            Package(rootImage, "lib/net11.0/CallGraph.Root.dll"));
+        _ = Coordinate(
+            "CallGraph.Duplicate",
+            Package(
+                duplicateImage,
+                "lib/net11.0/CallGraph.Duplicate.dll"));
+
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => InspectionEngine.QueryMemberCallGraph(
+                    "CallGraph.Root",
+                    "1.0.0",
+                    "net11.0",
+                    "CallGraph.Root.dll",
+                    "T:Example.Root",
+                    "T:Example.Root",
+                    "Run",
+                    "void Run()",
+                    "Run|",
+                    0,
+                    """
+                    [
+                      {
+                        "package": "CallGraph.Root",
+                        "version": "1.0.0",
+                        "framework": "net11.0"
+                      },
+                      {
+                        "package": "CallGraph.Duplicate",
+                        "version": "1.0.0",
+                        "framework": "net11.0"
+                      },
+                      {
+                        "package": "CallGraph.Duplicate",
+                        "version": "1.0.0",
+                        "framework": "net11.0"
+                      }
+                    ]
+                    """));
+
+        Assert.Contains(
+            "distinct package coordinates",
+            failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void PackageArchiveEntryFlood_IsRejectedBeforeArchiveEnumeration()
     {
         const int maxEntries = 4_096;
@@ -2977,6 +3186,285 @@ public sealed class BrowserEngineBoundaryTests
             $"{typeof(BrowserEngineBoundaryTests).FullName}+"
                 + nameof(PerformanceNestedProbe),
             nested.GetProperty("typeId").GetString());
+    }
+
+    [Fact]
+    public async Task MemberFacts_DistinguishesSurfaceAndBodyTokenResolution()
+    {
+        const string PackageId = "Browser.Member.Facts";
+        byte[] image = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageWorkspace.RegisterAcquiredPackage(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(
+                    image,
+                    image,
+                    $"{PackageId}.dll"),
+                fromCache: false));
+
+        string surfaceJson = await InspectionEngine.QueryPackage(
+            PackageId,
+            "1.0.0",
+            "net11.0");
+        using JsonDocument surfaceDocument =
+            JsonDocument.Parse(surfaceJson);
+        JsonElement type = Assert.Single(
+            surfaceDocument.RootElement
+                .GetProperty("types")
+                .EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("definitionId").GetString()
+                == typeof(BrowserEngineBoundaryTests).FullName);
+        JsonElement member = Assert.Single(
+            type.GetProperty("api").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("name").GetString()
+                == nameof(PerformanceBoxingProbe));
+        JsonElement property = Assert.Single(
+            type.GetProperty("api").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("name").GetString()
+                == nameof(PerformanceBoxingProperty));
+        JsonElement getter = Assert.Single(
+            property.GetProperty("bodySelectors").EnumerateArray());
+
+        string graphMemberJson =
+            await InspectionEngine.QueryGraphMemberSurface(
+                PackageId,
+                "1.0.0",
+                "net11.0",
+                type.GetProperty("assembly").GetString()!,
+                type.GetProperty("definitionId").GetString()!,
+                getter.GetProperty("memberName").GetString()!,
+                "stale-selector",
+                getter.GetProperty("token").GetInt32());
+        using JsonDocument graphMemberDocument =
+            JsonDocument.Parse(graphMemberJson);
+        JsonElement graphMember = graphMemberDocument.RootElement;
+        Assert.Equal(
+            JsonValueKind.Null,
+            graphMember.GetProperty("member")
+                .GetProperty("metadataToken").ValueKind);
+        Assert.Equal(
+            getter.GetProperty("token").GetInt32(),
+            graphMember.GetProperty("selectedBody")
+                .GetProperty("token").GetInt32());
+        Assert.Equal(
+            getter.GetProperty("memberName").GetString(),
+            graphMember.GetProperty("selectedBody")
+                .GetProperty("memberName").GetString());
+        Assert.Equal(
+            getter.GetProperty("selectorKey").GetString(),
+            graphMember.GetProperty("selectedBody")
+                .GetProperty("selectorKey").GetString());
+
+        string accessorFactsJson =
+            await InspectionEngine.QueryMemberFacts(
+                PackageId,
+                "1.0.0",
+                "net11.0",
+                type.GetProperty("assembly").GetString()!,
+                type.GetProperty("definitionId").GetString()!,
+                graphMember.GetProperty("selectedBody")
+                    .GetProperty("memberName").GetString()!,
+                property.GetProperty("signature").GetString()!,
+                graphMember.GetProperty("selectedBody")
+                    .GetProperty("selectorKey").GetString()!,
+                graphMember.GetProperty("selectedBody")
+                    .GetProperty("token").GetInt32(),
+                implementationBodySelected: true);
+        using JsonDocument accessorFactsDocument =
+            JsonDocument.Parse(accessorFactsJson);
+        Assert.Equal(
+            getter.GetProperty("token").GetInt32(),
+            accessorFactsDocument.RootElement
+                .GetProperty("metadataToken").GetInt32());
+
+        string json = await InspectionEngine.QueryMemberFacts(
+            PackageId,
+            "1.0.0",
+            "net11.0",
+            type.GetProperty("assembly").GetString()!,
+            type.GetProperty("definitionId").GetString()!,
+            member.GetProperty("name").GetString()!,
+            member.GetProperty("signature").GetString()!,
+            member.GetProperty("graphSelectorKey").GetString()!,
+            typeof(BrowserEngineBoundaryTests)
+                .GetMethod(nameof(PerformanceNoAllocationProbe))!
+                .MetadataToken,
+            implementationBodySelected: false);
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement root = document.RootElement;
+        Assert.Equal(
+            typeof(BrowserEngineBoundaryTests)
+                .GetMethod(nameof(PerformanceBoxingProbe))!
+                .MetadataToken,
+            root.GetProperty("metadataToken").GetInt32());
+        Assert.NotEqual(
+            typeof(BrowserEngineBoundaryTests)
+                .GetMethod(nameof(PerformanceNoAllocationProbe))!
+                .MetadataToken,
+            root.GetProperty("metadataToken").GetInt32());
+        Assert.True(
+            root.GetProperty("signals")
+                .GetProperty("allocations")
+                .GetInt32() > 0);
+        Assert.Contains(
+            root.GetProperty("allocations").EnumerateArray(),
+            allocation =>
+                allocation.GetProperty("kind").GetString()
+                    == nameof(AllocationKind.Box)
+                && allocation.GetProperty("countedAsHeap").GetBoolean());
+        Assert.Contains(
+            root.GetProperty("performanceOpportunities")
+                .EnumerateArray(),
+            opportunity =>
+                opportunity.GetProperty("shape").GetString()
+                == "box-value-type");
+        Assert.Empty(
+            root.GetProperty("diagnostics").EnumerateArray());
+
+        JsonElement genericCallMember = Assert.Single(
+            type.GetProperty("api").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("name").GetString()
+                == nameof(PerformanceGenericCallProbe));
+        string genericCallJson = await InspectionEngine.QueryMemberFacts(
+            PackageId,
+            "1.0.0",
+            "net11.0",
+            type.GetProperty("assembly").GetString()!,
+            type.GetProperty("definitionId").GetString()!,
+            genericCallMember.GetProperty("name").GetString()!,
+            genericCallMember.GetProperty("signature").GetString()!,
+            genericCallMember.GetProperty("graphSelectorKey").GetString()!,
+            metadataToken: 0,
+            implementationBodySelected: false);
+        using JsonDocument genericCallDocument =
+            JsonDocument.Parse(genericCallJson);
+        string[] genericCallees =
+        [
+            .. genericCallDocument.RootElement
+                .GetProperty("calls")
+                .EnumerateArray()
+                .Select(call =>
+                    call.GetProperty("callee").GetString()!)
+                .Where(callee =>
+                    callee.Contains(
+                        nameof(PerformanceGenericCallTarget),
+                        StringComparison.Ordinal))
+                .Distinct(),
+        ];
+        Assert.Equal(4, genericCallees.Length);
+        Assert.All(
+            genericCallees,
+            callee => Assert.Contains("<", callee));
+        Assert.Contains(
+            genericCallees,
+            callee => callee.Contains(
+                "<System.Threading.Timer>",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            genericCallees,
+            callee => callee.Contains(
+                "<System.Timers.Timer>",
+                StringComparison.Ordinal));
+
+        int implementationToken = typeof(BrowserEngineBoundaryTests)
+            .GetMethod(nameof(PerformanceBoxingProbe))!
+            .MetadataToken;
+        string implementationBodyJson =
+            await InspectionEngine.QueryMemberFacts(
+                PackageId,
+                "1.0.0",
+                "net11.0",
+                type.GetProperty("assembly").GetString()!,
+                type.GetProperty("definitionId").GetString()!,
+                member.GetProperty("name").GetString()!,
+                member.GetProperty("signature").GetString()!,
+                "missing-structural-selector",
+                implementationToken,
+                implementationBodySelected: true);
+        using JsonDocument implementationBodyDocument =
+            JsonDocument.Parse(implementationBodyJson);
+        Assert.Equal(
+            implementationToken,
+            implementationBodyDocument.RootElement
+                .GetProperty("metadataToken")
+                .GetInt32());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => InspectionEngine.QueryMemberFacts(
+                PackageId,
+                "1.0.0",
+                "net11.0",
+                type.GetProperty("assembly").GetString()!,
+                type.GetProperty("definitionId").GetString()!,
+                member.GetProperty("name").GetString()!,
+                member.GetProperty("signature").GetString()!,
+                "missing-structural-selector",
+                implementationToken,
+                implementationBodySelected: false));
+
+        JsonElement valueTypeMember = Assert.Single(
+            type.GetProperty("api").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("name").GetString()
+                == nameof(PerformanceValueTypeConstructionProbe));
+        string valueTypeJson = await InspectionEngine.QueryMemberFacts(
+            PackageId,
+            "1.0.0",
+            "net11.0",
+            type.GetProperty("assembly").GetString()!,
+            type.GetProperty("definitionId").GetString()!,
+            valueTypeMember.GetProperty("name").GetString()!,
+            valueTypeMember.GetProperty("signature").GetString()!,
+            valueTypeMember.GetProperty("graphSelectorKey").GetString()!,
+            metadataToken: 0,
+            implementationBodySelected: false);
+        using JsonDocument valueTypeDocument =
+            JsonDocument.Parse(valueTypeJson);
+        Assert.Contains(
+            valueTypeDocument.RootElement
+                .GetProperty("allocations")
+                .EnumerateArray(),
+            allocation =>
+                !allocation.GetProperty("countedAsHeap").GetBoolean());
+
+        JsonElement stackAllocMember = Assert.Single(
+            type.GetProperty("api").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("name").GetString()
+                == nameof(PerformanceStackAllocProbe));
+        string stackAllocJson = await InspectionEngine.QueryMemberFacts(
+            PackageId,
+            "1.0.0",
+            "net11.0",
+            type.GetProperty("assembly").GetString()!,
+            type.GetProperty("definitionId").GetString()!,
+            stackAllocMember.GetProperty("name").GetString()!,
+            stackAllocMember.GetProperty("signature").GetString()!,
+            stackAllocMember.GetProperty("graphSelectorKey").GetString()!,
+            metadataToken: 0,
+            implementationBodySelected: false);
+        using JsonDocument stackAllocDocument =
+            JsonDocument.Parse(stackAllocJson);
+        JsonElement[] safety =
+            [.. stackAllocDocument.RootElement
+                .GetProperty("safety")
+                .EnumerateArray()];
+        Assert.Contains(
+            safety,
+            fact => fact.GetProperty("kind").GetString() == "stackalloc");
+        Assert.DoesNotContain(
+            safety
+                .Where(fact => fact.GetProperty("offset").ValueKind
+                    == JsonValueKind.String)
+                .GroupBy(fact => fact.GetProperty("offset").GetString()),
+            group => group.Count() > 1);
     }
 
     [Fact]

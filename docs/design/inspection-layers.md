@@ -202,6 +202,18 @@ malformed-XML outcome. L1 preserves that classification rather than inferring a
 resource-limit reason from exception text; distinguishing it requires an
 explicit parser-owned contract.
 
+Real-package compatibility evidence is pinned by coordinate and exact manifest
+hash in [`eng/package-manifest-corpus.json`](../../eng/package-manifest-corpus.json).
+The ordinary `PackageManifestCorpusTests` gate is deterministic and offline; it
+validates the catalog's complete structural coverage and the verifier's visible,
+content-free hash and oracle failures. The explicit
+[`eng/verify-package-manifest-corpus.cs`](../../eng/verify-package-manifest-corpus.cs)
+gate fetches bounded exact bytes, runs the L1 query, and compares its facts with
+a test-only NuGet.Packaging oracle. Neither downloaded third-party content nor
+the oracle dependency enters a product, NativeAOT, or Browser path. The pinned
+coordinates, hashes, baseline, and maintenance procedure are recorded in
+[`eng/package-manifest-corpus.md`](../../eng/package-manifest-corpus.md).
+
 L1 does not reference Markout.
 
 ### L2 — `DotnetInspector.Sections`
@@ -333,6 +345,519 @@ consumer's convenience.
    evidence of a seam bug — fix the seam, do not re-derive the rule.
 7. **Presentation-free means presentation-free.** No layer below L3 writes to the
    console or decides an output format.
+
+## Queries-to-Research population boundary
+
+**Status:** target design for #4711; unimplemented and unverified until the
+named gates in [Migration and gates](#migration-and-gates) land.
+
+This boundary is owned by the L1 `DotnetInspector.Queries` component and this
+document. The component spans the core query assembly and the optional
+`DotnetInspector.ResearchQueries` companion: the latter is a physical dependency
+split that keeps Research out of core query consumers, not a second
+architectural owner.
+
+`ILInspector.Research` remains the adjacent owner. It owns Research identity
+construction, admission, target resolution, correspondence, and comparison
+semantics under [Implementation Diff](implementation-diff.md). L1 may require
+Research-issued identities and retain their correspondence to query identities;
+it must not mint, infer, or reinterpret them.
+
+### Current gap
+
+`ImplementationComparisonInput` currently accepts independent old/new
+collections of Research-owned `ImplementationAssemblyInput` values.
+`BodySignalComparisonInput` accepts independent old/new
+`LibraryBodyIndex` collections. Both query adapters pass those collections
+directly to Research. Neither adapter has a query-owned operation identity,
+sealed population, or receipt proving which query inputs became which Research
+admission values.
+
+`AssemblyContextGroup` already seals participant registration and
+binding-policy consistency for one live workspace group. That remains a
+workspace lifetime contract. A comparison may borrow its participant evidence,
+but the group does not become the comparison-population owner and its disposal
+rules do not move into this boundary.
+
+### Population contract
+
+Each `ImplementationComparisonQuery.Execute` or
+`BodySignalComparisonQuery.Execute` invocation is one query question. Before
+Research execution, L1 snapshots and seals:
+
+- one opaque, operation-local `QueryComparisonOperationId`;
+- one opaque `QueryComparisonQuestionId` parented by that operation;
+- the exact type-filter and member-target values supplied as selection intent;
+- every submitted old/new input-binding occurrence, assigning each a fresh
+  opaque `QueryComparisonInputId` parented by that operation and question plus
+  an explicit `Before` or `After` side.
+
+This is the complete **query input population**. It is not the later set of
+resolved methods, Research subjects, attempts, work items, or producer
+dispositions. Target expansion and body-presence resolution consume this
+population in the Research-owned follow-up design; they cannot add query input
+members retroactively.
+
+The operation, question, and input ids are identity. Assembly names, paths,
+MVIDs, list positions, rendered labels, filter text, and Research subject ids
+are evidence or intent and never substitute for those ids. Side participates in
+population membership. Reusing one input record in another `Execute` call mints
+a new operation, question, and input population. Repeating the same borrowed
+owner value within or across sides preserves the submitted multiplicity and
+mints one distinct side-local input id per occurrence.
+
+The three query id types are sealed opaque reference identities with
+non-public constructors. The sealer mints all three kinds inside `Execute`;
+public input records and profile bindings carry no population id or parent.
+Callers cannot supply an arbitrary id, parse one from text, or convert between
+id kinds. The sealer does not deduplicate borrowed values, and it does not open
+content, hash bytes, read an MVID, compare paths, or use list position as the
+resulting identity.
+
+The boundary has two separately typed profiles corresponding to the current
+queries:
+
+| Profile | Query-owned input binding | Borrowed owner values |
+| --- | --- | --- |
+| Implementation comparison | one binding per submitted assembly input | exact `ResolvedAssemblyReference`, `IAssemblyReferenceResolver`, and `LibraryBodyIndex` |
+| Body-signal comparison | one binding per submitted body index | exact `LibraryBodyIndex` |
+
+The profiles share identity and sealing rules, not an untyped input bag.
+Implementation must replace the Research-owned
+`ImplementationAssemblyInput` at the public L1 input seam with a query-owned
+idless binding. Body-signal comparison likewise wraps each index in a
+query-owned idless binding instead of treating `LibraryBodyIndex.Path` or
+object position as identity.
+
+The sealer copies caller-owned collections and selection sets into immutable
+storage before returning. Subsequent caller mutation cannot change the
+population. An empty side is an explicit frozen set, not omitted state. A
+fresh input id appears exactly once, every member names the freshly minted
+operation and question, and every retained value belongs to the declared
+profile. A null or invalid profile binding produces a typed query-population
+rejection before Research execution.
+
+Sealing does not open assembly content, read metadata, resolve targets, or
+validate Analysis evidence against an assembly image. In particular,
+`ImplementationDiff.ValidateBodyIndex` remains a Research-owned content check;
+the L1 sealer only proves which exact borrowed values entered the population.
+
+### Projection and receipt
+
+The optional ResearchQueries companion is the only L1 assembly that references
+both core Queries and Research. It consumes one sealed profile and requires
+Research to return distinct owner-issued typed identities for these roles:
+
+- the comparison operation;
+- the question whose selection intent will be resolved;
+- each side-local admitted input.
+
+Rank 1 fixes those required roles and L1's correspondence obligations, not the
+Research types, representation, constructors, accessibility, factory shape,
+admission payload, or validation semantics. The Research-owned target-request
+design defines that contract. L1 accepts only values issued by that owner and
+cannot derive them from query ids or display values.
+
+The Research-owned API must let the companion associate each returned identity
+with the exact sealed antecedent in the same interaction. Its concrete shape is
+Research-owned, but it cannot require L1 to collect identities and later join
+them by ordinal, content, or display value.
+
+Projection is atomic. Either every sealed query identity receives exactly one
+Research identity and the companion-internal projection entry point returns one
+`ProjectedQueryPopulation`, or no projected population is exposed. That
+internal result contains the Research-owned admission value and one
+Queries-owned `QueryToResearchPopulationReceipt`.
+
+The receipt contains one exact operation pair plus separately typed immutable
+question and input maps whose ranges use the concrete owner-issued types from
+the Research contract. Each input correspondence also retains the exact
+`Before` or `After` side from the sealed antecedent. The maps use exact
+owner-issued identity, not structural or textual equality. For each map:
+
+- the domain equals the corresponding sealed query-id set;
+- the range equals the corresponding Research-issued id set;
+- every domain value has one image;
+- every range value has one antecedent; and
+- query and Research identities remain non-convertible and unequal by
+  construction.
+
+Missing, extra, duplicate, substituted, wrong-side, or wrong-operation entries
+reject projection. The companion validates its map cardinality, domain, range,
+parentage, and side against the sealed population and the complete
+Research-issued response. Any validation internal to Research remains outside
+this document. Neither owner infers the other's identity from shared facts.
+
+The receipt is inert and immutable. It may retain opaque owner-issued ids,
+profile kind, and side, but it retains no assembly descriptor, resolver, body
+index, metadata source, callback, lease, producer evidence, display row, or
+cleanup authority. The companion returns it as an immediate output of that one
+companion-internal projection entry point. It is not an additional return value
+from `ImplementationComparisonQuery.Execute` or
+`BodySignalComparisonQuery.Execute`, and it is not registered, cached,
+published, or cleaned up by this boundary. This design does not define an outer
+result shape or longer-lived retention policy.
+
+The Research-owned input value in one correspondence is admission identity for
+one projected query input. It is not a `ResearchSubjectKey`, resolved
+member/type identity, Finding subject, change id, row id, or display coordinate.
+Those later identities cannot appear in the population receipt.
+
+### Migration and gates
+
+Implementation proceeds without reversing dependency direction:
+
+1. Core Queries adds the query-owned ids, profile bindings, immutable
+   populations, and sealing results. It does not reference Research.
+2. The Research-owned target-request design defines the concrete owner-issued
+   identity and admission-output API required by the roles above. This document
+   does not require a friend grant, internal API, or public API shape.
+3. The ResearchQueries companion adds the internal projection entry point,
+   `ProjectedQueryPopulation`, and `QueryToResearchPopulationReceipt` after
+   that adjacent contract exists.
+4. Wiring the current public query `Execute` paths is deferred to the dependent
+   Research session/completion and Queries outer-result efforts. This focused
+   implementation does not discard the receipt or change the current
+   `ImplementationDiffResult` and `ResearchComparison` result shapes.
+5. The Research-owned body-index/content check and target matching remain in
+   Research until their owning designs change them.
+
+The implementation must add these named non-vacuity gates before the target
+contract is described as implemented:
+
+- `ComparisonPopulation_SealsImmutableInputAndSelectionSnapshots`
+- `QueryPopulationBindings_AreIdlessBorrowedWrappers`
+- `ComparisonPopulation_MintsFreshParentedIdentitiesPerExecute`
+- `ComparisonPopulation_SealsEverySubmittedOccurrenceWithDeclaredSide`
+- `ResearchPopulationProjection_IsTotalAndBijective`
+- `ResearchPopulationProjection_MapsEachReturnedIdentityToItsExactSealedAntecedent`
+- `ResearchPopulationProjection_RejectsMissingExtraSubstitutedAndWrongSideMappings`
+- `QueryPopulationIdentities_AreOwnerIssuedAndNonConvertible`
+- `PopulationReceipt_DoesNotRetainBorrowedInputs`
+- `PopulationProjection_IsCompanionInternalAndAbsentFromPublicResults`
+
+The expected identity and map sets must be derived from the sealed population,
+so both missing and stale entries fail.
+`CoreQueries_AcquireDecompilerButNotResearch` already gates the project-reference
+closure and remains the dependency-direction proof.
+
+### Population-boundary non-goals
+
+This boundary does not define:
+
+- package-role realization, resource ownership, cleanup, or budgets;
+- Research target requests, attempts, body-presence outcomes, work items,
+  producer execution, completion, or comparison semantics;
+- direct-member designation or comparison;
+- Source, PDB, network, or authored-source behavior;
+- outer result publication, failure composition, CLI projection, or output
+  integrity; or
+- a global operation-stage catalog or shared cross-component lifecycle.
+
+## Package-role planning and cleanup boundary
+
+**Status:** target design for #4745; unimplemented and unverified until the
+named gates in [Package-role migration and gates](#package-role-migration-and-gates)
+land.
+
+This boundary is owned by the L1 `DotnetInspector.Queries` component and this
+document. Package-specific composition may remain in an optional physical
+companion so core assembly Queries can reach its source-neutral inputs without
+retaining a package implementation dependency. That physical split does not
+create a second architectural owner.
+
+`DotnetInspector.Artifacts` remains the adjacent source-neutral owner. It owns
+artifact generations, identities, acquisition registrations and outcomes,
+diagnostics, guarded content access, and acquisition leases under
+[Artifact acquisition and workspaces](artifact-acquisition-and-workspaces.md).
+The package adapter owns package coordinates and asset selection. L1 consumes
+their owner-issued typed results; it does not mint an artifact identity,
+reinterpret a non-acquired outcome as an empty role, select package assets, or
+dispose a borrowed acquisition lease.
+
+### Current package-role gap
+
+`InspectionWorkspace.RealizePackageAssemblyContextRoles` already determines
+whether the selected implementation assets are absent, shared with the surface,
+or separate before `CreateRole` opens package entries. It does not return that
+decision as an inert plan. The same operation then opens entries, decodes
+assembly identity, creates live groups, and exposes one
+`PackageAssemblyContextRealization : IDisposable`.
+
+Construction and disposal failures lose the role-group coordinate that existed
+before opening. `PackageAssemblyContextRoles.DisposeGroups` attempts both
+distinct groups but throws an unkeyed `AggregateException`; construction and
+wrapper failures can add another aggregate layer. A consumer may flatten that
+exception graph, but cannot prove which planned group transferred, which group
+was released, or which group failed cleanup.
+
+The current contract remains documented under
+[Workspace definitions](workspace-definitions.md). It is migration evidence,
+not the target result shape. Its shared-group reuse, reference-only surfaces,
+exact participant correspondence, no-partial-group validation, and attempt-all
+cleanup behavior remain required.
+
+### Imported prerequisites
+
+Planning begins after source acquisition and package asset selection. Its
+inputs contain:
+
+- exact package-owner-selected surface and implementation occurrences;
+- the exact Artifacts-issued registration for every selected artifact;
+- the owner-issued correspondence from each selected package occurrence to
+  its neutral assembly projection; and
+- role-local group policy supplied as Queries input.
+
+The input records are idless from L1's perspective. They may borrow Artifacts,
+package, and Metadata values, but they cannot carry a caller-created Queries
+operation, binding, or group id.
+
+L1 accepts only the acquired, authorized values provided through that typed
+seam. An Artifacts `Unavailable`, `Rejected`, or `Failed` outcome remains that
+owner's result and cannot become an empty package-role plan. The adapter decides
+which package entries occupy each role and whether a surface occurrence has a
+selected implementation counterpart. L1 does not recover those decisions from
+entry paths, package labels, decoded assembly names, MVIDs, list positions, or
+display text.
+
+Acquisition may already have opened source content before this boundary. The
+plan-before-open rule begins at L1 ownership transfer: no L1 assembly
+projection, retained snapshot, assembly-context group, or derived group
+resource may be opened or retained until one valid plan exists.
+
+### Package-role plan
+
+One planning invocation mints:
+
+- one opaque `PackageRoleRealizationOperationId`;
+- one opaque `PackageRoleBindingId` for every submitted role occurrence; and
+- the exact set of opaque `PackageRoleGroupId` values that this operation may
+  own.
+
+The ids are sealed Queries-owned reference identities with non-public
+constructors and operation-local parentage. Reusing the same imported artifact
+in another invocation mints new ids. Repeating one imported registration in
+multiple role occurrences preserves the multiplicity and mints one binding id
+per occurrence; artifact identity remains provenance and correspondence, not
+role-binding or group identity.
+
+The result is one single-use `PackageRoleRealizationPlan`. Its semantic payload
+is immutable: it copies the submitted role occurrences and policy values,
+retains their exact typed owner-issued antecedents, and closes one topology:
+
+| Topology | Role meaning | Exact owned-group domain |
+| --- | --- | --- |
+| `Absent` | no implementation role was selected | surface group only |
+| `Shared` | surface and implementation use one exact compatible selection | surface and implementation name the same group id |
+| `Separate` | implementation has a distinct selected role | distinct surface and implementation group ids |
+
+The package-owner selection proof, including explicit reference-only
+occurrences, determines role correspondence. L1 associates each fresh binding
+id with its exact submitted antecedent while planning; it does not collect
+bindings and later join them by ordinal or evidence. A missing implementation
+counterpart for one surface occurrence remains explicit correspondence absence
+inside a present role and does not imply that the whole implementation topology
+is `Absent`.
+
+Planning validates only Queries-owned shape: non-empty surface membership,
+topology consistency, operation-local uniqueness, role-policy compatibility,
+and complete exact antecedent association. Invalid shape returns a typed
+Queries planning rejection before any group creation. Package selection,
+Artifacts registration, acquisition outcome, assembly decoding, and projection
+validation remain with their owners.
+
+The plan is inert. It retains no stream, open callback, assembly image,
+`AssemblyContextGroup`, derived resource, cleanup delegate, acquisition lease,
+exception, or package-authored diagnostic text. Caller mutation after planning
+cannot alter role membership, group count, topology, correspondence, or policy.
+One private atomic consumption marker is capability state, not semantic plan
+data or a resource handle. A second realization attempt throws
+`InvalidOperationException` as a programmer error before allocating cleanup
+state or creating a group; it does not return a second open outcome or cleanup
+report.
+
+### Realization and completion
+
+Realization atomically consumes the plan. Before a planned group can transfer
+into Queries lifetime, L1 creates one
+`PackageRoleGroupReleaseCompletion` cell keyed by that group's
+`PackageRoleGroupId`. The cells have exactly the plan's group-id domain: one for
+`Absent` or `Shared`, two for `Separate`. This is a component-local fixed-domain
+table, not a shared cleanup authority or budget ledger.
+
+Each cell has one monotonic lifecycle: not transferred, transferred, release
+requested, and completed with one immutable cleanup record. The first caller to
+request release initiates it; every other caller observes or awaits the same
+completion. No path can replace a completed record or invoke group release
+again.
+
+The package-role session and `InspectionWorkspace` retain the same cells for
+the groups they share. Failed-open rollback, explicit package-session close,
+and workspace disposal therefore converge on one release authority rather than
+disposing the group independently. Workspace-first disposal does not consume a
+failure that the session can no longer report, and session-first close removes
+the completed group from later workspace work.
+
+An `AssemblyContextGroup` may defer actual resource release while a callback is
+active. A release cell becomes complete only after that group reaches
+quiescence, releases its owned resources and snapshots, and records the
+resulting group-level disposition. The target opening operation and live
+session close are asynchronous so Browser/Wasm and other consumers can await
+failed-open, cancellation, or close completion without blocking a thread.
+Close is idempotent, accepts no cancellation token once release is requested,
+and returns the same report instance on every call.
+
+Asynchronous opening returns a discriminated `PackageRoleOpenOutcome`:
+
+- `Realized` carries one live Queries-owned package-role session;
+- `Rejected` carries a stable Queries-owned primary diagnostic plus a complete
+  immutable cleanup report when the plan cannot be admitted; and
+- `Failed` carries a stable Queries-owned primary diagnostic plus a complete
+  immutable cleanup report when execution fails.
+
+Those arms are the only expected non-cancellation failure channel. Expected
+admission and opening failures are returned, and cleanup failure is represented
+only in the report rather than thrown as a primary failure. The primary
+diagnostic is authoritative; the cleanup report records only the disposition
+of planned groups and never becomes a competing primary result.
+
+The primary outcome in this boundary is package-role realization, not later
+query, Research, publication, or presentation work. An imported owner
+diagnostic may be retained as its exact typed value, but L1 does not copy its
+code or summary into a new interpretation. Queries-owned diagnostics use a
+stable reason and fixed owner-authored summary; they retain no raw exception,
+exception message, stack trace, package entry name, or package-authored text.
+
+A successful open cannot truthfully contain its future cleanup result. The live
+session's close operation requests release for every transferred group, awaits
+their shared release cells, and returns the final immutable
+`PackageRoleCleanupReport`. Expected cleanup failure is represented in that
+report and close does not throw it. The target session is not an `IDisposable`
+whose only failure channel is an exception; current throwing `Dispose` surfaces
+remain compatibility adapters until their callers migrate.
+
+Every cleanup report has exactly the plan's group-id domain. Each
+`PackageRoleGroupCleanupRecord` is one of:
+
+- `NotTransferred`, when ownership of that planned group never completed in
+  the plan's one permitted realization;
+- `Released`, when the transferred group released successfully; or
+- `Failed`, with one bounded Queries-owned group-release diagnostic.
+
+`Realized` sessions close with no `NotTransferred` records. A failed open
+requests release for every group whose ownership transferred, even when an
+earlier release fails, awaits every resulting completion, then returns its
+primary diagnostic and complete report. Shared topology transfers and releases
+its one group exactly once even though both role views name it. Separate
+topology records implementation and surface cleanup under their distinct ids;
+request or completion order never becomes identity.
+
+L1 captures a group failure at that exact group's release site. It does not
+flatten, retain, count, reorder, or reinterpret the group's exception graph.
+One group-level `Failed` record says only that release of that planned group
+failed. Cleanup failure never selects or replaces the terminal primary.
+
+Realization has one terminal-primary commitment. Explicit cancellation
+checkpoints and expected rejection/failure sites compete to select it; the
+first selected terminal primary wins. After commitment, mandatory cleanup does
+not observe the caller's cancellation token:
+
+- a selected `Rejected` or `Failed` primary remains authoritative even if the
+  token is canceled during cleanup, and the corresponding outcome is returned
+  with the final report;
+- cancellation selected before a non-cancellation primary remains
+  cancellation, requests and awaits cleanup for every transferred group, then
+  throws one dedicated
+  `PackageRoleRealizationCanceledException : OperationCanceledException`; and
+- cancellation before any ownership transfer propagates as an ordinary
+  `OperationCanceledException` because there is no group disposition to report.
+
+The dedicated exception preserves the original cancellation token and exposes
+the one immutable keyed cleanup report through a typed property. It is the only
+post-transfer cancellation channel; no open outcome is also returned. The
+report remains ancillary cleanup evidence, cancellation remains the primary
+result, and the exception does not wrap cleanup exceptions or turn cancellation
+into a failure outcome. Cancellation observed after an outcome has committed
+cannot retroactively replace that outcome.
+
+The report is inert. It may retain the operation id, topology, group ids,
+cleanup states, and stable Queries diagnostics. It retains no group, role
+participant, artifact or assembly descriptor, acquisition registration, lease,
+content accessor, callback, exception, release-completion cell, or cleanup
+authority.
+
+### Package-role migration and gates
+
+Migration preserves dependency direction and current behavior:
+
+1. L1 adds the pure planning contract and purpose-built topology fixtures. No
+   package entry or group is opened by this slice.
+2. L1 adds the shared quiescent group-release completion for plan-created
+   groups beneath `InspectionWorkspace` and package-role composition. Current
+   synchronous disposal remains a compatibility adapter over that one
+   completion path.
+3. L1 adds the asynchronous typed-open/session/close path beside the current
+   throwing `RealizePackageAssemblyContextRoles` compatibility API. The
+   synchronous compatibility API retains its current throwing behavior; it
+   does not implement the target complete-report contract.
+4. The package composition adapter supplies its typed selected-role and
+   Artifacts correspondence inputs after that adjacent migration exists. This
+   document does not prescribe the adapter's type, factory, accessibility,
+   acquisition, or package-selection implementation.
+5. Product callers migrate to the typed path. Only then may the compatibility
+   `AggregateException` surfaces and direct package dependencies be retired
+   under their owning migration plans.
+
+The target contract remains unimplemented until these named non-vacuity gates
+land:
+
+- `PackageRolePlan_ClosesTopologyBeforeAnyGroupCreation`
+- `PackageRolePlan_PreservesEverySelectedOccurrenceAndExactAntecedent`
+- `PackageRolePlan_MintsFreshOperationLocalIdentities`
+- `PackageRolePlan_IsInertAndImmuneToCallerMutation`
+- `PackageRolePlan_RejectsInvalidShapeWithoutOwnershipTransfer`
+- `PackageRolePlan_SecondRealizationIsProgrammerErrorBeforeSideEffects`
+- `PackageRolePlan_PlannedGroupsEqualCleanupRecordDomain`
+- `PackageRoleRealization_ReservesEveryCleanupCellBeforeTransfer`
+- `PackageRoleOpen_CreatesOnlyPlannedGroups`
+- `PackageRoleOpenFailure_PreservesPrimaryAndCompleteCleanupReport`
+- `PackageRoleClose_AttemptsEveryTransferredGroupAndKeysEachOutcome`
+- `PackageRoleClose_IsIdempotentAcrossAllTopologies`
+- `PackageRoleSharedTopology_ReleasesOneGroupExactlyOnce`
+- `PackageRoleGroupRelease_WorkspaceAndSessionObserveSameCompletion`
+- `PackageRoleGroupRelease_AwaitsDeferredCleanupAfterActiveCallback`
+- `PackageRoleCleanupReport_RetainsNoBorrowedInputsOrExceptions`
+- `PackageRoleTerminalPrimary_FailureBeforeCancellationPreservesFailure`
+- `PackageRoleTerminalPrimary_CancellationBeforeFailurePreservesCancellation`
+- `PackageRoleCancellationException_AfterTransferCarriesCleanupReport`
+- `PackageRoleAsyncLifecycle_NeverBlocksSingleThreadedHost`
+- `PackageRoleTargetPath_ReturnsKeyedFailuresWithoutAggregateException`
+
+The expected binding, group, and cleanup sets must be derived from the plan, so
+both missing and stale entries fail. The no-open gate must observe the real
+group-construction seam and fail when planning is bypassed. Existing
+`PackageAssemblyContextRealizationTests` and
+`PackageAssemblyContextRolesTests.Dispose_ContinuesAfterBothRoleGroupsFail`
+remain compatibility evidence; they do not prove the target typed path. The
+single-threaded lifecycle gate exercises failed-open rollback, post-transfer
+cancellation, and session close through the asynchronous target path and fails
+if any completion uses a blocking wait.
+
+### Package-role boundary non-goals
+
+This boundary does not define:
+
+- Artifacts identity, acquisition, authorization, guarded-content, lease,
+  diagnostic, adapter, generation, or quiescence semantics;
+- package coordinates, TFM/RID selection, archive layout, asset selection, or
+  package provenance;
+- Metadata assembly decoding, identity, or projection rules;
+- a global stage catalog, cleanup service, exception collector, or budget
+  ledger;
+- cross-version endpoints, comparison population sealing, Research admission,
+  producer execution, or Implementation Diff orchestration;
+- outer-result publication, CLI/output behavior, or row integrity; or
+- Source, PDB, network, cache, retry, or authored-source behavior.
 
 ## Current migration state
 
