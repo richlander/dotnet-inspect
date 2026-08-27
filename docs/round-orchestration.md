@@ -145,7 +145,7 @@ detects conflicts early.
 
 | First check says | Do this |
 | --- | --- |
-| `ci-required` failed or was cancelled | Stop polling. Classify it and apply the applicable [recovery transition](../AGENTS.md#recovery-transitions). A settled red result is an answer, not something to wait out. |
+| `ci-required` completed without success | Stop polling. Classify it and apply the applicable [recovery transition](../AGENTS.md#recovery-transitions). A settled non-success result is an answer, not something to wait out. |
 | `CONFLICTING` | Apply the conflict transition in [Canonical round flow](../AGENTS.md#canonical-round-flow), then schedule a new five-minute check. |
 | `MERGEABLE`, `ci-required` green at this head | **Done. Stop polling** and proceed to whatever waited on the answer. |
 | `UNKNOWN`, CI green | Ask REST, which triggers the computation; see [resolving `UNKNOWN`](#resolving-unknown). |
@@ -153,9 +153,9 @@ detects conflicts early.
 | `MERGEABLE`, documentation-only | Treat it as the expected CI completion check. If CI is unexpectedly pending, wait 10 minutes plus jitter. |
 | `MERGEABLE`, not documentation-only | Expect CI at about 35 minutes from the push; schedule the next check about 30 minutes out. |
 
-Read the table top-down: the first matching row wins. A failed or cancelled
-check outranks every mergeability value, because `MERGEABLE` describes the merge
-path and never means green. The green row is the exit: every other row schedules
+Read the table top-down: the first matching row wins. A non-successful check
+outranks every mergeability value, because `MERGEABLE` describes the merge path
+and never means green. The green row is the exit: every other row schedules
 another check, so polling stops only by reaching it or by leaving for a recovery
 transition.
 
@@ -191,6 +191,58 @@ worktree. A reviewer's own probe can be vacuous — an added rule clause that
 changes nothing for an already-entitled input looks green for the wrong reason —
 so reproduce the finding and measure it before accepting its severity.
 
+### Wording the prompt
+
+Write the prompt as a description of the property under test. A prompt written
+as an attack brief can trip a model's content filter, and **that failure is
+silent**: the reviewer returns an empty or near-empty response with a clean
+worktree, which is indistinguishable from a broken model or a stalled harness.
+
+This has happened here, and it cost most of a day. A seat returned empty
+several times across two heads and was nearly reported to the user as a
+non-functional model in need of repinning. A reviewer from a different family
+then failed with an explicit message naming content filtering as the cause,
+which is the only reason the real explanation surfaced at all. The prompt had
+been written as a catalog of concrete strings to try against a gate that rejects
+markup able to run unreviewed code. Rewording it -- same surfaces, same required
+evidence, same rigor -- produced full reports from both seats on the first
+attempt.
+
+The reviewer was refusing the prompt, not the work. Keep prompts in terms of the
+property:
+
+- **Say what the property actually is.** If the gate enforces static-analysis
+  coverage, say that, and say the concern is unreviewed code rather than
+  attackers. Do not dress a correctness property as a security one for
+  emphasis.
+- **Name constructs structurally rather than quoting them.** Describing an
+  attribute by what a parser does with its contents asks for the same probe as a
+  literal string and reads as a specification. This is the load-bearing rule:
+  quoted strings are what draws the refusal.
+- **Use an inert marker in the required evidence.** Assigning a uniquely named
+  global proves a construct reached the output exactly as well as anything
+  active does, and it is also easier to grep for.
+- **Describe already-closed cases by name, not by spelling**, when listing the
+  floor a reviewer should push past.
+
+Apply the same discipline to notes, issues and documentation, including this
+page. A write-up that reproduces the strings in order to explain them becomes
+the hazard it is describing, for every agent that later reads it. Say what the
+construct was; do not reproduce it. For the same reason, describe an incident by
+what it teaches rather than by pointing at the pull request where it happened,
+so that following the reference is not itself the way to load the problem
+material.
+
+None of this softens the review. "Adversarial" describes the rigor, not a
+simulated attacker, and a reviewer that understands the invariant will find more
+than one handed a list of strings to retry.
+
+When a reviewer returns empty or near-empty, suspect the prompt before the
+model. Check the worktree for artifacts, then re-dispatch the same work to a
+model from a different family: filters differ, and one may state the reason
+where another fails silently. Do not propose repinning a roster seat on
+empty-response evidence alone.
+
 ### Reconciliation
 
 Reconcile the reviews publicly on the PR: attribute findings, state what was
@@ -221,7 +273,9 @@ Round <n> is complete for PR <number>.
 
 Reviews: <clean>/<required> clean — <status by reviewer>
 Blocked: <PR or issue numbers not yours to fix; omit when empty>
-Recommendation: [continue, wait, merge, approve next rounds, stop (reason)]
+Waiting: <comma-separated tool-evaluable predicates; omit when empty>
+Recommendation: [continue, wait, merge, split into focused successors,
+approve next rounds, stop (reason)]
 
 Fix description: <prose description of changes made in response to the round>.
 ```
@@ -237,18 +291,32 @@ Classification must match the reviewer outcomes:
 
 `Reviews` records the dual-clean count that GitHub cannot observe. Every
 `Blocked` entry must be an existing PR or issue; file one before citing a new
-shared failure.
+shared failure. `Waiting` records one or more comma-separated predicates tooling
+can evaluate, such as `check:<name>`, `checks`, `merge`, or `review`; it is not
+a blocker, and it clears only when every listed predicate clears.
 
 - `continue` means the next round is inside the current authorized six-round
   block. Emit the report, then immediately begin the next candidate cycle. Do
   not ask, set `HELP`, or wait for user input.
-- `wait` requires a non-empty blocker list and means the agent will resume when
-  it clears.
+- `wait` requires a non-empty `Blocked` or `Waiting` field and means the agent
+  will resume when it clears.
+- When a completed documentation-only round is review-clean and no further
+  author or review round is needed, but `ci-required` remains pending or
+  missing, use `Waiting: check:ci-required` and `Recommendation: wait`. Use
+  `Waiting: check:ci-required,merge` when live mergeability is also unresolved.
+  An intermediate or fix-producing round reports `continue` without waiting for
+  CI only when the next round remains inside the current authorized block. At a
+  six-round boundary, use the applicable approval, split, or stop recommendation
+  without waiting for CI.
+- `split into focused successors` is valid at round 12 and later six-round
+  boundaries after the required checkpoint. It requests the user's split
+  decision and follows the transition in
+  [Stop after six rounds](../AGENTS.md#stop-after-six-rounds).
 - `approve next rounds` is valid only after rounds 6, 12, 18, and so on, after
   the required architectural checkpoint. Never use it for an earlier round in
   the current block.
-- `merge`, `approve next rounds`, and `stop` request a user decision; `stop`
-  does not close anything until approved.
+- `merge`, `split into focused successors`, `approve next rounds`, and `stop`
+  request a user decision; `stop` does not close anything until approved.
 
 When the recommendation needs approval, render the complete report first as
 normal session output. Then open a separate prompt containing only the concise
@@ -256,9 +324,9 @@ decision question and answer labels. Do not repeat the report or its evidence
 inside the prompt.
 
 Before emitting the report or opening its approval prompt, synchronize the PR's
-`ready-to-merge` and `carry-forward` labels with
-[Keep PR readiness labels current](../AGENTS.md#keep-pr-readiness-labels-current).
-The labels describe the state the report records; they must not lag behind it.
+`review-clean` label with
+[Keep the review-clean label current](../AGENTS.md#keep-the-review-clean-label-current).
+The label describes the state the report records; it must not lag behind it.
 
 The same report may also be posted on the PR; the public reconciliation may
 include more detail when the findings or fixes warrant it.
@@ -266,28 +334,34 @@ include more detail when the findings or fixes warrant it.
 ## Carry-forward after clean reviews
 
 [Clean reviews are not spent by main
-moving](../AGENTS.md#clean-reviews-are-not-spent-by-main-moving) states when this
-path applies and when it does not. This is the procedure once it does.
+moving](../AGENTS.md#clean-reviews-are-not-spent-by-main-moving) states when
+this path applies and how each landed-range classification resolves. This is
+the procedure once it does.
 
 1. **Detect movement.** Compare the candidate's recorded base tip with the live
    tip in `baseRef.target.oid`. `baseRefOid` is the base commit recorded for the
-   PR, not the live branch tip. Replace `ready-to-merge` with `carry-forward`
-   before beginning the analysis.
+   PR, not the live branch tip.
 2. **Inspect without integrating.** A non-mutating fetch is permitted solely to
    read the exact landed range.
-3. **Report, then ask.** As normal session output, report which commits touch
-   files this change touches, which relied-on behavior they alter, and any
-   conflict a textual merge would resolve silently but wrongly. Say plainly
-   when nothing interacts. Remove `carry-forward` before reporting an outcome
-   where the path is unavailable. After that output is visible, open a separate
-   prompt that asks only whether to carry the clean reviews forward to the named
-   tip.
-4. **Execute the rule's decision.** Exactly one of its outcomes runs here: when
-   it authorizes carry-forward, remove `carry-forward`, integrate that exact
-   analyzed tip by SHA, not a moving branch ref, and re-run the claimed
-   validation and current-head CI. Remove `carry-forward` when the user declines.
-   Every other outcome — interacting or that re-run failing — returns to the
-   rule for its terminal action, which this document does not restate.
+3. **Classify and report.** As normal session output, report which commits
+   touch files this change touches, which relied-on behavior they alter, and
+   any conflict a textual merge would resolve silently but wrongly. State the
+   classification plainly: no interaction, significant interaction, or
+   conflict.
+4. **Act on the classification — no approval prompt.**
+   - *No interaction:* keep `review-clean`, integrate the exact analyzed tip by
+     SHA (not a moving branch ref), and update the recorded head SHA. Skip
+     re-running validation, CI, and review. Merging itself still needs a live
+     readiness check and explicit user authorization; base movement alone does
+     not grant either.
+   - *Significant interaction, no conflict:* remove `review-clean`, integrate
+     the tip, re-run the claimed validation and current-head CI, and
+     re-dispatch the required reviewers at the new head as a normal round.
+   - *Conflict:* remove `review-clean`, resolve it as an author change under
+     [conflict recovery](../AGENTS.md#recovery-transitions), and re-dispatch the
+     required reviewers at the new head.
 
-For an approved carry-forward, record the reviewed head, the old and approved
-new tips, the non-interaction analysis, and the user's decision on the PR.
+For a no-interaction carry-forward, record the reviewed head, the old and
+integrated tips, and the non-interaction analysis on the PR. For the other two
+outcomes, record the classification and the action taken, and produce the
+resulting round's normal [round report](#the-round-report).

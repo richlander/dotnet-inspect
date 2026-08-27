@@ -663,6 +663,26 @@ export interface GraphMemberShareIdentity extends CallGraphTarget {
   metadataToken: number | null;
 }
 
+export interface SelectedGraphMemberBody {
+  token: number;
+  memberName: string;
+  selectorKey: string;
+}
+
+export function graphMemberTargetWithSelectedBody<
+  TTarget extends GraphMemberTarget,
+>(
+  target: TTarget,
+  selectedBody: SelectedGraphMemberBody,
+): TTarget & Required<GraphMemberTarget> {
+  return {
+    ...target,
+    memberName: selectedBody.memberName,
+    selectorKey: selectedBody.selectorKey,
+    metadataToken: selectedBody.token,
+  };
+}
+
 function isMethodDefinitionToken(value: unknown): value is number {
   return typeof value === "number"
     && Number.isInteger(value)
@@ -1511,8 +1531,8 @@ export interface SectionableMember {
 const allMemberSections: readonly MemberSection[] =
   memberSectionDefinitions.map(([id]) => id);
 
-const sourceBackedMemberSections: ReadonlySet<MemberSection> =
-  new Set<MemberSection>(["source", "annotated"]);
+const packageOnlyMemberSections: ReadonlySet<MemberSection> =
+  new Set<MemberSection>(["facts", "source", "annotated"]);
 
 export function memberSectionIdsFor(
   member: SectionableMember | null | undefined,
@@ -1524,7 +1544,7 @@ export function memberSectionIdsFor(
     return ["overview"];
   }
   const sections = isRuntimePack
-    ? allMemberSections.filter(section => !sourceBackedMemberSections.has(section))
+    ? allMemberSections.filter(section => !packageOnlyMemberSections.has(section))
     : [...allMemberSections];
   return hasSelectedBody
     && ["property", "event"].includes(member?.kind ?? "")

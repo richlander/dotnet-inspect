@@ -1805,10 +1805,10 @@ public class SectionPipelineTests
         Assert.Equal([SourceAvailabilityQuery.Definition], availability);
         Assert.Equal([SourceIntegrityQuery.Definition], integrity);
         Assert.Equal(
-            catalog.QueryRegistry
+            catalog.QueryCatalog
                 .ExpandRequired(availability.Concat(integrity))
                 .OrderBy(q => q.Name, StringComparer.Ordinal),
-            catalog.QueryRegistry.RegisteredQueries.OrderBy(q => q.Name, StringComparer.Ordinal));
+            catalog.QueryCatalog.RegisteredQueries.OrderBy(q => q.Name, StringComparer.Ordinal));
 
         var categories = catalog.Pipeline.GetCategoryMap();
         Assert.Equal(
@@ -3817,6 +3817,275 @@ public class SectionPipelineTests
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
         Assert.Equal(0, allocated);
+    }
+
+    [Fact]
+    public void CompiledSectionCatalog_FreezesBuilderAndSnapshotsEnumeration()
+    {
+        string[] categoryMembers = [AlwaysSection.Name];
+        var pipeline = CreateTestPipeline()
+            .AddCategory("@Core", categoryMembers);
+        categoryMembers[0] = DetailedSection.Name;
+
+        SectionCatalog<TestModel> catalog = pipeline.Compile();
+
+        Assert.Same(catalog, pipeline.Compile());
+        Assert.Equal(
+            [AlwaysSection.Name, NormalSection.Name, DetailedSection.Name],
+            catalog.AllSectionNames);
+        Assert.Equal([AlwaysSection.Name], catalog.CategoryMap["@Core"]);
+        Assert.Equal(["@All", "@Core"], catalog.CategoryNames);
+        Assert.Throws<InvalidOperationException>(
+            () => pipeline.Add<QueryBackedSection>());
+        Assert.Throws<InvalidOperationException>(
+            () => pipeline.AddCategory("@More", AlwaysSection.Name));
+        Assert.Throws<InvalidOperationException>(
+            () => pipeline.UseCuratedCatalog());
+        Assert.Throws<InvalidOperationException>(
+            () => pipeline.UseQueryCosts(
+                _ => InspectionCost.NetworkFree));
+        Assert.Throws<InvalidOperationException>(
+            () => pipeline.WithoutComputedPoles());
+    }
+
+    [Fact]
+    public void LibrarySectionCatalog_QueryPlansMatchMutablePipeline()
+        => AssertSectionCatalogQueryPlansMatch(
+            LibrarySections.CreateCatalog().Sections);
+
+    [Fact]
+    public void PackageSectionCatalog_QueryPlansMatchMutablePipeline()
+        => AssertSectionCatalogQueryPlansMatch(
+            PackageSectionDescriptors.CreateCatalog().Sections);
+
+    private static void AssertSectionCatalogQueryPlansMatch<TModel>(
+        SectionCatalog<TModel> catalog)
+    {
+        SectionPipeline<TModel> pipeline = catalog.Pipeline;
+
+        foreach (Verbosity verbosity in Enum.GetValues<Verbosity>())
+        {
+            AssertPlansMatch(verbosity, include: null, fixedOverview: false);
+            AssertPlansMatch(verbosity, include: null, fixedOverview: true);
+            AssertPlansMatch(
+                verbosity,
+                include: null,
+                fixedOverview: false,
+                excludeUnbounded: true);
+            AssertPlansMatch(
+                verbosity,
+                include: null,
+                fixedOverview: true,
+                excludeUnbounded: true);
+        }
+
+        foreach (string section in catalog.SelectableSectionNames)
+        {
+            AssertPlansMatch(
+                Verbosity.Minimal,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { section },
+                fixedOverview: false);
+            AssertPlansMatch(
+                Verbosity.Minimal,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { section },
+                fixedOverview: false,
+                excludeUnbounded: true);
+        }
+
+        foreach (ImmutableArray<string> sections in catalog.CategoryMap.Values)
+        {
+            AssertPlansMatch(
+                Verbosity.Normal,
+                new HashSet<string>(sections, StringComparer.OrdinalIgnoreCase),
+                fixedOverview: false);
+            AssertPlansMatch(
+                Verbosity.Normal,
+                new HashSet<string>(sections, StringComparer.OrdinalIgnoreCase),
+                fixedOverview: false,
+                excludeUnbounded: true);
+        }
+
+        AssertPlansMatch(
+            Verbosity.Detailed,
+            [catalog.SelectableSectionNames[0], catalog.SelectableSectionNames[^1]],
+            fixedOverview: false);
+        AssertPlansMatch(
+            Verbosity.Normal,
+            new HashSet<string>
+            {
+                catalog.SelectableSectionNames[0].ToLowerInvariant(),
+            },
+            fixedOverview: false);
+
+        void AssertPlansMatch(
+            Verbosity verbosity,
+            HashSet<string>? include,
+            bool fixedOverview,
+            bool excludeUnbounded = false)
+        {
+            HashSet<InspectionQueryDefinition> expected = pipeline.GetRequiredQueries(
+                verbosity,
+                include,
+                fixedOverview,
+                excludeUnbounded: excludeUnbounded);
+            SectionQueryPlan actual = catalog.PlanQueries(
+                verbosity,
+                include,
+                fixedOverview,
+                excludeUnbounded);
+
+            Assert.True(expected.SetEquals(actual.Queries));
+        }
+    }
+
+    [Fact]
+    public void PackageCatalog_RepeatedAcquisitionAndCommonPlanningAllocateNothing()
+    {
+        PackageSectionCatalog packageCatalog =
+            PackageSectionDescriptors.CreateCatalog();
+        SectionCatalog<InspectionResult> sectionCatalog =
+            packageCatalog.Sections;
+        InspectionQueryCatalog<SourceLinkQueryContext> queryCatalog =
+            packageCatalog.QueryCatalog;
+        SectionQueryPlan automaticPlan =
+            sectionCatalog.PlanQueries(Verbosity.Normal);
+        HashSet<string> exactSelection = new(StringComparer.OrdinalIgnoreCase)
+        {
+            PackageSections.SourceLinkAvailability,
+        };
+        SectionQueryPlan exactPlan =
+            sectionCatalog.PlanQueries(Verbosity.Normal, exactSelection);
+        InspectionQueryPlan<SourceLinkQueryContext> exactQueryPlan =
+            queryCatalog.Plan(exactPlan.Queries[0]);
+        InspectionQueryPlan<SourceLinkQueryContext> emptyQueryPlan =
+            queryCatalog.Plan(Array.Empty<InspectionQueryDefinition>());
+        ImmutableArray<string> categoryMembers =
+            sectionCatalog.CategoryMap[SectionCategoryNames.SourceLink];
+        HashSet<string> categorySelection =
+            new(categoryMembers, StringComparer.OrdinalIgnoreCase);
+        SectionQueryPlan categoryPlan =
+            sectionCatalog.PlanQueries(Verbosity.Normal, categorySelection);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 1_000; iteration++)
+        {
+            if (!ReferenceEquals(
+                    packageCatalog,
+                    PackageSectionDescriptors.CreateCatalog())
+                || !ReferenceEquals(
+                    sectionCatalog,
+                    PackageSectionDescriptors.SectionCatalog)
+                || !ReferenceEquals(
+                    queryCatalog,
+                    PackageSectionDescriptors.QueryCatalog)
+                || !ReferenceEquals(
+                    automaticPlan,
+                    sectionCatalog.PlanQueries(Verbosity.Normal))
+                || !ReferenceEquals(
+                    exactPlan,
+                    sectionCatalog.PlanQueries(
+                        Verbosity.Normal,
+                        exactSelection))
+                || !ReferenceEquals(
+                    exactQueryPlan,
+                    queryCatalog.Plan(exactPlan.Queries[0]))
+                || !ReferenceEquals(
+                    emptyQueryPlan,
+                    queryCatalog.Plan(
+                        Array.Empty<InspectionQueryDefinition>()))
+                || !ReferenceEquals(
+                    categoryPlan,
+                    sectionCatalog.PlanQueries(
+                        Verbosity.Normal,
+                        categorySelection)))
+            {
+                throw new InvalidOperationException(
+                    "The package catalog or a precomputed plan changed identity.");
+            }
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
+    public void LibrarySectionCatalog_RepeatedAcquisitionAndCommonPlanningAllocateNothing()
+    {
+        LibrarySectionCatalog libraryCatalog = LibrarySections.CreateCatalog();
+        SectionCatalog<LibraryInspection> catalog = libraryCatalog.Sections;
+        SectionQueryPlan automaticPlan = catalog.PlanQueries(Verbosity.Normal);
+        HashSet<string> exactSelection = new(StringComparer.OrdinalIgnoreCase)
+        {
+            catalog.SelectableSectionNames[0],
+        };
+        SectionQueryPlan exactPlan =
+            catalog.PlanQueries(Verbosity.Normal, exactSelection);
+        ImmutableArray<string> categoryMembers = catalog.CategoryMap.Values.First();
+        HashSet<string> categorySelection =
+            new(categoryMembers, StringComparer.OrdinalIgnoreCase);
+        SectionQueryPlan categoryPlan =
+            catalog.PlanQueries(Verbosity.Normal, categorySelection);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 1_000; iteration++)
+        {
+            if (!ReferenceEquals(libraryCatalog, LibrarySections.CreateCatalog())
+                || !ReferenceEquals(catalog, LibrarySections.SectionCatalog)
+                || !ReferenceEquals(
+                    automaticPlan,
+                    catalog.PlanQueries(Verbosity.Normal))
+                || !ReferenceEquals(
+                    exactPlan,
+                    catalog.PlanQueries(Verbosity.Normal, exactSelection))
+                || !ReferenceEquals(
+                    categoryPlan,
+                    catalog.PlanQueries(Verbosity.Normal, categorySelection)))
+            {
+                throw new InvalidOperationException(
+                    "The library section catalog or a precomputed plan changed identity.");
+            }
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
+    public void CompiledSectionQueryPlan_PreservesTraceAttributionAndCommandDemand()
+    {
+        var sectionQuery = new InspectionQuery<int>(
+            "section query",
+            InspectionCost.NetworkFree);
+        var commandQuery = new InspectionQuery<int>(
+            "command query",
+            InspectionCost.NetworkFree);
+        var pipeline = new SectionPipeline<TestModel>()
+            .Add<QueryBackedSection>(sectionQuery);
+        SectionCatalog<TestModel> catalog = pipeline.Compile();
+        var include = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            QueryBackedSection.Name,
+        };
+        List<(string Reason, InspectionQueryDefinition Query)> commandDemand =
+        [
+            ("test command", commandQuery),
+        ];
+        var expectedTrace = new InspectionTrace();
+        var actualTrace = new InspectionTrace();
+
+        HashSet<InspectionQueryDefinition> expected = pipeline.GetRequiredQueries(
+            Verbosity.Normal,
+            include,
+            trace: expectedTrace,
+            commandDemand: commandDemand);
+        HashSet<InspectionQueryDefinition> actual = catalog
+            .PlanQueries(Verbosity.Normal, include)
+            .Activate(actualTrace, commandDemand);
+
+        Assert.True(expected.SetEquals(actual));
+        Assert.Equal(expectedTrace.QueryDemand, actualTrace.QueryDemand);
+        Assert.Equal(expectedTrace.CommandQueryDemand, actualTrace.CommandQueryDemand);
+        Assert.Equal(expectedTrace.RequestedQueries, actualTrace.RequestedQueries);
     }
 
     [Fact]

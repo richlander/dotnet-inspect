@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "packages": [
+    {
+      "id": "Newtonsoft.Json",
+      "version": "3.5.8",
+      "sha256": "7990b971ca0f217da4c82a9a4606e5cbf08746857ad7ee7541559c80750fdfdb",
+      "coverage": [
+        "namespace-free-root",
+        "legacy-metadata-namespace",
+        "older-publication-shape"
+      ]
+    },
+    {
+      "id": "dotnet-ef",
+      "version": "9.0.0",
+      "sha256": "7a6d4b662a24af6192ac0262c433f7a11d95f9a79a705888554ec242799160a3",
+      "coverage": [
+        "root-schema-namespace",
+        "package-types",
+        "repository",
+        "license",
+        "readme"
+      ]
+    },
+    {
+      "id": "Spectre.Console",
+      "version": "0.49.1",
+      "sha256": "12a7877ded4a2d3d96db03432d65afeeb8b8b7936894a722ef6b2a507a679379",
+      "coverage": [
+        "root-schema-namespace",
+        "grouped-dependencies",
+        "repository",
+        "license"
+      ]
+    },
+    {
+      "id": "Microsoft.SourceLink.GitHub",
+      "version": "8.0.0",
+      "sha256": "b1081e636501a0cdcf7b6e93ff97783d263d30b7b745f12ef4a266d3aa402cd6",
+      "coverage": [
+        "root-schema-namespace",
+        "ungrouped-dependencies",
+        "repository",
+        "license"
+      ]
+    }
+  ]
+}

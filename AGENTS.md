@@ -81,29 +81,26 @@ Do not repeat or move the round report, architectural checkpoint, carry-forward
 analysis, evidence, or recommendation into the prompt. The prompt is a control,
 not the record.
 
-### Keep PR readiness labels current
+### Keep the review-clean label current
 
-`ready-to-merge` and `carry-forward` are mutually exclusive live state, not
-historical milestones. Reconcile them after every resume and whenever the head,
-review result, base, draft state, or mergeability changes. Remove a stale label
-before reporting the new state. Neither label authorizes a merge.
+`review-clean` is live state, not a historical milestone, and it is advisory,
+not authoritative — it records that reviews are clean as of a head SHA, not
+that the PR is mergeable right now. Reconcile it after every resume and
+whenever the head or review result changes. Never infer merge readiness from
+its presence: before every merge attempt, re-check current-head CI and
+GitHub's live mergeability regardless of the label (see
+[Forming a candidate](#forming-a-candidate)).
 
-- **`ready-to-merge`:** add it when, and only when, the current head satisfies
-  the repository's `Ready to merge` claim: every required review is
-  review-clean and GitHub reports positive mergeability. Remove it before a new
-  round, author change, conflict recovery, restack, unresolved finding, draft
-  transition, or non-positive mergeability. When base movement enters the
-  carry-forward path, replace it with `carry-forward`.
-- **`carry-forward`:** add it when the
-  [clean-review carry-forward rule](#clean-reviews-are-not-spent-by-main-moving)
-  applies and analysis or approval is the next action. Keep it while that
-  analysis or decision is pending, including when another base movement requires
-  re-analysis. Remove it when carry-forward is unavailable or declined, before
-  integrating an approved tip, or when the review-clean evidence is otherwise
-  invalidated.
-
-Never leave both labels on a PR. A successful approved carry-forward may restore
-`ready-to-merge` only after the new head again satisfies its conditions.
+- **Add it** when every required review at the current head is review-clean.
+  Record the reviewed head SHA in the same comment or update that adds the
+  label.
+- **Base movement on its own does not remove it.** Follow [Clean reviews are
+  not spent by main moving](#clean-reviews-are-not-spent-by-main-moving) to
+  classify the landed range; a no-interaction classification keeps the label
+  through the integration.
+- **Remove it** before a new round, author change, conflict recovery, restack,
+  unresolved finding, or draft transition — anything that spends the clean
+  reviews or reopens the head to a fresh finding.
 
 ### Publish your state where tooling can read it
 
@@ -134,8 +131,8 @@ to whichever window is *current*, which is somebody else's.
 Always target `"${TMUX_PANE:?}"`. The state must include
 `head` and either `pr` or, before a PR exists, `issue`; add `round`, `reviews`,
 `blocked`, `waiting`, and `rec` when applicable. Values contain no spaces. `rec`
-is `continue`, `wait`, `merge`, `approve`, or `stop`. Clear both options when the
-window no longer owns the work.
+is `continue`, `wait`, `merge`, `split`, `approve`, or `stop`. Clear both
+options when the window no longer owns the work.
 
 `blocked` and `waiting` are both things you are waiting on, split by **who can
 act on them**:
@@ -144,8 +141,9 @@ act on them**:
   prioritise, and that the next agent hitting the same wall can find instead of
   re-investigating it. If a flake blocks you and no issue exists, file one and
   cite it.
-- **`waiting`** takes a predicate a tool can evaluate against your `head`:
-  `check:<name>`, `checks`, `merge`, or `review`. Use it when nothing is wrong
+- **`waiting`** takes one or more comma-separated predicates a tool can evaluate
+  against your `head`: `check:<name>`, `checks`, `merge`, or `review`. The wait
+  ends only when every listed predicate clears. Use it when nothing is wrong
   and nothing is openable — a check that has not reported yet is not a defect
   and does not deserve an issue.
 
@@ -346,8 +344,8 @@ reference owner contracts rather than restating participating components'
 internal inventories or policies. When another component needs prerequisite
 work, file or record that residual and handle it as an independently reviewable
 effort or stack slice. Do not expand the current design merely to make the whole
-end-to-end system appear closed. The preference for fewer coherent PRs does not
-justify combining independently owned component designs.
+end-to-end system appear closed. PR coherence does not justify combining
+independently owned component designs.
 
 A **broad design** sweeps an end-to-end lifecycle such as acquisition,
 analysis, publication, and presentation or, outside the bounded one-donor
@@ -629,7 +627,8 @@ rather than duplicating their evolving commands and gates here.
 
 ### Markdown
 
-All changed Markdown must pass `markdownlint`. Run the fixer first when needed:
+All changed Markdown must pass `markdownlint` before commit. Run the fixer first
+when needed:
 
 ```bash
 npx markdownlint-cli --fix <file>
@@ -656,13 +655,16 @@ driving the loop is
    justifies another round.
 4. **A round that pushes a fix is not review-clean.** Only the replacement head
    can earn that.
-5. **Do not post `Ready to merge` until every required review at the current
-   head is review-clean.**
+5. **Never claim merge readiness from label state alone.** Confirm current-head
+   CI and GitHub's live mergeability immediately before every merge attempt,
+   even when `review-clean` is present.
 6. **A round closes only when reconciled and green.** Both: the feedback is
    publicly reconciled, and every required current-head check and post-push gate
-   has succeeded. Until then the round number does not advance — a check that
-   goes red first makes the next push a failed-gate restart at the *same*
-   number, not the next round.
+   has succeeded. For a documentation-only PR, the pre-commit `markdownlint`
+   result is the per-round green gate; `ci-required` may remain pending until
+   final merge readiness. Until the applicable gate is green the round number
+   does not advance — a check that goes red first makes the next push a
+   failed-gate restart at the *same* number, not the next round.
 7. **Six rounds, then stop** and ask for another block.
 8. **Never merge without explicit user authorization** for that specific PR.
    Auto-merge armed at the user's direction is that authorization; see
@@ -701,10 +703,15 @@ reopen the locked candidate.
 | Conflict-recovery attempt | Resolution head pushed, round number authorized | Post-push local gates, CI, mergeability |
 | Failed-gate restart | Required fix pushed, zero conflicts, green current-head `ci-required` | Nothing required |
 
-Markdown lint is the focused gate for documentation-only changes. A
-documentation conflict-recovery attempt may review before lint finishes, but
-cannot reconcile or close without it. The user may authorize review in parallel
-with CI.
+Documentation-only candidates do not wait for CI before review. Read the
+applicable attempt row with only two substitutions: `markdownlint` must pass
+before commit and replaces any requirement for green current-head
+`ci-required`, and `ci-required` may remain pending. Every other requirement
+still applies, including the settled push, recorded effective base, zero
+conflicts where required, and round authorization. A documentation-only round
+may close after reconciliation and the local lint gate; `ci-required` remains
+mandatory for final merge readiness. The user may authorize review in parallel
+with CI for other changes.
 
 #### Review-clean, and what it gates
 
@@ -736,6 +743,13 @@ least one reviewer returned a finding.
   unchanged head. Repeat only with concrete transient evidence; otherwise treat
   it as requiring an author change.
 
+If final-gate `ci-required` reports any conclusion other than success after a
+documentation-only round closes, it does not reopen or renumber that completed
+round. Retry at the unchanged head only with concrete evidence that the result
+is transient and requires no author change. Otherwise remove `review-clean`,
+make the required fix, and form a candidate at the next round number,
+respecting the next six-round authorization boundary.
+
 Never close with a required check red. A superseded attempt spends no round and
 gets no completion report. Let its reviewers finish or have cancellation
 acknowledged, carry every returned finding forward, and reconcile each one
@@ -765,31 +779,37 @@ below.
 ### Clean reviews are not spent by main moving
 
 When a `main`-targeting PR has a review-clean current head and `origin/main`
-moves, **stop and ask**; do not integrate or start another round. This also
-applies to the bottom open stack slice. An upper slice follows its parent, so
-parent movement is a restack and requires review at the new head.
+moves, assess the landed range before doing anything else; do not integrate
+blindly and do not start another round by default. This also applies to the
+bottom open stack slice. An upper slice follows its parent, so parent movement
+is a restack and requires review at the new head.
 
-After a non-mutating fetch, analyze the exact landed range. If it cannot affect
-the change and the user approves, integrate that exact tip and carry the clean
-reviews to the new head without another round. If the tip moves again before
-integration, re-analyze and ask again. A decline leaves the reviewed head
-blocked; do not re-ask.
+After a non-mutating fetch, classify the exact landed range into exactly one
+outcome and act on it directly — the classification drives the response, not a
+per-movement approval prompt:
 
-Publish the analysis and recommendation as normal session output before opening
-the approval prompt. The prompt asks only whether to carry the clean reviews
-forward to the named tip.
+- **No interaction.** The range does not touch files, contracts, or behavior
+  this change touches. Keep `review-clean`, integrate the exact analyzed tip by
+  SHA, and update the recorded head SHA — skip re-running validation, CI, and
+  review. This is the common case on a fast-moving `main` and is what ends the
+  poll-and-rerun loop: repeated non-interacting movement never demands another
+  gate. Merging itself still needs a live readiness check and explicit user
+  authorization (invariants 5 and 8 under [Adversarial
+  review](#adversarial-review)); base movement alone does not grant it.
+- **Significant interaction, no conflict.** The range touches related files,
+  contracts, or behavior but merges cleanly. Remove `review-clean`, integrate
+  the tip, re-run the applicable validation and current-head CI, and
+  re-dispatch the required reviewers at the new head as a normal round; the
+  prior clean reviews do not carry forward.
+- **Merge conflict.** Remove `review-clean` and treat it as an author change:
+  integrate, resolve the conflict, rebuild and re-test, and re-dispatch the
+  required reviewers at the new head, following the ordinary [conflict recovery
+  transition](#recovery-transitions).
 
-If the range can interact, carry-forward is unavailable. Ask whether to
-integrate, validate, and re-review, or leave the PR blocked. Do not re-ask after
-a decline. Evaluate eligibility from the latest review-clean result.
-Carry-forward is unavailable when a finding remains unresolved or the head
-moved after that result because of an author change, conflict resolution, or
-restack.
-
-After an approved carry-forward, re-run the applicable validation and
-current-head CI. Failure ends the candidate and requires a normal replacement
-round. Repeat the analysis and approval for every later base movement. Follow
-the full
+Report the classification and the action taken as normal session output before
+changing labels or dispatching reviewers. Re-classify only when the landed
+range itself changes — a later, distinct base movement — not on every poll of
+an already-classified range. Follow the full
 [carry-forward procedure](docs/round-orchestration.md#carry-forward-after-clean-reviews).
 
 ### A quick read is not a round
@@ -803,25 +823,34 @@ feedback; the settled PR still requires its full round.
 | Tier | Requirement |
 | --- | --- |
 | Trivial | No review. State why the change is trivial. |
-| Everything else | **GPT-5.6 Sol**, always, plus one other roster reviewer. |
+| Everything else | **GPT-5.6 Sol**, always, plus one other roster reviewer (Claude Opus or Gemini Pro). |
 
-When uncertain, use the standard round. The roster is:
+When uncertain, use the standard round. Pick the second seat from the prior
+round's clean count:
 
-- **GPT-5.6 Sol** — the fixed seat, in every round
-- Claude Opus
-- Gemini Pro
+- **No prior round, or 0/2 clean:** prefer GPT-5.6 Sol again for the second
+  seat.
+- **1/2 clean:** keep GPT-5.6 Sol fixed, rule out last round's second seat,
+  then prefer a different family than the author (the author's family only as
+  a fallback) at that model's highest available quality.
 
-Prefer a second seat from a different family than the author, using that
-model's highest available quality. Reuse the author's family only as a fallback
-and record it on the PR. If the harness lacks a required roster model, run the
-available seat and ask the user for the missing one; an out-of-roster model does
-not count. One round evaluates one settled head with all required reviewers.
+Record the choice and its reasoning on the PR.
+
+If a roster model is unavailable, substitute another model for that seat,
+report the substitution on the PR, and proceed without approval — a
+substituted seat still counts as filled. One round evaluates one settled head
+with all required reviewers.
 
 ### Running the round
 
 Give every reviewer the same self-contained prompt and a separate worktree.
 Review the whole head unless the user narrows scope. Reproduce findings before
-acting on them, wait for all locked-head reviews, and reconcile publicly. Follow
+acting on them, wait for all locked-head reviews, and reconcile publicly.
+
+Word the prompt as a description of the property under test, not as an attack
+brief. A prompt that reads as an exploit tutorial can trip a model's content
+filter, and it fails silently: the reviewer returns nothing and looks broken.
+Suspect the prompt before the model when a reviewer returns empty. Follow
 [running a round](docs/round-orchestration.md#running-a-round) for mechanics and
 reporting.
 
@@ -849,7 +878,7 @@ candidate cycle; do not ask for approval, set `HELP`, or wait for user input.
 Approval is required only before rounds 7, 13, 19, and so on. Each approval
 allows at most six more rounds; stop sooner when review converges. At a block
 boundary, conflict recovery may resolve and push immediately, but reviewers
-still wait for approval.
+still wait for approval, unless an immutable split decision hold is active.
 
 Before requesting another block, answer:
 
@@ -867,6 +896,28 @@ Before requesting another block, answer:
    decision is not standing authorization; identify the new evidence that makes
    implementation rounds the better investment.
 
+When a PR reaches round 12, split the remaining work into focused successors
+unless the checkpoint establishes a strong reason to keep the PR intact and
+the user explicitly approves that exception. The strong reason must explain
+why the remaining claims cannot become independently reviewable successors,
+why the reviews are still converging, and why continuing the same PR is safer
+than splitting it. Reviewer familiarity, sunk cost, or the inconvenience of
+restacking are not strong reasons. Sprawling changes accumulated across review
+comments are themselves a sign that the remaining work should be split into
+focused successors. The same presumption and burden apply at every 6-round
+boundary after round 12.
+
+After round 12 or a later six-round boundary closes, the split recommendation
+puts the completed head in an immutable decision hold while the user decides.
+This is not a round lock; do not mutate the head or dispatch another round
+during the hold, including for conflict recovery. If approved, publicly assign
+every current change, claim, and finding — including resolved or dismissed
+findings and their resulting changes or rationale — to a focused successor, or
+explicitly record why an item is being dropped. Close the current PR as
+superseded without merging it, and open the successors from their effective
+base. Each successor starts at round 1; reviews, round counts, and authorization
+blocks do not carry forward.
+
 At round 12 and every 6-round boundary after (18, 24, and so on), also answer:
 
 1. **Would a design doc better define the design space?** Foundational APIs
@@ -875,11 +926,11 @@ At round 12 and every 6-round boundary after (18, 24, and so on), also answer:
    hardening to followup work would unlock this PR's value for other agent
    work sooner.
 
-State the proposed remedy and end with one recommendation: approve the next
-implementation block, switch to a docs-only design PR, or stop. If consecutive
-rounds only strengthen the harness while the product goes unchallenged, report
-that count and recommend a final round or a stop waiver rather than continuing
-by reflex.
+State the proposed remedy and end with one recommendation: split into focused
+successors, approve the next implementation block under the strong-reason
+exception, switch to a docs-only design PR, or stop. If consecutive rounds only
+strengthen the harness while the product goes unchallenged, report that count
+and recommend splitting or stopping rather than continuing by reflex.
 
 Publish the complete checkpoint as normal session output before opening the
 approval prompt. The prompt asks only which recommended action to authorize; it
@@ -906,9 +957,26 @@ Put it under `## Demo` above validation in the PR body.
 
 ## PR and CI discipline
 
-- Prefer fewer coherent PRs over mechanical splits; use a stack for genuinely
-  independent slices.
 - Keep concurrent agents modest and avoid unnecessary churn in central files.
+- Label a documentation-only PR (no product code, test, or build changes)
+  `documentation` when opening it.
+- When passing a file's content to `gh api` (for example a PR body), use
+  `-F key=@path` (typed `--field`, which expands `@path`), not `-f key=@path`
+  (raw `--raw-field`, which sends the literal string `@path`). This is a `gh`
+  flag distinction, not platform-specific. Verify with
+  `gh pr view <n> --json body -q .body` after creating or editing a PR body
+  this way.
+- Avoid high-level `gh` commands when they fail by querying deprecated GraphQL
+  fields. In particular, `gh pr edit` may hit the removed Projects (classic)
+  fields even when changing unrelated metadata. Do not retry it; use the
+  operation-specific REST endpoint through `gh api` instead. Use
+  `PATCH repos/{owner}/{repo}/pulls/<number>` for PR title, body, or base
+  changes; the issue labels POST and per-label DELETE endpoints for label
+  additions and removals; the issue assignees POST and DELETE endpoints for
+  assignee additions and removals; and
+  `PATCH repos/{owner}/{repo}/issues/<number>` for milestone changes. Do not
+  replace complete label or assignee arrays to perform an add or remove.
+  Verify the resulting metadata after the REST update.
 - Treat CI as confirmation: run the focused local gate, then push promptly.
   Run eligible local suites, CI, and review concurrently.
 - Use [status discovery](docs/round-orchestration.md#status-discovery): REST by
@@ -922,10 +990,10 @@ Put it under `## Demo` above validation in the PR body.
   path-gated job directly, and do not broaden CI without measured need.
 - Keep PR summaries conclusion-first: claim, evidence, compatibility or
   non-action boundary, and exact validation.
-- `Ready to merge` means review-clean current-head evidence plus positive
-  GitHub mergeability. Do not infer mergeability locally or claim readiness
-  during a round. Pursue green CI and report any external blocker separately,
-  but CI is not part of this claim.
+- `review-clean` records clean reviews as of a head SHA; it is advisory, not a
+  merge-eligibility claim. Confirm current-head CI and GitHub's live
+  mergeability at the moment of any merge attempt or readiness statement — do
+  not infer either from the label or from a prior check.
 - Never merge without explicit authorization for that PR. A clean review, green
   CI, readiness comment, or request to prepare a PR is not authorization.
   User-directed auto-merge authorizes only the reviewed head.

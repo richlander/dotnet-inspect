@@ -773,6 +773,7 @@ public class AuthoredCorpusHarnessProcessTests
     [Theory]
     [InlineData(new[] { "--integrity-only" }, "--integrity-only applies to")]
     [InlineData(new[] { "--ratchet-baseline", "/does-not-exist.jsonl" }, "--ratchet-baseline applies to")]
+    [InlineData(new[] { "--source-oracle-manifest", "/does-not-exist.json" }, "--source-oracle-manifest applies to")]
     public void Harness_RefusesAModifierWithoutItsGate(string[] flags, string expected)
     {
         var run = RunHarness(flags);
@@ -793,6 +794,18 @@ public class AuthoredCorpusHarnessProcessTests
             "--benchmark-authored-corpus", "/does-not-exist.jsonl",
             "--integrity-only",
             "--ratchet-baseline", "/does-not-exist.jsonl");
+
+        Assert.Equal(1, run.ExitCode);
+        Assert.Contains("are contradictory", run.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Harness_RefusesIntegrityOnlyWithSourceOracleManifest()
+    {
+        var run = RunHarness(
+            "--benchmark-authored-corpus", "/does-not-exist.jsonl",
+            "--integrity-only",
+            "--source-oracle-manifest", "/does-not-exist.json");
 
         Assert.Equal(1, run.ExitCode);
         Assert.Contains("are contradictory", run.Output, StringComparison.Ordinal);
@@ -1187,6 +1200,31 @@ public class AuthoredCorpusHarnessProcessTests
             Assert.Equal(1, run.ExitCode);
             Assert.Contains(
                 "Ratchet baseline not found: /does-not-exist/baseline.jsonl",
+                run.Output,
+                StringComparison.Ordinal);
+        }
+
+        finally
+        {
+            File.Delete(corpus);
+        }
+    }
+
+    [Fact]
+    public void Harness_ForwardsTheSourceOracleManifestToTheBenchmark()
+    {
+        string assembly = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
+        string corpus = AuthoredCorpusTestData.WriteCorrelatedCorpus(assembly);
+
+        try
+        {
+            var run = RunHarness(
+                "--benchmark-authored-corpus", corpus,
+                "--source-oracle-manifest", "/does-not-exist/source-oracles.json");
+
+            Assert.Equal(1, run.ExitCode);
+            Assert.Contains(
+                "Source-oracle manifest not found: /does-not-exist/source-oracles.json",
                 run.Output,
                 StringComparison.Ordinal);
         }

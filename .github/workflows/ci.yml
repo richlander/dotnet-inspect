@@ -23,6 +23,10 @@ on:
   # of the allow list was PRs that merge with no CI at all and look clean doing
   # it.
   pull_request:
+  # Merge queue candidates must report the same `ci-required` check as ordinary
+  # PRs. The synthetic head is classified against merge_group.base_sha below.
+  merge_group:
+    types: [checks_requested]
 
 env:
   DOTNET_NOLOGO: true
@@ -30,10 +34,9 @@ env:
 
 # Cancel superseded PR runs (e.g. when an agent pushes again to the same branch)
 # so only the latest commit of a PR consumes a full CI run. Pushes to main are
-# not cancelled, but they only run the lightweight changes/markdownlint legs
-# (test/pack are PR-only), so there is little to cancel. release.yml
-# builds all release packages fresh at publish time and does not consume CI
-# artifacts.
+# not cancelled; web-relevant pushes run inspect-web as a post-merge backstop,
+# while the other expensive lanes remain PR/merge-queue-only. release.yml builds
+# all release packages fresh at publish time and does not consume CI artifacts.
 #
 # The group keys on the pull request *number*, not `github.head_ref`. Branch
 # names are not unique across forks, so two PRs both branched as `patch-1`
@@ -111,7 +114,7 @@ jobs:
           # The runner honors BASH_ENV even with --noprofile and --norc.
           # Clear inherited workflow/job values before executing this gate.
           BASH_ENV: ""
-          CI_BEFORE_SHA: ${{ github.event.before }}
+          CI_BEFORE_SHA: ${{ github.event.merge_group.base_sha || github.event.before }}
           CI_PR_NUMBER: ${{ github.event.pull_request.number }}
           GH_TOKEN: ${{ github.token }}
 
@@ -130,7 +133,7 @@ jobs:
 
   inspect-web:
     needs: changes
-    if: needs.changes.outputs.web == 'true' && github.event_name == 'pull_request'
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-26.04
 
   # Shipped skills are embedded Markdown resources. A SKILL.md-only PR does
@@ -264,7 +267,7 @@ jobs:
 
   skill-gate:
     needs: changes
-    if: needs.changes.outputs.skills == 'true' && github.event_name == 'pull_request'
+    if: needs.changes.outputs.skills == 'true' && github.event_name != 'push'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
@@ -297,11 +300,10 @@ jobs:
             exit 1
           fi
 
-  # Build and run the full test matrix on Ubuntu. A reduced Windows leg runs as
-  # the separate `test-windows` job below; macOS is still uncovered by tests and
-  # appears only as a `release.yml` packaging target. Note that release.yml's
-  # `build-native` job does run on `windows-latest`, but it only packs and runs
-  # no tests, so it is not Windows test coverage.
+  # Build and run the PR test matrix on Ubuntu 24.04. Windows, macOS, and Ubuntu
+  # 26.04 compatibility suites run daily in Deep Inspect, where
+  # platform-specific failures do not hold the predominantly Linux and macOS
+  # development fleet on the much slower Windows runner.
   #
   # Runs on PRs only. A pull_request build validates the PR merged into the
   # current base, so re-running the full test suite on the push to main is
@@ -315,7 +317,7 @@ jobs:
   # Inspect, and release publishing continue to exercise ubuntu-26.04.
   test:
     needs: changes
-    if: needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
+    if: needs.changes.outputs.code == 'true' && github.event_name != 'push'
     permissions:
       contents: read
       packages: read
@@ -347,6 +349,9 @@ jobs:
 
       - name: Build
         run: dotnet build dotnet-inspect.slnx -c Release
+
+      - name: Build package-manifest corpus verifier
+        run: dotnet build eng/verify-package-manifest-corpus.cs -c Release
 
       - name: Prepare PR decompiler corpus
         run: |
@@ -385,10 +390,10 @@ jobs:
         if: steps.decompiler_pr_corpus.outcome == 'failure'
         run: exit 1
 
-      # --mdv matters here and nowhere else: this is the only workflow that runs
+      # --mdv matters here because this lane runs
       # tests/ILInspector.Metadata.Tests, whose cross-implementation oracle
       # skips without it -- and a skipped oracle is a green leg that compared
-      # nothing.
+      # nothing. Deep Inspect restores the same oracle for its platform lane.
       #
       # continue-on-error lets the rest of the lane still report, so a feed
       # outage does not cost every other result in the job. It does not make
@@ -507,145 +512,6 @@ jobs:
           echo "This lane cannot certify hosted fixture consumption. See the fixture test step." >&2
           exit 1
 
-  # Reduced Windows leg (#3542).
-  #
-  # Until now no test had ever run on Windows in any workflow, so a green PR
-  # said nothing about it. The cost was measured, not hypothetical: #3445,
-  # #3496, #3509, #3519, #3526 and six PluginDiscoveryTests cases found during
-  # #3428 review were all Windows-only failures found by hand on a tree CI
-  # called green. Almost all were fixture-level -- CRLF vs LF, path separators,
-  # executable bits -- which is the class a matrix leg catches cheaply and a
-  # human catches expensively.
-  #
-  # This is a separate job rather than another `include:` on `test` because
-  # most of that job's steps are genuinely bash-only: `mapfile`, a heredoc, a
-  # `chmod`, and `bash eng/*.sh`. Adding `windows-latest` there would need an
-  # `if:` guard on the majority of the steps and would leave the two jobs
-  # sharing a shape neither wants.
-  #
-  # Scope is deliberately reduced: the suites with an observed Windows-only
-  # failure, plus the two cheap path-sensitive ones. Excluded on cost, not
-  # principle: the slow decompiler gates and corpus sensor (the #3326 class),
-  # the separate IL round-trip project, and packaging.
-  #
-  # Like every other job here, this one must never be named as a required
-  # status check directly: it is path-gated and PR-only, and a required check
-  # that does not run is reported as "Expected" forever, blocking the merge
-  # permanently. Its result reaches `ci-required`, the aggregate gate at the
-  # end of this file, which is where it becomes merge-blocking.
-  test-windows:
-    needs: changes
-    if: needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
-    runs-on: windows-latest
-    # Raised from 40 after #4350 measured a 29-minute CLI run followed by the
-    # expected six remaining suites. The lane needed about 42 minutes to report
-    # every result; 55 preserves that evidence with measured runner variance.
-    timeout-minutes: 55
-    env:
-      DOTNET_INSPECT_TIPS: q
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
-
-      - name: Cache NuGet packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.nuget/packages
-          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
-          restore-keys: |
-            nuget-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Build
-        id: build
-        run: dotnet build dotnet-inspect.slnx -c Release
-
-      # GitHub's Windows image supplies Git Bash to `shell: bash`, but does not
-      # put that executable on the PATH inherited by .NET test processes.
-      # Publish its exact native path for IlToolsActivationTests rather than
-      # relying on the unrelated Windows Subsystem for Linux bash launcher.
-      #
-      # continue-on-error preserves the other Windows results during a feed
-      # outage. The terminal check below still makes loss of oracle coverage
-      # red after every suite has had a chance to report.
-      - name: Install ilasm/ildasm
-        id: iltools
-        continue-on-error: true
-        timeout-minutes: 5
-        shell: bash
-        run: |
-          printf 'ILTOOLS_BASH=%s\n' "$(cygpath -w "$(command -v bash)")" >> "$GITHUB_ENV"
-          eng/restore-iltools.sh --rid win-x64 --native-paths >> "$GITHUB_PATH"
-
-      # Each suite below runs even when an earlier suite failed. The default
-      # fail-fast behaviour reports the first broken suite and marks the rest
-      # `skipped`, which reads as "fine" when it actually means "unknown" --
-      # the success-shaped-empty-output failure AGENTS.md rules out. A Windows
-      # break is typically one fixture-level bug hitting several suites at
-      # once, so the first red step is the least useful place to stop. Gated on
-      # the build so a compile error still fails fast rather than producing
-      # five copies of the same error.
-
-      # Unfiltered, unlike the Ubuntu lane, and that is the point of this job.
-      # CommandExecutionTests carries a class-level [Trait("Speed", "Slow")], so
-      # `-trait- "Speed=Slow"` drops the entire class -- and both Windows-only
-      # CLI regressions (#3519, #3445) lived in exactly that class. Filtering
-      # here would faithfully reproduce the blind spot this leg exists to close.
-      - name: Run CLI tests (all)
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/dotnet-inspect.Tests -c Release
-
-      - name: Run CSharpText tests
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project tests/CSharpText.Tests -c Release
-
-      - name: Run artifact contract tests
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/DotnetInspector.Artifacts.Tests -c Release
-
-      # Covers #3496 and #3509. Both classes involved (StringSwitchRaisingTests,
-      # CorpusSensorComparisonTests) are in the fast subset, so the slow gates
-      # stay excluded without losing the regressions this leg is here for.
-      - name: Run decompiler unit tests (fast)
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
-
-      # Covers the PluginDiscoveryTests failures found during #3428 review:
-      # plugin discovery is exactly the executable-bit and path-separator logic
-      # that differs by OS. Live-network tests are excluded here for the same
-      # reasons as on the Ubuntu lane.
-      - name: Run NuGetFetch tests (offline)
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/NuGetFetch.Tests -c Release -- -trait- "Network=Live"
-
-      - name: Run metadata tests
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release -- -longRunning 60
-
-      - name: Run services tests
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/DotnetInspector.Services.Tests -c Release
-
-      - name: Run query tests
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/DotnetInspector.Queries.Tests -c Release
-
-      - name: Run Research tests
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/ILInspector.Research.Tests -c Release -- -failSkips
-
-      - name: Check ilasm/ildasm result
-        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.iltools.outcome != 'success' }}
-        shell: bash
-        run: |
-          echo "::error::Restoring ilasm/ildasm failed or timed out, so every Windows oracle test skipped." >&2
-          echo "This lane cannot certify oracle-backed results. See the 'Install ilasm/ildasm' step." >&2
-          exit 1
-
   # net10.0 fallback build coverage. The official non-AOT "any" package targets
   # the net10.0 LTS floor (Directory.Build.props), but the full test lane builds
   # net11 only — so net11-only API usage on the fallback path is invisible until
@@ -655,7 +521,7 @@ jobs:
   # SDK / nuget.org.
   build-net10:
     needs: changes
-    if: needs.changes.outputs.shipped == 'true' && github.event_name == 'pull_request'
+    if: needs.changes.outputs.shipped == 'true' && github.event_name != 'push'
     runs-on: ubuntu-26.04
     env:
       DOTNET_INSPECT_TIPS: q
@@ -717,7 +583,7 @@ jobs:
   # a set-only case-ID comparison would still be incomplete.
   decompiler-gates:
     needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.decompiler == 'true'
+    if: needs.changes.outputs.decompiler == 'true' && github.event_name != 'push'
     runs-on: ubuntu-26.04
     # Job timeout raised 55 -> 65 with the step timeout below (#3827).
     # The two must move together: the design depends on the *step* timeout
@@ -848,7 +714,7 @@ jobs:
   # coverage without forcing most PRs through extra work.
   csharp-diff-smoke:
     needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.csharpdiff == 'true'
+    if: needs.changes.outputs.csharpdiff == 'true' && github.event_name != 'push'
     runs-on: ubuntu-26.04
     env:
       DOTNET_INSPECT_TIPS: q
@@ -949,7 +815,7 @@ jobs:
   # IL Diff-specific changes get a focused snapshot/baseline JSONL smoke.
   il-diff-smoke:
     needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.ildiff == 'true'
+    if: needs.changes.outputs.ildiff == 'true' && github.event_name != 'push'
     runs-on: ubuntu-26.04
     env:
       DOTNET_INSPECT_TIPS: q
@@ -1053,7 +919,7 @@ jobs:
   # skip it, which removes packaging work from the hot PR path.
   pack:
     needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.packaging == 'true'
+    if: needs.changes.outputs.packaging == 'true' && github.event_name != 'push'
     runs-on: ubuntu-26.04
     env:
       DOTNET_INSPECT_TIPS: q
@@ -1223,10 +1089,10 @@ jobs:
       - inspect-web
       - skill-gate
       - test
-      # Path-gated and PR-only, so it reports `skipped` on doc-only PRs and on
-      # pushes to main. That passes the gate by design; the allow list below
-      # distinguishes "correctly not run" from "ran and failed".
-      - test-windows
+      # Path-gated jobs report `skipped` when their input class is absent; all
+      # expensive jobs except inspect-web also skip on pushes to main. That
+      # passes the gate by design; the allow list below distinguishes
+      # "correctly not run" from "ran and failed".
       - build-net10
       - decompiler-gates
       - csharp-diff-smoke

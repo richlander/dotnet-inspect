@@ -17,6 +17,7 @@ import {
   graphMemberPendingMatchesView,
   graphMemberShareTarget,
   graphMemberSelection,
+  graphMemberTargetWithSelectedBody,
   graphMemberTargetFromShare,
   graphOnlyBodyTarget,
   MARKDOWN_SANITIZE_OPTIONS,
@@ -36,7 +37,6 @@ import {
   removeWorkspacePackage,
   removeAppendedNotice,
   retainGraphMemberProjection,
-  retainGraphOnlyBodyTarget,
   retainWorkspacePackage,
   resolveLoadedGraphTargetCandidate,
   resolveOpportunitySourceCandidate,
@@ -82,22 +82,25 @@ import {
 } from "./member-filtering.ts";
 import {
   bindWorkspaceLinkNavigation,
+  bindWorkspaceRetryToUrl,
   browserCreatedCallGraphTabIds,
   buildPackageRootStateUrl,
   callGraphCaptureTopology,
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
+  recoverWorkspaceRouteFailure,
   retainedMissingPlatformTarget,
   retainedPlatformTargetVersion,
   selectedBrowserCallGraphPackageTabIds,
-  workspaceUrlPreservationApplies,
+  retainWorkspaceUrlPreservation,
   workspaceShareTabsMatchResolved,
   workspaceShareCaptureTopology,
   workspaceViewSignature,
   type NavigationHistorySnapshot,
   type ParsedWorkspaceLocation,
   type WorkspaceDeepLink,
+  type WorkspaceUrlPreservation,
   type WorkspaceUrlState,
   type WorkspaceView,
 } from "./workspace-navigation.ts";
@@ -107,10 +110,15 @@ import {
 } from "./workbench-keybindings.ts";
 import {
   createNuGetPackageModel,
+  createAppMemberSurface,
   createPackageAcquisition,
+  graphOnlyImplementationBody,
+  retainGraphOnlyImplementationBody,
   runtimeAssemblyIsResident,
   runtimePackIsResident,
+  type AppMemberSurface,
   type AppPackage,
+  type AppTypeSurface,
 } from "./package-acquisition.ts";
 import {
   createPackageInspectionCoordinator,
@@ -413,16 +421,6 @@ interface AppMemberGroup {
   overloads: AppMemberSurface[];
 }
 
-interface AppMemberSurface extends BrowserMemberSurface {
-  documentationLoaded?: boolean;
-  graphOnly?: boolean;
-  graphTarget?: BodyTarget;
-}
-
-interface AppTypeSurface extends BrowserTypeSurface {
-  api: AppMemberSurface[];
-}
-
 function loadStoredTaste() {
   try {
     const value: unknown = JSON.parse(localStorage.getItem("inspect-taste") || "[]");
@@ -486,12 +484,14 @@ function loadPlatformRecent() {
   }
 }
 
+const retryUnavailable = "unavailable" as const;
 type RetryAction = (() => void | Promise<unknown>) | null;
+type ErrorRetryAction = RetryAction | typeof retryUnavailable;
 
 interface SpotlightCache {
   signature: string;
-  pool: Array<{ pkg: AppPackage; type: BrowserTypeSurface }>;
-  keyMap: Map<string, { pkg: AppPackage; type: BrowserTypeSurface }>;
+  pool: Array<{ pkg: AppPackage; type: AppTypeSurface }>;
+  keyMap: Map<string, { pkg: AppPackage; type: AppTypeSurface }>;
   candidatesJson: string;
 }
 
@@ -499,7 +499,7 @@ type HighlightRange = readonly [start: number, end: number];
 
 interface SpotlightMemberCandidate {
   pkg: AppPackage;
-  type: BrowserTypeSurface;
+  type: AppTypeSurface;
   memberKey: string;
   name: string;
   kind: string;
@@ -751,7 +751,7 @@ interface StateOverrides {
   styleTiers: StyleTier[] | null;
   styleOptions: StyleOption[] | null;
   history: string[];
-  retryAction: RetryAction;
+  retryAction: ErrorRetryAction;
   diag: Diagnostics | null;
   buildIdentity: BrowserBuildIdentity | null;
   packageCacheStats: BrowserPackageCacheStats | null;
@@ -760,10 +760,17 @@ interface StateOverrides {
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
 
 const state: AppState = initialState;
-let failedWorkspaceUrlPreservation: {
-  url: string;
-  projection: string;
-} | null = null;
+type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
+  | { kind: "canonical" }
+  | {
+    kind: "route";
+    notice: string;
+    pathname: string;
+    search: string;
+    recoveryUrl: string;
+  }
+);
+let failedWorkspaceUrlState: FailedWorkspaceUrlState | null = null;
 
 interface CanonicalWorkspaceRestoreSnapshot {
   state: AppState;
@@ -933,16 +940,18 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
     validateAnnotatedSourceDocument(document);
     return { ...result, document };
   },
-  queryFacts: async request =>
-    parseEngineJson<MemberFacts>(
-      await inspectMemberFacts(
-        request.packageId,
-        request.version,
-        request.framework,
-        request.assembly,
-        request.type,
-        request.member,
-        request.memberSignature)),
+  queryFacts: request =>
+    inspectMemberFacts(
+      request.packageId,
+      request.version,
+      request.framework,
+      request.assembly,
+      request.typeIdentity,
+      request.member,
+      request.memberSignature,
+      request.selectorKey,
+      request.metadataToken,
+      request.implementationBodySelected),
   describeError: errorMessage,
   render,
   renderPreservingMemberFocus,
@@ -1112,8 +1121,7 @@ function applyView(view: WorkspaceView) {
     state.selectedMemberKey = graphSelection.group.key;
     state.memberBrowseTypeId = type.id;
     state.selectedOverloadIndex = graphSelection.overloadIndex;
-    state.selectedBodyTarget = view.bodyTarget;
-    retainGraphOnlyBodyTarget(
+    state.selectedBodyTarget = retainGraphOnlyImplementationBody(
       graphSelection.group.overloads[graphSelection.overloadIndex],
       view.bodyTarget);
     state.memberSection = isMemberSection(view.memberSection)
@@ -1240,7 +1248,9 @@ const initialLocation = initialWorkspace.visible;
 // its workspace directly.
 state.credits = isCreditsPath(location.pathname);
 state.home = state.credits
-  || (!initialLocation.package && !initialWorkspace.hasWorkspaceState);
+  || (!initialLocation.package
+    && !initialWorkspace.hasWorkspaceState
+    && !initialLocation.routeFailure);
 state.queryNotice = "";
 if (initialLocation.package) {
   state.requestedPackage = initialLocation.package;
@@ -1748,6 +1758,10 @@ function selectPackageTab(pkg: PackageBarPackage | null) {
 function closePackageTab(packageKey: string) {
   const removal = removeWorkspacePackage(state.packages, state.package, packageKey);
   if (!removal.closed) return;
+  if (!removal.active && !clearWorkspaceRouteFailure()) {
+    render();
+    return;
+  }
 
   state.packages = removal.packages;
   releasePackageModelCaches(removal.closed);
@@ -1876,10 +1890,10 @@ function typeGroups() {
 }
 
 function memberGroups(
-  type: BrowserTypeSurface | null | undefined,
+  type: AppTypeSurface | null | undefined,
 ): AppMemberGroup[] {
   const groups = new Map<string, AppMemberGroup>();
-  for (const member of (type?.api ?? []) as AppMemberSurface[]) {
+  for (const member of type?.api ?? []) {
     const key =
       `${member.graphOnly ? "graph:" : ""}${member.kind}:${member.name}`;
     let group = groups.get(key);
@@ -1908,33 +1922,33 @@ function resetMemberFilters() {
   state.memberTextFilter = "";
 }
 
-function visibleMemberGroups(type: BrowserTypeSurface) {
+function visibleMemberGroups(type: AppTypeSurface) {
   return filterMemberGroups(publicMemberGroups(type), memberFilterState());
 }
 
-function publicMemberGroups(type: BrowserTypeSurface) {
+function publicMemberGroups(type: AppTypeSurface) {
   return searchableMemberGroups(memberGroups(type));
 }
 
-function selectedGraphMemberGroup(type: BrowserTypeSurface) {
+function selectedGraphMemberGroup(type: AppTypeSurface) {
   return memberGroups(type).find(group =>
     group.key === state.selectedMemberKey
     && group.overloads.some(overload => overload.graphOnly));
 }
 
 function memberSelectionIsAvailable(
-  type: BrowserTypeSurface,
+  type: AppTypeSurface,
   visible: readonly { key: string }[],
 ) {
   return visible.some(group => group.key === state.selectedMemberKey)
     || selectedGraphMemberGroup(type) != null;
 }
 
-function memberKinds(type: BrowserTypeSurface) {
+function memberKinds(type: AppTypeSurface) {
   return [...new Set(publicMemberGroups(type).map(group => group.kind))];
 }
 
-function memberAccessibilities(type: BrowserTypeSurface) {
+function memberAccessibilities(type: AppTypeSurface) {
   const values = new Set(
     publicMemberGroups(type)
       .flatMap(group => group.overloads)
@@ -1946,14 +1960,14 @@ function memberAccessibilities(type: BrowserTypeSurface) {
     ].includes(value)).sort());
 }
 
-function availableMemberTraits(type: BrowserTypeSurface) {
+function availableMemberTraits(type: AppTypeSurface) {
   const publicMembers =
     publicMemberGroups(type).flatMap(group => group.overloads);
   return MEMBER_TRAITS.filter(([property]) =>
     publicMembers.some(member => member[property]));
 }
 
-function renderMemberFilterControls(type: BrowserTypeSurface) {
+function renderMemberFilterControls(type: AppTypeSurface) {
   const groups = publicMemberGroups(type);
   const visible = visibleMemberGroups(type);
   const kinds = memberKinds(type);
@@ -2024,7 +2038,7 @@ function renderMemberComposition(type: AppTypeSurface) {
     ${traits ? `<div class="composition-filters" aria-label="Browse members by trait">${traits}</div>` : ""}`;
 }
 
-function selectedMember(type: BrowserTypeSurface | null | undefined) {
+function selectedMember(type: AppTypeSurface | null | undefined) {
   return memberGroups(type).find(group => group.key === state.selectedMemberKey);
 }
 
@@ -2250,7 +2264,7 @@ function applyMemberSection(id: MemberSection) {
 // Flattened, ordered nav rows for member mode: filtered public groups plus the selected
 // graph-only target, with active overloads nested beneath their group. This is the exact
 // list ↑/↓ walks.
-function memberNavEntries(type: BrowserTypeSurface): MemberNavEntry[] {
+function memberNavEntries(type: AppTypeSurface): MemberNavEntry[] {
   const entries: MemberNavEntry[] = [];
   for (const group of visibleMemberGroups(type)) {
     entries.push({ kind: "member", group });
@@ -2448,6 +2462,7 @@ function render() {
     renderLoading();
     return;
   }
+  retainFailedWorkspaceUrl();
   if (state.home) {
     renderHomeView();
     return;
@@ -2499,11 +2514,11 @@ function render() {
         </div>
       </header>
 
-      ${state.queryNotice
+      ${visibleQueryNotice()
         ? `<div class="query-notice" role="alert">
             <span class="query-notice-glyph">⚠</span>
-            <span class="query-notice-text">${escapeHtml(state.queryNotice)}</span>
-            ${state.queryNoticeRetryAction
+            <span class="query-notice-text">${escapeHtml(visibleQueryNotice())}</span>
+            ${state.queryNotice && state.queryNoticeRetryAction
               ? '<button id="retry-notice" type="button">retry</button>'
               : ""}
             <button id="dismiss-notice" type="button" aria-label="Dismiss">×</button>
@@ -2661,8 +2676,8 @@ function maybeAutoLoadTypeMetadata() {
 }
 
 function renderNavPane(
-  current: BrowserTypeSurface | null | undefined,
-  visible: readonly BrowserTypeSurface[],
+  current: AppTypeSurface | null | undefined,
+  visible: readonly AppTypeSurface[],
 ) {
   return navMode() === "member" && current
     ? renderMemberNavPane(current)
@@ -2670,8 +2685,8 @@ function renderNavPane(
 }
 
 function renderTypeNavPane(
-  current: BrowserTypeSurface | null | undefined,
-  visible: readonly BrowserTypeSurface[],
+  current: AppTypeSurface | null | undefined,
+  visible: readonly AppTypeSurface[],
 ) {
   return renderTypeNav({
     current: current ?? null,
@@ -2692,7 +2707,7 @@ function renderTypeNavPane(
   });
 }
 
-function renderMemberNavPane(type: BrowserTypeSurface) {
+function renderMemberNavPane(type: AppTypeSurface) {
   const visibleGroups = visibleMemberGroups(type);
   return renderMemberNav({
     type,
@@ -3788,7 +3803,7 @@ function renderPackageOverview() {
     </section>${documentsSection}`;
 }
 
-function typeHeadingHtml(item: BrowserTypeSurface) {
+function typeHeadingHtml(item: AppTypeSurface) {
   return typeHeading({
     item,
     packageContext: currentPackage(),
@@ -3800,7 +3815,7 @@ function typeHeadingHtml(item: BrowserTypeSurface) {
 }
 
 function renderGraphMemberPendingHtml(
-  item: BrowserTypeSurface,
+  item: AppTypeSurface,
   title: string,
 ) {
   return renderGraphMemberPending({
@@ -3826,7 +3841,7 @@ function renderTypeMetadataHtml(item: AppTypeSurface) {
   });
 }
 
-function renderTypeSourceHtml(item: BrowserTypeSurface) {
+function renderTypeSourceHtml(item: AppTypeSurface) {
   const currentSignature = typeSourceSignature(
     item,
     currentPackage(),
@@ -3922,7 +3937,7 @@ function renderApiLens(item: AppTypeSurface) {
       : ""}`;
 }
 
-function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
+function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
   const selectedOverloadIndex = state.selectedOverloadIndex;
   const hasSelectedOverload =
     selectedOverloadIndex != null
@@ -4125,7 +4140,7 @@ function renderAnnotatedSource(result: AnnotatedSourceResult) {
 }
 
 function renderMemberFacts(
-  type: BrowserTypeSurface,
+  type: AppTypeSurface,
   member: AppMemberGroup,
   overload: BrowserMemberSurface,
   overloadIndex: number,
@@ -4139,17 +4154,20 @@ function renderMemberFacts(
 
   const facts = state.memberFacts;
   const signals = facts.signals;
-  const allocOffsets = facts.allocations.map(a => a.offset);
+  const heapAllocations = facts.allocations.filter(a => a.countedAsHeap);
+  const allocOffsets = heapAllocations.map(a => a.offset);
   const callOffsets = facts.calls.map(c => c.offset);
-  const safetyOffsets = facts.safety.map(s => s.offset);
-  const loopAllocOffsets = facts.allocations.filter(a => a.inLoop).map(a => a.offset);
+  const safetyOffsets = facts.safety
+    .map(s => s.offset)
+    .filter((offset): offset is string => offset != null);
+  const loopAllocOffsets = heapAllocations.filter(a => a.inLoop).map(a => a.offset);
   return `
     <section class="document-section facts-section">
       <div class="section-title"><h2>Method facts</h2><span>selected overload</span></div>
       ${factRows([
         ["Overload", `${overloadIndex + 1} of ${member.overloads.length}`],
         ["Kind", overload.kind],
-        ["Metadata token", overload.metadataToken == null ? "not exposed" : `0x${overload.metadataToken.toString(16).padStart(8, "0")}`],
+        ["Metadata token", `0x${facts.metadataToken.toString(16).padStart(8, "0")}`],
         ["Declaring type", type.id],
         ["Allocations", String(signals.allocations), allocOffsets],
         ["Calls", String(facts.calls.length), callOffsets],
@@ -4161,19 +4179,20 @@ function renderMemberFacts(
       ])}
     </section>
     ${renderFactTable("Allocation facts", facts.allocations, [
-      ["IL", "offset"], ["Kind", "kind"], ["Type", "type"], ["Multiplicity", "multiplicity"],
+      ["IL", "offset"], ["Kind", "kind"], ["Type", "type"],
+      ["Heap", row => row.countedAsHeap ? "yes" : "no"], ["Multiplicity", "multiplicity"],
       ["Path", "path"], ["Escape", "escape"], ["Loop", row => row.inLoop ? "yes" : ""],
       ["Size", row => typeof row.estimatedSizeBytes === "number"
         ? `${row.estimatedSizeBytes} B`
         : ""]
-    ], "No heap-allocation occurrences were found in this method.")}
+    ], "No allocation occurrences were found in this method.")}
     ${renderFactTable("Calls", facts.calls, [
       ["IL", "offset"], ["Opcode", "opcode"], ["Callee", "callee"],
-      ["Multiplicity", "multiplicity"], ["Loop", row => row.inLoop ? "yes" : ""],
-      ["Target", row => row.exactTarget ? "exact" : "open"]
+      ["Multiplicity", "multiplicity"], ["Loop", row => row.inLoop ? "yes" : ""]
     ], "No direct call sites were found in this method.")}
     ${renderFactTable("Safety facts", facts.safety, [
-      ["IL", row => row.offset || ""], ["Kind", "kind"], ["Evidence", "detail"]
+      ["IL", row => row.offset || ""], ["Kind", "kind"], ["Operation", "operation"],
+      ["Requirement", "requirement"], ["Evidence", "evidence"]
     ], "No unsafe operations or declaration evidence were found.")}
     ${renderFactTable("Exception regions", facts.exceptionRegions, [
       ["Region", "region"], ["Clause", "clause"], ["Try", "tryRange"],
@@ -4190,7 +4209,10 @@ function renderMemberFacts(
             <dl><dt>Possible direction</dt><dd>${escapeHtml(opportunity.fix)}</dd>${opportunity.caveat ? `<dt>Caveat</dt><dd>${escapeHtml(opportunity.caveat)}</dd>` : ""}<dt>Provenance</dt><dd>${escapeHtml([opportunity.provenance, opportunity.finding].filter(Boolean).join(" · "))}</dd></dl>
           </article>`).join("")
         : '<div class="empty-fact-group">No curated performance opportunities were found for this method.</div>'}
-    </section>`;
+    </section>
+    ${facts.diagnostics.length
+      ? `<section class="document-section fact-group"><div class="section-title"><h2>Analysis diagnostics</h2><span>${facts.diagnostics.length}</span></div><ul>${facts.diagnostics.map(diagnostic => `<li>${escapeHtml(diagnostic)}</li>`).join("")}</ul></section>`
+      : ""}`;
 }
 
 type FactTableColumn<T> =
@@ -4830,12 +4852,7 @@ function bindAnnotatedSourceEvents() {
 }
 
 const workbenchShellActions: WorkbenchShellBindingActions = {
-  onDismissNotice: () => {
-    state.queryNotice = "";
-    state.queryNoticeRetryAction = null;
-    failedWorkspaceUrlPreservation = null;
-    render();
-  },
+  onDismissNotice: dismissQueryNotice,
   onDismissPackageNotice: () => {
     const pkg = currentPackage();
     pkg.inspectionErrors = [];
@@ -6206,13 +6223,7 @@ function workspaceUrlProjection() {
 }
 
 function syncUrl() {
-  if (workspaceUrlPreservationApplies(
-      failedWorkspaceUrlPreservation,
-      location.href,
-      workspaceUrlProjection())) {
-    return;
-  }
-  failedWorkspaceUrlPreservation = null;
+  if (retainFailedWorkspaceUrl()) return;
   try {
     if (state.atPackageRoot && state.package && !state.loading) {
       document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
@@ -6465,8 +6476,7 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
       && deep.graphTarget) {
       state.selectedMemberKey = localGraphSelection.group.key;
       state.selectedOverloadIndex = localGraphSelection.overloadIndex;
-      state.selectedBodyTarget = deep.graphTarget;
-      retainGraphOnlyBodyTarget(
+      state.selectedBodyTarget = retainGraphOnlyImplementationBody(
         localGraphSelection.group.overloads[localGraphSelection.overloadIndex],
         deep.graphTarget);
       state.memberSection = deep.section
@@ -6627,6 +6637,59 @@ function appendQueryNotice(message: string, retryAction: RetryAction = null) {
   state.queryNoticeRetryAction = retryAction;
 }
 
+function visibleQueryNotice() {
+  const routeNotice = failedWorkspaceUrlState?.kind === "route"
+    ? failedWorkspaceUrlState.notice
+    : null;
+  return [state.queryNotice, routeNotice]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function retainFailedWorkspaceUrl() {
+  const failedState = failedWorkspaceUrlState;
+  const retainedState = retainWorkspaceUrlPreservation(
+    failedState,
+    location.href,
+    workspaceUrlProjection());
+  if (retainedState) return true;
+  if (failedState?.kind === "route"
+    && !recoverWorkspaceRouteFailure(
+      failedState,
+      location,
+      url => workspaceLocation.replace(url))) {
+    return true;
+  }
+  failedWorkspaceUrlState = null;
+  return false;
+}
+
+function clearWorkspaceRouteFailure(recoveryUrl?: string) {
+  if (failedWorkspaceUrlState?.kind !== "route") return true;
+  if (!recoverWorkspaceRouteFailure(
+    failedWorkspaceUrlState,
+    location,
+    url => workspaceLocation.replace(url),
+    recoveryUrl)) {
+    return false;
+  }
+  failedWorkspaceUrlState = null;
+  return true;
+}
+
+function dismissQueryNotice() {
+  const routeFailureOnHome =
+    failedWorkspaceUrlState?.kind === "route" && state.home;
+  state.queryNotice = "";
+  state.queryNoticeRetryAction = null;
+  if (!clearWorkspaceRouteFailure(routeFailureOnHome ? "/" : undefined)) {
+    render();
+    return;
+  }
+  failedWorkspaceUrlState = null;
+  render();
+}
+
 async function copyText(value: string, confirmation: string) {
   try {
     await navigator.clipboard.writeText(value);
@@ -6662,10 +6725,10 @@ function renderHomeView() {
           <button id="home-theme" aria-label="Switch theme">${state.theme === "dark" ? "light" : "dark"}</button>
         </div>
       </header>
-      ${state.queryNotice
+      ${visibleQueryNotice()
         ? `<div class="query-notice" role="alert">
             <span class="query-notice-glyph">⚠</span>
-            <span class="query-notice-text">${escapeHtml(state.queryNotice)}</span>
+            <span class="query-notice-text">${escapeHtml(visibleQueryNotice())}</span>
             <button id="dismiss-notice" type="button" aria-label="Dismiss">×</button>
           </div>`
         : ""}
@@ -6715,12 +6778,7 @@ function homeArtSvg() {
 
 const homeShellActions: HomeShellBindingActions = {
   onDemo: runHomeDemo,
-  onDismissNotice: () => {
-    state.queryNotice = "";
-    state.queryNoticeRetryAction = null;
-    failedWorkspaceUrlPreservation = null;
-    render();
-  },
+  onDismissNotice: dismissQueryNotice,
   onOpenCredits: openCredits,
   onToggleTheme: toggleTheme,
 };
@@ -6770,6 +6828,11 @@ function goHome() {
   state.memberCallGraphSeq++;
   state.memberCallGraphExpanding = false;
   invalidateGraphMemberNavigation();
+  clearNavigationError();
+  if (!clearWorkspaceRouteFailure()) {
+    render();
+    return;
+  }
   state.credits = false;
   state.home = true;
   spotlight.reset();
@@ -6778,6 +6841,10 @@ function goHome() {
 }
 
 function openCredits() {
+  if (!clearWorkspaceRouteFailure()) {
+    render();
+    return;
+  }
   state.credits = true;
   state.home = true;
   spotlight.reset();
@@ -6893,10 +6960,12 @@ function openPackageQuery(query: ParsedPackageQuery) {
 
 const loadErrorShellActions: LoadErrorShellBindingActions = {
   onOpenPackage: openPackageQuery,
-  onRetry: () =>
+  onRetry: () => {
+    if (state.retryAction === retryUnavailable) return;
     observeAction(
       state.retryAction ?? bootstrap,
-      "Retrying the inspection"),
+      "Retrying the inspection");
+  },
 };
 
 function renderLoading() {
@@ -6912,7 +6981,9 @@ function renderLoading() {
                <button type="submit">open</button>
              </form>
              <div class="load-error-actions">
-               <button id="retry-load" type="button">retry</button>
+               ${state.retryAction === retryUnavailable
+                 ? ""
+                 : `<button id="retry-load" type="button">retry</button>`}
                ${state.errorDetail ? `<button id="toggle-error-detail" type="button">details</button>` : ""}
              </div>
              ${state.errorDetail ? `<pre class="load-error-detail" hidden>${escapeHtml(state.errorDetail)}</pre>` : ""}
@@ -7024,8 +7095,8 @@ async function loadSelectedMemberAnnotatedSource() {
 }
 
 function memberRequestSignature(
-  type: BrowserTypeSurface,
-  overload: BrowserMemberSurface,
+  type: AppTypeSurface,
+  overload: AppMemberSurface,
   includeBody = false,
   includeTaste = false) {
   const pkg = state.package;
@@ -7189,7 +7260,7 @@ function navigateToTypeByName(fullName: string) {
   navigateToType(target);
 }
 
-function navigateToType(target: BrowserTypeSurface) {
+function navigateToType(target: AppTypeSurface) {
   // Clicking a non-public related type (e.g. an internal derived implementer)
   // enables its accessibility bucket so it appears in the nav list rather than
   // being filtered out by the public-by-default view.
@@ -7624,7 +7695,7 @@ function callGraphNodeBinding(
     ...state.packages.filter(item => item !== state.package),
   ].filter((pkg): pkg is AppPackage => pkg != null);
   const candidate =
-    resolveLoadedGraphTargetCandidate<AppPackage, BrowserTypeSurface>(
+    resolveLoadedGraphTargetCandidate<AppPackage, AppTypeSurface>(
       packages,
       target);
   const pack = runtimePackForFramework(
@@ -7728,7 +7799,7 @@ function resolveLoadedGraphTarget(
   candidate: {
     status: "unique";
     pkg: AppPackage;
-    type: BrowserTypeSurface;
+    type: AppTypeSurface;
   },
 ) {
   const { pkg, type } = candidate;
@@ -7752,7 +7823,7 @@ function resolveLoadedGraphTarget(
 }
 
 function findGraphMemberSelection(
-  type: BrowserTypeSurface,
+  type: AppTypeSurface,
   target: GraphMemberTarget,
 ) {
   const groups = memberGroups(type);
@@ -7766,7 +7837,7 @@ function findGraphMemberSelection(
 
 async function loadGraphMemberSurface(
   pkg: AppPackage,
-  type: BrowserTypeSurface,
+  type: AppTypeSurface,
   target: BrowserCallGraphTarget | GraphMemberShareIdentity,
 ) {
   return inspectGraphMemberSurface(
@@ -7782,7 +7853,7 @@ async function loadGraphMemberSurface(
 
 function stageGraphMemberSelection(
   pkg: AppPackage,
-  type: BrowserTypeSurface,
+  type: AppTypeSurface,
   target: BrowserCallGraphTarget | GraphMemberShareIdentity,
   surface: BrowserMemberSurface,
 ) {
@@ -7791,7 +7862,11 @@ function stageGraphMemberSelection(
     && candidate.canonicalSignature === surface.canonicalSignature);
   const isNew = !member;
   if (!member) {
-    member = { ...surface, graphOnly: true, graphTarget: target };
+    member = {
+      ...createAppMemberSurface(surface),
+      graphOnly: true,
+      graphTarget: target,
+    };
   }
   const stagedType = isNew
     ? { ...type, api: [...(type.api ?? []), member] }
@@ -7812,7 +7887,7 @@ function stageGraphMemberSelection(
 
 function commitGraphMemberSelection(
   pkg: AppPackage,
-  type: BrowserTypeSurface,
+  type: AppTypeSurface,
   target: BrowserCallGraphTarget | GraphMemberShareIdentity,
   staged: ReturnType<typeof stageGraphMemberSelection>,
 ) {
@@ -7821,7 +7896,9 @@ function commitGraphMemberSelection(
     type.api ??= [];
     type.api.push(staged.member);
   }
-  retainGraphOnlyBodyTarget(staged.member, target);
+  const selectedTarget = retainGraphOnlyImplementationBody(
+    staged.member,
+    target);
   const selection = resolveLoadedGraphTarget(
     target,
     { status: "unique", pkg, type });
@@ -7829,7 +7906,11 @@ function commitGraphMemberSelection(
     throw new Error(
       `The graph target '${target.memberName}' was lost while committing its projection.`);
   }
-  return { ...selection, group: selection.group };
+  return {
+    ...selection,
+    group: selection.group,
+    selectedBodyTarget: selectedTarget,
+  };
 }
 
 async function navigateToGraphMember(
@@ -7841,12 +7922,16 @@ async function navigateToGraphMember(
   state.platformDrillLoading = false;
   state.platformDrillError = "";
   if ("group" in loaded) {
+    const overload = loaded.group.overloads[loaded.overloadIndex];
+    const selectedBodyTarget = overload
+      ? retainGraphOnlyImplementationBody(overload, target)
+      : target;
     navigateToMember(
       loaded.pkg,
       loaded.type,
       loaded.group,
       loaded.overloadIndex,
-      target);
+      selectedBodyTarget);
     return;
   }
 
@@ -7860,7 +7945,7 @@ async function navigateToGraphMember(
   state.graphMemberNavigationError = "";
   render();
   try {
-    const surface = await loadGraphMemberSurface(
+    const projection = await loadGraphMemberSurface(
       loaded.pkg,
       loaded.type,
       target);
@@ -7871,15 +7956,18 @@ async function navigateToGraphMember(
       }
       return;
     }
+    const selectedTarget = graphMemberTargetWithSelectedBody(
+      target,
+      projection.selectedBody);
     const staged = stageGraphMemberSelection(
       loaded.pkg,
       loaded.type,
-      target,
-      surface);
+      selectedTarget,
+      projection.member);
     const selection = commitGraphMemberSelection(
       loaded.pkg,
       loaded.type,
-      target,
+      selectedTarget,
       staged);
     state.graphMemberNavigationTitle = "";
     navigateToMember(
@@ -7887,7 +7975,7 @@ async function navigateToGraphMember(
       selection.type,
       selection.group,
       selection.overloadIndex,
-      target);
+      selection.selectedBodyTarget);
   } catch (error) {
     if (!navigationIsCurrent()) {
       if (seq === state.graphMemberNavigationSeq) {
@@ -7931,23 +8019,29 @@ async function restorePendingGraphMember() {
       throw new Error(
         "The graph member's declaring type is no longer available.");
     }
-    const surface = await loadGraphMemberSurface(pkg, type, pending.target);
+    const projection = await loadGraphMemberSurface(
+      pkg,
+      type,
+      pending.target);
     if (!restorationIsCurrent()) {
       discardIfOwned();
       return;
     }
+    const selectedTarget = graphMemberTargetWithSelectedBody(
+      pending.target,
+      projection.selectedBody);
     const staged = stageGraphMemberSelection(
       pkg,
       type,
-      pending.target,
-      surface);
+      selectedTarget,
+      projection.member);
     if (staged.selection.group.key !== pending.member) {
       throw new Error("The shared member identity does not match the graph target.");
     }
     const selection = commitGraphMemberSelection(
       pkg,
       type,
-      pending.target,
+      selectedTarget,
       staged);
     state.pendingGraphMemberDeepLink = null;
     state.graphMemberNavigationTitle = "";
@@ -7961,7 +8055,7 @@ async function restorePendingGraphMember() {
       true).includes(pending.section)
       ? pending.section
       : "overview";
-    state.selectedBodyTarget = pending.target;
+    state.selectedBodyTarget = selection.selectedBodyTarget;
     normalizeCurrentNavEntry();
     render();
     observeAsync(loadSelectionData(), "Loading restored graph member data");
@@ -8222,7 +8316,7 @@ async function showPlatformTargetError(
 // node) and clears any active platform descent so the new member's graph loads fresh.
 function navigateToRuntimeMember(
   pack: AppPackage,
-  type: BrowserTypeSurface,
+  type: AppTypeSurface,
   group: AppMemberGroup,
   overloadIndex: number,
   bodyTarget: BodyTarget | null = null,
@@ -8473,14 +8567,20 @@ function renderGraphSource() {
 
 function navigateToMember(
   pkg: AppPackage,
-  type: BrowserTypeSurface,
+  type: AppTypeSurface,
   group: AppMemberGroup,
   overloadIndex: number | null = null,
   bodyTarget: BodyTarget | null = null,
 ) {
   invalidateGraphMemberNavigation();
+  let selectedBodyTarget = bodyTarget;
   if (overloadIndex != null) {
-    retainGraphOnlyBodyTarget(group.overloads[overloadIndex], bodyTarget);
+    const overload = group.overloads[overloadIndex];
+    if (overload) {
+      selectedBodyTarget = retainGraphOnlyImplementationBody(
+        overload,
+        bodyTarget);
+    }
   }
   activatePackage(pkg);
   state.typeFilter = "";
@@ -8507,7 +8607,7 @@ function navigateToMember(
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
-  state.selectedBodyTarget = bodyTarget;
+  state.selectedBodyTarget = selectedBodyTarget;
   observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
 }
 
@@ -8525,8 +8625,11 @@ async function loadSelectedMemberFacts() {
     render();
     return;
   }
-  const signature = memberRequestSignature(type, overload);
+  const signature = memberRequestSignature(type, overload, true);
   const pkg = currentPackage();
+  const implementationBody = graphOnlyImplementationBody(overload);
+  const implementationMetadataToken = implementationBody?.token ?? 0;
+  const implementationBodySelected = implementationMetadataToken !== 0;
   return memberDetailInspection.loadFacts({
     signature,
     packageId: pkg.id,
@@ -8534,9 +8637,17 @@ async function loadSelectedMemberFacts() {
     framework: pkg.activeFramework,
     assembly: type.assembly,
     type: type.queryId ?? type.id,
-    member: overload.name,
+    typeIdentity: type.definitionId ?? type.id,
+    member: implementationBody?.memberName
+      ?? state.selectedBodyTarget?.memberName
+      ?? overload.name,
     memberSignature: overload.signature,
-    isCurrent: () => memberRequestIsCurrent(signature),
+    selectorKey: implementationBody?.selectorKey
+      ?? state.selectedBodyTarget?.selectorKey
+      ?? overload.graphSelectorKey,
+    metadataToken: implementationMetadataToken,
+    implementationBodySelected,
+    isCurrent: () => memberRequestIsCurrent(signature, true),
   });
 }
 
@@ -8994,6 +9105,14 @@ async function restoreWorkspaceFromLocation(
     : null,
 ) {
   if (!navigationSequence.isCurrent(navigationSeq)) return;
+  if (loc.routeFailure) {
+    failWorkspaceRoute(loc.routeFailure.message);
+    return;
+  }
+  if (!clearWorkspaceRouteFailure()) {
+    render();
+    return;
+  }
   if (loc.hasWorkspaceState && !loc.shareState) {
     failCanonicalWorkspaceRestore(
       loc,
@@ -9186,6 +9305,42 @@ async function restoreWorkspaceFromLocation(
   }
 }
 
+function failWorkspaceRoute(message: string) {
+  if (state.package) {
+    state.credits = false;
+    state.loading = false;
+    state.error = "";
+    state.errorTitle = "";
+    state.errorDetail = "";
+    state.retryAction = null;
+    failedWorkspaceUrlState = {
+      kind: "route",
+      notice: `Package route failed: ${message}`,
+      url: location.href,
+      projection: workspaceUrlProjection(),
+      pathname: location.pathname,
+      search: location.search,
+      recoveryUrl: buildPackageRootStateUrl(location.href, {
+        package: state.package.id,
+        version: state.package.version,
+        framework: state.package.activeFramework,
+        lens: state.packageLens,
+      }).toString(),
+    };
+    render();
+    return;
+  }
+  clearWorkspacePackages();
+  state.credits = false;
+  state.loading = false;
+  state.home = false;
+  state.errorTitle = "Package route failed";
+  state.error = message;
+  state.errorDetail = "";
+  state.retryAction = retryUnavailable;
+  render();
+}
+
 function failCanonicalWorkspaceRestore(
   loc: ParsedLocation,
   deep: DeepLink,
@@ -9194,6 +9349,14 @@ function failCanonicalWorkspaceRestore(
   retryAction: RetryAction =
     () => restoreWorkspaceFromLocation(loc, deep),
 ) {
+  const failedUrl = location.href;
+  const ownedRetryAction = retryAction
+    ? bindWorkspaceRetryToUrl(
+      failedUrl,
+      () => location.href,
+      url => workspaceLocation.replace(url),
+      retryAction)
+    : null;
   if (snapshot?.hasWorkspace) {
     restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
     state.credits = false;
@@ -9204,9 +9367,10 @@ function failCanonicalWorkspaceRestore(
     state.retryAction = null;
     appendQueryNotice(
       `Workspace restore failed: ${message}`,
-      retryAction);
-    failedWorkspaceUrlPreservation = {
-      url: location.href,
+      ownedRetryAction);
+    failedWorkspaceUrlState = {
+      kind: "canonical",
+      url: failedUrl,
       projection: workspaceUrlProjection(),
     };
     render();
@@ -9218,7 +9382,7 @@ function failCanonicalWorkspaceRestore(
   state.home = false;
   state.errorTitle = "Workspace restore failed";
   state.error = message;
-  state.retryAction = retryAction;
+  state.retryAction = ownedRetryAction;
   render();
 }
 
@@ -9233,6 +9397,10 @@ function applyLocationView(loc: ParsedLocation) {
 // cross-package dependency edges come back. Only the focused target restores its deep-link.
 async function restoreInitialWorkspace() {
   const loc = initialWorkspace.resolve();
+  if (loc.routeFailure) {
+    await restoreWorkspaceFromLocation(loc, deepLinkFromLocation(loc));
+    return;
+  }
   if (loc.hasWorkspaceState && !loc.shareState) {
     await restoreWorkspaceFromLocation(loc, deepLinkFromLocation(loc));
     return;
@@ -9810,19 +9978,33 @@ window.addEventListener("popstate", () => {
   invalidateGraphMemberNavigation();
   state.loading = false;
   const loc = parseLocation();
-  const canonicalSnapshot = loc.hasWorkspaceState
-    ? captureCanonicalWorkspaceRestoreSnapshot()
-    : null;
-  state.queryNotice = loc.workspaceNotice || "";
-  state.queryNoticeRetryAction = null;
   if (isCreditsPath(location.pathname)) {
     clearNavigationError();
+    if (!clearWorkspaceRouteFailure()) {
+      render();
+      return;
+    }
+    state.queryNotice = "";
+    state.queryNoticeRetryAction = null;
     state.credits = true;
     state.home = true;
     spotlight.reset();
     render();
     return;
   }
+  if (loc.routeFailure) {
+    failWorkspaceRoute(loc.routeFailure.message);
+    return;
+  }
+  if (!clearWorkspaceRouteFailure()) {
+    render();
+    return;
+  }
+  const canonicalSnapshot = loc.hasWorkspaceState
+    ? captureCanonicalWorkspaceRestoreSnapshot()
+    : null;
+  state.queryNotice = loc.workspaceNotice || "";
+  state.queryNoticeRetryAction = null;
   if (loc.hasWorkspaceState && !loc.shareState) {
     failCanonicalWorkspaceRestore(
       loc,

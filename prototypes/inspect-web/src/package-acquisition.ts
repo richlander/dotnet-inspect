@@ -1,14 +1,45 @@
 import {
+  graphMemberTargetWithSelectedBody,
   mergeInspectionErrorEntries,
+  retainGraphOnlyBodyTarget,
   renderInspectionErrors,
 } from "./data.ts";
 import type {
   BrowserAccessibilityDescriptor,
   BrowserAssemblySurface,
+  BrowserExceptionSurface,
+  BrowserMemberBodySelector,
+  BrowserMemberSurface,
   BrowserPackageDocument,
   BrowserPackageSurface,
+  BrowserParameterSurface,
   BrowserTypeSurface,
 } from "./inspect-web-engine.d.ts";
+import type { BodyTarget } from "./member-filtering.ts";
+
+export interface AppParameterSurface
+  extends Omit<BrowserParameterSurface, "description"> {
+  description: string | null;
+}
+
+export interface AppMemberSurface
+  extends Omit<
+    BrowserMemberSurface,
+    "parameters" | "summary" | "returns" | "exceptions"
+  > {
+  parameters: AppParameterSurface[];
+  summary: string | null;
+  returns: string | null;
+  exceptions: BrowserExceptionSurface[];
+  documentationLoaded?: boolean;
+  graphOnly?: boolean;
+  graphTarget?: BodyTarget;
+  implementationBody?: BrowserMemberBodySelector;
+}
+
+export interface AppTypeSurface extends Omit<BrowserTypeSurface, "api"> {
+  api: AppMemberSurface[];
+}
 
 export interface AppPackage {
   id: string;
@@ -25,7 +56,7 @@ export interface AppPackage {
     | { kind: "platform" }
     | { kind: "unknown" };
   assemblies: BrowserAssemblySurface[];
-  types: BrowserTypeSurface[];
+  types: AppTypeSurface[];
   accessibility: BrowserAccessibilityDescriptor[];
   totalTypes: number;
   totalMembers: number;
@@ -56,10 +87,55 @@ export function runtimePackIsResident(
       === DEFAULT_RUNTIME_ASSEMBLY.toLowerCase()) ?? false;
 }
 
-function packageTypes(result: BrowserPackageSurface): BrowserTypeSurface[] {
+export function createAppMemberSurface(
+  surface: BrowserMemberSurface,
+): AppMemberSurface {
+  return {
+    ...surface,
+    parameters: surface.parameters.map(parameter => ({ ...parameter })),
+    exceptions: [...surface.exceptions],
+  };
+}
+
+export function retainGraphOnlyImplementationBody<
+  TTarget extends BodyTarget,
+>(
+  overload: AppMemberSurface | null | undefined,
+  target: TTarget | null | undefined,
+): TTarget | null {
+  if (!overload?.graphOnly) return target ?? null;
+  if (!target) {
+    delete overload.implementationBody;
+    return null;
+  }
+  const selectedBody = overload.bodySelectors.find(body =>
+    body.memberName === target.memberName
+    && body.selectorKey === target.selectorKey);
+  if (!selectedBody) {
+    delete overload.implementationBody;
+    retainGraphOnlyBodyTarget(overload, target);
+    return target;
+  }
+
+  overload.implementationBody = selectedBody;
+  const canonicalTarget =
+    graphMemberTargetWithSelectedBody(target, selectedBody);
+  retainGraphOnlyBodyTarget(overload, canonicalTarget);
+  return canonicalTarget;
+}
+
+export function graphOnlyImplementationBody(
+  overload: AppMemberSurface | null | undefined,
+): BrowserMemberBodySelector | undefined {
+  return overload?.graphOnly
+    ? overload.implementationBody
+    : undefined;
+}
+
+function packageTypes(result: BrowserPackageSurface): AppTypeSurface[] {
   return (result.types ?? []).map(type => ({
     ...type,
-    api: type.api ?? [],
+    api: (type.api ?? []).map(createAppMemberSurface),
   }));
 }
 
@@ -131,19 +207,19 @@ export function createNuGetPackageModel(
   return {
     id: result.package,
     version: result.version,
-    frameworks: result.frameworks ?? [],
+    frameworks: [...(result.frameworks ?? [])],
     activeFramework: result.activeFramework,
     assembly: assembly.name,
     assemblyId: assembly.id,
     assemblyAsset: assembly.asset,
     source: { kind: "nuget.org" },
-    assemblies: result.assemblies ?? [],
+    assemblies: [...(result.assemblies ?? [])],
     types: packageTypes(result),
-    accessibility: result.accessibility ?? [],
+    accessibility: [...(result.accessibility ?? [])],
     totalTypes: (result.assemblies ?? [])
       .reduce((count, candidate) => count + (candidate.publicTypes ?? 0), 0),
     totalMembers: result.totalMembers,
-    documents: result.documents ?? [],
+    documents: [...(result.documents ?? [])],
     inspectionErrors,
     inspectionError: renderInspectionErrors(inspectionErrors),
     isRuntimePack: false,
@@ -187,18 +263,18 @@ function createRuntimePackageModelForAssembly(
   return {
     id: result.package,
     version: result.version,
-    frameworks: result.frameworks ?? [],
+    frameworks: [...(result.frameworks ?? [])],
     activeFramework: result.activeFramework,
     assembly: assembly.name,
     assemblyId: assembly.id,
     assemblyAsset: assembly.asset,
     source: { kind: "platform" },
-    assemblies: result.assemblies ?? [],
+    assemblies: [...(result.assemblies ?? [])],
     types,
-    accessibility: result.accessibility ?? [],
+    accessibility: [...(result.accessibility ?? [])],
     totalTypes: types.length,
     totalMembers: result.totalMembers,
-    documents: result.documents ?? [],
+    documents: [...(result.documents ?? [])],
     inspectionErrors,
     inspectionError: renderInspectionErrors(inspectionErrors),
     isRuntimePack: true,
@@ -222,7 +298,7 @@ export function mergeRuntimePackageSurface(
 
   const newTypes = packageTypes(result);
   const seenTypes = new Set(existing.types.map(type => type.id));
-  const acceptedTypes: BrowserTypeSurface[] = [];
+  const acceptedTypes: AppTypeSurface[] = [];
   for (const type of newTypes) {
     if (seenTypes.has(type.id)) continue;
     seenTypes.add(type.id);

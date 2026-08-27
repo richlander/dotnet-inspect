@@ -155,20 +155,55 @@ An unbounded section remains reachable through exact selection, explicit
 category selection, or effective category discovery.
 
 `LibrarySections` retains one process-wide immutable per-assembly query catalog
-and one assembly-group catalog. Catalog construction validates the complete
-required graph and precomputes each query's closure, transitive cost, and
-single-query execution plan. Repeated catalog acquisition and single-query
-planning allocate no memory after static initialization; the
-`LibraryQueryCatalog_RepeatedAcquisitionAndPlanningAllocateNothing` gate
-enforces that property.
+and one assembly-group catalog. Query catalog construction validates the
+complete required graph and precomputes each query's closure, transitive cost,
+and single-query execution plan. Repeated catalog acquisition and single-query
+planning allocate no memory after static initialization;
+`LibraryQueryCatalog_RepeatedAcquisitionAndPlanningAllocateNothing` gates that
+property.
 
-`LibrarySectionCatalog` binds each request's section pipeline to those shared
-catalogs. Commands compile arbitrary multi-query demand once and reuse the
-resulting immutable plan for every assembly in that request, so package
-inspection does not rebuild dependency state per assembly. The mutable
-`InspectionQueryRegistry` remains the authoring surface for dynamic hosts and
-focused extensions; `Compile` snapshots it into a catalog without allowing
-later registrations to mutate that snapshot.
+`SectionPipeline<TModel>` remains the mutable section-authoring API.
+`Compile()` freezes it and returns an immutable `SectionCatalog<TModel>` that
+snapshots stable section and category enumeration. Compilation also preserves
+the frozen pipeline for candidate, effectiveness, and rendering APIs rather
+than introducing a parallel selection implementation. A compiled builder
+rejects later section, category, cost, or pole changes;
+`CompiledSectionCatalog_FreezesBuilderAndSnapshotsEnumeration` gates that
+boundary.
+
+The library retains one process-wide compiled section catalog. It precomputes
+query-demand plans for every automatic verbosity/fixed-overview combination,
+exact single-section selection, category selection, and the base-category
+union, with bounded and unbounded variants. An uncommon arbitrary section set
+is compiled once for that request. Each immutable plan retains both unique
+queries in section-registration order and section-to-query demand pairs for
+`InspectionTrace`; activation creates the request-owned mutable demand set and
+adds attributed command demand. `LibrarySectionCatalog_QueryPlansMatchMutablePipeline`
+and `CompiledSectionQueryPlan_PreservesTraceAttributionAndCommandDemand` gate
+equivalence. Repeated library catalog acquisition and common plan lookup
+allocate no memory after static initialization;
+`LibrarySectionCatalog_RepeatedAcquisitionAndCommonPlanningAllocateNothing`
+gates that narrower claim. `LibrarySections.CreatePipeline()` remains a fresh
+mutable compatibility builder for focused tests and extensions.
+
+`PackageSectionDescriptors` applies the same fixed-domain model to package
+inspection: one process-wide SourceLink query catalog and one compiled section
+catalog replace per-command registry and pipeline construction.
+`PackageSectionCatalog_QueryPlansMatchMutablePipeline` gates section-demand
+equivalence, and
+`PackageCatalog_RepeatedAcquisitionAndCommonPlanningAllocateNothing` gates
+allocation-free repeated catalog acquisition and common plan lookup. Package
+execution composes the selected section plan with the immutable query catalog
+once per request and reuses that execution plan across every selected package
+and every library inspected inside it. `CreatePipeline()` and
+`CreateQueryRegistry()` remain fresh mutable compatibility builders.
+
+Commands compile arbitrary multi-query demand once and reuse the resulting
+immutable query plan for every assembly in that request, so package inspection
+does not rebuild dependency state per assembly. The mutable
+`InspectionQueryRegistry` remains the query-authoring surface for dynamic hosts
+and focused extensions; its `Compile` method snapshots it into a catalog
+without allowing later registrations to mutate that snapshot.
 
 ## Resource declarations
 
