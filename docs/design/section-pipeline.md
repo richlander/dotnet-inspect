@@ -186,6 +186,18 @@ allocate no memory after static initialization;
 gates that narrower claim. `LibrarySections.CreatePipeline()` remains a fresh
 mutable compatibility builder for focused tests and extensions.
 
+`PackageSectionDescriptors` applies the same fixed-domain model to package
+inspection: one process-wide SourceLink query catalog and one compiled section
+catalog replace per-command registry and pipeline construction.
+`PackageSectionCatalog_QueryPlansMatchMutablePipeline` gates section-demand
+equivalence, and
+`PackageCatalog_RepeatedAcquisitionAndCommonPlanningAllocateNothing` gates
+allocation-free repeated catalog acquisition and common plan lookup. Package
+execution composes the selected section plan with the immutable query catalog
+once per request and reuses that execution plan across every selected package
+and every library inspected inside it. `CreatePipeline()` and
+`CreateQueryRegistry()` remain fresh mutable compatibility builders.
+
 Commands compile arbitrary multi-query demand once and reuse the resulting
 immutable query plan for every assembly in that request, so package inspection
 does not rebuild dependency state per assembly. The mutable
