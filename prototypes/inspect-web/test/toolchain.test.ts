@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
@@ -263,6 +263,10 @@ function isGenerated(directory: string, name: string, root: string): boolean {
 // one test that closes the per-file vector. Assembling keeps this file in scope and the
 // scan exactly as strict, which is why the prose names the directives only in the
 // abstract.
+//
+// Extensions are compared case-insensitively. Round 2 (Sol) shipped `public/probe.JS`
+// through every gate on a case-insensitive filesystem, where the bundler and the browser
+// treat it as JavaScript and only this comparison did not.
 function projectFiles(extensions: readonly string[]): string[] {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const files: string[] = [];
@@ -273,8 +277,9 @@ function projectFiles(extensions: readonly string[]): string[] {
         if (!isGenerated(directory, entry.name, root)) {
           walk(full);
         }
-      } else if (entry.isFile()
-        && extensions.some(extension => entry.name.endsWith(extension))) {
+      } else if ((entry.isFile() || entry.isSymbolicLink())
+        && extensions.some(extension =>
+          entry.name.toLowerCase().endsWith(extension))) {
         files.push(full);
       }
     }
@@ -282,6 +287,43 @@ function projectFiles(extensions: readonly string[]): string[] {
   walk(root);
   return files;
 }
+
+// A symbolic link is neither a file nor a directory to `readdirSync`, so the walk above
+// used to step over one entirely. Round 2 (Sol) shipped a symlinked `public/probe.js`
+// that way: Vite dereferences it and copies the content, so unchecked JavaScript reached
+// `dist/` while every gate stayed green.
+//
+// Including links in the walk covers the extensions the gates know about, but a link can
+// also point outside the tree, at a directory, or at a name with any extension at all, so
+// none of the reasoning the other gates do about paths holds for one. The authored tree
+// contains no symbolic links, and this keeps it that way rather than trying to decide
+// which ones would have been safe.
+function symbolicLinks(): string[] {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const links: string[] = [];
+  const walk = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const full = join(directory, entry.name);
+      if (entry.isSymbolicLink()) {
+        links.push(full);
+      } else if (entry.isDirectory() && !isGenerated(directory, entry.name, root)) {
+        walk(full);
+      }
+    }
+  };
+  walk(root);
+  return links;
+}
+
+test("no source directory reaches content through a symbolic link", () => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+
+  assert.deepEqual(
+    symbolicLinks().map(link => relative(root, link)).sort(),
+    [],
+    "a symbolic link is followed by the bundler but not by the checks above, so its "
+      + "target ships without having been compiled or linted");
+});
 
 // Every extension the TypeScript compiler and oxlint both recognise as source. Listing
 // them in one place is what lets the two coverage gates below ask "is every source file
@@ -346,50 +388,81 @@ test("the only JavaScript is the file the lint exemption names", () => {
 // round 1 because no `tsconfig` include glob happened to match them.
 //
 // Restating the globs here would reproduce the bug, so this asks the compiler instead.
-// `tsc --showConfig` resolves `include` against the disk and emits the concrete `files`
-// it will read, which is the actual answer to "what is checked?" -- the union across the
-// three projects must contain every TypeScript file the walk can find.
-// `tsc --showConfig` emits JSON, which parses as `any`; narrowing it through a guard
-// rather than asserting a shape keeps this file subject to the same `no-unsafe-*` rules
-// it exists to defend. An unrecognised shape yields no files, and the caller's emptiness
-// assertion turns that into a failure rather than a silently empty check.
-function resolvedProjectFiles(resolved: unknown): readonly string[] {
-  if (typeof resolved !== "object" || resolved === null || !("files" in resolved)) {
-    return [];
+// `--listFilesOnly` reports the files the program actually consists of, which is the
+// real answer to "what is checked?" and a stronger one than the resolved `include` list:
+// it includes files reached only by import. Round 2 (Gemini 3.1 Pro) needed exactly that
+// distinction, hiding `engine.Tests/bin/hidden/bypass.ts` in a pruned build-output
+// directory and importing it from `src/`, where the bundler traced the import and shipped
+// code the lint had never seen.
+const compilerProjects = ["tsconfig.json", "test/tsconfig.json", "tsconfig.node.json"];
+
+function programFiles(): Set<string> {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const files = new Set<string>();
+  for (const project of compilerProjects) {
+    const listed = spawnSync(
+      "npx",
+      ["tsc", "--noEmit", "--listFilesOnly", "-p", project],
+      { cwd: root, encoding: "utf8" });
+    assert.equal(listed.status, 0,
+      `tsc --listFilesOnly -p ${project} failed: ${listed.stderr}`);
+    const lines = listed.stdout.split("\n")
+      .map(line => line.trim())
+      .filter(line => line.length > 0);
+    assert.ok(lines.length > 0, `${project} resolved to no files at all`);
+    for (const line of lines) {
+      files.add(resolve(line));
+    }
   }
-  const { files } = resolved;
-  if (!Array.isArray(files)) {
-    return [];
-  }
-  return files.filter((file): file is string => typeof file === "string");
+  return files;
+}
+
+// The compiler reports its own dependencies and the sibling prototypes it imports from,
+// neither of which this project's gates govern. Only paths inside this project, and
+// outside its dependency directory, are this project's to answer for.
+function isProjectOwned(file: string, root: string): boolean {
+  const path = relative(root, file);
+  return !path.startsWith("..") && !isAbsolute(path)
+    && !path.split("/").includes("node_modules");
 }
 
 test("every TypeScript file belongs to a compiler project", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
-  const projects = ["tsconfig.json", "test/tsconfig.json", "tsconfig.node.json"];
-  const checked = new Set<string>();
-
-  for (const project of projects) {
-    const shown = spawnSync(
-      "npx",
-      ["tsc", "--showConfig", "-p", project],
-      { cwd: root, encoding: "utf8" });
-    assert.equal(shown.status, 0,
-      `tsc --showConfig -p ${project} failed: ${shown.stderr}`);
-    const resolved: unknown = JSON.parse(shown.stdout);
-    const files = resolvedProjectFiles(resolved);
-    assert.ok(files.length > 0, `${project} resolved to no files at all`);
-    // `files` is emitted relative to the project file, not to the working directory.
-    const projectDirectory = dirname(resolve(root, project));
-    for (const file of files) {
-      checked.add(resolve(projectDirectory, file));
-    }
-  }
+  const checked = programFiles();
 
   const authored = projectFiles(typeScriptExtensions);
   assert.ok(authored.length > 50,
     `expected the TypeScript sources, found ${authored.length}; a walk that finds `
       + "nothing would satisfy the emptiness assertion below without checking anything");
+
+  // A count threshold only notices catastrophe, as Gemini 3.1 Pro pointed out in round 2:
+  // a mutation that hides one file keeps the total comfortably above it. So the walk is
+  // checked against an independent account of the same tree rather than against a number.
+  // Every file the compiler reports, other than the ones sitting in a directory the walk
+  // deliberately prunes, is a file the walk should have found; anything else means the
+  // walk lost sources, and every gate built on it is quietly reporting less than it says.
+  const prunedAway = (file: string): boolean => {
+    for (let directory = dirname(file);
+      directory.startsWith(root);
+      directory = dirname(directory)) {
+      if (isGenerated(dirname(directory), basename(directory), root)) {
+        return true;
+      }
+    }
+    return false;
+  };
+  const walked = new Set(authored.map(file => resolve(file)));
+  const missedByWalk = [...checked]
+    .filter(file => isProjectOwned(file, root)
+      && typeScriptExtensions.some(extension => file.toLowerCase().endsWith(extension))
+      && !walked.has(file)
+      && !prunedAway(file))
+    .map(file => relative(root, file))
+    .sort();
+  assert.deepEqual(missedByWalk, [],
+    "the compiler reads these files but the directory walk did not find them, so the "
+      + "gates built on that walk are weaker than they report");
+
   const unchecked = authored
     .filter(file => !checked.has(resolve(file)))
     .map(file => relative(root, file))
@@ -407,21 +480,41 @@ test("every source file is covered by a lint target", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const lint = packageJson.scripts?.lint ?? "";
   const oxlintCall = lint.slice(lint.indexOf("oxlint "));
-  const targets = oxlintCall
-    .split(/\s+/u)
-    .slice(1)
-    .filter(argument => !argument.startsWith("-"));
+  const tokens = oxlintCall.split(/\s+/u).slice(1);
 
+  // Round 2 (Sol) turned this parse against itself with `--ignore-pattern public`: the
+  // operand does not start with `-`, so it was read as a target, and `public/` counted as
+  // covered while oxlint was being told to skip it. Guessing which flags take a separate
+  // operand would put the enumeration this file just removed straight back in, so the
+  // parse fails closed instead. Only flags known to take no operand are allowed, and
+  // anything else stops the gate rather than being silently classified.
+  const operandlessFlags = new Set(["--no-ignore", "--disable-nested-config"]);
+  const flags = tokens.filter(token => token.startsWith("-"));
+  const unknown = flags.filter(flag => !operandlessFlags.has(flag));
+  assert.deepEqual(unknown, [],
+    "this gate reads the remaining arguments as paths, which is only sound while every "
+      + "flag is known to take no separate operand; add the flag to the allowed set once "
+      + "its arity is accounted for");
+
+  const targets = tokens.filter(token => !token.startsWith("-"));
   assert.ok(targets.length > 0, "the lint script names no files to lint");
 
   const sources = projectFiles([...typeScriptExtensions, ...javaScriptExtensions]);
   assert.ok(sources.length > 50,
     `expected the project sources, found ${sources.length}`);
+
+  // The walk answers "what is authored here", which is not the same question as "what
+  // gets compiled and shipped". A pruned build-output directory is legitimately not
+  // walked, but a file inside one that `src/` imports is compiled and bundled all the
+  // same, and Gemini 3.1 Pro shipped an unlinted `any` that way in round 2. Anything the
+  // compiler pulls into the program is therefore held to the same lint coverage, whether
+  // the walk reaches it or not.
+  const compiled = [...programFiles()].filter(file => isProjectOwned(file, root));
   const covered = (file: string): boolean => {
     const path = relative(root, file);
     return targets.some(target => path === target || path.startsWith(`${target}/`));
   };
-  const unlinted = sources
+  const unlinted = [...new Set([...sources.map(file => resolve(file)), ...compiled])]
     .filter(file => !covered(file))
     .map(file => relative(root, file))
     .sort();
