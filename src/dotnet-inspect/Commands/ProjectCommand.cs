@@ -88,7 +88,10 @@ public class ProjectCommand
             return 1;
         }
         bool validProjection = options.Discover is not null
-            || ProjectionDiagnostics.ValidateProjection(
+            ? DiscoverOutput.ValidateProjection(
+                options.Fields,
+                options.Columns)
+            : ProjectionDiagnostics.ValidateProjection(
                 schema,
                 candidateSections,
                 options.Fields,
@@ -599,7 +602,13 @@ public class ProjectCommand
                 ? null
                 : pipeline.GetCatalogHiddenSections(),
             listedCategoryDoors: pipeline.GetListedCategoryDoors(),
-            projection: options);
+            projection: options,
+            columns: options.Columns,
+            fields: options.Fields,
+            rows: options.Rows,
+            outputPath: options.OutputPath,
+            showHeader: !options.NoHeader,
+            tabularExplicitlySet: options.Tabular);
     }
 
     static bool ShouldReadDocumentMetadata(

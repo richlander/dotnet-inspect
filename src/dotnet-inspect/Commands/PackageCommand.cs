@@ -1020,9 +1020,13 @@ public class PackageCommand
                 : null;
             if (options.Tabular)
             {
+                string rendered;
                 if (options.Jsonl && TryGetSingleFileSection(options, out var fileSection) && !hasProjection)
                 {
-                    WritePackageFilesJsonl(result, fileSection, options.Rows);
+                    using var output = CreateOutputBuffer();
+                    WritePackageFilesJsonl(output, result, fileSection, options.Rows);
+                    rendered = output.ToString();
+                    WritePackageCommandOutput(rendered, options);
                     return PackageIntegrityExitCode(result);
                 }
 
@@ -1033,15 +1037,13 @@ public class PackageCommand
                     // Narrow to the Package Info section for tabular output
                     options = options with { IncludeSections = new HashSet<string> { PackageSections.PackageInfo } };
                 }
-
                 if (hasProjection)
                 {
                     // Capture output for projection diagnostics
-                    var sw = new StringWriter { NewLine = "\n" };
                     var writerOpts = OutputFormatter.BuildWriterOptions(result, options, pipeline);
                     writerOpts.RowWindow = RowWindow.ToMarkout(options.Rows);
                     var view = new InspectionResultView(result);
-                    var rendered = OutputFormatter.RenderTable(!options.NoHeader,
+                    rendered = OutputFormatter.RenderTable(!options.NoHeader,
                         (writer, formatter) =>
                         {
                             OutputFormatter.ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
@@ -1051,12 +1053,20 @@ public class PackageCommand
                         options.Fields ?? options.Columns,
                         rendered,
                         diagnosticCandidates!);
-                    Console.Out.Write(rendered);
                 }
                 else
                 {
-                    OutputFormatter.WritePackageTable(result, options, pipeline, showHeader: !options.NoHeader);
+                    using var output = CreateOutputBuffer();
+                    OutputFormatter.WritePackageTable(
+                        output,
+                        result,
+                        options,
+                        pipeline,
+                        showHeader: !options.NoHeader);
+                    rendered = output.ToString();
                 }
+
+                WritePackageCommandOutput(rendered, options);
             }
             else
             {
@@ -1066,14 +1076,7 @@ public class PackageCommand
                         options.Fields ?? options.Columns,
                         output,
                         diagnosticCandidates!);
-                if (!string.IsNullOrEmpty(options.OutputPath))
-                {
-                    File.WriteAllText(options.OutputPath, output);
-                }
-                else
-                {
-                    Console.WriteLine(output);
-                }
+                WritePackageCommandOutput(output, options);
             }
 
             return PackageIntegrityExitCode(result);
@@ -2161,7 +2164,13 @@ public class PackageCommand
         }
 
         return ShapeProjectionOutput.Write(rows,
-            new ShapeProjectionOptions(kind, options.PrintRow, options.JsonOutput, options.Jsonl, options.JsonArray));
+            new ShapeProjectionOptions(
+                kind,
+                options.PrintRow,
+                options.JsonOutput,
+                options.Jsonl,
+                options.JsonArray,
+                options.OutputPath));
     }
 
     /// <summary>
@@ -3231,7 +3240,9 @@ public class PackageCommand
         => !string.IsNullOrEmpty(options.OutputPath)
             && !options.JsonOutput
             && !options.Jsonl
-            && !options.JsonArray;
+            && !options.JsonArray
+            && CommandLineBuilder.HeadLines is null
+            && CommandLineBuilder.TailLines is null;
 
     /// <summary>
     /// Restores the readme role to the document the manifest declares when
@@ -3412,7 +3423,10 @@ public class PackageCommand
             : RenderPackageFileContentBlocks(textRows);
 
         if (!string.IsNullOrEmpty(options.OutputPath))
-            File.WriteAllText(options.OutputPath, output);
+            OutputPathWriter.Write(
+                options.OutputPath,
+                output,
+                applyLineWindow: options.Rows is null);
         else
             Console.Write(output);
 
@@ -3554,6 +3568,7 @@ public class PackageCommand
     }
 
     private static void WritePackageFilesJsonl(
+        TextWriter output,
         InspectionResult result,
         string section,
         RowWindow? rows)
@@ -3566,7 +3581,30 @@ public class PackageCommand
         foreach (var file in RowWindow.Apply(rows, files))
         {
             var row = new PackageFileJsonRow(file.Path, file.Size);
-            Console.WriteLine(JsonSerializer.Serialize(row, PackageFileJsonRowContext.Default.PackageFileJsonRow));
+            output.WriteLine(JsonSerializer.Serialize(row, PackageFileJsonRowContext.Default.PackageFileJsonRow));
+        }
+    }
+
+    private static StringWriter CreateOutputBuffer()
+        => new(CultureInfo.InvariantCulture)
+        {
+            NewLine = "\n",
+        };
+
+    private static void WritePackageCommandOutput(
+        string output,
+        InspectionOptions options)
+    {
+        if (!string.IsNullOrEmpty(options.OutputPath))
+        {
+            OutputPathWriter.Write(
+                options.OutputPath,
+                output,
+                applyLineWindow: options.Rows is null);
+        }
+        else
+        {
+            Console.Write(output);
         }
     }
 
@@ -3745,7 +3783,7 @@ public class PackageCommand
     {
         var output = content.EndsWith('\n') ? content : content + '\n';
         if (!string.IsNullOrEmpty(outputPath))
-            File.WriteAllText(outputPath, output);
+            OutputPathWriter.Write(outputPath, output);
         else
             Console.Write(new InertString(TextPolicy.Prose, output));
         return 0;
@@ -3758,7 +3796,7 @@ public class PackageCommand
         if (content.ExactContent is { } exact)
             File.WriteAllBytes(outputPath, exact);
         else
-            File.WriteAllText(outputPath, content.Content);
+            OutputPathWriter.Write(outputPath, content.Content);
     }
 
     private static List<PackageFile> GetPackageFileRows(InspectionResult result, string section)

@@ -416,7 +416,10 @@ public class ApiCommand
                 tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
                 sectionCostAnnotations: singleTypeMode ? memberPipeline.GetCostAnnotations() : null,
                 sectionCategories: singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
-                projection: options));
+                projection: options,
+                tabularExplicitlySet:
+                    options.Tabular
+                    && options.FormatExplicitlySet));
         }
 
         // Bare -S renders the fixed overview: the sections whose length does not depend on which
@@ -3119,7 +3122,10 @@ public class ApiCommand
             verbosity: (int)options.Verbosity, fullSchema: fullSchema,
             sectionCostAnnotations: displayAnnotations,
             sectionCategories: memberPipeline.GetCategoryMap(),
-            projection: options);
+            projection: options,
+            tabularExplicitlySet:
+                options.Tabular
+                && options.FormatExplicitlySet);
     }
 
     /// <summary>
