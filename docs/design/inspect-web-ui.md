@@ -53,10 +53,10 @@ This document does not own:
 
 This document composes three adjacent owner contracts without defining them:
 
-- [#4794](https://github.com/richlander/dotnet-inspect/issues/4794) owns
+- [Inspection subject navigation](inspection-subject-navigation.md) owns
   inspection-subject descriptors, availability, initial recommendation, and
-  reconciliation. The Type-first default and tools-v2 root fallback belong to
-  that focused effort.
+  reconciliation. Its Type-first default and tools-v2 root fallback were
+  established through #4794.
 - [#4787](https://github.com/richlander/dotnet-inspect/issues/4787) owns stable
   portable view identities, per-coordinate view state, and canonical packet
   projection.
@@ -374,8 +374,8 @@ than click behavior attached to inert text:
   controls for applicable version, TFM, or acquisition detail;
 - activating the always-present current subject opens a hierarchy menu
   containing every ordered applicable root, Library, Type, and Member
-  descriptor supplied by #4794, including unavailable descendants with their
-  reasons; and
+  descriptor supplied by Inspection Subject Navigation, including unavailable
+  descendants with their reasons; and
 - `Copy target` copies the product-issued canonical current target.
 
 The coordinate and subject menus are not primary-view tablists. Their items use
@@ -449,7 +449,8 @@ reason. It does not retain stale panel content.
 
 ### Subject availability and reconciliation
 
-The UI consumes the subject-navigation result owned by #4794. That result
+The UI consumes the result owned by
+[Inspection subject navigation](inspection-subject-navigation.md). That result
 supplies the active subject, ordered applicable subject descriptors,
 availability, reasons, and the outcome of a requested transition.
 
@@ -491,10 +492,10 @@ The Library view lists every library admitted from the active coordinate and an
 `All libraries` subject when the product admits aggregate
 inspection for that coordinate.
 
-The control consumes #4794's ordered Library subject descriptors and active
-identity. It renders and submits those opaque identities without inferring a
-selection from package kind, endpoint shape, assembly count, or lens
-capability.
+The control consumes Inspection Subject Navigation's ordered Library subject
+descriptors and active identity. It renders and submits those opaque identities
+without inferring a selection from package kind, endpoint shape, assembly
+count, or lens capability.
 
 The Library subject control is single-select. A compact population may use a
 native `select`; a visible library list uses `role="listbox"` with
