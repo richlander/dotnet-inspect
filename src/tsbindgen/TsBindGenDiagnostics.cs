@@ -1,3 +1,5 @@
+using CSharpText;
+
 namespace tsbindgen;
 
 internal sealed class TsBindGenDiagnostics
@@ -12,7 +14,10 @@ internal sealed class TsBindGenDiagnostics
     {
         ArgumentException.ThrowIfNullOrEmpty(location);
         ArgumentException.ThrowIfNullOrEmpty(csharpType);
-        _unmappedTypes.Add(new TsBindGenDiagnostic(location, csharpType));
+        _unmappedTypes.Add(
+            new TsBindGenDiagnostic(
+                CSharpIdentifier.ContainRenderedText(location),
+                CSharpIdentifier.ContainRenderedText(csharpType)));
     }
 }
 

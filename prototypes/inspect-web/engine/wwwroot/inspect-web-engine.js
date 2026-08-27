@@ -49,8 +49,7 @@ let searchTypesExport;
 export async function initializeEngine(onStatus = () => {}) {
   onStatus("Loading .NET WebAssembly…");
   const runtime = await dotnet.create();
-  const config = runtime.getConfig();
-  const exports = await runtime.getAssemblyExports(config.mainAssemblyName);
+  const exports = await runtime.getAssemblyExports("InspectWeb.Engine");
   buildIdentityExport = exports.InspectionEngine.BuildIdentity;
   cancelSourceQueryExport = exports.InspectionEngine.CancelSourceQuery;
   configureHostExport = exports.InspectionEngine.ConfigureHost;

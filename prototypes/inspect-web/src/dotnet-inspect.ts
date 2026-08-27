@@ -77,6 +77,7 @@ import {
   memberScopeIsActive,
   restoreLibraryScope,
   restoreMemberHistoryState,
+  selectedConcreteOverload,
   type BodyTarget,
 } from "./member-filtering.ts";
 import {
@@ -769,6 +770,7 @@ const sourceInspection = createSourceInspectionCoordinator({
     request.selectorKey,
     request.metadataToken,
     taste),
+  memberSourceHasConcreteOverload,
   cancelEngineSourceRequest: () => cancelSourceInspection?.(),
   describeError: errorMessage,
   render,
@@ -1989,10 +1991,30 @@ function navMode() {
   return memberScopeIsActive(state, selectedType()?.id) ? "member" : "type";
 }
 
-function resetMemberSectionState() {
+function memberSourceHasConcreteOverload() {
+  const member = selectedMember(selectedType());
+  return Boolean(
+    member
+    && selectedConcreteOverload(
+      member.overloads,
+      state.selectedOverloadIndex));
+}
+
+function currentSourceOperationKind() {
+  return activeSourceOperationKind(
+    state,
+    memberSourceHasConcreteOverload());
+}
+
+function currentSourceReloadKind() {
+  return sourceReloadKind(
+    state,
+    memberSourceHasConcreteOverload());
+}
+
+function clearMemberContentCache() {
   invalidateMemberCallGraphWork(state);
   invalidateGraphMemberNavigation();
-  state.memberSection = "overview";
   state.memberSource = null;
   state.memberSourceError = "";
   state.memberCallGraph = null;
@@ -2005,18 +2027,67 @@ function resetMemberSectionState() {
   state.selectedBodyTarget = null;
 }
 
+function resetMemberSectionState() {
+  state.memberSection = "overview";
+  clearMemberContentCache();
+}
+
+function retainMemberSectionIfSupported(member: AppMemberGroup | undefined) {
+  if (!member
+    || !memberSectionsFor(member).some(([id]) => id === state.memberSection)) {
+    state.memberSection = "overview";
+  }
+}
+
+function loadMemberSectionContent(id: MemberSection) {
+  if (id === "source")
+    observeAsync(loadSelectedMemberSource(), "Loading member source");
+  else if (id === "annotated")
+    observeAsync(loadSelectedMemberAnnotatedSource(), "Loading annotated member source");
+  else if (id === "call-graph")
+    observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
+  else if (id === "facts")
+    observeAsync(loadSelectedMemberFacts(), "Loading member facts");
+  else if (id === "overview")
+    observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
+  else
+    assertNever(id, "member section");
+}
+
 function openMemberGroup(key: string) {
-  const group = memberGroups(selectedType()).find(candidate => candidate.key === key);
+  const type = selectedType();
+  const preserveSection =
+    state.memberBrowseTypeId === type?.id && Boolean(state.selectedMemberKey);
+  const group = memberGroups(type).find(candidate => candidate.key === key);
   const graphOnlyTarget =
     group?.overloads.length === 1
       ? graphOnlyBodyTarget(group.overloads[0])
       : null;
-  state.memberBrowseTypeId = selectedType()?.id ?? "";
+  state.memberBrowseTypeId = type?.id ?? "";
   state.selectedMemberKey = key;
   state.selectedOverloadIndex = graphOnlyTarget ? 0 : null;
-  resetMemberSectionState();
+  clearMemberContentCache();
   state.selectedBodyTarget = graphOnlyTarget;
-  observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
+  if (!preserveSection) {
+    state.memberSection = "overview";
+  } else {
+    const retainedSection = state.memberSection;
+    let selectedFirstOverload = false;
+    if (state.memberSection !== "overview"
+      && group
+      && group.overloads.length > 1
+      && state.selectedOverloadIndex == null) {
+      state.selectedOverloadIndex = 0;
+      state.selectedBodyTarget = graphOnlyBodyTarget(group.overloads[0]);
+      selectedFirstOverload = true;
+    }
+    retainMemberSectionIfSupported(group);
+    if (selectedFirstOverload && state.memberSection !== retainedSection) {
+      state.selectedOverloadIndex = null;
+      state.selectedBodyTarget = null;
+    }
+  }
+  loadMemberSectionContent(state.memberSection);
 }
 
 function enterMemberScope() {
@@ -2059,9 +2130,10 @@ function openOverload(index: number) {
   const graphTarget = graphOnlyBodyTarget(
     selectedMember(selectedType())?.overloads[index]);
   state.selectedOverloadIndex = index;
-  resetMemberSectionState();
+  clearMemberContentCache();
   state.selectedBodyTarget = graphTarget;
-  observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
+  retainMemberSectionIfSupported(selectedMember(selectedType()));
+  loadMemberSectionContent(state.memberSection);
 }
 
 // Switch the open member's section (Overview / Call graph / Facts / Source / Annotated) and
@@ -2078,18 +2150,7 @@ function applyMemberSection(id: MemberSection) {
     invalidateMemberCallGraphWork(state);
   }
   state.memberSection = id;
-  if (id === "source")
-    observeAsync(loadSelectedMemberSource(), "Loading member source");
-  else if (id === "annotated")
-    observeAsync(loadSelectedMemberAnnotatedSource(), "Loading annotated member source");
-  else if (id === "call-graph")
-    observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
-  else if (id === "facts")
-    observeAsync(loadSelectedMemberFacts(), "Loading member facts");
-  else if (id === "overview")
-    observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
-  else
-    assertNever(id, "member section");
+  loadMemberSectionContent(id);
 }
 
 // Flattened, ordered nav rows for member mode: filtered public groups plus the selected
@@ -2127,8 +2188,14 @@ function memberNavCursor(entries: readonly MemberNavEntry[]) {
 function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
   const preservedFocus = captureMemberFocus(document);
   if (entry.kind === "member") {
-    if (entry.group.key === state.selectedMemberKey && entry.group.overloads.length === 1) {
-      render();
+    if (entry.group.key === state.selectedMemberKey) {
+      if (entry.group.overloads.length === 1) {
+        render();
+      } else {
+        state.selectedOverloadIndex = null;
+        clearMemberContentCache();
+        render();
+      }
     } else {
       openMemberGroup(entry.group.key);
     }
@@ -2439,7 +2506,7 @@ function render() {
 }
 
 function maybeAutoLoadVisibleSource() {
-  const kind = activeSourceOperationKind(state);
+  const kind = currentSourceOperationKind();
   if (kind === "graph") {
     if (state.graphSourceRequest
       && sourceRequestNeedsLoad(
@@ -2471,7 +2538,9 @@ function maybeAutoLoadVisibleSource() {
   }
   if (kind === "member") {
     const member = selectedMember(type);
-    const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+    const overload = member
+      ? selectedConcreteOverload(member.overloads, state.selectedOverloadIndex)
+      : undefined;
     if (!member || !overload) return;
     const signature = memberRequestSignature(type, overload, false, true);
     if (sourceRequestNeedsLoad(
@@ -6463,13 +6532,16 @@ function renderLoading() {
 async function loadSelectedMemberDocumentation() {
   const type = selectedType();
   const member = selectedMember(type);
-  if (!type || !member
-    || (member.overloads.length > 1 && state.selectedOverloadIndex == null)) {
+  if (!type || !member) {
     render();
     return;
   }
-  const overload = member.overloads[state.selectedOverloadIndex ?? 0];
-  if (!overload) return;
+  const overload =
+    selectedConcreteOverload(member.overloads, state.selectedOverloadIndex);
+  if (!overload) {
+    render();
+    return;
+  }
   const signature = memberRequestSignature(type, overload);
   const pkg = currentPackage();
   return memberDetailInspection.loadDocumentation({
@@ -6485,15 +6557,20 @@ async function loadSelectedMemberDocumentation() {
 }
 
 async function loadSelectedMemberSource() {
-  if (activeSourceOperationKind(state) !== "member") {
+  if (currentSourceOperationKind() !== "member") {
     render();
     return;
   }
   const type = selectedType();
   const member = selectedMember(type);
-  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
-  if (!type || !member || !overload) {
+  if (!type || !member) {
     state.memberSourceError = "Select a concrete overload before opening Source.";
+    render();
+    return;
+  }
+  const overload =
+    selectedConcreteOverload(member.overloads, state.selectedOverloadIndex);
+  if (!overload) {
     render();
     return;
   }
@@ -6521,9 +6598,14 @@ async function loadSelectedMemberSource() {
 async function loadSelectedMemberAnnotatedSource() {
   const type = selectedType();
   const member = selectedMember(type);
-  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
-  if (!type || !member || !overload) {
+  if (!type || !member) {
     state.memberAnnotatedError = "Select a concrete overload before opening Annotated source.";
+    render();
+    return;
+  }
+  const overload =
+    selectedConcreteOverload(member.overloads, state.selectedOverloadIndex);
+  if (!overload) {
     render();
     return;
   }
@@ -6578,14 +6660,16 @@ function memberRequestIsCurrent(
   const type = selectedType();
   if (!type) return false;
   const member = selectedMember(type);
-  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+  const overload = member
+    ? selectedConcreteOverload(member.overloads, state.selectedOverloadIndex)
+    : undefined;
   return overload != null
     && memberRequestSignature(type, overload, includeBody, includeTaste)
       === signature;
 }
 
 async function loadSelectedTypeSource() {
-  if (activeSourceOperationKind(state) !== "type") {
+  if (currentSourceOperationKind() !== "type") {
     renderPreservingMemberFocus();
     return;
   }
@@ -6606,7 +6690,7 @@ async function loadSelectedTypeSource() {
     type: type.definitionId ?? type.id,
     taste: JSON.stringify(state.taste),
     isVisible: () =>
-      activeSourceOperationKind(state) === "type"
+      currentSourceOperationKind() === "type"
       && !workbenchModalOwnsFocus(),
   });
 }
@@ -6927,9 +7011,14 @@ function nextPaint() {
 async function loadSelectedMemberCallGraph() {
   const type = selectedType();
   const member = selectedMember(type);
-  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
-  if (!type || !member || !overload) {
+  if (!type || !member) {
     state.memberCallGraphError = "Select a concrete overload before opening Call graph.";
+    render();
+    return;
+  }
+  const overload =
+    selectedConcreteOverload(member.overloads, state.selectedOverloadIndex);
+  if (!overload) {
     render();
     return;
   }
@@ -7858,7 +7947,7 @@ function invalidateSourceCaches() {
 }
 
 function reloadVisibleSource() {
-  switch (sourceReloadKind(state)) {
+  switch (currentSourceReloadKind()) {
     case "graph":
       if (state.graphSourceRequest) {
         observeAsync(
@@ -7997,9 +8086,14 @@ function navigateToMember(
 async function loadSelectedMemberFacts() {
   const type = selectedType();
   const member = selectedMember(type);
-  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
-  if (!type || !member || !overload) {
+  if (!type || !member) {
     state.memberFactsError = "Select a concrete overload before opening Facts.";
+    render();
+    return;
+  }
+  const overload =
+    selectedConcreteOverload(member.overloads, state.selectedOverloadIndex);
+  if (!overload) {
     render();
     return;
   }
