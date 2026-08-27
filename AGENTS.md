@@ -134,10 +134,13 @@ Always target `"${TMUX_PANE:?}"`. The state must include
 is `continue`, `wait`, `merge`, `approve`, or `stop`. Clear both options when the
 window no longer owns the work.
 
-Add `schedule=<id>` whenever a delayed status run is armed. Remove it when the
-schedule is cancelled or fires; it is valid only for the recorded `head` and
-`waiting` predicate. Add `attempt=<n>` while backing off from consecutive
-transient GitHub failures, and remove it after a successful snapshot. Follow
+Add `schedule=<id>` and `goal=advance|merge` whenever a delayed status run is
+armed. `advance` means status gates round completion or reviewer dispatch;
+`merge` means it gates a readiness statement or merge attempt. Remove
+`schedule` when it is cancelled or fires; it is valid only for the recorded
+`head`, `waiting`, and `goal`. Add `attempt=<n>` while backing off from
+consecutive transient GitHub failures, and remove it after a successful
+snapshot. Follow
 [Status discovery](docs/round-orchestration.md#status-discovery) for the
 one-shot scheduling protocol.
 

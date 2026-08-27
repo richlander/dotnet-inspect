@@ -71,7 +71,11 @@ gh api "repos/{owner}/{repo}/commits/$head_sha/check-runs?per_page=100" \
   --jq '[.check_runs[]|select(.name=="ci-required")|{status,conclusion}]'
 ```
 
-Apply the same failure rules if the second tool call fails.
+Apply the same failure rules if the second tool call fails. Because the PR
+request succeeded but check state remains unknown, publish `waiting=checks`
+before arming any transient or rate-limit successor; retain the existing
+`goal`.
+
 `gh api` expands `{owner}` and `{repo}`; it does not expand arbitrary `{n}` or
 `{sha}` placeholders. The explicit pin ensures check state is read for the
 validated commit rather than for whatever GitHub considers latest. The PR
@@ -156,39 +160,41 @@ not ask the user to report CI or mergeability.
 
 Status discovery must conserve the shared GitHub API budget. Do not arm a check
 while independent work can continue. Once CI or mergeability actually gates the
-next action, publish `waiting=checks` or `waiting=merge` with `rec=wait`, then
-schedule exactly one status run for the next useful time: 10 minutes after the
-push for documentation-only changes, 35 minutes after the push otherwise, or
-five minutes later when CI is already green and mergeability alone is
-unresolved. Run immediately if that target time has already passed. The future
-turn is intentional; do not reject scheduling because it consumes one, and do
-not wait for the user to volunteer status.
+next action, publish `waiting=checks` or `waiting=merge`, `rec=wait`, and
+`goal=advance` for round progress or `goal=merge` for a readiness statement or
+merge attempt. Then schedule exactly one status run for the next useful time:
+10 minutes after the push for documentation-only changes, 35 minutes after the
+push otherwise, or five minutes later when CI is already green and mergeability
+alone is unresolved. Run immediately if that target time has already passed.
+The future turn is intentional; do not reject scheduling because it consumes
+one, and do not wait for the user to volunteer status.
 
-Retain the active schedule ID beside its expected head and waiting predicate.
-Cancel it immediately when the predicate clears, the head is superseded, or
-the workflow otherwise leaves that wait — including when the user supplies a
-trusted "CI is ready" result. A replacement head never inherits the old
-schedule.
+Retain the active schedule ID beside its expected head, waiting predicate, and
+goal. Cancel it immediately when the predicate clears, the head is superseded,
+the goal changes, or the workflow otherwise leaves that wait — including when
+the user supplies a trusted "CI is ready" result. A replacement head never
+inherits the old schedule.
 
 The run must be one-shot. If the scheduler only creates recurring schedules,
-its prompt first compares its own ID, expected head, and waiting predicate with
-the retained state. A stale run stops its schedule and exits without an API
-call. A current run stops its schedule and clears the retained ID before its
-first API call. It then performs one REST snapshot, acts on a terminal result,
-or creates exactly one replacement schedule at the next cadence below. Never
-leave a fixed-rate schedule active, hold a synchronous shell or agent turn open
-with `sleep`, or make extra status calls in the same run.
+its prompt first compares its own ID, expected head, waiting predicate, and goal
+with the retained state. A stale run stops its schedule and exits without an
+API call. A current run stops its schedule and clears the retained ID before
+its first API call. It then performs one REST snapshot, acts on a terminal
+result, or publishes the resulting predicate and creates exactly one
+replacement schedule at the next cadence below. Never leave a fixed-rate
+schedule active, hold a synchronous shell or agent turn open with `sleep`, or
+make extra status calls in the same run.
 
 | Status run says | Do this |
 | --- | --- |
 | `mergeable: false` | Apply the conflict transition in [Canonical round flow](../AGENTS.md#canonical-round-flow). After pushing the resolution head, use the standard initial 10- or 35-minute cadence when status gates progress again. |
 | `ci-required` completed with a conclusion other than `success` | Classify it and apply the applicable [recovery transition](../AGENTS.md#recovery-transitions). A terminal non-green result is an answer, not something to wait out. |
-| `mergeable: true`, `ci-required` green, REST `mergeable_state: "blocked"` | Clear automated wait and schedule state, publish `blocked=<pr-number> rec=wait`, and end without a successor. The PR requires human action and is not ready. |
+| `mergeable: true`, `ci-required` green, REST `mergeable_state: "blocked"` | For `goal=advance`, clear the wait and continue round completion or reviewer dispatch; zero conflicts and green CI satisfy that gate. For `goal=merge`, clear automated wait and schedule state, publish `blocked=<pr-number> rec=wait`, and end without a successor. |
 | `mergeable: true`, `ci-required` green at this head | **Done.** Clear the waiting state and proceed to whatever waited on the answer. |
-| `mergeable: null`, CI green | Schedule one REST snapshot for five minutes later; see [resolving unknown mergeability](#resolving-unknown-mergeability). |
-| `mergeable: null`, CI pending or missing | Schedule one successor 10 minutes plus jitter after this snapshot for documentation-only changes, or 30 minutes after this snapshot otherwise. |
-| `mergeable: true`, documentation-only | Treat it as the expected CI completion check. If CI is unexpectedly pending, schedule one successor 10 minutes plus jitter after this snapshot. |
-| `mergeable: true`, not documentation-only | Schedule one successor about 30 minutes after this snapshot. |
+| `mergeable: null`, CI green | Publish `waiting=merge`, retain `goal`, and schedule one REST snapshot for five minutes later; see [resolving unknown mergeability](#resolving-unknown-mergeability). |
+| `mergeable: null`, CI pending or missing | Publish `waiting=checks`, retain `goal`, and schedule one successor 10 minutes plus jitter after this snapshot for documentation-only changes, or 30 minutes after this snapshot otherwise. |
+| `mergeable: true`, documentation-only | Treat it as the expected CI completion check. If CI is unexpectedly pending, publish `waiting=checks`, retain `goal`, and schedule one successor 10 minutes plus jitter after this snapshot. |
+| `mergeable: true`, not documentation-only | Publish `waiting=checks`, retain `goal`, and schedule one successor about 30 minutes after this snapshot. |
 
 Read the table top-down: the first matching row wins. Conflict recovery has
 first priority, including when CI is also terminal non-green. A terminal
