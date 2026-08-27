@@ -2882,7 +2882,7 @@ test("all dependency navigation paths use one product-owned coordinate matcher",
     6);
   assert.match(
     generatedEngineSource,
-    /exports\.InspectionEngine\.MatchPackageDependencyCoordinate\(packageId, declaredRange, candidatesJson\)/);
+    /\$exports\.InspectionEngine\.MatchPackageDependencyCoordinate\(packageId, declaredRange, candidatesJson\)/);
   assert.match(
     appSource,
     /matchPackageDependencyCoordinate\([\s\S]*?JSON\.stringify\(dependencyCoordinateCandidates\(packages\)\)/);
@@ -3121,7 +3121,7 @@ test("type source identity includes decompiler taste", () => {
 test("source operations cancel when superseded or hidden", () => {
   assert.match(
     generatedEngineSource,
-    /export function cancelSourceQuery\(\)[\s\S]*?return exports\.InspectionEngine\.CancelSourceQuery\(\)/);
+    /export function cancelSourceQuery\(\)[\s\S]*?return \$exports\.InspectionEngine\.CancelSourceQuery\(\)/);
   assert.match(
     appSource,
     /cancelSourceQuery: cancelSourceInspection/);
@@ -3736,7 +3736,7 @@ test("graph-only members open through the typed member surface", () => {
     /const graphOnlyTarget =[\s\S]*clearMemberContentCache\(\);[\s\S]*state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*retainMemberSectionIfSupported\(group\)/);
   assert.match(
     generatedEngineSource,
-    /exports\.InspectionEngine\.QueryGraphMemberSurface\(packageId, version, targetFramework/);
+    /\$exports\.InspectionEngine\.QueryGraphMemberSurface\(packageId, version, targetFramework/);
   assert.match(
     generatedEngineSource,
     /export async function queryGraphMemberSurface\(packageId, version, targetFramework/);
