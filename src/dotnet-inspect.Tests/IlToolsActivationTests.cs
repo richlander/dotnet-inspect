@@ -745,15 +745,24 @@ public class IlToolsActivationTests
         Assert.True(stepsStart >= 0);
         string jobHeader = job[..stepsStart];
         Assert.Contains("- platform-windows", workflow);
+        Assert.Contains(
+            "github.event_name == 'schedule' && " +
+            "github.event.schedule == '0 6 * * *'",
+            jobHeader);
         Assert.Contains("inputs.lane == 'test'", jobHeader);
         Assert.Contains("inputs.lane == 'platform-test'", jobHeader);
-        Assert.Contains("inputs.lane == 'platform-windows'", jobHeader);
+        Assert.Equal(
+            2,
+            jobHeader.Split(
+                "inputs.lane == 'platform-windows'",
+                StringSplitOptions.None).Length - 1);
         Assert.Contains("inputs.lane == 'all'", jobHeader);
         Assert.Contains(
-            """'{"include":[{"os":"windows-latest","rid":"win-x64"}]}'""",
-            jobHeader);
-        Assert.Contains(
-            """'{"include":[{"os":"windows-latest","rid":"win-x64"},{"os":"macos-latest","rid":"osx-arm64"},{"os":"ubuntu-26.04","rid":"linux-x64"}]}'""",
+            """
+            inputs.lane == 'platform-windows' &&
+                        '{"include":[{"os":"windows-latest","rid":"win-x64"}]}' ||
+                        '{"include":[{"os":"windows-latest","rid":"win-x64"},{"os":"macos-latest","rid":"osx-arm64"},{"os":"ubuntu-26.04","rid":"linux-x64"}]}'
+            """,
             jobHeader);
         Assert.Contains("timeout-minutes: 90", jobHeader);
 
