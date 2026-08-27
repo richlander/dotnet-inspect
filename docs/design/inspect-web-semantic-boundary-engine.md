@@ -45,6 +45,7 @@ The semantic boundary engine owns:
   source locations into repository-owned facts;
 - resolving descriptor anchors to exact semantic identities;
 - recognizing configured operations by declaration identity;
+- preserving callable values derived from guarded operation declarations;
 - preserving configured receiver and transfer-root identity across
   whole-value conversions;
 - enforcing exact descriptor-issued transfer authorizations;
@@ -95,12 +96,13 @@ are not in the product program, not because the engine performs a second
 recursive file search.
 
 The composition root is part of that same program. It imports owner-issued
-descriptor declarations and exports one typed `boundaryDescriptors` tuple. The
-engine resolves the root source file and exported symbol from the active
-snapshot and reads its declarations without importing or executing product
-JavaScript. A descriptor from another program or semantic snapshot is invalid.
-The fixed root is discovery configuration; capability, operation, and type
-identity still come only from resolved declarations.
+descriptor declarations and exports one statically decodable
+`boundaryDescriptors` tuple. The engine resolves the root source file and
+exported symbol from the active snapshot and reads its declarations without
+importing or executing product JavaScript. A descriptor from another program
+or semantic snapshot is invalid. The fixed root is discovery configuration;
+capability, operation, and type identity still come only from resolved
+declarations.
 
 Configuration diagnostics, source diagnostics, an empty or ambiguous project,
 an absent or ambiguous composition root, or a project whose resolved path
@@ -131,6 +133,26 @@ resolve. The engine may expose typed descriptor builders, but it must not
 accept path substrings, source text, comments, regular expressions, or
 unresolved names as identity.
 
+Descriptor intake has one closed static grammar:
+
+- the composition root initializer is a readonly array literal whose elements
+  are direct descriptor identifiers;
+- each identifier may use an ordinary static-import alias, but must resolve to
+  one top-level exported `const` in the same snapshot;
+- that constant's initializer is a call to the exact engine-owned
+  `defineBoundary` declaration with one object-literal argument;
+- descriptor fields use fixed literal property names, literal arrays without
+  spreads, and direct semantic anchor expressions or references to
+  owner-issued literal sets; and
+- helper-returned tuples or descriptors, conditional construction, computed
+  fields, object or array spread, mutation, and dynamic import are rejected.
+
+Type checking is necessary but not sufficient for intake. The engine decodes
+this grammar from the AST and resolves every identifier and anchor
+semantically. The `defineBoundary` declaration and composition root are
+tooling-only source in the product program; the production artifact gate proves
+that neither becomes a Vite entry or browser dependency.
+
 An operation receiver is a platform or product type whose identity is needed
 to recognize a guarded operation. A transfer root is a value whose movement
 can conceal a later guarded operation. The capability owner chooses those
@@ -143,11 +165,11 @@ outside the product program.
 
 An authorized transfer edge identifies an exact callable declaration,
 module binding, direction, and parameter, result, yield, callable-value, import,
-or export position. The anchor may resolve to a free function, member
-declaration, exported declaration, export specifier, re-export, export
-assignment, or import binding; the engine does not require an exported
-free-function API. The capability owner remains responsible for issuing a
-statically resolvable anchor from its own component.
+export, implicit `this`, or latent-ingress position. The anchor may resolve to a
+free function, member declaration, exported declaration, export specifier,
+re-export, export assignment, or import binding; the engine does not require an
+exported free-function API. The capability owner remains responsible for
+issuing a statically resolvable anchor from its own component.
 
 A non-generic productive position identifies an exact readable property,
 index, iterator, call, or construct result on a source type that can produce a
@@ -199,6 +221,10 @@ Only one tooling module imports `typescript/unstable/sync` or
 - classifying a selected callable as analyzed product, configured platform, or
   bodyless external code;
 - resolving captures from a callable to declarations outside its local scope;
+- resolving implicit call receivers, `this` parameters, and each function's
+  `arguments` binding;
+- resolving static and dynamic module targets and their exported symbols;
+- resolving runtime class heritage and derived-constructor declarations;
 - resolving the fixed descriptor composition root and module bindings inside
   the active snapshot;
 - identifying declaration ownership by configured library or product source;
@@ -229,6 +255,14 @@ methods, and reflective calls are ordinary semantic paths to the same
 configured declaration. Lexically shadowed names and structurally similar
 unrelated declarations are close negatives.
 
+When a guarded operation is callable, extracting, binding, or reflecting that
+callable produces a guarded-callable-bearing value automatically. This identity
+does not depend on the capability owner also listing the method as a transfer
+root. Structural function annotations, parameters, callbacks, returns, and
+module bindings must preserve the original callable declaration. Invocation
+still requires owner-module or exact operation-site authority; movement across
+a callable or module boundary requires exact transfer authority.
+
 The descriptor owner decides whether an operation is allowed in its module or
 at an exact authorized operation site. Transfer authority is not operation
 authority. The engine neither infers ownership from a file name nor grants
@@ -242,7 +276,8 @@ produces a whole value:
 - variable, property, element, object, array, and destructuring initializers or
   assignments;
 - parameter and binding-pattern default initializers;
-- arguments against selected parameter positions;
+- arguments and implicit call receivers against selected parameter and `this`
+  positions;
 - synchronous returns and async resolved returns;
 - call and construct results against contextual targets;
 - contextually typed conditional, logical, nullish, array, object, and concise
@@ -253,13 +288,20 @@ produces a whole value:
 - type assertions and `satisfies` expressions;
 - object spread and destructuring rest;
 - exported declarations, export specifiers, re-exports, export assignments, and
-  their importing bindings; and
+  their importing bindings;
+- dynamic `import()` module namespaces and their awaited or destructured
+  results;
+- runtime `extends` heritage and the derived constructor value;
 - copy or reflection intrinsics whose selected declaration transports a value.
 
-Closure capture and `throw` are explicit transport channels even though they
-have no ordinary contextual target type. A closure environment is modeled as a
-hidden aggregate owned by its callable value. Throwing any receiver-containing
-or carrier-bearing value is always rejected because JavaScript exception
+Closure capture, the non-arrow `arguments` object, and `throw` are explicit
+transport channels even though they have no ordinary contextual target type. A
+closure environment is modeled as a hidden aggregate owned by its callable
+value. Each formal argument is connected to its corresponding hidden
+`arguments` slot before TypeScript's `IArguments` index type can erase it; an
+arrow's `arguments` reference resolves to and captures the outer binding.
+Throwing any receiver-containing, carrier-bearing, guarded-callable-bearing, or
+latent-ingress-bearing value is always rejected because JavaScript exception
 transport has no statically identifiable recipient or typed authorization
 position.
 
@@ -327,22 +369,32 @@ engine applies that classification before checking an opaque target or
 bodyless call, so unchanged `HTMLCollection` movement cannot conceal its
 configured `Element` output merely because source and target have the same type.
 
+The implicit receiver of a selected method call is a semantic `this` edge.
+Calling a transfer-root or guarded callable through method syntax cannot bypass
+the exact receiver declaration or an authorized `this` position.
+
 ### Nested and mixed-wrapper comparison
 
 The same identity rule applies recursively to corresponding value positions.
 Repository-authored unions, intersections, properties, signatures, tuples,
 arrays, index results, and constraints are compared cycle-safely.
 
-An instantiated generic argument participates in containment when its type
-parameter occurs in a readable or value-producing position of the resolved
-declaration. Covariant and invariant positions participate. A parameter used
-only contravariantly, such as `Consumer<T>`, and a phantom parameter with no
-value-producing occurrence do not make an existing value contain `T`.
-`Generator<T, TReturn, TNext>`, for example, produces `T` and `TReturn` but does
-not already contain its input-only `TNext`. Passing a configured value into a
-consumer remains an ordinary checked argument edge. Productive-position
-analysis uses the same fail-closed structural work budget as conversion
-comparison.
+An instantiated generic argument participates in present-value containment
+when its type parameter occurs in a readable or value-producing position of the
+resolved declaration. Covariant and invariant positions participate.
+
+A contravariant occurrence is instead latent ingress. `Consumer<T>` does not
+already contain `T`, but handing `Consumer<TransferRoot>` to bodyless code or
+exporting it lets external code inject a future root into product code without
+a product call expression. Such an ingress-bearing value may move within
+analyzed product code, but crossing a bodyless callable or module boundary
+requires an exact latent-ingress authorization.
+
+A phantom parameter with no semantic occurrence is neither containing nor
+ingress-bearing. `Generator<T, TReturn, TNext>`, for example, contains its
+produced `T` and `TReturn`; its input-only `TNext` grants latent ingress rather
+than proving a present value. Productive- and ingress-position analysis use the
+same fail-closed structural work budget as conversion comparison.
 
 When source and target generic declarations differ, their represented
 arguments do not correspond, or either side is non-generic, the comparison is
@@ -401,17 +453,34 @@ Direct exports and re-exports are module transfer even when the exported type
 preserves identity. Unlisted exported declarations, specifiers, and assignments
 are rejected.
 
-A callable value whose closure captures a carrier-bearing value is itself
-carrier-bearing, independent of its declared parameter and result types. The
+A dynamic `import()` has a resolvable module target but no exact static import
+binding or selected call signature. The engine categorically rejects a dynamic
+module namespace whose exports include a carrier-bearing,
+guarded-callable-bearing, or latent-ingress-bearing value. Capability owners use
+statically bound imports when exact module transfer is required.
+
+A callable value whose closure captures a carrier-bearing,
+guarded-callable-bearing, or latent-ingress-bearing value retains the captured
+classification independent of its declared parameter and result types. The
 hidden closure aggregate follows the same call, storage, return, and export
-rules. Throwing any receiver-containing or carrier-bearing value, including an
-aggregate, generic wrapper, or carrier-bearing closure, is categorically
-forbidden and cannot be authorized.
+rules.
+
+Runtime class heritage is another hidden reference. If an `extends` expression
+is carrier-bearing, guarded-callable-bearing, or latent-ingress-bearing, the
+derived constructor retains that classification because its constructor
+prototype retains the base value. The derived value follows the same
+conversion, call, and module rules.
+
+Throwing any receiver-containing, carrier-bearing, guarded-callable-bearing, or
+latent-ingress-bearing value, including an aggregate, generic wrapper,
+carrier-bearing closure, or derived constructor, is categorically forbidden and
+cannot be authorized.
 
 No authority is inferred from matching parameter types, same-module spelling,
-generic constraints, rest parameters, or higher-order wrappers. A descriptor
-may authorize an ingress or egress when its capability owner requires one, but
-the engine does not invent a default domain policy.
+generic constraints, rest parameters, `arguments`, implicit `this`, consumer
+variance, or higher-order wrappers. A descriptor may authorize an ingress or
+egress when its capability owner requires one, but the engine does not invent a
+default domain policy.
 
 ## Failure behavior
 
@@ -447,7 +516,8 @@ The implementation adds an `inspect-web-semantic-boundaries` script and makes
    extracted, bound, and reflective access to a test capability outside its
    owner while accepting lexical shadows and unrelated declarations. Exact
    operation authority passes only at its declared analyzed product callable
-   and does not authorize transfer.
+   and does not authorize transfer. Guarded callable widening through annotated
+   variables, parameters, callbacks, returns, and exports fails.
 3. **Receiver preservation:** rejects direct and two-stage structural erasure,
    base-to-structural erasure, opaque conversion, unconstrained generics, nested
    aggregates, productive generic and non-generic platform containers,
@@ -474,19 +544,25 @@ The implementation adds an `inspect-web-semantic-boundaries` script and makes
    higher-order wrappers for a test transfer root. Throwing a direct, aggregate,
    generic, or closure-carried configured identity always fails. Exact
    descriptor-issued callable and module edges pass. Consumer-only and phantom
-   generic parameters remain close negatives.
+   generic parameters remain close negatives for present-value containment;
+   local analyzed consumer movement passes, while bodyless registration or
+   module export requires exact latent-ingress authority.
 6. **Descriptor integrity:** rejects duplicate identities, unresolved and
    stale anchors, ambiguous overloads, unknown authority positions, wrong
    value positions, operation authority outside analyzed product code,
    descriptors outside the active product snapshot, and anchors whose
-   declarations differ from the selected operation. An owner-like fixture
-   descriptor is discovered only through the same-program composition root.
+   declarations differ from the selected operation. The static composition
+   grammar accepts direct imported descriptor identifiers and exact
+   `defineBoundary` literal calls, while rejecting helpers, spreads,
+   conditionals, computed fields, mutation, and descriptors from another
+   snapshot.
 7. **Diagnostics and service failure:** snapshots stable rule identifiers,
    locations, ordering, owner guidance, and explicit project or semantic
    failures.
 8. **Contextual and external edges:** rejects conditional, logical, nullish,
    loop-binding, `await`, concise-return, parameter-default, binding-default,
-   import, export, and opaque bodyless-call escapes. Removing any edge kind from
+   static import, export, dynamic import, `extends`, implicit `this`,
+   `arguments`, and opaque bodyless-call escapes. Removing any edge kind from
    the central visitor table fails its witness.
 9. **Import and artifact isolation:** rejects a second import of either
    TypeScript unstable API, builds the production site, and proves that the
