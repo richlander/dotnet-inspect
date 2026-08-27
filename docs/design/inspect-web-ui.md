@@ -369,9 +369,9 @@ Each identity role and the trailing action is a real interactive control rather
 than click behavior attached to inert text:
 
 - activating `dotnet-inspect` opens Workspace;
-- activating the coordinate opens a coordinate menu whose first action
-  navigates to the Package or other root overview and whose remaining controls
-  change applicable version, TFM, or acquisition detail;
+- activating the coordinate opens a coordinate menu whose actions include
+  navigation to the Package or other root overview, `Search packages`, and
+  controls for applicable version, TFM, or acquisition detail;
 - activating the always-present current subject opens a hierarchy menu
   containing every ordered applicable root, Library, Type, and Member
   descriptor supplied by #4794, including unavailable descendants with their
@@ -662,8 +662,16 @@ reasons remain discoverable; Enter activates only an available item. Escape
 closes the menu and returns focus to the invoker. Outside pointer dismissal or
 tabbing away preserves the new focus destination instead.
 
+Activating an available item for a non-modal transition closes the menu. A
+successful inspection transition focuses the returned active-subject
+level-one heading; a successful routed transition focuses that surface's
+level-one heading. A typed failure preserves the current surface, returns focus
+to the stable menu-button invoker, and makes the failure visible.
+
 When a menu item opens a modal, the menu closes without returning focus to its
-invoker and the modal applies its initial-focus rule.
+invoker and the modal applies its initial-focus rule. The stable menu-button
+invoker, not the removed menu item, becomes the modal's ordinary-dismissal
+return target; dismissal does not reopen the menu.
 
 Spotlight, Open, Settings, the narrow navigation drawer, and the full-bleed
 Annotated Source viewer are modal dialogs:
@@ -745,6 +753,12 @@ removed.
 Source, Annotated Source, and Diagnostics are working surfaces rather than
 documents inset inside a general page. This redesign does not change Metadata
 viewer composition.
+
+The package-query surface's internal query behavior remains owned by
+`package-query-experience.md`, but its former package-tab placement is
+superseded. This redesign does not add a replacement shell entry, lifecycle,
+history, or focus contract; those must be defined by a later Inspect Web UI
+change before that surface is integrated into the shell.
 
 ### Source and Annotated Source
 
@@ -870,6 +884,13 @@ One information hierarchy adapts across viewport sizes:
 Responsive layout is not workspace state. Changing viewport size does not alter
 the selected coordinate, subject, lens, filters, or canonical packet.
 
+When narrowing replaces a navigation pane while focus is inside it, focus moves
+to the new `Types` or `Members` drawer button without opening the drawer. When
+widening replaces that button or an open drawer, the drawer closes without
+returning focus to its removed invoker and focus moves to the equivalent
+visible navigation item, or to the active-subject heading when no equivalent
+item is rendered.
+
 Density comes from removing duplication and conditionally presenting
 navigation, not from making text or controls too small to use.
 
@@ -950,12 +971,14 @@ outcomes:
 2. Confirm that the inspection command uses the active Type as its level-one
    heading and the subject menu renders every descriptor and unavailable reason.
 3. Activate an available descriptor and confirm that the UI submits only its
-   opaque identity and renders the returned outcome.
+   opaque identity, renders the returned outcome, and focuses its active-subject
+   heading.
 4. Supply a root-only result and confirm that the always-present subject control
    uses the owner-issued root label and the hierarchy menu still exposes every
    unavailable lower-level descriptor and reason.
 5. Supply a typed transition failure and confirm that it is visible without the
-   UI selecting another subject.
+   UI selecting another subject and that focus returns to the subject
+   menu-button invoker.
 6. Confirm that the trailing `Copy target` button remains visible and copies
    the product-issued canonical target rather than display text.
 
@@ -1014,12 +1037,20 @@ outcomes:
 
 1. Activate the coordinate and confirm that its menu opens rather than
    Spotlight.
-2. Activate `Search packages` and confirm that the menu closes and
+2. Activate an available non-search action and confirm that the menu closes and
+   the returned active-subject heading receives focus.
+3. Supply a typed failure for a coordinate action and confirm that the current
+   surface remains visible, the failure is surfaced, and focus returns to the
+   coordinate button.
+4. Reopen the menu, activate `Search packages`, and confirm that the menu closes
+   and
    package-scoped Spotlight receives initial focus.
-3. Paste a complete package coordinate without pressing another key.
-4. Confirm that results update immediately.
-5. Select the result and confirm that the same acquisition transition is used
-   as pointer-driven package selection.
+5. Paste a complete package coordinate without pressing another key.
+6. Confirm that results update immediately.
+7. Dismiss Spotlight without navigating and confirm that focus returns to the
+   coordinate button without reopening its menu.
+8. Reopen package-scoped Spotlight, select the result, and confirm that the same
+   acquisition transition is used as pointer-driven package selection.
 
 ### Local Open
 
@@ -1050,7 +1081,12 @@ outcomes:
    return.
 4. Confirm that the inspection command and lens strip remain single-line
    scrolling or truncating surfaces rather than wrapping.
-5. Restore the wide viewport and confirm that coordinate, subject, lens,
+5. With focus in the wide navigation pane, narrow the viewport and confirm that
+   focus moves to the new drawer button without opening it.
+6. Open the drawer, restore the wide viewport, and confirm that the drawer
+   closes and focus moves to the equivalent visible navigation item or the
+   active-subject heading.
+7. Confirm that coordinate, subject, lens,
    filters, and canonical state did not change.
 
 ### Modal and routed surfaces
