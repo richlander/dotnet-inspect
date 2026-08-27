@@ -446,58 +446,147 @@ test("the only JavaScript is the file the lint exemption names", () => {
 // the file existed, because nothing read it. Round 5 (Sol) found it; it is issue #4783
 // and `src/bootstrap.ts` is where that code lives now.
 //
-// So the gate is not "lint HTML too", which would mean owning a second parser and a
-// second set of rules. It is that a document may reference script and may not contain
-// any, which leaves exactly one kind of place for script to be: a file. The three forms
-// below are the three ways HTML runs script that a `src` reference does not cover, and
-// they are named by the spec rather than by a list of things anyone thought of --
-// element content, the `on*` event handler content attributes, and the `javascript:`
-// URL scheme.
+// The first version of this gate named the three ways HTML runs script -- element
+// content, `on*` handler attributes, and the `javascript:` scheme -- and rejected those.
+// That is a deny list, and it had the failure a deny list always has. Round 1 (Gemini)
+// probed `<object data="javascript:...">`, which it caught; three neighbours of that
+// probe walked straight through. `<iframe srcdoc="&lt;script&gt;...">` was the worst,
+// because it needs no interaction: all four commands stayed green while `dist/index.html`
+// shipped a document that runs script on load. An unquoted `href=javascript:alert(1)` and
+// an entity-encoded `&#106;avascript:` also passed, because the scheme test wanted a
+// quote before the word and a literal `j` in it.
+//
+// So the question is inverted. Rather than enumerate what can run script, which is a list
+// HTML keeps extending, this says what a document here is allowed to contain and rejects
+// everything else. A document may *reference* script and may not *contain* any, which
+// leaves a file as the only place script can be -- and a file is what every other gate
+// here already reads. An element or attribute nobody has classified fails, so the next
+// HTML feature that can run script is rejected on the grounds that it is unrecognized,
+// which is the one property a deny list cannot have.
+//
+// Comments are deliberately not stripped before this runs. Commented-out script is inert,
+// so flagging it is a false positive -- but `<!-->` is a complete comment in HTML5 and
+// parsers disagree about the edges, so trusting a comment-stripper here would put a
+// second parser between the gate and the truth. Deleting dead script is the better
+// resolution anyway.
+const inertElements: ReadonlySet<string> = new Set([
+  "a", "article", "aside", "b", "base", "body", "br", "button", "code", "div", "em",
+  "figcaption", "figure", "footer", "h1", "h2", "h3", "h4", "h5", "h6", "head", "header",
+  "hr", "html", "i", "img", "label", "li", "link", "main", "meta", "nav", "noscript",
+  "ol", "p", "pre", "script", "section", "small", "span", "strong", "style", "table",
+  "tbody", "td", "th", "thead", "title", "tr", "ul",
+]);
+
+// `on*` handler attributes are absent by construction rather than by a rule that spells
+// out `on`, and so are `srcdoc`, `http-equiv` and `object`'s `data`. Each of those is
+// script, or a way to reach script, and none of them is here.
+const inertAttributes: ReadonlySet<string> = new Set([
+  "alt", "as", "async", "charset", "class", "content", "crossorigin", "defer",
+  "disabled", "download", "for", "height", "hidden", "href", "id", "integrity", "lang",
+  "media", "name", "referrerpolicy", "rel", "role", "sizes", "src", "srcset", "target",
+  "title", "type", "width",
+]);
+
+const inertAttributePrefixes = ["aria-", "data-"] as const;
+
+// A relative URL has no scheme and is fine. Everything else has to be named, which is
+// what rejects `javascript:`, `data:` and `vbscript:` without listing any of them.
+const inertSchemes: ReadonlySet<string> = new Set(["http", "https", "mailto"]);
+
+const namedEntities: ReadonlyMap<string, string> = new Map([
+  ["amp", "&"], ["apos", "'"], ["colon", ":"], ["gt", ">"], ["lt", "<"],
+  ["newline", "\n"], ["quot", '"'], ["sol", "/"], ["tab", "\t"],
+]);
+
+function entityText(decimal: string | undefined, hex: string | undefined,
+  name: string | undefined): string | undefined {
+  const code = decimal !== undefined
+    ? Number.parseInt(decimal, 10)
+    : hex !== undefined ? Number.parseInt(hex, 16) : undefined;
+  if (code !== undefined) {
+    return code >= 0 && code <= 0x10FFFF ? String.fromCodePoint(code) : undefined;
+  }
+  return name === undefined ? undefined : namedEntities.get(name.toLowerCase());
+}
+
+// A browser decodes entities in an attribute value and then ignores whitespace and
+// control characters while resolving the URL, so `&#106;avascript&colon;` and
+// `java\tscript:` both reach the same place a plain `javascript:` does. Comparing the
+// literal text would compare the wrong string.
+function urlScheme(value: string): string | undefined {
+  let decoded = "";
+  let index = 0;
+  for (const match of value.matchAll(/&(?:#(\d+)|#x([\da-f]+)|([a-z]+));?/gi)) {
+    decoded += value.slice(index, match.index)
+      + (entityText(match[1], match[2], match[3]) ?? match[0]);
+    index = match.index + match[0].length;
+  }
+  decoded += value.slice(index);
+
+  const scheme = /^([a-z][\d+.a-z-]*):/i
+    .exec(decoded.replaceAll(/[\0-\u0020\u007F]/g, ""));
+  return scheme?.[1]?.toLowerCase();
+}
+
 test("no HTML document carries script the gates cannot read", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
-  const documents = projectFiles([".html", ".htm"]);
+  const documents = projectFiles([".html", ".htm", ".xhtml", ".svg"]);
 
   // Non-vacuity. A walk that silently found nothing would pass every assertion below
   // while proving nothing at all, and the entry document is the reason this gate exists.
   const names = documents.map(file => projectRelative(root, file)).sort();
   assert.ok(names.includes("index.html"),
     `the walk found no entry document, so this gate proved nothing; it saw ${
-      names.length > 0 ? names.join(", ") : "no HTML at all"}`);
+      names.length > 0 ? names.join(", ") : "no markup at all"}`);
 
   const findings: string[] = [];
   for (const file of documents) {
     const name = projectRelative(root, file);
     const html = readFileSync(file, "utf8");
 
+    // Quoted values are consumed whole so that a `>` inside one cannot end the tag early
+    // and hide the attributes after it.
+    for (const tag of html.matchAll(/<([a-z][\da-z-]*)((?:[^"'>]|"[^"]*"|'[^']*')*)>/gi)) {
+      const element = (tag[1] ?? "").toLowerCase();
+      if (!inertElements.has(element)) {
+        findings.push(`${name}: <${element}> is not a known inert element. If it cannot `
+          + "run script, add it to `inertElements` and say why here");
+      }
+      for (const attribute of (tag[2] ?? "").matchAll(
+        /([a-z_:][\w.:-]*)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s"'<=>`]+))?/gi)) {
+        const spelled = (attribute[1] ?? "").toLowerCase();
+        if (!inertAttributes.has(spelled)
+          && !inertAttributePrefixes.some(prefix => spelled.startsWith(prefix))) {
+          findings.push(`${name}: <${element} ${spelled}> is not a known inert `
+            + "attribute. Event handlers are spelled this way, and so are `srcdoc` and "
+            + "`http-equiv`");
+          continue;
+        }
+        const raw = attribute[2] ?? "";
+        const scheme = urlScheme(/^["']/.test(raw) ? raw.slice(1, -1) : raw);
+        if (scheme !== undefined && !inertSchemes.has(scheme)) {
+          findings.push(`${name}: <${element} ${spelled}> carries a \`${scheme}:\` URL, `
+            + "and that scheme is not one this project treats as inert");
+        }
+      }
+    }
+
     // A script body cannot itself contain `</script`, because that ends the element
     // whatever it is nested in, so this pairing is exact rather than a best effort.
     for (const match of html.matchAll(/<script\b([^>]*)>([\S\s]*?)<\/script\s*>/gi)) {
       const body = (match[2] ?? "").trim();
-      if (body.length === 0) {
-        continue;
+      if (body.length > 0) {
+        findings.push(`${name}: <script${match[1] ?? ""}> has a body of ${
+          body.split("\n").length} line(s)`);
       }
-      findings.push(`${name}: <script${match[1] ?? ""}> has a body of ${
-        body.split("\n").length} line(s)`);
-    }
-
-    // Every event handler content attribute in HTML is spelled `on` plus the event name,
-    // and its value is script. Matching the shape rather than a list of attribute names
-    // is what keeps this from being one more enumeration with a hole in it.
-    for (const match of html.matchAll(/\s(on[a-z]+)\s*=/gi)) {
-      findings.push(`${name}: \`${match[1] ?? ""}\` is an event handler attribute, and `
-        + "its value is script");
-    }
-
-    for (const match of html.matchAll(/["'\s(]javascript:/gi)) {
-      findings.push(`${name}: a \`javascript:\` URL at offset ${match.index} is script`);
     }
   }
 
   assert.deepEqual(findings, [],
-    "this script is run by the browser but read by neither the compiler nor the lint, "
-      + "because both of them account for files and none of this is in one. Move it into "
-      + "a module under `src/` and reference that module with `src=`, the way "
-      + "`index.html` loads `src/bootstrap.ts`");
+    "this markup can run script that neither the compiler nor the lint reads, because "
+      + "both of them account for files and none of this is in one. Move the script into "
+      + "a module under `src/` and reference it with `src=`, the way `index.html` loads "
+      + "`src/bootstrap.ts`");
 });
 
 // The gate above asks whether a file is TypeScript. It does not ask whether anything
