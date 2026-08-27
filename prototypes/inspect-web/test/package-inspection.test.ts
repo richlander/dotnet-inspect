@@ -962,8 +962,14 @@ test("scoped package lenses route platform coordinates and suppress stale result
         calls.push(`integrations:${model.id}`);
         return integrationsResult();
       },
-      queryPlatformOpportunities: async (framework, assemblyName, pack) => {
-        calls.push(`opportunities:${framework}/${assemblyName}/${pack}`);
+      queryPlatformOpportunities: async (
+        framework,
+        platformVersion,
+        assemblyName,
+        pack,
+      ) => {
+        calls.push(
+          `opportunities:${framework}/${platformVersion}/${assemblyName}/${pack}`);
         return opportunitiesResult();
       },
       queryPackagePerformance: async model => {
@@ -990,7 +996,7 @@ test("scoped package lenses route platform coordinates and suppress stale result
 
   assert.deepEqual(calls, [
     "integrations:Example.Package",
-    "opportunities:net10.0/System.Text.Json.dll/pack:System.Text.Json",
+    "opportunities:net10.0/1.2.3/System.Text.Json.dll/pack:System.Text.Json",
     "performance:Example.Package",
     "metadata:Example.Package",
   ]);
@@ -1013,20 +1019,44 @@ test("all scoped runtime package lenses route exact platform coordinates", async
   const state = inspectionState({ packages: [runtime] });
   const coordinator = createPackageInspectionCoordinator(
     inspectionDependencies(state, {
-      queryPlatformIntegrations: async (framework, assemblyName, pack) => {
-        calls.push(`integrations:${framework}/${assemblyName}/${pack}`);
+      queryPlatformIntegrations: async (
+        framework,
+        platformVersion,
+        assemblyName,
+        pack,
+      ) => {
+        calls.push(
+          `integrations:${framework}/${platformVersion}/${assemblyName}/${pack}`);
         return integrationsResult();
       },
-      queryPlatformOpportunities: async (framework, assemblyName, pack) => {
-        calls.push(`opportunities:${framework}/${assemblyName}/${pack}`);
+      queryPlatformOpportunities: async (
+        framework,
+        platformVersion,
+        assemblyName,
+        pack,
+      ) => {
+        calls.push(
+          `opportunities:${framework}/${platformVersion}/${assemblyName}/${pack}`);
         return opportunitiesResult();
       },
-      queryPlatformPerformance: async (framework, assemblyName, pack) => {
-        calls.push(`performance:${framework}/${assemblyName}/${pack}`);
+      queryPlatformPerformance: async (
+        framework,
+        platformVersion,
+        assemblyName,
+        pack,
+      ) => {
+        calls.push(
+          `performance:${framework}/${platformVersion}/${assemblyName}/${pack}`);
         return performanceResult();
       },
-      queryPlatformMetadata: async (framework, assemblyName, pack) => {
-        calls.push(`metadata:${framework}/${assemblyName}/${pack}`);
+      queryPlatformMetadata: async (
+        framework,
+        platformVersion,
+        assemblyName,
+        pack,
+      ) => {
+        calls.push(
+          `metadata:${framework}/${platformVersion}/${assemblyName}/${pack}`);
         return metadataResult();
       },
     }));
@@ -1037,10 +1067,10 @@ test("all scoped runtime package lenses route exact platform coordinates", async
   await coordinator.loadMetadata(runtime, "metadata", "System.Text.Json");
 
   assert.deepEqual(calls, [
-    "integrations:net10.0/System.Text.Json.dll/pack:System.Text.Json",
-    "opportunities:net10.0/System.Text.Json.dll/pack:System.Text.Json",
-    "performance:net10.0/System.Text.Json.dll/pack:System.Text.Json",
-    "metadata:net10.0/System.Text.Json.dll/pack:System.Text.Json",
+    "integrations:net10.0/1.2.3/System.Text.Json.dll/pack:System.Text.Json",
+    "opportunities:net10.0/1.2.3/System.Text.Json.dll/pack:System.Text.Json",
+    "performance:net10.0/1.2.3/System.Text.Json.dll/pack:System.Text.Json",
+    "metadata:net10.0/1.2.3/System.Text.Json.dll/pack:System.Text.Json",
   ]);
 });
 
