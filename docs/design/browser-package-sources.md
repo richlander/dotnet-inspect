@@ -334,10 +334,11 @@ distinct immutable content domains based on credentials is incompatible with
 this contract and requires a stable non-credential endpoint-path distinction.
 
 NuGet Gallery and the canonical NuGet.org v3 client intentionally share one
-producer identity while retaining different transport kinds. Other paths
-remain distinct even when they share an origin. These properties are gated by
+producer identity while retaining different transport kinds. Paths that differ
+outside an owner-recognized credential slot remain distinct even when they
+share an origin. These properties are gated by
 `PackageSourceIdentity_SignedQueryRotationKeepsProducer`,
-`PackageSourceIdentity_DistinctPathsRemainDistinct`, and
+`PackageSourceIdentity_DistinctNonCredentialPathsRemainDistinct`, and
 `PackageSourceIdentity_GalleryAndV3ShareNuGetOrgProducer`.
 
 ### Opaque key and safe display
@@ -345,20 +346,27 @@ remain distinct even when they share an origin. These properties are gated by
 The identity retains no raw or credential-bearing producer locator.
 Construction redacts the canonical locator through
 `UrlRedaction.ForDiagnostics`, derives two values from that owner-issued safe
-result, and then discards the raw canonical locator:
+result, and then discards the raw canonical locator. During key derivation it
+also derives whether the canonical path is empty after the optional
+trailing-slash fold:
 
 - `Display` is the resulting `InertString`. Consumers may convert it to text
   for diagnostics but must not compare it or use it for authorization.
 - `Key` is a versioned, fixed-width opaque digest of the exact
-  `Display.ToString()` value. Equality, hashing, NuGetFetch-owned cache keys,
-  and serialization use this value.
+  framed safe material: one byte that is `0x00` for an empty canonical path or
+  `0x01` for a non-empty canonical path, followed by the UTF-8 bytes of
+  `Display.ToString()`. Equality, hashing, NuGetFetch-owned cache keys, and
+  serialization use this value.
 
 The HTTP key format is `p1-http-` followed by the lowercase hexadecimal
 SHA-256 digest. The version and source-kind namespace permit a future
 canonicalization or redaction-policy change, or a non-HTTP source, to use a
 distinct key space instead of aliasing existing identities. The digest is
-computed over the safe display's UTF-8 bytes and is identical on desktop and
-Browser/Wasm. A consumer never parses the key to recover an endpoint.
+computed over only the framed safe material and is identical on desktop and
+Browser/Wasm. The path-presence bit prevents diagnostic URI reconstruction
+from folding the canonical root and double-slash-root paths together; it is
+not retained separately. A consumer never parses the key to recover an
+endpoint.
 
 A credential-bearing path such as `/auth/SECRET/` becomes
 `/auth/REDACTED/` before key derivation. Rotating that credential therefore
@@ -368,13 +376,15 @@ locator and can appear only as the redactor's fixed query marker when a runtime
 endpoint is displayed separately.
 
 `PackageSourceIdentity` defines equality and hashing from `Key` alone rather
-than from all stored record fields. `Display` is necessarily many-to-one:
-rotated credential-bearing paths have the same redacted display and
-intentionally identify one producer. Non-credential path segments remain part
-of display and key derivation. A server that uses credential values to select
-distinct immutable content domains must expose a stable non-credential path
-distinction. Display text remains non-authoritative because a consumer's
-configured endpoint and credential scope are separate identities.
+than from all stored record fields. `Display` is necessarily many-to-one. The
+URL-redaction owner defines every non-empty segment immediately following an
+`auth` segment as credential data regardless of its spelling, so rotations in
+that position intentionally identify one producer. Stable segments before or
+after that credential slot remain part of display and key derivation. A server
+that uses credential values to select distinct immutable content domains must
+expose such a stable non-credential path distinction. Display text remains
+non-authoritative because a consumer's configured endpoint and credential
+scope are separate identities.
 
 `PackageSourceIdentity_KeyIsOpaqueStableAndPortable`,
 `PackageSourceIdentity_CredentialPathRotationKeepsProducer`,
@@ -385,8 +395,11 @@ properties. The existing
 canonicalization contract. The opaque-key gate uses fixed expected vectors,
 including a credential-bearing path, so a canonicalization or redaction change
 fails until the key version and vectors change together. Each path gate
-includes a nearby non-secret path so an implementation that erases every path
-cannot pass.
+includes credentials rotated in one `auth` slot as a fold case, stable segments
+outside that slot as a separation case, root and double-slash root as a
+separation case, and absent versus one optional trailing slash as a spelling
+fold. An implementation that erases every path or hashes only display cannot
+pass.
 
 ### Typed result and failure contract
 
@@ -475,7 +488,8 @@ behaviors redefined here.
 The following gates run in `src/NuGetFetch.Tests` in Release:
 
 - `PackageSourceIdentity_SignedQueryRotationKeepsProducer`;
-- `PackageSourceIdentity_DistinctPathsRemainDistinct`;
+- `PackageSourceIdentity_DistinctNonCredentialPathsRemainDistinct`;
+- `PackageSourceIdentity_RootAndDoubleSlashRemainDistinct`;
 - `PackageSourceIdentity_GalleryAndV3ShareNuGetOrgProducer`;
 - `PackageSourceIdentity_KeyIsOpaqueStableAndPortable`;
 - `PackageSourceIdentity_CredentialPathRotationKeepsProducer`;
