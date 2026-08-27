@@ -198,6 +198,11 @@ public static class PackageManifestCorpusVerifier
             product.Coordinate.Version,
             oracle.PackageVersion,
             StringComparer.OrdinalIgnoreCase);
+        RequireEqual(
+            entry,
+            "manifest version",
+            product.ManifestVersion,
+            oracle.ManifestVersion);
         RequireEqual(entry, "description", product.Description?.ToString(), oracle.Description);
         RequireEqual(entry, "authors", product.Authors, oracle.Authors);
         RequireEqual(entry, "repository URL", product.Repository, oracle.Repository);
@@ -327,6 +332,7 @@ public static class PackageManifestCorpusVerifier
         return new PackageManifestOracleFacts(
             reader.GetId(),
             reader.GetVersion().ToNormalizedString(),
+            GetManifestVersion(ns),
             reader.GetDescription(),
             reader.GetAuthors(),
             NullIfEmpty(repository?.Url),
@@ -434,6 +440,42 @@ public static class PackageManifestCorpusVerifier
             character is >= '0' and <= '9'
                 or >= 'a' and <= 'f');
 
+    private static string GetManifestVersion(XNamespace ns)
+    {
+        if (string.IsNullOrEmpty(ns.NamespaceName))
+            return "nuspec";
+
+        if (!Uri.TryCreate(
+                ns.NamespaceName,
+                UriKind.Absolute,
+                out Uri? uri)
+            || !uri.Scheme.Equals(
+                Uri.UriSchemeHttp,
+                StringComparison.OrdinalIgnoreCase)
+            || !uri.Host.Equals(
+                "schemas.microsoft.com",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException(
+                "The package-manifest corpus oracle found an unsupported namespace.");
+        }
+
+        string[] segments = uri.Segments;
+        if (segments.Length < 4
+            || !segments[1].Equals(
+                "packaging/",
+                StringComparison.Ordinal)
+            || !segments[^1].Equals(
+                "nuspec.xsd",
+                StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                "The package-manifest corpus oracle found an unsupported namespace.");
+        }
+
+        return string.Concat(segments[2..^1]).TrimEnd('/');
+    }
+
     private static string? NullIfEmpty(string? value) =>
         string.IsNullOrEmpty(value) ? null : value;
 
@@ -443,6 +485,7 @@ public static class PackageManifestCorpusVerifier
         {
             PropertyNameCaseInsensitive = true,
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            NewLine = "\n",
             TypeInfoResolver =
                 PackageManifestCorpusJsonContext.Default,
             WriteIndented = true,
@@ -489,6 +532,7 @@ public static class PackageManifestCorpusVerifier
 internal sealed record PackageManifestOracleFacts(
     string PackageId,
     string PackageVersion,
+    string ManifestVersion,
     string? Description,
     string? Authors,
     string? Repository,

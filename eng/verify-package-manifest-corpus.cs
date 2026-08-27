@@ -26,10 +26,7 @@ PackageManifestCorpusCatalog catalog;
 await using (FileStream stream = File.OpenRead(catalogPath))
     catalog = PackageManifestCorpusVerifier.LoadCatalog(stream);
 
-using var client = new HttpClient
-{
-    Timeout = TimeSpan.FromSeconds(60),
-};
+using var client = new HttpClient();
 client.DefaultRequestHeaders.UserAgent.Add(
     new ProductInfoHeaderValue(
         "dotnet-inspect-manifest-corpus",
@@ -40,13 +37,17 @@ var updatedEntries =
 foreach (PackageManifestCorpusEntry entry in catalog.Packages)
 {
     Uri manifestUri = ManifestUri(entry);
+    using var deadline = new CancellationTokenSource(
+        TimeSpan.FromSeconds(60));
     using HttpResponseMessage response = await client.GetAsync(
         manifestUri,
-        HttpCompletionOption.ResponseHeadersRead);
+        HttpCompletionOption.ResponseHeadersRead,
+        deadline.Token);
     response.EnsureSuccessStatusCode();
     byte[] manifestBytes = await ReadBoundedAsync(
         response.Content,
-        PackageManifestFactsQuery.MaxManifestBytes);
+        PackageManifestFactsQuery.MaxManifestBytes,
+        deadline.Token);
     PackageManifestCorpusObservation observation =
         PackageManifestCorpusVerifier.Verify(
             entry,
@@ -92,7 +93,8 @@ static Uri ManifestUri(PackageManifestCorpusEntry entry)
 
 static async Task<byte[]> ReadBoundedAsync(
     HttpContent content,
-    int maximumBytes)
+    int maximumBytes,
+    CancellationToken cancellationToken)
 {
     if (content.Headers.ContentLength is > 0
         && content.Headers.ContentLength > maximumBytes)
@@ -101,7 +103,8 @@ static async Task<byte[]> ReadBoundedAsync(
             "A package-manifest corpus response exceeds the configured byte limit.");
     }
 
-    await using Stream source = await content.ReadAsStreamAsync();
+    await using Stream source = await content.ReadAsStreamAsync(
+        cancellationToken);
     using var destination = new MemoryStream(
         capacity: Math.Min(
             maximumBytes,
@@ -109,7 +112,9 @@ static async Task<byte[]> ReadBoundedAsync(
     byte[] buffer = new byte[81920];
     while (true)
     {
-        int read = await source.ReadAsync(buffer);
+        int read = await source.ReadAsync(
+            buffer,
+            cancellationToken);
         if (read == 0)
             return destination.ToArray();
         if (destination.Length + read > maximumBytes)

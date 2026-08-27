@@ -130,6 +130,73 @@ public sealed class PackageManifestCorpusTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Comparer_RejectsManifestVersionDisagreement()
+    {
+        byte[] manifestBytes = ManifestBytes();
+        var entry = new PackageManifestCorpusEntry(
+            "Example.Package",
+            "1.0.0",
+            PackageManifestCorpusVerifier.ComputeSha256(
+                manifestBytes),
+            []);
+        PackageManifestFacts facts = Assert.IsType<
+            PackageManifestFactsResult.Available>(
+                PackageManifestFactsQuery.Execute(
+                    manifestBytes,
+                    PackageSourceCoordinate.Create(
+                        entry.Id,
+                        entry.Version))).Value;
+        PackageManifestOracleFacts oracle =
+            PackageManifestCorpusVerifier.ProjectOracle(
+                manifestBytes,
+                XDocument.Parse(
+                    Encoding.UTF8.GetString(manifestBytes)));
+
+        InvalidDataException exception = Assert.Throws<
+            InvalidDataException>(() =>
+                PackageManifestCorpusVerifier.Compare(
+                    facts with
+                    {
+                        ManifestVersion = "SHOULD-NOT-REACH-THE-DIAGNOSTIC",
+                    },
+                    oracle,
+                    entry));
+
+        Assert.Contains(
+            "manifest version",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "SHOULD-NOT-REACH-THE-DIAGNOSTIC",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Serializer_UsesCanonicalLf()
+    {
+        PackageManifestCorpusCatalog catalog = LoadCatalog();
+
+        string serialized =
+            PackageManifestCorpusVerifier.SerializeCatalog(
+                catalog);
+
+        Assert.DoesNotContain(
+            "\r",
+            serialized,
+            StringComparison.Ordinal);
+        using var stream = new MemoryStream(
+            Encoding.UTF8.GetBytes(serialized));
+        PackageManifestCorpusCatalog roundTripped =
+            PackageManifestCorpusVerifier.LoadCatalog(stream);
+        Assert.Equal(
+            catalog.Packages.Select(entry =>
+                $"{entry.Id}@{entry.Version}:{entry.Sha256}"),
+            roundTripped.Packages.Select(entry =>
+                $"{entry.Id}@{entry.Version}:{entry.Sha256}"));
+    }
+
     private static PackageManifestCorpusCatalog LoadCatalog()
     {
         using Stream stream = typeof(PackageManifestCorpusTests)
