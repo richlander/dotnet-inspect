@@ -2777,6 +2777,9 @@ test("metadata explorer request coordination stays outside the composition root"
   const focus =
     appSource.match(/function applyExplorerFocus\(\)[\s\S]*?\n}\n\n\/\/ Center/)?.[0]
     ?? "";
+  const pageSizer =
+    appSource.match(/function syncExplorerPageSize\(\)[\s\S]*?\n}\n\n\/\/ Renders/)?.[0]
+    ?? "";
   assert.match(
     windowLoader,
     /return metadataInspection\.loadExplorerWindow\(index, startRowId, maxRows\)/);
@@ -2798,6 +2801,9 @@ test("metadata explorer request coordination stays outside the composition root"
   assert.match(
     focus,
     /const onScreen = win && !win\.loading && win\.data &&/);
+  assert.match(
+    pageSizer,
+    /if \(win\?\.data && !win\.loading[\s\S]*loadExplorerWindow\(ex\.focusIndex, win\.data\.startRowId, fit\)/);
   assert.match(
     appSource,
     /state\.explorer\.focusHeap && !state\.explorer\.heapWindows\[state\.explorer\.focusHeap\]/);

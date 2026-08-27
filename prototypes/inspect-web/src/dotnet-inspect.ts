@@ -3537,7 +3537,8 @@ function syncExplorerPageSize() {
   ex.pageSize = fit;
   const win = ex.windows[ex.focusIndex];
   const rows = win?.data?.rows ?? [];
-  if (win?.data && rows.length < fit && rows.length < win.data.rowCount) {
+  if (win?.data && !win.loading
+    && rows.length < fit && rows.length < win.data.rowCount) {
     observeAsync(
       loadExplorerWindow(ex.focusIndex, win.data.startRowId, fit),
       "Loading metadata table rows");
