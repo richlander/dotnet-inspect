@@ -14,7 +14,9 @@ are identified explicitly under [Current mismatches](#current-mismatches).
 See [inspection-space.md](../inspection-space.md) for workspace and query
 planning, [inspection-layers.md](inspection-layers.md) for consumer layers, and
 [assembly-inspection-query.md](assembly-inspection-query.md) for the
-`ResolvedAssemblyReference` and `AssemblyInspectionSession` seam.
+`ResolvedAssemblyReference` and `AssemblyInspectionSession` seam, and
+[assembly-image-lifetime.md](assembly-image-lifetime.md) for the focused
+single-image and MVID correctness contract.
 [workspace-definitions.md](workspace-definitions.md) owns static context
 coordinates, while
 [inspection-graph-document.md](inspection-graph-document.md) owns graph
@@ -107,7 +109,7 @@ package dependency closure.
 | Workspace | Logical inspection composition | artifact sessions, contexts, roles, query plans, aggregate admission budgets | feed or archive mechanics |
 | Assembly context group | One binding-consistent universe | participants, binding policy, retained assembly snapshots | package acquisition |
 | Resolved assembly reference | Neutral handle for one selected managed assembly | assembly identity and guarded repeatable content access | package coordinate parsing or storage implementation |
-| Assembly inspection session | One opened PE inspection lifetime | reader/image lifetime and session-scoped operations | artifact acquisition |
+| Assembly inspection session | One opened PE inspection lifetime | [reader/image lifetime and session-scoped operations](assembly-image-lifetime.md) | artifact acquisition |
 | Inspection producer | Computes one family of facts | metadata, IL, source, or comparison evidence | source discovery |
 
 An artifact is broader than an assembly. An artifact set may contain assemblies,

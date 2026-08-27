@@ -532,7 +532,10 @@ separate image lifetimes and budgets.
 
 Opened from a `ResolvedAssemblyReference`, it owns the `PEReader`/`MetadataReader`, opens once,
 and exposes each scan as a method. Crucially it must be the **single** PE-lifetime owner, not a
-new parallel one.
+new parallel one. This document owns service composition at that seam; the
+focused [assembly image lifetime](assembly-image-lifetime.md) document owns
+which bytes the session retains, what an MVID proves, and which cache lifetimes
+may reuse metadata derived from the image.
 
 The library Analysis path now uses `PdbContext` as its target-file owner. Full body-index analysis
 prefetches the complete image and consumes immutable content so its parallel readers never seek a
