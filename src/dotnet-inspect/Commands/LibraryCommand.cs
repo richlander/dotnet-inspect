@@ -1320,7 +1320,7 @@ public class LibraryCommand
                     row.Evidence
                 }).ToArray());
             markoutWriter.Flush();
-        }, options.Rows);
+        }, options.Rows, rows.Count > 0 ? options.HumanRowWindowNote : null);
     }
 
     private static (LibraryOptions Options, string? Error) NormalizeILOffsetSelection(LibraryOptions options)

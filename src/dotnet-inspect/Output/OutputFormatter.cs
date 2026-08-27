@@ -350,7 +350,7 @@ public static class OutputFormatter
     }
 
     public static void WriteStringList(IEnumerable<string> values, string displayName, string stableName,
-        bool tsv, bool jsonl, TextWriter output)
+        bool tsv, bool jsonl, TextWriter output, string? humanRowWindowNote = null)
     {
         var rows = values.Select(value => new[] { value }).ToArray();
         WriteTable(output, showHeader: false, (writer, formatter) =>
@@ -361,7 +361,7 @@ public static class OutputFormatter
             else
                 markoutWriter.WriteList(rows.Select(row => row[0]).ToArray());
             markoutWriter.Flush();
-        });
+        }, humanRowWindowNote: tsv || jsonl ? null : humanRowWindowNote);
     }
 
     /// <summary>

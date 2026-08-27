@@ -383,7 +383,7 @@ public class ProjectCommand
                     ? RenderSkillTable(visibleRows, options)
                     : RenderSkillMarkdown(visibleRows);
 
-        bool suppressNote = options.JsonOutput || options.Jsonl || options.Tsv;
+        bool suppressNote = options.JsonOutput || options.Jsonl || options.Tsv || rows.Count == 0;
         WriteOutput(
             suppressNote
                 ? output

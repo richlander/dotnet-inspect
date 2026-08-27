@@ -86,7 +86,12 @@ public static class DiscoverOutput
         }
         else if (markdown)
         {
-            context.Serialize(view, Console.Out, new MarkdownFormatter());
+            var writer = new StringWriter { NewLine = "\n" };
+            context.Serialize(view, writer, new MarkdownFormatter());
+            var rendered = writer.ToString();
+            if (rows.Count > 0)
+                rendered = OutputFormatter.AddHumanRowWindowNote(rendered, projection?.HumanRowWindowNote);
+            OutputFormatter.WriteLfLine(Console.Out, rendered.TrimEnd('\n'));
         }
         else if (plainText)
         {
@@ -99,7 +104,8 @@ public static class DiscoverOutput
                     view,
                     writer,
                     formatter,
-                    OutputFormatter.CreateTableWriterOptions(tsv, jsonl)));
+                    OutputFormatter.CreateTableWriterOptions(tsv, jsonl)),
+                humanRowWindowNote: tsv || jsonl ? null : projection?.HumanRowWindowNote);
         }
 
         return 0;

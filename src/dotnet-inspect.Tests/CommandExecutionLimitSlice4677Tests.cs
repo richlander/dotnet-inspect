@@ -69,6 +69,52 @@ public partial class CommandExecutionTests
         Assert.Contains("## Performance: Boxing", multiSection.Output, StringComparison.Ordinal);
     }
 
+    // Plain document `--json` (not `--jsonl`) previously bypassed -n/-N entirely for
+    // `type`/`member`: WriteJsonTypeOutput serialized every filtered member regardless of
+    // options.Rows. Closes the coverage gap: ItemLimitsUseDeclaredRowsAcrossFormats above never
+    // exercised plain --json, only --jsonl/--tsv/markdown/multi-section.
+    [Fact]
+    public async Task DocumentJsonAppliesItemWindowForTypeMembers()
+    {
+        var unwindowed = await RunAppAsync(
+            "type", "DotnetInspector.Tests.CacheCommandTests",
+            "--library", TestAssemblyPath,
+            "-S", "Methods",
+            "--json",
+            "--tips", "q");
+        var windowed = await RunAppAsync(
+            "type", "DotnetInspector.Tests.CacheCommandTests",
+            "--library", TestAssemblyPath,
+            "-S", "Methods",
+            "-n", "1",
+            "--json",
+            "--tips", "q");
+        var markdown = await RunAppAsync(
+            "type", "DotnetInspector.Tests.CacheCommandTests",
+            "--library", TestAssemblyPath,
+            "-S", "Methods",
+            "-n", "1",
+            "--tips", "q");
+
+        Assert.Equal(0, unwindowed.Exit);
+        Assert.Equal(0, windowed.Exit);
+        Assert.Equal(0, markdown.Exit);
+
+        var unwindowedMembers = JsonDocument.Parse(unwindowed.Output).RootElement.GetProperty("members");
+        var windowedMembers = JsonDocument.Parse(windowed.Output).RootElement.GetProperty("members");
+
+        Assert.True(unwindowedMembers.GetArrayLength() > 1, "fixture needs 2+ methods to prove windowing");
+        Assert.Equal(1, windowedMembers.GetArrayLength());
+
+        string windowedName = windowedMembers[0].GetProperty("name").GetString()!;
+        string? markdownFirstMember = SplitOutputLines(markdown.Output)
+            .SkipWhile(line => !line.StartsWith("| ----", StringComparison.Ordinal))
+            .Skip(1)
+            .Select(line => line.Split('|', StringSplitOptions.TrimEntries)[1])
+            .FirstOrDefault();
+        Assert.Equal(markdownFirstMember, windowedName);
+    }
+
     [Fact]
     public async Task TopRequiresRankingOrder()
     {

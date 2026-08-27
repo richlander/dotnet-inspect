@@ -3620,6 +3620,18 @@ public class ApiCommand
             };
         }
 
+        // -n/-N applies the declared item window to whatever member list document JSON is
+        // about to serialize. Sort first to match the markdown/table writer's row order
+        // (kind, then name, then signature) so "first/last/top N" picks the same members
+        // in JSON as in markdown, then window.
+        outputType.Members = RowWindow.Apply(
+            options.Rows,
+            outputType.Members
+                .OrderBy(m => ApiOutputFormatter.GetMemberSortOrder(m.Kind))
+                .ThenBy(m => m.Name, StringComparer.Ordinal)
+                .ThenBy(ApiOutputFormatter.GetMemberSignatureSortKey, StringComparer.Ordinal)
+                .ToList()).ToList();
+
         // Project the durable identity (Digest + Canonical Signature) onto each member so
         // JSON consumers get the same overload handle the Markdown Digest column exposes.
         // Computed against the resolved declaring type, matching the table's anchor.

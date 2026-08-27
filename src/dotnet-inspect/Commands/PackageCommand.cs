@@ -4405,6 +4405,8 @@ public class PackageCommand
         }
 
         var markdown = RenderAllLibrariesMarkdown(packageName, version, inspections, sections, libraryOptions, pipeline);
+        if (sections.Count == 1)
+            markdown = OutputFormatter.AddHumanRowWindowNote(markdown, libraryOptions.HumanRowWindowNote);
         OutputDestination.Write(
             libraryOptions.OutputPath,
             libraryOptions.Rows,
@@ -4784,7 +4786,9 @@ public class PackageCommand
                     table.StableHeaders,
                     table.Rows);
                 markoutWriter.Flush();
-            });
+            }, humanRowWindowNote: options.Verbosity != Verbosity.Quiet && !options.Tsv && !options.Jsonl
+                ? options.HumanRowWindowNote
+                : null);
         });
         return true;
     }
@@ -5481,7 +5485,14 @@ public class PackageCommand
                 ["TFM"]))
             return projectionExit;
 
-        OutputFormatter.WriteStringList(visibleTfms, "TFM", "Tfm", options.Tsv, options.Jsonl, Console.Out);
+        OutputFormatter.WriteStringList(
+            visibleTfms,
+            "TFM",
+            "Tfm",
+            options.Tsv,
+            options.Jsonl,
+            Console.Out,
+            visibleTfms.Count > 0 ? options.HumanRowWindowNote : null);
         return 0;
     }
 
