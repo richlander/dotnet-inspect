@@ -406,6 +406,13 @@ returned workspace outcome. The UI does not choose a subject, lens, successor,
 or fallback for the product. Separate coordinates remain separate even when
 their display package IDs match.
 
+A successful entry action that opens an inspection surface focuses its
+active-subject level-one heading. When an action remains in Workspace, focus
+moves to the returned active entry. If a closed entry has no returned active
+entry, focus moves to the next rendered entry at its former position, then the
+previous entry, then the Workspace heading. A typed failure retains focus on
+the invoking entry while surfacing the failure.
+
 Workspace also exposes the same Search and Open actions as the shell. It does
 not infer source identity, package equivalence, or local-file correspondence
 from display labels.
@@ -654,8 +661,8 @@ reasons remain discoverable; Enter activates only an available item. Escape
 closes the menu and returns focus to the invoker. Outside pointer dismissal or
 tabbing away preserves the new focus destination instead.
 
-Spotlight, Open, Settings, the narrow navigation drawer, and full-bleed
-Annotated Source and Metadata viewers are modal dialogs:
+Spotlight, Open, Settings, the narrow navigation drawer, and the full-bleed
+Annotated Source viewer are modal dialogs:
 
 - each has a visible accessible name and close action;
 - opening moves focus to its primary input, current selection, or heading;
@@ -669,8 +676,10 @@ Opening or closing a modal does not create a browser-history entry. When a modal
 action commits navigation, the modal closes without returning focus to its
 invoker. An inspection destination focuses its active-subject level-one heading;
 Home, Workspace, or Diagnostics focuses the routed surface's level-one heading.
-Browser Back and Forward focus the restored destination heading without
-reopening the modal.
+Browser Back or Forward while a modal is open first dismisses it without
+returning focus to the invoker, then performs the history transition. History
+navigation focuses the restored destination heading without reopening the
+modal.
 
 Home, Workspace, and Diagnostics are routed full-bleed surfaces rather than
 dialogs. Navigation places focus on their visible level-one heading. Browser
@@ -743,9 +752,9 @@ The compact provenance/action row remains attached to the source pane. The
 navigation pane and source content may scroll independently. Collapsing
 navigation gives the working surface the full viewport width.
 
-Annotated Source appears inline by default and may open a full-bleed viewer,
-matching the full-bleed Metadata viewer composition. This document owns that
-composition, not the Annotated Source document model or viewer internals.
+Annotated Source appears inline by default and may open the full-bleed modal
+viewer governed by the shared transient-surface contract. This document owns
+that composition, not the Annotated Source document model or viewer internals.
 
 Decompiler style is contextual:
 
@@ -942,6 +951,11 @@ outcomes:
    from their labels.
 3. Activate and close entries and confirm that each action submits the opaque
    coordinate identity once and renders the returned workspace outcome.
+4. Confirm that an action opening inspection focuses the resulting
+   active-subject heading and that an action remaining in Workspace focuses the
+   returned active entry, nearest surviving entry, or Workspace heading
+   according to the defined order.
+5. Supply a typed failure and confirm that focus remains on the invoking entry.
 
 ### Canonical adapter
 
@@ -1030,13 +1044,14 @@ outcomes:
    to the routed Diagnostics heading rather than back to the modal invoker.
 4. Commit navigation from Search, Open, and the narrow drawer and confirm that
    focus moves to the resulting active-subject heading.
-5. Open and close full-bleed Annotated Source and Metadata viewers and confirm
-   the shared modal focus, Escape, containment, and history behavior.
+5. Open and close the full-bleed Annotated Source viewer and confirm the shared
+   modal focus, Escape, containment, and history behavior.
 6. Navigate to Home, Workspace, and Diagnostics and confirm that each is a
    routed surface with one visible level-one heading, no coordinate/subject
    command, and a persistent `dotnet-inspect` control that opens Workspace.
-7. Use Browser Back and Forward and confirm that the restored destination
-   heading receives focus without reopening the dismissed modal.
+7. Use Browser Back and Forward while a modal is open and confirm that the
+   modal is dismissed, the restored destination heading receives focus, and the
+   modal does not reopen.
 
 ### Data and diagnostics
 
