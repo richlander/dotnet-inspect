@@ -885,6 +885,18 @@ surface-to-workspace-model projection, serialized runtime-pack loading, and
 stale-result checks at the publication boundary. `dotnet-inspect.ts` supplies
 the engine and state ports and retains mutable loading/error state, package
 activation, workspace restoration, notices, retries, and rendering.
+The generated engine declarations expose JSON-wire values as readonly
+snapshots. Package acquisition therefore creates explicit application-owned
+package, type, member, and parameter models only for the paths the client
+mutates: runtime package aggregation, graph-member retention, and documentation
+hydration. Immutable assembly, accessibility, document, and exception values
+remain shared where their identity is useful; their containing application
+collections are copied before mutation. The
+`generatedPackageSurfaceRejectsMutation` and
+`generatedMemberSurfaceRejectsMutation` TypeScript canaries keep direct wire
+mutation red, while `package projection copies only application-owned mutable
+collections` and `documentation hydration mutates only the application
+projection` gate the copy boundary and wire-object isolation.
 `test/package-acquisition.test.ts` gates package projection, publication
 ordering, runtime request serialization and merging, cancellation after queued
 or in-flight work, request-local failure reporting, replacement-slot

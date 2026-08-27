@@ -254,7 +254,7 @@ static class DtsEmitter
                         knownTypeNames,
                         knownTypeIdentities));
             }
-            sb.Append("  ").Append(tsName).Append(": ").Append(tsType).Append(";\n");
+            sb.Append("  readonly ").Append(tsName).Append(": ").Append(tsType).Append(";\n");
         }
 
         sb.Append("}\n\n");

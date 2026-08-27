@@ -537,10 +537,11 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
     runs-on: windows-latest
-    # Raised from 40 after #4350 measured a 29-minute CLI run followed by the
-    # expected six remaining suites. The lane needed about 42 minutes to report
-    # every result; 55 preserves that evidence with measured runner variance.
-    timeout-minutes: 55
+    # Raised again after #4350 recurred at 55 minutes: two runs spent 40-41
+    # minutes in the CLI suite and reached Metadata near minute 54, while an
+    # adjacent healthy lane needed 53 minutes. The failed runs project to
+    # 56-57 minutes, so 70 restores about 13 minutes of runner-variance margin.
+    timeout-minutes: 70
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
