@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "printerComparisonVersion": 1,
+  "files": [
+    {
+      "sourceUrl": "https://raw.githubusercontent.com/dotnet/dotnet/f7d90799ce4ef09a0bb257852a57248d2a8fb8dd/src/runtime/src/libraries/System.Text.Encodings.Web/src/System/Text/Encodings/Web/JavaScriptEncoder.cs",
+      "checksumAlgorithm": "SHA256",
+      "checksum": "CD1085BF738003442ABE2532A2693D2C14E608423A8D477ABD0055E0DDB14730",
+      "printerProfile": "default-v1",
+      "requirePrinterExact": true,
+      "members": [
+        {
+          "assembly": "System.Text.Encodings.Web",
+          "assemblyVersion": "10.0.0.0",
+          "moduleVersionId": "f7b10d91-a6d8-42ea-a59a-1e3aa37c31c3",
+          "metadataToken": 100663564,
+          "type": "System.Text.Encodings.Web.JavaScriptEncoder",
+          "method": "Create",
+          "overload": 0
+        },
+        {
+          "assembly": "System.Text.Encodings.Web",
+          "assemblyVersion": "10.0.0.0",
+          "moduleVersionId": "f7b10d91-a6d8-42ea-a59a-1e3aa37c31c3",
+          "metadataToken": 100663565,
+          "type": "System.Text.Encodings.Web.JavaScriptEncoder",
+          "method": "Create",
+          "overload": 1
+        }
+      ]
+    }
+  ]
+}
