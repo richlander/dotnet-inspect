@@ -2692,6 +2692,15 @@ test("lens-scoped Platform library changes reset type-specific member state", ()
     /function normalizeLibrarySelection\(\) \{[\s\S]*state\.selectedTypeId = first\?\.id \|\| "";[\s\S]*state\.selectedMemberKey = "";[\s\S]*state\.selectedOverloadIndex = null;[\s\S]*resetMemberFilters\(\)[\s\S]*function afterLibraryScopeChange\(\) \{\s*normalizeLibrarySelection\(\);\s*render\(\)/);
 });
 
+test("package Metadata auto-loading retries the current failed scope", () => {
+  const autoLoad =
+    appSource.match(/function maybeAutoLoadPackageMetadata\(\) \{[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    autoLoad,
+    /state\.packageMetadataKey === packageScopeSignature\(\)[\s\S]*&& !state\.packageMetadataError\) return;[\s\S]*observeAsync\(loadPackageMetadata\(\)/);
+});
+
 test("Platform Spotlight distinguishes resident content from core readiness", () => {
   // The runtime scope moved out of `spotlightResults` into its own renderer when the
   // scope dispatch became exhaustive, so this scans the function that now owns the two

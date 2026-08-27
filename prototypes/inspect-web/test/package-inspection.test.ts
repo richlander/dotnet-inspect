@@ -263,6 +263,7 @@ type PackageInspectionCoordinator =
 interface PackageLensFixture<T> {
   name: string;
   result: T;
+  cachesFailure?: boolean;
   createCoordinator:
     (
       state: PackageInspectionState,
@@ -364,11 +365,23 @@ async function verifyPackageLensLifecycle<T>(
 
     await fixture.load(coordinator, "cached");
 
-    assert.equal(queries, 0, `${fixture.name} cached query`);
-    assert.equal(
-      fixture.readError(state),
-      "cached failure",
-      `${fixture.name} cached failure`);
+    if (fixture.cachesFailure ?? true) {
+      assert.equal(queries, 0, `${fixture.name} cached query`);
+      assert.equal(
+        fixture.readError(state),
+        "cached failure",
+        `${fixture.name} cached failure`);
+    } else {
+      assert.equal(queries, 1, `${fixture.name} retried query`);
+      assert.deepEqual(
+        fixture.readResult(state),
+        fixture.result,
+        `${fixture.name} retried result`);
+      assert.equal(
+        fixture.readError(state),
+        "",
+        `${fixture.name} cleared retried failure`);
+    }
   }
 
   {
@@ -659,6 +672,7 @@ test("every package lens preserves its complete request lifecycle", async () => 
   await verifyPackageLensLifecycle({
     name: "metadata",
     result: metadataResult(),
+    cachesFailure: false,
     createCoordinator: (state, query, render = () => {}) =>
       createPackageInspectionCoordinator(
         inspectionDependencies(state, {

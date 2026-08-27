@@ -392,7 +392,7 @@ export function createPackageInspectionCoordinator(
     async loadMetadata(packageModel, signature, scopedLibrary) {
       if (packageModel.isRuntimePack && !scopedLibrary) return;
       if (state.packageMetadataKey === signature
-        && (state.packageMetadata || state.packageMetadataError)) {
+        && state.packageMetadata) {
         dependencies.render();
         return;
       }

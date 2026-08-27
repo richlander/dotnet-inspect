@@ -3311,7 +3311,8 @@ async function loadPackageMetadata() {
 function maybeAutoLoadPackageMetadata() {
   if (!state.atPackageRoot || state.packageLens !== "metadata") return;
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
-  if (state.packageMetadataKey === packageScopeSignature()) return;
+  if (state.packageMetadataKey === packageScopeSignature()
+    && !state.packageMetadataError) return;
   observeAsync(loadPackageMetadata(), "Loading package metadata");
 }
 
