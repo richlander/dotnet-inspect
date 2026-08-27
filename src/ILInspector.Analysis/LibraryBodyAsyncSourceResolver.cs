@@ -534,6 +534,31 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 methodDefinition.GetDeclaringType()))
         && IsMoveNextBody(methodHandle);
 
+    internal bool IsAuthenticatedAsyncStateMachineExecutionMethod(
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition methodDefinition)
+    {
+        if (!IsAsyncStateMachineExecutionMethod(
+                methodHandle,
+                methodDefinition))
+        {
+            return false;
+        }
+
+        try
+        {
+            return TryGetAsyncStateMachineMoveNext(
+                    methodDefinition.GetDeclaringType(),
+                    out MethodDefinitionHandle executionMethod)
+                && executionMethod == methodHandle;
+        }
+        catch (Exception ex)
+            when (IsRecoverableMethodFailure(ex))
+        {
+            return false;
+        }
+    }
+
     /// <summary>
     /// MoveNext token → authenticated immediate execution source. The source
     /// can itself be a generated lifted kickoff; callers that expose declared

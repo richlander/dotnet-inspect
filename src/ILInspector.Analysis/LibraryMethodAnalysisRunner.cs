@@ -76,6 +76,10 @@ internal interface ILibraryMethodAnalysisInfrastructure
         MethodDefinition methodDefinition,
         bool typeSourceGenerated);
 
+    bool IsAuthenticatedAsyncStateMachineExecutionMethod(
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition methodDefinition);
+
     ImmutableArray<OptimizationOpportunity>
         CollectAsyncSiblingOpportunities(
             MethodBodyAnalysisContext context,
@@ -668,7 +672,11 @@ internal sealed class LibraryMethodAnalysisRunner(
             AuthenticatedSourceOwner? ultimateOwnerEvidence = null;
             bool requiresDeclaredOwner =
                 CompilerGeneratedNames.RequiresDeclaredOwner(
-                    caller);
+                    caller,
+                    _infrastructure
+                        .IsAuthenticatedAsyncStateMachineExecutionMethod(
+                            methodHandle,
+                            methodDefinition));
             MethodIdentity? asyncStateMachineSource = null;
             bool opportunityOwnershipResolved = true;
             DeclaredOwnerResolution ownerResolution =

@@ -375,6 +375,9 @@ state-machine leaves are classified as owner-required. A special state-machine
 leaf whose embedded lifted name or raw outer arity is malformed is `Rejected`:
 its physical intrinsic evidence remains visible in an unscoped inspection,
 while scoped attribution and recommendations fail closed.
+Owner-required admission recognizes an authenticated
+`IAsyncStateMachine.MoveNext` `MethodImpl` body even when its physical metadata
+name differs from `MoveNext`.
 Ultimate-owner traversal distinguishes an incomplete canonical chain
 (`Unresolved`) from malformed, ambiguous, cyclic, or invalid relationships
 (`Rejected`). Canonical generated bodies without an authenticated claimant,
@@ -391,6 +394,7 @@ gate fail-closed allocation-fanout and async-state-machine generic-box
 projection while retaining body-intrinsic opportunities, and
 `OptimizationOpportunities_OrphanGeneratedBodyFailsClosedAcrossScopes`,
 `OptimizationOpportunities_MalformedLiftedStateMachineFailsClosedInScopedViews`,
+`OptimizationOpportunities_MethodImplMoveNextMappingControlsMalformedStateMachineScopeAdmission`,
 `OptimizationOpportunities_CompiledAsyncLambdaStateMachineIsScopeInvariant`,
 `OptimizationOpportunities_CompiledGenericAsyncLocalStateMachineIsScopeInvariant`,
 `OptimizationOpportunities_AuthoredIntrinsicRowsSurviveMalformedOwnershipAcrossScopes`,

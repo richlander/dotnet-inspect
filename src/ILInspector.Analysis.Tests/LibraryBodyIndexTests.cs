@@ -5091,6 +5091,7 @@ public class LibraryBodyIndexTests
     [Theory]
     [InlineData("<<AnalyzeAs>b__x>d")]
     [InlineData("<<Analyze>b__0>d`0")]
+    [InlineData("<<>b__2147483647>d")]
     public void
         OptimizationOpportunities_MalformedLiftedStateMachineFailsClosedInScopedViews(
             string malformedName)
@@ -5154,6 +5155,84 @@ public class LibraryBodyIndexTests
                     opportunity =>
                         opportunity.Method.MetadataToken
                             == moveNext.MetadataToken);
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void
+        OptimizationOpportunities_MethodImplMoveNextMappingControlsMalformedStateMachineScopeAdmission(
+            bool mapsMoveNext,
+            bool expectScopedIntrinsic)
+    {
+        byte[] image =
+            BuildMalformedAsyncSourceAssembly(
+                moveNextSmallArray: true,
+                orphanStateMachine: true,
+                explicitMoveNextMethodImpl: mapsMoveNext,
+                moveNextMethodName: "Run");
+        ReplaceAscii(
+            image,
+            "<AnalyzeAsync>d__1",
+            "<<AnalyzeAs>b__x>d",
+            expectedReplacements: 1);
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"MalformedExplicitMoveNext-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(path, image);
+            LibraryBodyIndex full = LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities);
+            MethodIdentity execution = Assert.Single(
+                full.Methods,
+                method => method.Name == "Run"
+                    && method.ParameterTypes.IsDefaultOrEmpty);
+            Assert.Null(
+                full.ResolveDeclaredMethod(execution));
+            Assert.Contains(
+                full.OptimizationOpportunities,
+                opportunity =>
+                    opportunity.Shape == "small-array"
+                    && opportunity.Method.MetadataToken
+                        == execution.MetadataToken);
+
+            foreach (LibraryBodyIndex scoped in new[]
+            {
+                LibraryBodyIndex.Open(
+                    path,
+                    LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities,
+                    bodyScope: new HashSet<int>
+                    {
+                        execution.MetadataToken,
+                    }),
+                LibraryBodyIndex.Open(
+                    path,
+                    LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities,
+                    bodyTypeScope:
+                        type => type.Equals(
+                            execution.DeclaringType)),
+            })
+            {
+                bool containsIntrinsic =
+                    scoped.OptimizationOpportunities.Any(
+                        opportunity =>
+                            opportunity.Shape == "small-array"
+                            && opportunity.Method.MetadataToken
+                                == execution.MetadataToken);
+                Assert.Equal(
+                    expectScopedIntrinsic,
+                    containsIntrinsic);
             }
         }
         finally
@@ -6812,7 +6891,9 @@ public class LibraryBodyIndexTests
         bool crossKindSynchronousIterator = false,
         bool runtimeAsyncCompetingSource = false,
         bool orphanStateMachine = false,
-        bool authoredCallerIntoMoveNext = false)
+        bool authoredCallerIntoMoveNext = false,
+        bool explicitMoveNextMethodImpl = false,
+        string moveNextMethodName = "MoveNext")
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -7176,7 +7257,7 @@ public class LibraryBodyIndexTests
                     ? MethodAttributes.Static
                     : MethodAttributes.Virtual),
             MethodImplAttributes.IL,
-            metadata.GetOrAddString("MoveNext"),
+            metadata.GetOrAddString(moveNextMethodName),
             metadata.GetOrAddBlob(
                 forgedStateMachineOwnerEvidence
                     || forgedTopLevelOwnerEvidence
@@ -7202,7 +7283,8 @@ public class LibraryBodyIndexTests
             moveNextBody,
             MetadataTokens.ParameterHandle(1));
 
-        if (malformedMoveNextMethodImpl)
+        if (malformedMoveNextMethodImpl
+            || explicitMoveNextMethodImpl)
         {
             MemberReferenceHandle moveNextDeclaration =
                 metadata.AddMemberReference(

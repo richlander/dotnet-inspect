@@ -222,8 +222,16 @@ public static class CompilerGeneratedNames
 
     internal static bool RequiresDeclaredOwner(
         MethodIdentity method)
+        => RequiresDeclaredOwner(
+            method,
+            authenticatedStateMachineExecutionBody: false);
+
+    internal static bool RequiresDeclaredOwner(
+        MethodIdentity method,
+        bool authenticatedStateMachineExecutionBody)
         => IsLocalFunctionOrLambda(method.Name)
-            || method.Name == "MoveNext"
+            || (method.Name == "MoveNext"
+                    || authenticatedStateMachineExecutionBody)
                 && IsStateMachineLeaf(
                     LeafName(method.DeclaringType));
 
@@ -276,7 +284,7 @@ public static class CompilerGeneratedNames
         {
             return LiftedStateMachineLeafKind.None;
         }
-        return IsLocalFunctionOrLambda(sourceName)
+        return IsLocalFunctionOrLambda(sourceName[1..])
             ? LiftedStateMachineLeafKind.Canonical
             : LiftedStateMachineLeafKind.Malformed;
     }
