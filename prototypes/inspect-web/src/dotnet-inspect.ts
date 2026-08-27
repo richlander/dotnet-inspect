@@ -37,7 +37,6 @@ import {
   removeWorkspacePackage,
   removeAppendedNotice,
   retainGraphMemberProjection,
-  retainGraphOnlyBodyTarget,
   retainWorkspacePackage,
   resolveLoadedGraphTargetCandidate,
   resolveOpportunitySourceCandidate,
@@ -110,6 +109,8 @@ import {
   createNuGetPackageModel,
   createAppMemberSurface,
   createPackageAcquisition,
+  graphOnlyImplementationBody,
+  retainGraphOnlyImplementationBody,
   runtimeAssemblyIsResident,
   runtimePackIsResident,
   type AppMemberSurface,
@@ -7815,31 +7816,6 @@ function stageGraphMemberSelection(
   };
 }
 
-function retainGraphOnlyImplementationBody(
-  overload: AppMemberSurface | null | undefined,
-  target: BodyTarget | null | undefined,
-): BodyTarget | null {
-  if (!overload?.graphOnly) return target ?? null;
-  if (!target) {
-    delete overload.implementationBody;
-    return null;
-  }
-  const selectedBody = overload.bodySelectors.find(body =>
-    body.memberName === target.memberName
-    && body.selectorKey === target.selectorKey);
-  if (!selectedBody) {
-    delete overload.implementationBody;
-    retainGraphOnlyBodyTarget(overload, target);
-    return target;
-  }
-
-  overload.implementationBody = selectedBody;
-  const canonicalTarget =
-    graphMemberTargetWithSelectedBody(target, selectedBody);
-  retainGraphOnlyBodyTarget(overload, canonicalTarget);
-  return canonicalTarget;
-}
-
 function commitGraphMemberSelection(
   pkg: AppPackage,
   type: AppTypeSurface,
@@ -8582,8 +8558,7 @@ async function loadSelectedMemberFacts() {
   }
   const signature = memberRequestSignature(type, overload, true);
   const pkg = currentPackage();
-  const implementationBody =
-    overload.graphOnly ? overload.implementationBody : undefined;
+  const implementationBody = graphOnlyImplementationBody(overload);
   const implementationMetadataToken = implementationBody?.token ?? 0;
   const implementationBodySelected = implementationMetadataToken !== 0;
   return memberDetailInspection.loadFacts({

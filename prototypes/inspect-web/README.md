@@ -514,6 +514,9 @@ most one in-flight Facts Analysis request per member signature and lets a
 returning selection reattach to that work; `same member facts request does not
 duplicate in-flight analysis` and `returning to in-flight member facts reuses
 work and owns publication` gate that single-threaded Browser/Wasm protection.
+`graph-only implementation bodies select, switch, and clear` gates the mutable
+application projection that authorizes accessor fallback and removes that
+authorization when the selected target no longer matches a product body.
 
 `QueryPackageDependencies` asks the package-content query for every dependency
 group in manifest order and an exact-framework selection outcome. A missing

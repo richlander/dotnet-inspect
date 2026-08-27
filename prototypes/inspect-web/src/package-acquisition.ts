@@ -1,5 +1,7 @@
 import {
+  graphMemberTargetWithSelectedBody,
   mergeInspectionErrorEntries,
+  retainGraphOnlyBodyTarget,
   renderInspectionErrors,
 } from "./data.ts";
 import type {
@@ -93,6 +95,41 @@ export function createAppMemberSurface(
     parameters: surface.parameters.map(parameter => ({ ...parameter })),
     exceptions: [...surface.exceptions],
   };
+}
+
+export function retainGraphOnlyImplementationBody<
+  TTarget extends BodyTarget,
+>(
+  overload: AppMemberSurface | null | undefined,
+  target: TTarget | null | undefined,
+): TTarget | null {
+  if (!overload?.graphOnly) return target ?? null;
+  if (!target) {
+    delete overload.implementationBody;
+    return null;
+  }
+  const selectedBody = overload.bodySelectors.find(body =>
+    body.memberName === target.memberName
+    && body.selectorKey === target.selectorKey);
+  if (!selectedBody) {
+    delete overload.implementationBody;
+    retainGraphOnlyBodyTarget(overload, target);
+    return target;
+  }
+
+  overload.implementationBody = selectedBody;
+  const canonicalTarget =
+    graphMemberTargetWithSelectedBody(target, selectedBody);
+  retainGraphOnlyBodyTarget(overload, canonicalTarget);
+  return canonicalTarget;
+}
+
+export function graphOnlyImplementationBody(
+  overload: AppMemberSurface | null | undefined,
+): BrowserMemberBodySelector | undefined {
+  return overload?.graphOnly
+    ? overload.implementationBody
+    : undefined;
 }
 
 function packageTypes(result: BrowserPackageSurface): AppTypeSurface[] {
