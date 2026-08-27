@@ -96,6 +96,7 @@ static class Program
         bool benchmarkAuthoredCorpus = false;
         string? benchmarkCorpusPath = null;
         string? ratchetBaselinePath = null;
+        string? sourceOracleManifestPath = null;
         bool integrityOnly = false;
         bool showHelp = false;
         bool historyCard = false;
@@ -238,6 +239,7 @@ static class Program
                         benchmarkCorpusPath = NextArg(args, ref i, flag);
                         break;
                     case "--ratchet-baseline": ratchetBaselinePath = NextArg(args, ref i, flag); break;
+                    case "--source-oracle-manifest": sourceOracleManifestPath = NextArg(args, ref i, flag); break;
                     case "--integrity-only": integrityOnly = true; break;
                     case "--history-card": historyCard = true; break;
                     case "--history-path": historyCardPath = NextArg(args, ref i, flag); break;
@@ -381,7 +383,8 @@ static class Program
             appendAuthoredCorpusHistory is not null,
             verifyAuthoredCorpusHistory,
             ratchetBaselinePath is not null,
-            integrityOnly);
+            integrityOnly,
+            sourceOracleManifestPath is not null);
         switch (flags.Disposition)
         {
             case AuthoredCorpusExitContract.FlagDisposition.PrintUsage:
@@ -632,7 +635,13 @@ static class Program
             s_protectedGateDispatched = true;
 
             return benchmarkAuthoredCorpus
-                ? AuthoredCorpusBenchmark.Run(assemblies, benchmarkCorpusPath!, json, ratchetBaselinePath, integrityOnly)
+                ? AuthoredCorpusBenchmark.Run(
+                    assemblies,
+                    benchmarkCorpusPath!,
+                    json,
+                    ratchetBaselinePath,
+                    integrityOnly,
+                    sourceOracleManifestPath)
                 : AuthoredCorpusDrift.Run(assemblies, verifyCorpusPath!, json, failOnDrift, sourceRepositories);
         }
 
@@ -2289,6 +2298,12 @@ static class Program
                                 missing or unparseable is a hard error; a baseline
                                 that parses but holds no comparable row is a loud
                                 skip, never a silent pass.
+          --source-oracle-manifest <manifest.json>
+                                with --benchmark-authored-corpus: register complete
+                                whole-file eligible-member sets. Every registered
+                                file must be Valid and Correct; files opted into
+                                Printer exact must also match before source
+                                normalization. Missing or stale members fail.
           --integrity-only      with --benchmark-authored-corpus: report measurement
                                 integrity only, making no quality claim at all. For a
                                 lane that cannot yet ratchet because its pool is not

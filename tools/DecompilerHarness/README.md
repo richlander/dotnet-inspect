@@ -354,6 +354,69 @@ instead of silently reducing the product-body-defect count. Each target is
 valid-but-different taste buckets, `Invalid` (does not round-trip), or one of the
 diagnostic buckets below:
 
+The authored-source judgments are nested:
+
+1. **Valid** — the reconstructed C# compiles and binds.
+2. **Correct** — the decompiled body matches the authored body after the
+   established source normalization.
+3. **Printer exact** — an eligible block body matches before source
+   normalization, after only newline normalization, deterministic declaration
+   envelope removal, and common source-indentation removal.
+
+`Printer exact` is therefore a subset of `Correct`, which is a subset of
+`Valid`. Compile-back `Exact`/`OpcodeDiff`/`OperandDiff` remains a separate IL
+fidelity axis. The harvester stores the pre-normalized block text in the
+optional `printerBody` field; older corpus rows remain valid but report
+`NotRecorded`. Its `printerBodyVersion` identifies the mechanical comparison
+contract. Expression-bodied declarations, bodies containing directives, and
+bodies containing multiline tokens are explicitly ineligible
+because projecting `=> expression` to a block would be a source-shape rewrite,
+not mechanical envelope removal.
+
+`--source-oracle-manifest <manifest.json>` turns selected whole source files
+into a non-vacuous gate. Every registered file must be Valid and Correct for
+its complete expected eligible-member set. A file with
+`requirePrinterExact: true` must additionally be Printer exact for every member.
+The benchmark compares the expected and observed member sets in both directions,
+so removing a corpus row or adding a row without updating the manifest fails
+instead of changing the denominator. Version 1 accepts only the versioned
+`default-v1` printer profile:
+
+```json
+{
+  "version": 1,
+  "printerComparisonVersion": 1,
+  "files": [
+    {
+      "sourceUrl": "https://raw.githubusercontent.com/owner/repo/commit/src/Oracle.cs",
+      "checksumAlgorithm": "SHA256",
+      "checksum": "ABCDEF...",
+      "printerProfile": "default-v1",
+      "requirePrinterExact": true,
+      "members": [
+        {
+          "assembly": "Oracle",
+          "assemblyVersion": "1.0.0.0",
+          "moduleVersionId": "11111111-2222-3333-4444-555555555555",
+          "metadataToken": 100663297,
+          "type": "Oracle.Component",
+          "method": "Run",
+          "overload": 0
+        }
+      ]
+    }
+  ]
+}
+```
+
+Without `--source-oracle-manifest`, the card reports the whole-file source
+oracle as **not judged**; absence is not a Printer-exact pass. This is a
+perfection gate over enrolled files, not an aggregate EVIL history metric, so it
+is intentionally not projected into the authored-corpus trend store.
+
+`AuthoredSourceOracleManifestTests` is the enforcing gate for complete member
+sets, the Valid/Correct prerequisites, and Printer-exact opt-in.
+
 Raw syntax indexes used by fixture and on-demand source probes do not carry that
 typed correlation, so fault attribution is not attempted for them. Their
 original compile diagnostic remains visible and an invalid result is
