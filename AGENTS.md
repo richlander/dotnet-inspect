@@ -806,11 +806,15 @@ feedback; the settled PR still requires its full round.
 | Everything else | **GPT-5.6 Sol**, always, plus one other roster reviewer (Claude Opus or Gemini Pro). |
 
 When uncertain, use the standard round. Pick the second seat from the prior
-round's clean count: no prior round or 0/2 clean → prefer GPT-5.6 Sol again;
-1/2 clean → keep GPT-5.6 Sol fixed, rule out last round's second seat, then
-prefer a different family than the author (the author's family only as a
-fallback) at that model's highest available quality. Record the choice and its
-reasoning on the PR.
+round's clean count:
+
+- **No prior round, or 0/2 clean:** prefer GPT-5.6 Sol again for the second
+  seat.
+- **1/2 clean:** keep GPT-5.6 Sol fixed, rule out last round's second seat,
+  then prefer a different family than the author (the author's family only as
+  a fallback) at that model's highest available quality.
+
+Record the choice and its reasoning on the PR.
 
 If a roster model is unavailable, substitute another model for that seat,
 report the substitution on the PR, and proceed without approval — a
