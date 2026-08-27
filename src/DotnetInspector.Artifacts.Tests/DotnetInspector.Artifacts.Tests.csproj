@@ -22,6 +22,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DotnetInspector.Artifacts\DotnetInspector.Artifacts.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Artifacts.Local\DotnetInspector.Artifacts.Local.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Artifacts.Workspaces\DotnetInspector.Artifacts.Workspaces.csproj" />
   </ItemGroup>
 
 </Project>
