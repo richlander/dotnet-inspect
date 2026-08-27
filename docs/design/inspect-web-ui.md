@@ -294,7 +294,7 @@ Workspace, Package, Library, Type, and Member are progressively narrower
 inspection subjects:
 
 - **Workspace** means the retained set of open inspection coordinates.
-- **Package** means one selected NuGet or platform package coordinate.
+- **Package** means one selected package-adapter coordinate.
 - **Library** means all admitted libraries or one library in that coordinate.
 - **Type** means one selected type in the active Library subject.
 - **Member** means one selected member of the active Type.
@@ -338,11 +338,18 @@ Each visible role is a real interactive control rather than click behavior
 attached to inert text:
 
 - activating `dotnet-inspect` opens Workspace;
-- activating the coordinate opens its applicable package, version, TFM, or
-  acquisition-detail controls;
-- activating an ancestor portion of the current subject moves to that subject;
-  and
+- activating the coordinate opens a coordinate menu whose first action
+  navigates to the Package or other root overview and whose remaining controls
+  change applicable version, TFM, or acquisition detail;
+- activating the current subject opens a hierarchy menu containing every
+  applicable root, Library, Type, and Member ancestor with its availability
+  state; and
 - `Copy target` copies the product-issued canonical current target.
+
+The coordinate and subject menus are not primary-view tablists. Their items use
+the product-issued subject identities and availability results. They make root
+and ancestor navigation reachable even when the compact command omits parent
+labels.
 
 Copying a target and copying a restorable workspace URL are different actions.
 `Copy target` does not reconstruct identity from display text. The `share`
@@ -390,11 +397,17 @@ Lens tablists use one tab stop and manual activation:
   leaves the tablist from the focused tab.
 - Left and Right Arrow move focus through the horizontal tabs.
 - Home and End move focus to the first and last tab.
+- Arrow navigation includes `aria-disabled` lens tabs so unavailable lenses
+  remain discoverable.
 - Enter or Space activates a focused available tab.
 - Activating an `aria-disabled` tab has no effect.
 
 Roving `tabindex` keeps only the focused tab at `tabindex="0"`. Moving focus
 does not change `aria-selected` or start lens work until activation.
+
+An unavailable lens remains in its owning strip with
+`aria-disabled="true"` and an accessible description of the owner-issued
+reason. It does not retain stale panel content.
 
 ### Subject availability and reconciliation
 
@@ -409,6 +422,12 @@ occupy permanent primary tabs:
   Type selection.
 - Member is available when Type is available and the current Type has a current
   Member selection.
+
+The hierarchy menu exposes every applicable subject level. An unavailable
+Library, Type, or Member item remains discoverable with `aria-disabled="true"`
+and an owner-issued reason. The coordinate root overview also summarizes
+ordinary absent capabilities, such as a valid package with no inspectable
+Types, separately from acquisition or producer failures.
 
 Reconciliation first computes subjects, then decides whether navigation must
 move:
@@ -453,9 +472,15 @@ can validly supply:
 2. The owner-issued initial Library lens when a Library exists but no Type does.
 3. The coordinate's root overview when no inspectable Library or Type exists.
 
-This default applies only to initial workspace creation. Browser refresh,
-history navigation, and shared-link restoration use the canonical packet
-instead of reapplying the default.
+Initial activation may adopt an owner-issued default Type only after a valid
+Library subject exists. That adoption is the one initial Type choice permitted
+without a prior user selection; later reconciliation never substitutes another
+Type or Member.
+
+This default applies to the initial activation of each newly acquired
+coordinate, including coordinates added to an existing Workspace. Browser
+refresh, history navigation, Workspace reactivation, and shared-link restoration
+use retained or canonical state instead of reapplying the default.
 
 A tools v2 pointer package is the required Package-fallback case. Acquisition
 succeeds, Package identity and metadata remain available, Library, Type, and
@@ -618,18 +643,44 @@ identity into readable path segments merely to make them URL-addressable. A
 non-package workspace omits the `package` courtesy field rather than placing a
 local path or other sensitive coordinate in readable URL state.
 
-Browser refresh must restore the same committed inspection view. Every
-committed state transition therefore participates in canonical state when the
-product packet owns a representation for it, including:
+The completed redesign must restore the same portable committed inspection view
+after browser refresh. The UI reaches that outcome only through
+product-issued long-form state and the product codec. It does not parse the
+packet or add compact fields.
 
-- open workspace coordinates and the active entry;
-- package version and TFM;
-- current Package, Library, Type, or Member subject;
-- active lens or Member section;
-- committed Library selection;
-- selected Type, Member, overload, or body target;
-- result-affecting filters; and
-- selected source or body target when portable identity exists.
+The current v1 packet can project coordinates, selected contexts, the active
+entry, Library identities, Type, portable Member, lens, and section. Package
+root facets, result-affecting filters, ambiguous overloads, body and source
+targets, and other non-portable subjects remain outside that contract.
+[#4787](https://github.com/richlander/dotnet-inspect/issues/4787) owns the
+focused workspace-definition work required before the complete restoration
+target can be implemented.
+
+Every committed transition is classified:
+
+- **Projectable:** update the canonical packet and make refresh restore that
+  exact owner-issued state.
+- **Non-projectable:** retain the last valid packet, keep the new state
+  session-local, and make explicit Share report the typed refusal.
+- **Failed:** retain both the prior workspace and its URL.
+
+The UI must not claim that a session-local state will survive refresh. Once the
+workspace owner adds a portable representation, the same UI transition becomes
+projectable without changing its visual identity.
+
+Browser history uses the same classification:
+
+- push a history entry for Home, Workspace, or Diagnostics routing; opening,
+  closing, or activating a coordinate; changing package version or TFM;
+  changing the Package, Library, Type, or Member subject; and changing the
+  active lens or Member section;
+- replace the current entry for committed filter changes and portable overload,
+  body, or source-target refinements; and
+- do not mutate history for hover, focus, uncommitted listbox movement,
+  disclosure animation, or incidental scroll position.
+
+A future packet projection does not decide its own history granularity. It
+inherits this UI-owned push or replace classification.
 
 Transient interaction state is excluded: hover, keyboard focus, an uncommitted
 listbox option, animation, incidental scroll position, and whether a disclosure
@@ -648,6 +699,27 @@ Home   Search   Open   Settings
 ```
 
 An optional decorative glyph does not replace any visible label.
+
+### Shared transient-surface semantics
+
+Coordinate and subject menus use menu-button semantics. Their invoking control
+exposes `aria-expanded` and `aria-controls`; opening moves focus to the current
+item or first available item; Escape or outside dismissal closes the menu; and
+focus returns to the invoking control.
+
+Spotlight, Open, Settings, and the narrow navigation drawer are modal dialogs:
+
+- each has a visible accessible name and close action;
+- opening moves focus to its primary input, current selection, or heading;
+- background content is inert while it is open;
+- Tab and Shift+Tab remain within the dialog;
+- Escape closes it unless an owner-issued destructive confirmation is active;
+  and
+- closing returns focus to the invoking control.
+
+Workspace and Diagnostics are routed full-bleed surfaces rather than dialogs.
+Navigation places focus on their visible level-one heading. Browser Back returns
+to the prior routed surface and restores focus through the history transition.
 
 ### Search
 
@@ -746,8 +818,9 @@ Settings is one surface with focused sections:
 
 Contextual entry points open the same surface at the relevant section. Settings
 preserves the current workspace and returns to the same inspection view when
-closed. Changes may apply live, but every setting is rendered and owned by the
-same component and state.
+closed. Changes may apply live, but one Settings component renders each
+owner-issued setting descriptor and dispatches its typed action. Domain owners
+retain validation and state semantics.
 
 Diagnostics is a separate full-bleed experience launched from Settings or
 Spotlight. It is not another settings implementation.
@@ -760,30 +833,42 @@ and producer provenance. This UI owner consumes those typed results and does
 not redefine them.
 
 The initial UI does not expose feed tabs or in-workspace source switching.
-Settings presents registered sources and one visible `Default feed` choice for
-ordinary new package search and acquisition. That choice is a host shortcut
-over the package-source owner's registration and selected-source contracts. It
-does not claim one global endpoint, source-order precedence, or that only one
-producer may be eligible.
+Settings presents the package-source owner's registered, enabled, selected,
+capability, authentication, and cache-action descriptors. It supports the
+owner-required selected source set and does not collapse ordinary search to one
+feed.
+
+One visible `Default feed` remains the desired host interaction for new package
+search and acquisition, but the current source contract has no such typed
+concept. [#4788](https://github.com/richlander/dotnet-inspect/issues/4788) owns
+the focused source design that must define how it composes with multi-source
+discovery and authorized payload acquisition. Until that owner supplies a
+descriptor and operation semantics, the UI does not render a singular setting
+or infer precedence from source order.
 
 Once a package is acquired, Workspace shows its product-reported producer as
-read-only context. Changing `Default feed` updates later source-owner search and
-acquisition inputs; it does not reinterpret bytes already loaded into a
+read-only context. A future default-feed change may affect only later
+source-owner operations; it never reinterprets bytes already loaded into a
 Workspace. Inspecting the same coordinate from another producer is a new
 acquisition.
 
 Session authentication uses the credential contract from
 [Browser credentials](browser-package-sources.md#browser-credentials).
 Credential entry and authentication state appear only for the owning source.
-Refresh may restore the selected source and workspace identity while visibly
-requesting authentication again; it does not silently switch producers.
+After refresh, the UI consumes the source owner's actual outcome: an authorized
+cached payload may restore without authentication, an operation may request
+authentication, or another eligible producer may fulfill a pinned coordinate.
+The UI displays the returned producer and failure or partial evidence; it does
+not promise producer-bound replay when no owner-issued replay identity exists.
 
 Source-scoped persistent package payloads may appear in Diagnostics and cache
 management. Credentials never appear there.
 
 Search results and version choices show producer labels when source identity is
-needed to explain availability or distinguish results. The UI uses
-owner-issued redacted labels rather than parsing endpoints.
+needed to explain availability or distinguish results. Workspace, package
+headings, and the data bar render the owner-issued compact producer label
+verbatim. The UI never shortens, parses, or reconstructs that label from an
+endpoint.
 
 ## Command palette
 
@@ -803,7 +888,8 @@ share
 ```
 
 Command execution uses the same state transitions as pointer interaction and
-updates canonical state after commit.
+applies the same projectable, non-projectable, or failed canonical-state
+classification after commit.
 
 The persistent inspection command is navigation context, not an always-editable
 text input. The site does not introduce a broad set of single-letter page
@@ -815,7 +901,9 @@ keyboard behavior is sufficient.
 One information hierarchy adapts across viewport sizes:
 
 - wide layouts retain Type or Member navigation beside a full working surface;
-- narrow layouts move navigation into an explicit drawer or overlay;
+- narrow layouts replace the navigation pane with a visible
+  `Types` or `Members` button whose `aria-expanded` and `aria-controls`
+  relationship opens the shared modal navigation drawer;
 - the inspection command remains one line;
 - coordinate and leaf subject have highest truncation priority;
 - intermediate qualification elides first;
@@ -835,7 +923,7 @@ The bottom data bar is one compact product-information line. It does not wrap,
 expand, or host runtime diagnostics:
 
 ```text
-dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · Package source: Corporate mirror · CLI tool · Agent skill
+dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · Package source: Corporate mirror (pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json) · CLI tool · Agent skill
 ```
 
 The data bar includes:
@@ -896,7 +984,8 @@ the product domain.
 
 ## Acceptance scenarios
 
-The redesign is not complete unless these outcomes hold:
+An implementation claiming this redesign is complete must satisfy these
+outcomes:
 
 ### Ordinary package
 
@@ -904,7 +993,9 @@ The redesign is not complete unless these outcomes hold:
 2. Confirm that the workspace starts on Type API.
 3. Confirm that the inspection command shows the active package coordinate and
    Type without a package-tab or primary-view row.
-4. Switch to Metadata and confirm that detailed Type identity appears there
+4. Open the subject menu and navigate to the active Library.
+5. Open the coordinate menu and navigate to Package Overview.
+6. Return to Type Metadata and confirm that detailed Type identity appears there
    without returning to API or Source.
 
 ### Tools v2 pointer package
@@ -913,27 +1004,49 @@ The redesign is not complete unless these outcomes hold:
 2. Confirm that acquisition succeeds with no inspectable Library or Type.
 3. Confirm that the workspace opens Package Overview.
 4. Confirm that absence of types is disclosed as ordinary availability rather
-   than a malformed-workspace or inspection failure.
+   than a malformed-workspace or inspection failure in both the root overview
+   and subject menu.
 
 ### Refresh restoration
 
 1. Open two coordinates.
-2. Select the second coordinate, one Library, a Type, a Member, a non-default
-   lens, and result-affecting filters.
+2. Select the second coordinate, one Library, a Type, a portable Member, and a
+   non-default lens.
 3. Refresh the browser.
-4. Confirm that the same coordinate, subject, lens, and committed filters are
-   restored from the canonical packet.
+4. Confirm that the same coordinate, Library, Type, Member, and lens are
+   restored from the current canonical packet.
 5. Confirm that keyboard focus, hover, an uncommitted Library option, and
    incidental scroll position are not restored.
+6. Select a currently non-projectable filter or body target and confirm that
+   explicit Share reports the typed refusal rather than claiming portability.
+7. After #4787 supplies the required projection, repeat the refresh and confirm
+   that the same committed filter or body target is restored.
+
+### Browser history
+
+1. Activate a coordinate, navigate to a Type, and select Source.
+2. Change several result filters.
+3. Use Browser Back and confirm that it returns to the prior pushed subject or
+   lens state rather than stepping through each filter change.
+4. Use Browser Forward and confirm that it restores the Source state with its
+   latest replaced refinements.
 
 ### Package-source authentication
 
-1. Register an authenticated browser source and select it as `Default feed`.
-2. Acquire a package and confirm that Workspace and the data bar show the
-   owner-issued producer label.
-3. Refresh after session credentials are discarded.
-4. Confirm that restoration pauses with a visible authentication requirement
-   and does not switch the workspace to another producer.
+1. Register an authenticated browser source and select it with at least one
+   other source.
+2. Confirm that ordinary search follows the owner-issued active source set.
+3. Acquire a package and confirm that Workspace and the data bar show the
+   complete owner-issued compact producer label.
+4. If #4788 has supplied `Default feed` semantics, change that setting and
+   confirm that the UI sends the exact owner-issued policy rather than reducing
+   search to one endpoint.
+5. Refresh after session credentials are discarded.
+6. Confirm that the UI presents the actual source-owner outcome: cached
+   restoration, authentication required, another authorized producer, or typed
+   failure.
+7. Confirm that the returned producer and any partial or failure evidence are
+   visible.
 
 ### Search input
 
@@ -967,15 +1080,29 @@ The redesign is not complete unless these outcomes hold:
 
 1. Start from a committed Type Source state.
 2. Narrow the viewport until Type navigation moves to its drawer.
-3. Confirm that the inspection command and lens strip remain single-line
+3. Activate the visible `Types` button and confirm its expanded state, initial
+   focus, focus containment, Escape dismissal, and focus return.
+4. Confirm that the inspection command and lens strip remain single-line
    scrolling or truncating surfaces rather than wrapping.
-4. Restore the wide viewport and confirm that coordinate, subject, lens,
+5. Restore the wide viewport and confirm that coordinate, subject, lens,
    filters, and canonical state did not change.
+
+### Modal and routed surfaces
+
+1. Open and close Spotlight, Open, and Settings by pointer, keyboard, and
+   Escape.
+2. Confirm accessible naming, initial focus, modal containment, inert
+   background content, and focus return for each.
+3. Navigate to Workspace and Diagnostics and confirm that they are routed
+   surfaces with visible level-one headings rather than modal dialogs.
+4. Use Browser Back and confirm that the prior routed surface and focus context
+   return.
 
 ### Data and diagnostics
 
-1. Confirm that version, commit, UTC date, acquired producer, CLI tool, and
-   agent skill occupy one non-expanding data-bar line.
+1. Confirm that version, commit, UTC date, the complete owner-issued compact
+   producer label, CLI tool, and agent skill occupy one non-expanding data-bar
+   line.
 2. Confirm that timings, cache counts, runtime readiness, assembly identity,
    and framework do not appear in that line.
 3. Open Diagnostics and confirm that detailed runtime, source, and cache

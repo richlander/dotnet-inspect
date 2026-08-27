@@ -556,10 +556,12 @@ addition to display names. Every human and structured endpoint projection uses
 the shared URL-redaction policy; signed queries and other credential-bearing
 components are never rendered.
 
-The website shows source badges in search results, version choices, package
-tabs, and package headings. A version advertised upstream but unavailable from
-a selected mirror is shown as a source-specific availability fact, not as a
-contradictory global package state.
+The website renders the owner-issued compact producer label on every
+source-bearing surface designated by
+[Inspect Web UI](inspect-web-ui.md#package-source-presentation), including
+search results and version choices. A version advertised upstream but
+unavailable from a selected mirror is shown as a source-specific availability
+fact, not as a contradictory global package state.
 
 ## Implementation direction
 
