@@ -35,11 +35,15 @@ the resolved definition's authenticated kind plus
 `TypeResolutionContext.TryGetEnumUnderlyingType` establish a sealed
 core-library-derived `System.Enum` definition and read its single valid
 `value__` field without exposing a reader. Reflection-name escapes are projected
-back to exact metadata namespace and type segments. Unplanned, unbound,
+back to exact metadata namespace and type segments, and the pre-decode guard
+applies SRM's own serialized-name projection before consulting the width table,
+so a name that only parses once its assembly suffix is removed cannot give the
+guard and the decoder different widths. Unplanned, unbound,
 malformed, or callback-ambiguous names stay `Int32`. Product extract does not
 yet collect CA enum names into a generation; that remains residual on
 [#4741](https://github.com/richlander/dotnet-inspect/issues/4741).
-`TypeResolutionEnumWidthTests` gates the adapter.
+`TypeResolutionEnumWidthTests` gates the adapter, and
+`CustomAttributeValueGuardTests` gates guard/decoder width alignment.
 
 ## The problem
 

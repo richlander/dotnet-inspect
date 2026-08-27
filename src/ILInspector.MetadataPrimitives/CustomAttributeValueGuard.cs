@@ -722,9 +722,12 @@ public static class CustomAttributeValueGuard
     {
         if (enumName is null)
             return PrimitiveTypeCode.Int32;
+        string projected = AttributeDecoder.ProjectSerializedEnumName(
+            enumUnderlyingType,
+            enumName);
         return enumUnderlyingType is not null
-            ? EnumUnderlyingPrimitive.Normalize(enumUnderlyingType(enumName))
-            : EnumUnderlyingPrimitive.FromSerializedName(reader, enumName);
+            ? EnumUnderlyingPrimitive.Normalize(enumUnderlyingType(projected))
+            : EnumUnderlyingPrimitive.FromSerializedName(reader, projected);
     }
 
     static Result SkipSerString(

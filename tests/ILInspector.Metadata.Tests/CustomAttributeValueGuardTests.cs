@@ -527,6 +527,50 @@ public sealed class CustomAttributeValueGuardTests
                 ExactSimpleNameInt64));
     }
 
+    [Theory]
+    [InlineData(@"Samples.E\+Kind, =")]
+    [InlineData(@"Samples.E\+Kind, Other, Version=")]
+    public void EscapedNamedEnum_MalformedAssemblySuffix_SeesOverlappingHostileCount(
+        string enumName)
+        => AssertEscapedNamedEnumSeesHostileCount(enumName);
+
+    [Fact]
+    public void EscapedNamedEnum_OverBudgetAssemblySuffix_SeesOverlappingHostileCount()
+        => AssertEscapedNamedEnumSeesHostileCount(
+            @"Samples.E\\Kind, "
+                + new string('x', MetadataSafetyPolicy.MaxTypeNameCharacters + 1));
+
+    /// <summary>
+    /// A serialized enum name whose assembly suffix is malformed or over the
+    /// character budget still has to select one width. SRM projects the blob
+    /// name through <c>GetTypeFromSerializedName</c> before asking for the
+    /// underlying type, so a guard that asks with a differently projected name
+    /// skips four bytes where SRM consumes eight and never sees the following
+    /// declared count.
+    /// </summary>
+    static void AssertEscapedNamedEnumSeesHostileCount(string enumName)
+    {
+        using var image = Open(
+            BuildOverlappingInt64NamedEnumHostileImage(enumName: enumName));
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        int charged = 0;
+        Assert.False(
+            CustomAttributeValueGuard.IsSafeToDecode(
+                image.Reader,
+                attribute,
+                count => charged = checked(charged + count),
+                EscapedMetadataNameInt64));
+        Assert.True(
+            charged >= (2 + 100_000_000) * CustomAttributeValueGuard.DeclaredSlotCharge,
+            $"Expected the 100M array count to be charged, charged {charged}.");
+        Assert.Null(
+            AttributeDecoder.TryDecode(
+                image.Reader,
+                attribute,
+                beforeMaterialize: null,
+                EscapedMetadataNameInt64));
+    }
+
     [Fact]
     public void ClassSystemStringFixedArgument_SeesFollowingArrayCount()
     {
@@ -1308,9 +1352,20 @@ public sealed class CustomAttributeValueGuardTests
     static PrimitiveTypeCode ExactSimpleNameInt64(string name)
         => name == "Samples.E" ? PrimitiveTypeCode.Int64 : PrimitiveTypeCode.Int32;
 
+    /// <summary>
+    /// An external width for the exact metadata names the escaped serialized
+    /// spellings below denote, so a guard that projects the blob name
+    /// differently than SRM selects a different skip.
+    /// </summary>
+    static PrimitiveTypeCode EscapedMetadataNameInt64(string name)
+        => name is "Samples.E+Kind" or @"Samples.E\Kind"
+            ? PrimitiveTypeCode.Int64
+            : PrimitiveTypeCode.Int32;
+
     static byte[] BuildOverlappingInt64NamedEnumHostileImage(
         bool localInt64Enum = false,
-        bool cyclicTypeDef = false)
+        bool cyclicTypeDef = false,
+        string enumName = "Samples.E, Other")
     {
         var metadata = CreateMetadata("User");
         MemberReferenceHandle constructor = AddConstructor(
@@ -1322,7 +1377,7 @@ public sealed class CustomAttributeValueGuardTests
         value.WriteUInt16(2);
         value.WriteByte(0x53);
         value.WriteByte(0x55);
-        value.WriteSerializedString("Samples.E, Other");
+        value.WriteSerializedString(enumName);
         value.WriteSerializedString("Kind");
         value.WriteByte(0x07);
         value.WriteByte(0x00);

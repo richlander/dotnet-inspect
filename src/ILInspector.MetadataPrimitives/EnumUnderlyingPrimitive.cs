@@ -15,11 +15,19 @@ namespace ILInspector.Metadata;
 /// not a TypeDef in the current image falls back to
 /// <see cref="PrimitiveTypeCode.Int32"/> so the skip stays aligned, unless a
 /// caller-supplied resolver found the defining image first. A local TypeDef
-/// still wins over that resolver. Guard and SRM both consult the resolver
-/// with <see cref="NormalizeSerializedName"/> of the blob name and
-/// <see cref="Normalize"/> the returned code so an assembly-qualified
-/// SerString or a non-fixed-width callback cannot select a different skip
-/// than SRM.
+/// still wins over that resolver. For a handle the guard consults the resolver
+/// with the same name SRM derives from that handle; for a blob-authored
+/// SerString it first applies SRM's own
+/// <c>GetTypeFromSerializedName</c> projection through
+/// <see cref="AttributeDecoder.ProjectSerializedEnumName"/>, so the two sides
+/// ask one identical question by construction rather than by relying on two
+/// normalizations agreeing on names that only parse once the assembly suffix
+/// is removed. Both then <see cref="Normalize"/> the returned code so an
+/// assembly-qualified SerString or a non-fixed-width callback cannot select a
+/// different skip than SRM. <c>CustomAttributeValueGuardTests</c>'s
+/// <c>EscapedNamedEnum_MalformedAssemblySuffix_SeesOverlappingHostileCount</c>
+/// and <c>EscapedNamedEnum_OverBudgetAssemblySuffix_SeesOverlappingHostileCount</c>
+/// gate that alignment.
 /// </summary>
 static class EnumUnderlyingPrimitive
 {

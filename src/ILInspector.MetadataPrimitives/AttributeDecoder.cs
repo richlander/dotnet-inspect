@@ -193,9 +193,11 @@ public static class AttributeDecoder
     /// <summary>
     /// Decodes an attribute, consulting <paramref name="enumUnderlyingType"/>
     /// for serialized enum names that are not TypeDefs in
-    /// <paramref name="reader"/>. The resolver receives the blob name with
-    /// the assembly suffix stripped and nested <c>+</c> rewritten to <c>.</c>,
-    /// matching the string SRM later passes to <c>GetUnderlyingEnumType</c>.
+    /// <paramref name="reader"/>. The resolver receives the exact metadata
+    /// name SRM's provider derives from the blob: the assembly suffix removed,
+    /// reflection escapes restored, and nested segments joined with <c>.</c>.
+    /// The pre-decode guard asks with that same projection, so a guard skip
+    /// and this decode never select different widths.
     /// </summary>
     public static CustomAttributeValue<string>? TryDecode(
         MetadataReader reader,
@@ -337,6 +339,24 @@ public static class AttributeDecoder
                 preserveSerializedTypeNames: false,
                 beforeMaterialize,
                 enumUnderlyingType).GetUnderlyingEnumType;
+
+    /// <summary>
+    /// Applies the same projection SRM applies to a blob-authored serialized
+    /// enum name before it calls <c>GetUnderlyingEnumType</c>. SRM resolves the
+    /// SerString through <see cref="ArgTypeProvider.GetTypeFromSerializedName"/>
+    /// first, so a guard that consults the width oracle with the raw name asks a
+    /// different question whenever those two spellings normalize differently —
+    /// including names that only parse after the assembly suffix is removed.
+    /// Composing the same two steps keeps the guard skip and
+    /// <c>DecodeValue</c> on one width by construction rather than by relying on
+    /// two normalizations agreeing.
+    /// </summary>
+    internal static string ProjectSerializedEnumName(
+        Func<string, PrimitiveTypeCode>? enumUnderlyingType,
+        string name)
+        => enumUnderlyingType?.Target is ArgTypeProvider provider
+            ? provider.GetTypeFromSerializedName(name)
+            : EnumUnderlyingPrimitive.WithoutAssemblyQualification(name);
 
     /// <summary>Type provider for attribute-blob decoding: primitives as C# keywords, everything else as its full name (enums and typeof targets).</summary>
     sealed class ArgTypeProvider(
