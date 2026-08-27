@@ -566,6 +566,7 @@ public sealed record BrowserPerformanceMember(
     string Confidence);
 
 public sealed record BrowserMemberFacts(
+    int MetadataToken,
     BrowserMethodSignals Signals,
     BrowserAllocationFact[] Allocations,
     BrowserCallFact[] Calls,
@@ -604,8 +605,7 @@ public sealed record BrowserCallFact(
     string Opcode,
     string Kind,
     string Multiplicity,
-    bool InLoop,
-    bool ExactTarget);
+    bool InLoop);
 
 public sealed record BrowserSafetyFact(
     string Kind,

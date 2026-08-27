@@ -352,6 +352,7 @@ public static partial class InspectionEngine
             $"Facts for '{typeIdentity}.{memberName}'");
 
         var result = new BrowserMemberFacts(
+            analysis.Method.MetadataToken,
             new BrowserMethodSignals(
                 analysis.Signals.Allocations,
                 analysis.Signals.Copies,
@@ -398,8 +399,7 @@ public static partial class InspectionEngine
                             : call.Opcode,
                         call.Kind.ToString(),
                         call.Multiplicity.ToString(),
-                        call.InLoop,
-                        call.ExactTarget)),
+                        call.InLoop)),
             ],
             [
                 .. analysis.UnsafetyOccurrences.Select(

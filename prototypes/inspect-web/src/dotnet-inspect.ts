@@ -4146,15 +4146,13 @@ function renderMemberFacts(
     .map(s => s.offset)
     .filter((offset): offset is string => offset != null);
   const loopAllocOffsets = facts.allocations.filter(a => a.inLoop).map(a => a.offset);
-  const bodyMetadataToken =
-    state.selectedBodyTarget?.metadataToken ?? overload.metadataToken;
   return `
     <section class="document-section facts-section">
       <div class="section-title"><h2>Method facts</h2><span>selected overload</span></div>
       ${factRows([
         ["Overload", `${overloadIndex + 1} of ${member.overloads.length}`],
         ["Kind", overload.kind],
-        ["Metadata token", bodyMetadataToken == null ? "not exposed" : `0x${bodyMetadataToken.toString(16).padStart(8, "0")}`],
+        ["Metadata token", `0x${facts.metadataToken.toString(16).padStart(8, "0")}`],
         ["Declaring type", type.id],
         ["Allocations", String(signals.allocations), allocOffsets],
         ["Calls", String(facts.calls.length), callOffsets],
@@ -4174,8 +4172,7 @@ function renderMemberFacts(
     ], "No heap-allocation occurrences were found in this method.")}
     ${renderFactTable("Calls", facts.calls, [
       ["IL", "offset"], ["Opcode", "opcode"], ["Callee", "callee"],
-      ["Multiplicity", "multiplicity"], ["Loop", row => row.inLoop ? "yes" : ""],
-      ["Target", row => row.exactTarget ? "exact" : "open"]
+      ["Multiplicity", "multiplicity"], ["Loop", row => row.inLoop ? "yes" : ""]
     ], "No direct call sites were found in this method.")}
     ${renderFactTable("Safety facts", facts.safety, [
       ["IL", row => row.offset || ""], ["Kind", "kind"], ["Evidence", "detail"]

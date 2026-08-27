@@ -414,7 +414,7 @@ test("platform type and member navigation hides package-only operations", () => 
     ["api"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, true),
-    ["overview", "call-graph", "facts"]);
+    ["overview", "call-graph"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, false),
     ["overview", "call-graph", "facts", "source", "annotated"]);

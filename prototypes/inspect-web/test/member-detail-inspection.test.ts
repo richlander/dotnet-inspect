@@ -58,6 +58,7 @@ function memberSurface(
 
 function factsResult(): MemberFacts {
   return {
+    metadataToken: 0x06000001,
     signals: {
       allocations: 0,
       copies: 0,

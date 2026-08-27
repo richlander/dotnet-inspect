@@ -1511,8 +1511,8 @@ export interface SectionableMember {
 const allMemberSections: readonly MemberSection[] =
   memberSectionDefinitions.map(([id]) => id);
 
-const sourceBackedMemberSections: ReadonlySet<MemberSection> =
-  new Set<MemberSection>(["source", "annotated"]);
+const packageOnlyMemberSections: ReadonlySet<MemberSection> =
+  new Set<MemberSection>(["facts", "source", "annotated"]);
 
 export function memberSectionIdsFor(
   member: SectionableMember | null | undefined,
@@ -1524,7 +1524,7 @@ export function memberSectionIdsFor(
     return ["overview"];
   }
   const sections = isRuntimePack
-    ? allMemberSections.filter(section => !sourceBackedMemberSections.has(section))
+    ? allMemberSections.filter(section => !packageOnlyMemberSections.has(section))
     : [...allMemberSections];
   return hasSelectedBody
     && ["property", "event"].includes(member?.kind ?? "")

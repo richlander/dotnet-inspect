@@ -68,7 +68,6 @@ export interface BrowserCallFact {
   kind: string;
   multiplicity: string;
   inLoop: boolean;
-  exactTarget: boolean;
 }
 
 export interface BrowserCallGraph {
@@ -244,6 +243,7 @@ export interface BrowserMemberDocumentation {
 }
 
 export interface BrowserMemberFacts {
+  metadataToken: number;
   signals: BrowserMethodSignals;
   allocations: BrowserAllocationFact[];
   calls: BrowserCallFact[];

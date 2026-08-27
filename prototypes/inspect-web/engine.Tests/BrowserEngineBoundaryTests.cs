@@ -3215,6 +3215,16 @@ public sealed class BrowserEngineBoundaryTests
 
         using JsonDocument document = JsonDocument.Parse(json);
         JsonElement root = document.RootElement;
+        Assert.Equal(
+            typeof(BrowserEngineBoundaryTests)
+                .GetMethod(nameof(PerformanceBoxingProbe))!
+                .MetadataToken,
+            root.GetProperty("metadataToken").GetInt32());
+        Assert.NotEqual(
+            typeof(BrowserEngineBoundaryTests)
+                .GetMethod(nameof(PerformanceNoAllocationProbe))!
+                .MetadataToken,
+            root.GetProperty("metadataToken").GetInt32());
         Assert.True(
             root.GetProperty("signals")
                 .GetProperty("allocations")
