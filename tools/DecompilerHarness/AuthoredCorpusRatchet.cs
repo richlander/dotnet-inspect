@@ -741,7 +741,8 @@ static class AuthoredCorpusExitContract
         bool appendAuthoredCorpusHistory,
         bool verifyAuthoredCorpusHistory,
         bool ratchetBaselineSupplied,
-        bool integrityOnly)
+        bool integrityOnly,
+        bool sourceOracleManifestSupplied)
     {
         // Both corpus gates are taken separately rather than pre-combined by the caller.
         // Pre-combining put the `||` in Program.cs, which no test can reach: tampering it
@@ -754,7 +755,8 @@ static class AuthoredCorpusExitContract
             || appendAuthoredCorpusHistory
             || verifyAuthoredCorpusHistory
             || ratchetBaselineSupplied
-            || integrityOnly;
+            || integrityOnly
+            || sourceOracleManifestSupplied;
 
         if (showHelp && !anyGateFlag)
             return new FlagVerdict(FlagDisposition.PrintUsage, null);
@@ -767,12 +769,16 @@ static class AuthoredCorpusExitContract
 
         if (integrityOnly && !benchmarkAuthoredCorpus)
             return Refuse("--integrity-only applies to --benchmark-authored-corpus; it has no effect on its own.");
+        if (sourceOracleManifestSupplied && !benchmarkAuthoredCorpus)
+            return Refuse("--source-oracle-manifest applies to --benchmark-authored-corpus; it has no effect on its own.");
 
         // Asking for a quality verdict and declining to judge quality are contradictory
         // demands, and silently honouring one of them would make the exit code mean
         // something the caller did not ask for.
         if (integrityOnly && ratchetBaselineSupplied)
             return Refuse("--integrity-only and --ratchet-baseline are contradictory: one declines to judge quality, the other demands a verdict on it.");
+        if (integrityOnly && sourceOracleManifestSupplied)
+            return Refuse("--integrity-only and --source-oracle-manifest are contradictory: one declines to judge quality, the other demands a source-oracle verdict.");
 
         return new FlagVerdict(FlagDisposition.Proceed, null);
 
@@ -792,7 +798,8 @@ static class AuthoredCorpusExitContract
             appendAuthoredCorpusHistory: false,
             verifyAuthoredCorpusHistory: false,
             ratchetBaselineSupplied,
-            integrityOnly);
+            integrityOnly,
+            sourceOracleManifestSupplied: false);
 
     /// <summary>
     /// The gates <see cref="PreemptedGateRefusal"/> protects: every mode whose whole

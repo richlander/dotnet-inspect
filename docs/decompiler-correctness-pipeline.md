@@ -574,6 +574,8 @@ Use these names in issues and PRs when selecting evidence:
 | **Entry gate** | Build and focused tests. This should be 100% green before any broader claim. |
 | **Shape proof** | The pass-specific `shape + proof + decline` story: positive fixture plus near-miss negative. |
 | **Validity** | Parse/statement/binding proof. This catches invalid C# and many skeleton defects. |
+| **Correct** | Authored-source correspondence after the harness's established source normalization. |
+| **Printer exact** | Opt-in authored-source correspondence before normalization, after versioned mechanical envelope handling only. |
 | **Annotation fidelity** | Allocation/unsafety/lifetime facts agree with independent IL witnesses. |
 | **Type artifact correctness** | Whole-type/source output has the right type/file/member shape. |
 | **Type binding** | Whole-type/source output binds in a Roslyn harness. |
@@ -602,6 +604,15 @@ Its version is independent from the corpus snapshot schema version.
 
 When reporting deltas, spell out `currentValidity`, `currentDecompilerFidelity`,
 and `currentFidelityCheck` rather than mixing axes.
+
+For authored-source evidence, use the nested source judgments
+`Printer exact ⊆ Correct ⊆ Valid`. The source-oracle manifest names a complete
+expected eligible-member set for each immutable whole-file identity. Every
+registered file must clear Valid and Correct; only files explicitly opted into
+Printer exact must clear the pre-normalized comparison. Missing or stale
+members fail the gate. `AuthoredSourceOracleManifestTests` enforces the set and
+nesting contract. Compile-back fidelity remains independent: Printer exact does
+not imply opcode fidelity, and opcode fidelity does not imply Printer exact.
 
 ## What each PR should report
 
