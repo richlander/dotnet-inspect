@@ -51,6 +51,23 @@ public class CommandLineLimitSlice4677Tests
         // still be treated as that value, not expanded.
         string[] platformRequiredValue = ["member", "JsonSerializer", "--platform", "-5"];
         Assert.Same(platformRequiredValue, CommandLineBuilder.PreprocessArgs(platformRequiredValue));
+
+        // `--library` and `--version` have the same command-dependent duality: both are
+        // ArgumentArity.ZeroOrOne on `package` ("use alone" selects the primary library / shows
+        // the resolved version), but required-value everywhere else (`--library` on search-scope
+        // commands, `--version` on `library`'s platform runtime-version option).
+        Assert.Equal(
+            ["package", "System.Text.Json", "--library", "-n", "2"],
+            CommandLineBuilder.PreprocessArgs(["package", "System.Text.Json", "--library", "-2"]));
+        Assert.Equal(
+            ["package", "System.Text.Json", "--version", "-n", "5"],
+            CommandLineBuilder.PreprocessArgs(["package", "System.Text.Json", "--version", "-5"]));
+
+        string[] libraryRequiredValueOnSearch = ["find", "JsonSerializer", "--library", "-5"];
+        Assert.Same(libraryRequiredValueOnSearch, CommandLineBuilder.PreprocessArgs(libraryRequiredValueOnSearch));
+
+        string[] versionRequiredValueOnLibrary = ["library", "System.Text.Json", "--version", "-5"];
+        Assert.Same(versionRequiredValueOnLibrary, CommandLineBuilder.PreprocessArgs(versionRequiredValueOnLibrary));
     }
 
     [Fact]

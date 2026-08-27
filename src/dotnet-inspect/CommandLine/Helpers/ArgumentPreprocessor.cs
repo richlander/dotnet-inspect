@@ -1,3 +1,4 @@
+using DotnetInspector.Commands;
 using DotnetInspector.Core;
 
 namespace DotnetInspector.CommandLine;
@@ -154,14 +155,33 @@ public static class ArgumentPreprocessor
         // `--platform <library>` into `--platform-library <library>`, so by this point any
         // remaining literal `--platform` in a search-scope command is guaranteed to be the
         // bool-flag form and must not be treated as consuming the following token.
-        int searchScopeCommandIndex = FindSearchScopeCommandIndex(args);
-        bool platformIsValueless = searchScopeCommandIndex >= 0;
+        //
+        // `--library` and `--version` have the same command-dependent duality on `package`:
+        // both are ArgumentArity.ZeroOrOne there ("use alone" selects the primary library /
+        // shows the resolved version), but are required-value everywhere else they appear
+        // (e.g., `--library` on search-scope commands, `--version` on `library`'s platform
+        // runtime-version option). A bare -N following either on `package` must expand to
+        // `-n N`, not be swallowed as the option's value.
+        int commandTokenIndex = FindFirstCommandTokenIndex(args);
+        string? commandToken = commandTokenIndex >= 0 ? args[commandTokenIndex] : null;
+        bool platformIsValueless = commandToken != null && SearchScopeCommands.Contains(commandToken);
+        bool isPackageCommand = commandToken != null
+            && string.Equals(commandToken, PackageCommand.Name, StringComparison.OrdinalIgnoreCase);
+
+        var valuelessOverrides = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (platformIsValueless)
+            valuelessOverrides.Add("--platform");
+        if (isPackageCommand)
+        {
+            valuelessOverrides.Add("--library");
+            valuelessOverrides.Add("--version");
+        }
 
         // Expand every bare -NN shorthand (e.g., -30) into -n 30 before parsing.
         for (int i = 0; i < endOfOptions; i++)
         {
             if (args[i].Length >= 2 && args[i][0] == '-' && char.IsDigit(args[i][1])
-                && !IsFollowingRequiredOptionValue(args, i, platformIsValueless)
+                && !IsFollowingRequiredOptionValue(args, i, valuelessOverrides)
                 && int.TryParse(args[i].AsSpan(1), out var headN))
             {
                 args = [.. args[..i], "-n", args[i][1..], .. args[(i + 1)..]];
@@ -253,14 +273,14 @@ public static class ArgumentPreprocessor
         return args;
     }
 
-    private static bool IsFollowingRequiredOptionValue(string[] args, int index, bool platformIsValueless)
+    private static bool IsFollowingRequiredOptionValue(string[] args, int index, HashSet<string> valuelessOverrides)
     {
         if (index == 0)
             return false;
 
         string precedingToken = args[index - 1];
         string optionName = precedingToken.Split('=', 2)[0];
-        if (platformIsValueless && string.Equals(optionName, "--platform", StringComparison.Ordinal))
+        if (valuelessOverrides.Contains(optionName))
             return false;
         return !precedingToken.Contains('=', StringComparison.Ordinal)
             && RequiredValueOptions.Contains(optionName);
@@ -297,7 +317,7 @@ public static class ArgumentPreprocessor
         "--il-offset", "--il-offsets", "--heap", "--extract-resources", "--take", "--row",
         "--where", "--order-by", "--min-confidence", "--triage-shape", "--top", "--session",
         "--package-prefix", "--depth", "-n", "--rows", "--source",
-        "--add-source", "--nugetconfig", "--columns", "--fields"
+        "--add-source", "--nugetconfig", "--columns", "--fields", "--version"
     };
     internal const string EscapedAtCategoryPrefix = "__dotnet_inspect_at__";
 
@@ -331,6 +351,33 @@ public static class ArgumentPreprocessor
             var token = args[i];
             if (!token.StartsWith("-", StringComparison.Ordinal))
                 return SearchScopeCommands.Contains(token) ? i : -1;
+
+            var optionName = token.Split('=', 2)[0];
+            if (OptionsWithFollowingValue.Contains(optionName)
+                && !token.Contains('=', StringComparison.Ordinal)
+                && i + 1 < args.Length
+                && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
+            {
+                i++;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>
+    /// Finds the index of the first positional (non-option) token in <paramref name="args"/>,
+    /// which is the command name for every supported invocation shape. Unlike
+    /// <see cref="FindSearchScopeCommandIndex"/>, this does not filter by command membership --
+    /// callers compare the returned token against whichever command set is relevant to them.
+    /// </summary>
+    private static int FindFirstCommandTokenIndex(string[] args)
+    {
+        for (var i = 0; i < args.Length; i++)
+        {
+            var token = args[i];
+            if (!token.StartsWith("-", StringComparison.Ordinal))
+                return i;
 
             var optionName = token.Split('=', 2)[0];
             if (OptionsWithFollowingValue.Contains(optionName)
