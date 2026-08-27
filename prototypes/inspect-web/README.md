@@ -835,11 +835,12 @@ without rendering` gate those boundaries.
 Malformed percent-encoding in an ordinary package or version courtesy path
 produces a typed route failure rather than escaping `decodeURIComponent`.
 Boot and navigation without a resident workspace render that failure in the
-error shell; in-app and history navigation with a resident workspace retain it
-and report the failed route as a notice. `malformed courtesy package routes
-become typed failures`, `valid courtesy package routes continue to decode
-normally`, and `malformed package routes use the contained restore failure
-path` gate those boundaries.
+error shell without offering an ineffective retry, and explicit Home navigation
+clears the route error. In-app and history navigation with a resident workspace
+retain it and report the failed route as a notice. `malformed courtesy package
+routes become typed failures`, `valid courtesy package routes continue to
+decode normally`, and `malformed package routes use the contained restore
+failure path` gate those boundaries.
 `canonical transitions cancel visible source work before snapshot` and
 `canonical transitions settle annotated source before snapshot` specifically
 gate source-request settlement. Filters and browse presentation stay

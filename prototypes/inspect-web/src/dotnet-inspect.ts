@@ -479,7 +479,9 @@ function loadPlatformRecent() {
   }
 }
 
+const retryUnavailable = "unavailable" as const;
 type RetryAction = (() => void | Promise<unknown>) | null;
+type ErrorRetryAction = RetryAction | typeof retryUnavailable;
 
 interface SpotlightCache {
   signature: string;
@@ -744,7 +746,7 @@ interface StateOverrides {
   styleTiers: StyleTier[] | null;
   styleOptions: StyleOption[] | null;
   history: string[];
-  retryAction: RetryAction;
+  retryAction: ErrorRetryAction;
   diag: Diagnostics | null;
   buildIdentity: BrowserBuildIdentity | null;
   packageCacheStats: BrowserPackageCacheStats | null;
@@ -6765,6 +6767,7 @@ function goHome() {
   state.memberCallGraphSeq++;
   state.memberCallGraphExpanding = false;
   invalidateGraphMemberNavigation();
+  clearNavigationError();
   state.credits = false;
   state.home = true;
   spotlight.reset();
@@ -6888,10 +6891,12 @@ function openPackageQuery(query: ParsedPackageQuery) {
 
 const loadErrorShellActions: LoadErrorShellBindingActions = {
   onOpenPackage: openPackageQuery,
-  onRetry: () =>
+  onRetry: () => {
+    if (state.retryAction === retryUnavailable) return;
     observeAction(
       state.retryAction ?? bootstrap,
-      "Retrying the inspection"),
+      "Retrying the inspection");
+  },
 };
 
 function renderLoading() {
@@ -6907,7 +6912,9 @@ function renderLoading() {
                <button type="submit">open</button>
              </form>
              <div class="load-error-actions">
-               <button id="retry-load" type="button">retry</button>
+               ${state.retryAction === retryUnavailable
+                 ? ""
+                 : `<button id="retry-load" type="button">retry</button>`}
                ${state.errorDetail ? `<button id="toggle-error-detail" type="button">details</button>` : ""}
              </div>
              ${state.errorDetail ? `<pre class="load-error-detail" hidden>${escapeHtml(state.errorDetail)}</pre>` : ""}
@@ -9216,7 +9223,7 @@ function failWorkspaceRoute(
   state.errorTitle = "Package route failed";
   state.error = message;
   state.errorDetail = "";
-  state.retryAction = null;
+  state.retryAction = retryUnavailable;
   render();
 }
 

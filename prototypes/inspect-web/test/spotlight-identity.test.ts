@@ -1207,7 +1207,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /onDemo: runHomeDemo,\s*onDismissNotice: \(\) => \{[\s\S]*state\.queryNotice = "";[\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*render\(\);\s*\},\n  onOpenCredits: openCredits,\n  onToggleTheme: toggleTheme/);
   assert.match(
     loadErrorActions,
-    /onOpenPackage: openPackageQuery,\s*onRetry: \(\) =>\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\)/);
+    /onOpenPackage: openPackageQuery,\s*onRetry: \(\) => \{\s*if \(state\.retryAction === retryUnavailable\) return;\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\);\s*\}/);
   assert.doesNotMatch(
     appSource,
     /\bquerySelector(?:All)?(?:<[^>]+>)?\("(?:#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|go-home|theme-toggle|help|home-theme|home-credits|retry-load|error-package-query|error-package-input|toggle-error-detail)|\[data-home-demo\]|\.load-error-detail)"\)/);
@@ -2545,7 +2545,13 @@ test("malformed package routes use the contained restore failure path", () => {
     ?? "";
   assert.match(
     failure,
-    /if \(snapshot\?\.hasWorkspace\)[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\)[\s\S]*appendQueryNotice\(`Package route failed: \$\{message\}`\)[\s\S]*state\.errorTitle = "Package route failed";[\s\S]*state\.error = message/);
+    /if \(snapshot\?\.hasWorkspace\)[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\)[\s\S]*appendQueryNotice\(`Package route failed: \$\{message\}`\)[\s\S]*state\.errorTitle = "Package route failed";[\s\S]*state\.error = message;[\s\S]*state\.retryAction = retryUnavailable/);
+  assert.match(
+    appSource,
+    /function goHome\(\) \{[\s\S]*invalidateGraphMemberNavigation\(\);\s*clearNavigationError\(\);[\s\S]*workspaceLocation\.push\("\/"\);[\s\S]*render\(\)/);
+  assert.match(
+    appSource,
+    /state\.retryAction === retryUnavailable\s*\? ""\s*: `<button id="retry-load" type="button">retry<\/button>`/);
 });
 
 test("member entry controls move focus into the resulting member navigation", () => {
