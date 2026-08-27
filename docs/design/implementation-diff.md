@@ -477,7 +477,7 @@ outcome forms there. Every resolved target in that domain becomes exactly one
 `CounterpartUnavailable` outcome whose taint evidence retains the complete
 domain-local blocking-attempt set. If no target resolved, one
 `DomainUnavailable` outcome keeps the failure visible instead of producing an
-empty disposition set. Other domains proceed from their own census.
+empty correspondence-outcome set. Other domains proceed from their own census.
 
 In a healthy domain, two resolved targets with different correspondence keys
 or roles do not become `BeforeOnly` and `AfterOnly`. Each becomes exactly one
@@ -626,10 +626,10 @@ land:
 - `ResearchTargetCancellation_RetryPreservesAdmissionAndMintsFreshTargets`
 - `ResearchImplementationTargetPath_HasNoStringKeyedIdentityBag`
 
-The expected admission, domain, request, attempt, correspondence, and
-disposition sets must be derived from their declarations. The totality gates
-fail for both missing and extra entries. The Metadata-diagnostic gate derives
-its expected set from `MemberTargetDiagnosticKind` and fixes the mapping:
+The expected admission, domain, request, attempt, and correspondence sets must
+be derived from their declarations. The totality gates fail for both missing
+and extra entries. The Metadata-diagnostic gate derives its expected set from
+`MemberTargetDiagnosticKind` and fixes the mapping:
 `MissingMember`/`DigestNotFound` to `NotFound`,
 `AmbiguousMember`/`DigestAmbiguous` to `Ambiguous`, and
 `ConflictingSelectors`/`OverloadOutOfRange` to `Rejected`.
