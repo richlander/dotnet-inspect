@@ -330,9 +330,13 @@ public sealed record RoundTripRequest(
     IReadOnlyList<RoundTripMethodReplacement> Replacements);
 ```
 
-`ArtifactIdentity` identifies the exact input bytes and acquisition provenance.
+`ArtifactIdentity` identifies one artifact in a sealed artifact generation; it
+does not by itself grant content access or carry acquisition provenance.
 `ModuleIdentity` includes module name and MVID so a member anchor is never
-interpreted without its physical metadata scope. Display text is not identity.
+interpreted without its physical metadata scope. The request resolves both
+through the owning artifact session, whose acquisition registration and guarded
+retained content supply the exact bytes and provenance. Display text and a
+readable path are not identity or read authority.
 For the first contract, supplied C# is a `CSharpBlockBody` addressed to one
 metadata method definition: an ordinary method, constructor, or individual
 property/event accessor. The product artifact pipeline maps that method body into
@@ -475,7 +479,8 @@ Each `CompileReferenceDescriptor` records:
 - the exact content digest of the bytes supplied to the compiler;
 - module identity, including MVID;
 - full assembly definition identity;
-- path or in-memory byte origin;
+- the owner-issued retained-content registration;
+- inert source-path or remote-location provenance, when available;
 - aliases and embed-interop role;
 - whether platform policy authorized it as a trusted platform reference.
 
@@ -496,13 +501,17 @@ Selection follows these rules:
    contracts authorize that exact candidate. It does not erase conflicting
    package or local candidates from the inventory.
 6. Metadata resolution and Roslyn references use the same selected descriptors
-   and exact bytes. Reopening a path to different bytes invalidates the set.
+   and owner-retained immutable snapshots under one current query lease.
+   Neither consumer reopens the source path. If retained content cannot be
+   opened, selection fails visibly rather than reacquiring replacement bytes.
 
-Selection produces one canonical descriptor order. The set freezes before
-signature spellability, body closure, artifact admission, or compilation. Its
-digest covers ordered descriptors and every compiler-relevant role. Reordering
-discovery input without changing policy or candidates cannot change the
-selected order, identity, or outcome.
+Selection produces one canonical descriptor order after every selected snapshot
+is retained. The set freezes before signature spellability, body closure,
+artifact admission, or compilation. Its digest covers ordered descriptors and
+every compiler-relevant role. Reordering discovery input without changing
+policy or candidates cannot change the selected order, identity, or outcome.
+The digest authenticates the retained snapshot; it is not a substitute for
+retention, and bracketing hashes of a mutable path are insufficient.
 
 ### Compile-context definition identity
 
@@ -515,6 +524,8 @@ union:
   resolved terminal `TypeDef`;
 - `IntrinsicDefinition` identifies a compiler intrinsic for which Metadata
   requires no external definition;
+- `CompilerSynthesizedDefinition` identifies a source-local generated
+  definition that the artifact intentionally asks the compiler to regenerate;
 - `UnresolvedDefinition` retains a typed failure and cannot participate in
   success.
 
@@ -522,6 +533,16 @@ The source-local arm uses original artifact/module identity and
 `TypeDefinitionHandle`. A rebuilt declaration projects back to that identity
 only through the typed declaration plan and rebuilt-member correspondence.
 Equal namespace-qualified text is insufficient.
+
+The compiler-synthesized arm retains the original module, token, and Metadata
+evidence that the definition is generated, plus the emitted member whose C#
+artifact can cause regeneration. It is a deferred binding obligation, not a
+local declaration receipt. It completes only when the existing owner-issued
+correspondence for that generated construct uniquely relates it to a rebuilt
+definition. Different construct kinds may consume different owner-issued
+correspondence results; tools select by typed construct evidence, not generated
+name text. An unrecognized, forged, absent, or ambiguous generated shape makes
+the compile-context receipt unavailable.
 
 The external arm is local to the frozen compile context. It uses the selected
 descriptor ID and terminal type-definition token, not an opaque catalog key
@@ -536,11 +557,11 @@ name.
 
 ### Closure requirements
 
-`CompileClosurePlan` is the immutable union of signature, local-declaration,
-and body requirements for the selected artifact. It covers every declaration
-and every real body emitted by the effective body policy, including selected
-targets, required companions, and `full`-policy members. Each requirement
-records:
+`CompileClosurePlan` is the immutable union of signature, declaration-shape,
+local-declaration, and body requirements for the selected artifact. It covers
+every declaration and every real body emitted by the effective body policy,
+including selected targets, required companions, and `full`-policy members.
+Each requirement records:
 
 - its `CompileDefinitionIdentity` or unresolved state;
 - original module and metadata handle;
@@ -563,6 +584,37 @@ Metadata's compatibility `CanSpell` projection may authorize this artifact only
 after tools have discharged all local requirements. Metadata retains the
 artifact-independent aggregate; tools own the artifact-specific receipt.
 
+### Declaration-reference census
+
+Member signatures are not the only declaration syntax that binds types. Tools
+create a conservative `DeclarationReferenceCensus` for every source `TypeDef`
+and member included by the tools-owned artifact plan. The closed metadata
+surfaces that can feed declaration rendering include:
+
+- type base clauses and implemented-interface clauses;
+- type and method generic-parameter constraints;
+- `MethodImpl` declarations and explicit-interface qualifiers;
+- metadata-backed attributes selected for emission, including constructor
+  declaring types and type- or enum-valued arguments;
+- any later typed declaration component that the artifact plan opts into and
+  that can contain a metadata-origin type occurrence.
+
+The artifact plan supplies source declaration handles; tools enumerate the
+closed surfaces from those handles and may conservatively retain an occurrence
+that the current printer suppresses. Tools do not ask CSharp to expose its
+rendering internals and do not rediscover declarations from rendered text. Each
+occurrence resolves through the same guarded Metadata operations and frozen
+context used by member signatures. If the artifact plan introduces a textual
+declaration component with no typed origin, the census is `Incomplete`; equal
+text cannot substitute for the missing identity.
+
+Declaration occurrences become ordinary local, external, intrinsic, or
+compiler-synthesized, or unresolved closure requirements. The rebuilt binding
+receipt repeats the census against corresponding donor declarations. A base,
+interface, constraint, explicit-interface, or attribute type cannot rebind
+between source-local and external definitions merely because both use the same
+C# full name.
+
 ### Conservative body-reference census
 
 Signature closure is insufficient because generated C# may use types found only
@@ -582,7 +634,10 @@ resolution context as signature spellability. It does not interpret control
 flow, evaluation-stack meaning, reachability, or product C# text. It may retain
 requirements that product C# later spells implicitly or eliminates. That
 conservative over-approximation may decline an unsafe artifact but cannot
-justify a false success.
+justify a false success. A source-local generated definition that is not emitted
+as a declaration remains in the census as a
+`CompilerSynthesizedDefinition` obligation; it is neither silently dropped nor
+treated as a missing compiler reference.
 
 Every relationship walk uses the owning Metadata or instruction safety bound.
 An invalid token, incomplete instruction decode, unsupported signature,
@@ -601,7 +656,8 @@ Evaluating the plan against the frozen reference set produces one closed
 `CompileClosureOutcome`:
 
 - `Complete` maps every requirement to an intrinsic,
-  `LocalDeclarationReceipt`, or exact `CompileReferenceDescriptor`;
+  `LocalDeclarationReceipt`, exact `CompileReferenceDescriptor`, or retained
+  compiler-synthesized binding obligation;
 - `Missing` retains every requirement for which no provider exists;
 - `Ambiguous` retains every requirement with multiple non-corresponding
   providers;
@@ -620,10 +676,10 @@ grows from compiler diagnostics. Declaration membership may still converge
 through the existing bounded typed-root process.
 
 For each proposed declaration plan, tools recompute signature requirements,
-local receipts, and every effective real-body census against the same frozen
-reference set. A missing local declaration may contribute a typed declaration
-root. A missing or ambiguous external provider stops closure; it cannot add a
-reference from a compiler search path.
+declaration-reference censuses, local receipts, and every effective real-body
+census against the same frozen reference set. A missing local declaration may
+contribute a typed declaration root. A missing or ambiguous external provider
+stops closure; it cannot add a reference from a compiler search path.
 
 Supported compiler diagnostics may contribute another typed declaration root.
 Doing so invalidates that iteration's artifact, closure, compilation, and
@@ -642,10 +698,13 @@ correspondence and compares:
 
 - every selected declaration signature's original and rebuilt definition
   identities;
+- original and rebuilt declaration-reference censuses;
 - original and rebuilt body-reference censuses for every effective real body;
 - each rebuilt local definition projected through the typed declaration plan;
 - each rebuilt external definition through the exact frozen reference
-  descriptor that supplied it.
+  descriptor that supplied it;
+- each deferred compiler-synthesized definition through the applicable
+  owner-issued cross-reader correspondence.
 
 For an `Exact` claim, the rebuilt census cannot replace an external definition
 with a source-local definition, replace one external definition with another,
@@ -681,7 +740,7 @@ Creating a product-owned artifact is provisional selection, not admission.
 
 1. the exact artifact and typed declaration plan were produced;
 2. the frozen reference set was selected without ambiguity;
-3. signature and body closure are `Complete`;
+3. signature, declaration, and body closure are `Complete`;
 4. all Metadata `LocalRequirement` values have declaration receipts;
 5. its exact artifact-specific `CompileContextReceipt` is complete.
 
@@ -719,8 +778,9 @@ not a separate policy:
    selected set;
 2. the current explicit member is provisionally rendered as a product-owned
    whole-member artifact;
-3. its declaration signatures, local requirements, and every effective real
-   body contribute to the artifact-specific closure plan;
+3. its declaration signatures, declaration-shape references, local
+   requirements, and every effective real body contribute to the
+   artifact-specific closure plan;
 4. a pre-compilation `Declined` outcome selects the existing legacy policy with
    visible reasons;
 5. a provisional product artifact that later fails compilation or binding
@@ -757,9 +817,9 @@ No layer converts failure or unavailability into an empty successful result.
 - Define tools-only request and layered result contracts.
 - Replace simple-name/first-wins reference selection with the frozen exact
   inventory, canonical selected set, and typed ambiguity outcomes.
-- Add artifact-specific signature, local-declaration, and effective-body closure
-  plus the rebuilt binding and compile-context receipts required by every
-  `Exact`.
+- Add artifact-specific signature, declaration-shape, local-declaration, and
+  effective-body closure plus deferred compiler-generated correspondence and
+  the rebuilt binding and compile-context receipts required by every `Exact`.
 - Add typed product-whole-member provisional, declined, failed, and admitted
   outcomes without allowing a legacy artifact to borrow product receipts.
 - Add the missing product-owned, handle-addressed `MemberBodyProducer` result that
@@ -862,13 +922,16 @@ Issue #4810 adds these named gates:
    discovery order produces the same typed ambiguity.
 2. `CompileReferenceSelectionRejectsSameIdentityDifferentContent` proves equal
    assembly identity with a different digest or MVID is not coalesced.
-3. `CompileReferenceSetBindsMetadataAndCompilerToSameBytes` changes a
-   path-backed artifact after freeze and proves validation fails rather than
-   reopening different compiler bytes.
+3. `CompileReferenceSetBindsMetadataAndCompilerToSameSnapshot` replaces a
+   source path after snapshot retention, including a W-to-S-to-W bracketing
+   sequence, and proves Metadata and Roslyn still consume the retained bytes.
+   Making the retained snapshot unavailable must fail visibly rather than
+   reacquire.
 4. `CompileClosureIncludesBodyOnlyExternalRequirement` uses a compiled member
    whose signature is self-contained and whose body alone references another
-   assembly. Removing that assembly produces `Missing` before compilation and
-   admission.
+   assembly. With the exact reference present, closure is `Complete` and the
+   artifact is admitted; removing only that reference produces `Missing` before
+   compilation and admission.
 5. `CompileClosureRetainsLocalSignatureAndCatchRequirements` proves locals and
    catch types participate without an instruction operand naming them.
 6. `CompileClosureDoesNotTurnIncompleteCensusIntoEmptySuccess` rejects one body
@@ -876,22 +939,33 @@ Issue #4810 adds these named gates:
 7. `CompileClosureDischargesMetadataLocalRequirementsByExactTypeDef` proves a
    same-named external definition cannot satisfy a source-local requirement and
    including the exact local declaration can.
-8. `CompileDefinitionIdentityDistinguishesLocalAndExternalSameFqn` creates local
+8. `CompileClosureIncludesDeclarationShapeRequirements` uses body-free compiled
+   fixtures for base, interface, generic-constraint, explicit-interface, and
+   emitted-attribute types. Each exact provider produces `Complete`; removing
+   only that provider produces `Missing`.
+9. `RebuiltDeclarationBindingRejectsSameFqnRebind` proves each declaration-shape
+   role rejects external-to-local rebinding and accepts the corresponding exact
+   external definition.
+10. `CompileDefinitionIdentityDistinguishesLocalAndExternalSameFqn` creates local
    and external definitions with one namespace-qualified C# name and proves
    they remain distinct.
-9. `RebuiltSignatureBindingRejectsSameFqnRebind` reproduces the trivial-body
+11. `RebuiltSignatureBindingRejectsSameFqnRebind` reproduces the trivial-body
    false-`Exact` case for product and legacy artifacts and proves local
    rebinding is a typed mismatch against the original external definition.
-10. `RebuiltBodyBindingRejectsSameFqnRebind` proves the same product/legacy
+12. `RebuiltBodyBindingRejectsSameFqnRebind` proves the same product/legacy
     boundary for a type used only by the body.
-11. `ExactRequiresNonVacuousCompileContextReceipts` removes each closure,
+13. `RebuiltSynthesizedBindingUsesOwnerCorrespondence` uses compiler-produced
+    async, iterator, and supported closure/local-function shapes to prove unique
+    correspondence can complete the receipt; an absent, forged, unsupported, or
+    ambiguous generated shape remains unavailable.
+14. `ExactRequiresNonVacuousCompileContextReceipts` removes each closure,
     local-declaration, and rebuilt-binding check from each artifact policy in
     turn and proves the fixture cannot report `Exact`.
-12. `CompleteNeighboringArtifactRemainsProductAdmitted` compiles an unambiguous
+15. `CompleteNeighboringArtifactRemainsProductAdmitted` compiles an unambiguous
     neighboring member and proves `Admitted` plus the expected fidelity result.
-13. `TargetedAndBatchUseIdenticalCompileContextPlanning` proves equal reference
+16. `TargetedAndBatchUseIdenticalCompileContextPlanning` proves equal reference
     digests, closure outcomes, and admission outcomes for the same member.
-14. `CompileBackResultRetainsReceiptsAfterOwnerDisposal` proves all reference,
+17. `CompileBackResultRetainsReceiptsAfterOwnerDisposal` proves all reference,
     closure, admission, diagnostic, and binding evidence remains readable after
     disposable owners are gone.
 
