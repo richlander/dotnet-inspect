@@ -89,6 +89,7 @@ import {
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
+  recoverWorkspaceRouteFailure,
   retainedMissingPlatformTarget,
   retainedPlatformTargetVersion,
   selectedBrowserCallGraphPackageTabIds,
@@ -761,7 +762,13 @@ type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides
 const state: AppState = initialState;
 type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
   | { kind: "canonical" }
-  | { kind: "route"; notice: string }
+  | {
+    kind: "route";
+    notice: string;
+    pathname: string;
+    search: string;
+    recoveryUrl: string;
+  }
 );
 let failedWorkspaceUrlState: FailedWorkspaceUrlState | null = null;
 
@@ -6636,16 +6643,34 @@ function visibleQueryNotice() {
 }
 
 function retainFailedWorkspaceUrl() {
-  failedWorkspaceUrlState = retainWorkspaceUrlPreservation(
-    failedWorkspaceUrlState,
+  const failedState = failedWorkspaceUrlState;
+  const retainedState = retainWorkspaceUrlPreservation(
+    failedState,
     location.href,
     workspaceUrlProjection());
-  return failedWorkspaceUrlState !== null;
+  if (retainedState) return true;
+  if (failedState?.kind === "route"
+    && !recoverWorkspaceRouteFailure(
+      failedState,
+      location,
+      url => workspaceLocation.replace(url))) {
+    return true;
+  }
+  failedWorkspaceUrlState = null;
+  return false;
 }
 
-function clearWorkspaceRouteFailure() {
-  if (failedWorkspaceUrlState?.kind !== "route") return;
+function clearWorkspaceRouteFailure(recoveryUrl?: string) {
+  if (failedWorkspaceUrlState?.kind !== "route") return true;
+  if (!recoverWorkspaceRouteFailure(
+    failedWorkspaceUrlState,
+    location,
+    url => workspaceLocation.replace(url),
+    recoveryUrl)) {
+    return false;
+  }
   failedWorkspaceUrlState = null;
+  return true;
 }
 
 function dismissQueryNotice() {
@@ -6653,9 +6678,11 @@ function dismissQueryNotice() {
     failedWorkspaceUrlState?.kind === "route" && state.home;
   state.queryNotice = "";
   state.queryNoticeRetryAction = null;
-  clearWorkspaceRouteFailure();
+  if (!clearWorkspaceRouteFailure(routeFailureOnHome ? "/" : undefined)) {
+    render();
+    return;
+  }
   failedWorkspaceUrlState = null;
-  if (routeFailureOnHome) workspaceLocation.replace("/");
   render();
 }
 
@@ -6798,7 +6825,10 @@ function goHome() {
   state.memberCallGraphExpanding = false;
   invalidateGraphMemberNavigation();
   clearNavigationError();
-  clearWorkspaceRouteFailure();
+  if (!clearWorkspaceRouteFailure()) {
+    render();
+    return;
+  }
   state.credits = false;
   state.home = true;
   spotlight.reset();
@@ -6807,7 +6837,10 @@ function goHome() {
 }
 
 function openCredits() {
-  clearWorkspaceRouteFailure();
+  if (!clearWorkspaceRouteFailure()) {
+    render();
+    return;
+  }
   state.credits = true;
   state.home = true;
   spotlight.reset();
@@ -9278,6 +9311,14 @@ function failWorkspaceRoute(message: string) {
       notice: `Package route failed: ${message}`,
       url: location.href,
       projection: workspaceUrlProjection(),
+      pathname: location.pathname,
+      search: location.search,
+      recoveryUrl: buildPackageRootStateUrl(location.href, {
+        package: state.package.id,
+        version: state.package.version,
+        framework: state.package.activeFramework,
+        lens: state.packageLens,
+      }).toString(),
     };
     render();
     return;

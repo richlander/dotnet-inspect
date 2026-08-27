@@ -367,6 +367,25 @@ export function bindWorkspaceRetryToUrl<TResult>(
   };
 }
 
+export interface WorkspaceRouteRecovery {
+  pathname: string;
+  search: string;
+  recoveryUrl: string;
+}
+
+export function recoverWorkspaceRouteFailure(
+  failure: WorkspaceRouteRecovery,
+  location: Pick<WorkspaceLocationSnapshot, "pathname" | "search">,
+  replace: (url: string) => boolean,
+  recoveryUrl = failure.recoveryUrl,
+): boolean {
+  if (failure.pathname !== location.pathname
+    || failure.search !== location.search) {
+    return true;
+  }
+  return replace(recoveryUrl);
+}
+
 export function callGraphCaptureTopology(
   tabs: readonly BrowserWorkspaceShareTab[],
   activeIndex: number,
@@ -936,7 +955,7 @@ export interface WorkspaceLocationPersistence {
   preflightCurrent(): WorkspaceLocationPreflight;
   build(state: WorkspaceUrlState, base?: string): URL;
   sync(state: WorkspaceUrlState): void;
-  replace(url: string): void;
+  replace(url: string): boolean;
   push(url: string): void;
 }
 
@@ -984,8 +1003,10 @@ export function createWorkspaceLocationPersistence(
     replace(url) {
       try {
         dependencies.replace(url);
+        return true;
       } catch {
         // Sandboxed frames may reject browser-history changes.
+        return false;
       }
     },
     push(url) {

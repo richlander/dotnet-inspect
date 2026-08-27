@@ -2465,7 +2465,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /if \(retainFailedWorkspaceUrl\(\)\) return;/);
   assert.match(
     appSource,
-    /function retainFailedWorkspaceUrl\(\) \{\s*failedWorkspaceUrlState = retainWorkspaceUrlPreservation\(\s*failedWorkspaceUrlState,\s*location\.href,\s*workspaceUrlProjection\(\)\);\s*return failedWorkspaceUrlState !== null;\s*\}/);
+    /function retainFailedWorkspaceUrl\(\) \{\s*const failedState = failedWorkspaceUrlState;\s*const retainedState = retainWorkspaceUrlPreservation\(\s*failedState,\s*location\.href,\s*workspaceUrlProjection\(\)\);\s*if \(retainedState\) return true;\s*if \(failedState\?\.kind === "route"\s*&& !recoverWorkspaceRouteFailure\(\s*failedState,\s*location,\s*url => workspaceLocation\.replace\(url\)\)\) \{\s*return true;\s*\}\s*failedWorkspaceUrlState = null;\s*return false;\s*\}/);
   assert.match(
     appSource,
     /if \(state\.loading \|\| state\.error\) \{[\s\S]*return;\s*\}\s*retainFailedWorkspaceUrl\(\);\s*if \(state\.home\)/);
@@ -2552,16 +2552,16 @@ test("malformed package routes use the contained restore failure path", () => {
     ?? "";
   assert.match(
     failure,
-    /function failWorkspaceRoute\(message: string\) \{\s*if \(state\.package\)[\s\S]*failedWorkspaceUrlState = \{\s*kind: "route",\s*notice: `Package route failed: \$\{message\}`,[\s\S]*state\.errorTitle = "Package route failed";[\s\S]*state\.error = message;[\s\S]*state\.retryAction = retryUnavailable/);
+    /function failWorkspaceRoute\(message: string\) \{\s*if \(state\.package\)[\s\S]*failedWorkspaceUrlState = \{\s*kind: "route",\s*notice: `Package route failed: \$\{message\}`,[\s\S]*pathname: location\.pathname,\s*search: location\.search,\s*recoveryUrl: buildPackageRootStateUrl\(location\.href,[\s\S]*state\.errorTitle = "Package route failed";[\s\S]*state\.error = message;[\s\S]*state\.retryAction = retryUnavailable/);
   assert.match(
     appSource,
-    /function goHome\(\) \{[\s\S]*invalidateGraphMemberNavigation\(\);\s*clearNavigationError\(\);\s*clearWorkspaceRouteFailure\(\);[\s\S]*workspaceLocation\.push\("\/"\);[\s\S]*render\(\)/);
+    /function goHome\(\) \{[\s\S]*invalidateGraphMemberNavigation\(\);\s*clearNavigationError\(\);\s*if \(!clearWorkspaceRouteFailure\(\)\) \{\s*render\(\);\s*return;\s*\}[\s\S]*workspaceLocation\.push\("\/"\);[\s\S]*render\(\)/);
   assert.match(
     appSource,
     /function visibleQueryNotice\(\) \{\s*const routeNotice = failedWorkspaceUrlState\?\.kind === "route"\s*\? failedWorkspaceUrlState\.notice\s*: null;\s*return \[state\.queryNotice, routeNotice\]\s*\.filter\(Boolean\)\s*\.join\(" "\);\s*\}/);
   assert.match(
     appSource,
-    /function clearWorkspaceRouteFailure\(\) \{\s*if \(failedWorkspaceUrlState\?\.kind !== "route"\) return;\s*failedWorkspaceUrlState = null;\s*\}[\s\S]*function dismissQueryNotice\(\) \{\s*const routeFailureOnHome =\s*failedWorkspaceUrlState\?\.kind === "route" && state\.home;\s*state\.queryNotice = "";\s*state\.queryNoticeRetryAction = null;\s*clearWorkspaceRouteFailure\(\);\s*failedWorkspaceUrlState = null;\s*if \(routeFailureOnHome\) workspaceLocation\.replace\("\/"\);\s*render\(\);\s*\}/);
+    /function clearWorkspaceRouteFailure\(recoveryUrl\?: string\) \{\s*if \(failedWorkspaceUrlState\?\.kind !== "route"\) return true;\s*if \(!recoverWorkspaceRouteFailure\(\s*failedWorkspaceUrlState,\s*location,\s*url => workspaceLocation\.replace\(url\),\s*recoveryUrl\)\) \{\s*return false;\s*\}\s*failedWorkspaceUrlState = null;\s*return true;\s*\}[\s\S]*function dismissQueryNotice\(\) \{\s*const routeFailureOnHome =\s*failedWorkspaceUrlState\?\.kind === "route" && state\.home;\s*state\.queryNotice = "";\s*state\.queryNoticeRetryAction = null;\s*if \(!clearWorkspaceRouteFailure\(routeFailureOnHome \? "\/" : undefined\)\) \{\s*render\(\);\s*return;\s*\}\s*failedWorkspaceUrlState = null;\s*render\(\);\s*\}/);
   assert.match(
     appSource,
     /const workbenchShellActions: WorkbenchShellBindingActions = \{\s*onDismissNotice: dismissQueryNotice,/);
@@ -2578,7 +2578,7 @@ test("malformed package routes use the contained restore failure path", () => {
     /state\.queryNotice && state\.queryNoticeRetryAction\s*\? '<button id="retry-notice"/);
   assert.match(
     appSource,
-    /function openCredits\(\) \{\s*clearWorkspaceRouteFailure\(\);/);
+    /function openCredits\(\) \{\s*if \(!clearWorkspaceRouteFailure\(\)\) \{\s*render\(\);\s*return;\s*\}/);
   assert.match(
     appSource,
     /state\.retryAction === retryUnavailable\s*\? ""\s*: `<button id="retry-load" type="button">retry<\/button>`/);

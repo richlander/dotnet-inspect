@@ -12,6 +12,7 @@ import {
   createWorkspaceLocationPersistence,
   parseWorkspaceLocation,
   parseWorkspaceRoute,
+  recoverWorkspaceRouteFailure,
   retainedMissingPlatformTarget,
   retainedPlatformTargetVersion,
   retainWorkspaceUrlPreservation,
@@ -856,6 +857,46 @@ test("workspace retry restores its owned URL before running", () => {
   assert.equal(currentUrl, failedUrl);
 });
 
+test("route failure recovery owns malformed URL replacement", () => {
+  const failure = {
+    pathname: "/packages/%E0%A4%A/1.0.0",
+    search: "",
+    recoveryUrl: "/?package=Example.Package&version=1.0.0",
+  };
+  const replacements: string[] = [];
+  const malformedLocation = {
+    pathname: failure.pathname,
+    search: failure.search,
+  };
+
+  assert.equal(
+    recoverWorkspaceRouteFailure(
+      failure,
+      malformedLocation,
+      url => {
+        replacements.push(url);
+        return true;
+      }),
+    true);
+  assert.deepEqual(replacements, [failure.recoveryUrl]);
+
+  assert.equal(
+    recoverWorkspaceRouteFailure(
+      failure,
+      malformedLocation,
+      () => false),
+    false);
+
+  assert.equal(
+    recoverWorkspaceRouteFailure(
+      failure,
+      { pathname: "/", search: "?w=canonical" },
+      () => {
+        throw new Error("A valid route must not be replaced.");
+      }),
+    true);
+});
+
 test("workspace route resolution skips the decoder without packet state", () => {
   const route = parseWorkspaceRoute(locationSnapshot(
     "https://inspect.example/packages/Example.Package/1.0.0#source"));
@@ -1036,6 +1077,7 @@ test("location persistence contains sync failures but leaves direct build failur
 
   persistence.sync(workspaceState());
   persistence.push("/");
+  assert.equal(persistence.replace("/valid"), true);
   const replacedUrl = replaced[0];
   assert.ok(replacedUrl);
   assert.equal(new URL(replacedUrl).searchParams.get("package"), "Example.Second");
@@ -1057,6 +1099,7 @@ test("location persistence contains sync failures but leaves direct build failur
     encode: () => encoded(),
   });
   assert.doesNotThrow(() => blocked.sync(workspaceState()));
+  assert.equal(blocked.replace("/valid"), false);
   assert.doesNotThrow(() => blocked.push("/"));
   assert.throws(
     () => persistence.build(workspaceState()),
