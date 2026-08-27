@@ -108,17 +108,4 @@ public static partial class InspectionEngine
         string heap) =>
         throw Unavailable("Platform heap entries", NoPlatformProjection);
 
-    [JSExport]
-    public static Task<string> QueryMemberFacts(
-        string packageId,
-        string version,
-        string targetFramework,
-        string assemblyName,
-        string typeId,
-        string memberName,
-        string memberSignature) =>
-        throw Unavailable(
-            "Member facts",
-            "no group-scoped query projects method-scoped Analysis evidence");
-
 }

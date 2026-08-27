@@ -4,10 +4,12 @@ How storage, packages, artifacts, assemblies, workspaces, sessions, and
 inspection producers remain separate concepts while still composing into one
 inspection experience.
 
-This is a design proposal. The target boundaries and gates in this document are
-**unverified** until their named implementation gates exist. Current types that
-do not satisfy the target are identified explicitly under
-[Current mismatches](#current-mismatches).
+This is a design proposal with an incremental implementation. Target boundaries
+remain **unverified** until their named implementation gates exist. The
+source-neutral contract floor, artifact-session publication, explicit local-file
+snapshot adapter, and package-free local host now have the gates named under
+[Required gates](#required-gates). Current types and remaining target behavior
+are identified explicitly under [Current mismatches](#current-mismatches).
 
 See [inspection-space.md](../inspection-space.md) for workspace and query
 planning, [inspection-layers.md](inspection-layers.md) for consumer layers, and
@@ -462,30 +464,36 @@ It returns artifacts and leases; it does not create an assembly session.
 
 ### Local adapter
 
-The local adapter accepts explicit files or directories under host policy. It
-opens local content without acquiring package or remote-storage dependencies.
-Directory enumeration and path containment remain local-adapter concerns.
+The local adapter accepts explicit files under host policy. It opens local
+content without acquiring package or remote-storage dependencies. Directory
+enumeration, containment, symlink policy, and bounded entry selection remain a
+later local-adapter slice.
 
-Before sealing, it copies every admitted file into an immutable retained or
-content-addressed snapshot under explicit entry and byte budgets, then mints
-logical identity from those exact retained bytes. A content-addressed store
-necessarily computes its address during admission; an ordinary retained
-snapshot computes a content digest only when a consumer requests one. Consumers
-never receive a mutable source-file stream after a separate digest check.
-Rebuild, replacement, symlink retargeting, or deletion after admission cannot
-substitute new bytes into the retained snapshot. Directory admission snapshots
-only the selected, bounded entries, not an unbounded tree.
+Before registration, `DotnetInspector.Artifacts.Local` opens an explicit file
+once, copies it under a loop-enforced byte limit, and records path, exact copied
+length, and last-write observation from that handle as typed local provenance.
+The artifact session then copies the adapter-private snapshot into
+owner-private retained bytes before publication. The deliberate second copy
+keeps adapter memory from becoming owner memory. Both openers are read-only and
+do not expose their backing arrays. Rebuild, replacement, symlink retargeting,
+or deletion after acquisition cannot substitute new bytes into the published
+snapshot.
 
-This adapter is the proof that the abstraction is independently useful. A
-local-only host composes:
+The ordinary retained snapshot does not compute a digest eagerly. The target
+owner-mediated on-demand digest remains unverified.
+
+This adapter is the proof that the abstraction is independently useful. The
+package-free fixture composes:
 
 ```text
-artifact contracts + local adapter + Metadata + Queries + chosen producers
+artifact contracts + artifact workspace + local adapter + Metadata
 ```
 
 Its dependency closure excludes `DotnetInspector.Packages`, `NuGetFetch`,
 NuGet protocol libraries, package stores, and package-specific query
-implementations.
+implementations. Core Queries still reference package implementation today, so
+adding Queries to this local-only closure remains part of workspace-realization
+migration.
 
 ### Package adapter
 
@@ -717,9 +725,9 @@ The target project graph has these roles:
 
 ```text
 artifact contracts
-  ^                 ^
-  |                 |
-storage impls   source adapters
+  ^                 ^                    ^
+  |                 |                    |
+storage impls   source adapters   workspace composition
                     |
        +------------+-------------+
        |            |             |
@@ -734,7 +742,9 @@ full host --> core Queries + selected optional adapters/companions
 local host --> core Queries + local adapter
 ```
 
-`DotnetInspector.Artifacts` now owns the source-neutral contract floor. The
+`DotnetInspector.Artifacts` owns the source-neutral contract floor,
+`DotnetInspector.Artifacts.Workspaces` owns artifact-session composition, and
+`DotnetInspector.Artifacts.Local` owns explicit local-file acquisition. The
 remaining adapter and companion project names are deferred, but the split must
 produce these compile-time properties:
 
@@ -905,10 +915,12 @@ The migration is intentionally incremental:
    contracts in a package- and Metadata-free project. Implemented by
    `DotnetInspector.Artifacts`; no existing acquisition path consumes the new
    contracts yet.
-3. **Prove local acquisition.** Adapt explicit local files/directories into the
-   contracts with admission-time content identity and form a workspace without
-   any package reference. Preserve explicit caller designation as authorized
-   workspace-role evidence rather than Metadata provenance.
+3. **Prove local acquisition.** Explicit local files now enter
+   `DotnetInspector.Artifacts.Local`, freeze before registration, publish through
+   `ArtifactSetSession`, and feed the package-free Metadata fixture through a
+   current query lease. Explicit caller designation is assigned by workspace
+   admission as a role rather than local provenance. Metadata trust does not yet
+   consume that role, and bounded directory acquisition remains outstanding.
 4. **Extract neutral symbol capabilities.** Move PDB content storage and
    source-access authorization below core assembly Queries; keep NuGet symbol
    source policy in an optional companion.
@@ -945,8 +957,9 @@ materialization.
 The target is complete only when tests equivalent to these exist:
 
 - `ArtifactContractsClosure_ExcludesMetadataPackagesAndStorageImplementations`
+- `ArtifactWorkspaceClosure_ExcludesMetadataPackagesAndStorageImplementations`
+- `LocalArtifactAdapterClosure_ExcludesMetadataPackagesAndStorageImplementations`
 - `PackagesClosure_ExcludesMetadata`
-- `AssemblyOnlyHostClosure_ExcludesPackageAndNuGetImplementations`
 - `LocalOnlyHostClosure_ExcludesPackageFeedCacheAndArchiveImplementations`
 - `MetadataClosure_ExcludesPackageAndStorageImplementations`
 - `CoreAssemblyQueries_ExcludePackageImplementations`
@@ -970,6 +983,12 @@ The target is complete only when tests equivalent to these exist:
 - `PlatformArtifactTrust_RequiresAuthorizedAdmissionRole`
 - `LeaseScopedPath_IsNotADesignationGrant`
 - `ArtifactSetSession_DisposesEveryContributingLease`
+- `ArtifactSetSession_DisposalReleasesOwnerHeldState`
+- `ArtifactSetSession_ConcurrentTerminationWaitsForCleanup`
+- `ArtifactSetSession_ConcurrentAbortAndDisposalShareCleanup`
+- `ArtifactSetSession_DisposalDuringAcquisitionDisposesLateLease`
+- `ArtifactSetSession_SealRejectsAcquisitionInProgress`
+- `ArtifactSetSession_DisposalDuringSealCannotPublish`
 - `ArtifactSetSession_ReleasesLeasesOnlyAfterDependentGroupsQuiesce`
 - `ArtifactSetSession_PreservesPrimaryFailureWhenCleanupFails`
 - `WorkspaceDisposal_CancelsAdmissionAndDisposesLateOutcome`
@@ -998,7 +1017,7 @@ The target is complete only when tests equivalent to these exist:
 - `CrossProviderCiArtifacts_CompareAcrossSealedAuthorizedContexts`
 - `BrowserWorkspace_ComposesSequentiallyWithoutFilesystemOrThreads`
 
-The first nine are structural edge/closure gates derived from the actual project
+The first ten are structural edge/closure gates derived from the actual project
 graph, not a hand-maintained allow list. The remainder are behavior and lifetime
 gates. The local-only query gate covers metadata and authored-source query
 families so a metadata-only success cannot hide package-owned source
@@ -1008,22 +1027,37 @@ reader-construction site inventory and asserts coverage equality, so adding or
 reshaping an entry point cannot escape the migration. The browser gate runs the
 same composition sequentially without threads, blocking waits, or a filesystem.
 
-`AssemblyOnlyHostClosure_ExcludesPackageAndNuGetImplementations` and
-`MetadataClosure_ExcludesPackageAndStorageImplementations` are enforced by
-`LayeringTests` from Release-evaluated project references and each closure
-project's resolved Release assets graph. They witness the required package-free
-local-only variant; they do not claim that every configuration-specific
-full-host graph is package-free. The remaining gates are migration targets and
-remain unverified.
-
-`ArtifactContractsClosure_ExcludesMetadataPackagesAndStorageImplementations`
-is enforced from the exact Release project and resolved-assets graph by
-`LayeringTests`. `ArtifactContractTests` enforce generation-scoped identity,
+`ArtifactContractsClosure_ExcludesMetadataPackagesAndStorageImplementations`,
+`ArtifactWorkspaceClosure_ExcludesMetadataPackagesAndStorageImplementations`,
+`LocalArtifactAdapterClosure_ExcludesMetadataPackagesAndStorageImplementations`,
+and
+`LocalOnlyHostClosure_ExcludesPackageFeedCacheAndArchiveImplementations` are
+enforced from the Release project and resolved-assets graphs by
+`LayeringTests`. They witness the required package-free local-only variant; they
+do not claim that every configuration-specific full-host graph is package-free.
+The remaining gates are migration targets and remain unverified.
+`ArtifactContractTests` enforce generation-scoped identity,
 closed acquisition outcome arms, catalog descriptors without an unguarded
-content route, admission expiry, atomic query-authorization replacement, and
-revocation of new opens without invalidating an already-issued stream. Session,
-snapshot, budget, quiescence, adapter, and Metadata-consumer gates remain
-unverified.
+content route, admission expiry, atomic query-authorization replacement,
+revocation of new opens without invalidating an already-issued stream, and
+one retained snapshot for every minted registration.
+
+`ArtifactSetSessionTests` enforce multi-source contribution, sealed-generation
+immutability, bounded owner-private materialization, read-only retained streams,
+visible required-acquisition and cleanup failures, acquisition-lease disposal,
+owner-held state release, late-outcome lease disposal, seal exclusion during
+acquisition and disposal, shared termination completion, query revocation,
+non-masking disposal, and role assignment separate from provenance.
+`LocalArtifactSourceTests` enforce pre-registration local snapshots, typed
+missing/limit diagnostics, mutation and deletion resistance, and cancellation
+remaining cancellation. `LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`
+deletes its temporary source after publication, then passes the guarded
+published snapshot to Metadata, so a source-path fallback cannot satisfy the
+gate.
+
+Workspace-wide admission budgets, single-flight/reentrancy, directory
+acquisition, content digests, dependent-group quiescence, and Metadata
+consumption of workspace roles remain unverified.
 
 ## Non-goals
 

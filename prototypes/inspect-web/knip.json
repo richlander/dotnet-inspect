@@ -2,12 +2,12 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": [
     "test/**/*.test.ts",
-    "scripts/*.js"
+    "scripts/*.ts"
   ],
   "project": [
     "src/**/*.ts",
     "test/**/*.ts",
-    "scripts/*.js"
+    "scripts/*.ts"
   ],
   "ignore": ["engine/wwwroot/inspect-web-engine.js"]
 }
