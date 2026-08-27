@@ -127,48 +127,88 @@ After input populations against which that one selection intent may be
 resolved. A type filter or member selector is intent inside the scope, never
 the scope identity.
 
+Within that scope Research establishes one opaque `ResearchTargetDomainId` per
+logical assembly/module comparison domain. Its owner-issued domain key retains
+the Metadata-owned `AssemblyReferenceIdentity` with only `Version` erased,
+compares those values through Metadata's exact equivalence semantics, and
+retains the logical module slot while erasing MVID. Research does not
+renormalize name, culture, or public-key-token fields itself. This allows two
+versions of one logical module to share a domain without letting a same-named
+assembly with different signing identity, another module, or another scope
+correspond. Domain evidence comes from admitted `ResolvedAssemblyReference`
+values, not formatted assembly names or body-index paths.
+
+The admitted question is the authority that asks its Before and After input
+sets to correspond. Within that question, one domain key may contain at most
+one admitted input occurrence per side. Multiple same-side candidates,
+including candidates from different acquisition registrations or provenance,
+produce a blocking `DomainAmbiguous` outcome for every affected request rather
+than an arbitrary pairing. Acquisition registration and provenance distinguish
+the strict admitted inputs during validation but are intentionally not domain
+equality: Before and After versions normally come from distinct acquisitions.
+The inert result retains the Research input identity and domain, not those
+borrowed acquisition values.
+
 Research then mints one `ResearchTargetRequestId` and one
 `ResearchTargetAttemptId` for each required side-local input evaluation. The
 request retains:
 
-- its operation, question, scope, admitted input, and side;
+- its operation, question, scope, domain, admitted input, and side;
 - the exact typed `MemberTargetSelector` and declaring-type intent;
 - whether the target is exact or carried from API selection to a physical body
   coordinate; and
-- one `ResearchTargetRelationshipRole`: `None`, `Method`, `Getter`, `Setter`,
-  `Adder`, or `Remover`.
+- an optional asserted relationship-role intent for an exact-address request.
 
-Side and relationship role participate in request identity. An exact address
-is evaluated only in its designated side-local input. A carried selector is
-resolved only through the Metadata surface and body participant admitted for
-that request. No request, selector, address, or successful target fans across
-sides, inputs, questions, operations, or scopes.
-`None` is valid only for a successfully selected non-method-like member with no
-physical body relationship.
+Side participates in request identity. A carried selector has no resolved
+relationship role before Metadata selection and does not borrow one from the
+opposite side. An exact address is evaluated only in its designated side-local
+input. A carried selector is resolved only through the Metadata surface and
+body participant admitted for that request. No request, selector, address, or
+successful target fans across sides, inputs, questions, operations, or scopes.
+When only one side resolves, that target's derived role participates in its
+correspondence key; the opposite key-local absence proof tests the same role
+against the complete side census without assigning a role to the missing
+request.
 
 Exactly one terminal attempt outcome exists for every request in a completed
 resolution:
 
 - `Resolved` retains the exact Metadata-issued `ResolvedMemberTarget`,
-  `MemberAnchor`, durable method address when one exists, and relationship
+  `MemberAnchor`, durable method address when one exists, validated body
+  coordinate, and relationship role. The role is `None`, `Method`, `Getter`,
+  `Setter`, `Adder`, or `Remover` and is derived only after successful Metadata
+  selection. `None` is valid only for a non-method-like member with no physical
+  body relationship. An asserted exact-address role must match this derived
   role;
 - `NotFound` retains the exact Metadata-owned missing-member diagnostic when
-  the declaring type exists, or one bounded Research-owned
-  `DeclaringTypeAbsent` diagnostic when that type is absent from the admitted
-  input;
+  the declaring type exists, the exact Metadata-owned `DigestNotFound`
+  diagnostic when no candidate has the requested stable fingerprint, or one
+  bounded Research-owned `DeclaringTypeAbsent` diagnostic when that type is
+  absent from the admitted input;
 - `Ambiguous` retains the exact Metadata-owned ambiguity diagnostic and
   candidate evidence;
-- `Rejected` retains the exact Metadata-owned `ConflictingSelectors`
-  diagnostic for an invalid selector combination;
+- `Rejected` retains the exact Metadata-owned `ConflictingSelectors` or
+  `OverloadOutOfRange` diagnostic for an invalid or unstable positional
+  selection;
 - `Unavailable` retains one bounded Research diagnostic when the admitted
   input cannot supply an implementation target, including a reference-only
-  role; or
+  role or `DomainAmbiguous`; or
 - `Failed` retains one bounded Research diagnostic for Research validation or
   resolution failure.
+
+`Resolved` is terminal only after Research validates that the selected target,
+durable address, and any body-index evidence belong to the same admitted
+assembly and module. A mismatched MVID, MethodDef address, body-index module, or
+borrowed input becomes `Failed` before the census runs; it cannot invalidate an
+already-issued correspondence outcome.
 
 `NotFound` is an input-local fact, not yet semantic absence. An exception,
 diagnostic message, candidate display string, or empty result never substitutes
 for one of these typed arms. Expected resolution outcomes do not throw.
+`DigestNotFound` is absence-safe only for the exact stable target because the
+Metadata diagnostic's complete candidate set proves that no candidate has that
+fingerprint. `OverloadOutOfRange` is not absence-safe because ordinal movement
+can leave the same stable target at another position.
 
 ### Complete census and correspondence
 
@@ -179,17 +219,31 @@ Metadata-level `Ambiguous`, `Rejected`, `Unavailable`, or `Failed` attempt.
 Because those outcomes may conceal a target under any correspondence key, a
 blocked scope establishes no semantic pair, absence, addition, or removal.
 
-For healthy attempts Research derives typed `ResearchStrictTargetKey` and
-`ResearchTargetCorrespondenceKey` values from owner-issued target evidence.
-The strict key identifies one resolved physical target in one admitted input.
-The correspondence key deliberately erases only the version-local
-discriminators Research declares irrelevant to this comparison. Relationship
-role remains part of both keys.
+Only a healthy scope reaches key construction. Research derives typed
+`ResearchStrictTargetKey` and `ResearchTargetCorrespondenceKey` values from
+owner-issued target evidence:
+
+- the strict key retains scope, domain, side-local admitted-input identity,
+  relationship role, and the exact `MetadataMethodAddress` for a physical
+  method. A non-method-like target instead retains its exact `MemberAnchor`
+  with role `None`; and
+- the correspondence key retains scope, domain, relationship role, and the
+  canonical body identity produced by `ResearchMemberIdentity` from the exact
+  `ResolvedMemberTarget`. It erases side, admitted-input identity, assembly
+  version, MVID, and MethodDef token. For role `None`, it retains the exact API
+  `MemberAnchor` canonical identity because no body identity exists.
+
+The Research body identity preserves physical declaring type, member name,
+generic arity, open parameter types, conversion return shape, and projected
+extension body target. Nested-type spelling flows through the existing
+API-to-body bridge. Distinct assembly/module domains, overload shapes,
+relationship roles, extension bodies, and nested types therefore remain
+distinct even when a display name matches.
 
 The key grammar and constructors are Research-owned. Metadata does not bucket
-scope collisions, and callers do not author or parse either key. Assembly
-names, list position, normalized display text, selector strings, and
-`ResearchSubjectKey.Id` are not correspondence keys.
+scope collisions, and callers do not author or parse either key. Rendered
+assembly identities, list position, normalized display text, selector strings,
+and `ResearchSubjectKey.Id` are not correspondence keys.
 
 Correspondence is scope-local and has these closed outcomes:
 
@@ -204,8 +258,8 @@ Correspondence is scope-local and has these closed outcomes:
 - `Ambiguous` retains every colliding strict target and attempt when more than
   one distinct strict target on one side has the same correspondence key and
   role; or
-- `CounterpartUnavailable` retains one otherwise-resolved target plus every
-  blocking attempt from either side of its scope; or
+- `CounterpartUnavailable` retains one otherwise-resolved target plus complete
+  `ResearchTargetTaintEvidence`; or
 - `ScopeUnavailable` retains every blocking attempt when a blocked scope has no
   resolved target on either side.
 
@@ -222,16 +276,26 @@ reference-only input, failed resolution, or incomplete attempt blocks both
 proof kinds. Cancellation aborts the whole invocation before any census or
 resolution result is exposed.
 
-When a scope is blocked, every resolved target on either side becomes its own
-`CounterpartUnavailable` outcome. The same complete blocking-attempt set is
-retained with each outcome so a healthy-looking opposite census cannot hide
-the failed side. If no target resolved, one `ScopeUnavailable` outcome keeps
-the failure visible instead of producing an empty disposition set.
+Blocked-scope handling has precedence over all key construction and collision
+bucketing. When a scope is blocked, no `Paired`, `BeforeOnly`, `AfterOnly`,
+`Absent`, or `Ambiguous` outcome forms. Every resolved target on either side
+becomes exactly one `CounterpartUnavailable` outcome whose taint evidence
+retains the complete blocking-attempt set. If no target resolved, one
+`ScopeUnavailable` outcome keeps the failure visible instead of producing an
+empty disposition set.
 
 An ambiguity bucket is keyed by scope, side, correspondence key, and role. It
-retains every colliding attempt, strict key, and exact imported diagnostic.
-Every opposite-side target that depended on that key becomes an individual
-`CounterpartUnavailable` outcome. Collisions never collapse into a pair, and
+retains every colliding attempt and strict key plus one bounded Research-owned
+`CorrespondenceCollision` diagnostic. It does not claim that Metadata emitted a
+diagnostic for successfully resolved targets.
+
+Collision precedence is evaluated once per scope, correspondence key, and role.
+Targets on each colliding side appear only in that side's `Ambiguous` bucket.
+If exactly one target exists on the opposite non-colliding side, it becomes one
+`CounterpartUnavailable` outcome whose taint evidence retains the opposite
+bucket identity, colliding attempts, strict keys, and collision diagnostic. If
+both sides collide, each side has one `Ambiguous` bucket and no target also
+appears in `CounterpartUnavailable`. Collisions never collapse into a pair, and
 counterpart failure never becomes a healthy one-sided addition or removal.
 Unlike an unkeyed blocking attempt, a collision bucket taints only that exact
 key and role; unrelated keys in the otherwise healthy scope remain eligible
@@ -243,8 +307,8 @@ signature drift correspondence from similar names or display text.
 
 ### Body presence and pre-producer disposition
 
-For each resolved strict target, Research establishes one body coordinate
-before producer execution:
+Before an attempt becomes terminal `Resolved`, Research establishes one
+validated body coordinate:
 
 - `Bodyful` retains the durable method address and validated body-presence
   evidence for the exact admitted input;
@@ -255,9 +319,11 @@ before producer execution:
   method coordinate.
 
 Bodyless is a resolved coordinate, not a decode or target-resolution failure.
-Research validates body-presence evidence against the same admitted input; it
-does not borrow a body index, MethodDef token, or RVA from another module.
-Accessor requests preserve their exact relationship role through this check.
+The coordinate uses only evidence already validated against the same admitted
+input; it does not borrow a body index, MethodDef token, or RVA from another
+module. Accessor requests preserve their exact relationship role through this
+check. Body-presence disposition therefore cannot discover a new ownership or
+module mismatch after correspondence has been issued.
 
 Each correspondence outcome then receives one Research-owned pre-producer
 disposition:
@@ -289,11 +355,11 @@ counterpart evidence was unavailable.
 ### Resolution result and failure boundary
 
 One `ResearchTargetResolution` accounts for the complete admitted operation. It
-contains immutable operation, question, scope, input, request, and attempt
-identities; every terminal attempt outcome; every correspondence outcome; and
-every pre-producer disposition. Its expected identity and result domains are
-derived from the admitted population and target scopes, so both missing and
-stale entries reject construction.
+contains immutable operation, question, scope, domain, input, request, and
+attempt identities; every terminal attempt outcome; every correspondence
+outcome; and every pre-producer disposition. Its expected identity and result
+domains are derived from the admitted population and target scopes, so both
+missing and stale entries reject construction.
 
 Every request has exactly one attempt and every attempt has exactly one
 terminal outcome. Every resolved attempt appears in exactly one scope-local
@@ -311,7 +377,7 @@ and Research diagnostics. It retains no metadata reader, PE reader, stream,
 assembly group, workspace callback, producer, scratch state, lease, cleanup
 authority, raw exception, display row, or rendered diagnostic text.
 
-Cancellation remains cancellation and is not a sixth attempt outcome. If it is
+Cancellation remains cancellation and is not an attempt outcome. If it is
 observed after internal identities or partial attempt evidence have been
 created, the invocation exposes none of them and returns no
 `ResearchTargetResolution`; a later invocation mints a fresh operation.
@@ -350,37 +416,60 @@ land:
 - `ResearchAdmission_MintsFreshParentedIdentitiesForEveryOccurrence`
 - `ResearchAdmission_ReturnsAtomicExactInputAssociations`
 - `ResearchTargetRequests_AreStrictlySideInputAndScopeLocal`
+- `ResearchTargetRequests_CarriedRoleIsDerivedOnlyAfterResolution`
 - `ResearchTargetAttempts_AccountForEveryRequestExactlyOnce`
+- `ResearchTargetAttempts_MapEveryMetadataDiagnosticKind`
 - `ResearchTargetResolution_PreservesMetadataDiagnosticsAndAccessorRoles`
 - `ResearchTargetRejectedSelector_PreservesDiagnosticAndBlocksAbsence`
+- `ResearchTargetDomains_EraseOnlyAssemblyVersionAndMvid`
+- `ResearchTargetDomains_RejectDuplicateSameSideCandidates`
 - `ResearchTargetKeys_AreOwnerIssuedAndNotDisplayDerived`
+- `ResearchTargetKeys_EraseOnlyAddressAndSideLocalIdentity`
+- `ResearchTargetKeys_PreserveDomainSignatureExtensionAndRelationshipRole`
 - `ResearchTargetCensus_DerivesCompleteAttemptAndCorrespondenceDomains`
 - `ResearchTargetCensus_IsolatesAmbiguityAndTaintsCounterparts`
 - `ResearchTargetCensus_BlockedScopeTaintsResolvedTargetsOnBothSides`
 - `ResearchTargetCensus_BlockedScopeWithoutResolvedTargetsIsVisible`
+- `ResearchTargetCensus_BlockedScopePrecedesCollisionBucketing`
+- `ResearchTargetCensus_BilateralCollisionAccountsEachTargetOnce`
+- `ResearchTargetCensus_CollisionTaintRetainsBucketEvidence`
 - `ResearchTargetKeyAbsence_RequiresCompleteHealthyKeyLocalCensus`
 - `ResearchTargetScopeAbsence_RequiresCompleteHealthyEmptySide`
 - `ResearchTargetFailure_NeverBecomesSemanticAdditionOrRemoval`
 - `ResearchTargetOccurrences_RemainDistinctAcrossScopes`
 - `ResearchBodyPresence_TreatsBodylessAsResolved`
 - `ResearchBodyPresence_AccountsForNotMethodLikeTargets`
-- `ResearchBodyPresence_RejectsCrossModuleBodyEvidence`
+- `ResearchTargetAttempt_BodyEvidenceMismatchBlocksBeforeCensus`
 - `ResearchBodyPresence_DecidesMixedAndOneSidedTransitionsBeforeProducers`
 - `ResearchBodyPresence_BothBodyfulOnlyEstablishesProducerEligibility`
 - `ResearchTargetResolution_RetainsNoBorrowedResourcesOrPresentation`
 - `ResearchTargetCancellation_ExposesNoPartialPopulationOrResult`
 - `ResearchImplementationTargetPath_HasNoStringKeyedIdentityBag`
 
-The expected admission, request, attempt, correspondence, and disposition sets
-must be derived from their declarations. The totality gates fail for both
-missing and extra entries. The body-presence precedence gate derives every
-disposition from purpose-built fixtures and asserts that only a paired
-bodyful/bodyful case becomes `ProducerEligible`; no producer seam exists or is
-invoked in this slice. The string-key gate inspects the new target-path public
-and internal signatures rather than only exercising a successful fixture;
-explicit compatibility adapters remain until the dependent migration removes
-them. Purpose-built profile fixtures also prove that a body-signal admission
-cannot enter the target path without the typed prerequisite from #4777.
+The expected admission, domain, request, attempt, correspondence, and
+disposition sets must be derived from their declarations. The totality gates
+fail for both missing and extra entries. The Metadata-diagnostic gate derives
+its expected set from `MemberTargetDiagnosticKind` and fixes the mapping:
+`MissingMember`/`DigestNotFound` to `NotFound`,
+`AmbiguousMember`/`DigestAmbiguous` to `Ambiguous`, and
+`ConflictingSelectors`/`OverloadOutOfRange` to `Rejected`.
+
+The key gates pair one body across changed MVID/token/version evidence and keep
+distinct assembly or module domains, overloads, accessor roles, projected
+extension bodies, and nested types separate. Census fixtures include bilateral
+collisions and a collision beside an unkeyed blocker, so precedence and
+exact-once accounting cannot pass independently.
+
+The body-presence precedence gate derives every disposition from purpose-built
+fixtures and asserts that only a paired bodyful/bodyful case becomes
+`ProducerEligible`; no producer seam exists or is invoked in this slice. A
+cross-module body-index fixture must become a blocking attempt before any key
+or correspondence is exposed. The string-key gate inspects the new target-path
+public and internal signatures rather than only exercising a successful
+fixture; explicit compatibility adapters remain until the dependent migration
+removes them. Purpose-built profile fixtures also prove that a body-signal
+admission cannot enter the target path without the typed prerequisite from
+[#4777](https://github.com/richlander/dotnet-inspect/issues/4777).
 
 ### Target-resolution non-goals
 
