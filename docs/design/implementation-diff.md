@@ -208,7 +208,7 @@ text. Decompiler raise reviews place the independently measured compile-back
 status beside it and keep the structural Before → After lens available when
 PDB source is unavailable.
 
-## Research target and body-presence boundary
+## Research admission and target-correspondence boundary
 
 **Status:** target design for #4771; unimplemented and unverified until the
 named gates in
@@ -216,17 +216,17 @@ named gates in
 land.
 
 This design proposes one place to answer the target question before comparison
-work begins: which member body, if any, did each side select; can the two sides
-safely correspond; and does the result contain two bodies, one body, no body,
-or unavailable evidence? Keeping that decision in Research preserves side and
-failure evidence instead of flattening targets into strings and asking each
-producer to rediscover it.
+work begins: which member, if any, did each side select; can those targets
+safely correspond; and is a missing counterpart proven absent or merely
+unavailable? Keeping that decision in Research preserves side and failure
+evidence instead of flattening targets into strings and asking each producer to
+rediscover cross-input correspondence.
 
 `ILInspector.Research` and this document own that boundary. For implementation
 comparison, Research turns one admitted population into side-local target
-attempts, establishes correspondence from complete domain-local evidence, and
-classifies body presence before any producer runs. The same admission contract
-supplies the Research identities required by both rank-1 profiles.
+attempts and establishes correspondence from complete domain-local evidence.
+The same admission contract supplies the Research identities required by both
+rank-1 profiles.
 
 The adjacent
 [Queries-to-Research population boundary](inspection-layers.md#queries-to-research-population-boundary)
@@ -255,8 +255,13 @@ old-body-missing and new-body-missing failures into added and removed changes.
 Properties and events are excluded from the body-identity bridge rather than
 preserving the selected accessor.
 
-The target contract replaces those accidental decisions. It does not replace
-the current result or producer models in this slice.
+Those body decisions are producer inspection topology, not cross-input target
+correspondence. The shared
+[Finding inspection topology](finding-nomenclature.md#typed-inspection-topology)
+distinguishes a proven missing subject from an existing subject with no
+applicable producer input. The target contract supplies exact endpoint or
+absence evidence to that lower contract; it does not replace the current result
+or producer models in this slice.
 
 ### Research admission and identity
 
@@ -357,12 +362,11 @@ Exactly one terminal attempt outcome exists for every request in a completed
 resolution:
 
 - `Resolved` retains the exact Metadata-issued `ResolvedMemberTarget`,
-  `MemberAnchor`, durable method address when one exists, validated body
-  coordinate, and relationship role. The role is `None`, `Method`, `Getter`,
-  `Setter`, `Adder`, or `Remover` and is derived only after successful Metadata
-  selection. `None` is valid only for a non-method-like member with no physical
-  body relationship. An asserted exact-address role must match this derived
-  role;
+  `MemberAnchor`, durable method address when one exists, and relationship
+  role. The role is `None`, `Method`, `Getter`, `Setter`, `Adder`, or `Remover`
+  and is derived only after successful Metadata selection. `None` is valid only
+  for a non-method-like member with no physical method relationship. An
+  asserted exact-address role must match this derived role;
 - `NotFound` retains the exact Metadata-owned missing-member diagnostic when
   the declaring type exists, the exact Metadata-owned `DigestNotFound`
   diagnostic when no candidate has the requested stable fingerprint, or one
@@ -379,11 +383,11 @@ resolution:
 - `Failed` retains one bounded Research diagnostic for Research validation or
   resolution failure.
 
-`Resolved` is terminal only after Research validates that the selected target,
-durable address, and any body-index evidence belong to the same admitted
-assembly and module. A mismatched MVID, MethodDef address, body-index module, or
-borrowed input becomes `Failed` before the census runs; it cannot invalidate an
-already-issued correspondence outcome.
+`Resolved` is terminal only after Research validates that the selected target
+and durable address belong to the same admitted assembly and module. A
+mismatched MVID, MethodDef address, or borrowed input becomes `Failed` before
+the census runs; it cannot invalidate an already-issued correspondence
+outcome.
 
 `NotFound` is an input-local fact, not yet semantic absence. An exception,
 diagnostic message, candidate display string, or empty result never substitutes
@@ -485,77 +489,69 @@ key plus the opposite attempt and typed diagnostic. Research does not guess
 signature or accessor-role correspondence from similar names, position, or
 display text.
 
-### Body presence and pre-producer disposition
+### Producer handoff and inspection topology
 
-Before an attempt becomes terminal `Resolved`, Research establishes one
-validated body coordinate:
+Research target resolution ends with correspondence. It does not classify
+whether a resolved target has input applicable to C#, IL, Source, or another
+producer.
 
-- `Bodyful` retains the durable method address and validated body-presence
-  evidence for the exact admitted input;
-- `Bodyless` retains the exact target and a bounded reason derived from
-  Metadata body facts, including abstract, interface, P/Invoke, runtime, or
-  other declared no-body methods; or
-- `NotMethodLike` retains a successfully resolved target that has no physical
-  method coordinate.
+The complete healthy correspondence outcomes retain the evidence a later
+producer-specific adapter needs:
 
-Bodyless is a resolved coordinate, not a decode or target-resolution failure.
-The coordinate uses only evidence already validated against the same admitted
-input; it does not borrow a body index, MethodDef token, or RVA from another
-module. Accessor requests preserve their exact relationship role through this
-check. Body-presence disposition therefore cannot discover a new ownership or
-module mismatch after correspondence has been issued.
-
-Each correspondence outcome then receives one Research-owned pre-producer
-disposition:
-
-| Correspondence and body presence | Disposition |
+| Correspondence outcome | Retained endpoint evidence |
 | --- | --- |
-| `Paired(Bodyful, Bodyful)` | `ProducerEligible` with the exact two coordinates |
-| `Paired(Bodyful, Bodyless or NotMethodLike)` | `BodyRemoved` |
-| `Paired(Bodyless or NotMethodLike, Bodyful)` | `BodyAdded` |
-| `Paired` with neither side bodyful | `NoBody` |
-| proven `BeforeOnly(Bodyful)` | `BodyRemoved` |
-| proven `AfterOnly(Bodyful)` | `BodyAdded` |
-| proven one-sided `Bodyless or NotMethodLike` | `NoBody` |
-| `Absent` | `TargetAbsent` |
-| unavailable counterpart or unavailable domain | `Unavailable` |
+| `Paired` | exact Before and After resolved targets |
+| `BeforeOnly` | exact Before target and After key-absence proof |
+| `AfterOnly` | Before key-absence proof and exact After target |
+| `Absent` | exact selection intent and both domain-absence proofs |
+| `CounterpartUnavailable` or `DomainUnavailable` | no completed endpoint set; typed Research unavailability remains visible |
 
-`BodyAdded` and `BodyRemoved` are typed `Different` conclusions whose authority
-is `ResearchBodyPresence`; they do not require a native C#, IL, or Source row.
-`NoBody` and `TargetAbsent` are non-failing terminal dispositions.
-`ProducerEligible` is only permission for the rank-4 Research session to create
-work; it is not a work item, producer invocation, comparison verdict, or
-published change.
+These are correspondence results, not work items, producer eligibility, or
+comparison verdicts. `ResearchTargetResolution` does not contain generic
+`Bodyful`, `Bodyless`, `NotMethodLike`, `BodyAdded`, `BodyRemoved`, `NoBody`,
+`TargetAbsent`, or `ProducerEligible` states.
 
-The body-presence disposition is authoritative for these states. A later
-producer cannot reinterpret missing-body payloads as comparison failure,
-replace a session-owned body change, or manufacture a body change where
-counterpart evidence was unavailable.
+A later producer-specific adapter consumes the exact target and absence
+evidence under
+[Finding producer guidance](finding-producers.md#admit-body-topology-before-native-comparison).
+That adapter owns whether each endpoint is `Complete`, `SubjectAbsent`,
+`NoApplicableInput`, or `Failed` for its operation. Every non-failed endpoint
+combination is a completed inspection-topology result; only
+`Complete`/`Complete` permits a native pair algorithm to run. Research may
+retain and compose the typed producer result later, but it does not reinterpret
+the transition as a Research-owned body verdict.
+
+`CounterpartUnavailable` and `DomainUnavailable` never manufacture a completed
+producer endpoint set. The later session keeps the Research unavailability
+visible and does not turn it into absence, inapplicability, or producer failure.
+The shared Finding topology and the adjacent producer obligations remain
+unimplemented and unverified as stated in their owning documents; each native
+producer migration supplies its own gates.
 
 ### Resolution result and failure boundary
 
 One `ResearchTargetResolution` accounts for the complete admitted operation. It
 contains immutable operation, question, scope, domain, input, request, and
 attempt identities; every terminal attempt outcome; every correspondence
-outcome; and every pre-producer disposition. Its expected identity and result
-domains are derived from the admitted population and target scopes, so both
-missing and stale entries reject construction.
+outcome; and the exact endpoint or absence evidence retained by that outcome.
+Its expected identity and result domains are derived from the admitted
+population and target scopes, so both missing and stale entries reject
+construction.
 
 Every request has exactly one attempt and every attempt has exactly one
 terminal outcome. Every resolved attempt appears in exactly one domain-local
-correspondence outcome. Every correspondence outcome has exactly one
-pre-producer disposition. Repeated or distinct selection occurrences that
-resolve to the same physical target retain distinct scope, request, and attempt
+correspondence outcome. Repeated or distinct selection occurrences that resolve
+to the same physical target retain distinct scope, request, and attempt
 identities. An implementation may share immutable payload storage, but that
 sharing is unobservable and cannot merge correspondence domains or erase an
 occurrence.
 
 The result is inert. It may retain opaque Research identities, side,
 relationship role, exact owner-issued Metadata target and diagnostic values,
-durable metadata addresses, typed keys, absence proofs, body-presence facts,
-and Research diagnostics. It retains no metadata reader, PE reader, stream,
-assembly group, workspace callback, producer, scratch state, lease, cleanup
-authority, raw exception, display row, or rendered diagnostic text.
+durable metadata addresses, typed keys, absence proofs, and Research
+diagnostics. It retains no metadata reader, PE reader, stream, assembly group,
+workspace callback, producer, scratch state, lease, cleanup authority, raw
+exception, display row, or rendered diagnostic text.
 
 Cancellation remains cancellation and is not an attempt outcome. If it is
 observed after internal identities or partial attempt evidence have been
@@ -577,18 +573,19 @@ Migration preserves owner and dependency direction:
    profiles. It adds side-local target scopes, requests, and attempts for the
    implementation-comparison profile.
 2. Research adds that profile's Metadata-target adapter, exact relationship
-   roles, durable target keys, body-presence coordinates, and typed
-   expected-failure outcomes. Metadata's resolver and diagnostics remain
-   unchanged.
-3. Research adds complete domain-local census, correspondence, absence proof,
-   and pre-producer disposition. No producer is invoked.
+   roles, durable target keys, and typed expected-failure outcomes. Metadata's
+   resolver and diagnostics remain unchanged.
+3. Research adds complete domain-local census, correspondence, and absence
+   proof. No producer is invoked and no inspection topology is classified.
 4. The ResearchQueries companion consumes the admission API and constructs its
    Queries-owned receipt for both profiles. Body-signal target resolution
    remains on its compatibility path until Queries prerequisite #4777 supplies
    exact Metadata target evidence; Research does not compensate for that
    missing input.
-5. Rank 4 consumes `ProducerEligible` dispositions to create work items and run
-   cataloged local producers.
+5. After the Findings topology and focused native-producer migrations land,
+   rank 4 consumes complete correspondence outcomes to create work items.
+   Producer adapters classify endpoint topology and retain their native typed
+   results; Research adds no generic body disposition.
 6. Rank 6 later migrates the implementation-comparison public path from string
    target identities and publishes the outer result. Body-signal migration
    follows #4777 independently.
@@ -618,13 +615,12 @@ land:
 - `ResearchTargetKeyAbsence_RequiresCompleteHealthyKeyLocalCensus`
 - `ResearchTargetKeyAbsence_RequiresPositiveSelectorCoverage`
 - `ResearchTargetDomainAbsence_RequiresCompleteHealthyEmptySide`
-- `ResearchTargetFailure_NeverBecomesSemanticAdditionOrRemoval`
+- `ResearchTargetFailure_NeverBecomesAbsenceEvidence`
 - `ResearchTargetOccurrences_RemainDistinctAcrossScopes`
-- `ResearchBodyPresence_TreatsBodylessAsResolved`
-- `ResearchBodyPresence_AccountsForNotMethodLikeTargets`
-- `ResearchTargetAttempt_BodyEvidenceMismatchBlocksBeforeCensus`
-- `ResearchBodyPresence_DecidesMixedAndOneSidedTransitionsBeforeProducers`
-- `ResearchBodyPresence_BothBodyfulOnlyEstablishesProducerEligibility`
+- `ResearchTargetAttempt_AddressEvidenceMismatchBlocksBeforeCensus`
+- `ResearchProducerHandoff_CompleteOutcomesRetainExactEndpointOrAbsenceEvidence`
+- `ResearchProducerHandoff_BlockedOutcomesExposeNoCompletedEndpointSet`
+- `ResearchProducerHandoff_DoesNotClassifyInspectionTopology`
 - `ResearchTargetResolution_RetainsNoBorrowedResourcesOrPresentation`
 - `ResearchTargetCancellation_ExposesNoPartialPopulationOrResult`
 - `ResearchTargetCancellation_RetryPreservesAdmissionAndMintsFreshTargets`
@@ -643,18 +639,20 @@ distinct assembly domains, overloads, accessor roles, projected extension
 bodies, and nested types separate. Census fixtures put a blocked domain beside
 a healthy domain and pair positional-selector drift across overload and
 accessor-role changes. They prove that local failure does not suppress the
-healthy domain and that an unevaluated target never becomes a semantic
-addition or removal.
+healthy domain and that an unevaluated target never becomes absence evidence.
 
-The body-presence precedence gate derives every disposition from purpose-built
-fixtures and asserts that only a paired bodyful/bodyful case becomes
-`ProducerEligible`; no producer seam exists or is invoked in this slice. A
-cross-module body-index fixture must become a blocking attempt before any key
-or correspondence is exposed. The string-key gate inspects the new target-path
-public and internal signatures rather than only exercising a successful
-fixture; explicit compatibility adapters remain until the dependent migration
-removes them. Purpose-built profile fixtures also prove that a body-signal
-admission cannot enter the target path without the typed prerequisite from
+The producer-handoff gates derive the expected endpoint-evidence shape from the
+correspondence declarations. Purpose-built fixtures prove that paired,
+one-sided, and both-absent outcomes retain their exact resolved targets,
+selection intent, and positive absence proofs; blocked outcomes expose no
+completed endpoint set; and no Research signature introduces a Finding
+inspection state or generic body disposition. A cross-module address fixture
+must become a blocking attempt before any key or correspondence is exposed. The
+string-key gate inspects the new target-path public and internal signatures
+rather than only exercising a successful fixture; explicit compatibility
+adapters remain until the dependent migration removes them. Purpose-built
+profile fixtures also prove that a body-signal admission cannot enter the
+target path without the typed prerequisite from
 [#4777](https://github.com/richlander/dotnet-inspect/issues/4777).
 
 ### Target-resolution non-goals
@@ -668,6 +666,8 @@ This boundary does not define:
 - the Queries-owned body-signal target-evidence prerequisite tracked by #4777;
 - package acquisition, role planning, workspace composition, resource cleanup,
   or budgets;
+- Finding inspection-state definition or producer-specific applicability and
+  body-topology classification;
 - work-item construction, producer cataloging or execution, native C#/IL
   comparison, scratch state, or Research completion;
 - direct-member comparison adapters, designated arbitrary method pairing, or
