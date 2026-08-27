@@ -836,15 +836,16 @@ Malformed percent-encoding in an ordinary package or version courtesy path
 produces a typed route failure rather than escaping `decodeURIComponent`.
 Boot and navigation without a resident workspace render that failure in the
 error shell without offering an ineffective retry, and explicit Home navigation
-clears only the route error contribution and its failed-URL hold. Route-notice
-identity outlives that URL hold and a repeated malformed route replaces the
-prior contribution, so workspace changes cannot strand or accumulate route
-errors. Layering a route error preserves the Retry action owned by an unrelated
-existing notice, and both dismiss surfaces share one cleanup path. In-app and
-history navigation with a resident workspace retain it and report the failed
-route as a notice. `malformed courtesy package routes become typed failures`,
-`valid courtesy package routes continue to decode normally`, and `malformed
-package routes use the contained restore failure path` gate those boundaries.
+clears the route error and its failed-URL hold. Route text is stored
+independently from ordinary query notices and composed only for presentation,
+so workspace changes, repeated malformed routes, and unrelated Retry actions
+cannot strand, accumulate, or mutate it. A valid route, explicit Home or
+Credits navigation, and both dismiss surfaces share its cleanup path. In-app
+and history navigation with a resident workspace retain it and report the
+failed route as a notice. `malformed courtesy package routes become typed
+failures`, `valid courtesy package routes continue to decode normally`, and
+`malformed package routes use the contained restore failure path` gate those
+boundaries.
 `canonical transitions cancel visible source work before snapshot` and
 `canonical transitions settle annotated source before snapshot` specifically
 gate source-request settlement. Filters and browse presentation stay

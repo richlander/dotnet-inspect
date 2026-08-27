@@ -755,10 +755,7 @@ interface StateOverrides {
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
 
 const state: AppState = initialState;
-let routeFailureNotice: {
-  previous: string;
-  appended: string;
-} | null = null;
+let routeFailureNotice: string | null = null;
 let failedWorkspaceUrlPreservation: {
   url: string;
   projection: string;
@@ -2500,11 +2497,11 @@ function render() {
         </div>
       </header>
 
-      ${state.queryNotice
+      ${visibleQueryNotice()
         ? `<div class="query-notice" role="alert">
             <span class="query-notice-glyph">⚠</span>
-            <span class="query-notice-text">${escapeHtml(state.queryNotice)}</span>
-            ${state.queryNoticeRetryAction
+            <span class="query-notice-text">${escapeHtml(visibleQueryNotice())}</span>
+            ${state.queryNotice && state.queryNoticeRetryAction
               ? '<button id="retry-notice" type="button">retry</button>'
               : ""}
             <button id="dismiss-notice" type="button" aria-label="Dismiss">×</button>
@@ -6623,20 +6620,22 @@ function appendQueryNotice(message: string, retryAction: RetryAction = null) {
   state.queryNoticeRetryAction = retryAction;
 }
 
-function clearWorkspaceRouteFailureNotice() {
-  if (!routeFailureNotice) return false;
-  state.queryNotice = removeAppendedNotice(
-    state.queryNotice,
-    routeFailureNotice.previous,
-    routeFailureNotice.appended);
+function visibleQueryNotice() {
+  return [state.queryNotice, routeFailureNotice]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function clearWorkspaceRouteFailure() {
+  if (!routeFailureNotice) return;
   routeFailureNotice = null;
-  return true;
+  failedWorkspaceUrlPreservation = null;
 }
 
 function dismissQueryNotice() {
   state.queryNotice = "";
   state.queryNoticeRetryAction = null;
-  routeFailureNotice = null;
+  clearWorkspaceRouteFailure();
   failedWorkspaceUrlPreservation = null;
   render();
 }
@@ -6676,10 +6675,10 @@ function renderHomeView() {
           <button id="home-theme" aria-label="Switch theme">${state.theme === "dark" ? "light" : "dark"}</button>
         </div>
       </header>
-      ${state.queryNotice
+      ${visibleQueryNotice()
         ? `<div class="query-notice" role="alert">
             <span class="query-notice-glyph">⚠</span>
-            <span class="query-notice-text">${escapeHtml(state.queryNotice)}</span>
+            <span class="query-notice-text">${escapeHtml(visibleQueryNotice())}</span>
             <button id="dismiss-notice" type="button" aria-label="Dismiss">×</button>
           </div>`
         : ""}
@@ -6780,9 +6779,7 @@ function goHome() {
   state.memberCallGraphExpanding = false;
   invalidateGraphMemberNavigation();
   clearNavigationError();
-  if (clearWorkspaceRouteFailureNotice()) {
-    failedWorkspaceUrlPreservation = null;
-  }
+  clearWorkspaceRouteFailure();
   state.credits = false;
   state.home = true;
   spotlight.reset();
@@ -6791,6 +6788,7 @@ function goHome() {
 }
 
 function openCredits() {
+  clearWorkspaceRouteFailure();
   state.credits = true;
   state.home = true;
   spotlight.reset();
@@ -9010,15 +9008,16 @@ async function restoreWorkspaceFromLocation(
   loc: ParsedLocation,
   deep: DeepLink,
   navigationSeq = navigationSequence.begin(),
-  canonicalSnapshot = loc.hasWorkspaceState || loc.routeFailure
+  canonicalSnapshot = loc.hasWorkspaceState
     ? captureCanonicalWorkspaceRestoreSnapshot()
     : null,
 ) {
   if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (loc.routeFailure) {
-    failWorkspaceRoute(loc.routeFailure.message, canonicalSnapshot);
+    failWorkspaceRoute(loc.routeFailure.message);
     return;
   }
+  clearWorkspaceRouteFailure();
   if (loc.hasWorkspaceState && !loc.shareState) {
     failCanonicalWorkspaceRestore(
       loc,
@@ -9211,28 +9210,15 @@ async function restoreWorkspaceFromLocation(
   }
 }
 
-function failWorkspaceRoute(
-  message: string,
-  snapshot: CanonicalWorkspaceRestoreSnapshot | null,
-) {
-  if (snapshot?.hasWorkspace) {
-    restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
+function failWorkspaceRoute(message: string) {
+  if (state.package) {
     state.credits = false;
     state.loading = false;
     state.error = "";
     state.errorTitle = "";
     state.errorDetail = "";
     state.retryAction = null;
-    clearWorkspaceRouteFailureNotice();
-    const previousNotice = state.queryNotice;
-    const previousRetryAction = state.queryNoticeRetryAction;
-    appendQueryNotice(
-      `Package route failed: ${message}`,
-      previousRetryAction);
-    routeFailureNotice = {
-      previous: previousNotice,
-      appended: state.queryNotice,
-    };
+    routeFailureNotice = `Package route failed: ${message}`;
     failedWorkspaceUrlPreservation = {
       url: location.href,
       projection: workspaceUrlProjection(),
@@ -9879,13 +9865,11 @@ window.addEventListener("popstate", () => {
   invalidateGraphMemberNavigation();
   state.loading = false;
   const loc = parseLocation();
-  const canonicalSnapshot = loc.hasWorkspaceState || loc.routeFailure
-    ? captureCanonicalWorkspaceRestoreSnapshot()
-    : null;
-  state.queryNotice = loc.workspaceNotice || "";
-  state.queryNoticeRetryAction = null;
   if (isCreditsPath(location.pathname)) {
     clearNavigationError();
+    clearWorkspaceRouteFailure();
+    state.queryNotice = "";
+    state.queryNoticeRetryAction = null;
     state.credits = true;
     state.home = true;
     spotlight.reset();
@@ -9893,9 +9877,15 @@ window.addEventListener("popstate", () => {
     return;
   }
   if (loc.routeFailure) {
-    failWorkspaceRoute(loc.routeFailure.message, canonicalSnapshot);
+    failWorkspaceRoute(loc.routeFailure.message);
     return;
   }
+  clearWorkspaceRouteFailure();
+  const canonicalSnapshot = loc.hasWorkspaceState
+    ? captureCanonicalWorkspaceRestoreSnapshot()
+    : null;
+  state.queryNotice = loc.workspaceNotice || "";
+  state.queryNoticeRetryAction = null;
   if (loc.hasWorkspaceState && !loc.shareState) {
     failCanonicalWorkspaceRestore(
       loc,
