@@ -428,14 +428,15 @@ export function renderPackageMetadata(options: PackageMetadataOptions): string {
   }
 
   const assemblies = data.assemblies || [];
+  if (!assemblies.length) {
+    return data.inspectionError
+      ? `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Metadata read failed</h2><p>${escapeHtml(data.inspectionError)}</p></section>`
+      : `${picker}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No metadata images</h2><p>None of the assemblies in ${scanScope} carry ECMA-335 metadata (they may be native or resource-only).</p></section>`;
+  }
+
   const warning = data.inspectionError
     ? `<section class="document-section metadata-warning"><strong>⚠ Some assemblies could not be read</strong><ul><li><code>${escapeHtml(data.inspectionError)}</code></li></ul></section>`
     : "";
-
-  if (!assemblies.length) {
-    return `${picker}${warning}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No metadata images</h2><p>None of the assemblies in ${scanScope} carry ECMA-335 metadata (they may be native or resource-only).</p></section>`;
-  }
-
   const blocks = assemblies
     .map(asm => renderAssemblyMetadataBlock(asm, { escapeHtml, fmtBytes }))
     .join("");
