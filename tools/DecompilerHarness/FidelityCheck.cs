@@ -4906,20 +4906,26 @@ static class FidelityCheck
                 reader.GetString(
                     reader.GetGenericParameter(parameterHandle).Name));
         }
+        var qualifiedRootIdentifiers = new HashSet<string>(
+            StringComparer.Ordinal);
         foreach (var qualifiedName in declaration.DescendantNodes()
             .OfType<QualifiedNameSyntax>())
         {
             NameSyntax root = qualifiedName.Left;
             while (root is QualifiedNameSyntax nested)
                 root = nested.Left;
-            if (root is SimpleNameSyntax simpleRoot
-                && (typeParameters.Contains(simpleRoot.Identifier.ValueText)
+            if (root is SimpleNameSyntax simpleRoot)
+            {
+                string identifier = simpleRoot.Identifier.ValueText;
+                qualifiedRootIdentifiers.Add(identifier);
+                if (typeParameters.Contains(identifier)
                     || HasNestedOrBaseInterfaceIdentifierCollision(
                         reader,
                         bodyType,
-                        simpleRoot.Identifier.ValueText)))
-            {
-                return true;
+                        identifier))
+                {
+                    return true;
+                }
             }
         }
         var identifiers = declaration.DescendantNodes()
@@ -4933,6 +4939,7 @@ static class FidelityCheck
                 && !(name.Parent is MemberAccessExpressionSyntax memberAccess
                     && memberAccess.Name == name))
             .Select(name => name.Identifier.ValueText)
+            .Concat(qualifiedRootIdentifiers)
             .Distinct(StringComparer.Ordinal);
 
         foreach (string identifier in identifiers)

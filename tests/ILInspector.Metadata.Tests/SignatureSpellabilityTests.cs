@@ -86,6 +86,22 @@ public sealed class SignatureSpellabilityTests
     }
 
     [Fact]
+    public void InspectMethod_RejectsResolvedAssemblyMissingReferencedType()
+    {
+        using var fixture = OpenFixture(new FixedResolver(
+            typeof(SignatureSpellabilityConsumerFixtures).Assembly.Location));
+        var method = GetMethod(fixture.Reader, fixture.Type, "VisibleMethod");
+
+        var result = fixture.Spellability.InspectMethod(
+            fixture.Reader,
+            method,
+            GenericContext.ForMethod(fixture.Reader, fixture.Type, method));
+
+        Assert.False(result.CanSpell);
+        Assert.Equal(SignatureDecodeStatus.Degraded, result.DecodeStatus);
+    }
+
+    [Fact]
     public void CanSpellField_RelaxesVersionWhenResolverUnifiesReferences()
     {
         using var fixture = OpenFixture(new VersionRelaxingResolver(typeof(VisibleReferenceType).Assembly.Location));
@@ -274,6 +290,18 @@ public sealed class SignatureSpellabilityTests
                     _path,
                     AssemblyResolutionProvenance.Local("VersionRelaxing"))
                 : null;
+    }
+
+    sealed class FixedResolver(string path) : IAssemblyReferenceResolver
+    {
+        readonly string _path = Path.GetFullPath(path);
+
+        public ResolvedAssemblyReference? Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope)
+            => ResolvedAssemblyReference.CreateFromPath(
+                _path,
+                AssemblyResolutionProvenance.Local("TestFixed"));
     }
 
     sealed record Fixture(

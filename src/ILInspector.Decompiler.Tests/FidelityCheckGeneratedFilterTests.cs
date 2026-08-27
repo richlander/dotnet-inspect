@@ -183,6 +183,7 @@ public class FidelityCheckGeneratedFilterTests
                     void ITypeGeneric.M(Models.T value) { }
                 }
             }
+
             """);
         try
         {
@@ -300,6 +301,127 @@ public class FidelityCheckGeneratedFilterTests
                                 || result.Method.EndsWith(
                                     ".Create",
                                     StringComparison.Ordinal)))
+                        .UsedProductWholeMember);
+                }
+            }
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void TryRenderTargetMember_DeclinesQualifiedRootMultiplicityCollisions()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace Models
+            {
+                public class Safe
+                {
+                    public sealed class Inner { }
+                }
+
+                public class Timer
+                {
+                    public sealed class Inner { }
+                }
+
+                public class Widget
+                {
+                    public sealed class Inner { }
+                }
+            }
+
+            namespace App
+            {
+                public class Widget
+                {
+                    public sealed class Inner { }
+                }
+
+                public interface IControl { object Create(); }
+                public interface ISibling { object Create(); }
+                public interface IUsing { Models.Timer.Inner Create(); }
+
+                public sealed class Control : IControl
+                {
+                    object IControl.Create() => new Models.Safe.Inner();
+                }
+
+                public sealed class Sibling : ISibling
+                {
+                    object ISibling.Create() => new Models.Widget.Inner();
+                }
+
+                public sealed class Using : IUsing
+                {
+                    Models.Timer.Inner IUsing.Create()
+                        => new Models.Timer.Inner();
+                }
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            using var source = MetadataSource.Open(assemblyPath);
+            foreach (var (typeName, methodName, admitted) in new[]
+            {
+                ("Control", "App.IControl.Create", true),
+                ("Sibling", "App.ISibling.Create", false),
+                ("Using", "App.IUsing.Create", false),
+            })
+            {
+                var type = reader.GetTypeDefinition(Assert.Single(
+                    reader.TypeDefinitions,
+                    handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                        == typeName));
+                var method = Assert.Single(
+                    type.GetMethods(),
+                    handle => reader.GetString(reader.GetMethodDefinition(handle).Name)
+                        == methodName);
+                foreach (bool targeted in new[] { true, false })
+                {
+                    var rendered = FidelityCheck.TryRenderTargetMember(
+                        pe,
+                        source,
+                        method,
+                        targeted,
+                        isPrimaryConstructor: false);
+                    if (admitted)
+                        Assert.True(rendered.HasValue, $"{typeName}: targeted={targeted}");
+                    else
+                        Assert.Null(rendered);
+                }
+            }
+
+            var targetedResults = FidelityCheck.Evaluate(
+                assemblyPath,
+                typeName => typeName is "App.Control" or "App.Sibling" or "App.Using",
+                candidate => candidate.Method.EndsWith(
+                    ".Create",
+                    StringComparison.Ordinal));
+            var batchResults = FidelityCheck.Evaluate(
+                assemblyPath,
+                typeName => typeName is "App.Control" or "App.Sibling" or "App.Using");
+            foreach (var results in new[] { targetedResults, batchResults })
+            {
+                var control = Assert.Single(
+                    results,
+                    result => result.Type == "App.Control"
+                        && result.Method == "App.IControl.Create");
+                Assert.True(control.UsedProductWholeMember);
+                Assert.Equal(FidelityCheck.CompileBackStatus.Exact, control.Status);
+                foreach (string typeName in new[] { "App.Sibling", "App.Using" })
+                {
+                    Assert.False(Assert.Single(
+                        results,
+                        result => result.Type == typeName
+                            && result.Method.EndsWith(
+                                ".Create",
+                                StringComparison.Ordinal))
                         .UsedProductWholeMember);
                 }
             }
@@ -2227,7 +2349,7 @@ public class FidelityCheckGeneratedFilterTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void Evaluate_DeclinesUnresolvedExplicitInterfaceSignatureAssembly()
+    public void Evaluate_DeclinesUnavailableExplicitInterfaceSignatureType()
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -2269,20 +2391,34 @@ public class FidelityCheckGeneratedFilterTests
             Assert.True(control.UsedProductWholeMember);
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, control.Status);
 
+            CompileAssembly(
+                libraryPath,
+                """
+                namespace MissingContract;
+
+                public sealed class Other { }
+                """);
+            AssertDeclined();
+
             File.Delete(libraryPath);
-            var targetedResults = FidelityCheck.Evaluate(
-                assemblyPath,
-                typeName => typeName == "MissingImplementation",
-                candidate => candidate.Method == "I.Echo");
-            var batchResults = FidelityCheck.Evaluate(
-                assemblyPath,
-                typeName => typeName == "MissingImplementation");
-            foreach (var results in new[] { targetedResults, batchResults })
+            AssertDeclined();
+
+            void AssertDeclined()
             {
-                Assert.False(Assert.Single(
-                    results,
-                    result => result.Method == "I.Echo")
-                    .UsedProductWholeMember);
+                var targetedResults = FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "MissingImplementation",
+                    candidate => candidate.Method == "I.Echo");
+                var batchResults = FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "MissingImplementation");
+                foreach (var results in new[] { targetedResults, batchResults })
+                {
+                    Assert.False(Assert.Single(
+                        results,
+                        result => result.Method == "I.Echo")
+                        .UsedProductWholeMember);
+                }
             }
         }
         finally
