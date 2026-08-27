@@ -725,7 +725,7 @@ public class IlToolsActivationTests
     }
 
     [Fact]
-    public void PlatformWorkflow_RestoresOraclesAndExposesGitBashBeforeCliTests()
+    public void PlatformWorkflow_RestoresOraclesAndSupportsWindowsOnlyDispatch()
     {
         string workflow = File.ReadAllText(
             Path.Combine(RepoRoot, ".github", "workflows", "deep-inspect.yml"));
@@ -744,12 +744,17 @@ public class IlToolsActivationTests
             StringComparison.Ordinal);
         Assert.True(stepsStart >= 0);
         string jobHeader = job[..stepsStart];
+        Assert.Contains("- platform-windows", workflow);
         Assert.Contains("inputs.lane == 'test'", jobHeader);
         Assert.Contains("inputs.lane == 'platform-test'", jobHeader);
+        Assert.Contains("inputs.lane == 'platform-windows'", jobHeader);
         Assert.Contains("inputs.lane == 'all'", jobHeader);
-        Assert.Contains("- os: windows-latest\n            rid: win-x64", jobHeader);
-        Assert.Contains("- os: macos-latest\n            rid: osx-arm64", jobHeader);
-        Assert.Contains("- os: ubuntu-26.04\n            rid: linux-x64", jobHeader);
+        Assert.Contains(
+            """'{"include":[{"os":"windows-latest","rid":"win-x64"}]}'""",
+            jobHeader);
+        Assert.Contains(
+            """'{"include":[{"os":"windows-latest","rid":"win-x64"},{"os":"macos-latest","rid":"osx-arm64"},{"os":"ubuntu-26.04","rid":"linux-x64"}]}'""",
+            jobHeader);
         Assert.Contains("timeout-minutes: 90", jobHeader);
 
         int install = job.IndexOf(

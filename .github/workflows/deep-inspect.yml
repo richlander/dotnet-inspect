@@ -14,6 +14,7 @@ on:
           - package-sweep
           - authored-corpus
           - platform-test
+          - platform-windows
           - nightly
           - all
   schedule:
@@ -170,17 +171,20 @@ jobs:
       (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') ||
       inputs.lane == 'test' ||
       inputs.lane == 'platform-test' ||
+      inputs.lane == 'platform-windows' ||
       inputs.lane == 'all'
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            rid: win-x64
-          - os: macos-latest
-            rid: osx-arm64
-          - os: ubuntu-26.04
-            rid: linux-x64
+      # The focused manual lane avoids spending macOS and Linux agents. Daily
+      # and release-certification paths always retain the complete matrix.
+      matrix: >-
+        ${{
+          fromJSON(
+            inputs.lane == 'platform-windows' &&
+            '{"include":[{"os":"windows-latest","rid":"win-x64"}]}' ||
+            '{"include":[{"os":"windows-latest","rid":"win-x64"},{"os":"macos-latest","rid":"osx-arm64"},{"os":"ubuntu-26.04","rid":"linux-x64"}]}'
+          )
+        }}
     runs-on: ${{ matrix.os }}
     # Windows has measured as high as 57 minutes (#4350). The initial macOS
     # lane gets the same larger budget until its runtime variance is known.
