@@ -465,6 +465,19 @@ test("the metadata lens reports an image with no ECMA-335 metadata", () => {
   assert.match(html, /No metadata images/);
 });
 
+test("the metadata lens does not render all-failed inspection as valid emptiness", () => {
+  const html = renderPackageMetadata(lensOptions({
+    metadata: {
+      assemblies: [],
+      inspectionError: "Assembly unavailable: InvalidImage.",
+    },
+  }));
+  assert.match(html, /Metadata read failed/);
+  assert.match(html, /Assembly unavailable: InvalidImage\./);
+  assert.doesNotMatch(html, /No metadata images/);
+  assert.doesNotMatch(html, /native or resource-only/);
+});
+
 test("an assembly block lists non-empty heaps and tables sorted by row count", () => {
   const html = renderAssemblyMetadataBlock(assembly(), helpers);
   // The empty #Blob heap is omitted; #Strings and #GUID keep their ECMA-335 spellings.
