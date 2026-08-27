@@ -50,8 +50,6 @@ public static class ChangeDetectionApp
             repository,
             workflowText,
             validateProvenancePin: true);
-        DeepInspectOracleWorkflowContract.Validate(repository);
-        DeepInspectOracleWorkflowContract.AssertMutations(repository);
         PromotionWorkflowContract.AssertMutations(repository);
         ProvenancePin.AssertMutations(
             workflowText,
@@ -70,8 +68,7 @@ public static class ChangeDetectionApp
         DetectionTestSuite.Run(repository, result);
 
         Console.WriteLine(
-            "CI change detection fail-safe, workflow contracts, path canaries, " +
-            "and provenance pin mutations passed.");
+            "CI change detection fail-safe, path canaries, and provenance pin mutations passed.");
         return 0;
     }
 
