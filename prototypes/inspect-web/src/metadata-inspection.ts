@@ -83,6 +83,9 @@ export function createMetadataInspectionCoordinator(
   dependencies: MetadataInspectionDependencies,
 ): MetadataInspectionCoordinator {
   const { state } = dependencies;
+  let explorerWindowRequestSequence = 0;
+  const explorerWindowRequests =
+    new WeakMap<AppExplorerState, Map<number, number>>();
 
   return {
     async loadTypeMetadata(request) {
@@ -123,12 +126,19 @@ export function createMetadataInspectionCoordinator(
       const explorer = state.explorer;
       if (!explorer) return;
       const existing = explorer.windows[index];
-      if (existing && (existing.loading
-          || (existing.data
-            && existing.data.startRowId === startRowId
-            && existing.maxRows === maxRows))) {
+      const sameRange = existing?.startRowId === startRowId
+        && existing.maxRows === maxRows;
+      if (sameRange && (existing.loading || existing.data)) {
         return;
       }
+      const requests = explorerWindowRequests.get(explorer)
+        ?? new Map<number, number>();
+      explorerWindowRequests.set(explorer, requests);
+      const requestSequence = ++explorerWindowRequestSequence;
+      requests.set(index, requestSequence);
+      const ownsRequest = () =>
+        state.explorer === explorer
+        && requests.get(index) === requestSequence;
       explorer.windows[index] = {
         loading: true,
         error: "",
@@ -149,7 +159,7 @@ export function createMetadataInspectionCoordinator(
               index,
               startRowId,
               maxRows);
-        if (state.explorer !== explorer) return;
+        if (!ownsRequest()) return;
         explorer.windows[index] = {
           loading: false,
           error: result.error || "",
@@ -158,7 +168,7 @@ export function createMetadataInspectionCoordinator(
           maxRows,
         };
       } catch (error) {
-        if (state.explorer !== explorer) return;
+        if (!ownsRequest()) return;
         explorer.windows[index] = {
           loading: false,
           error: dependencies.describeError(error),
@@ -167,7 +177,7 @@ export function createMetadataInspectionCoordinator(
           maxRows,
         };
       } finally {
-        if (state.explorer === explorer) {
+        if (ownsRequest()) {
           dependencies.render();
           if (index === explorer.focusIndex && !explorer.focusHeap) {
             dependencies.scrollExplorerToFocus();

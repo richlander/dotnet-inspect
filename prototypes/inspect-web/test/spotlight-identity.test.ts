@@ -2699,7 +2699,7 @@ test("metadata explorer request coordination stays outside the composition root"
     /inspectPackageMetadataTable|inspectPlatformMetadataTable|inspectPackageHeapEntries|inspectPlatformHeapEntries/);
   assert.match(
     metadataInspectionSource,
-    /dependencies\.queryPlatformTable[\s\S]*dependencies\.queryPackageTable[\s\S]*state\.explorer !== explorer[\s\S]*index === explorer\.focusIndex && !explorer\.focusHeap/);
+    /const ownsRequest = \(\) =>[\s\S]*state\.explorer === explorer[\s\S]*requests\.get\(index\) === requestSequence[\s\S]*dependencies\.queryPlatformTable[\s\S]*dependencies\.queryPackageTable[\s\S]*if \(!ownsRequest\(\)\) return;[\s\S]*index === explorer\.focusIndex && !explorer\.focusHeap/);
   assert.match(
     metadataInspectionSource,
     /dependencies\.queryPlatformHeap[\s\S]*dependencies\.queryPackageHeap[\s\S]*state\.explorer !== explorer[\s\S]*explorer\.focusHeap === heapName/);

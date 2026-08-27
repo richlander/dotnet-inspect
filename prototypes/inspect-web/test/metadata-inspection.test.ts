@@ -360,6 +360,46 @@ test("explorer window completion cannot publish after explorer replacement", asy
   assert.equal(scrolls, 0);
 });
 
+test("newer explorer window requests suppress stale completions", async () => {
+  const explorer = explorerState();
+  const first = deferred<ExplorerTableData>();
+  const second = deferred<ExplorerTableData>();
+  const starts: number[] = [];
+  let renders = 0;
+  let scrolls = 0;
+  const state = inspectionState({ explorer });
+  const coordinator = createMetadataInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPackageTable: async (_requestExplorer, index, startRowId) => {
+        starts.push(startRowId);
+        return startRowId === 1 ? first.promise : second.promise;
+      },
+      render: () => renders++,
+      scrollExplorerToFocus: () => scrolls++,
+    }));
+
+  const firstLoad = coordinator.loadExplorerWindow(2, 1, 50);
+  await coordinator.loadExplorerWindow(2, 1, 50);
+  const secondLoad = coordinator.loadExplorerWindow(2, 101, 50);
+  first.resolve(tableResult(2, 1));
+  await firstLoad;
+
+  assert.deepEqual(starts, [1, 101]);
+  assert.equal(explorer.windows[2]?.loading, true);
+  assert.equal(explorer.windows[2]?.startRowId, 101);
+  assert.equal(explorer.windows[2]?.data, null);
+  assert.equal(renders, 2);
+  assert.equal(scrolls, 0);
+
+  second.resolve(tableResult(2, 101));
+  await secondLoad;
+
+  assert.equal(explorer.windows[2]?.loading, false);
+  assert.equal(state.explorer?.windows[2]?.data?.startRowId, 101);
+  assert.equal(renders, 3);
+  assert.equal(scrolls, 1);
+});
+
 test("explorer window cache requires the same row range", async () => {
   const explorer = explorerState({
     windows: {
