@@ -13,6 +13,19 @@ internal static class DeepInspectOracleWorkflowContract
     private const string PrepareEvilStep = "Prepare the EVIL assembly pool";
     private const string RunEvilStep = "Run the authored-corpus benchmark (regression ratchet)";
     private const string UploadStep = "Upload the run JSON";
+    private const string WeeklyCron = "0 9 * * 1";
+    private const string JobCondition =
+        "(github.event_name == 'schedule' && " +
+        "github.event.schedule == '0 9 * * 1') || " +
+        "inputs.lane == 'authored-corpus' || " +
+        "inputs.lane == 'all'";
+
+    private const string JobConditionYaml = """
+            if: >-
+              (github.event_name == 'schedule' && github.event.schedule == '0 9 * * 1') ||
+              inputs.lane == 'authored-corpus' ||
+              inputs.lane == 'all'
+        """;
 
     private const string OracleRun = """
         set -euo pipefail
@@ -52,6 +65,21 @@ internal static class DeepInspectOracleWorkflowContract
             "            artifacts/deep-inspect/source-oracle-run.json\n",
             "",
             "Deep Inspect source-oracle contract accepted an unwired artifact.");
+        AssertMutationRejected(
+            workflow,
+            JobConditionYaml,
+            "    if: ${{ false }}",
+            "Deep Inspect source-oracle contract accepted a disabled job.");
+        AssertMutationRejected(
+            workflow,
+            $"    - cron: '{WeeklyCron}'\n",
+            "",
+            "Deep Inspect source-oracle contract accepted a missing weekly trigger.");
+        AssertMutationRejected(
+            workflow,
+            "          - authored-corpus\n",
+            "",
+            "Deep Inspect source-oracle contract accepted a missing manual lane.");
     }
 
     private static void ValidateWorkflow(string workflow)
@@ -69,6 +97,7 @@ internal static class DeepInspectOracleWorkflowContract
         YamlMappingNode root = RequireMapping(
             yaml.Documents[0].RootNode,
             "Deep Inspect workflow root");
+        ValidateTriggers(root);
         YamlMappingNode jobs = GetRequiredMapping(
             root,
             "jobs",
@@ -77,6 +106,11 @@ internal static class DeepInspectOracleWorkflowContract
             jobs,
             JobName,
             "Deep Inspect jobs");
+        RequireScalarValue(
+            job,
+            "if",
+            JobCondition,
+            $"jobs.{JobName}");
         RequireAbsent(job, "continue-on-error", $"jobs.{JobName}");
         RequireAbsent(job, "defaults", $"jobs.{JobName}");
 
@@ -175,6 +209,65 @@ internal static class DeepInspectOracleWorkflowContract
             "if-no-files-found",
             "warn",
             $"jobs.{JobName} {UploadStep}.with");
+    }
+
+    private static void ValidateTriggers(YamlMappingNode root)
+    {
+        YamlMappingNode triggers = GetRequiredMapping(
+            root,
+            "on",
+            "Deep Inspect workflow");
+        YamlSequenceNode schedules = GetRequiredSequence(
+            triggers,
+            "schedule",
+            "Deep Inspect workflow.on");
+        int weeklySchedules = schedules.Children.Count(node =>
+        {
+            YamlMappingNode schedule = RequireMapping(
+                node,
+                "Deep Inspect workflow.on.schedule entry");
+            return GetRequiredScalar(
+                schedule,
+                "cron",
+                "Deep Inspect workflow.on.schedule entry") == WeeklyCron;
+        });
+        if (weeklySchedules != 1)
+        {
+            throw new InvalidOperationException(
+                $"Deep Inspect workflow must declare the {WeeklyCron} " +
+                $"schedule exactly once.");
+        }
+
+        YamlMappingNode dispatch = GetRequiredMapping(
+            triggers,
+            "workflow_dispatch",
+            "Deep Inspect workflow.on");
+        YamlMappingNode inputs = GetRequiredMapping(
+            dispatch,
+            "inputs",
+            "Deep Inspect workflow.on.workflow_dispatch");
+        YamlMappingNode lane = GetRequiredMapping(
+            inputs,
+            "lane",
+            "Deep Inspect workflow.on.workflow_dispatch.inputs");
+        YamlSequenceNode options = GetRequiredSequence(
+            lane,
+            "options",
+            "Deep Inspect workflow.on.workflow_dispatch.inputs.lane");
+        var optionValues = options.Children
+            .Select(node => RequireScalar(
+                node,
+                "Deep Inspect workflow lane option"))
+            .ToList();
+        foreach (string required in new[] { "authored-corpus", "all" })
+        {
+            if (optionValues.Count(option => option == required) != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Deep Inspect workflow must declare the {required} " +
+                    $"manual lane exactly once.");
+            }
+        }
     }
 
     private static (int Index, YamlMappingNode Step) GetRequiredStep(
