@@ -667,6 +667,28 @@ internal static class DetectionTestSuite
             selected: "code",
             notSelected: "packaging");
 
+        Dictionary<string, string> packageManifestCorpus = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/package-manifest-corpus.json",
+            outputs);
+        AssertRouting(
+            packageManifestCorpus,
+            selected: "code",
+            notSelected: "docs");
+
+        Dictionary<string, string> packageManifestCorpusVerifier = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/verify-package-manifest-corpus.cs",
+            outputs);
+        AssertRouting(
+            packageManifestCorpusVerifier,
+            selected: "code",
+            notSelected: "docs");
+
         Dictionary<string, string> workflow = RunDetection(
             repository,
             body,
@@ -758,6 +780,38 @@ internal static class DetectionTestSuite
             throw new InvalidOperationException(
                 $"Pushed source canary did not select code: " +
                 $"{FormatValues(pushedSource)}");
+        }
+
+        Dictionary<string, string> pushedWebDependency = RunDetection(
+            repository,
+            body,
+            "push",
+            "src/DotnetInspector.Queries/AssemblyContextApiSurfaceQuery.cs",
+            outputs);
+        if (pushedWebDependency["code"] != "true" ||
+            pushedWebDependency["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Pushed web dependency did not select code and web: " +
+                FormatValues(pushedWebDependency));
+        }
+
+        Dictionary<string, string> mergeGroupWebDependency = RunDetection(
+            repository,
+            body,
+            "merge_group",
+            "src/DotnetInspector.Queries/AssemblyContextApiSurfaceQuery.cs",
+            outputs);
+        if (mergeGroupWebDependency.Count != webDependency.Count ||
+            mergeGroupWebDependency.Any(item =>
+                !webDependency.TryGetValue(
+                    item.Key,
+                    out string? expected) ||
+                item.Value != expected))
+        {
+            throw new InvalidOperationException(
+                "Merge-group web dependency did not match PR routing: " +
+                FormatValues(mergeGroupWebDependency));
         }
 
         Dictionary<string, string> unicodeSource = RunDetection(

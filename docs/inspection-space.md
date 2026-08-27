@@ -43,8 +43,11 @@ product-owned order across the group. Seeded structural-clone retrieval binds
 one exact seed participant and one explicit candidate participant, keeps both
 retained snapshots alive for one same-image or cross-image Analysis call, and
 returns the product result unchanged beside both subjects' identity and
-provenance. Analysis execution remains sequential, preserving the Browser/Wasm
-baseline. The `extensions`,
+provenance. Exact method analysis reads signals,
+allocations, direct calls, unsafe evidence, exception regions, opportunities,
+and diagnostics from one physical MethodDef body without exposing the snapshot
+or Analysis index to its consumer. Analysis index execution remains sequential,
+preserving the Browser/Wasm baseline. The `extensions`,
 `implements`, and `find` commands also execute typed queries through ephemeral
 workspaces. Ordinary search fan-out creates and disposes one-participant groups
 sequentially; explicit extension reachability uses one binding-consistent group
@@ -666,6 +669,21 @@ attribution, group ordering, binding-policy use, visible rejection, and query
 cost.
 `AssemblyContextResearchProjectionQueryTests.Projection_DoesNotAcquireAPolicySelectionOutsideTheGroup`
 gates the shared resolver's group-containment boundary.
+
+`AssemblyContextMethodAnalysisQuery` is the exact method-scoped Analysis seam.
+It accepts one group participant and physical MethodDef token, opens an
+optimization-capable body index over that participant's retained snapshot, and
+returns the matching method identity, signals, allocation and unsafe
+occurrences, physical call sites, unsafe declaration evidence, exception
+regions, optimization opportunities, and Analysis diagnostics. Invalid and
+bodyless tokens are typed participant failures rather than empty success. The
+query does not aggregate a source method with async or lifted implementation
+bodies; callers select each exact physical body explicitly. The query releases
+derived call-graph caches before returning, and group execution remains
+sequential for Browser/Wasm.
+`AssemblyContextMethodAnalysisQueryTests` gate exact-token filtering, compiled
+allocation/call/exception/opportunity evidence, visible invalid and bodyless
+failures, and unbounded query cost.
 
 `AssemblyContextStructuralCloneRetrievalQuery` is the first query that joins
 two explicitly selected assembly participants while both immutable snapshots

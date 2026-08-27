@@ -309,6 +309,191 @@ public static partial class InspectionEngine
                 AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument));
 
     /// <summary>
+    /// Exact method-body Analysis and metadata evidence for one implementation
+    /// participant. The product query owns the retained snapshot and Analysis
+    /// index; this adapter only resolves ref/lib identity and formats the wire
+    /// model.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryMemberFacts(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string memberName,
+        string memberSignature,
+        string selectorKey,
+        int metadataToken,
+        bool implementationBodySelected)
+    {
+        _ = memberSignature;
+        (
+            BrowserInspectionScope scope,
+            BrowserWorkspaceParticipant participant,
+            Analysis.CallGraphMemberResolution resolution
+        ) = await ImplementationMemberAsync(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            memberName,
+            selectorKey,
+            implementationBodySelected ? metadataToken : 0);
+
+        AssemblyMethodAnalysis analysis = BrowserSurfaceProjection.Require(
+            scope.UseImplementationParticipant(
+                participant,
+                (group, member) =>
+                    AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
+                        group,
+                        member,
+                        resolution.BodyToken)),
+            $"Facts for '{typeIdentity}.{memberName}'");
+
+        var result = new BrowserMemberFacts(
+            analysis.Method.MetadataToken,
+            new BrowserMethodSignals(
+                analysis.Signals.Allocations,
+                analysis.Signals.Copies,
+                analysis.Signals.Unsafe,
+                analysis.Signals.Reflection,
+                analysis.Signals.Throws,
+                analysis.Signals.Catches,
+                analysis.Signals.Finallys,
+                analysis.Signals.AllocInLoop,
+                [.. analysis.Signals.Evidence.Select(FormatOffset)],
+                [.. analysis.Signals.ExceptionTypes]),
+            [
+                .. analysis.Allocations.Select(
+                    allocation => new BrowserAllocationFact(
+                        allocation.Kind.ToString(),
+                        allocation.AllocatedType?.ToDisplayString()
+                            ?? allocation.RuntimeAllocationType,
+                        FormatOffset(allocation.ILOffset),
+                        allocation.CountsAsHeapAllocation,
+                        allocation.Frequency.ToString(),
+                        allocation.Multiplicity.ToString(),
+                        allocation.PathContext.ToString(),
+                        allocation.EscapeKind
+                            != Analysis.AllocationEscapeKind.None
+                                ? allocation.EscapeKind.ToString()
+                                : allocation.Escape.ToString(),
+                        allocation.InLoop,
+                        allocation.EstimatedSizeBytes,
+                        allocation.Detail)),
+            ],
+            [
+                .. analysis.DirectCalls.Select(
+                    call =>
+                    {
+                        string typeArguments =
+                            call.Callee.TypeArguments.Length == 0
+                                ? ""
+                                : $"<{string.Join(
+                                    ", ",
+                                    call.Callee.TypeArguments.Select(
+                                        argument =>
+                                            argument
+                                                .ToQualifiedDisplayString()))}>";
+                        return new BrowserCallFact(
+                            $"{call.Callee.DeclaringType.ToQualifiedDisplayString()}."
+                            + $"{call.Callee.Name}{typeArguments}("
+                            + string.Join(
+                                ", ",
+                                call.Callee.ParameterTypes.Select(
+                                    parameter =>
+                                        parameter
+                                            .ToQualifiedDisplayString()))
+                            + ")",
+                            FormatOffset(call.ILOffset),
+                            string.IsNullOrEmpty(call.Opcode)
+                                ? FormatCallKind(call.Kind)
+                                : call.Opcode,
+                            call.Kind.ToString(),
+                            call.Multiplicity.ToString(),
+                            call.InLoop);
+                    }),
+            ],
+            [
+                .. Analysis.SemanticFactProjection.SafetyFacts(
+                    analysis.UnsafeEvidence,
+                    analysis.UnsafetyOccurrences)
+                    .Select(
+                        fact => new BrowserSafetyFact(
+                            fact.SafetyKind,
+                            fact.ILOffset is int offset
+                                ? FormatOffset(offset)
+                                : null,
+                            fact.Operation,
+                            fact.Requirement,
+                            fact.Evidence)),
+            ],
+            [
+                .. analysis.ExceptionRegions.Select(
+                    region => new BrowserExceptionRegion(
+                        region.Region,
+                        region.Clause,
+                        FormatRange(region.TryStart, region.TryEnd),
+                        FormatRange(
+                            region.HandlerStart,
+                            region.HandlerEnd),
+                        region.FilterStart is int filterStart
+                            && region.FilterEnd is int filterEnd
+                                ? FormatRange(filterStart, filterEnd)
+                                : null,
+                        region.CaughtType)),
+            ],
+            [
+                .. analysis.OptimizationOpportunities.Select(
+                    opportunity =>
+                        new BrowserPerformanceOpportunity(
+                            opportunity.Shape,
+                            opportunity.Evidence,
+                            opportunity.SafeFixDirection,
+                            opportunity.Confidence,
+                            opportunity.ILOffset is int offset
+                                ? FormatOffset(offset)
+                                : null,
+                            opportunity.InLoop,
+                            opportunity.Caveat,
+                            opportunity.SourceFinding,
+                            opportunity.Provenance.ToString()
+                                .ToLowerInvariant())),
+            ],
+            [
+                .. analysis.Diagnostics.Select(
+                    diagnostic =>
+                        $"{diagnostic.Method}: {diagnostic.Message}"),
+            ]);
+
+        return JsonSerializer.Serialize(
+            result,
+            BrowserJsonContext.Default.BrowserMemberFacts);
+    }
+
+    static string FormatOffset(int offset) => $"IL_{offset:X4}";
+
+    static string FormatRange(int start, int end) =>
+        $"{FormatOffset(start)}..{FormatOffset(end)}";
+
+    static string FormatCallKind(Analysis.CallKind kind) =>
+        kind switch
+        {
+            Analysis.CallKind.Call => "call",
+            Analysis.CallKind.CallVirtual => "callvirt",
+            Analysis.CallKind.NewObject => "newobj",
+            Analysis.CallKind.LoadFunction => "ldftn",
+            Analysis.CallKind.LoadVirtualFunction => "ldvirtftn",
+            Analysis.CallKind.CallIndirect => "calli",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(kind),
+                kind,
+                "Unknown direct-call kind."),
+        };
+
+    /// <summary>
     /// Declared NuGet dependency groups plus the selected compile assembly's direct references.
     /// Package parsing and exact-framework selection belong to
     /// <see cref="PackageDependencyGroupsQuery"/>; the assembly-context query owns the metadata
@@ -879,25 +1064,24 @@ public static partial class InspectionEngine
         _ = memberSignature;
         _ = typeQueryId;
 
-        var requests = new List<BrowserPackageRequest>
-        {
-            new(packageId, version, targetFramework),
-        };
-        foreach (BrowserWorkspacePackage entry in JsonSerializer.Deserialize(
-            workspaceJson,
-            BrowserJsonContext.Default.BrowserWorkspacePackageArray) ?? [])
-        {
-            requests.Add(new BrowserPackageRequest(
-                entry.Package,
-                entry.Version,
-                string.IsNullOrWhiteSpace(entry.Framework) ? null : entry.Framework));
-        }
+        (BrowserPackageRequest[] requests, int rootIndex) =
+            MemberCallGraphRequests(
+                packageId,
+                version,
+                targetFramework,
+                workspaceJson);
 
         BrowserScopeResolution resolution =
             await BrowserPackageWorkspace.ResolveAndOpenScopeAsync(requests);
+        if (resolution.RequestedCoordinates.Length != requests.Length)
+        {
+            throw new InvalidOperationException(
+                "The selected Call Graph context did not preserve its "
+                + "distinct package coordinates.");
+        }
         BrowserInspectionScope scope = resolution.Scope;
         BrowserPackageCoordinate rootCoordinate =
-            scope.Coordinate(resolution.RequestedCoordinates[0]);
+            scope.Coordinate(resolution.RequestedCoordinates[rootIndex]);
         (
             BrowserWorkspaceParticipant participant,
             Analysis.CallGraphMemberResolution memberResolution
@@ -924,6 +1108,60 @@ public static partial class InspectionEngine
         return JsonSerializer.Serialize(
             graph,
             BrowserJsonContext.Default.BrowserCallGraph);
+    }
+
+    internal static (BrowserPackageRequest[] Requests, int RootIndex)
+        MemberCallGraphRequests(
+            string packageId,
+            string version,
+            string targetFramework,
+            string workspaceJson)
+    {
+        BrowserWorkspacePackage[] workspace =
+            JsonSerializer.Deserialize(
+                workspaceJson,
+                BrowserJsonContext.Default.BrowserWorkspacePackageArray) ?? [];
+        if (workspace.Length == 0)
+        {
+            return (
+                [new BrowserPackageRequest(packageId, version, targetFramework)],
+                0);
+        }
+
+        BrowserPackageRequest[] requests =
+        [
+            .. workspace.Select(entry => new BrowserPackageRequest(
+                entry.Package,
+                entry.Version,
+                string.IsNullOrWhiteSpace(entry.Framework)
+                    ? null
+                    : entry.Framework)),
+        ];
+        int[] rootIndexes =
+        [
+            .. requests.Select((request, index) => (request, index))
+                .Where(entry =>
+                    string.Equals(
+                        entry.request.PackageId,
+                        packageId,
+                        StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(
+                        entry.request.Version,
+                        version,
+                        StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(
+                        entry.request.TargetFramework ?? "",
+                        targetFramework,
+                        StringComparison.OrdinalIgnoreCase))
+                .Select(entry => entry.index),
+        ];
+        if (rootIndexes.Length != 1)
+        {
+            throw new InvalidOperationException(
+                "The selected Call Graph context must contain the active "
+                + "package coordinate exactly once.");
+        }
+        return (requests, rootIndexes[0]);
     }
 
     internal static BrowserCallGraph ProjectCallGraph(
@@ -994,10 +1232,16 @@ public static partial class InspectionEngine
                 resolution.Type,
                 resolution.Member,
                 textBudget);
+        BrowserMemberBodySelector selectedBody =
+            member.BodySelectors.SingleOrDefault(
+                body => body.Token == resolution.BodyToken)
+            ?? throw new InvalidOperationException(
+                $"The projected member '{member.Name}' does not retain "
+                + $"body 0x{resolution.BodyToken:X8}.");
         textBudget.CommitParticipant();
         return JsonSerializer.Serialize(
-            member,
-            BrowserJsonContext.Default.BrowserMemberSurface);
+            new BrowserGraphMemberSurface(member, selectedBody),
+            BrowserJsonContext.Default.BrowserGraphMemberSurface);
     }
 
     /// <summary>

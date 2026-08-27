@@ -78,7 +78,6 @@ export function isWorkspaceScope(
 }
 
 export const MAX_WORKSPACE_PACKAGES = 12;
-export const MAX_SHARE_STATE_CHARACTERS = 65536;
 
 /** The identity coordinate shared by every workspace/package-graph helper below. */
 export interface PackageIdentity {
@@ -416,82 +415,10 @@ export interface WorkspaceTab {
   id: string;
   version: string;
   framework: string;
-}
-
-export interface NormalizedShareTabs {
-  tabs: WorkspaceTab[];
-  sourceIndexes: number[];
-  error: string;
-}
-
-export function normalizeShareTabs(list: unknown): NormalizedShareTabs {
-  if (!Array.isArray(list)) {
-    return {
-      tabs: [],
-      sourceIndexes: [],
-      error: "The shared workspace state is invalid and was ignored."
-    };
-  }
-  if (list.length > MAX_WORKSPACE_PACKAGES) {
-    return {
-      tabs: [],
-      sourceIndexes: [],
-      error: `The shared workspace exceeds the ${MAX_WORKSPACE_PACKAGES}-package limit and was ignored.`
-    };
-  }
-
-  const tabs: WorkspaceTab[] = [];
-  const sourceIndexes: number[] = [];
-  const identityIndexes = new Map<string, number>();
-  const entries: unknown[] = list;
-  for (let sourceIndex = 0; sourceIndex < entries.length; sourceIndex++) {
-    const tuple: unknown = entries[sourceIndex];
-    if (!Array.isArray(tuple) || tuple.length < 1 || tuple.length > 3) {
-      return {
-        tabs: [],
-        sourceIndexes: [],
-        error: "The shared workspace state is invalid and was ignored."
-      };
-    }
-    const values: unknown[] = tuple;
-    const [idValue, versionValue, frameworkValue] = values;
-    if (typeof idValue !== "string"
-      || !idValue.trim()
-      || (versionValue !== undefined && typeof versionValue !== "string")
-      || (frameworkValue !== undefined && typeof frameworkValue !== "string")) {
-      return {
-        tabs: [],
-        sourceIndexes: [],
-        error: "The shared workspace state is invalid and was ignored."
-      };
-    }
-    const tab: WorkspaceTab = {
-      id: idValue,
-      version: versionValue || "latest",
-      framework: frameworkValue || ""
-    };
-    const identity = packageIdentityKey({
-      id: tab.id,
-      version: tab.version,
-      activeFramework: tab.framework
-    });
-    const existingIndex = identityIndexes.get(identity);
-    if (existingIndex === undefined) {
-      const newIndex = tabs.length;
-      identityIndexes.set(identity, newIndex);
-      tabs.push(tab);
-      sourceIndexes[sourceIndex] = newIndex;
-    } else {
-      sourceIndexes[sourceIndex] = existingIndex;
-    }
-  }
-  return { tabs, sourceIndexes, error: "" };
-}
-
-export function shareStateLengthError(value: string): string {
-  return value.length > MAX_SHARE_STATE_CHARACTERS
-    ? `The shared workspace state exceeds the ${MAX_SHARE_STATE_CHARACTERS}-character limit and was ignored.`
-    : "";
+  shareId?: string;
+  shareKind?: "package" | "group";
+  shareSource?: string;
+  runtimeIdentifier?: string | null;
 }
 
 export interface RetainWorkspacePackageResult<T> {
@@ -734,6 +661,26 @@ export interface GraphMemberShareIdentity extends CallGraphTarget {
   memberName: string;
   selectorKey: string;
   metadataToken: number | null;
+}
+
+export interface SelectedGraphMemberBody {
+  token: number;
+  memberName: string;
+  selectorKey: string;
+}
+
+export function graphMemberTargetWithSelectedBody<
+  TTarget extends GraphMemberTarget,
+>(
+  target: TTarget,
+  selectedBody: SelectedGraphMemberBody,
+): TTarget & Required<GraphMemberTarget> {
+  return {
+    ...target,
+    memberName: selectedBody.memberName,
+    selectorKey: selectedBody.selectorKey,
+    metadataToken: selectedBody.token,
+  };
 }
 
 function isMethodDefinitionToken(value: unknown): value is number {
@@ -1584,8 +1531,8 @@ export interface SectionableMember {
 const allMemberSections: readonly MemberSection[] =
   memberSectionDefinitions.map(([id]) => id);
 
-const sourceBackedMemberSections: ReadonlySet<MemberSection> =
-  new Set<MemberSection>(["source", "annotated"]);
+const packageOnlyMemberSections: ReadonlySet<MemberSection> =
+  new Set<MemberSection>(["facts", "source", "annotated"]);
 
 export function memberSectionIdsFor(
   member: SectionableMember | null | undefined,
@@ -1597,7 +1544,7 @@ export function memberSectionIdsFor(
     return ["overview"];
   }
   const sections = isRuntimePack
-    ? allMemberSections.filter(section => !sourceBackedMemberSections.has(section))
+    ? allMemberSections.filter(section => !packageOnlyMemberSections.has(section))
     : [...allMemberSections];
   return hasSelectedBody
     && ["property", "event"].includes(member?.kind ?? "")

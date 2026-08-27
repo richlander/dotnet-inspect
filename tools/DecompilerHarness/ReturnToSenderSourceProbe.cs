@@ -27,6 +27,13 @@ enum ReturnToSenderSourceOutcome
     UnsupportedTarget,
 }
 
+enum PrinterExactOutcome
+{
+    NotRecorded,
+    Exact,
+    Different,
+}
+
 sealed record ReturnToSenderSourceProbeResult(
     ReturnToSender.RequestedTarget Target,
     ReturnToSenderSourceOutcome Outcome,
@@ -44,7 +51,8 @@ sealed record ReturnToSenderSourceProbeResult(
     ReturnToSender.FaultIsolationMethod? FaultIsolationMethod = null,
     bool UsedCompileBackFloor = false,
     ReturnToSender.FaultIsolationKind? SupersededFaultIsolationKind = null,
-    ReturnToSender.FaultIsolationMethod? SupersededFaultIsolationMethod = null)
+    ReturnToSender.FaultIsolationMethod? SupersededFaultIsolationMethod = null,
+    PrinterExactOutcome PrinterExact = PrinterExactOutcome.NotRecorded)
 {
     public bool Passed => Outcome == ReturnToSenderSourceOutcome.ValidMatch;
     public bool Different => Outcome == ReturnToSenderSourceOutcome.ValidDifferent;
@@ -394,6 +402,7 @@ static partial class ReturnToSenderSourceProbe
             string actual = result.TargetBody;
             if (NormalizeBody(expected) == NormalizeBody(actual))
             {
+                var printerExact = ComparePrinterText(sourceMember.PrinterBody, actual);
                 AddProbeResult(results, result, new ReturnToSenderSourceProbeResult(
                     target,
                     ReturnToSenderSourceOutcome.ValidMatch,
@@ -403,7 +412,8 @@ static partial class ReturnToSenderSourceProbe
                     sourceMember.SourcePath,
                     expected,
                     actual,
-                    MemberAnchor: result.MemberAnchor));
+                    MemberAnchor: result.MemberAnchor,
+                    PrinterExact: printerExact));
                 continue;
             }
 
@@ -426,10 +436,35 @@ static partial class ReturnToSenderSourceProbe
                 OriginalOpcodes: fidelityEvidence?.OriginalOpcodes,
                 RecompiledOpcodes: fidelityEvidence?.RecompiledOpcodes,
                 IlDiffLines: fidelityEvidence?.IlDiffLines,
-                MemberAnchor: result.MemberAnchor));
+                MemberAnchor: result.MemberAnchor,
+                PrinterExact: sourceMember.PrinterBody is null
+                    ? PrinterExactOutcome.NotRecorded
+                    : PrinterExactOutcome.Different));
         }
 
         return results;
+    }
+
+    internal static PrinterExactOutcome ComparePrinterText(string? expected, string actual)
+    {
+        if (expected is null)
+            return PrinterExactOutcome.NotRecorded;
+
+        static string MechanicalEnvelope(string text)
+        {
+            string normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal)
+                .Replace('\r', '\n');
+            return normalized.EndsWith('\n')
+                ? normalized[..^1]
+                : normalized;
+        }
+
+        return string.Equals(
+            MechanicalEnvelope(expected),
+            MechanicalEnvelope(actual),
+            StringComparison.Ordinal)
+                ? PrinterExactOutcome.Exact
+                : PrinterExactOutcome.Different;
     }
 
     internal static IReadOnlyList<SourceCorrespondenceFinding> BuildFindings(
@@ -677,7 +712,8 @@ internal sealed record ReturnToSenderSourceMember(
     string? Body,
     int? MetadataToken = null,
     Guid? ModuleVersionId = null,
-    string? SignatureUnavailableReason = null);
+    string? SignatureUnavailableReason = null,
+    string? PrinterBody = null);
 
 internal sealed class ReturnToSenderSourceIndex
 {
