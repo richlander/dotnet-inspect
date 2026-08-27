@@ -415,11 +415,10 @@ Library selection uses manual commit:
 
 - Up and Down Arrow move only the active option.
 - Home and End move the active option to the first and last option.
-- Printable input moves the active option through prefix typeahead. Space
-  extends a non-empty typeahead sequence, allowing labels such as
-  `All libraries` to be matched without committing.
+- Printable input, including Space, moves the active option through prefix
+  typeahead and never commits the Library subject.
 - Enter commits the active option as the Library subject and starts the
-  selected lens work. Space commits only when the typeahead buffer is empty.
+  selected lens work.
 - Escape or focus leaving the listbox without a commit restores the active
   option to the committed selection.
 
