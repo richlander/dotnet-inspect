@@ -249,9 +249,11 @@ Those facts remain part of the product result; they do not need to occupy the
 source viewport.
 
 The `open source` action appears only when the product result supplies an
-attributable source URL. It uses plain text with no trailing arrow or
+optional producer-authorized browse URL. A raw resolved or fetch URL and
+provenance prose do not establish that authorization, and the UI does not parse
+prose to infer it. The action uses plain text with no trailing arrow or
 external-link glyph. Its accessible name may state that it opens a new browser
-tab. The `copy` action remains available with or without a URL.
+tab. The `copy` action remains available with or without a browse URL.
 
 `Decompiled source` remains the concise status for product-generated source.
 If a PDB source attempt failed and the product returned a meaningful limitation
@@ -282,8 +284,9 @@ View labels name the kind of subject, not its cardinality. The label is
 ### Navigation semantics
 
 The primary view control is a tablist. Package, Library, Type, and Member are
-tabs with `role="tab"` and `aria-selected`; unavailable tabs use native disabled
-semantics. They do not use `aria-pressed`.
+tabs with `role="tab"` and `aria-selected`. An unavailable tab remains focusable
+in the tablist with `aria-disabled="true"` so its existence is discoverable;
+activation is suppressed. View tabs do not use `aria-pressed`.
 
 Each view's lens strip is a separate tablist. Every lens or member section is a
 tab with `role="tab"` and `aria-selected`, including identically labelled tabs
@@ -301,23 +304,29 @@ shift as subjects are selected:
 - Type is available when the workspace has a current type selection.
 - Member is available when the current type has a current member selection.
 
-An unavailable view is disabled with native disabled semantics. It is not
-hidden and does not retain stale content.
+An unavailable view is `aria-disabled`, not natively disabled. It is not hidden,
+does not activate, and does not retain stale content. Native disabled semantics
+remain appropriate for unavailable selector pills outside the tablist.
 
 Reconciliation first computes subjects, then decides whether navigation must
 move:
 
-1. If a version or TFM change removes the selected library while other
-   libraries remain, the Library subject becomes `All libraries`. If no
-   libraries remain, Library becomes unavailable.
+1. If a version or TFM change removes the selected Library subject, the product
+   supplies a default valid subject for the new coordinate. That subject may be
+   `All libraries` or one library. If it supplies none, Library becomes
+   unavailable.
 2. The host asks the owning product model to resolve the existing Type within
    both the active coordinate and active Library subject.
 3. It resolves Member only when the retained Type still owns that Member.
-4. An owner-issued default within the same coordinate and Library subject may
-   replace a missing selection; the UI does not select an arbitrary first row.
+4. A missing Type or Member selection is cleared. Reconciliation does not
+   silently substitute another Type or Member.
 
 Subject invalidation in a non-active view only disables that view's tab. It
 does not move the user away from Package or Library.
+
+Initial workspace activation may accept an owner-issued default Type. That
+initial choice is distinct from replacing a user's invalidated selection after
+a coordinate or Library-subject change.
 
 Navigation changes only when the active view becomes unavailable:
 
@@ -327,8 +336,9 @@ Navigation changes only when the active view becomes unavailable:
 - Library moves to Package only when no libraries remain.
 - Package remains active through coordinate reconciliation.
 
-Returning a missing individual library to `All libraries` keeps an active
-Library view available and takes precedence over Type or Member fallback.
+Resolving a missing Library subject to the owner-issued default happens before
+Type and Member reconciliation. It keeps an active Library view available but
+does not itself redirect navigation.
 
 ### Lens ownership
 
@@ -354,18 +364,34 @@ Metadata are distinct lenses that may share a display label.
 ### Library selection
 
 The Library view lists every library admitted from the active package
-coordinate. The default and first selection is `All libraries`, followed by the
-individual libraries in product-owned order.
+coordinate and an `All libraries` subject when the product admits aggregate
+inspection for that coordinate.
 
-The selection controls the subject of every Library lens:
+The product supplies ordered Library subject descriptors and an owner-issued
+default. A coordinate whose initial Library lens supports aggregate inspection
+may default to `All libraries`; when the initial Library lens requires one
+library, the product defaults to an owner-issued library. The UI does not infer
+that choice from package kind, endpoint shape, or assembly count.
+
+The default must be a valid subject for the coordinate. Lens capability does
+not silently replace it: if the active lens cannot inspect the default subject
+arity, the subject remains selected and the lens reports its unavailable
+result.
+
+The Library subject control is single-select. A compact population may use a
+native `select`; a visible library list uses `role="listbox"` with
+`role="option"` and `aria-selected`. It is not a selector-pill group with
+`aria-pressed` and is not a lens tablist.
+
+The selected subject controls every Library lens:
 
 - `All libraries` requests a package-wide result over the complete library set.
 - An individual library requests the same lens for only that assembly.
 - The selected subject persists when switching among References, Integrations,
   Opportunities, Analysis, and Metadata.
 - Changing package version or TFM retains the individual selection only when
-  the same library identity is present in the new coordinate; otherwise it
-  returns to `All libraries`.
+  the same library identity is present in the new coordinate; otherwise it uses
+  the new coordinate's owner-issued default Library subject.
 
 The active library subject remains visible while the library list is filtered
 or collapsed. A lens heading distinguishes aggregate results from a
@@ -394,9 +420,16 @@ concatenation of independently rendered library pages. The UI consumes an
 owner-provided aggregate result that defines ordering, identity, deduplication,
 and partial-failure behavior.
 
-If a lens cannot provide an all-library result, it reports that mode as
-unavailable. It must not silently select the first library or present
-single-library data under an `All libraries` heading.
+Each Library lens supplies explicit aggregate and single-library capability
+facets with visible rejection reasons. If the selected lens cannot provide the
+current subject arity, it reports that mode as unavailable. This rule is
+symmetric: an aggregate-only lens does not pretend to provide one-library data,
+and a single-library-only lens does not pretend to provide an aggregate.
+
+Switching lenses does not silently change the Library subject to obtain a
+supported arity. The unavailable result identifies the mismatch and leaves the
+subject control available so the user can choose a supported subject. The UI
+must not infer capability from source family or transport method.
 
 ## Package coordinate controls
 
@@ -411,8 +444,9 @@ The two package surfaces have distinct responsibilities:
 | Package tab | Select an open package workspace and summarize its active coordinate |
 | Package view | Present package details and edit the active version and TFM |
 
-The active package tab may retain a compact version and TFM summary so the
-workspace coordinate remains visible. It does not contain the full selectors.
+The active package tab retains a compact version and TFM summary while a
+workspace is active so the coordinate remains visible in Library, Type, and
+Member views. It does not contain the full selectors.
 
 ### Package view
 
