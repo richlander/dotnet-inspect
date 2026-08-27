@@ -23,6 +23,10 @@ on:
   # of the allow list was PRs that merge with no CI at all and look clean doing
   # it.
   pull_request:
+  # Merge queue candidates must report the same `ci-required` check as ordinary
+  # PRs. The synthetic head is classified against merge_group.base_sha below.
+  merge_group:
+    types: [checks_requested]
 
 env:
   DOTNET_NOLOGO: true
@@ -30,10 +34,9 @@ env:
 
 # Cancel superseded PR runs (e.g. when an agent pushes again to the same branch)
 # so only the latest commit of a PR consumes a full CI run. Pushes to main are
-# not cancelled, but they only run the lightweight changes/markdownlint legs
-# (test/pack are PR-only), so there is little to cancel. release.yml
-# builds all release packages fresh at publish time and does not consume CI
-# artifacts.
+# not cancelled; web-relevant pushes run inspect-web as a post-merge backstop,
+# while the other expensive lanes remain PR/merge-queue-only. release.yml builds
+# all release packages fresh at publish time and does not consume CI artifacts.
 #
 # The group keys on the pull request *number*, not `github.head_ref`. Branch
 # names are not unique across forks, so two PRs both branched as `patch-1`
@@ -111,7 +114,7 @@ jobs:
           # The runner honors BASH_ENV even with --noprofile and --norc.
           # Clear inherited workflow/job values before executing this gate.
           BASH_ENV: ""
-          CI_BEFORE_SHA: ${{ github.event.before }}
+          CI_BEFORE_SHA: ${{ github.event.merge_group.base_sha || github.event.before }}
           CI_PR_NUMBER: ${{ github.event.pull_request.number }}
           GH_TOKEN: ${{ github.token }}
 
@@ -130,7 +133,7 @@ jobs:
 
   inspect-web:
     needs: changes
-    if: needs.changes.outputs.web == 'true' && github.event_name == 'pull_request'
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-26.04
 
   # Shipped skills are embedded Markdown resources. A SKILL.md-only PR does
@@ -264,7 +267,7 @@ jobs:
 
   skill-gate:
     needs: changes
-    if: needs.changes.outputs.skills == 'true' && github.event_name == 'pull_request'
+    if: needs.changes.outputs.skills == 'true' && github.event_name != 'push'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
@@ -315,7 +318,7 @@ jobs:
   # Inspect, and release publishing continue to exercise ubuntu-26.04.
   test:
     needs: changes
-    if: needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
+    if: needs.changes.outputs.code == 'true' && github.event_name != 'push'
     permissions:
       contents: read
       packages: read
@@ -532,13 +535,14 @@ jobs:
   # the separate IL round-trip project, and packaging.
   #
   # Like every other job here, this one must never be named as a required
-  # status check directly: it is path-gated and PR-only, and a required check
-  # that does not run is reported as "Expected" forever, blocking the merge
-  # permanently. Its result reaches `ci-required`, the aggregate gate at the
-  # end of this file, which is where it becomes merge-blocking.
+  # status check directly: it is path-gated and PR/merge-queue-only, and a
+  # required check that does not run is reported as "Expected" forever,
+  # blocking the merge permanently. Its result reaches `ci-required`, the
+  # aggregate gate at the end of this file, which is where it becomes
+  # merge-blocking.
   test-windows:
     needs: changes
-    if: needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
+    if: needs.changes.outputs.code == 'true' && github.event_name != 'push'
     runs-on: windows-latest
     # Raised again after #4350 recurred at 55 minutes: two runs spent 40-41
     # minutes in the CLI suite and reached Metadata near minute 54, while an
@@ -659,7 +663,7 @@ jobs:
   # SDK / nuget.org.
   build-net10:
     needs: changes
-    if: needs.changes.outputs.shipped == 'true' && github.event_name == 'pull_request'
+    if: needs.changes.outputs.shipped == 'true' && github.event_name != 'push'
     runs-on: ubuntu-26.04
     env:
       DOTNET_INSPECT_TIPS: q
@@ -721,7 +725,7 @@ jobs:
   # a set-only case-ID comparison would still be incomplete.
   decompiler-gates:
     needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.decompiler == 'true'
+    if: needs.changes.outputs.decompiler == 'true' && github.event_name != 'push'
     runs-on: ubuntu-26.04
     # Job timeout raised 55 -> 65 with the step timeout below (#3827).
     # The two must move together: the design depends on the *step* timeout
@@ -852,7 +856,7 @@ jobs:
   # coverage without forcing most PRs through extra work.
   csharp-diff-smoke:
     needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.csharpdiff == 'true'
+    if: needs.changes.outputs.csharpdiff == 'true' && github.event_name != 'push'
     runs-on: ubuntu-26.04
     env:
       DOTNET_INSPECT_TIPS: q
@@ -953,7 +957,7 @@ jobs:
   # IL Diff-specific changes get a focused snapshot/baseline JSONL smoke.
   il-diff-smoke:
     needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.ildiff == 'true'
+    if: needs.changes.outputs.ildiff == 'true' && github.event_name != 'push'
     runs-on: ubuntu-26.04
     env:
       DOTNET_INSPECT_TIPS: q
@@ -1057,7 +1061,7 @@ jobs:
   # skip it, which removes packaging work from the hot PR path.
   pack:
     needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.packaging == 'true'
+    if: needs.changes.outputs.packaging == 'true' && github.event_name != 'push'
     runs-on: ubuntu-26.04
     env:
       DOTNET_INSPECT_TIPS: q
@@ -1227,9 +1231,10 @@ jobs:
       - inspect-web
       - skill-gate
       - test
-      # Path-gated and PR-only, so it reports `skipped` on doc-only PRs and on
-      # pushes to main. That passes the gate by design; the allow list below
-      # distinguishes "correctly not run" from "ran and failed".
+      # Path-gated jobs report `skipped` when their input class is absent; all
+      # expensive jobs except inspect-web also skip on pushes to main. That
+      # passes the gate by design; the allow list below distinguishes
+      # "correctly not run" from "ran and failed".
       - test-windows
       - build-net10
       - decompiler-gates

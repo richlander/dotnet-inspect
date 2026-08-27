@@ -14,8 +14,8 @@ if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
   # An empty PR diff is ambiguous: the base may now contain equivalent
   # changes, or the API may have returned no usable change set. In
   # either case, over-run rather than let every gated job disappear.
-  # An empty push diff remains resolved below because it means the
-  # before and after trees do not differ.
+  # An empty push or merge-group diff remains resolved below because it means
+  # the before and after trees do not differ.
   # The files API reports both sides of a rename. Encode the complete
   # NUL-delimited path stream because shell variables cannot contain
   # NULs and newline-delimited names cannot represent every Git path.
@@ -146,7 +146,9 @@ if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
   fi
 else
   BEFORE="$CI_BEFORE_SHA"
-  # The zero SHA means a new branch or a force push with no prior tip.
+  # The zero SHA means a new branch or a force push with no prior tip. For a
+  # merge group, CI_BEFORE_SHA is the queue-provided base_sha and GITHUB_SHA is
+  # the synthetic candidate head.
   if [ "$BEFORE" != "0000000000000000000000000000000000000000" ] \
      && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
     # Two dots, not three. A symmetric difference has to compute a
