@@ -36,6 +36,21 @@ syntax, and `.d.ts` layout — lives entirely in this tool (`TsTypeMapper`,
 TypeScript would add its own "personality" layer here without needing to touch
 the OM.
 
+Generated JSON-wire interfaces are producer-owned snapshots: their properties
+are `readonly`, arrays use `ReadonlyArray<T>`, and string-keyed dictionaries use
+`Readonly<Record<string, T>>`. This policy is limited to authenticated JSON
+wire shapes. Direct `[JSExport]` arrays retain mutable TypeScript array syntax
+because they are JS-interop runtime values rather than serialized DTOs.
+`DtsEmitterTests.Emit_UsesReadonlyPropertiesWithContextNamingPolicy`,
+`Emit_MapsWireCollectionsToReadonlyTypes`, and
+`TsTypeMapperTests.MapJsonWireType_MapsArraysToReadonlyArrays` gate the wire
+projection, while `DtsEmitterTests.Emit_LeavesDirectInteropArraysMutable` is
+the close negative. The inspect-web `npm run typecheck` gate compiles
+`generatedMemberSurfaceRejectsMutation` and
+`generatedPackageSurfaceRejectsMutation` as consumer canaries, and its focused
+member-detail and package-acquisition tests prove that the application copies
+only the paths it intentionally mutates.
+
 The inspected assembly is read exactly once, into one immutable image that is
 handed to both `ApiSurfaceExtractor` and
 `LibraryBodyIndex.OpenFromPrefetchedImage`. Reading it twice would let a
