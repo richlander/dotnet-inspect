@@ -164,14 +164,25 @@ static class AuthoredCorpusDrift
 
         if (authored.Text is not { } memberSource || memberSource.Length == 0)
             return new RowResult(record, Outcome.Unavailable, "acquire: no source text");
+        if (record.PrinterBody is not null
+            && record.PrinterBodyVersion
+                != AuthoredSourceOracleManifest.PrinterComparisonVersion)
+        {
+            return new RowResult(
+                record,
+                Outcome.Unavailable,
+                $"extract: Printer body version {record.PrinterBodyVersion?.ToString() ?? "<missing>"} "
+                    + $"is unsupported; expected {AuthoredSourceOracleManifest.PrinterComparisonVersion}");
+        }
 
         // Reduce the PDB line-span slice to the same disambiguated member body the
         // harvester stored, so the comparison is like-for-like.
-        if (!AuthoredRebuildFidelity.TryExtractTargetBody(
+        if (!AuthoredRebuildFidelity.TryExtractTargetBodies(
                 memberSource,
                 record.Method,
                 record.ParameterCount,
-                out string body)
+                out string body,
+                out string? printerBody)
             || body.Length == 0)
         {
             return new RowResult(record, Outcome.Unavailable, "extract: body slice failed");
@@ -181,9 +192,22 @@ static class AuthoredCorpusDrift
         // must not register as source drift (git cat-file and raw HTTP both return
         // the committed bytes, but the stored corpus body may have been harvested
         // with a different newline convention).
-        return NormalizeNewlines(body).Equals(NormalizeNewlines(record.AuthoredBody), StringComparison.Ordinal)
+        bool authoredMatches = NormalizeNewlines(body).Equals(
+            NormalizeNewlines(record.AuthoredBody),
+            StringComparison.Ordinal);
+        bool printerMatches = record.PrinterBody is null
+            || printerBody is not null
+                && NormalizeNewlines(printerBody).Equals(
+                    NormalizeNewlines(record.PrinterBody),
+                    StringComparison.Ordinal);
+        return authoredMatches && printerMatches
             ? new RowResult(record, Outcome.Verified, authored.Document?.ResolvedUrl)
-            : new RowResult(record, Outcome.Drifted, DescribeDrift(record.AuthoredBody, body));
+            : new RowResult(
+                record,
+                Outcome.Drifted,
+                authoredMatches
+                    ? "stored Printer body no longer matches the acquired block body"
+                    : DescribeDrift(record.AuthoredBody, body));
     }
 
     static string NormalizeNewlines(string text)

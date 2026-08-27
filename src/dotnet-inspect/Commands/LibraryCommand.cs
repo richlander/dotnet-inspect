@@ -113,6 +113,7 @@ public class LibraryCommand
     {
         var assemblyPath = options.AssemblyName;
         var catalog = LibrarySections.CreateCatalog();
+        var sections = catalog.Sections;
         var pipeline = catalog.Pipeline;
         var queryCatalog = catalog.QueryCatalog;
         var groupQueryCatalog = catalog.GroupQueryCatalog;
@@ -170,7 +171,7 @@ public class LibraryCommand
                     tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
                     verbosity: (int)options.Verbosity,
                     sectionCostAnnotations: pipeline.GetCostAnnotations(),
-                    sectionCategories: pipeline.GetCategoryMap(),
+                    sectionCategories: sections.SelectionCategoryMap,
                     // --schema reveals every registered section. Structural category drill-down
                     // keeps the curated top-level scope when no target inspection is requested.
                     catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections(),
@@ -220,8 +221,8 @@ public class LibraryCommand
         if (fullEffectiveDiscovery && options.Discover is { Length: > 0 })
         {
             var discoverResult = SelectResolver.ResolveSelectAsSections(
-                options.Discover, pipeline.SelectableSectionNames, pipeline.InfoSectionNames,
-                pipeline.GetCategoryMap(), selectDefault: false);
+                options.Discover, sections.SelectableSectionNames, sections.InfoSectionNames,
+                sections.SelectionCategoryMap, selectDefault: false);
             if (SelectOutput.WriteUnresolved(discoverResult))
                 return 1;
             options = options with { IncludeSections = discoverResult.Sections };
@@ -229,7 +230,8 @@ public class LibraryCommand
 
         // -S/--select with values: resolve as section filter for backpressure
         var selectResult = SelectResolver.ResolveSelectAsSections(
-            options.Select, pipeline.SelectableSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap(),
+            options.Select, sections.SelectableSectionNames, sections.InfoSectionNames,
+            sections.SelectionCategoryMap,
             selectDefault: options.SelectDefault);
         if (SelectOutput.WriteUnresolved(selectResult)) return 1;
         if (selectResult.Sections != null)
@@ -496,7 +498,7 @@ public class LibraryCommand
         // requested sections; bare full discovery is bounded to the base-category union.
         HashSet<string>? discoveryExecutionScope = options.IncludeSections;
         if (fullEffectiveDiscovery && discoveryExecutionScope is not { Count: > 0 })
-            discoveryExecutionScope = [.. pipeline.BaseSectionNames];
+            discoveryExecutionScope = [.. sections.BaseSectionNames];
         bool useEffectiveDiscoveryCache = fullEffectiveDiscovery
             && options.Discover is { Length: 0 }
             && options.UserIncludeSections is not { Count: > 0 }
@@ -514,7 +516,7 @@ public class LibraryCommand
         }
         if (options.CollectReferenceTree)
             commandQueryDemand.Add(("reference tree", AssemblyReferencesQuery.Definition));
-        HashSet<InspectionQueryDefinition> sectionQueries = pipeline.GetRequiredQueries(
+        SectionQueryPlan sectionPlan = sections.PlanQueries(
             discoveryInspection && !fullEffectiveDiscovery
                 ? Verbosity.Quiet
                 : options.Verbosity,
@@ -523,9 +525,8 @@ public class LibraryCommand
                 : discoveryExecutionScope,
             discoveryInspection && !fullEffectiveDiscovery
                 ? false
-                : options.FixedOverview,
-            trace);
-        if (sectionQueries.Contains(BodyShapesQuery.Definition)
+                : options.FixedOverview);
+        if (sectionPlan.Queries.Contains(BodyShapesQuery.Definition)
             && options.BodyKindQuery.HasFilter
             && options.PerformanceTriage.HasCandidateFilters)
         {
@@ -534,13 +535,8 @@ public class LibraryCommand
                     OptimizationOpportunitiesQuery.Definition));
         }
 
-        HashSet<InspectionQueryDefinition> queries = sectionQueries;
-        foreach ((string reason, InspectionQueryDefinition query) in commandQueryDemand)
-        {
-            queries.Add(query);
-            trace?.RecordCommandQueryDemand(reason, query);
-        }
-        trace?.RecordRequestedQueries(queries);
+        HashSet<InspectionQueryDefinition> queries =
+            sectionPlan.Activate(trace, commandQueryDemand);
         var inspectionOptions = fullEffectiveDiscovery
             && options.IncludeSections is not { Count: > 0 }
             ? options with { IncludeSections = discoveryExecutionScope }
