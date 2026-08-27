@@ -46,7 +46,10 @@ and an explicit `PublicKeyToken=null` names an unsigned assembly. Because an
 empty token reads as a wildcard during binding, the adapter records it on the
 request and then drops a resolved candidate that turned out to be signed,
 keeping the qualifier a constraint without changing the identity contract that
-`AssemblyDependencyResolver` and `MetadataSource` also consume. A definition
+`AssemblyDependencyResolver` and `MetadataSource` also consume. The qualifier
+constrains the assembly the reference bound to, so when forwarding hops were
+followed the narrowing inspects the first hop's source rather than the terminal
+definition. A definition
 that is not a CLI-valid enum -- unsealed, not directly derived from
 `System.Enum`, generic, carrying a non-public or non-special `value__`, or
 carrying a non-literal static field -- supplies no width. Product extract does

@@ -668,6 +668,85 @@ public sealed class TypeResolutionEnumWidthTests
             metadata.GetOrAddBlob(signature));
     }
 
+    [Fact]
+    public void ExplicitNullPublicKeyToken_RejectsSignedFacadeForwardingToUnsigned()
+    {
+        // The qualifier constrains the assembly the reference binds to, not
+        // the terminal definition. A signed facade named `Other` that forwards
+        // to an unsigned implementation must not satisfy `PublicKeyToken=null`.
+        byte[] targetImage = BuildDefiningTypeImage(
+            "Target",
+            PrimitiveTypeCode.Int64,
+            DefinitionShape.Enum);
+        byte[] facadeImage = BuildFacadeForwardingSamplesE(
+            ReadIdentity(targetImage),
+            assemblyName: "Other",
+            publicKey: SamplePublicKey);
+
+        Assert.Equal(
+            PrimitiveTypeCode.Int32,
+            ResolveWidthThroughFacade(
+                "Samples.E, Other, PublicKeyToken=null",
+                facadeImage,
+                targetImage));
+    }
+
+    [Fact]
+    public void ExplicitNullPublicKeyToken_AcceptsUnsignedFacadeForwardingToSigned()
+    {
+        // The mirror case: the bound assembly `Other` is unsigned, so the
+        // qualifier is satisfied even though the implementation is signed.
+        byte[] targetImage = BuildDefiningTypeImage(
+            "Target",
+            PrimitiveTypeCode.Int64,
+            DefinitionShape.Enum,
+            publicKey: SamplePublicKey);
+        byte[] facadeImage = BuildFacadeForwardingSamplesE(
+            ReadIdentity(targetImage),
+            assemblyName: "Other");
+
+        Assert.Equal(
+            PrimitiveTypeCode.Int64,
+            ResolveWidthThroughFacade(
+                "Samples.E, Other, PublicKeyToken=null",
+                facadeImage,
+                targetImage));
+    }
+
+    static readonly byte[] SamplePublicKey =
+    [
+        0x00, 0x24, 0x00, 0x00, 0x04, 0x80, 0x00, 0x00,
+        0x94, 0x00, 0x00, 0x00, 0x06, 0x02, 0x00, 0x00,
+        0x00, 0x24, 0x00, 0x00, 0x52, 0x53, 0x41, 0x31,
+        0x00, 0x04, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
+    ];
+
+    static PrimitiveTypeCode ResolveWidthThroughFacade(
+        string requestName,
+        byte[] facadeImage,
+        byte[] targetImage)
+    {
+        byte[] userImage = BuildCrossAssemblyInt64NamedEnumImage();
+        ResolvedAssemblyReference facade = Descriptor(facadeImage);
+        ResolvedAssemblyReference target = Descriptor(targetImage);
+        ResolvedAssemblyReference user = Descriptor(userImage);
+        TypeResolutionRequest request = Request(requestName, user);
+        using TypeResolutionContext context = TypeResolutionContext.Create(
+            new RecordingPolicy(
+                current => current.Target
+                        is AssemblyBindingTarget.AssemblyReference reference
+                    ? reference.Identity.Name == "Other"
+                        ? AssemblyBindingSelection.Found(facade)
+                        : reference.Identity.Name == "Target"
+                            ? AssemblyBindingSelection.Found(target)
+                            : AssemblyBindingSelection.NotFound()
+                    : AssemblyBindingSelection.NotFound()),
+            [user],
+            [request]);
+        return TypeResolutionEnumWidth.CreateResolver(context, [request])(
+            "Samples.E");
+    }
+
     static PrimitiveTypeCode ResolveWidthFor(
         string requestName,
         byte[] definingImage)
@@ -957,9 +1036,12 @@ public sealed class TypeResolutionEnumWidthTests
         MalformedEnum,
     }
 
-    static byte[] BuildFacadeForwardingSamplesE(AssemblyReferenceIdentity target)
+    static byte[] BuildFacadeForwardingSamplesE(
+        AssemblyReferenceIdentity target,
+        string assemblyName = "Facade",
+        byte[]? publicKey = null)
     {
-        var metadata = CreateMetadata("Facade");
+        var metadata = CreateMetadata(assemblyName, publicKey);
         AssemblyReferenceHandle implementation = metadata.AddAssemblyReference(
             metadata.GetOrAddString(target.Name),
             target.Version ?? new Version(1, 0, 0, 0),

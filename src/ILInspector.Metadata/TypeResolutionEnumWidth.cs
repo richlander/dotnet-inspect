@@ -126,10 +126,17 @@ public static class TypeResolutionEnumWidth
     /// still bind a signed candidate of the same name. Narrowing here keeps
     /// the qualifier a constraint without changing that identity contract,
     /// which <c>AssemblyDependencyResolver</c> and <c>MetadataSource</c> also
-    /// consume. Gated by
-    /// <c>TryCreateRequest_ExplicitNullPublicKeyToken_RejectsSignedDefinition</c>
+    /// consume.
+    ///
+    /// The qualifier constrains the assembly the reference bound to, not the
+    /// assembly that ultimately defines the type. When forwarding hops were
+    /// followed the bound assembly is the first hop's source, so a signed
+    /// facade cannot satisfy the qualifier by forwarding to an unsigned
+    /// implementation, and an unsigned facade is not rejected for forwarding
+    /// to a signed one. Gated by
+    /// <c>ExplicitNullPublicKeyToken_RejectsSignedFacadeForwardingToUnsigned</c>
     /// and
-    /// <c>TryCreateRequest_ExplicitNullPublicKeyToken_ResolvesUnsignedDefinition</c>.
+    /// <c>ExplicitNullPublicKeyToken_AcceptsUnsignedFacadeForwardingToSigned</c>.
     /// </summary>
     static bool SatisfiesExplicitUnsignedRequest(
         TypeResolutionRequest request,
@@ -141,8 +148,11 @@ public static class TypeResolutionEnumWidth
             return true;
         }
 
-        return string.IsNullOrEmpty(
-            resolved.Definition.Assembly.Assembly.Identity.PublicKeyToken);
+        ResolvedAssemblyCandidate bound =
+            resolved.Hops.IsDefaultOrEmpty
+                ? resolved.Definition.Assembly
+                : resolved.Hops[0].SourceAssembly;
+        return string.IsNullOrEmpty(bound.Assembly.Identity.PublicKeyToken);
     }
 
     static bool TryParseDefinitionName(
