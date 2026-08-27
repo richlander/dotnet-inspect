@@ -206,6 +206,11 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             resolved.Relationship.StateMachineName,
             kickoff.StateMachineType,
             kickoff.StateMachineLocal,
+            kickoff.BuilderStorage.Type,
+            kickoff.StateStorage,
+            kickoff.BuilderStorage,
+            ClassicAsyncStorageSet.Create(
+                AwaiterStorages(moveNext)),
             evidence.AcquisitionGuard);
         var plan = new ClassicAsyncPlan(
             machine,
@@ -339,7 +344,9 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         TypeRef StateMachineType,
         int StateMachineLocal,
         int SourceOffset,
-        bool IsNarrow);
+        bool IsNarrow,
+        ClassicAsyncStorage StateStorage,
+        ClassicAsyncStorage BuilderStorage);
 
     enum ReconstructionResult
     {
@@ -380,6 +387,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             return false;
 
         StoreField? builderStore = null;
+        StoreField? stateStore = null;
         ExpressionStatement? startStatement = null;
         Return? returnTask = null;
         Return? returnVoid = null;
@@ -395,6 +403,16 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 continue;
             }
 
+            if (statement is StoreField
+                {
+                    Field.Name: "<>1__state",
+                    Instance: LoadLocalAddress,
+                } state
+                && stateStore is null)
+            {
+                stateStore = state;
+            }
+
             if (statement is ExpressionStatement { Expression: Call { Callee.Name: "Start" } } expression)
                 startStatement = expression;
             else if (statement is Return { Value: LoadProperty { PropertyName: "Task" } } taskResult)
@@ -404,6 +422,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         }
 
         if (builderStore?.Instance is not LoadLocalAddress stateMachineAddress
+            || stateStore is null
             || startStatement is null
             || returnTask is null && returnVoid is null)
         {
@@ -452,8 +471,34 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             stateMachineType,
             stateMachineAddress.Index,
             builderStore.SourceOffset,
-            narrowHandoff);
+            narrowHandoff,
+            new(
+                stateStore.Field.Name,
+                stateStore.Field.Type),
+            new(
+                builderStore.Field.Name,
+                builderStore.Field.Type));
         return true;
+    }
+
+    static IEnumerable<ClassicAsyncStorage> AwaiterStorages(
+        IrFunction moveNext)
+    {
+        foreach (IrNode node in moveNext.Descendants)
+        {
+            FieldRef? field = node switch
+            {
+                LoadField load => load.Field,
+                LoadFieldAddress address => address.Field,
+                StoreField store => store.Field,
+                _ => null,
+            };
+            if (field is { Name: var name }
+                && name.StartsWith("<>u__", StringComparison.Ordinal))
+            {
+                yield return new(name, field.Type);
+            }
+        }
     }
 
     static bool IsNarrowKickoff(

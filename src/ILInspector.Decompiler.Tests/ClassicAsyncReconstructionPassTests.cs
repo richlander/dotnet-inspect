@@ -482,6 +482,22 @@ public class ClassicAsyncReconstructionPassTests
         Assert.NotSame(first, second);
         Assert.Equal(first, second);
         Assert.Equal(first.GetHashCode(), second.GetHashCode());
+        var reconstruct =
+            Assert.IsType<ClassicAsyncDecision.Reconstruct>(
+                Assert.IsType<
+                    ClassicAsyncPreparationResult.Decided>(
+                        first).Decision);
+        Assert.Equal(
+            "<>1__state",
+            reconstruct.Plan.Machine.StateStorage.Name);
+        Assert.Equal(
+            "<>t__builder",
+            reconstruct.Plan.Machine.BuilderStorage.Name);
+        Assert.Contains(
+            reconstruct.Plan.Machine.AwaiterStorages.Items,
+            storage => storage.Name.StartsWith(
+                "<>u__",
+                StringComparison.Ordinal));
     }
 
     static MethodRef CaptureMoveNextRequest(MetadataSource source)

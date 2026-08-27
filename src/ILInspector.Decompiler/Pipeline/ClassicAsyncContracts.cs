@@ -140,7 +140,53 @@ internal sealed record ClassicAsyncMachine(
     MetadataTypeDefinitionName StateMachineName,
     TypeRef StateMachineType,
     int StateMachineLocal,
+    TypeRef BuilderType,
+    ClassicAsyncStorage StateStorage,
+    ClassicAsyncStorage BuilderStorage,
+    ClassicAsyncStorageSet AwaiterStorages,
     object AcquisitionGuard);
+
+internal sealed record ClassicAsyncStorage(
+    string Name,
+    TypeRef Type);
+
+internal sealed class ClassicAsyncStorageSet
+    : IEquatable<ClassicAsyncStorageSet>
+{
+    readonly ImmutableArray<ClassicAsyncStorage> _items;
+
+    ClassicAsyncStorageSet(
+        ImmutableArray<ClassicAsyncStorage> items)
+        => _items = items;
+
+    internal IReadOnlyList<ClassicAsyncStorage> Items
+        => _items;
+
+    internal static ClassicAsyncStorageSet Create(
+        IEnumerable<ClassicAsyncStorage> items)
+        => new(
+            [.. items
+                .Distinct()
+                .OrderBy(static item => item.Name, StringComparer.Ordinal)
+                .ThenBy(
+                    static item => item.Type.ToDisplayString(),
+                    StringComparer.Ordinal)]);
+
+    public bool Equals(ClassicAsyncStorageSet? other)
+        => other is not null
+            && _items.SequenceEqual(other._items);
+
+    public override bool Equals(object? obj)
+        => obj is ClassicAsyncStorageSet other && Equals(other);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        foreach (ClassicAsyncStorage item in _items)
+            hash.Add(item);
+        return hash.ToHashCode();
+    }
+}
 
 internal sealed record ClassicAsyncPlan(
     ClassicAsyncMachine Machine,
