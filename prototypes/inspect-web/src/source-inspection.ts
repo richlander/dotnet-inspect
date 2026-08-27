@@ -76,6 +76,7 @@ export interface SourceInspectionDependencies {
     request: GraphSourceRequest,
     taste: string,
   ): Promise<BrowserSource>;
+  memberSourceHasConcreteOverload(): boolean;
   cancelEngineSourceRequest(): void;
   describeError(error: unknown): string;
   render(): void;
@@ -85,7 +86,9 @@ export interface SourceInspectionDependencies {
 }
 
 export interface SourceInspectionCoordinator {
+  cancelCurrentRequest(): boolean;
   cancelHiddenRequest(): void;
+  clearGraphSource(): void;
   loadMemberSource(request: MemberSourceLoadRequest): Promise<void>;
   loadTypeSource(request: TypeSourceLoadRequest): Promise<void>;
   openGraphSource(
@@ -99,14 +102,31 @@ export function createSourceInspectionCoordinator(
   dependencies: SourceInspectionDependencies,
 ): SourceInspectionCoordinator {
   const { state } = dependencies;
+  const cancelCurrentRequest = () => {
+    const cancelled = cancelSourceRequestState(state);
+    if (cancelled) dependencies.cancelEngineSourceRequest();
+    return cancelled;
+  };
+  const clearGraphSource = () => {
+    cancelCurrentRequest();
+    state.graphSourceSeq++;
+    state.graphSourceOpen = false;
+    state.graphSource = null;
+    state.graphSourceError = "";
+    state.graphSourceLoading = false;
+    state.graphSourceRequest = null;
+  };
 
   return {
+    cancelCurrentRequest,
     cancelHiddenRequest() {
-      if (!sourceSurfaceIsVisible(state)
-        && cancelSourceRequestState(state)) {
-        dependencies.cancelEngineSourceRequest();
+      if (!sourceSurfaceIsVisible(
+          state,
+          dependencies.memberSourceHasConcreteOverload())) {
+        cancelCurrentRequest();
       }
     },
+    clearGraphSource,
 
     async loadMemberSource(request) {
       if (!sourceRequestNeedsLoad(
@@ -216,15 +236,7 @@ export function createSourceInspectionCoordinator(
     },
 
     closeGraphSource() {
-      if (cancelSourceRequestState(state)) {
-        dependencies.cancelEngineSourceRequest();
-      }
-      state.graphSourceSeq++;
-      state.graphSourceOpen = false;
-      state.graphSource = null;
-      state.graphSourceError = "";
-      state.graphSourceLoading = false;
-      state.graphSourceRequest = null;
+      clearGraphSource();
       dependencies.render();
     },
   };
