@@ -51,23 +51,27 @@ GraphQL for ordinary CI or mergeability monitoring.
 
 ### The REST pair
 
-The default for a routine status check. Set the PR number explicitly, capture
-the first response, and pin the second call to the returned SHA:
+The default for a routine status check. Run the two requests as separate agent
+tool calls, not one compound shell command. First set the PR number explicitly:
 
 ```bash
 pr_number=4822
-pr_state=$(gh api "repos/{owner}/{repo}/pulls/$pr_number" \
-  --jq '[.head.sha,.state,.merged,.draft,.mergeable,.mergeable_state]
-    |map(if . == null then "null" else tostring end)|join("|")') \
-  || exit
-IFS='|' read -r head_sha state merged draft mergeable mergeable_state \
-  <<< "$pr_state"
+gh api "repos/{owner}/{repo}/pulls/$pr_number" \
+  --jq '{head:.head.sha,state,merged,draft,mergeable,mergeable_state}'
+```
 
-# Apply lifecycle, head, and mergeable:false transitions before this call.
+If that tool call fails, apply the rate-limit, transient, or terminal rule
+above before doing anything else. If it succeeds, apply the lifecycle, head,
+and `mergeable: false` transitions below. Only when those permit the second
+request, copy the validated 40-character head SHA into this separate tool call:
+
+```bash
+head_sha="replace-with-validated-head-sha"
 gh api "repos/{owner}/{repo}/commits/$head_sha/check-runs?per_page=100" \
   --jq '[.check_runs[]|select(.name=="ci-required")|{status,conclusion}]'
 ```
 
+Apply the same failure rules if the second tool call fails.
 `gh api` expands `{owner}` and `{repo}`; it does not expand arbitrary `{n}` or
 `{sha}` placeholders. The explicit pin ensures check state is read for the
 validated commit rather than for whatever GitHub considers latest. The PR
@@ -179,6 +183,7 @@ with `sleep`, or make extra status calls in the same run.
 | --- | --- |
 | `mergeable: false` | Apply the conflict transition in [Canonical round flow](../AGENTS.md#canonical-round-flow). After pushing the resolution head, use the standard initial 10- or 35-minute cadence when status gates progress again. |
 | `ci-required` completed with a conclusion other than `success` | Classify it and apply the applicable [recovery transition](../AGENTS.md#recovery-transitions). A terminal non-green result is an answer, not something to wait out. |
+| `mergeable: true`, `ci-required` green, REST `mergeable_state: "blocked"` | Clear automated wait and schedule state, publish `blocked=<pr-number> rec=wait`, and end without a successor. The PR requires human action and is not ready. |
 | `mergeable: true`, `ci-required` green at this head | **Done.** Clear the waiting state and proceed to whatever waited on the answer. |
 | `mergeable: null`, CI green | Schedule one REST snapshot for five minutes later; see [resolving unknown mergeability](#resolving-unknown-mergeability). |
 | `mergeable: null`, CI pending or missing | Schedule one successor 10 minutes plus jitter after this snapshot for documentation-only changes, or 30 minutes after this snapshot otherwise. |
