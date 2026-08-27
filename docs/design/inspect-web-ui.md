@@ -55,8 +55,10 @@ This document composes three adjacent owner contracts without defining them:
 
 - [Inspection subject navigation](inspection-subject-navigation.md) owns
   inspection-subject descriptors, availability, initial recommendation, and
-  reconciliation. Its Type-first default and tools-v2 root fallback were
-  established through #4794.
+  reconciliation, plus the retained navigation-session state machine. Its
+  Type-first default and tools-v2 root fallback were established through #4794.
+- [#4880](https://github.com/richlander/dotnet-inspect/issues/4880) owns the
+  product View Facet Registry that supplies lens membership, labels, and order.
 - [#4787](https://github.com/richlander/dotnet-inspect/issues/4787) owns stable
   portable view identities, per-coordinate view state, and canonical packet
   projection.
@@ -458,19 +460,15 @@ Lens tablists use one tab stop and manual activation:
 Roving `tabindex` keeps only the focused tab at `tabindex="0"`. Moving focus
 does not change `aria-selected` or start lens work until activation.
 
-An applied lens transition flows its committed lens identity into a complete
-replacement navigation snapshot. The UI installs that snapshot atomically and
-derives selected tab, panel, and diagnostics from it; it does not update local
-lens state ahead of the product result. An unavailable transition installs the
-returned fresh snapshot, which preserves the subject and prior effective lens
-when still valid while updating availability. A rejected or failed transition
-retains the prior snapshot and active subject while surfacing the typed outcome.
-A superseded transition has no visible effect. The UI uses the returned effect
-authority before installing the returned rendered snapshot and for outcome
-presentation and focus; any deferred effect revalidates that authority with the
-navigation session when it executes. It acknowledges the authority only after
-installation and all required outcome and focus work complete, or explicitly
-abandons it if the owning surface is destroyed.
+The UI treats the product outcome as atomic. Applied and unavailable outcomes
+may supply a replacement snapshot; rejected and failed outcomes retain the
+current snapshot; superseded outcomes have no visible effect. The UI never
+updates local lens state ahead of the product result.
+
+Before rendering a result or running its focus and outcome work, the UI
+validates the returned opaque effect authority through the navigation session.
+It acknowledges that authority after the required work completes or abandons
+it when the owning surface is destroyed.
 
 An unavailable lens remains in its owning strip with `aria-disabled="true"`
 and an accessible description of the owner-issued reason. A failed lens is
@@ -506,26 +504,18 @@ the same returned active-subject identity. The UI does not infer initial,
 fallback, or reconciliation policy from descriptor order, assembly order,
 current filters, package kind, or display text.
 
-### Lens ownership
+### Lens descriptor ownership
 
-Lenses are grouped by the subject they inspect:
+The product View Facet Registry tracked by
+[#4880](https://github.com/richlander/dotnet-inspect/issues/4880) owns exact
+lens membership, identity, labels, order, and subject applicability. This
+document contains no exhaustive lens allow list.
 
-| Subject | Lenses |
-| ------- | ------ |
-| Package | Overview, Dependencies |
-| Library | References, Integrations, Opportunities, Analysis, Metadata |
-| Type | API, Metadata, Source |
-| Member | Overview, Call graph, Facts, Source, Annotated source |
-
-Package Dependencies contains declared package dependencies by target
-framework. Direct assembly references belong to Library References.
-Integrations, Opportunities, Analysis, and Library Metadata also describe
-assembly content.
-
-A lens appears only in its owning subject. The UI does not retain one mixed lens
-strip under Package or repeat library lenses in both Package and Library.
-Lens identity is scoped by its owning subject, so Library Metadata and Type
-Metadata are distinct lenses that may share a display label.
+The UI renders only the descriptors returned for the active subject. It does
+not retain one mixed lens strip, repeat a lens under another subject, or
+fabricate a familiar lens that the snapshot omits. Lens identity is scoped by
+its owning subject, so two lenses may share a display label without sharing
+identity.
 
 ### Library selection
 
@@ -578,10 +568,9 @@ The selected subject controls every Library lens:
 - `All libraries` requests a coordinate-wide result over the complete library
   set.
 - An individual library requests the same lens for only that assembly.
-- The selected subject persists when switching among References, Integrations,
-  Opportunities, Analysis, and Metadata.
-- Changing package version or TFM supplies the prior product-issued navigation
-  snapshot to coordinate reconciliation and renders the owner-issued result.
+- The selected subject persists when switching among returned Library lenses.
+- Changing package version or TFM submits the realized coordinate result to the
+  retained navigation session, which reconciles from its installed snapshot.
 
 The active library subject remains visible while the library list is filtered
 or collapsed. A lens heading distinguishes aggregate results from a
@@ -693,9 +682,19 @@ inherits this UI-owned push or replace classification.
 
 On browser refresh or shared-link activation, the UI submits the opaque packet
 to the product codec under a new explicit canonical-restoration intent requested
-from the retained navigation session, then renders its atomic success or typed
-failure. It does not use the readable package courtesy field as a fallback
-workspace.
+from the retained navigation session. Once decoding, coordinate realization,
+and portable resolution succeed, it prepares the exact subject and optional
+lens as one composite navigation request under that token. The canonical-state
+coordinator commits that prepared snapshot only with every other restoration
+participant. The UI renders only the complete atomic success or typed failure
+and never exposes an intermediate subject or fallback lens. It does not use the
+readable package courtesy field as a fallback workspace.
+
+If decoding or coordinate realization fails before navigation can run, the UI
+terminates the session intent with the typed external abort and renders the
+prerequisite owner's failure under the returned effect authority, then
+acknowledges or abandons that authority normally. It does not leave the
+navigation session waiting for a snapshot that cannot arrive.
 
 ## Shell actions
 
@@ -733,20 +732,11 @@ Destroying the owning surface explicitly abandons unconsumed authority.
 
 Subject, lens, version, TFM, and canonical-restoration transitions request
 opaque intent tokens from one retained Inspection Subject Navigation session.
-The UI never mints, orders, or compares token values. Starting a newer explicit
-intent invalidates every older in-flight explicit or maintenance result
-immediately. A superseded result is discarded without changing the installed
-snapshot, visible outcome, or focus.
-
-Inventory refresh and reconciliation initiated outside an explicit transition
-do not create newer user intent. They enter the session as maintenance under
-the current token. The session serializes result admission in request order;
-later work may gather facts concurrently but revalidates or rebuilds from the
-then-current snapshot rather than racing installation by completion timing.
-Maintenance cannot install while an explicit operation or its returned effect
-authority remains unresolved and cannot replace a newer snapshot generation.
-Reconciliation needed to complete an explicit transition remains atomic within
-that transition.
+The UI never mints, orders, or compares token values. Supersession, maintenance
+ordering, abort, and liveness are product behavior specified by
+[`NavigationSession.tla`](models/inspection-subject-navigation/NavigationSession.tla);
+the UI obligation is to submit commands through that session and ignore any
+result whose authority is no longer current.
 
 When a menu item opens a modal, the menu closes without returning focus to its
 invoker and the modal applies its initial-focus rule. The stable menu-button
@@ -1068,8 +1058,9 @@ outcomes:
 6. Confirm that the trailing `Copy target` button remains visible and copies
    the product-issued canonical target rather than display text.
 7. Change version or TFM with an active Library, Type, or Member and confirm
-   that the UI supplies the prior navigation snapshot and renders the exactly
-   corresponding subject returned by product reconciliation.
+   that the retained session reconciles from its installed snapshot and the UI
+   renders the exactly corresponding returned subject without supplying another
+   prior-state value.
 8. Keep Root active in a multi-Library result and confirm that Package Type
    navigation uses the product-issued Type-inventory Library context without
    activating Library or deriving context from visible rows.
@@ -1084,16 +1075,10 @@ outcomes:
 12. Start a subject activation, begin a newer subject or coordinate transition,
     then complete the older request and confirm that it cannot install state,
     surface an outcome, or move focus.
-13. Start inventory refresh before and during explicit subject activation and
-    confirm in both orders that maintenance cannot invalidate or overwrite the
-    explicit result.
-14. Install a result, begin a newer intent before its scheduled focus callback,
+13. Install a result, begin a newer intent before its scheduled focus callback,
     and confirm that the older callback cannot move focus.
-15. Complete an explicit transition while refresh facts are ready and confirm
-    that refresh waits until heading focus or non-applied outcome focus is
-    acknowledged.
-16. Queue refresh and reconciliation with reversed fact-completion timing and
-    confirm that request order determines the installed result.
+14. Destroy the owning surface with deferred work pending and confirm that the
+    UI abandons its authority rather than leaving the session blocked.
 
 ### No effective lens
 
@@ -1167,6 +1152,12 @@ outcomes:
 5. Confirm that route preflight, refresh, and shared-link activation never parse
    compact packet fields or use the readable package courtesy identity as a
    fallback workspace.
+6. Restore an exact non-default subject and lens and confirm that their prepared
+   navigation snapshot commits only with every other restoration participant,
+   without rendering an intermediate subject or fallback lens.
+7. Fail decoding or coordinate realization and confirm that the typed external
+   abort retains prior navigation state, presents the prerequisite failure, and
+   releases queued maintenance after its effect authority is acknowledged.
 
 ### Browser history
 
