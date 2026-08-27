@@ -175,6 +175,72 @@ public sealed class TypeResolutionEnumWidthTests
     }
 
     [Fact]
+    public void TryCreateRequest_ExplicitNullPublicKeyToken_IsRejected()
+    {
+        ResolvedAssemblyReference requesting = Descriptor(
+            BuildCrossAssemblyInt64NamedEnumImage());
+
+        // `PublicKeyToken=null` names an unsigned assembly, but
+        // AssemblyReferenceIdentity reads an empty token as a wildcard. If the
+        // request were accepted it could bind a signed assembly of the same
+        // name, so the adapter refuses it and keeps the Int32 default.
+        Assert.False(
+            TypeResolutionEnumWidth.TryCreateRequest(
+                "Samples.E, Other, Version=1.0.0.0, Culture=neutral, "
+                    + "PublicKeyToken=null",
+                requesting,
+                AssemblyResolutionScope.Any,
+                out _));
+    }
+
+    [Fact]
+    public void TryCreateRequest_ExplicitNeutralCulture_StaysAConstraint()
+    {
+        ResolvedAssemblyReference requesting = Descriptor(
+            BuildCrossAssemblyInt64NamedEnumImage());
+
+        Assert.True(
+            TypeResolutionEnumWidth.TryCreateRequest(
+                "Samples.E, Other, Version=1.0.0.0, Culture=neutral",
+                requesting,
+                AssemblyResolutionScope.Any,
+                out TypeResolutionRequest? request));
+
+        var start = Assert.IsType<TypeResolutionStart.Reference>(request.Start);
+
+        // An explicit neutral culture must not bind a culture-specific
+        // candidate; an omitted qualifier still may.
+        Assert.False(
+            start.Value.MatchesCandidate(
+                new AssemblyReferenceIdentity(
+                    "Other", new Version(1, 0, 0, 0), "fr-FR", null)));
+        Assert.True(
+            start.Value.MatchesCandidate(
+                new AssemblyReferenceIdentity(
+                    "Other", new Version(1, 0, 0, 0), null, null)));
+    }
+
+    [Fact]
+    public void TryCreateRequest_OmittedCulture_RemainsAWildcard()
+    {
+        ResolvedAssemblyReference requesting = Descriptor(
+            BuildCrossAssemblyInt64NamedEnumImage());
+
+        Assert.True(
+            TypeResolutionEnumWidth.TryCreateRequest(
+                "Samples.E, Other, Version=1.0.0.0",
+                requesting,
+                AssemblyResolutionScope.Any,
+                out TypeResolutionRequest? request));
+
+        var start = Assert.IsType<TypeResolutionStart.Reference>(request.Start);
+        Assert.True(
+            start.Value.MatchesCandidate(
+                new AssemblyReferenceIdentity(
+                    "Other", new Version(1, 0, 0, 0), "fr-FR", null)));
+    }
+
+    [Fact]
     public void TryCreateRequest_SimpleName_IsFromAssembly()
     {
         ResolvedAssemblyReference requesting = Descriptor(

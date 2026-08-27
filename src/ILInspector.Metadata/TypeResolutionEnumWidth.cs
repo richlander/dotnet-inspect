@@ -149,7 +149,7 @@ public static class TypeResolutionEnumWidth
             assembly = new AssemblyReferenceIdentity(
                 assemblyName.Name,
                 assemblyName.Version,
-                assemblyName.CultureName,
+                ExplicitCultureOrNull(assemblyName.CultureName),
                 publicKeyToken);
         }
 
@@ -163,15 +163,42 @@ public static class TypeResolutionEnumWidth
         return true;
     }
 
+    /// <summary>
+    /// Distinguishes an omitted culture qualifier from an explicit
+    /// <c>Culture=neutral</c>. <see cref="AssemblyNameInfo"/> reports the
+    /// former as <see langword="null"/> and the latter as empty, but
+    /// <see cref="AssemblyReferenceIdentity.MatchesCandidate"/> treats an
+    /// empty culture as a wildcard. Spelling the explicit form as
+    /// <c>neutral</c> keeps it a constraint, so a request for the neutral
+    /// culture cannot bind a culture-specific candidate.
+    /// </summary>
+    static string? ExplicitCultureOrNull(string? cultureName)
+        => cultureName is null ? null
+            : cultureName.Length == 0 ? "neutral"
+            : cultureName;
+
     static bool TryGetPublicKeyToken(
         AssemblyNameInfo assemblyName,
         out string? publicKeyToken)
     {
         ImmutableArray<byte> token = assemblyName.PublicKeyOrToken;
-        if (token.IsDefaultOrEmpty)
+        if (token.IsDefault)
         {
+            // The qualifier was omitted, so any candidate may satisfy it.
             publicKeyToken = null;
             return true;
+        }
+
+        if (token.IsEmpty)
+        {
+            // An explicit `PublicKeyToken=null` names an unsigned assembly.
+            // AssemblyReferenceIdentity cannot express "must be unsigned" --
+            // it reads a null or empty token as a wildcard -- so accepting
+            // this would silently widen the request and could bind a signed
+            // assembly of the same name. Refuse the name instead and let the
+            // caller keep the safe Int32 default.
+            publicKeyToken = null;
+            return false;
         }
 
         if ((assemblyName.Flags & AssemblyNameFlags.PublicKey) != 0)

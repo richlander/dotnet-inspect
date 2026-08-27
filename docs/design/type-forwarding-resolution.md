@@ -39,7 +39,12 @@ back to exact metadata namespace and type segments, and the pre-decode guard
 applies SRM's own serialized-name projection before consulting the width table,
 so a name that only parses once its assembly suffix is removed cannot give the
 guard and the decoder different widths. Unplanned, unbound,
-malformed, or callback-ambiguous names stay `Int32`. Product extract does not
+malformed, or callback-ambiguous names stay `Int32`, as do names whose explicit
+assembly qualifiers the request identity cannot express: an explicit
+`PublicKeyToken=null` names an unsigned assembly, but an empty token reads as a
+wildcard, so accepting it could bind a signed assembly of the same name. An
+explicit `Culture=neutral` is kept as a constraint rather than widened to a
+wildcard. Product extract does not
 yet collect CA enum names into a generation; that remains residual on
 [#4741](https://github.com/richlander/dotnet-inspect/issues/4741).
 `TypeResolutionEnumWidthTests` gates the adapter, and
