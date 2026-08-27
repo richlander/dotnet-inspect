@@ -344,29 +344,45 @@ share an origin. These properties are gated by
 ### Opaque key and safe display
 
 The identity retains no raw or credential-bearing producer locator.
-Construction redacts the canonical locator through
-`UrlRedaction.ForDiagnostics`, derives two values from that owner-issued safe
-result, and then discards the raw canonical locator. During key derivation it
-also derives whether the canonical path is empty after the optional
-trailing-slash fold:
+Construction derives two values and then discards the raw canonical
+components:
 
-- `Display` is the resulting `InertString`. Consumers may convert it to text
-  for diagnostics but must not compare it or use it for authorization.
+- `Display` is the `InertString` returned by
+  `UrlRedaction.ForDiagnostics` for the canonical locator. Consumers may
+  convert it to text for diagnostics but must not compare it or use it for
+  authorization.
 - `Key` is a versioned, fixed-width opaque digest of the exact
-  framed safe material: one byte that is `0x00` for an empty canonical path or
-  `0x01` for a non-empty canonical path, followed by the UTF-8 bytes of
-  `Display.ToString()`. Equality, hashing, NuGetFetch-owned cache keys, and
-  serialization use this value.
+  component-framed safe material described below. Equality, hashing,
+  NuGetFetch-owned cache keys, and serialization use this value.
+
+Key construction frames the canonical components without reparsing display
+text:
+
+1. UTF-8 encode the lowercase scheme and canonical IDN or bracketed IPv6 host,
+   including an IPv6 zone identifier when present.
+2. Prefix each variable-width component with its unsigned 32-bit big-endian
+   byte length and encode the port as an unsigned 16-bit big-endian value.
+3. Prefix the exact canonical path with the fixed ASCII relative-path sentinel
+   `p`, pass that value to `UrlRedaction.ForDiagnostics`, and frame the
+   resulting `InertString` text as the path component. The sentinel remains in
+   the framed value. It forces the redaction owner down its relative-path
+   contract, so the authoritative credential-slot rule runs without a second
+   URI reconstruction.
+4. Concatenate scheme, host, port, and safe-path frames in that order and hash
+   the result.
 
 The HTTP key format is `p1-http-` followed by the lowercase hexadecimal
 SHA-256 digest. The version and source-kind namespace permit a future
 canonicalization or redaction-policy change, or a non-HTTP source, to use a
 distinct key space instead of aliasing existing identities. The digest is
-computed over only the framed safe material and is identical on desktop and
-Browser/Wasm. The path-presence bit prevents diagnostic URI reconstruction
-from folding the canonical root and double-slash-root paths together; it is
-not retained separately. A consumer never parses the key to recover an
+computed over only the component-framed safe material and is identical on
+desktop and Browser/Wasm. A consumer never parses the key to recover an
 endpoint.
+
+The key provides opacity, not confidentiality, for non-secret producer
+components such as host and stable path names. Those values are low entropy.
+Credential values from queries and owner-recognized path slots do not enter
+the key material.
 
 A credential-bearing path such as `/auth/SECRET/` becomes
 `/auth/REDACTED/` before key derivation. Rotating that credential therefore
@@ -380,11 +396,12 @@ than from all stored record fields. `Display` is necessarily many-to-one. The
 URL-redaction owner defines every non-empty segment immediately following an
 `auth` segment as credential data regardless of its spelling, so rotations in
 that position intentionally identify one producer. Stable segments before or
-after that credential slot remain part of display and key derivation. A server
-that uses credential values to select distinct immutable content domains must
-expose such a stable non-credential path distinction. Display text remains
-non-authoritative because a consumer's configured endpoint and credential
-scope are separate identities.
+after that credential slot remain part of safe-path key derivation even when
+full-URL display reconstruction normalizes their spelling. A server that uses
+credential values to select distinct immutable content domains must expose
+such a stable non-credential path distinction. Display text remains
+non-authoritative and may be many-to-one. A consumer's configured endpoint and
+credential scope remain separate identities.
 
 `PackageSourceIdentity_KeyIsOpaqueStableAndPortable`,
 `PackageSourceIdentity_CredentialPathRotationKeepsProducer`,
@@ -398,8 +415,11 @@ fails until the key version and vectors change together. Each path gate
 includes credentials rotated in one `auth` slot as a fold case, stable segments
 outside that slot as a separation case, root and double-slash root as a
 separation case, and absent versus one optional trailing slash as a spelling
-fold. An implementation that erases every path or hashes only display cannot
-pass.
+fold. The separation cases also cover scoped IPv6 zone identifiers and
+canonical paths that full-URL diagnostic rendering normalizes together,
+including encoded trailing whitespace after a non-ASCII segment. An
+implementation that erases every path, retains an unredacted path frame, or
+hashes only display cannot pass.
 
 ### Typed result and failure contract
 
@@ -490,6 +510,8 @@ The following gates run in `src/NuGetFetch.Tests` in Release:
 - `PackageSourceIdentity_SignedQueryRotationKeepsProducer`;
 - `PackageSourceIdentity_DistinctNonCredentialPathsRemainDistinct`;
 - `PackageSourceIdentity_RootAndDoubleSlashRemainDistinct`;
+- `PackageSourceIdentity_ScopedIpv6ZonesRemainDistinct`;
+- `PackageSourceIdentity_FullUrlDisplayFoldsDoNotFoldKey`;
 - `PackageSourceIdentity_GalleryAndV3ShareNuGetOrgProducer`;
 - `PackageSourceIdentity_KeyIsOpaqueStableAndPortable`;
 - `PackageSourceIdentity_CredentialPathRotationKeepsProducer`;
