@@ -474,6 +474,18 @@ gate participant ordering, snapshot reuse, and general partial acquisition.
 `AssemblyContextIntegrationsQueryTests.Execute_ReportsBudgetExhaustionAsIncompleteEntry`
 gates the budget-limited case.
 
+`PackageWorkspaceIntegrationsQuery` composes that evidence over the
+product-selected package role realization. It scans implementation assets in
+their role order, then scans only the surface assets without an implementation
+correspondence. The result retains each package and asset association beside its
+typed participant outcome, so a host can aggregate libraries without merging
+binding groups or reconstructing package ownership from display text.
+`PackageAssemblyContextRealizationTests.PackageWorkspaceIntegrationsQuery_UsesImplementationRoleAndReferenceFallback`
+gates role selection, package/asset provenance, ordering, and reference-only
+fallback.
+`PackageAssemblyContextRealizationTests.PackageWorkspaceIntegrationsQuery_SharedRoleDoesNotDuplicateLibraries`
+gates the shared-role case.
+
 `AssemblyContextIntegrationOpportunitiesQuery` is the first dependent group
 query. It declares the Integrations result as a typed prerequisite, derives the
 set of already-present integrations from that result, and scans each available

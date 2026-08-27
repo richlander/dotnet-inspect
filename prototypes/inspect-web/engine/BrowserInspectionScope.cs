@@ -149,6 +149,13 @@ internal sealed class BrowserInspectionScope : IDisposable
         Func<AssemblyContextGroup, TResult> query) =>
         (_implementation ?? _surface).Use(query);
 
+    /// <summary>
+    /// Runs the product-owned Integration roll-up across the complete realized
+    /// package workspace.
+    /// </summary>
+    public PackageWorkspaceIntegrationsResult QueryIntegrations() =>
+        PackageWorkspaceIntegrationsQuery.Execute(_realization);
+
     /// <summary>Hands one implementation participant to a body-backed product query.</summary>
     public TResult UseImplementationParticipant<TResult>(
         BrowserWorkspaceParticipant participant,

@@ -319,7 +319,7 @@ surface group when no implementation participant exists.
 | `QueryMemberAnnotatedSource` | one package/version/framework | `AssemblyContextMemberProjectionQuery.ExecuteParticipant(...)` |
 | `QueryMemberSource`, `QueryTypeSource`, `QueryTypeMemberSource` | one package/version/framework | `AssemblyContextSourceQuery.ExecuteMemberAsync(...)` / `ExecuteTypeAsync(...)` |
 | `QueryPackageDependencies` | one package/version/framework | `PackageDependencyGroupsQuery.ExecuteAsync(content, ...)` and `AssemblyContextReferencesQuery.ExecuteParticipant(...)` |
-| `QueryPackageIntegrations` | one package/version/framework | `AssemblyContextIntegrationsQuery.Execute(group)` |
+| `QueryPackageIntegrations` | one package/version/framework | `PackageWorkspaceIntegrationsQuery.Execute(realization)` |
 | `QueryPackageOpportunities` | one package/version/framework | `AssemblyContextIntegrationOpportunitiesQuery.Execute(group, prerequisites)` |
 | `QueryPackagePerformance` | one package/version/framework, implementation group | `AssemblyContextOptimizationOpportunitiesQuery.Execute(group)` |
 | `QueryMemberCallGraph` | every open package coordinate, implementation group | `MemberCallGraphSession` |

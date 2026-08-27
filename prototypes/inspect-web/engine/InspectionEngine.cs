@@ -630,30 +630,15 @@ public static partial class InspectionEngine
             targetFramework);
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
 
-        // The workspace is retained and reused, so this runs the whole-group query rather than
-        // the streaming per-participant form: that form's release is terminal for the released
-        // participant, which would leave the reused group unable to answer a later query.
-        AssemblyContextIntegrationsResult result =
-            scope.UseImplementationOrSurface(AssemblyContextIntegrationsQuery.Execute);
-        if (scope.ImplementationParticipants.Length > 0
-            && scope.ReferenceOnlySurfaceParticipants.Length > 0)
-        {
-            result = new AssemblyContextIntegrationsResult(
-            [
-                .. result.Assemblies,
-                .. scope.ReferenceOnlySurfaceParticipants.Select(participant =>
-                    scope.UseSurfaceParticipant(
-                        participant,
-                        AssemblyContextIntegrationsQuery.ExecuteParticipant)),
-            ]);
-        }
+        PackageWorkspaceIntegrationsResult result =
+            scope.QueryIntegrations();
 
         return JsonSerializer.Serialize(
             CreateIntegrations(
                 coordinate.PackageId,
                 coordinate.Version,
                 coordinate.Framework,
-                result.Assemblies),
+                result.Libraries.Select(entry => entry.Integrations)),
             BrowserJsonContext.Default.BrowserPackageIntegrations);
     }
 

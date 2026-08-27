@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Reflection;
+using System.Reflection.Emit;
 
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
@@ -180,6 +181,134 @@ public sealed class PackageAssemblyContextRealizationTests
         Assert.Equal(
             "lib/net11.0/Common.dll",
             secondParticipant.Asset.Path);
+    }
+
+    [Fact]
+    public void PackageWorkspaceIntegrationsQuery_UsesImplementationRoleAndReferenceFallback()
+    {
+        byte[] surface = IntegrationAssembly(
+            "Primary.Integrations",
+            "Example.Surface");
+        byte[] implementation = IntegrationAssembly(
+            "Primary.Integrations",
+            "Microsoft.Extensions.Logging.CustomLogger");
+        byte[] helper = IntegrationAssembly(
+            "Primary.Integrations.Helper",
+            "OpenTelemetry.CustomTracer");
+        byte[] referenceOnly = IntegrationAssembly(
+            "Reference.Only.Integrations",
+            "Microsoft.Extensions.DependencyInjection.IServiceCollection");
+        PackageAssemblyContextSelection primary = Selection(
+            "Primary.Package",
+            ("ref/net11.0/Primary.Integrations.dll", surface),
+            ("lib/net11.0/Primary.Integrations.dll", implementation),
+            ("lib/net11.0/Primary.Integrations.Helper.dll", helper));
+        PackageAssemblyContextSelection secondary = Selection(
+            "Secondary.Package",
+            ("ref/net11.0/Reference.Only.Integrations.dll", referenceOnly));
+        using var workspace = new InspectionWorkspace();
+        using PackageAssemblyContextRealization realization =
+            workspace.RealizePackageAssemblyContextRoles(
+                [primary, secondary],
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        var registry =
+            new InspectionQueryRegistry<PackageAssemblyContextRealization>()
+                .Add(
+                    PackageWorkspaceIntegrationsQuery.Definition,
+                    PackageWorkspaceIntegrationsQuery.Execute);
+        Assert.Equal(
+            InspectionCost.Unbounded,
+            registry.CostOf(PackageWorkspaceIntegrationsQuery.Definition));
+        PackageWorkspaceIntegrationsResult result =
+            registry.Run(
+                    [PackageWorkspaceIntegrationsQuery.Definition],
+                    realization)
+                .Get(PackageWorkspaceIntegrationsQuery.Definition);
+
+        Assert.True(result.IsComplete);
+        Assert.Equal(
+            [
+                "Primary.Package",
+                "Primary.Package",
+                "Secondary.Package",
+            ],
+            result.Libraries.Select(entry => entry.Subject.PackageId));
+        Assert.Equal(
+            [
+                "lib/net11.0/Primary.Integrations.Helper.dll",
+                "lib/net11.0/Primary.Integrations.dll",
+                "ref/net11.0/Reference.Only.Integrations.dll",
+            ],
+            result.Libraries.Select(entry => entry.Subject.Asset.Path));
+
+        PackageWorkspaceIntegrationsEntry primaryLibrary =
+            result.Libraries.Single(entry =>
+                entry.Subject.Asset.Path
+                == "lib/net11.0/Primary.Integrations.dll");
+        var primaryResult =
+            Assert.IsType<AssemblyIntegrationsEntry.Available>(
+                primaryLibrary.Integrations);
+        Assert.Contains(
+            primaryResult.EcosystemSignals,
+            signal =>
+                signal.Integration
+                == EcosystemIntegrationNames.Logging);
+        Assert.DoesNotContain(
+            primaryResult.EcosystemSignals,
+            signal => signal.Name == "Example.Surface");
+
+        PackageWorkspaceIntegrationsEntry helperLibrary =
+            result.Libraries.Single(entry =>
+                entry.Subject.Asset.Path
+                == "lib/net11.0/Primary.Integrations.Helper.dll");
+        var helperResult =
+            Assert.IsType<AssemblyIntegrationsEntry.Available>(
+                helperLibrary.Integrations);
+        Assert.Contains(
+            helperResult.OpenTelemetrySignals,
+            signal => signal.Name == "OpenTelemetry.CustomTracer");
+
+        PackageWorkspaceIntegrationsEntry referenceLibrary =
+            result.Libraries.Single(entry =>
+                entry.Subject.Asset.Path
+                == "ref/net11.0/Reference.Only.Integrations.dll");
+        var referenceResult =
+            Assert.IsType<AssemblyIntegrationsEntry.Available>(
+                referenceLibrary.Integrations);
+        Assert.Contains(
+            referenceResult.EcosystemSignals,
+            signal =>
+                signal.Integration
+                == EcosystemIntegrationNames.DependencyInjection);
+    }
+
+    [Fact]
+    public void PackageWorkspaceIntegrationsQuery_SharedRoleDoesNotDuplicateLibraries()
+    {
+        byte[] implementation = IntegrationAssembly(
+            "Shared.Integrations",
+            "Microsoft.Extensions.Logging.CustomLogger");
+        PackageAssemblyContextSelection package = Selection(
+            "Shared.Package",
+            ("lib/net11.0/Shared.Integrations.dll", implementation));
+        using var workspace = new InspectionWorkspace();
+        using PackageAssemblyContextRealization realization =
+            workspace.RealizePackageAssemblyContextRoles(
+                [package],
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        PackageWorkspaceIntegrationsResult result =
+            PackageWorkspaceIntegrationsQuery.Execute(realization);
+
+        PackageWorkspaceIntegrationsEntry library =
+            Assert.Single(result.Libraries);
+        Assert.Equal("Shared.Package", library.Subject.PackageId);
+        Assert.Equal("1.0.0", library.Subject.PackageVersion);
+        Assert.Equal(
+            "lib/net11.0/Shared.Integrations.dll",
+            library.Subject.Asset.Path);
+        Assert.True(result.IsComplete);
     }
 
     [Fact]
@@ -543,6 +672,26 @@ public sealed class PackageAssemblyContextRealizationTests
             Framework);
         Assert.True(selection.AssetSelection.IsSelected);
         return selection;
+    }
+
+    static byte[] IntegrationAssembly(
+        string assemblyName,
+        string typeName)
+    {
+        var assemblyBuilder = new PersistedAssemblyBuilder(
+            new AssemblyName(assemblyName),
+            typeof(object).Assembly);
+        ModuleBuilder module =
+            assemblyBuilder.DefineDynamicModule(assemblyName);
+        TypeBuilder type = module.DefineType(
+            typeName,
+            TypeAttributes.Public | TypeAttributes.Class);
+        type.DefineDefaultConstructor(MethodAttributes.Public);
+        type.CreateType();
+
+        using var stream = new MemoryStream();
+        assemblyBuilder.Save(stream);
+        return stream.ToArray();
     }
 
     static byte[] Archive(
