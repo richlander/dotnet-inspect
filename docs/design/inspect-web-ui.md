@@ -64,18 +64,20 @@ The accent color is the website-wide indication that a selector value is
 currently selected. It is not an accessibility color and must not be reserved
 for an accessibility selector.
 
-A selected selector uses all three of these visual signals:
+A selected selector uses all four of these visual signals:
 
 | Property | Selected treatment |
 | -------- | ------------------ |
-| Border | Accent |
+| Border color | Accent |
+| Border weight | Two pixels rather than the one-pixel rest border |
 | Text | Accent |
 | Background | Selected-control background |
 
-Using border, text, and background together makes the state recognizable
-without relying on color alone. The treatment applies uniformly to concrete
-values such as `public` and `method` and aggregate values such as `all access`
-and `all kinds`.
+The heavier border is the non-color visual cue. Control dimensions reserve
+space for it so selection does not move adjacent pills. Border, text, and
+background colors reinforce the state. The treatment applies uniformly to
+concrete values such as `public` and `method` and aggregate values such as
+`all access` and `all kinds`.
 
 The current implementation is inconsistent: the shared
 `.namespace-chips button.active` rule gives kind and trait selectors a neutral
@@ -89,9 +91,9 @@ Selector states must remain distinguishable from selection:
 
 | State | Treatment |
 | ----- | --------- |
-| Rest | Standard border, subdued text, transparent background |
+| Rest | One-pixel standard border, subdued text, transparent background |
 | Hover | Stronger neutral border and text; never the selected accent treatment |
-| Selected | Accent border and text with the selected-control background |
+| Selected | Two-pixel accent border and accent text with the selected-control background |
 | Keyboard focus | A focus indicator in addition to the underlying rest or selected state |
 | Disabled or unavailable | Explicitly disabled treatment and native disabled semantics |
 
@@ -106,8 +108,8 @@ disabled.
   of which selector family rendered it.
 - Every toggle-style selector exposes `aria-pressed="true"` or
   `aria-pressed="false"` consistently.
-- Color is supplementary. Border, background, and programmatic pressed state
-  carry the same information.
+- Color is supplementary. Border weight and programmatic pressed state carry
+  the same information.
 - A selected aggregate value uses the same treatment as a selected concrete
   value. The word `all` does not create a neutral or secondary selected state.
 - Multi-select controls apply the selected treatment to every selected value;
@@ -131,6 +133,11 @@ pane:
 - member kind, accessibility, and trait selectors expand together; and
 - collapsing the region never clears or changes a selection.
 
+The Type view does not retain a second library filter. The active Library
+subject controls whether Package and Type navigation show types from all
+libraries or one library. Library selection is view context, not a hidden Type
+filter dimension.
+
 The disclosure state is user-controlled after the pane first appears. It
 survives rerenders and selector changes while that pane remains active so
 choosing one value does not immediately hide the controls. It is not persisted
@@ -141,14 +148,15 @@ as a user preference across browser sessions.
 Hidden controls must not create hidden state. The disclosure button summarizes
 any selection that restricts the visible result set:
 
-- the button uses the selected treatment when one or more hidden selectors are
-  restrictive;
-- a compact count reports the number of restrictive selector dimensions; and
+- the visible label becomes `Filters · N`, where `N` is the number of
+  restrictive selector dimensions;
+- the count uses the accent color without giving the button selector selected
+  styling;
 - the accessible name identifies the active restrictions.
 
 For example, a type pane showing only public types has one restrictive
 dimension even though `public` is the product default. Its collapsed control is
-presented as an active `Filters · 1` button with an accessible name such as
+presented as `Filters · 1` with an accessible name such as
 `Show filters; accessibility: public`. A member pane with `all kinds`,
 `all access`, and `all traits` has no restrictive dimensions and presents a
 neutral `Filters` button.
@@ -159,6 +167,7 @@ one restrictive dimension.
 
 #### Disclosure semantics
 
+- The disclosure button is not a selector and does not expose `aria-pressed`.
 - The button exposes `aria-expanded` and references the selector region with
   `aria-controls`.
 - Expanding the region does not move keyboard focus automatically. The user
@@ -192,9 +201,10 @@ These compact headings do not repeat:
 - the library; or
 - the package and version.
 
-API or source content begins immediately after the type name. The removed
-fields do not leave placeholders or reserved vertical space. They are also not
-moved into collapsed duplicate headers on either lens.
+API content begins immediately after the type name. Source places only its
+compact provenance and action row between the type name and source content.
+The removed fields do not leave placeholders or reserved vertical space. They
+are also not moved into collapsed duplicate headers on either lens.
 
 This makes the API surface or source document the primary content of its page
 and increases the amount visible without scrolling.
@@ -266,6 +276,32 @@ The primary view control presents four choices:
 View labels name the kind of subject, not its cardinality. The label is
 `Library` even when its selected subject is `All libraries`.
 
+### View availability and reconciliation
+
+The four view controls remain visible so the information architecture does not
+shift as subjects are selected:
+
+- Package is available whenever a package workspace is active.
+- Library is available when the active coordinate contains at least one
+  admitted library.
+- Type is available when the workspace has a current type selection.
+- Member is available when the current type has a current member selection.
+
+An unavailable view is disabled with native disabled semantics. It is not
+hidden and does not retain stale content.
+
+After a version, TFM, or library-subject change, the host asks the owning
+product model to resolve the existing type and member identities. It retains
+each selection only when that owner confirms it in the new coordinate. An
+owner-issued default may replace a missing selection; the UI does not select an
+arbitrary first row.
+
+If the active Member selection is lost while its Type remains, the UI moves to
+Type. If the Type selection is also lost, or the active Library view has no
+available libraries, the UI moves to Package. Losing an individual library
+selection while other libraries remain returns the Library subject to
+`All libraries` and keeps the Library view active.
+
 ### Lens ownership
 
 Lenses are grouped by the subject they inspect:
@@ -273,14 +309,19 @@ Lenses are grouped by the subject they inspect:
 | View | Lenses |
 | ---- | ------ |
 | Package | Overview, Dependencies |
-| Library | Integrations, Opportunities, Analysis, Metadata |
+| Library | References, Integrations, Opportunities, Analysis, Metadata |
+| Type | API, Metadata, Source |
+| Member | Overview, Call graph, Facts, Source, Annotated source |
 
-Overview and Dependencies describe the package coordinate. Integrations,
-Opportunities, Analysis, and Metadata describe assembly content and therefore
-belong to Library.
+Package Dependencies contains declared package dependencies by target
+framework. Direct assembly references belong to Library References.
+Integrations, Opportunities, Analysis, and Library Metadata also describe
+assembly content.
 
 A lens appears only in its owning view. The UI does not retain one mixed lens
 strip under Package or repeat library lenses in both Package and Library.
+Lens identity is scoped by its owning view, so Library Metadata and Type
+Metadata are distinct lenses that may share a display label.
 
 ### Library selection
 
@@ -292,7 +333,7 @@ The selection controls the subject of every Library lens:
 
 - `All libraries` requests a package-wide result over the complete library set.
 - An individual library requests the same lens for only that assembly.
-- The selected subject persists when switching among Integrations,
+- The selected subject persists when switching among References, Integrations,
   Opportunities, Analysis, and Metadata.
 - Changing package version or TFM retains the individual selection only when
   the same library identity is present in the new coordinate; otherwise it
@@ -301,6 +342,12 @@ The selection controls the subject of every Library lens:
 The active library subject remains visible while the library list is filtered
 or collapsed. A lens heading distinguishes aggregate results from a
 single-library result.
+
+Package and Type navigation honor the same active Library subject. With
+`All libraries`, their type lists include every admitted library; with one
+library selected, they include only that library's types. The type-navigation
+heading shows `All libraries` or the selected library as context and links back
+to Library for changes. It is not a second library selector.
 
 ### Aggregate results
 
