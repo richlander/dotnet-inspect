@@ -414,14 +414,15 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 directlySelectedBody: false))
         {
             immediateOwner = liftedOwner;
-            return TryResolveUltimateLiftedOwner(
+            DeclaredOwnerResolution resolution =
+                ResolveUltimateLiftedOwner(
                 liftedOwner,
-                out AuthenticatedSourceOwner resolvedOwner)
-                ? SetResolvedOwner(
-                    resolvedOwner,
-                    out ultimateOwner)
-                : SetUnresolvedOwner(
-                    out ultimateOwner);
+                out AuthenticatedSourceOwner resolvedOwner);
+            ultimateOwner =
+                resolution == DeclaredOwnerResolution.Resolved
+                    ? resolvedOwner
+                    : null;
+            return resolution;
         }
 
         AsyncSourceResolution asyncResolution =
@@ -440,11 +441,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             || asyncSource == method)
         {
             ultimateOwner = null;
-            if (!CompilerGeneratedNames.RequiresDeclaredOwner(
-                    method))
-            {
-                return DeclaredOwnerResolution.None;
-            }
             bool canonicalOwnerRequiredBody =
                 CompilerGeneratedNames
                     .IsLocalFunctionOrLambda(method.Name)
@@ -463,14 +459,15 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             AuthenticatedSourceOwner asyncSourceOwner =
                 CreateAuthenticatedSourceOwner(asyncSource);
             immediateOwner = asyncSourceOwner;
-            return TryResolveUltimateLiftedOwner(
+            DeclaredOwnerResolution resolution =
+                ResolveUltimateLiftedOwner(
                 asyncSourceOwner,
-                out AuthenticatedSourceOwner resolvedOwner)
-                ? SetResolvedOwner(
-                    resolvedOwner,
-                    out ultimateOwner)
-                : SetUnresolvedOwner(
-                    out ultimateOwner);
+                out AuthenticatedSourceOwner resolvedOwner);
+            ultimateOwner =
+                resolution == DeclaredOwnerResolution.Resolved
+                    ? resolvedOwner
+                    : null;
+            return resolution;
         }
 
         AuthenticatedSourceOwner sourceOwner =
@@ -481,22 +478,15 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         return DeclaredOwnerResolution.Resolved;
     }
 
-    static DeclaredOwnerResolution SetResolvedOwner(
-        AuthenticatedSourceOwner source,
-        out AuthenticatedSourceOwner? ultimateOwner)
-    {
-        ultimateOwner = source;
-        return DeclaredOwnerResolution.Resolved;
-    }
-
-    static DeclaredOwnerResolution SetUnresolvedOwner(
-        out AuthenticatedSourceOwner? ultimateOwner)
-    {
-        ultimateOwner = null;
-        return DeclaredOwnerResolution.Unresolved;
-    }
-
     bool TryResolveUltimateLiftedOwner(
+        AuthenticatedSourceOwner source,
+        out AuthenticatedSourceOwner ultimateOwner) =>
+        ResolveUltimateLiftedOwner(
+            source,
+            out ultimateOwner)
+            == DeclaredOwnerResolution.Resolved;
+
+    DeclaredOwnerResolution ResolveUltimateLiftedOwner(
         AuthenticatedSourceOwner source,
         out AuthenticatedSourceOwner ultimateOwner)
     {
@@ -512,7 +502,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             if (count == visited.Length)
             {
                 ultimateOwner = default;
-                return false;
+                return DeclaredOwnerResolution.Rejected;
             }
             for (int i = 0; i < count; i++)
             {
@@ -520,7 +510,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                     == current.Method.MetadataToken)
                 {
                     ultimateOwner = default;
-                    return false;
+                    return DeclaredOwnerResolution.Rejected;
                 }
             }
             visited[count++] =
@@ -532,22 +522,27 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                     != HandleKind.MethodDefinition)
             {
                 ultimateOwner = default;
-                return false;
+                return DeclaredOwnerResolution.Rejected;
             }
             var currentDefinition =
                 _reader.GetMethodDefinition(
                     (MethodDefinitionHandle)currentHandle);
-            if (!_liftedSourceOwnerResolver.TryResolve(
+            LiftedSourceOwnerResolution resolution =
+                _liftedSourceOwnerResolver.Resolve(
                     (MethodDefinitionHandle)currentHandle,
                     currentDefinition,
                     current.Method,
                     out AuthenticatedSourceOwner sourceOwner,
                     ownerMethodScope: null,
                     ownerTypeScope: null,
-                    directlySelectedBody: false))
+                    directlySelectedBody: false);
+            if (resolution != LiftedSourceOwnerResolution.Resolved)
             {
                 ultimateOwner = default;
-                return false;
+                return resolution
+                    == LiftedSourceOwnerResolution.Rejected
+                        ? DeclaredOwnerResolution.Rejected
+                        : DeclaredOwnerResolution.Unresolved;
             }
             current = sourceOwner;
         }
@@ -555,11 +550,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         if (IsMalformedGeneratedLiftedOwner(current))
         {
             ultimateOwner = default;
-            return false;
+            return DeclaredOwnerResolution.Rejected;
         }
 
         ultimateOwner = current;
-        return true;
+        return DeclaredOwnerResolution.Resolved;
     }
 
     bool IsMalformedGeneratedLiftedOwner(

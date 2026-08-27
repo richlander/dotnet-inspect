@@ -362,9 +362,13 @@ Async execution sources and owner chains reject malformed generated-like names
 while ordinary compiler-generated owners, including async owners, retain
 established attribution. Rejected identities and incomplete lifted-owner
 chains cannot expand scoped acquisition.
-Canonical generated bodies without an authenticated claimant remain
-owner-unresolved in every scope. Authored bodies retain intrinsic findings when
-malformed or ambiguous state-machine metadata prevents ownership resolution.
+Ultimate-owner traversal distinguishes an incomplete canonical chain
+(`Unresolved`) from malformed, ambiguous, cyclic, or invalid relationships
+(`Rejected`). Canonical generated bodies without an authenticated claimant,
+including Roslyn's async-lambda and async-local-function state-machine
+spellings, remain owner-unresolved in every scope. Authored bodies retain
+intrinsic findings when malformed or ambiguous state-machine metadata prevents
+ownership resolution.
 Allocation fanout classifies calls into owner-excluded bodies as opaque before
 transitive composition.
 `OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes`
@@ -373,9 +377,11 @@ and
 gate fail-closed allocation-fanout and async-state-machine generic-box
 projection while retaining body-intrinsic opportunities, and
 `OptimizationOpportunities_OrphanGeneratedBodyFailsClosedAcrossScopes`,
+`OptimizationOpportunities_CompiledAsyncLambdaStateMachineIsScopeInvariant`,
 `OptimizationOpportunities_AuthoredIntrinsicRowsSurviveMalformedOwnershipAcrossScopes`,
 and `AllocationFanoutTests.Analyze_TreatsExcludedTargetsAsOpaque` gate the
-orphan-generated, authored-intrinsic, and transitive-fanout close negatives.
+orphan-generated spelling parity, compiled async-lambda scope parity,
+authored-intrinsic, and transitive-fanout close negatives.
 `OptimizationOpportunities_UnresolvedLiftedOwnerDoesNotProjectGeneratedBoxing`
 gates that boundary for generated generic-box recommendations,
 while
@@ -390,9 +396,11 @@ gate canonical generated-name admission at immediate and intermediate hops.
 `ResolveDeclaredMethod_TypeGeneratedMalformedAsyncSourceFailsClosedAcrossScopes`,
 `ResolveDeclaredMethod_TypeGeneratedMalformedOwnerFailsClosedAcrossScopes`,
 `Scopes_MalformedGeneratedOwnersDoNotAdmitStateMachineBodies`, and
-`ResolveDeclaredMethod_TerminalMalformedOwnerFailsClosed` gate compiled owner
-compatibility, generated provenance, async scope admission, and terminal-hop
-authentication.
+`ResolveDeclaredMethod_TerminalMalformedOwnerFailsClosed` plus
+`OptimizationOpportunities_TerminalMalformedOwnerFailsClosedWhenEvidenceIsSelected`
+gate compiled owner compatibility, generated provenance, async scope admission,
+terminal-hop authentication, and the `Rejected`/`Unresolved` recommendation
+boundary.
 `OptimizationOpportunities_CompilerGeneratedAsyncOwnerIsScopeInvariant`,
 `OptimizationOpportunities_TypeGeneratedAsyncOwnerSuppressesSiblingAcrossScopes`,
 and
@@ -402,8 +410,8 @@ authenticated top-level exception.
 `ScopedAsyncAdmission_DoesNotIndexUnselectedTopLevelEntryPoint` gates
 metadata-only scope admission before top-level body authentication.
 `OptimizationOpportunities_ResolvedNestedLiftedOwnerProjectsUltimateOwnerAcrossScopes`
-gates ultimate-owner recommendation attribution across full, method, and type
-scopes.
+gates ultimate-owner recommendation and caller attribution across full, method,
+and type scopes.
 `OptimizationOpportunities_GeneratedUltimateSuppressesNestedBoxAcrossScopes`
 and
 `OptimizationOpportunities_GeneratedUltimateSuppressesNestedAsyncAcrossScopes`

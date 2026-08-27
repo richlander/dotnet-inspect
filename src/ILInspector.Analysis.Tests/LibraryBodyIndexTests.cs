@@ -5010,14 +5010,25 @@ public class LibraryBodyIndexTests
         }
     }
 
-    [Fact]
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void
-        OptimizationOpportunities_OrphanGeneratedBodyFailsClosedAcrossScopes()
+        OptimizationOpportunities_OrphanGeneratedBodyFailsClosedAcrossScopes(
+            bool liftedStateMachineName)
     {
         byte[] image =
             BuildMalformedAsyncSourceAssembly(
                 moveNextSmallArray: true,
                 orphanStateMachine: true);
+        if (liftedStateMachineName)
+        {
+            ReplaceAscii(
+                image,
+                "<AnalyzeAsync>d__1",
+                "<<AnalyzeAs>b__0>d",
+                expectedReplacements: 1);
+        }
         string path = Path.Combine(
             Path.GetTempPath(),
             $"OrphanAsyncBody-{Guid.NewGuid():N}.dll");
@@ -5075,6 +5086,49 @@ public class LibraryBodyIndexTests
         {
             File.Delete(path);
         }
+    }
+
+    [Fact]
+    public void
+        OptimizationOpportunities_CompiledAsyncLambdaStateMachineIsScopeInvariant()
+    {
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        LibraryBodyIndex full = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures
+                .OptimizationOpportunities);
+        MethodIdentity moveNext = Assert.Single(
+            full.Methods,
+            method => method.Name == "MoveNext"
+                && method.DeclaringType.Name.Contains(
+                    "<ScopedAsyncAllocationHotspotLambdaOwner>",
+                    StringComparison.Ordinal));
+        Assert.EndsWith(
+            ">d",
+            moveNext.DeclaringType.Name,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            ">d__",
+            moveNext.DeclaringType.Name,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            full.OptimizationOpportunities,
+            opportunity => opportunity.Method.MetadataToken
+                == moveNext.MetadataToken);
+
+        LibraryBodyIndex scoped = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures
+                .OptimizationOpportunities,
+            bodyTypeScope:
+                type => type.Equals(
+                    moveNext.DeclaringType));
+
+        Assert.DoesNotContain(
+            scoped.OptimizationOpportunities,
+            opportunity => opportunity.Method.MetadataToken
+                == moveNext.MetadataToken);
     }
 
     [Fact]
@@ -5844,6 +5898,41 @@ public class LibraryBodyIndexTests
 
         Assert.Null(
             scoped.ResolveDeclaredMethod(lifted));
+    }
+
+    [Fact]
+    public void
+        OptimizationOpportunities_TerminalMalformedOwnerFailsClosedWhenEvidenceIsSelected()
+    {
+        byte[] image =
+            BuildMalformedAsyncSourceAssembly(
+                malformedNestedLiftedIntermediate: true,
+                moveNextSmallArray: true);
+        LibraryBodyIndex identities =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "TerminalMalformedOwnerOpportunity.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity moveNext = Assert.Single(
+            identities.Methods,
+            method => method.Name == "MoveNext"
+                && method.ParameterTypes.IsEmpty);
+        LibraryBodyIndex scoped =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "TerminalMalformedOwnerOpportunity.dll",
+                [.. image],
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
+                bodyScope: new HashSet<int>
+                {
+                    moveNext.MetadataToken,
+                });
+
+        Assert.DoesNotContain(
+            scoped.OptimizationOpportunities,
+            opportunity => opportunity.Shape == "small-array"
+                && opportunity.Method.MetadataToken
+                    == moveNext.MetadataToken);
     }
 
     [Fact]
@@ -12881,6 +12970,13 @@ public class LibraryBodyIndexTests
             Assert.Equal(
                 ultimate,
                 index.ResolveDeclaredMethod(evidence));
+            DirectCall call = Assert.Single(
+                index.DirectCalls,
+                call => call.EvidenceMethod == evidence
+                    && call.Callee.Name == "Equals");
+            Assert.Equal(
+                ultimate,
+                call.Caller);
         }
 
         foreach (int excludedScope in new[]

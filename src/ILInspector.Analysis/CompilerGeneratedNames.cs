@@ -134,6 +134,15 @@ public static class CompilerGeneratedNames
         MethodIdentity method)
         => IsLocalFunctionOrLambda(method.Name)
             || method.Name == "MoveNext"
-                && GeneratedNameGrammar.IsStateMachineLeaf(
+                && IsStateMachineLeaf(
                     LeafName(method.DeclaringType));
+
+    static bool IsStateMachineLeaf(string leafName)
+        => GeneratedNameGrammar.IsStateMachineLeaf(leafName)
+            || leafName.StartsWith('<')
+                && leafName.EndsWith(">d", StringComparison.Ordinal)
+                && (GeneratedNameGrammar
+                        .IsLocalFunctionMethodName(leafName)
+                    || GeneratedNameGrammar
+                        .IsLambdaMethodName(leafName));
 }
