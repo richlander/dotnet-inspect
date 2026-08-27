@@ -15,6 +15,8 @@ namespace ILInspector.Decompiler.Fixtures.ClassicAsync;
 /// </summary>
 public static class AsyncFixtures
 {
+    public static int Observed;
+
     public static async Task<int> AwaitValue(Task<int> a, int b) => await a + b;
 
     public static async Task AwaitVoid(Task a) => await a;
@@ -26,6 +28,25 @@ public static class AsyncFixtures
         GC.KeepAlive((x, y));
     }
 
+    public static async Task TwoSequentialNamedAwaits(
+        Task<int> a,
+        Task<int> b)
+    {
+        int alpha = await a;
+        int beta = await b;
+        GC.KeepAlive((alpha, beta));
+    }
+
+    public static async Task SequentialWithFieldStore(
+        Task<int> a,
+        Task<int> b)
+    {
+        int alpha = await a;
+        Observed = alpha;
+        int beta = await b;
+        GC.KeepAlive((alpha, beta));
+    }
+
     public static async ValueTask<int> AwaitValueTask(ValueTask<int> a) => await a;
 
     public static async Task<int> AwaitInLoop(Task<int>[] tasks)
@@ -34,6 +55,18 @@ public static class AsyncFixtures
         foreach (var task in tasks)
         {
             sum += await task;
+        }
+        return sum;
+    }
+
+    public static async Task<int> LoopWithFieldStore(
+        Task<int>[] tasks)
+    {
+        int sum = 0;
+        foreach (var task in tasks)
+        {
+            sum += await task;
+            Observed = sum;
         }
         return sum;
     }

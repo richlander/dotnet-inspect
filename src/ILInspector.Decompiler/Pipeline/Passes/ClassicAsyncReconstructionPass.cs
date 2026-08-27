@@ -34,7 +34,19 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             || moveNext is null)
             return;
 
-        if (!TryReconstruct(moveNext, function, kickoff, out var body, out var locals, out var localNames))
+        var reconstruction = TryReconstruct(
+            moveNext,
+            function,
+            kickoff,
+            out var body,
+            out var locals,
+            out var localNames);
+        if (reconstruction == ReconstructionResult.UnconsumedExecutionRegion)
+        {
+            MarkUnconsumedExecutionRegion(function, kickoff, context);
+            return;
+        }
+        if (reconstruction != ReconstructionResult.Reconstructed)
             return;
 
         context.Stepper.StepOver($"reconstruct classic async '{function.Name}' from {kickoff.StateMachineType.Name}.MoveNext");
@@ -50,6 +62,13 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
     }
 
     sealed record Kickoff(TypeRef StateMachineType, int StateMachineLocal, int SourceOffset);
+
+    enum ReconstructionResult
+    {
+        NotRecognized,
+        Reconstructed,
+        UnconsumedExecutionRegion,
+    }
 
     sealed class LocalBuilder
     {
@@ -156,7 +175,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         return nested >= 0 ? name[(nested + 1)..] : name;
     }
 
-    static bool TryReconstruct(
+    static ReconstructionResult TryReconstruct(
         IrFunction moveNext,
         IrFunction kickoff,
         Kickoff kickoffShape,
@@ -170,7 +189,9 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
         var localBuilder = new LocalBuilder();
         if (!TryBuildStatements(moveNext, kickoff, localBuilder, out var statements))
-            return false;
+            return ReconstructionResult.NotRecognized;
+        if (HasUnconsumedExecutionStore(moveNext))
+            return ReconstructionResult.UnconsumedExecutionRegion;
 
         var block = new Block(0);
         foreach (var statement in statements)
@@ -183,7 +204,67 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         body.Add(block);
         locals = localBuilder.Locals;
         localNames = localBuilder.Names;
-        return true;
+        return ReconstructionResult.Reconstructed;
+    }
+
+    static bool HasUnconsumedExecutionStore(IrFunction moveNext)
+    {
+        TypeRef machine = DefinitionType(moveNext.DeclaringType);
+        foreach (IrNode node in moveNext.Descendants)
+        {
+            switch (node)
+            {
+                case StoreField store
+                    when !DefinitionType(store.Field.DeclaringType).Equals(machine):
+                case StoreProperty:
+                case StoreElement:
+                case StoreIndirect:
+                case StoreArgument:
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    static TypeRef DefinitionType(TypeRef type)
+        => type.Kind == TypeRefKind.GenericInstance
+            && type.ElementType is { } definition
+                ? definition
+                : type;
+
+    static void MarkUnconsumedExecutionRegion(
+        IrFunction function,
+        Kickoff kickoff,
+        PassContext context)
+    {
+        context.Stepper.StepOver(
+            $"decline classic async '{function.Name}': execution region contains unconsumed user effects");
+
+        IReadOnlyList<Block> originalBlocks = function.Body.Blocks;
+        function.Body.DetachChildren();
+
+        var block = new Block(originalBlocks[0].StartOffset);
+        var marker = new UnsupportedNode(
+            kickoff.SourceOffset,
+            "classic async",
+            "execution region contains unconsumed user effects; original kickoff preserved");
+        marker.SetSourceOffset(kickoff.SourceOffset);
+        var markerStatement = new ExpressionStatement(marker);
+        markerStatement.SetSourceOffset(kickoff.SourceOffset);
+        block.Add(markerStatement);
+
+        foreach (Block originalBlock in originalBlocks)
+        {
+            foreach (IrNode statement in originalBlock.DetachChildren())
+                block.Add(statement);
+        }
+
+        function.Body.Add(block);
+        function.RequiresAsyncBodyModifier = false;
+        function.Diagnostics.Add(new DecompilerDiagnostic(
+            DiagnosticIds.UnsupportedConstruct,
+            "classic async reconstruction declined: execution region contains unconsumed user effects"));
     }
 
     static bool TryBuildStatements(
@@ -338,7 +419,11 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             .FirstOrDefault(store => ContainsNode(store.Value, getResults[1]));
         if (secondStore is null)
             return false;
-        var secondName = "y";
+        string? secondName =
+            secondStore.Index >= 0
+            && secondStore.Index < moveNext.LocalNames.Length
+                ? moveNext.LocalNames[secondStore.Index]
+                : null;
         var secondIndex = locals.Add(secondStore.Type, secondName);
         var secondAwait = AwaitForGetResult(moveNext, kickoff, getResults[1]);
         if (secondAwait is null)
