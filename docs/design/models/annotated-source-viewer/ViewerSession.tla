@@ -57,7 +57,9 @@ Media == {"CSharp", "IL"}
 PrimaryKinds == {"None", "Finding", "Node"}
 OpenerKinds == {"None", "Chip", "Inspector"}
 FocusKinds ==
-  {"None", "Detail", "Explore", "ModalHeading", "Chip", "Inspector", "Node"}
+  {"None", "Detail", "Explore", "ModalHeading", "Chip", "Inspector", "Node",
+   "AnnotationSetControl", "AnnotationToggle", "MediumToggle"}
+AnnotationSetControls == {"DefaultControl", "AllControl", "ClearControl"}
 ActionKinds ==
   {"Init", "OpenEmbeddedChip", "OpenModal", "DismissEscape",
    "DismissPointer", "OpenModalFinding", "SelectModalNode", "CloseDetail",
@@ -65,6 +67,7 @@ ActionKinds ==
    "ToggleAnnotation", "ToggleMedium"}
 ReportedStates == {"Default", "All", "Clear", "Custom"}
 Values == Findings \cup Targets \cup Nodes \cup {NoValue}
+FocusValues == Values \cup Media \cup AnnotationSetControls
 
 FindingOf(target) ==
   CHOOSE finding \in Findings :
@@ -94,6 +97,12 @@ ModalHeadingFocus == [kind |-> "ModalHeading", value |-> NoValue]
 ChipFocus(target) == [kind |-> "Chip", value |-> target]
 InspectorFocus(finding) == [kind |-> "Inspector", value |-> finding]
 NodeFocus(node) == [kind |-> "Node", value |-> node]
+AnnotationSetFocus(control) ==
+  [kind |-> "AnnotationSetControl", value |-> control]
+AnnotationToggleFocus(finding) ==
+  [kind |-> "AnnotationToggle", value |-> finding]
+MediumToggleFocus(medium) ==
+  [kind |-> "MediumToggle", value |-> medium]
 
 VisibleTargets(activeSet, shownMedia) ==
   {target \in Targets :
@@ -127,15 +136,22 @@ VARIABLES
   visibleMedia,
   reported,
   focus,
-  expectedFocus,
   eventPulse,
   lastAction,
-  escapeLayered
+  escapeLayered,
+  closedDetail,
+  closedSurface,
+  closedActive,
+  closedMedia,
+  dismissedPrimary,
+  toggledFinding,
+  removedPrimary
 
 vars ==
   <<defaults, surface, embeddedPrimary, embeddedDetail, modalPrimary,
-    modalDetail, active, visibleMedia, reported, focus, expectedFocus,
-    eventPulse, lastAction, escapeLayered>>
+    modalDetail, active, visibleMedia, reported, focus, eventPulse,
+    lastAction, escapeLayered, closedDetail, closedSurface, closedActive,
+    closedMedia, dismissedPrimary, toggledFinding, removedPrimary>>
 
 CurrentDetail ==
   IF surface = "Embedded" THEN embeddedDetail ELSE modalDetail
@@ -174,7 +190,34 @@ FocusIsValid ==
          /\ surface = "Modal"
          /\ focus.value \in Nodes
          /\ modalPrimary = NodePrimary(focus.value)
+    [] focus.kind = "AnnotationSetControl" ->
+         /\ surface = "Modal"
+         /\ focus.value \in AnnotationSetControls
+    [] focus.kind = "AnnotationToggle" ->
+         /\ surface = "Modal"
+         /\ focus.value \in Annotatable
+    [] focus.kind = "MediumToggle" ->
+         /\ surface = "Modal"
+         /\ focus.value \in Media
     [] OTHER -> FALSE
+
+ClearCloseHistory ==
+  /\ closedDetail' = NoDetail
+  /\ closedSurface' = "Embedded"
+  /\ closedActive' = defaults
+  /\ closedMedia' = {"CSharp"}
+
+ClearDismissHistory ==
+  dismissedPrimary' = NoPrimary
+
+ClearToggleHistory ==
+  /\ toggledFinding' = NoValue
+  /\ removedPrimary' = FALSE
+
+ClearHistory ==
+  /\ ClearCloseHistory
+  /\ ClearDismissHistory
+  /\ ClearToggleHistory
 
 Init ==
   /\ defaults \in SUBSET Annotatable
@@ -187,10 +230,16 @@ Init ==
   /\ visibleMedia = {"CSharp"}
   /\ reported = Reported(active, defaults)
   /\ focus = NoFocus
-  /\ expectedFocus = NoFocus
   /\ eventPulse = FALSE
   /\ lastAction = "Init"
   /\ escapeLayered = TRUE
+  /\ closedDetail = NoDetail
+  /\ closedSurface = "Embedded"
+  /\ closedActive = defaults
+  /\ closedMedia = {"CSharp"}
+  /\ dismissedPrimary = NoPrimary
+  /\ toggledFinding = NoValue
+  /\ removedPrimary = FALSE
 
 OpenEmbeddedChip(target) ==
   /\ surface = "Embedded"
@@ -199,9 +248,9 @@ OpenEmbeddedChip(target) ==
   /\ embeddedPrimary' = FindingPrimary(FindingOf(target))
   /\ embeddedDetail' = ChipDetail(FindingOf(target), target)
   /\ focus' = DetailFocus(FindingOf(target))
-  /\ expectedFocus' = DetailFocus(FindingOf(target))
   /\ eventPulse' = ~eventPulse
   /\ lastAction' = "OpenEmbeddedChip"
+  /\ ClearHistory
   /\ UNCHANGED <<defaults, surface, modalPrimary, modalDetail, active,
                  visibleMedia, reported, escapeLayered>>
 
@@ -218,9 +267,9 @@ OpenModal ==
   /\ visibleMedia' = {"CSharp"}
   /\ reported' = Reported(active', defaults)
   /\ focus' = ModalHeadingFocus
-  /\ expectedFocus' = ModalHeadingFocus
   /\ eventPulse' = ~eventPulse
   /\ lastAction' = "OpenModal"
+  /\ ClearHistory
   /\ UNCHANGED <<defaults, embeddedPrimary, escapeLayered>>
 
 DismissModal ==
@@ -238,20 +287,21 @@ DismissModal ==
   /\ reported' = Reported(active', defaults)
   /\ focus' = ExploreFocus
   /\ eventPulse' = ~eventPulse
+  /\ dismissedPrimary' = modalPrimary
+  /\ ClearCloseHistory
+  /\ ClearToggleHistory
   /\ UNCHANGED defaults
 
 DismissModalByEscape ==
   /\ surface = "Modal"
   /\ modalDetail = NoDetail
   /\ DismissModal
-  /\ expectedFocus' = ExploreFocus
   /\ lastAction' = "DismissEscape"
   /\ escapeLayered' = (escapeLayered /\ modalDetail = NoDetail)
 
 DismissModalByPointer ==
   /\ surface = "Modal"
   /\ DismissModal
-  /\ expectedFocus' = ExploreFocus
   /\ lastAction' = "DismissPointer"
   /\ UNCHANGED escapeLayered
 
@@ -269,9 +319,9 @@ OpenModalFinding(finding, opener, target) ==
        THEN ChipDetail(finding, target)
        ELSE InspectorDetail(finding)
   /\ focus' = DetailFocus(finding)
-  /\ expectedFocus' = DetailFocus(finding)
   /\ eventPulse' = ~eventPulse
   /\ lastAction' = "OpenModalFinding"
+  /\ ClearHistory
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, embeddedDetail, active,
                  visibleMedia, reported, escapeLayered>>
 
@@ -281,9 +331,9 @@ SelectModalNode(node) ==
   /\ modalPrimary' = NodePrimary(node)
   /\ modalDetail' = NoDetail
   /\ focus' = NodeFocus(node)
-  /\ expectedFocus' = NodeFocus(node)
   /\ eventPulse' = ~eventPulse
   /\ lastAction' = "SelectModalNode"
+  /\ ClearHistory
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, embeddedDetail, active,
                  visibleMedia, reported, escapeLayered>>
 
@@ -297,9 +347,14 @@ CloseCurrentDetail ==
            ELSE /\ modalDetail' = NoDetail
                 /\ embeddedDetail' = embeddedDetail
         /\ focus' = restored
-        /\ expectedFocus' = restored
   /\ eventPulse' = ~eventPulse
   /\ lastAction' = "CloseDetail"
+  /\ closedDetail' = CurrentDetail
+  /\ closedSurface' = surface
+  /\ closedActive' = active
+  /\ closedMedia' = visibleMedia
+  /\ ClearDismissHistory
+  /\ ClearToggleHistory
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, modalPrimary, active,
                  visibleMedia, reported, escapeLayered>>
 
@@ -309,9 +364,9 @@ EmbeddedEscapeFallsThrough ==
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, embeddedDetail,
                  modalPrimary, modalDetail, active, visibleMedia, reported,
                  focus>>
-  /\ expectedFocus' = focus
   /\ eventPulse' = ~eventPulse
   /\ lastAction' = "EmbeddedEscape"
+  /\ ClearHistory
   /\ UNCHANGED escapeLayered
 
 SetDefault ==
@@ -320,10 +375,10 @@ SetDefault ==
   /\ reported' = Reported(active', defaults)
   /\ modalPrimary' = NoPrimary
   /\ modalDetail' = NoDetail
-  /\ focus' = NoFocus
-  /\ expectedFocus' = NoFocus
+  /\ focus' = AnnotationSetFocus("DefaultControl")
   /\ eventPulse' = ~eventPulse
   /\ lastAction' = "SetDefault"
+  /\ ClearHistory
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, embeddedDetail,
                  visibleMedia, escapeLayered>>
 
@@ -331,12 +386,12 @@ SetAll ==
   /\ surface = "Modal"
   /\ active' = Annotatable
   /\ reported' = Reported(active', defaults)
-  /\ expectedFocus' = focus
+  /\ focus' = AnnotationSetFocus("AllControl")
   /\ eventPulse' = ~eventPulse
   /\ lastAction' = "SetAll"
+  /\ ClearHistory
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, embeddedDetail,
-                 modalPrimary, modalDetail, visibleMedia, focus,
-                 escapeLayered>>
+                 modalPrimary, modalDetail, visibleMedia, escapeLayered>>
 
 ClearAll ==
   /\ surface = "Modal"
@@ -344,10 +399,10 @@ ClearAll ==
   /\ reported' = Reported(active', defaults)
   /\ modalPrimary' = NoPrimary
   /\ modalDetail' = NoDetail
-  /\ focus' = NoFocus
-  /\ expectedFocus' = NoFocus
+  /\ focus' = AnnotationSetFocus("ClearControl")
   /\ eventPulse' = ~eventPulse
   /\ lastAction' = "ClearAll"
+  /\ ClearHistory
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, embeddedDetail,
                  visibleMedia, escapeLayered>>
 
@@ -364,22 +419,17 @@ ToggleAnnotation(finding) ==
            IF removesPrimary THEN NoPrimary ELSE modalPrimary
          nextDetail ==
            IF removesPrimary THEN NoDetail ELSE modalDetail
-         nextFocus ==
-           IF removesPrimary
-           THEN InspectorFocus(finding)
-           ELSE IF focus.kind = "Chip"
-                   /\ focus.value \in FindingTargets(finding)
-                   /\ finding \notin nextActive
-                THEN NoFocus
-                ELSE focus
      IN /\ active' = nextActive
         /\ reported' = Reported(nextActive, defaults)
         /\ modalPrimary' = nextPrimary
         /\ modalDetail' = nextDetail
-        /\ focus' = nextFocus
-        /\ expectedFocus' = nextFocus
+        /\ focus' = AnnotationToggleFocus(finding)
+        /\ toggledFinding' = finding
+        /\ removedPrimary' = removesPrimary
   /\ eventPulse' = ~eventPulse
   /\ lastAction' = "ToggleAnnotation"
+  /\ ClearCloseHistory
+  /\ ClearDismissHistory
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, embeddedDetail,
                  visibleMedia, escapeLayered>>
 
@@ -387,26 +437,21 @@ ToggleMedium(medium) ==
   /\ surface = "Modal"
   /\ medium \in Media
   /\ medium \notin visibleMedia \/ Cardinality(visibleMedia) > 1
-  /\ LET nextMedia ==
-           IF medium \in visibleMedia
-           THEN visibleMedia \ {medium}
-           ELSE visibleMedia \cup {medium}
-         nextFocus ==
-           IF focus.kind = "Chip"
-              /\ focus.value \notin VisibleTargets(active, nextMedia)
-           THEN NoFocus
-           ELSE focus
+  /\ LET   nextMedia ==
+    IF medium \in visibleMedia
+    THEN visibleMedia \ {medium}
+    ELSE visibleMedia \cup {medium}
      IN /\ visibleMedia' = nextMedia
         /\ active' = active
         /\ reported' = reported
         /\ modalPrimary' = modalPrimary
         /\ modalDetail' = modalDetail
-        /\ focus' = nextFocus
-        /\ expectedFocus' = nextFocus
+        /\ focus' = MediumToggleFocus(medium)
   /\ eventPulse' = ~eventPulse
   /\ lastAction' = "ToggleMedium"
+  /\ ClearHistory
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, embeddedDetail,
-                 escapeLayered>>
+          escapeLayered>>
 
 Next ==
   \/ \E target \in Targets : OpenEmbeddedChip(target)
@@ -444,11 +489,20 @@ TypeOK ==
   /\ active \in SUBSET Annotatable
   /\ visibleMedia \in SUBSET Media
   /\ reported \in ReportedStates
-  /\ focus \in [kind : FocusKinds, value : Values]
-  /\ expectedFocus \in [kind : FocusKinds, value : Values]
+  /\ focus \in [kind : FocusKinds, value : FocusValues]
   /\ eventPulse \in BOOLEAN
   /\ lastAction \in ActionKinds
   /\ escapeLayered \in BOOLEAN
+  /\ closedDetail \in
+       [finding : Findings \cup {NoValue},
+        opener  : OpenerKinds,
+        target  : Targets \cup {NoValue}]
+  /\ closedSurface \in Surfaces
+  /\ closedActive \in SUBSET Annotatable
+  /\ closedMedia \in SUBSET Media
+  /\ dismissedPrimary \in [kind : PrimaryKinds, value : Values]
+  /\ toggledFinding \in Findings \cup {NoValue}
+  /\ removedPrimary \in BOOLEAN
 
 PrimaryShapes ==
   /\ (embeddedPrimary.kind = "None") = (embeddedPrimary = NoPrimary)
@@ -491,8 +545,23 @@ AtLeastOneMediumIsVisible ==
 ReportedStateIsDerived ==
   reported = Reported(active, defaults)
 
-FocusMatchesTransition ==
-  focus = expectedFocus
+ModalAlwaysHasFocus ==
+  surface = "Modal" => focus # NoFocus
+
+DetailClosureRestoresExactFocus ==
+  lastAction = "CloseDetail" =>
+    IF closedDetail.opener = "Chip"
+       /\ ExactChipAvailable(closedDetail.target, closedSurface,
+                             closedActive, closedMedia)
+    THEN focus = ChipFocus(closedDetail.target)
+    ELSE focus = InspectorFocus(closedDetail.finding)
+
+AnnotationToggleOutcomeIsExact ==
+  lastAction = "ToggleAnnotation" =>
+    /\ focus = AnnotationToggleFocus(toggledFinding)
+    /\ (removedPrimary =>
+          /\ modalPrimary = NoPrimary
+          /\ modalDetail = NoDetail)
 
 ModalOpeningIsFresh ==
   lastAction = "OpenModal" =>
@@ -509,6 +578,10 @@ ModalOpeningIsFresh ==
 ModalDismissalIsExact ==
   lastAction \in {"DismissEscape", "DismissPointer"} =>
     /\ surface = "Embedded"
+    /\ embeddedPrimary =
+         IF Transferable(dismissedPrimary, defaults)
+         THEN dismissedPrimary
+         ELSE NoPrimary
     /\ embeddedDetail = NoDetail
     /\ modalPrimary = NoPrimary
     /\ modalDetail = NoDetail

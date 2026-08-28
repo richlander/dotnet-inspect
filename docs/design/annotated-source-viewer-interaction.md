@@ -26,6 +26,11 @@ The modal's open state, local selection, annotation choices, presentation
 choices, and detail are transient viewer state. This document does not add
 them to browser history, workspace definitions, or share packets.
 
+This owner has one bounded output to the shell contract: before dismissing the
+modal for Escape, the shell offers Escape to the topmost owner-issued transient
+layer. The viewer reports whether it consumed the gesture. Inspect Web UI still
+owns modal dismissal, history composition, and destination focus.
+
 ## Experience
 
 Annotated Source presents the same product-owned document through two levels
@@ -121,8 +126,8 @@ openers.
 
 Selecting a node makes that node primary and closes Finding detail. Annotation
 toggles do not make a Finding primary. Removing the primary Finding from the
-active set clears primary and detail together and focuses that Finding's
-persistent inspector action.
+active set clears primary and detail together; focus remains on the activated
+annotation toggle.
 
 ### Modal session
 
@@ -133,11 +138,11 @@ Each **Explore** activation starts a fresh modal session:
 - no node is selected; and
 - Finding detail is closed.
 
-An embedded primary Finding transfers into the fresh modal only when it is a
-default annotation with a C# target. An unanchored, IL-only, non-default, or
-absent primary does not transfer. Embedded detail never transfers: the modal
-has different controls and therefore cannot truthfully retain an embedded
-opener.
+The embedded reader can produce a primary only from a default rendered C# chip,
+so every representable embedded primary is eligible to transfer into the fresh
+modal. Unanchored, IL-only, and non-default Findings have no embedded action and
+cannot become embedded primary. Embedded detail never transfers: the modal has
+different controls and therefore cannot truthfully retain an embedded opener.
 
 Modal dismissal destroys modal-local state. It derives the embedded primary
 from the modal primary using the same default-and-C# eligibility rule, closes
@@ -181,6 +186,11 @@ The modal exposes:
   primary, detail, media, or offsets; and
 - **Clear**, which empties the active set and clears primary and detail without
   hiding source or resetting presentation.
+
+Each command leaves focus on its activated control. Annotation and media
+toggles likewise retain focus on the activated toggle, including when that
+transition removes a chip or closes Finding detail. The open modal therefore
+always retains a concrete focus target.
 
 The reported state is derived in this precedence order:
 
@@ -234,9 +244,12 @@ Closing detail restores focus to the exact opener if it still exists:
 - if that exact chip disappeared, focus returns to the Finding's persistent
   inspector action, even if a sibling chip remains.
 
-Removing the primary annotation closes detail indirectly and uses the same
-persistent-inspector fallback. No detail-closing path may leave focus in
-removed content.
+Removing the primary annotation closes detail indirectly and leaves focus on
+the annotation toggle that performed the removal. **Default** and **Clear**
+leave focus on their own controls. The persistent-inspector fallback applies
+when detail itself closes and its recorded opener disappeared. No
+detail-closing path may leave focus in removed content or nowhere inside the
+open modal.
 
 Escape is layered inside the viewer:
 
@@ -303,7 +316,7 @@ authority.
 bounded executable design model for viewer-local interaction. It checks:
 
 - fresh modal initialization and eligible primary transfer;
-- modal dismissal and embedded-primary derivation;
+- modal dismissal and exercised embedded-primary eligibility derivation;
 - exact chip versus persistent-inspector detail openers;
 - primary selection, active annotations, rendered annotations, and derived
   reported state;
@@ -333,13 +346,14 @@ Conformance requires:
   empty and universe-equal defaults;
 - media tests proving membership is orthogonal, a hidden opener falls back to
   the exact Finding's inspector action, a sibling chip is not substituted,
-  and the final visible medium cannot be disabled;
+  toggles retain focus, and the final visible medium cannot be disabled;
 - primary tests proving Finding and node transitions are explicit and toggles
   do not select;
 - layered Escape tests distinguishing detail closure, modal dismissal, and
   embedded fall-through;
-- focus tests for direct close, annotation removal, pointer dismissal,
-  rejected navigation, and successful destination handoff;
+- focus tests for direct close, annotation-set controls, annotation and media
+  toggles, pointer dismissal, rejected navigation, and successful destination
+  handoff;
 - hit tests covering pointer coordinates, keyboard activation, invocation
   precedence, discontinuous spans, deterministic tightest-node selection, and
   drag-selection non-activation;

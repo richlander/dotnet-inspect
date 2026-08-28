@@ -34,11 +34,19 @@ The safety invariants check:
 - absence of modal detail after dismissal;
 - at least one visible medium;
 - exact derivation of **Default**, **All**, **Clear**, and **Custom**;
-- valid focus targets;
-- exact transition-selected focus;
-- fresh modal initialization and eligible primary transfer;
+- a concrete valid focus target throughout an open modal;
+- exact chip-or-inspector focus restoration from historical detail evidence;
+- stable control focus and exact clearing when an annotation toggle removes
+  the primary Finding;
+- fresh modal initialization and transfer of a representable embedded primary;
 - exact dismissal, embedded-primary derivation, and **Explore** focus; and
 - the rule that Escape cannot dismiss the modal while Finding detail is open.
+
+The embedded reader can produce primary state only from a default rendered C#
+chip. Its ineligible-primary rejection branch is therefore structural, not a
+reachable transition: `EmbeddedStateIsConstrained` makes an unanchored,
+IL-only, or non-default embedded primary unrepresentable. Dismissal from the
+modal exercises both eligible and ineligible primary derivation.
 
 `Next` includes embedded chip inspection, modal opening, pointer and Escape
 dismissal, chip and inspector Finding detail, node selection, detail closure,
@@ -69,30 +77,32 @@ error:
 
 | Result | Value |
 | --- | ---: |
-| Generated states | 83,886 |
-| Distinct states | 6,216 |
-| Search depth | 13 |
+| Generated states | 82,470 |
+| Distinct states | 6,164 |
+| Search depth | 11 |
 
 The coverage run reported nonzero distinct transitions for every top-level
 action. The smallest count was four for `OpenEmbeddedChip`; representative
-transition counts were 12 each for `OpenModal` and the two dismissal actions,
-580 for `CloseCurrentDetail`, and 2,064 each for `ToggleAnnotation` and
-`ToggleMedium`.
+transition counts were 12 for `OpenModal`, 40 each for the two dismissal
+actions, 652 for `CloseCurrentDetail`, 2,376 for `ToggleAnnotation`, and 1,824
+for `ToggleMedium`.
 
 ## Mutation evidence
 
-Seven deliberate one-line mutations were run against the same configuration.
+Nine deliberate one-line mutations were run against the same configuration.
 Each produced a concrete counterexample:
 
 | Mutation | Violated invariant |
 | --- | --- |
 | Permit disabling the final visible medium | `AtLeastOneMediumIsVisible` |
-| Preserve stale media when opening the modal | `ModalOpeningIsFresh` |
+| Open the modal with all media instead of C# only | `ModalOpeningIsFresh` |
 | Let Escape dismiss the modal while detail is open | `EscapeCannotBypassDetail` |
-| Restore focus to a sibling medium's chip | `FocusMatchesTransition` |
-| Drop focus after removing the primary annotation | `FocusMatchesTransition` |
+| Restore focus to a sibling medium's chip | `DetailClosureRestoresExactFocus` |
+| Drop focus after an annotation toggle | `ModalAlwaysHasFocus` |
+| Drop focus after the **Default** command | `ModalAlwaysHasFocus` |
 | Preserve stale reported state after an annotation toggle | `ReportedStateIsDerived` |
 | Preserve Finding detail through modal dismissal | `DetailShapes` |
+| Preserve a stale embedded primary through dismissal | `ModalDismissalIsExact` |
 
 The mutations are evidence that these properties are observed by the checked
 invariants rather than restatements that TLC cannot falsify.

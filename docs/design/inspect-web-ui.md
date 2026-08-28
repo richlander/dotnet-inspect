@@ -680,7 +680,8 @@ Annotated Source viewer are modal dialogs:
 - opening moves focus to its primary input, current selection, or heading;
 - background content is inert while it is open;
 - Tab and Shift+Tab remain within the dialog;
-- Escape closes it unless an owner-issued destructive confirmation is active;
+- Escape is offered to its topmost owner-issued transient layer first, then
+  closes the dialog unless an owner-issued destructive confirmation is active;
   and
 - ordinary dismissal returns focus to the invoking control.
 
