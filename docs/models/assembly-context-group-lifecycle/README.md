@@ -84,13 +84,20 @@ Use the repository-pinned `v1.8.0` `tla2tools.jar`:
 
 ```bash
 cd docs/models/assembly-context-group-lifecycle
-java -cp /path/to/tla2tools.jar tlc2.TLC -config Safety.cfg \
+java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC \
+  -cleanup -config Safety.cfg \
   AssemblyContextGroupLifecycle.tla
-java -cp /path/to/tla2tools.jar tlc2.TLC -config Liveness.cfg \
+java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC \
+  -cleanup -config Liveness.cfg \
   AssemblyContextGroupLifecycle.tla
-java -cp /path/to/tla2tools.jar tlc2.TLC -config BrokenEarlyRelease.cfg \
+java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC -cleanup \
+  -config BrokenEarlyRelease.cfg \
   AssemblyContextGroupLifecycle.tla
 ```
+
+Run these commands sequentially. Concurrent TLC processes in one directory
+share the default `states/` checkpoint path unless each receives a distinct
+`-metadir`.
 
 The first two commands must complete without errors. The broken configuration
 must fail `GroupReleaseWaitsForQuiescence` or
