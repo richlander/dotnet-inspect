@@ -133,37 +133,48 @@ Three roles remain distinct:
 The target identity shapes and owner-issued construction boundary are:
 
 ```csharp
-sealed class PackageProducerIdentity
+public sealed class PackageProducerIdentity
 {
-    string Key { get; }
-    InertString Display { get; }
+    internal PackageProducerIdentity(...);
+
+    public string Key { get; }
+    public InertString Display { get; }
 }
 
-sealed class PackageSourceAssociation
+public sealed class PackageSourceAssociation
 {
+    private PackageSourceAssociation();
+
     public static PackageSourceAssociation Create();
 }
 
-sealed class PackageSourceResultIdentity
+public sealed class PackageSourceResultIdentity
 {
-    PackageProducerIdentity Producer { get; }
-    PackageSourceAssociation Association { get; }
-    PackageSourceKind TransportKind { get; }
+    internal PackageSourceResultIdentity(...);
+
+    public PackageProducerIdentity Producer { get; }
+    public PackageSourceAssociation Association { get; }
+    public PackageSourceKind TransportKind { get; }
 }
 
-sealed class PackageSourceOperationResult<T>
+public sealed class PackageSourceOperationResult<T>
+    where T : class
 {
-    T? Value { get; }
-    PackageSourceFailure? Failure { get; }
+    internal PackageSourceOperationResult(...);
+
+    public T? Value { get; }
+    public PackageSourceFailure? Failure { get; }
 }
 
-sealed class PackageSourceManifestContent
+public sealed class PackageSourceManifestContent
 {
-    int Length { get; }
-    byte this[int index] { get; }
+    internal PackageSourceManifestContent(...);
 
-    void CopyTo(Span<byte> destination);
-    byte[] ToArray();
+    public int Length { get; }
+    public byte this[int index] { get; }
+
+    public void CopyTo(Span<byte> destination);
+    public byte[] ToArray();
 }
 
 public static class PackageSourceClientFactory
@@ -187,6 +198,8 @@ public static class PackageSourceClientFactory
 
 public sealed class PackageSourceResultFactory
 {
+    internal PackageSourceResultFactory(...);
+
     public PackageSourceResultIdentity Source { get; }
 
     public PackageCandidateObservation Candidate(...);
@@ -402,16 +415,36 @@ custom-client registration receives the same kind of bound factory through
 payload, and operation-outcome construction is closed through that factory
 rather than accepting independent identity or issuer arguments.
 
-`CreateCustom` accepts an admitted portable descriptor, the caller's
-association, and a callback from the external client assembly. NuGetFetch
-constructs the complete source identity, private issuer, and bound public
-result factory before invoking the callback exactly once. The result factory's
-constructor remains owner-controlled, but its finite construction methods are
-public so the callback-created client can retain and use it. Registration
-rejects a null client or one whose `Source` is not the exact
-`PackageSourceResultFactory.Source` reference supplied to the callback. The
-callback has no issuer accessor and no generic result or outcome construction
-path. Local-folder descriptors remain unsupported until #3759.
+`CreateCustom` accepts a portable descriptor, the caller's association, and a
+callback from the external client assembly. Its admitted kinds are
+`NuGetGallery` and `NuGetV3`. Gallery uses the canonical owner-issued NuGet.org
+producer; v3 uses the descriptor's admitted normalized endpoint projection.
+`LocalFolder` remains unsupported until #3759. Null arguments and unsupported
+descriptor kinds are rejected before any caller callback runs or any bound
+factory is made available.
+
+For an admitted descriptor, NuGetFetch constructs the complete source identity,
+private issuer, and bound public result factory before invoking the callback
+exactly once. The result factory's constructor remains owner-controlled, but
+its finite construction methods are public so the callback-created client can
+retain and use it. Every identity, association, outcome, content, and result
+factory type or member that crosses this callback or `IPackageSourceClient`
+boundary is public; their constructors remain owner-controlled.
+
+When the callback returns a non-null client, ownership transfers provisionally
+to `CreateCustom` while it reads and validates `client.Source`. A null client,
+a throwing source getter, or a source other than the exact
+`PackageSourceResultFactory.Source` reference is rejected. A returned client
+rejected after provisional transfer is disposed exactly once. The validation
+failure remains the primary exception; if disposal also fails, an
+`AggregateException` exposes the validation failure first and the disposal
+failure second. A callback exception propagates without NuGetFetch attempting
+client disposal because no client was returned; resources not returned remain
+the callback's responsibility.
+
+Successful validation returns the original client without wrapping or disposing
+it and transfers ownership to the caller, which disposes it. The callback has
+no issuer accessor and no generic result or outcome construction path.
 
 The same closed-construction rule applies after publication: every
 issuer-bearing observation, result, outcome, and failure type, including
@@ -705,13 +738,21 @@ Implementation is not complete until Release gates establish:
   bound result factory, permits Gallery and v3 clients to share one reference,
   keeps distinct references distinct, and has no implicit-token overload;
 - `CustomClientRegistrationReceivesBoundFactory` is a cross-assembly
-  compilation and runtime gate that registers an external client from an
-  admitted descriptor and association, proves its callback receives exactly one
-  owner-constructed factory with the expected complete source identity, and
-  constructs every permitted result and outcome through that retained factory.
-  It rejects null or source-mismatched clients while proving the external
-  assembly cannot construct the factory, issuer, identity-bearing values, or
-  foreign generic outcomes directly;
+  compilation and runtime gate that pins the public accessibility of every
+  type, getter, and finite method crossing the custom-client boundary while
+  proving their constructors remain unavailable. For Gallery and NuGetV3
+  descriptors, it proves one callback receives exactly one owner-constructed
+  factory with the expected complete source identity and can construct every
+  permitted result and outcome through that retained factory. Null arguments,
+  a null client, and an internal LocalFolder descriptor fixture are rejected;
+  invalid and unsupported inputs invoke the callback zero times and expose no
+  factory. A disposal-counting external client proves source mismatch and a
+  throwing source getter dispose the rejected client exactly once, an accepted
+  client is not disposed before return and becomes caller-owned, and callback
+  failure does not claim ownership of unreturned resources. A two-failure
+  vector pins validation-first `AggregateException` ordering when rejection
+  disposal also fails. The external assembly cannot construct the factory,
+  issuer, identity-bearing values, or foreign generic outcomes directly;
 - `SourceOperationFactoryMatchesClientOperations` derives the complete client
   operation and finite failure-factory surfaces and pins the mapping from
   search and prefix search, version enumeration, manifest, package, and symbol
