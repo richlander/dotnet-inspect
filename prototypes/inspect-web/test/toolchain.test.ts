@@ -450,13 +450,20 @@ const markupLinters: readonly MarkupLinter[] = [
     specimens: [
       // Remote bytes with no integrity attribute at all.
       { markup: remoteScript(""), rule: "require-sri" },
-      // Remote bytes carrying integrity metadata a browser cannot honour. A browser
-      // discards unusable SRI metadata and fetches the resource unpinned, so this is
-      // indistinguishable from the case above at runtime while looking pinned to a
-      // reader. The digest here is one character short of a SHA-256, which is what a
-      // truncated copy-paste produces; `require-sri` is satisfied by any non-empty
-      // string, and a grammar that checked only the shape and not the length would
-      // accept it too. `html-elements.json` is what makes it fail.
+      // Remote bytes carrying integrity metadata a browser cannot honour. The digest
+      // here is one character short of a SHA-256, which is what a truncated copy-paste
+      // produces; `require-sri` is satisfied by any non-empty string, and a grammar that
+      // checked only the shape and not the length would accept it too.
+      // `html-elements.json` is what makes it fail.
+      //
+      // Be precise about why this matters, because SRI has two distinct failure modes
+      // and only one of them is fail-open. `sha256` is a recognised algorithm, so a
+      // browser keeps this as metadata and the resource is *blocked* when the digest
+      // does not match -- it fails closed, at runtime, as a broken page. The fail-open
+      // branch is metadata with no recognised algorithm at all, such as
+      // `integrity="bogus"`, which parses to the empty set and lets the fetch proceed
+      // unpinned. So this specimen buys a build-time failure instead of a runtime one
+      // for a plausible typo, rather than preventing unpinned execution.
       {
         markup: remoteScript(
           ' integrity="sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSu"'),
@@ -469,6 +476,17 @@ const markupLinters: readonly MarkupLinter[] = [
         markup: '<!DOCTYPE html><html lang="en"><head><title>t</title></head>'
           + '<body><button type="button" onpointerdown="doThing()">x</button>'
           + "</body></html>",
+        rule: "attr-pattern",
+      },
+      // The same handler inside SVG. This is a separate specimen rather than a variant
+      // of the one above because `attr-pattern` defaults to `ignoreForeign: true` and so
+      // skips foreign-namespace content entirely: with that default an inline SVG
+      // handler passes both linters while the HTML one is rejected. The config turns it
+      // off, and this is what holds that setting in place.
+      {
+        markup: '<!DOCTYPE html><html lang="en"><head><title>t</title></head><body>'
+          + '<svg xmlns="http://www.w3.org/2000/svg" onpointerdown="doThing()">'
+          + '<circle cx="5" cy="5" r="5" /></svg></body></html>',
         rule: "attr-pattern",
       },
       // A host that is not the one CDN this project pins bytes from.
@@ -488,6 +506,18 @@ const markupLinters: readonly MarkupLinter[] = [
         markup: '<!DOCTYPE html><html lang="en"><head><title>t</title></head><body>'
           + '<img src="https://cdn.jsdelivr.net/npm/prismjs@latest/x.png" alt="x" />'
           + "</body></html>",
+        rule: "allowed-links",
+      },
+      // The right CDN and an exact version, but with dot segments after it. A browser
+      // normalises `npm/pkg@1.2.3/../../gh/user/repo/x.js` to `gh/user/repo/x.js` before
+      // fetching, so a prefix match on the raw attribute sees a pinned npm package while
+      // the bytes come from an arbitrary GitHub repository. This is what holds the
+      // traversal guard and the end anchor in the allow-list pattern in place: without
+      // either one, the pattern matches this string.
+      {
+        markup: '<!DOCTYPE html><html lang="en"><head><title>t</title></head><body>'
+          + '<img src="https://cdn.jsdelivr.net/npm/prismjs@1.30.0/../../gh/u/r/x.png"'
+          + ' alt="x" /></body></html>',
         rule: "allowed-links",
       },
     ],
@@ -843,11 +873,12 @@ test("the lint covers every file the bundler reads", async () => {
   // `index.html` is the entry document. It is read by the bundler and gated by neither
   // half of the test below -- oxlint reads script, and the compiler has no account of a
   // document -- so it stays pinned here. What it may *contain* is a separate gate: it
-  // carried an unchecked `<script>` block until #4783, and a gate above now fails unless
-  // every element, attribute and URL scheme in a document this project owns is one it
-  // lists as inert. So the script it can reach is a module under a lint target, or a
-  // remote URL carrying an `integrity` digest -- which that gate requires precisely
-  // because no compiler or lint here reads those bytes.
+  // carried an unchecked `<script>` block until #4783. That gate used to be a bespoke
+  // enumeration here which claimed every element, attribute and URL scheme in a document
+  // this project owns is one it lists as inert. Nothing makes that closure claim now: it
+  // has been replaced by html-validate and htmlhint, which own specific named rules
+  // rather than a whole-document property, and `html-hygiene.md` records the hazards
+  // that are consequently a review responsibility.
   //
   // `package.json` is read for dependency resolution rather than compiled, and the gates
   // above already assert its contents field by field.
@@ -1370,6 +1401,18 @@ test("the analysis host check matches locked native packages and lint wiring", (
       + '&& htmlhint --ignore "dist/**" "**/*.{html,htm,xhtml,svg}"',
   );
   assert.equal(packageJson.scripts.analyze, "npm run lint && knip");
+
+  // The htmlhint half of that exclusion is pinned by the string above, but the
+  // html-validate half lives in a file, and nothing else here reads it. That asymmetry
+  // matters because html-validate drops ignored files *silently* when any other target
+  // remains: passing it both `index.html` and an ignored path exits zero and reports
+  // nothing. So adding an authored document to this file would remove it from analysis
+  // while `npm run analyze` and every gate above stayed green. Pinning the contents
+  // exactly is what makes that edit fail.
+  assert.equal(
+    readFileSync(new URL("../.htmlvalidateignore", import.meta.url), "utf8").trim(),
+    "dist/",
+  );
 });
 
 test("the lint gate includes both generated tsbindgen outputs", () => {

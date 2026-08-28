@@ -36,8 +36,9 @@ tokenization and, in the end, reconstructing a bundler's private behaviour from 
 compiled output. Each review round found one more construct the enumeration had missed,
 because a shape recognizer over someone else's semantics has no closure argument
 available to it. The linters answer more of the question than the bespoke gate ever did:
-`require-sri` covers `<link rel="stylesheet|preload|modulepreload">` as well as
-`<script>`, which the bespoke gate never checked.
+`require-sri` covers `<link rel="stylesheet">`, `rel="modulepreload"`, and `rel="preload"`
+with `as="script"` or `as="style"`, as well as `<script>`, none of which the bespoke gate
+checked.
 
 The bespoke gate also drifted across the trust boundary this repository actually defends.
 It ended up decoding character references to catch a URL disguised inside our own
@@ -51,11 +52,12 @@ Both linters run in `npm run lint`, which CI invokes through `npm run analyze`.
 
 | Tool | Configuration | What it covers |
 | --- | --- | --- |
-| [html-validate][hv] | `.htmlvalidate.json`, `html-elements.json` | HTML validity and the `recommended` preset; `attr-pattern` rejecting every `on*` event handler attribute; `require-sri` for cross-origin `<script>` and `<link>`; the SRI digest grammar, declared as element metadata; `allowed-links` restricting external references to an allow list, on `<a href>`, `<img src>`, `<link href>` and `<script src>` only |
+| [html-validate][hv] | `.htmlvalidate.json`, `html-elements.json` | HTML validity and the `recommended` preset; `attr-pattern` rejecting every `on*` event handler attribute, in HTML and SVG alike; `require-sri` for cross-origin `<script>` and `<link rel="stylesheet\|modulepreload">` and `rel="preload"` with `as="script\|style"`; the SRI digest grammar, declared as element metadata; `allowed-links` restricting external references to an allow list, on `<a href>`, `<img src>`, `<link href>` and `<script src>` only |
 | [htmlhint][hh] | `.htmlhintrc` | `inline-script-disabled` -- `javascript:` URLs in link and source attributes |
 
 Inline event handlers are owned by html-validate's `attr-pattern`, configured with a
-pattern that rejects any attribute name beginning `on`. That is deliberately a *shape*
+pattern that rejects any attribute name beginning `on`, with `ignoreForeign` turned off so
+that it applies inside SVG too. That is deliberately a *shape*
 rather than a list. htmlhint's `inline-script-disabled` also flags event handlers, but it
 enumerates event names and its list predates the modern ones -- `onpointerdown`,
 `onbeforeinput`, `onanimationstart` and `ontoggle` all pass it. A rule that has to be
@@ -153,19 +155,54 @@ metadata it cannot use and fetches the resource *unpinned*, so a malformed diges
 pinned to a reader and behaves like no SRI at all. `html-elements.json` closes that gap by
 declaring the SRI grammar as element metadata for `<script>` and `<link>`.
 
+Read "cross-origin `<link>`" narrowly. `require-sri` covers `rel="stylesheet"`,
+`rel="modulepreload"`, and `rel="preload"` only when `as` is `script` or `style`. A
+preload with `as="font"`, `as="image"`, `as="fetch"`, `as="document"` or `as="worker"`
+loads third-party bytes with no `integrity` and no complaint from either linter.
+
+**In review, reject:** an external `<link rel="preload">` whose `as` is anything other
+than `script` or `style` carrying no `integrity`, and treat any new external preload
+destination as a decision about whose bytes we run.
+
 That grammar follows the [SRI][sri] and [CSP3][csp] productions rather than being
 tightened to taste, because a false rejection here blocks a legitimate dependency bump.
 It accepts both the base64 and base64url alphabets, optional padding, surrounding and
-separating whitespace, multiple digests, and the `?options` suffix. It pins the
-*significant length* of each digest -- 43, 64, and 86 characters for SHA-256, SHA-384, and
-SHA-512 -- because length is what distinguishes a real digest from a truncated paste, and
-a truncated digest fails closed in the browser at runtime.
+separating whitespace, multiple digests, and the `?options` suffix. Algorithm tokens are
+ASCII case-insensitive per the SRI production, so `SHA384-` and `Sha384-` are accepted
+alongside `sha384-`. It pins the *significant length* of each digest -- 43, 64, and 86
+characters for SHA-256, SHA-384, and SHA-512 -- because length is what distinguishes a
+real digest from a truncated paste.
+
+Be precise about what that length check buys, because SRI has two failure modes and only
+one is fail-open. A truncated `sha256-` value still names a *recognised* algorithm, so the
+browser keeps it as metadata and blocks the resource when the digest does not match: it
+fails closed, at runtime, as a broken page. The fail-open branch is metadata with no
+recognised algorithm at all, like `integrity="bogus"`, which parses to the empty set and
+lets the fetch proceed unpinned. So the grammar converts a plausible truncation typo from
+a runtime failure into a build-time one, and it is `integrity="bogus"` that it stops from
+running unpinned.
 
 `allowed-links` then restricts external references to the CDN allow list in
 `.htmlvalidate.json`. That pattern pins the *version*, not just the host: it matches
 `cdn.jsdelivr.net/npm/<package>@<major>.<minor>.<patch>/`, so `@latest`, a major-only
 `@1`, a bare package name with no version, and `/gh/<user>/<repo>@<branch>/` are all
 rejected.
+
+The pattern is anchored at both ends and refuses any URL containing `..`, which is load
+bearing rather than defensive. `allowed-links` matches the **raw attribute string**, not
+the URL a browser will actually fetch, and a browser resolves dot segments before
+fetching: an unanchored prefix match accepted
+`npm/prismjs@1.30.0/../../gh/user/repo/x.js`, which normalises to the `/gh/` route the
+pattern is supposed to reject, and reached real bytes.
+
+That raw-string matching has one residual that configuration cannot close, because it is
+in how `allowed-links` decides what counts as an external link at all: a URL whose
+*scheme* is upper-cased, such as `HTTPS://unpkg.com/...`, is not classified as external
+and so is never tested against the pattern. Both linters accept it and the browser fetches
+it normally.
+
+**In review, reject:** any absolute URL whose scheme is not lower-case `https`, and any
+URL containing `..`, wherever it appears.
 
 Pinning the version there is not redundant with SRI. SRI does not apply to every element
 that loads bytes -- `<img>` has no `integrity` -- so for those the URL is the only pin
@@ -250,12 +287,18 @@ scheme.
 ### Script inside SVG
 
 SVG loads external code through `<script href="...">`, not HTML's `src`. It is a
-different attribute in a different namespace, and none of the rules above look at it:
+different attribute in a different namespace, and none of the URL rules look at it:
 `require-sri` and `allowed-links` both key off HTML's `src`/`href` on HTML elements, so an
-SVG `<script href>` passes every gate here. Element metadata does not help, because
+SVG `<script href>` passes those gates. Element metadata does not help either, because
 html-validate does not apply it to foreign-namespace content.
 
-There are no `.svg` files in this project today.
+Inline event handlers *inside* SVG are covered, but only because the configuration says
+so. `attr-pattern` defaults to `ignoreForeign: true`, which skips foreign-namespace
+content entirely and let `<svg onpointerdown="...">` through both linters while the
+identical handler on an HTML element was rejected. `.htmlvalidate.json` sets
+`ignoreForeign: false`, and a specimen in `toolchain.test.ts` holds it there.
+
+There are no `.svg` files in this project today, and no inline SVG in `index.html`.
 
 **In review, reject:** `<script>` inside SVG, whether it carries `href`, `xlink:href`, or
 a body.

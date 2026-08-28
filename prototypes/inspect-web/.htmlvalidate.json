@@ -5,12 +5,12 @@
     "doctype-style": "off",
     "void-style": "off",
     "long-title": "off",
-    "attr-pattern": ["error", { "pattern": "^(?!on[a-z]).+$" }],
+    "attr-pattern": ["error", { "pattern": "^(?!on[a-z]).+$", "ignoreForeign": false }],
     "require-sri": ["error", { "target": "crossorigin" }],
     "allowed-links": ["error", {
       "allowExternal": {
         "include": [
-          "^https://cdn\\.jsdelivr\\.net/npm/(@[a-zA-Z0-9._-]+/)?[a-zA-Z0-9._-]+@[0-9]+\\.[0-9]+\\.[0-9]+(-[a-zA-Z0-9.-]+)?/"
+          "^(?!.*\\.\\.)https://cdn\\.jsdelivr\\.net/npm/(@[a-zA-Z0-9._-]+/)?[a-zA-Z0-9._-]+@[0-9]+\\.[0-9]+\\.[0-9]+(-[a-zA-Z0-9.-]+)?(/[a-zA-Z0-9._-]+)*$"
         ]
       }
     }]
