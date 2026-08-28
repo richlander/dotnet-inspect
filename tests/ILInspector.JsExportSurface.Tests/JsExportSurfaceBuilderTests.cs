@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -1106,6 +1107,221 @@ public sealed class JsExportSurfaceBuilderTests
                     AssemblyIdentity = extracted.AssemblyIdentity,
                     Functions = [function],
                 }),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_ProjectsDistinctRuntimeDispatchKeysForCompiledOverloads()
+    {
+        string path = typeof(OverloadedExportFixture).Assembly.Location;
+        ApiSurface extracted = ExtractApiSurface(path);
+        ApiType fixture = Assert.Single(
+            extracted.Types,
+            type => type.Name == nameof(OverloadedExportFixture));
+        fixture.Members =
+        [
+            .. fixture.Members.Where(
+                member => member.Name
+                    == nameof(OverloadedExportFixture.Identify)),
+        ];
+        extracted.FilteredRuntimeJsExportFacts = [];
+        extracted.Types = [fixture];
+        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(path);
+
+        JsExportFunction[] functions =
+        [
+            .. JsExportSurfaceBuilder.Build(
+                extracted,
+                bodyIndex)
+                .Functions,
+        ];
+
+        Assert.Equal(2, functions.Length);
+        Assert.All(
+            functions,
+            function => Assert.Matches(
+                "^Identify\\.[0-9]+$",
+                function.RuntimeDispatchKey));
+        Assert.Equal(
+            2,
+            functions
+                .Select(function => function.RuntimeDispatchKey)
+                .Distinct(StringComparer.Ordinal)
+                .Count());
+
+        DirectCall[] registrations =
+        [
+            .. bodyIndex.DirectCalls
+                .Where(call =>
+                    call.Callee.Name == "BindManagedFunction"
+                    && call.FirstArgumentStringLiteral?.EndsWith(
+                        ":Identify",
+                        StringComparison.Ordinal) == true),
+        ];
+        string[] registrationKeys =
+        [
+            .. registrations
+                .Select(call =>
+                    "Identify."
+                    + Assert.IsType<int>(
+                        call.ResolvedArgumentValues[1]
+                            .Single!
+                            .Int32Value)
+                        .ToString(CultureInfo.InvariantCulture))
+                .Order(StringComparer.Ordinal),
+        ];
+        Assert.Equal(
+            registrationKeys,
+            functions
+                .Select(function => function.RuntimeDispatchKey!)
+                .Order(StringComparer.Ordinal));
+
+        var runtimeExports =
+            registrations.ToDictionary(
+                call =>
+                    "Identify."
+                    + Assert.IsType<int>(
+                        call.ResolvedArgumentValues[1]
+                            .Single!
+                            .Int32Value)
+                        .ToString(CultureInfo.InvariantCulture),
+                call => call.SpanArgumentSources
+                    .ForArgument(2)!
+                    .Elements[1]
+                    .Single!
+                    .Name switch
+                {
+                    "get_Int32" =>
+                        (Func<object, string>)(value =>
+                            $"int:{Assert.IsType<int>(value)}"),
+                    "get_String" =>
+                        value =>
+                            $"string:{Assert.IsType<string>(value)}",
+                    var name => throw new InvalidOperationException(
+                        $"Unexpected parameter marshaler '{name}'."),
+                },
+                StringComparer.Ordinal);
+        JsExportFunction intFunction = Assert.Single(
+            functions,
+            function => function.Parameters is
+            [
+                {
+                    Type: "int",
+                },
+            ]);
+        JsExportFunction stringFunction = Assert.Single(
+            functions,
+            function => function.Parameters is
+            [
+                {
+                    Type: "string",
+                },
+            ]);
+        runtimeExports.Add(
+            "Identify",
+            runtimeExports[intFunction.RuntimeDispatchKey!]);
+
+        Assert.Equal(
+            "int:7",
+            runtimeExports[intFunction.RuntimeDispatchKey!](7));
+        Assert.Equal(
+            "string:seven",
+            runtimeExports[stringFunction.RuntimeDispatchKey!](
+                "seven"));
+        Assert.Same(
+            runtimeExports[intFunction.RuntimeDispatchKey!],
+            runtimeExports["Identify"]);
+        Assert.NotSame(
+            runtimeExports[stringFunction.RuntimeDispatchKey!],
+            runtimeExports["Identify"]);
+
+        string json = JsonSerializer.Serialize(
+            new ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = extracted.AssemblyIdentity,
+                Functions = functions,
+            });
+        Assert.All(
+            functions,
+            function => Assert.Contains(
+                $"\"RuntimeDispatchKey\":\"{function.RuntimeDispatchKey}\"",
+                json,
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Build_DoesNotBorrowAnotherOverloadWrapperRegistration()
+    {
+        string path = typeof(OverloadedExportFixture).Assembly.Location;
+        ApiSurface extracted = ExtractApiSurface(path);
+        ApiType fixture = Assert.Single(
+            extracted.Types,
+            type => type.Name == nameof(OverloadedExportFixture));
+        ApiMember[] overloads =
+        [
+            .. fixture.Members.Where(
+                member => member.Name
+                    == nameof(OverloadedExportFixture.Identify)),
+        ];
+        Assert.Equal(2, overloads.Length);
+        extracted.FilteredRuntimeJsExportFacts = [];
+        extracted.Types = [fixture];
+        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(path);
+
+        JsExportFunction[] accepted =
+        [
+            .. JsExportSurfaceBuilder.Build(
+                extracted,
+                bodyIndex)
+                .Functions,
+        ];
+        Assert.Equal(2, accepted.Length);
+        JsExportFunction intFunction = Assert.Single(
+            accepted,
+            function => function.Parameters is
+            [
+                {
+                    Type: "int",
+                },
+            ]);
+        uint intHash = uint.Parse(
+            intFunction.RuntimeDispatchKey!.AsSpan(
+                "Identify.".Length),
+            CultureInfo.InvariantCulture);
+        RuntimeJsExportWrapperCandidate wrongCandidate = Assert.Single(
+            overloads[0].RuntimeJsExportWrapperCandidates!,
+            candidate =>
+            {
+                MethodIdentity wrapper = Assert.Single(
+                    bodyIndex.Methods,
+                    method => method.MetadataToken
+                        == candidate.WrapperMethodToken);
+                Assert.True(
+                    RuntimeJsExportWrapperName.TryGetSignatureHash(
+                        wrapper.Name,
+                        nameof(OverloadedExportFixture.Identify),
+                        out uint candidateHash));
+                return candidateHash != intHash;
+            });
+        ApiMember intExport = Assert.Single(
+            overloads,
+            member => member.SignatureModel?.Parameters is
+            [
+                {
+                    Type: "int",
+                },
+            ]);
+        intExport.RuntimeJsExportWrapperCandidates = [wrongCandidate];
+        fixture.Members = [intExport];
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    extracted,
+                    bodyIndex));
+        Assert.Contains(
+            "no compiler-generated runtime wrapper",
+            exception.Message,
             StringComparison.Ordinal);
     }
 

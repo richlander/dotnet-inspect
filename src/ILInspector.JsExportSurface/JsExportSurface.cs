@@ -65,6 +65,20 @@ public sealed class JsExportFunction
 
     public required string Name { get; init; }
 
+    /// <summary>
+    /// Exact own-property key published for this method beneath
+    /// <see cref="DeclaringType"/> by <c>getAssemblyExports</c>.
+    /// </summary>
+    /// <remarks>
+    /// The body-backed builder derives this key only from the authenticated
+    /// <c>BindManagedFunction</c> registration and wrapper signature hash.
+    /// Declaration-only and hand-composed surfaces may leave it unset.
+    /// <c>JsExportSurfaceBuilderTests.Build_ProjectsDistinctRuntimeDispatchKeysForCompiledOverloads</c>
+    /// gates the projection.
+    /// </remarks>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RuntimeDispatchKey { get; init; }
+
     public required string ReturnType { get; init; }
 
     [JsonIgnore]

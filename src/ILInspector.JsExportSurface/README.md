@@ -32,6 +32,11 @@ applications do not need it in their runtime bundle.
   **reachable** wrapper-to-stub-to-export MethodDef call chain. The
   registration's second argument must be an `int32` literal equal to the
   decimal suffix of the wrapper's own `__Wrapper_<Name>_<digits>` name, and its
+  signed decimal value is retained with the method name as the exact
+  `RuntimeDispatchKey` published by `getAssemblyExports()`. Overloads sharing a
+  managed name are matched by both binding name and authenticated signature
+  hash, so each receives its own runtime key without relying on registration
+  order. The
   `ReadOnlySpan<JSMarshalerType>` descriptor argument must resolve to one
   element per export return and parameter, each built by a
   `JSMarshalerType` factory compatible with that managed type. A diagnosed
@@ -132,6 +137,8 @@ calls the other.
 `Build_RejectsRuntimeWrapperWithUntrustedCoreVoid`,
 `Build_WithBodiesRejectsLegacyNullWrapperProvenance`,
 `Build_DoesNotCreditPrefixSiblingWrapper`,
+`Build_ProjectsDistinctRuntimeDispatchKeysForCompiledOverloads`,
+`Build_DoesNotBorrowAnotherOverloadWrapperRegistration`,
 `Build_RejectsDiagnosedRuntimeWrapperChain`,
 `Build_ProjectsRuntimeQualifiedDeclaringTypePath`,
 `Build_ProjectsNestedRuntimeDeclaringTypePath`,
