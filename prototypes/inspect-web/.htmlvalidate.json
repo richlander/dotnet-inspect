@@ -1,5 +1,6 @@
 {
   "extends": ["html-validate:recommended"],
+  "elements": ["html5", "./html-elements.json"],
   "rules": {
     "doctype-style": "off",
     "void-style": "off",

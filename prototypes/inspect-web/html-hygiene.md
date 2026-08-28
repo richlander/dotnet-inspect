@@ -36,8 +36,7 @@ compiled output. Each review round found one more construct the enumeration had 
 because a shape recognizer over someone else's semantics has no closure argument
 available to it. The linters answer more of the question than the bespoke gate ever did:
 `require-sri` covers `<link rel="stylesheet|preload|modulepreload">` as well as
-`<script>`, which the bespoke gate never checked, and html-validate found dead invalid
-markup in `index.html` on its first run.
+`<script>`, which the bespoke gate never checked.
 
 The bespoke gate also drifted across the trust boundary this repository actually defends.
 It ended up decoding character references to catch a URL disguised inside our own
@@ -51,11 +50,28 @@ Both linters run in `npm run lint`, which CI invokes through `npm run analyze`.
 
 | Tool | Configuration | What it covers |
 | --- | --- | --- |
-| [html-validate][hv] | `.htmlvalidate.json` | HTML validity and the `recommended` preset; `require-sri` for cross-origin `<script>` and `<link>`; `allowed-links` restricting external references to an allow list |
-| [htmlhint][hh] | `.htmlhintrc` | `inline-script-disabled` only -- inline `on*` event handlers and `javascript:` URLs |
+| [html-validate][hv] | `.htmlvalidate.json`, `html-elements.json` | HTML validity and the `recommended` preset; `require-sri` for cross-origin `<script>` and `<link>`; the SRI digest grammar, declared as element metadata; `allowed-links` restricting external references to an allow list |
+| [htmlhint][hh] | `.htmlhintrc` | `inline-script-disabled` only -- inline `on*` event handlers, and `javascript:` URLs in link and source attributes |
 
 htmlhint is present for exactly one rule. html-validate has no equivalent, because event
 handler attributes are valid HTML and no validity rule rejects them.
+
+Read that second column narrowly. `inline-script-disabled` inspects `href` and `src`; a
+`javascript:` URL reached through any other executable attribute is not covered, and
+[review owns it](#javascript-urls-outside-href-and-src).
+
+### Suppressions
+
+`index.html` carries one `html-validate-disable-next` directive, on the
+`<link rel="preload" id="webassembly">` element. That element is deliberately invalid: it
+is an anchor the .NET Wasm publish step rewrites, injecting the runtime `href`, and CI and
+both deploy workflows `grep` for it in `dist/index.html`. An empty `<link>` is exactly what
+`element-required-attributes` exists to catch, and it is correct to catch it -- so the
+exemption is narrowed to that one element and states its reason inline, rather than turning
+the rule off across the project.
+
+Prefer that shape for any future exemption. A directive at the element leaves the rule
+working everywhere else and puts the justification where the next reader will be standing.
 
 `toolchain.test.ts` owns the wiring rather than the analysis. It hands both linters every
 document the project owns and requires a clean report, then requires the same committed
@@ -103,21 +119,64 @@ before any preload or import map, but nothing checks that a base is local.
 ### Third-party bytes
 
 `require-sri` enforces that cross-origin `<script>` and `<link>` carry an `integrity`
-digest, `attribute-allowed-values` rejects an empty `integrity=""` -- which would satisfy
-a presence check while disabling SRI in every browser -- and `allowed-links` restricts
-external references to the CDN allow list in `.htmlvalidate.json`. These are real: a CDN
-can change the bytes it serves, and this is the one boundary in this project where an
-actor outside the machine is in scope.
+attribute, and `attribute-allowed-values` enforces that its value is a digest a browser
+will actually honour. That second half is not html-validate's default: `require-sri` is a
+presence check, and out of the box `integrity="bogus"` satisfies it. A browser discards
+metadata it cannot parse and fetches the resource *unpinned*, so a malformed digest looks
+pinned to a reader and behaves like no SRI at all. `html-elements.json` closes that gap by
+declaring the SRI grammar as element metadata for `<script>` and `<link>`, which is what
+turns a typo into a lint error. `allowed-links` then restricts external references to the
+CDN allow list in `.htmlvalidate.json`.
+
+These are real: a CDN can change the bytes it serves, and this is the one boundary in this
+project where an actor outside the machine is in scope.
 
 The tools enforce the mechanics, so what is left for review is the judgement:
 
 **In review, check:** adding a host to the `allowExternal` allow list is a deliberate
 decision about whose bytes we run, not a lint fix.
 
+### `javascript:` URLs outside `href` and `src`
+
+htmlhint's `inline-script-disabled` catches `javascript:` in `href` and `src`, which is
+where it usually appears. It does not look anywhere else, and several other attributes
+navigate or load:
+
+```html
+<form action="javascript:alert(1)"></form>
+<object data="javascript:alert(1)"></object>
+<meta http-equiv="refresh" content="0;url=javascript:alert(1)" />
+```
+
+Both linters accept all three as configured. html-validate's `meta-refresh` rule does not
+help -- it governs the refresh *delay*, for accessibility, and is indifferent to the
+scheme.
+
+**In review, reject:** the `javascript:` scheme in any attribute, not just `href` and
+`src`.
+
+### Script inside SVG
+
+SVG loads external code through `<script href="...">`, not HTML's `src`. It is a
+different attribute in a different namespace, and none of the rules above look at it:
+`require-sri` and `allowed-links` both key off HTML's `src`/`href` on HTML elements, so an
+SVG `<script href>` passes every gate here. Element metadata does not help, because
+html-validate does not apply it to foreign-namespace content.
+
+There are no `.svg` files in this project today.
+
+**In review, reject:** `<script>` inside SVG, whether it carries `href`, `xlink:href`, or
+a body.
+
 ## Adding a document
 
-New `.html`, `.htm`, `.xhtml`, or `.svg` files are discovered automatically -- the
-toolchain gate walks for them and the lint globs match them, so neither needs updating.
+New `.html`, `.htm`, `.xhtml`, and `.svg` files are picked up without any config change.
+The toolchain gate walks for those four extensions and hands everything it finds to both
+linters, and `lint:html` globs the same four. Those two lists have to agree: when they
+drifted, `npm test` rejected a bad `.htm` that `npm run lint` had just passed, which is
+the shape of divergence that trains people to disbelieve the fast check. The script
+strings are pinned by a toolchain test, so a change to one that skips the other fails
+loudly.
 
 Two structural defaults are worth preserving:
 

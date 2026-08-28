@@ -424,30 +424,57 @@ test("the only JavaScript is the file the lint exemption names", () => {
 // quietly green.
 const markupExtensions = [".html", ".htm", ".xhtml", ".svg"] as const;
 
+interface MarkupSpecimen {
+  // Markup this linter's configuration must reject, and the rule that must reject it.
+  // Requiring the rule name rather than a non-zero exit is what keeps a crashed or
+  // misconfigured linter from reading as a working one.
+  readonly markup: string;
+  readonly rule: string;
+}
+
 interface MarkupLinter {
   readonly command: string;
   readonly config: string;
-  // A specimen this linter's configuration must reject, and the rule that must reject it.
-  // Requiring the rule name rather than a non-zero exit is what keeps a crashed or
-  // misconfigured linter from reading as a working one.
-  readonly specimen: string;
-  readonly rule: string;
+  readonly specimens: readonly MarkupSpecimen[];
 }
+
+const remoteScript = (attributes: string): string =>
+  '<!DOCTYPE html><html lang="en"><head><title>t</title>'
+    + `<script src="https://cdn.jsdelivr.net/x.js"${attributes}></script>`
+    + "</head><body></body></html>";
 
 const markupLinters: readonly MarkupLinter[] = [
   {
     command: "html-validate",
     config: ".htmlvalidate.json",
-    specimen: '<!DOCTYPE html><html lang="en"><head><title>t</title>'
-      + '<script src="https://cdn.example.com/x.js"></script></head><body></body></html>',
-    rule: "require-sri",
+    specimens: [
+      // Remote bytes with no integrity attribute at all.
+      { markup: remoteScript(""), rule: "require-sri" },
+      // Remote bytes carrying integrity metadata a browser cannot parse. A browser
+      // discards unparseable metadata and fetches the resource unpinned, so this is
+      // indistinguishable from the case above at runtime while looking pinned to a
+      // reader. `html-elements.json` is what makes this fail; without the digest
+      // grammar it declares, `require-sri` is satisfied by any non-empty string.
+      { markup: remoteScript(' integrity="bogus"'), rule: "attribute-allowed-values" },
+      // A host that is not the one CDN this project pins bytes from.
+      {
+        markup: '<!DOCTYPE html><html lang="en"><head><title>t</title>'
+          + '<link rel="stylesheet" href="https://cdn.example.com/x.css" />'
+          + "</head><body></body></html>",
+        rule: "allowed-links",
+      },
+    ],
   },
   {
     command: "htmlhint",
     config: ".htmlhintrc",
-    specimen: '<!DOCTYPE html><html lang="en"><head><title>t</title></head>'
-      + '<body><div onclick="doThing()"></div></body></html>',
-    rule: "inline-script-disabled",
+    specimens: [
+      {
+        markup: '<!DOCTYPE html><html lang="en"><head><title>t</title></head>'
+          + '<body><div onclick="doThing()"></div></body></html>',
+        rule: "inline-script-disabled",
+      },
+    ],
   },
 ];
 
@@ -495,17 +522,19 @@ test("the HTML linter configuration in this project still rejects markup", () =>
 
   try {
     for (const linter of markupLinters) {
-      const specimen = join(scratch, "specimen.html");
-      writeFileSync(specimen, linter.specimen);
+      for (const { markup, rule } of linter.specimens) {
+        const specimen = join(scratch, "specimen.html");
+        writeFileSync(specimen, markup);
 
-      const run = runMarkupLinter(linter, root, [specimen]);
-      assert.notEqual(run.status, 0,
-        `${linter.command} accepted markup its configuration must reject, so a clean `
-          + `report from it proves nothing:\n${run.output}`);
-      assert.ok(run.output.includes(linter.rule),
-        `${linter.command} rejected the specimen, but not by way of \`${linter.rule}\`, `
-          + `so that rule is no longer doing the work this project relies on it for:\n${
-            run.output}`);
+        const run = runMarkupLinter(linter, root, [specimen]);
+        assert.notEqual(run.status, 0,
+          `${linter.command} accepted markup its configuration must reject, so a clean `
+            + `report from it proves nothing:\n${markup}\n${run.output}`);
+        assert.ok(run.output.includes(rule),
+          `${linter.command} rejected the specimen, but not by way of \`${rule}\`, `
+            + `so that rule is no longer doing the work this project relies on it for:\n${
+              markup}\n${run.output}`);
+      }
     }
   } finally {
     rmSync(scratch, { recursive: true, force: true });
@@ -1304,7 +1333,8 @@ test("the analysis host check matches locked native packages and lint wiring", (
   // pattern on the command line.
   assert.equal(
     packageJson.scripts["lint:html"],
-    'html-validate "**/*.html" && htmlhint --ignore "dist/**" "**/*.html"',
+    'html-validate "**/*.{html,htm,xhtml,svg}" '
+      + '&& htmlhint --ignore "dist/**" "**/*.{html,htm,xhtml,svg}"',
   );
   assert.equal(packageJson.scripts.analyze, "npm run lint && knip");
 });
