@@ -364,6 +364,8 @@ The model establishes these design guarantees:
   rebuilds from the replacement revision, re-gathers its facts, and remains in
   its original admission order;
 - standalone maintenance is admitted in request order, not completion order;
+- every queued maintenance request is retained and its own exact identity is
+  eventually admitted;
 - maintenance cannot install during unresolved explicit work or unconsumed
   visible effects;
 - every admitted result receives exact session, state-revision, intent, and
@@ -462,6 +464,7 @@ The eventual subject-navigation implementation must include named gates for:
 - `SuppliedPriorRejection_CorrelatesExactOperation`
 - `AppliedResult_EqualsExactRequestedSubjectAndLens`
 - `Maintenance_SerializesInRequestOrderAcrossCompletionTiming`
+- `Maintenance_EveryQueuedRequestIsAdmittedByExactIdentity`
 - `Maintenance_CannotInstallDuringUnconsumedEffect`
 - `StaleBasisMaintenance_SameRequestRebuildsRegathersAndIsAdmitted`
 - `EffectAuthority_RequiresExactCurrentSessionRevisionIntentAndEpoch`

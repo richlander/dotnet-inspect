@@ -62,7 +62,7 @@ back. The three models therefore carry three correlation currencies:
 
 | Model | Currency | Used by |
 | --- | --- | --- |
-| `NavigationSession.tla` | maintenance request number, intent token | per-request admission and per-token settlement |
+| `NavigationSession.tla` | maintenance request number, exact admitted-request set, intent token | per-request admission and per-token settlement |
 | `AtomicRestoration.tla` | restoration token plus an independently retained request payload | per-attempt settlement and exact prepared result |
 | `SnapshotAuthority.tla` | operation ID plus independently retained requested lens | per-operation resolution, rejection, and exact applied result |
 
@@ -71,10 +71,10 @@ back. The three models therefore carry three correlation currencies:
 One retained navigation session holding zero or one installed snapshot. The
 product issues monotonic explicit intent tokens for subject, lens, coordinate,
 and canonical-restoration work. The owner issues maintenance request numbers
-for standalone inventory refresh and reconciliation. Every admitted result
-returns four-part effect authority: session identity, snapshot state revision,
-intent token, and effect epoch. A consumer validates that authority, then
-acknowledges or abandons it.
+for standalone inventory refresh and reconciliation and retains the exact
+identities admitted. Every admitted result returns four-part effect authority:
+session identity, snapshot state revision, intent token, and effect epoch. A
+consumer validates that authority, then acknowledges or abandons it.
 
 Modelled behaviour includes: a newer explicit intent superseding older explicit
 and maintenance work; a superseded operation returning late; an external
@@ -104,7 +104,7 @@ discharge it.
 | `EveryExplicitIntentSettles` | Each intent token's own operation stops being in flight and stops being an outstanding superseded result, so supersession settles rather than dangles |
 | `EffectEventuallyConsumed` | Unconsumed authority is eventually acknowledged, abandoned, or superseded |
 | `MaintenanceEventuallyDrains` | The whole queue eventually drains |
-| `EveryQueuedRequestIsAdmitted` | Every queued request is eventually admitted, so the head advances and that request leaves the queue |
+| `EveryQueuedRequestIsAdmitted` | Every queued request's exact identity eventually appears in the admitted-request set |
 | `BlockedMaintenanceResumes` | A request blocked by unresolved explicit work or an unconsumed effect is still admitted once that work resolves and that effect is released |
 | `MaintenanceResumesAfterAbort` | A request blocked behind an external prerequisite abort is admitted after that abort effect is acknowledged or abandoned |
 | `StaleBasisMaintenanceResumes` | The same request whose basis a newer snapshot invalidated rebuilds, re-gathers, and is admitted in original request order |
@@ -353,6 +353,7 @@ records how to reproduce them.
 | NS15 | Advance the revision for an unchanged-snapshot unavailable result | `UnavailableRevisionMatchesSnapshotChange` | violated |
 | NS16 | Install an unavailable result at a revision different from its recorded result revision | `UnavailableRevisionMatchesSnapshotChange` | violated |
 | NS17 | Mark a stale request ready and clear its re-gather debt during rebuild | `MaintenanceRegatherDiscipline` | violated |
+| NS18 | Drop an earlier queued request while allowing a later request to be admitted | `EveryQueuedRequestIsAdmitted` | violated |
 | AR1 | Drop the current-intent requirement from preparation publication | `PreparationRequiresReadyPairAndCurrentIntent` | violated |
 | AR2 | Publish a different subject than the independently retained request | `PreparedPairEqualsRequestedPayload` | violated |
 | AR3 | Allow a superseded preparation to publish | `NoSupersededPreparationResult` | violated |
@@ -379,20 +380,20 @@ records how to reproduce them.
 | SA17 | Return a result that does not record its operation ID | `OperationAndResultAreCorrelated` | violated |
 | SA18 | Install and return another admissible session lens instead of the exact requested lens | `AppliedResultEqualsExactRequest` | violated |
 
-Forty-two probes, forty-one expected violations and one expected pass. `SA6`
+Forty-three probes, forty-two expected violations and one expected pass. `SA6`
 is the one probe expected not to fire: it applies the same mutation as `SA5`
 and checks the revision-arithmetic invariant instead, which does not notice a
 snapshot rewritten in place. That pair is why
 `NonApplyStepsPreserveInstalledSnapshot` compares the record.
 
-Six probes exist specifically because a claim used to be satisfiable by the
+Seven probes exist specifically because a claim used to be satisfiable by the
 wrong thing. `NS16` separates installed revision from a self-consistent result,
-`NS17` admits stale work without re-gathering, `AR2` publishes a payload that
-differs from the retained request, `SA14` applies a later supplied-prior
-operation after an earlier one was rejected, `SA15` adopts only the stale
-same-session supplied snapshot whose origin and lens resemble session data,
-and `SA18` returns another admissible session lens under the correct operation
-ID.
+`NS17` admits stale work without re-gathering, `NS18` lets a later admission
+stand in for a lost earlier request, `AR2` publishes a payload that differs
+from the retained request, `SA14` applies a later supplied-prior operation
+after an earlier one was rejected, `SA15` adopts only the stale same-session
+supplied snapshot whose origin and lens resemble session data, and `SA18`
+returns another admissible session lens under the correct operation ID.
 
 ## Changing a model
 

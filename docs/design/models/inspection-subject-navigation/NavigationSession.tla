@@ -16,6 +16,7 @@
 (*   owner-issued maintenance number    nextMaintenance                    *)
 (*   standalone maintenance queue       maintenanceQueue (request order)   *)
 (*   last admitted maintenance          lastAdmitted                       *)
+(*   exact admitted maintenance IDs     admittedRequests                   *)
 (*   last semantic navigation result    lastResult                         *)
 (*   effect epoch                       effectEpoch                        *)
 (*   unconsumed effect authority        effect                             *)
@@ -49,6 +50,7 @@ VARIABLES
   nextMaintenance,
   maintenanceQueue,
   lastAdmitted,
+  admittedRequests,
   lastResult,
   effectEpoch,
   effect,
@@ -61,8 +63,9 @@ VARIABLES
 
 vars == << installedSnapshot, installedRev, currentIntent, explicit,
            superseded, nextMaintenance, maintenanceQueue, lastAdmitted,
-           lastResult, effectEpoch, effect, hostAuthority, admissionWitness,
-           regatherWitness, revisionWitness, orderWitness, visibleWitness >>
+           admittedRequests, lastResult, effectEpoch, effect, hostAuthority,
+           admissionWitness, regatherWitness, revisionWitness, orderWitness,
+           visibleWitness >>
 
 (***************************************************************************)
 (* Currencies.                                                             *)
@@ -127,6 +130,7 @@ TypeOK ==
   /\ superseded \subseteq 1 .. MaxIntent
   /\ nextMaintenance \in 1 .. (MaxMaintenance + 1)
   /\ lastAdmitted \in 0 .. MaxMaintenance
+  /\ admittedRequests \subseteq 1 .. MaxMaintenance
   /\ lastResult.outcome \in SemanticOutcomes \cup {"none"}
   /\ lastResult.snapshotChanged \in BOOLEAN
   /\ lastResult.priorSnapshot \in SnapshotValues
@@ -153,6 +157,7 @@ Init ==
   /\ nextMaintenance = 1
   /\ maintenanceQueue = << >>
   /\ lastAdmitted = 0
+  /\ admittedRequests = {}
   /\ lastResult = NoResult
   /\ effectEpoch = 0
   /\ effect = NoAuthority
@@ -184,7 +189,8 @@ BeginExplicitIntent(kind) ==
        [ i \in DOMAIN maintenanceQueue |->
            [maintenanceQueue[i] EXCEPT !.ready = FALSE] ]
   /\ UNCHANGED << installedSnapshot, installedRev, nextMaintenance,
-                  lastAdmitted, lastResult, effectEpoch, hostAuthority,
+                  lastAdmitted, admittedRequests, lastResult, effectEpoch,
+                  hostAuthority,
                   admissionWitness, regatherWitness, revisionWitness,
                   orderWitness, visibleWitness >>
 
@@ -204,7 +210,8 @@ ExplicitResultInstalls(returnedSnapshot) ==
               installedRev, installedRev + 1)
   /\ explicit' = NoExplicitWork
   /\ UNCHANGED << currentIntent, superseded, nextMaintenance,
-                  maintenanceQueue, lastAdmitted, admissionWitness,
+                  maintenanceQueue, lastAdmitted, admittedRequests,
+                  admissionWitness,
                   regatherWitness, revisionWitness, orderWitness,
                   visibleWitness >>
 
@@ -233,7 +240,8 @@ ExplicitUnavailable(returnedSnapshot) ==
             /\ lastResult'.priorRev = installedRev
   /\ explicit' = NoExplicitWork
   /\ UNCHANGED << currentIntent, superseded, nextMaintenance,
-                  maintenanceQueue, lastAdmitted, admissionWitness,
+                  maintenanceQueue, lastAdmitted, admittedRequests,
+                  admissionWitness,
                   regatherWitness, orderWitness, visibleWitness >>
 
 \* Rejected and failed navigation results retain the installed snapshot but
@@ -252,6 +260,7 @@ ExplicitResultRetains(outcome) ==
   /\ explicit' = NoExplicitWork
   /\ UNCHANGED << installedSnapshot, installedRev, currentIntent, superseded,
                   nextMaintenance, maintenanceQueue, lastAdmitted,
+                  admittedRequests,
                   admissionWitness, regatherWitness, revisionWitness,
                   orderWitness, visibleWitness >>
 
@@ -271,6 +280,7 @@ ExternalPrerequisiteAbort ==
   /\ explicit' = NoExplicitWork
   /\ UNCHANGED << installedSnapshot, installedRev, currentIntent, superseded,
                   nextMaintenance, maintenanceQueue, lastAdmitted,
+                  admittedRequests,
                   admissionWitness, regatherWitness, revisionWitness,
                   orderWitness, visibleWitness >>
 
@@ -281,7 +291,8 @@ SupersededResultDiscarded(token) ==
   /\ superseded' = superseded \ {token}
   /\ UNCHANGED << installedSnapshot, installedRev, currentIntent, explicit,
                   nextMaintenance,
-                  maintenanceQueue, lastAdmitted, effectEpoch, effect,
+                  maintenanceQueue, lastAdmitted, admittedRequests,
+                  effectEpoch, effect,
                   hostAuthority, lastResult, admissionWitness,
                   regatherWitness, revisionWitness, orderWitness,
                   visibleWitness >>
@@ -305,7 +316,8 @@ RequestMaintenance ==
   /\ nextMaintenance' = nextMaintenance + 1
   /\ UNCHANGED << installedSnapshot, installedRev, currentIntent, explicit,
                   superseded,
-                  lastAdmitted, lastResult, effectEpoch, effect, hostAuthority,
+                  lastAdmitted, admittedRequests, lastResult, effectEpoch,
+                  effect, hostAuthority,
                   admissionWitness, regatherWitness, revisionWitness,
                   orderWitness, visibleWitness >>
 
@@ -320,8 +332,9 @@ GatherMaintenanceFacts(n) ==
                                      ![i].needsRegather = FALSE]
   /\ UNCHANGED << installedSnapshot, installedRev, currentIntent, explicit,
                   superseded,
-                  nextMaintenance, lastAdmitted, lastResult, effectEpoch, effect,
-                  hostAuthority, admissionWitness, regatherWitness,
+                  nextMaintenance, lastAdmitted, admittedRequests, lastResult,
+                  effectEpoch, effect, hostAuthority, admissionWitness,
+                  regatherWitness,
                   revisionWitness, orderWitness, visibleWitness >>
 
 \* A queued request whose basis is no longer the installed snapshot rebuilds
@@ -339,8 +352,9 @@ RebuildMaintenance(n) ==
             /\ ~maintenanceQueue'[i].ready
   /\ UNCHANGED << installedSnapshot, installedRev, currentIntent, explicit,
                   superseded,
-                  nextMaintenance, lastAdmitted, lastResult, effectEpoch, effect,
-                  hostAuthority, admissionWitness, revisionWitness,
+                  nextMaintenance, lastAdmitted, admittedRequests, lastResult,
+                  effectEpoch, effect, hostAuthority, admissionWitness,
+                  revisionWitness,
                   orderWitness, visibleWitness >>
 
 \* The design's admission predicate, stated once: only the oldest outstanding
@@ -369,6 +383,8 @@ AdmitMaintenance ==
                          effectEpoch + 1)
   /\ hostAuthority' = effect'
   /\ lastAdmitted' = Head(maintenanceQueue).seq
+  /\ admittedRequests' =
+       admittedRequests \cup {Head(maintenanceQueue).seq}
   /\ maintenanceQueue' = Tail(maintenanceQueue)
   /\ admissionWitness' =
        /\ admissionWitness
@@ -402,6 +418,7 @@ VisibleEffect ==
   /\ UNCHANGED << installedSnapshot, installedRev, currentIntent, explicit,
                   superseded,
                   nextMaintenance, maintenanceQueue, lastAdmitted,
+                  admittedRequests,
                   lastResult, effectEpoch, effect, hostAuthority,
                   admissionWitness, regatherWitness, revisionWitness,
                   orderWitness >>
@@ -416,6 +433,7 @@ AcknowledgeEffect ==
   /\ UNCHANGED << installedSnapshot, installedRev, currentIntent, explicit,
                   superseded,
                   nextMaintenance, maintenanceQueue, lastAdmitted,
+                  admittedRequests,
                   lastResult, effectEpoch, admissionWitness, regatherWitness,
                   revisionWitness, orderWitness, visibleWitness >>
 
@@ -428,6 +446,7 @@ AbandonEffect ==
   /\ UNCHANGED << installedSnapshot, installedRev, currentIntent, explicit,
                   superseded,
                   nextMaintenance, maintenanceQueue, lastAdmitted,
+                  admittedRequests,
                   lastResult, effectEpoch, admissionWitness, regatherWitness,
                   revisionWitness, orderWitness, visibleWitness >>
 
@@ -438,6 +457,7 @@ ForeignAuthorityOffered ==
   /\ UNCHANGED << installedSnapshot, installedRev, currentIntent, explicit,
                   superseded,
                   nextMaintenance, maintenanceQueue, lastAdmitted,
+                  admittedRequests,
                   lastResult, effectEpoch, effect, admissionWitness,
                   regatherWitness, revisionWitness, orderWitness,
                   visibleWitness >>
@@ -561,7 +581,7 @@ MaintenanceEventuallyDrains ==
 \* Every queued request is eventually admitted, so the head advances and the
 \* request leaves the queue rather than sitting at the front forever.
 EveryQueuedRequestIsAdmitted ==
-  \A n \in 1 .. MaxMaintenance : HasMaintenance(n) ~> (lastAdmitted >= n)
+  \A n \in 1 .. MaxMaintenance : HasMaintenance(n) ~> (n \in admittedRequests)
 
 \* Blocked by unresolved explicit work or by an unconsumed effect: the
 \* explicit operation must resolve and the effect must be acknowledged or
@@ -569,19 +589,20 @@ EveryQueuedRequestIsAdmitted ==
 BlockedMaintenanceResumes ==
   \A n \in 1 .. MaxMaintenance :
     (HasMaintenance(n) /\ (explicit # NoExplicitWork \/ effect # NoAuthority))
-      ~> (lastAdmitted >= n)
+      ~> (n \in admittedRequests)
 
 \* Blocked behind an external prerequisite abort specifically: the abort
 \* effect must be acknowledged or abandoned before maintenance resumes.
 MaintenanceResumesAfterAbort ==
   \A n \in 1 .. MaxMaintenance :
-    (HasMaintenance(n) /\ effect.outcome = "aborted") ~> (lastAdmitted >= n)
+    (HasMaintenance(n) /\ effect.outcome = "aborted")
+      ~> (n \in admittedRequests)
 
 \* Blocked by a basis a newer snapshot invalidated: the request must rebuild
 \* and re-gather before it can be admitted, and it still is.
 StaleBasisMaintenanceResumes ==
   \A n \in 1 .. MaxMaintenance :
     (HasMaintenance(n) /\ MaintenanceEntry(n).basis # installedRev)
-      ~> (lastAdmitted >= n)
+      ~> (n \in admittedRequests)
 
 =============================================================================
