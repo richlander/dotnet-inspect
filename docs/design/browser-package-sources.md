@@ -101,6 +101,271 @@ enabled state
 Credentials, resolved resources, response caches, and runtime health are not
 descriptor fields.
 
+## NuGetFetch typed source-result identity
+
+This section owns one NuGetFetch contract: the identity carried by one
+source-scoped operation from its runtime client through candidates, manifests,
+payloads, and failures. It consumes the InertText-owned
+`UrlRedaction.ForPathComponent` result and does not restate that operation's
+credential-path grammar.
+
+### Identity roles
+
+Three roles remain distinct:
+
+- **Producer identity** names one immutable package-content domain. Gallery and
+  v3 transports for canonical NuGet.org share it. Credential rotation, signed
+  query rotation, and transport selection do not change it.
+- **Caller association** is an opaque, caller-created reference token. It ties
+  the result back to the caller's exact configured authority without placing
+  that authority, its query, or its credentials in NuGetFetch.
+- **Transport kind** states which protocol implementation produced the result.
+  It is evidence, not producer or authority identity.
+
+The target public shapes are:
+
+```csharp
+sealed class PackageSourceIdentity
+{
+    string Key { get; }
+    InertString Display { get; }
+}
+
+sealed class PackageSourceAssociation
+{
+}
+
+sealed record PackageSourceResultIdentity(
+    PackageSourceIdentity Producer,
+    PackageSourceAssociation Association,
+    PackageSourceKind TransportKind);
+```
+
+`PackageSourceAssociation` has reference identity and no caller-supplied text,
+serialization value, or display value. A host creates one token for each
+authority context it needs to recover and passes it when constructing a
+runtime client. It may deliberately pass the same token to several transports
+that represent one authority. Query-distinct configured authorities must use
+different tokens even when they share a producer.
+
+NuGetFetch never interprets the token. The caller keeps the map from token to
+its own authority type and uses the exact returned token for lookup. This is
+the only association point: matching `Producer`, parsing `Display`, or deriving
+authority from `Key` is invalid.
+
+`PackageSourceKind` remains the retained transport distinction. NuGetFetch does
+not expose a second opaque transport identity. Resource failover and individual
+request attempts are runtime details inside one source client; future
+environment-health work that needs attempt identity must introduce its own
+typed observation rather than extending producer identity or reusing caller
+association.
+
+### Producer key
+
+`PackageSourceIdentity.Key` is an opaque, versioned, ordinal identifier. Its
+HTTP producer material contains:
+
+1. the lower-case scheme;
+2. the lower-case IDN host, retaining an IPv6 zone identifier;
+3. the effective numeric port; and
+4. the canonical absolute path.
+
+HTTP and future local-folder keys occupy different versioned namespaces.
+Transport kind is not key material, because two transports may implement one
+producer.
+
+The canonical path keeps HTTP path case, normalizes percent-escape hex digits
+to upper case, and folds exactly one optional trailing slash. NuGetFetch then
+passes that already-separated path to
+`UrlRedaction.ForPathComponent`. User information, query, and fragment are
+excluded before framing and never enter the key, even through a digest or
+other one-way transform.
+
+The key starts with the fixed prefix `nfs-http-1.`. The four safe components
+are encoded as UTF-8 in the order above; the port uses invariant decimal text.
+Each component is preceded by its UTF-8 byte length as one unsigned 32-bit
+big-endian integer. The complete framed byte sequence is base64url-encoded
+without padding after the prefix. Length framing, rather than separator
+concatenation or display rendering, keeps component boundaries unambiguous
+when path text contains colons, `@`, repeated slashes, percent escapes, or
+authority-shaped text.
+
+The key algorithm is a compatibility contract. Changing component
+canonicalization, framing, encoding, or the key prefix requires a new version;
+an implementation does not silently reinterpret persisted keys.
+
+This ordering is the safety boundary: recognized path credential values are
+removed before key material is framed. Hashing or encoding the untreated path
+would retain a credential-dependent guess verifier and would make credential
+rotation change producer identity.
+
+### Producer display
+
+`PackageSourceIdentity.Display` is diagnostic text, not identity. NuGetFetch
+constructs it as `InertString` from the canonical scheme, bracketed host when
+required, effective port, and the owner-issued safe path. It does not route the
+path back through complete-URL classification or `UriBuilder`.
+
+User information, query, and fragment do not enter producer display. Signed
+query presence is a configured-transport fact rather than a property of the
+immutable producer. Two endpoints that differ only by query, fragment, or a
+recognized credential value therefore have the same producer key and display.
+
+Beyond the declared endpoint canonicalizations, non-credential path
+distinctions remain visible. In particular, root and repeated-root paths,
+scoped IPv6 hosts, encoded path text, and paths containing `://` are composed
+from their safe components without a second URL parse or rendering pass.
+
+`PackageSourceIdentity` equality and hashing use `Key`; no consumer parses or
+re-redacts `Display`. Construction is closed so an arbitrary key/display pair
+cannot claim to be an owner-issued identity.
+
+### Result propagation
+
+Every `IPackageSourceClient` owns one immutable
+`PackageSourceResultIdentity`, constructed from its producer, the required
+caller association, and its transport kind. The factory requires the
+association for portable descriptors, desktop compatibility sources, and the
+built-in Gallery client; there is no implicit token that could accidentally
+split or merge caller authority.
+
+The exact client identity is then carried without reconstruction:
+
+- `PackageSearchResult` and `PackageVersionResult` retain it even when their
+  candidate collection is empty;
+- every `PackageCandidateObservation` carries it after the observation leaves
+  that source-scoped result;
+- `PackageSourceManifest` and `PackageSourcePayload` carry it with their exact
+  coordinate; and
+- `PackageSourceFailure` carries it for unsupported, absent, authentication,
+  timeout, invalid-response, bounded-response, and transport outcomes.
+
+Source-result constructors reject a candidate or match whose result identity
+differs from the enclosing source-scoped result. Projection helpers take the
+one client identity rather than independent producer, association, and
+transport arguments. This makes mixed identity a construction error and keeps
+empty success and failure equally attributable.
+
+Multi-source aggregation remains above NuGetFetch. An aggregator may group
+candidate observations by producer or associate them with package authority,
+but it does not mutate their issuing identity.
+
+### Safe retained failures
+
+A retained failure may contain:
+
+- the exact `PackageSourceResultIdentity`;
+- capability and failure-kind enums;
+- a validated package coordinate when the operation had one; and
+- a product-authored, failure-kind-specific summary.
+
+It does not contain a configured endpoint, resolved resource URL, redirect
+target, query, fragment, response text, exception message, credential value, or
+caller authority. Human diagnostics use `Failure.Source.Producer.Display`;
+structured projection uses its `Key`. Before projection, the caller uses
+`Association` to attach its own typed authority or presentation fields. The
+token itself is never serialized or displayed. Neither projection recovers
+identity from display text.
+
+The product-authored summary remains an ordinary string because it contains no
+source-controlled text. The source display remains `InertString`; converting it
+to a raw endpoint-shaped string inside the failure would discard the typed
+boundary.
+
+### Migration order
+
+This section defines the target contract, not the behavior of the current
+`Value` property. Today `PackageSourceIdentity.ForHttpEndpoint` appends query
+and fragment because `DotnetInspector.Packages` borrows its returned `Value` as
+configured-endpoint authority. The desktop runtime client separately calls
+`ForProducerEndpoint`, which already folds those components. The two methods
+therefore expose two identity roles through one type; that is the compatibility
+coupling this migration removes.
+
+The target decision is unambiguous:
+
+- NuGetFetch producer identity excludes query and fragment; and
+- package configured-endpoint authority may retain them, but is constructed
+  and compared by the package owner rather than by reading a NuGetFetch
+  producer.
+
+The current `PackageSourceIdentity.Value` is simultaneously consumed as
+package authority, browser pending-work input, and CLI display. Replacing its
+meaning in place would make the package and browser consumers parse an opaque
+producer key as a path and would make human output unreadable.
+
+Migration is therefore staged:
+
+1. NuGetFetch adds `Key`, `Display`, caller association, and consistent result
+   identity additively. `Value` and `ForHttpEndpoint` are marked
+   compatibility-only, retain their current endpoint-authority semantics, and
+   no new code consumes either one. Equality of the target identity uses
+   `Key`; compatibility readers continue to read `Value` directly until their
+   owner migrates.
+2. Package composition (#4797), browser acquisition association (#4805), and
+   package-profile projection (#4806) migrate to their owner-issued inputs.
+3. NuGetFetch removes `Value` and its endpoint-shaped `ToString` only after no
+   consumer remains. The safe-retained-failure claim is complete only at this
+   step.
+
+The additive stage must not describe a failure object that still exposes
+`Value` through reflection or serialization as credential-safe. Downstream
+migration is a dependency, not authority for those consumers to reinterpret
+`Key` or `Display`.
+
+`LegacyPackageSourceIdentityReadersMatchMigrationSet` derives the temporary
+reader set from the source tree and fails for both an unlisted new reader and a
+stale entry after migration. It names only the three downstream owner sites
+identified in migration step 2. The final removal slice deletes that gate
+together with the legacy surface; it does not turn the temporary list into a
+permanent allow-list.
+
+### Gates
+
+Implementation is not complete until Release gates establish:
+
+- `HttpProducerKeyHasStableUtf8Framing` pins exact versioned key vectors for a
+  normal DNS source, IDN source, scoped IPv6 source, percent-escaped path, root,
+  and repeated-root path;
+- `ProducerIdentityFoldsOnlyDeclaredEndpointEquivalences` proves scheme and
+  host case, percent-escape hex case, one trailing slash, query, and fragment
+  equivalence while preserving path case, repeated trailing slashes, and
+  non-credential path distinctions;
+- `ProducerIdentityRedactsPathBeforeKeyAndDisplay` proves two
+  `/auth/{credential}/` rotations share key and display, neither result retains
+  either credential, and neighboring non-credential paths remain distinct;
+- `AuthorityShapedPathsRemainDistinctProducerIdentities` proves paths
+  containing `://` consume the owner-issued path result without complete-URL
+  classification;
+- `QueryDistinctAuthoritiesRequireDistinctAssociations` proves query-distinct
+  configured authorities with one producer cannot be recovered through the
+  wrong association;
+- `EverySourceResultCarriesTheIssuingIdentity` covers non-empty and empty
+  search and version results, candidates, manifests, payloads, and every
+  failure kind;
+- `SourceScopedResultsRejectMixedCandidateIdentity` is the non-vacuity gate for
+  constructor enforcement;
+- `RetainedFailureHasNoEndpointOrCredentialText` covers signed query and
+  credential-bearing path inputs across the failure and diagnostic projection;
+- `LegacyPackageSourceIdentityReadersMatchMigrationSet` prevents the additive
+  compatibility window from acquiring new `Value` or `ForHttpEndpoint`
+  consumers; and
+- the NuGetFetch `browser-wasm` build remains the platform compilation gate.
+
+The credential-path gate is relational consumer evidence, not a duplicate
+inventory of InertText's path branches. The detailed path-token behavior
+remains gated by the owner tests named on
+`UrlRedaction.ForPathComponent`.
+
+### Non-claims
+
+This contract does not define package-source mapping, configured-source alias
+collapse, package candidate aggregation, package cache authorization, browser
+pending-acquisition keys, CLI or structured presentation, Core HTTP policy,
+plugin-authentication eligibility, or request-versus-operation timeout
+identity. Those owners consume the typed result or remain separate follow-up
+work; they do not become part of NuGetFetch source-result identity.
+
 ## Source implementations
 
 ### Standard NuGet v3 source
