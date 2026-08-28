@@ -321,6 +321,7 @@ while IFS= read -r -d '' file; do
     # `ci-required` passes on a `skipped`.
     eng/restore-iltools.sh) CODE=true ;;
     eng/activate-iltools.sh) CODE=true ;;
+    eng/run-method-semantics-platform-probe.sh) CODE=true; WEB=true ;;
     eng/validate-inspect-web-promotion.cs) WEB=true ;;
     eng/validate-inspect-web-promotion.sh) WEB=true ;;
     eng/generate-inspect-web-engine-dts.sh) WEB=true ;;

@@ -456,6 +456,19 @@ internal static class DetectionTestSuite
                 "Web generation-script canary did not select only web: "
                 + FormatValues(webGenerationScript));
         }
+        Dictionary<string, string> methodSemanticsProbeRunner = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/run-method-semantics-platform-probe.sh",
+            outputs);
+        if (methodSemanticsProbeRunner["code"] != "true"
+            || methodSemanticsProbeRunner["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "MethodSemantics platform-probe runner did not select code and web: "
+                + FormatValues(methodSemanticsProbeRunner));
+        }
         foreach (string promotionInput in new[]
         {
             ".github/workflows/deploy-inspect-web.yml",

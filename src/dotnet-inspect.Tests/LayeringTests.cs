@@ -133,9 +133,6 @@ public sealed class LayeringTests
             ],
             CommandErrorOwnershipTests.ProjectPackageDependencies(project)
                 .Order(StringComparer.OrdinalIgnoreCase));
-        Assert.Contains(
-            "<IsAotCompatible>true</IsAotCompatible>",
-            File.ReadAllText(project));
     }
 
     [Fact]
@@ -281,27 +278,22 @@ public sealed class LayeringTests
             ],
             CommandErrorOwnershipTests.ProjectPackageDependencies(project)
                 .Order(StringComparer.OrdinalIgnoreCase));
+        Assert.Contains(
+            "<IsAotCompatible>true</IsAotCompatible>",
+            File.ReadAllText(project));
     }
 
     [Fact]
     public void MetadataPrimitives_MetadataRootClassifierIsIsolated()
     {
-        string projectDirectory = Path.Combine(
+        string project = Path.Combine(
             CommandErrorOwnershipTests.RepositoryRoot(),
             "src",
-            "ILInspector.MetadataPrimitives");
-        var sources = Directory.EnumerateFiles(
-                projectDirectory,
-                "*.cs",
-                SearchOption.TopDirectoryOnly)
-            .Select(path => (
-                Name: Path.GetFileName(path),
-                Source: File.ReadAllText(path)))
-            .ToArray();
+            "ILInspector.MetadataPrimitives",
+            "ILInspector.MetadataPrimitives.csproj");
+        var sources = EvaluatedSources(project);
         string[] metadataBlockReaders = sources
-            .Where(file => file.Source.Contains(
-                ".GetMetadata()",
-                StringComparison.Ordinal))
+            .Where(file => CallsMethod(file.Source, "GetMetadata"))
             .Select(file => file.Name)
             .Order(StringComparer.Ordinal)
             .ToArray();
@@ -339,26 +331,16 @@ public sealed class LayeringTests
     [Fact]
     public void MetadataPrimitives_MethodSemanticsReaderIsIsolated()
     {
-        string projectDirectory = Path.Combine(
+        string project = Path.Combine(
             CommandErrorOwnershipTests.RepositoryRoot(),
             "src",
-            "ILInspector.MetadataPrimitives");
-        var sources = Directory.EnumerateFiles(
-                projectDirectory,
-                "*.cs",
-                SearchOption.TopDirectoryOnly)
-            .Select(path => (
-                Name: Path.GetFileName(path),
-                Source: File.ReadAllText(path)))
-            .ToArray();
+            "ILInspector.MetadataPrimitives",
+            "ILInspector.MetadataPrimitives.csproj");
+        var sources = EvaluatedSources(project);
         string[] tableLayoutReaders = sources
             .Where(file =>
-                file.Source.Contains(
-                    ".GetTableMetadataOffset(",
-                    StringComparison.Ordinal)
-                || file.Source.Contains(
-                    ".GetTableRowSize(",
-                    StringComparison.Ordinal))
+                CallsMethod(file.Source, "GetTableMetadataOffset")
+                || CallsMethod(file.Source, "GetTableRowSize"))
             .Select(file => file.Name)
             .Order(StringComparer.Ordinal)
             .ToArray();
@@ -398,11 +380,11 @@ public sealed class LayeringTests
             type => Assert.Equal(
                 "ILInspector.MetadataPrimitives",
                 type.Namespace));
+        Type[] exportedTypes =
+            typeof(MethodSemanticsRowReader).Assembly.ExportedTypes.ToArray();
         Assert.DoesNotContain(
-            typeof(MethodSemanticsRowReader).Assembly.ExportedTypes
-                .SelectMany(type => type.GetMethods())
-                .SelectMany(method => method.GetParameters()),
-            parameter => parameter.ParameterType == typeof(TableIndex));
+            exportedTypes.SelectMany(PublicSignatureTypes),
+            type => ContainsSignatureType(type, typeof(TableIndex)));
         Type[] forbiddenRetention =
         [
             typeof(PEReader),
@@ -410,18 +392,27 @@ public sealed class LayeringTests
             typeof(PEMemoryBlock),
             typeof(BlobReader),
         ];
+        Type[] methodSemanticsTypes = exportedTypes
+            .Where(type => type.FullName?.StartsWith(
+                "ILInspector.MetadataPrimitives.MethodSemantics",
+                StringComparison.Ordinal) is true)
+            .ToArray();
+        Assert.Contains(
+            typeof(MethodSemanticsReadResult.Success),
+            methodSemanticsTypes);
+        Assert.Contains(
+            typeof(MethodSemanticsReadResult.MalformedInput),
+            methodSemanticsTypes);
         Assert.DoesNotContain(
-            typeof(MethodSemanticsRowReader).Assembly.ExportedTypes
-                .Where(type =>
-                    type.Namespace == "ILInspector.MetadataPrimitives"
-                    && type.Name.StartsWith(
-                        "MethodSemantics",
-                        StringComparison.Ordinal))
+            methodSemanticsTypes
                 .SelectMany(type => type.GetFields(
                     System.Reflection.BindingFlags.Public
                     | System.Reflection.BindingFlags.NonPublic
                     | System.Reflection.BindingFlags.Instance)),
-            field => forbiddenRetention.Contains(field.FieldType));
+            field => forbiddenRetention.Any(
+                forbidden => ContainsSignatureType(
+                    field.FieldType,
+                    forbidden)));
     }
 
     [Fact]
@@ -474,11 +465,127 @@ public sealed class LayeringTests
             "run-method-semantics-platform-probe.sh browser",
             workflow);
         Assert.Contains("dotnet publish", runner);
-        Assert.Contains("node --experimental-default-type=module", runner);
+        Assert.Contains("node \"$main_js\"", runner);
         Assert.Contains(
             "tests/ILInspector.MetadataPrimitives.PlatformProbe/*) "
                 + "CODE=true; WEB=true",
             changeDetection);
+        Assert.Contains(
+            "eng/run-method-semantics-platform-probe.sh) "
+                + "CODE=true; WEB=true",
+            changeDetection);
+    }
+
+    private static (string Name, string Source)[] EvaluatedSources(
+        string project)
+    {
+        string projectDirectory = Path.GetDirectoryName(project)!;
+        return
+        [
+            .. CommandErrorOwnershipTests.EvaluatedCompileFiles(project)
+                .Select(path => (
+                    Name: Path.GetRelativePath(projectDirectory, path),
+                    Source: File.ReadAllText(path))),
+        ];
+    }
+
+    private static bool CallsMethod(string source, string method) =>
+        System.Text.RegularExpressions.Regex.IsMatch(
+            source,
+            $@"\b{System.Text.RegularExpressions.Regex.Escape(method)}\s*\(",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    private static IEnumerable<Type> PublicSignatureTypes(Type type)
+    {
+        const System.Reflection.BindingFlags DeclaredPublic =
+            System.Reflection.BindingFlags.Public
+            | System.Reflection.BindingFlags.Instance
+            | System.Reflection.BindingFlags.Static
+            | System.Reflection.BindingFlags.DeclaredOnly;
+
+        if (type.BaseType is not null)
+            yield return type.BaseType;
+
+        foreach (Type interfaceType in type.GetInterfaces())
+            yield return interfaceType;
+
+        foreach (Type genericParameter in type.GetGenericArguments()
+            .Where(argument => argument.IsGenericParameter))
+        {
+            foreach (Type constraint in genericParameter.GetGenericParameterConstraints())
+                yield return constraint;
+        }
+
+        foreach (System.Reflection.MethodInfo method in type.GetMethods(DeclaredPublic))
+        {
+            yield return method.ReturnType;
+            foreach (System.Reflection.ParameterInfo parameter in method.GetParameters())
+                yield return parameter.ParameterType;
+            foreach (Type genericParameter in method.GetGenericArguments()
+                .Where(argument => argument.IsGenericParameter))
+            {
+                foreach (Type constraint in genericParameter.GetGenericParameterConstraints())
+                    yield return constraint;
+            }
+        }
+
+        foreach (System.Reflection.ConstructorInfo constructor
+            in type.GetConstructors(DeclaredPublic))
+        {
+            foreach (System.Reflection.ParameterInfo parameter
+                in constructor.GetParameters())
+            {
+                yield return parameter.ParameterType;
+            }
+        }
+
+        foreach (System.Reflection.PropertyInfo property
+            in type.GetProperties(DeclaredPublic))
+        {
+            yield return property.PropertyType;
+            foreach (System.Reflection.ParameterInfo parameter
+                in property.GetIndexParameters())
+            {
+                yield return parameter.ParameterType;
+            }
+        }
+
+        foreach (System.Reflection.FieldInfo field in type.GetFields(DeclaredPublic))
+            yield return field.FieldType;
+
+        foreach (System.Reflection.EventInfo eventInfo in type.GetEvents(DeclaredPublic))
+        {
+            if (eventInfo.EventHandlerType is not null)
+                yield return eventInfo.EventHandlerType;
+        }
+    }
+
+    private static bool ContainsSignatureType(Type type, Type expected)
+    {
+        if (type == expected)
+            return true;
+
+        if (type.HasElementType
+            && type.GetElementType() is { } elementType
+            && ContainsSignatureType(elementType, expected))
+        {
+            return true;
+        }
+
+        if (type.IsFunctionPointer)
+        {
+            return ContainsSignatureType(
+                    type.GetFunctionPointerReturnType(),
+                    expected)
+                || type.GetFunctionPointerParameterTypes().Any(
+                    parameter => ContainsSignatureType(
+                        parameter,
+                        expected));
+        }
+
+        return type.IsGenericType
+            && type.GetGenericArguments().Any(
+                argument => ContainsSignatureType(argument, expected));
     }
 
     [Fact]

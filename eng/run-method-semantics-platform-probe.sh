@@ -48,7 +48,7 @@ case "${1:-}" in
     cp "$dotnet_js" "$site/_framework/dotnet.js"
     test "$(
       cd "$site"
-      node --experimental-default-type=module "$main_js"
+      node "$main_js"
     )" = "$expected"
     ;;
   *)
