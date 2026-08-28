@@ -78,10 +78,10 @@ behavior.
 ### Opening
 
 The adapter accepts an absolute filesystem path to one `tsconfig.json`.
-Relative paths, directory paths, file URLs, and multiple project paths are
-invalid inputs. This preserves the operational behavior confirmed by the
-TypeScript 7 spike: `openProjects` opens the real inspect-web project from its
-absolute path, while a file URL does not identify that configured project.
+Relative paths, directory paths, and file URLs are invalid inputs. This
+preserves the operational behavior confirmed by the TypeScript 7 spike:
+`openProjects` opens the real inspect-web project from its absolute path, while
+a file URL does not identify that configured project.
 
 One adapter session owns one TypeScript `API`, one `Snapshot`, and one selected
 `Project`. Opening fails unless:
@@ -121,6 +121,16 @@ UnsupportedApi(UnsupportedVersion | UnsupportedApiValue |
 InfrastructureFailed(ProcessFailure | ProtocolFailure, detail)
 ```
 
+Every non-`Opened` result carries the ordered cleanup failures observed after
+its primary result:
+
+```text
+CleanupFailure(SnapshotReleaseFailure | ApiCloseFailure, detail)
+```
+
+The collection is empty when no resource was created or cleanup succeeded. A
+cleanup failure never replaces or hides the primary opening result.
+
 ### Lifetime
 
 Repository handles are opaque and session-scoped. They contain an adapter
@@ -128,8 +138,8 @@ session identity plus a kind-specific identity; consumers cannot construct
 them from a path, source span, display name, or TypeScript numeric handle.
 
 Every query validates that its handle belongs to the active session. A handle
-from another or disposed session returns `StaleHandle`; it is not looked up in
-the current snapshot.
+from another session returns `InvalidHandle(StaleSession)`; it is not looked up
+in the current snapshot.
 
 The snapshot is immutable for the session lifetime. The adapter does not watch
 files, update a snapshot in place, or mix facts observed before and after a
@@ -137,7 +147,20 @@ source change. A caller that needs current facts disposes the complete session
 and opens a new one.
 
 Disposal releases the project snapshot and closes the TypeScript API process.
-Disposal is idempotent. Queries after disposal return `SessionDisposed`.
+The adapter calls `Snapshot.dispose()` and calls `API.close()` in a `finally`
+block even when snapshot release fails. It returns and latches one result:
+
+```text
+Disposed
+DisposeFailed(non-empty CleanupFailure collection)
+```
+
+Repeated disposal returns the latched result without issuing another release or
+close. Queries validate terminal state before handles: a disposed session
+returns `SessionFailure(SessionDisposed)` even if it was previously poisoned;
+an active session poisoned by a process or protocol failure returns that
+latched `SessionFailure`; only a healthy active session reaches handle
+validation.
 
 ### Source scope
 
@@ -173,7 +196,7 @@ SignatureHandle
 Each fact that has source syntax carries a normalized source location:
 
 ```text
-SourceLocation(file, start, length, line, column)
+SourceLocation(file, content, start, length, line, column)
 ```
 
 `start` and `length` count UTF-16 code units in the exact source text held by
@@ -183,11 +206,17 @@ the half-open end is `Node.end`; `length` is their difference. `line` and
 UTF-16 code units before line mapping, and a non-BMP scalar counts as its UTF-16
 surrogate pair.
 
+A source-file fact exposes a `SourceContentId`: SHA-256 over the UTF-8 encoding
+of the exact snapshot-owned source text. A caller computes the same identity
+over the text it parsed and supplies it with every coordinate query. The
+adapter compares the identity before matching a span or node kind.
+
 A parser that reports byte offsets must convert them against the same source
 text before requesting coordinate correlation. The adapter does not guess the
 caller's coordinate encoding. Coordinate lookup requires the canonical start,
-length, and expected repository node kind; multiple matches return
-`Ambiguous`.
+length, source-content identity, and expected repository node kind. A content
+mismatch returns `InvalidCoordinate(SourceContentMismatch)` without examining
+the span; multiple matches return `Ambiguous`.
 
 Locations and handles are identity, not display text. Pretty-printed type and
 signature text may accompany a fact for diagnostics, but consumers must not
@@ -208,6 +237,7 @@ Absent(reason)
 Ambiguous(candidates, reason)
 Unavailable(MissingApiFact | UnknownSymbol |
             UnsupportedApiValue | UnsupportedResponseShape, detail)
+InvalidCoordinate(SourceContentMismatch | OutOfRange)
 InvalidHandle(StaleSession | WrongKind)
 SessionFailure(SessionDisposed | ProcessFailure | ProtocolFailure, detail)
 ```
@@ -287,8 +317,10 @@ The adapter does not recursively materialize a complete type graph. Consumers
 walk only the relations they request and own their traversal bounds. Returned
 type handles preserve cycles and sharing by identity.
 
-TypeScript error, any, unknown, never, and unresolved types remain distinct
-facts. An error type is not a valid substitute for a missing type result.
+TypeScript error, any, unknown, and never types remain distinct facts. An
+unresolved reference returned as a type is a resolved `Error` type fact, as
+reported by TypeScript; it is not a separate type category. An error type is
+not a valid substitute for a missing type result.
 
 ### Signatures and overloads
 
@@ -375,7 +407,9 @@ script. Its gate contains:
 2. **Snapshot lifetime:** proves same-session handles resolve, cross-session and
    disposed handles fail, disposal is idempotent, every failed-open path cleans
    up a partial API and snapshot, and a new session observes a new immutable
-   snapshot.
+   snapshot. Fault injection at snapshot release proves API closure still runs,
+   the child process exits, cleanup failures remain visible, and repeated
+   disposal returns the same latched result.
 3. **Fact characterization:** maps every repository node, symbol, type,
    signature, diagnostic, and source-file category used by the facade against
    TypeScript 7.0.2. Removing a mapping or adding an unknown API value fails.
@@ -394,11 +428,14 @@ script. Its gate contains:
    contextual types, resolves static module/export identities and checker
    constants, and returns explicit absence for computed or unresolved cases.
    Coordinate correlation covers leading trivia, CRLF, non-BMP text, byte-to-
-   UTF-16 conversion by a caller, exact matches, and ambiguous spans.
+   UTF-16 conversion by a caller, exact matches, ambiguous spans, and a
+   same-length source mutation that must return `SourceContentMismatch`.
 8. **Failure results:** mutation-tests unavailable, ambiguous, unknown-symbol,
-   error-type, invalid-handle, disposed-session, protocol, and process outcomes
-   against their exact closed variants so none become successful empty facts or
-   an undifferentiated unavailable result.
+   error-type, invalid-coordinate, invalid-handle, disposed-session, protocol,
+   and process outcomes against their exact closed variants so none become
+   successful empty facts or an undifferentiated unavailable result. It also
+   proves disposal takes precedence over a prior poisoned state and that handle
+   validation runs only for a healthy active session.
 9. **Import isolation:** a named non-vacuity test fails if any tooling or test
    module other than the one adapter imports either unstable TypeScript API.
 10. **Artifact isolation:** runs the production build and proves the adapter,
