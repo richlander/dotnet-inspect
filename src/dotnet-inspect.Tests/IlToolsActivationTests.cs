@@ -913,6 +913,17 @@ public class IlToolsActivationTests
         Assert.True(install < firstSuite);
         Assert.True(firstSuite < lastSuite);
         Assert.True(lastSuite < terminalCheck);
+        foreach (string oracleSuiteStep in new[]
+        {
+            "Run CLI tests",
+            "Run metadata tests",
+        })
+        {
+            int oracleSuite = workflow.IndexOf(
+                $"- name: {oracleSuiteStep}",
+                StringComparison.Ordinal);
+            Assert.True(install < oracleSuite);
+        }
 
         int nextStep = workflow.IndexOf(
             "\n      - ",
@@ -943,6 +954,7 @@ public class IlToolsActivationTests
             "            inputs.suite == 'metadata'",
             checkStep);
         Assert.Contains("exit 1", checkStep.Split('\n').Select(line => line.Trim()));
+        Assert.DoesNotContain("continue-on-error:", checkStep);
         Assert.DoesNotContain("\n      - ", checkStep);
     }
 
