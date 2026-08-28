@@ -23,7 +23,7 @@ Related designs:
   effective order, ranking metadata, and schema validation.
 - [Output shapes](output-shapes.md) owns declared row units and the
   Document-to-Scalar shape ladder.
-- [Semantic row-selection interaction model](../models/SemanticRowSelection.tla)
+- [Semantic row-selection interaction model](../models/semantic-row-selection/SemanticRowSelection.tla)
   checks bounded stage, failure, publication, and resolver interactions.
 
 ## Authority and scope
@@ -134,7 +134,9 @@ comparer resolver.
 
 Callback resolution follows pipeline order. An executor validates at entry
 that a non-null resolver is present when the plan contains `Top`, but it does
-not invoke the resolver during plan-wide validation. Each `Top` stage asks the
+not invoke the resolver during plan-wide validation. When the resolver is null,
+entry validation reports the first `Top` in plan order before input traversal,
+including when named input contains no sequences. Each `Top` stage asks the
 resolver for its comparer exactly once when that stage is first reached during
 one executor invocation, and caches that comparer for the same stage across
 later named sequences. Repeated `Top` stages resolve independently even when
@@ -275,8 +277,10 @@ outside the manifest.
 `ArgumentNullException`; `comparerResolver` may be null only when the plan has
 no `Top`. Plan creation and append reject null stage entries, and named
 execution rejects null sequence entries. A missing resolver or one returning
-null for a `Top` throws `InvalidOperationException` naming its one-based stage.
-Resolver and comparer exceptions propagate unchanged.
+null for a `Top` throws `InvalidOperationException`. A missing resolver names
+the first `Top` in plan order; a resolver returning null names the reached
+`Top`. Both use the one-based stage number. Resolver and comparer exceptions
+propagate unchanged.
 
 No public constructor bypasses the validating stage factories, plan creation,
 row-sequence-key creation, named-sequence creation, or internal result
@@ -557,7 +561,8 @@ component.
 ## Interaction model
 
 The small
-[TLA+ interaction model](../models/SemanticRowSelection.tla) supplements this
+[TLA+ interaction model](../models/semantic-row-selection/SemanticRowSelection.tla)
+supplements this
 specification. It models one immutable plan applied to ordered named sequences,
 with sequence-major and stage-major traversal, stage-local row positions,
 strict `Window`, positional `Head`/`Tail`, ranked `Top`, resolver caching,
@@ -573,7 +578,8 @@ First-time `Top` resolution is a distinct model transition. Ranking and
 comparison are enabled only after that transition succeeds; a cached resolver
 lets later named sequences apply the same stage directly.
 
-[`SemanticRowSelection.cfg`](../models/SemanticRowSelection.cfg) checks all
+[`SemanticRowSelection.cfg`](../models/semantic-row-selection/SemanticRowSelection.cfg)
+checks all
 plans up to two stages over two named sequences containing up to three distinct
 values. It checks non-vacuous closed, prefix, suffix, and boundless window
 forms, type safety, atomic publication, completion only after every sequence,
@@ -592,7 +598,8 @@ eventual termination under weak fairness.
 The model was checked with the pinned TLA+ Tools v1.8.0 prerelease
 `tla2tools.jar` (published SHA-1
 `0e4cfdb976f04522d218ec62c6046bbee5098377`), reporting TLC2
-`2026.08.21.155922` revision `9787e65`. From `docs/models`:
+`2026.08.21.155922` revision `9787e65`. From
+`docs/models/semantic-row-selection`:
 
 ```bash
 java -XX:+UseParallelGC \
@@ -622,7 +629,7 @@ The implementation must add these named Release gates:
 | `SelectionCountsAreLenientAndWindowsAreStrict` | Oversized `Head` and `Tail` return the complete current input in current order; oversized `Top` returns every current row in ranked order; closed, prefix, and suffix windows fail unless their required endpoint exists at that stage. |
 | `RowSelectionPlanRejectsInvalidStages` | Every public construction path rejects nonpositive counts, nonpositive present window coordinates, and a closed end before its start rather than creating an empty or unlimited stage. A boundless window is identity. |
 | `EmptyRowSelectionPlanIsIdentity` | An empty plan returns an immutable snapshot containing every original value in order and never invokes the comparer resolver. |
-| `TopRequiresResolvedComparer` | A reached resolver that returns no comparer identifies the `Top` stage and rejects as caller misuse before any selected result is returned. |
+| `TopRequiresResolvedComparer` | Both executor entry points reject a missing resolver at entry, naming the first `Top` in plan order even for empty unkeyed input or no named sequences. A reached resolver returning no comparer names that reached `Top`; both paths throw `InvalidOperationException` with the one-based stage before returning any selected result. |
 | `SelectionCallbacksFollowStageOrder` | Both executor entry points validate resolver presence without eager invocation, resolve each reached `Top` stage exactly once, cache that stage's comparer across named sequences, and stop before later callbacks after an earlier strict failure or callback exception. Fixtures cover `Window` before and after `Top`, multiple named sequences, repeated equal order values, unkeyed and named empty value sequences, and a named call with no sequences. |
 | `SelectionCallbackExceptionsPropagateUnchanged` | Both executor entry points propagate the exact sentinel exception instance thrown by a reached comparer resolver or by an always-throwing comparer over at least two rows; no sorting path wraps, substitutes, or suppresses it. |
 | `RowSelectionRejectsNullBoundaryInputs` | Every required reference argument rejects null; a null resolver is accepted only without `Top`; nullable row values remain ordinary selected values. |
