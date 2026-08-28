@@ -154,7 +154,7 @@ interface IPackageSourceResult
 }
 
 sealed class PackageSourceOperationResult<T>
-    where T : IPackageSourceResult
+    where T : class, IPackageSourceResult
 {
     T? Value { get; }
     PackageSourceFailure? Failure { get; }
@@ -170,12 +170,12 @@ sealed class PackageSourceResultFactory
     PackageSourceManifest Manifest(...);
     PackageSourcePayload Payload(...);
     PackageSourceOperationResult<T> Succeeded<T>(T value)
-        where T : IPackageSourceResult;
+        where T : class, IPackageSourceResult;
     PackageSourceOperationResult<T> Failed<T>(
         PackageSourceCapabilities capability,
         PackageSourceFailureKind kind,
         PackageSourceCoordinate? coordinate)
-        where T : IPackageSourceResult;
+        where T : class, IPackageSourceResult;
 }
 ```
 
@@ -216,11 +216,15 @@ value, equality, hash, and formatting behavior remain unchanged during
 migration. A distinct permanent `PackageProducerIdentity` avoids changing that
 meaning while package-authority readers still exist.
 
-All target identity-bearing results are sealed classes with owner-controlled
-construction and get-only state. If an implementation retains record syntax,
-its copy constructor is private. No public constructor, init setter, clone, or
-`with` expression can replace source identity or retained failure text after
-the bound factory constructs the object.
+`IPackageSourceResult` is a constraint surface, not a custom result extension
+point. Only owner-controlled sealed reference-result types carry the private
+issuer required for acceptance. Supported custom clients construct those types
+through their supplied factory rather than implementing the marker. All target
+identity-bearing results are sealed classes with owner-controlled construction
+and get-only state. If an implementation retains record syntax, its copy
+constructor is private. No public constructor, init setter, clone, or `with`
+expression can replace source identity or retained failure text after the bound
+factory constructs the object.
 
 ### Normalized endpoint input
 
@@ -431,8 +435,10 @@ target, query, fragment, response text, exception message, recognized
 credential value, or caller authority. Human diagnostics use
 `Failure.Source.Producer.Display`; structured projection uses its `Key`. Before
 projection, the caller uses `Association` to attach its own typed authority or
-presentation fields. The token itself is never serialized or displayed.
-Neither projection recovers identity from display text.
+presentation fields rather than recovering identity from display text.
+NuGetFetch issues no serialization or display value for the association.
+End-to-end omission of the association object from Browser and CLI projections
+is unverified pending consumer-owner gates in #4805 and #4806.
 
 The product-authored summary remains an ordinary string because it contains no
 source-controlled text. The source display remains `InertString`; converting it
@@ -582,22 +588,25 @@ Implementation is not complete until Release gates establish:
 - `SourceOperationOutcomesBindIssuingIdentity` proves success rejects a value
   from another factory, including one with equal public source identity, and
   failed outcomes can contain only the bound factory's owner-constructed
-  failure, with exactly one value or failure per outcome;
+  failure, with exactly one value or failure per outcome; public-shape
+  reflection pins the `class, IPackageSourceResult` constraint and excludes
+  value-type or foreign generic result shapes;
 - `SourceResultCollectionsAndBuffersAreImmutableSnapshots` proves mutation of
   supplied observation lists, arrays, and manifest buffers after construction
   cannot alter the result and no mutable backing storage is exposed;
 - `IdentityBearingResultShapesAreClosed` uses public-surface reflection to
-  prove result, operation-outcome, and failure types have no public constructor,
-  clone, copy constructor, or init setter that can replace identity or summary
-  text;
+  prove `PackageProducerIdentity`, `PackageSourceResultIdentity`, concrete
+  results, operation outcomes, and failures have no public constructor, clone,
+  copy constructor, or init setter that can replace identity or summary text;
 - `SourceResultIssuerIsPrivateConstructionEvidence` proves the issuer has no
-  public member or caller construction path and enters no structured or
-  diagnostic projection;
+  public member or caller construction path and enters no NuGetFetch-owned
+  public object or diagnostic surface;
 - `FailureFactoryAcceptsNoArbitraryRetainedText` locks the public construction
   surface and the closed failure-kind-to-summary mapping;
 - `RetainedFailureHasNoConfiguredEndpointOrRecognizedCredentialText` covers
   signed query and InertText-recognized credential-slot inputs across the
-  failure and diagnostic projection;
+  failure object and NuGetFetch-owned diagnostic formatting; consumer
+  projection remains unverified pending #4805 and #4806;
 - `LegacyPackageSourceIdentitySurfaceMatchesMigrationSet` prevents the
   additive compatibility window from acquiring any new legacy type,
   formatting, equality, or factory consumer;
