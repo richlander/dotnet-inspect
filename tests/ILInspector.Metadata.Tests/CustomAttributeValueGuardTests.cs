@@ -2256,19 +2256,25 @@ public sealed class CustomAttributeValueGuardTests
                 + "the guard skip and the decode width disagree.");
     }
 
-    [Fact]
-    public void NestedTypeNameCollision_GuardSkipMatchesDecodeWidth()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NestedTypeNameCollision_GuardSkipMatchesDecodeWidth(bool viaTypeReference)
     {
         // A nested type joins its declaring type with '.', the same separator
         // used between a namespace and a type name, so a nested Kind inside
         // Samples.E and a top-level Kind in namespace Samples.E render to one
-        // string. The decoder resolves the width by that string and takes the
-        // first definition indexed, while the guard resolves the argument from
-        // its own handle. When the decoy is indexed first the decoder reads
+        // string. Resolving the width by that string takes the first definition
+        // indexed, while the guard resolves the argument structurally from its
+        // own handle. When the decoy is indexed first, a name-keyed decode reads
         // four bytes where the guard skipped eight, and the trailing four bytes
         // of the value become an attacker-chosen array count the guard already
         // approved.
-        using var image = Open(BuildNestedNameCollisionDesyncImage());
+        //
+        // The argument is declared both ways because a reference carries a
+        // resolution scope that its flattened spelling discards, so it collides
+        // on the same string for the same reason a definition does.
+        using var image = Open(BuildNestedNameCollisionDesyncImage(viaTypeReference));
         CustomAttribute attribute = FirstAttribute(image.Reader);
         Assert.True(
             CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
@@ -2493,7 +2499,7 @@ public sealed class CustomAttributeValueGuardTests
         Assert.NotEqual(decoyWidth, nestedWidth);
     }
 
-    static byte[] BuildNestedNameCollisionDesyncImage()
+    static byte[] BuildNestedNameCollisionDesyncImage(bool viaTypeReference = false)
     {
         var metadata = CreateMetadata("NestedCollision");
         AssemblyReferenceHandle other = metadata.AddAssemblyReference(
@@ -2514,8 +2520,17 @@ public sealed class CustomAttributeValueGuardTests
 
         // Row 4 is the nested Kind, the type the argument is actually declared
         // as. Row 2 is the top-level decoy that renders to the same string and
-        // is indexed first.
+        // is indexed first. The reference form names row 4 through its
+        // resolution scope, which the rendered spelling discards.
         TypeDefinitionHandle nestedEnum = MetadataTokens.TypeDefinitionHandle(4);
+        TypeReferenceHandle declaringReference = metadata.AddTypeReference(
+            default,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("E"));
+        TypeReferenceHandle nestedReference = metadata.AddTypeReference(
+            declaringReference,
+            default,
+            metadata.GetOrAddString("Kind"));
         var constructorSignature = new BlobBuilder();
         new BlobEncoder(constructorSignature).MethodSignature(
             SignatureCallingConvention.Default,
@@ -2525,7 +2540,17 @@ public sealed class CustomAttributeValueGuardTests
                 returnType => returnType.Void(),
                 parameters =>
                 {
-                    parameters.AddParameter().Type().Type(nestedEnum, isValueType: true);
+                    if (viaTypeReference)
+                    {
+                        parameters.AddParameter().Type()
+                            .Type(nestedReference, isValueType: true);
+                    }
+                    else
+                    {
+                        parameters.AddParameter().Type()
+                            .Type(nestedEnum, isValueType: true);
+                    }
+
                     parameters.AddParameter().Type().SZArray().Int32();
                 });
         MemberReferenceHandle constructor = metadata.AddMemberReference(

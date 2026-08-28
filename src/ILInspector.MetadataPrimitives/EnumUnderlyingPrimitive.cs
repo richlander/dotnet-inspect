@@ -178,6 +178,34 @@ static class EnumUnderlyingPrimitive
     }
 
     /// <summary>
+    /// Resolves a signature-named type handle to the definition it denotes in
+    /// this reader, structurally: a definition handle denotes itself, and a
+    /// reference is matched by name and resolution scope rather than by its
+    /// rendered spelling. The guard and the decoder both ask this one question
+    /// about the same handle, so neither can select a different definition --
+    /// and therefore a different width -- than the other. A reference to a type
+    /// this reader does not define has no local definition and resolves
+    /// elsewhere.
+    /// </summary>
+    public static bool TryResolveDefinition(
+        MetadataReader reader,
+        EntityHandle handle,
+        out TypeDefinitionHandle definition)
+    {
+        if (handle.Kind == HandleKind.TypeDefinition)
+        {
+            definition = (TypeDefinitionHandle)handle;
+            return true;
+        }
+
+        if (handle.Kind == HandleKind.TypeReference)
+            return TryFindDefinition(reader, (TypeReferenceHandle)handle, out definition);
+
+        definition = default;
+        return false;
+    }
+
+    /// <summary>
     /// Projects a reflection-serialized name to the exact metadata index key:
     /// assembly qualification is removed, escaped metadata characters are
     /// restored, and nested segments use <c>.</c>.

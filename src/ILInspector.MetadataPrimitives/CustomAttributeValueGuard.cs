@@ -706,17 +706,22 @@ public static class CustomAttributeValueGuard
         Action<int>? beforeMaterialize,
         Func<string, PrimitiveTypeCode>? enumUnderlyingType)
     {
-        // A definition-typed enum is resolved from its own definition, never
-        // from its rendered name, and the decoder does the same from the same
-        // handle. Distinct definitions can render to one string -- a nested
-        // type joins its declaring type with '.', exactly as a namespace joins
-        // a type name -- so any name-keyed index must drop one of them. Routing
-        // this side through a name would let the two sides select different
-        // definitions and skip different widths.
-        if (handle.Kind == HandleKind.TypeDefinition)
-            return EnumUnderlyingPrimitive.FromDefinition(
+        // A handle-typed enum is resolved from the definition the signature
+        // named, never from its rendered name, and the decoder resolves the
+        // same handle through the same function. Distinct definitions can
+        // render to one string -- a nested type joins its declaring type with
+        // '.', exactly as a namespace joins a type name -- so any name-keyed
+        // index must drop one of them, and a reference carries a resolution
+        // scope that a flattened spelling discards. Routing this side through a
+        // name, or through a caller's resolver, would let the two sides select
+        // different definitions and skip different widths.
+        if (EnumUnderlyingPrimitive.TryResolveDefinition(
                 reader,
-                (TypeDefinitionHandle)handle);
+                handle,
+                out TypeDefinitionHandle definition))
+        {
+            return EnumUnderlyingPrimitive.FromDefinition(reader, definition);
+        }
 
         if (enumUnderlyingType is not null)
         {
