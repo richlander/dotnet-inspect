@@ -287,6 +287,21 @@ internal static class MemberCodeProvider
                 styledProjectionProduced = true;
             }
 
+            Decompiler.DecompilerResult? declarationProjection =
+                decompiledResult
+                ?? annotatedResult
+                ?? costOverlayResult
+                ?? semanticsOverlayResult
+                ?? projectionResult;
+            if (declarationProjection is not null)
+            {
+                requiresAsyncBodyModifier =
+                    Decompiler.MemberBodyProducer.ResolveAsyncBodyModifier(
+                        declarationProjection
+                            .ClassicAsyncDeclarationDisposition,
+                        requiresAsyncBodyModifier);
+            }
+
             string? ilText = null, ilDiagnostic = null;
             if (request.IL)
             {

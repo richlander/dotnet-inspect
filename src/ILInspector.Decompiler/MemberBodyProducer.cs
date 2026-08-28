@@ -194,7 +194,7 @@ public static class MemberBodyProducer
                 : null;
             var body = new CSharpBlockBody(projection.Output.TrimEnd(), initializer)
             {
-                RequiresAsyncModifier = ResolveAsyncModifier(
+                RequiresAsyncModifier = ResolveAsyncBodyModifier(
                     projection.ClassicAsyncDeclarationDisposition,
                     projection.RequiresAsyncBodyModifier),
                 RequiresUnsafeModifier = projection.RequiresUnsafeBodyModifier,
@@ -1220,7 +1220,7 @@ public static class MemberBodyProducer
                         ? null
                         : new CSharpBlockBody(body)
                         {
-                            RequiresAsyncModifier = ResolveAsyncModifier(
+                            RequiresAsyncModifier = ResolveAsyncBodyModifier(
                                 classicAsyncDeclarationDisposition,
                                 memberHandle is { } asyncHandle
                                     && TypeShellProducer.RequiresAsyncBodyModifier(
@@ -2231,7 +2231,7 @@ public static class MemberBodyProducer
             out _,
             printerOptions,
             failOnDiagnostic);
-        requiresAsyncContext = ResolveAsyncModifier(
+        requiresAsyncContext = ResolveAsyncBodyModifier(
             classicAsyncDeclarationDisposition,
             function is not null
                 && (function.RequiresAsyncBodyModifier
@@ -2298,7 +2298,7 @@ public static class MemberBodyProducer
         return result.Output?.TrimEnd() ?? DiagnosticComment(result);
     }
 
-    static bool ResolveAsyncModifier(
+    public static bool ResolveAsyncBodyModifier(
         Pipeline.ClassicAsyncDeclarationDisposition disposition,
         bool fallback)
         => disposition switch
