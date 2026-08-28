@@ -46,16 +46,19 @@ observation layer. It must not use that parse to construct or rewrite the C#
 artifact it later compiles as evidence. C# spelling, declaration shape, body
 layout, and artifact replacement remain product responsibilities.
 
-ReturnToSender authored-body controls therefore operate on the exact frozen
-compilation unit produced for the decompiled body. The product renderer selects
-the target body while rendering and returns an immutable source artifact with a
-typed replacement range and operation. The harness supplies the independently
-acquired authored body, invokes that product operation, and compiles the result.
-It must not rediscover the target by member name, overload count, syntax-tree
-search, or textual heuristics, and it must not recompose the shell from mutable
-planning state. This keeps assembly identity, modifiers, primary-constructor
-shape, closure membership, references, and every non-target source byte fixed
-between the experiment and its control.
+ReturnToSender authored-body controls therefore create a separate
+comparison-only `RoundTripRequest` with the independently acquired body as its
+typed replacement. The control preserves the source artifact and module
+identity, target set, scope and body policy, compiler policy, and frozen
+reference selection from the decompiled-body request, but it does not reuse that
+request's generated artifact, closure, participant coverage, or receipt
+evidence. The product renderer produces the control artifact independently, and
+the control cannot issue a compile-context receipt or `Exact`.
+
+The harness must not rediscover the target by member name, overload count,
+syntax-tree search, or textual heuristics, and it must not recompose the shell
+from mutable planning state. A mismatch in the preserved request identity or
+policy makes the control unavailable rather than comparable.
 
 ReturnToSender's earlier source-corpus lookup is a different, non-authoritative
 operation. It may use `CSharpText.MemberSignatureShape` to discriminate

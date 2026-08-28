@@ -747,7 +747,12 @@ Research overlay bridge, and the application layer:
   gate the header grammar's focused positive and close-negative cases.
 - **Metadata** owns PE/PDB extraction and raw typed correlations. It does not know SourceLink maps, GUIDs, URLs, or provenance and does not expose its readers.
 - **SourceLink** owns map extraction and processing, canonical source paths, URL decoration, provenance, high-level resolution, source Findings, and SourceLink-aware audits. SourceLinkFetch remains the single map/provenance grammar owner and does not depend on Metadata.
-- **ReturnToSender** remains tools-only and owns closure discovery, cluster membership, synthesis, accessibility flattening, and body-policy selection. It passes typed requests to CSharp rather than maintaining a parallel declaration model.
+- **ReturnToSender** remains tools-only and owns compile-back reference
+  selection, same-assembly root selection, closure censuses, cluster membership,
+  body policy, admission, receipts, and verdict composition. It consumes
+  Metadata accessibility and identity evidence plus CSharp and Decompiler
+  evidence and rendering; it neither flattens accessibility nor synthesizes
+  product C#.
 - **Analysis** owns R1 whole-assembly evidence and must not depend on the
   decompiler IR, Roslyn, or inspected-assembly loading. One
   `LibraryBodyAnalysisPlan` normalizes producer dependencies and scope before

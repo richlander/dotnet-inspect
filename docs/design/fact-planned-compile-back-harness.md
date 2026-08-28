@@ -21,8 +21,8 @@ an artifact-fidelity oracle.
 The important distinction is artifact production vs proof:
 
 - product code owns C# artifact production;
-- ReturnToSender owns artifact requests, compilation, product diff invocation,
-  and failure reporting.
+- ReturnToSender owns compile-back planning, compilation, product diff
+  invocation, admission, receipt-gated verdicts, and failure reporting.
 
 The harness also has a strict two-oracle invariant:
 
@@ -91,7 +91,7 @@ The new harness should:
 | `ILInspector.Instructions` | Shared IL decode, block identity, typed stack (`StackType`) substrate. |
 | `ILInspector.Analysis` | Whole-assembly IL facts, direct calls, body indexes, type/member references. |
 | `ILInspector.Research` | Typed fact registry, joins, and projections only. |
-| assembly/package resolution service | Generalize and reuse for CLI and harness reference closure. |
+| assembly/package resolution service | Reuse candidate acquisition, package dependencies, assembly identity, and Metadata binding. |
 | fixture libraries | Built repo artifacts that RTS uses as original metadata witnesses. |
 
 ## Strategic stance
@@ -167,7 +167,8 @@ product consumers also need, but compile-back planning is a harness concern.
 
 ### Assembly and package resolution service
 
-Own package, assembly, reference, and dependency resolution.
+Own package dependency resolution, assembly candidate acquisition, and Metadata
+binding. It does not own compile-back reference selection or closure.
 
 Responsibilities:
 
@@ -180,12 +181,14 @@ Responsibilities:
 This should be a general product service, not a ReturnToSender-only utility. The
 CLI already needs the same answers for package, platform, framework, and source
 selection, and the current harness has reimplemented enough of that behavior to
-show the risk of divergence. ReturnToSender should consume this service for
-reference closure and metadata identity instead of owning a parallel resolver.
+show the risk of divergence. ReturnToSender consumes this service for candidates
+and metadata identity, then applies its tools-owned exact reference selection
+and compile-back closure policy.
 
 The service should stay SRM-only and should sit below Decompiler, Research, and
-ReturnToSender. Harness-only policy, such as "which closure roots belong in this
-artifact request", belongs above this service.
+ReturnToSender. Which candidates enter the frozen compiler set and which
+same-assembly roots belong in an artifact are harness-only policy above this
+service.
 
 ### Instructions
 
@@ -341,10 +344,11 @@ Constructor/base-chain handling has the same split:
   type kind, and spellability;
 - the shared writer renders those facts, such as `class C : Base`,
   `public C(int x) : base(x)`, and `static C()`;
-- ReturnToSender owns only **artifact request policy** and proof: which artifact
-  shape is requested, which product diff scopes are used, and how failures are
-  reported. Synthetic constructors or omitted base clauses, if ever needed, must
-  be product artifact decisions with provenance, not RTS patches.
+- ReturnToSender owns **compile-back planning and proof**: which artifact shape
+  is requested, exact reference and root selection, closure and admission, which
+  product diff scopes are used, receipt-gated verdicts, and failure reporting.
+  Synthetic constructors or omitted base clauses, if ever needed, must be
+  product artifact decisions with provenance, not RTS patches.
 
 ### Product diffs
 
