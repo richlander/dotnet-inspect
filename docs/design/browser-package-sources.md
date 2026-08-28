@@ -72,6 +72,7 @@ interface IPackageSourceClient
 
     Task<PackageSourceOperationResult<PackageSearchResult>> SearchAsync(...);
     Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(...);
+    Task<PackageSourceOperationResult<PackageSourceManifest>> GetManifestAsync(...);
     Task<PackageSourceOperationResult<PackageSourcePayload>> GetPackageAsync(...);
     Task<PackageSourceOperationResult<PackageSourcePayload>> TryGetSymbolsAsync(...);
 }
@@ -153,6 +154,15 @@ sealed class PackageSourceOperationResult<T>
 {
     T? Value { get; }
     PackageSourceFailure? Failure { get; }
+}
+
+sealed class PackageSourceManifestContent
+{
+    int Length { get; }
+    byte this[int index] { get; }
+
+    void CopyTo(Span<byte> destination);
+    byte[] ToArray();
 }
 
 sealed class PackageSourceResultFactory
@@ -398,10 +408,13 @@ For caller-supplied aggregate data, the bound factory first snapshots the
 supplied data into owner-controlled immutable storage, then validates the
 snapshot against its identity and issuer, then publishes an immutable view.
 Search and version observations use private copied storage without an exposed
-backing array. Manifest content is copied into `ImmutableArray<byte>` rather
-than retaining an array-backed `ReadOnlyMemory<byte>`, whose backing array can
-still be recovered and mutated. Mutating any original list or buffer cannot
-alter a result after construction.
+backing array. Manifest content is copied into a sealed
+`PackageSourceManifestContent` value. Its safe public surface exposes length,
+indexed byte reads, copy into caller storage, and `ToArray` as a fresh copy; it
+returns no array, `Memory`, `ReadOnlyMemory`, collection, or segment over the
+owner's storage. Mutating the original buffer or a returned copy cannot alter a
+published manifest. Unsafe or reflection-based private-storage corruption is
+outside the trusted-layer contract.
 
 The caller-owned payload stream remains the explicit exception: its content is
 consumed after the result returns and is not snapshotted into memory. Its
@@ -597,7 +610,9 @@ Implementation is not complete until Release gates establish:
   outcome for a foreign result type;
 - `SourceResultCollectionsAndBuffersAreImmutableSnapshots` proves mutation of
   supplied observation lists, arrays, and manifest buffers after construction
-  cannot alter the result and no mutable backing storage is exposed;
+  cannot alter the result; mutation of a manifest `ToArray` copy is likewise
+  isolated, and public-surface reflection proves the content value returns no
+  backing-storage view;
 - `IdentityBearingResultShapesAreClosed` uses public-surface reflection to
   prove `PackageProducerIdentity`, `PackageSourceResultIdentity`, concrete
   results, operation outcomes, and failures have no public constructor, clone,
