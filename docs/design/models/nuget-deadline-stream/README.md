@@ -87,8 +87,11 @@ Use the pinned tools from
 this directory, with `tla2tools.jar` in `$TLA_TOOLS`:
 
 ```sh
+TLA_METADIR="${TMPDIR:-/tmp}/dotnet-inspect-deadline-stream"
+mkdir -p "$TLA_METADIR"
 java -XX:+UseParallelGC -cp "$TLA_TOOLS/tla2tools.jar" tlc2.TLC \
-  -workers auto -cleanup -coverage 1 DeadlineStreamLifecycle.tla
+  -workers auto -metadir "$TLA_METADIR" -cleanup -coverage 1 \
+  DeadlineStreamLifecycle.tla
 ```
 
 The checked configuration is exhaustive and has no model constants. The
