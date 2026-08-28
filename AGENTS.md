@@ -440,6 +440,41 @@ decision, do not dispatch another review or describe the design as ready.
   presentation as separate concerns. Do not infer one from display text when a
   typed identity exists.
 
+### Security work follows the actual trust boundary
+
+Do not model our own code, another contributor or agent, or a user who can act
+on the machine as a hostile actor that product code must contain. A party that
+can edit the codebase, run code in the process, create local symlinks, or place
+credentials in the repository can already bypass product invariants and has
+more direct targets. Treat those scenarios as code review, testing, repository
+hygiene, or host-security concerns, not as reasons to add product hardening.
+
+Before accepting a security concern, identify how an actor outside the user's
+machine can affect the user through data that the tool reads. The primary
+boundary is untrusted internet-origin data such as packages from NuGet feeds,
+symbols, SourceLink data, and source content. A locally supplied assembly does
+not independently establish an attacker boundary; it may receive the same
+containment as an internet-origin assembly when both use a shared path, but
+that benefit is incidental and does not justify extra complexity.
+
+When a credible external-input threat exists, define it in the focused owning
+design before implementing the defense. Name the actor, input path, affected
+boundary, containment invariant, and enforcement gate. Prefer structural
+containment: a constrained type whose construction establishes the invariant,
+then thread that type through the object model so compiler checking, review,
+and tests preserve it. `HardenedJson` is a good example at a parsing boundary:
+one named entry point centralizes fail-closed policy instead of asking every
+caller to configure parsing correctly. `InertText.InertString` carries the same
+lesson further for values: its fail-closed construction contains untrusted text
+once, and the type carries that property through composition. Prefer these
+shapes over string conventions, scattered checks, sanitizers, or defenses
+against hypothetical hostile callers.
+
+Robustness against accidental internal mistakes still matters. Achieve it with
+simple, auditable code, structured types instead of strings, narrow APIs,
+compiler-enforced invariants, and focused tests -- not by pretending trusted
+code is an attacker.
+
 ### Platform compatibility
 
 - Treat cross-platform operation as the default requirement for product
