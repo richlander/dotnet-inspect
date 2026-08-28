@@ -915,14 +915,17 @@ This boundary does not define:
 
 ## Package-realization coordinate admission
 
-**Status:** target design, independent of #4745; unimplemented. This is a
-separate future responsibility of the same L1 owner, not an extension of the
-[Package-role planning and cleanup boundary](#package-role-planning-and-cleanup-boundary)'s
-plan/realize/cleanup contract or its gate list. It composes with that
-boundary rather than redefining it: this admission layer decides whether a
-`RealizePackageAssemblyContextRoles` (or its #4745 typed successor) operation
-starts at all for a given package coordinate; the existing boundary still owns
-everything that happens once that operation runs.
+**Status:** target design, scoped independently of #4745; unimplemented. This
+is a separate future responsibility of the same L1 owner, not an extension of
+the [Package-role planning and cleanup boundary](#package-role-planning-and-cleanup-boundary)'s
+plan/realize/cleanup contract or its gate list. It is *intended* to compose
+with that boundary rather than redefine it -- this admission layer decides
+whether a `RealizePackageAssemblyContextRoles` (or its #4745 typed successor)
+operation starts at all for a given package coordinate, and the existing
+boundary still owns everything that happens once that operation runs -- but
+that composition is not yet fully defined; see the granularity and
+shared-realization-lifetime open questions under
+[Target shape](#target-shape) below.
 
 ### Current admission gap
 
@@ -933,15 +936,15 @@ target framework, runtime identifier, and resolved producer -- see
 `src/DotnetInspector.Queries/WorkspaceAcquisitionCoordinates.cs`) each
 independently reopen content and mint an unrelated `AssemblyContextGroup`
 and participant set. `PackageAssemblyContextRealizationConcurrentDemandTests`
-demonstrates this; issue #4960 tracks it.
+(pending in #4958, not yet merged) is intended to demonstrate this; the
+admission gap itself is tracked by issue #4960.
 
 ### Why the coordinate, not the assembly content
 
 A package coordinate is stable and decidable: id, version, framework, runtime
 identifier, and producer determine one selectable package occurrence, and
-`Producer`
-specifically resolves the case where two feeds could otherwise serve the same
-id and version with different bytes. Individual assembly/PE content has no
+`Producer` specifically resolves the case where two feeds could otherwise
+serve the same id and version with different bytes. Individual assembly/PE content has no
 equivalent independent identity -- `Foo.dll` can duplicate within one package
 or across packages with no canonical resolution -- so this admission layer is
 scoped to package coordinates only. It does not admit by assembly identity,
@@ -978,17 +981,25 @@ by this design:
   independent per-coordinate admissions (and correctly composing partial
   cache hits with fresh admissions inside one caller request) is future work
   for whichever adapter or migration slice adopts this cache, not something
-  this model or section resolves.
+  this model or section resolves. `PackageAssemblyContextSelection` itself
+  does not carry a realized coordinate today -- it has no runtime identifier
+  and its id/version/framework are not yet canonicalized -- so deriving the
+  cache key still depends on `PackageCoordinateResolver`, the same normalizer
+  `RealizedMemberCoordinate.Package` already defers to; this design assumes
+  that resolution happens, it does not add it.
 - **Shared-realization lifetime.** "Reuses the retained realization directly"
   implies more than one demand can hold the same realized groups
   concurrently. The existing [Package-role planning and cleanup
-  boundary](#package-role-planning-and-cleanup-boundary) gives one session
-  exclusive ownership of its transferred groups and releases them on that
-  session's close. Multiple independent callers sharing one cached
-  realization therefore need reference-counted or lease-scoped release
-  semantics that neither this section nor that boundary defines yet;
-  attaching a cache to that boundary without resolving that composition would
-  let one caller's close release groups another caller is still using.
+  boundary](#package-role-planning-and-cleanup-boundary) gives each
+  `PackageRoleGroupReleaseCompletion` cell exactly one release: the first
+  caller to request it initiates release and every other caller only
+  observes or awaits that same completion, so today's mechanism already
+  treats a second releaser as an unsafe race, not as a supported share.
+  Multiple independent callers sharing one cached realization therefore need
+  reference-counted or lease-scoped release semantics that neither this
+  section nor that boundary defines yet; attaching a cache to that boundary
+  without resolving that composition would let one caller's close release
+  groups another caller is still using.
 
 [`PackageRealizationAdmission.tla`](../models/package-realization-admission/PackageRealizationAdmission.tla)
 checks this target design's own internal soundness: single-flight admission
