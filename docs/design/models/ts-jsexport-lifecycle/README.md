@@ -24,6 +24,12 @@ count. The model also includes runtime creation, assembly export acquisition,
 complete validation, state publication, managed-operation and entry-point
 calls, terminal failure, and atomic realm restart.
 
+One-step history variables retain the source phase and call-event state for
+each transition. The checked properties can therefore distinguish a legal
+post-initialization call from managed code invoked by the transition that
+publishes ready state, and can detect any ready or failed facade leaving its
+terminal phase without a realm restart.
+
 The model deliberately keeps these values abstract:
 
 - exact JavaScript property descriptors and dispatch keys;
@@ -66,11 +72,12 @@ Those concerns retain their concrete gates in the owning design and in
 | Failure publishes no partial state | `FailurePublishesNothing` |
 | A facade never disposes the shared runtime | `FacadeNeverDisposesRuntime` |
 | Managed operations and `runEntryPoint()` require readiness | `ManagedCallsRequireReady`, `EntryPointCallsRequireReady` |
-| Initialization invokes neither managed operations nor `runMain()` | `InitializationInvokesNoManagedCode` |
+| Calls begin only from ready, including the transition that publishes ready state | `ManagedCodeStartsReady` |
+| Initialization invokes neither managed operations nor `runMain()` | `InitializationInvokesNoManagedCode`, `ManagedCodeStartsReady` |
 | Requested initialization reaches ready or terminal failure | `RequestedEventuallyTerminates` |
 | A local facade failure does not prevent its peer from reaching ready | `LocalFailureIsolation` |
 | Valid facades both attach to the runtime | `AllFacadesEventuallyReady` |
-| Ready state is stable until realm restart | `ReadyPersistsWithinRealm` |
+| Ready and failed states are stable until realm restart | `TerminalPhasePersistsUntilRestart` |
 
 In the shared-in-flight positive trace, separate caller actions start both
 facades, one facade changes the runtime from absent to creating, the other
@@ -111,10 +118,10 @@ assembly roots, and at most one realm restart:
 
 | Configuration | Runtime/local failures | Generated states | Distinct states | Result |
 | --- | --- | ---: | ---: | --- |
-| `TsJsExportLifecycleShared.cfg` | Enabled | 10,110 | 1,784 | No error |
-| `TsJsExportLifecycleSharedSuccess.cfg` | Disabled | 7,535 | 1,316 | No error |
-| `TsJsExportLifecycleSerialized.cfg` | Enabled | 4,294 | 872 | No error |
-| `TsJsExportLifecycleSerializedSuccess.cfg` | Disabled | 3,135 | 560 | No error |
+| `TsJsExportLifecycleShared.cfg` | Enabled | 28,686 | 4,940 | No error |
+| `TsJsExportLifecycleSharedSuccess.cfg` | Disabled | 22,045 | 3,751 | No error |
+| `TsJsExportLifecycleSerialized.cfg` | Enabled | 11,409 | 2,180 | No error |
+| `TsJsExportLifecycleSerializedSuccess.cfg` | Disabled | 9,371 | 1,631 | No error |
 
 Generic deadlock checking is disabled because reaching terminal facade states
 after the final permitted restart is an expected finite-model endpoint.
@@ -124,7 +131,7 @@ directly.
 
 ## Counterexample mutations
 
-Ten opt-in configurations each enable one incorrect lifecycle transition and
+Twelve opt-in configurations each enable one incorrect lifecycle transition and
 must fail with the named invariant:
 
 | Configuration | Deliberate defect | Expected violation |
@@ -138,7 +145,9 @@ must fail with the named invariant:
 | `TsJsExportLifecycleFailPeer.cfg` | Fails the peer when one facade fails locally | `LocalFailureIsolation` |
 | `TsJsExportLifecycleFailPeerSerialized.cfg` | Fails a serialized peer after local failure | `LocalFailureIsolation` |
 | `TsJsExportLifecycleManagedDuringInit.cfg` | Invokes managed code while initialization is active | `InitializationInvokesNoManagedCode` |
-| `TsJsExportLifecycleLoseReady.cfg` | Leaves ready state without restarting the realm | `ReadyPersistsWithinRealm` |
+| `TsJsExportLifecycleManagedOnReadyTransition.cfg` | Invokes managed code on the transition that publishes ready state | `ManagedCodeStartsReady` |
+| `TsJsExportLifecycleLoseReady.cfg` | Leaves ready state without restarting the realm | `TerminalPhasePersistsUntilRestart` |
+| `TsJsExportLifecycleLoseFailure.cfg` | Leaves failed state without restarting the realm | `TerminalPhasePersistsUntilRestart` |
 
 Run a mutation by substituting its configuration name in the TLC command. A
 successful mutation run is a TLC invariant violation with a concrete state

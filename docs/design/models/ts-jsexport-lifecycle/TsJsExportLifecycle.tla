@@ -46,13 +46,15 @@ ExportAcquisitionFailure == "ExportAcquisitionFailure"
 ExportValidationFailure == "ExportValidationFailure"
 PeerInvalidation == "PeerInvalidation"
 LostReadyState == "LostReadyState"
+LostFailedState == "LostFailedState"
 FailureKinds ==
     {NoFailure,
      RuntimeCreationFailure,
      ExportAcquisitionFailure,
      ExportValidationFailure,
      PeerInvalidation,
-     LostReadyState}
+     LostReadyState,
+     LostFailedState}
 
 SharedInFlight == "SharedInFlight"
 Serialized == "Serialized"
@@ -66,7 +68,9 @@ CrossAssemblyRoot == "CrossAssemblyRoot"
 DisposeRuntimeOnFailure == "DisposeRuntimeOnFailure"
 FailPeerOnLocalFailure == "FailPeerOnLocalFailure"
 InvokeManagedDuringInitialization == "InvokeManagedDuringInitialization"
+InvokeManagedOnReadyTransition == "InvokeManagedOnReadyTransition"
 LoseReadyWithoutRestart == "LoseReadyWithoutRestart"
+LoseFailureWithoutRestart == "LoseFailureWithoutRestart"
 Mutations ==
     {NoMutation,
      EarlyPublication,
@@ -77,7 +81,9 @@ Mutations ==
      DisposeRuntimeOnFailure,
      FailPeerOnLocalFailure,
      InvokeManagedDuringInitialization,
-     LoseReadyWithoutRestart}
+     InvokeManagedOnReadyTransition,
+     LoseReadyWithoutRestart,
+     LoseFailureWithoutRestart}
 
 ASSUME
     /\ Cardinality(Facades) = 2
@@ -109,8 +115,11 @@ VARIABLES
     runtimeDisposed,
     managedCallEpoch,
     entryPointCallEpoch,
-    readyEpoch,
-    realmEpoch
+    realmEpoch,
+    previousPhase,
+    previousRealmEpoch,
+    previousManagedCallEpoch,
+    previousEntryPointCallEpoch
 
 vars ==
     <<phase,
@@ -126,8 +135,11 @@ vars ==
       runtimeDisposed,
       managedCallEpoch,
       entryPointCallEpoch,
-      readyEpoch,
-      realmEpoch>>
+      realmEpoch,
+      previousPhase,
+      previousRealmEpoch,
+      previousManagedCallEpoch,
+      previousEntryPointCallEpoch>>
 
 Init ==
     /\ phase = [f \in Facades |-> Idle]
@@ -143,8 +155,11 @@ Init ==
     /\ runtimeDisposed = FALSE
     /\ managedCallEpoch = [f \in Facades |-> NoEpoch]
     /\ entryPointCallEpoch = [f \in Facades |-> NoEpoch]
-    /\ readyEpoch = [f \in Facades |-> NoEpoch]
     /\ realmEpoch = 0
+    /\ previousPhase = [f \in Facades |-> Idle]
+    /\ previousRealmEpoch = 0
+    /\ previousManagedCallEpoch = [f \in Facades |-> NoEpoch]
+    /\ previousEntryPointCallEpoch = [f \in Facades |-> NoEpoch]
 
 CanRequest(f) ==
     \/ Coordination = SharedInFlight
@@ -174,7 +189,6 @@ RequestInitialization(f, c) ==
           runtimeDisposed,
           managedCallEpoch,
           entryPointCallEpoch,
-          readyEpoch,
           realmEpoch>>
 
 StartRuntime(f) ==
@@ -200,7 +214,6 @@ StartRuntime(f) ==
           failureKind,
           isolationOwed,
           runtimeDisposed,
-          readyEpoch,
           realmEpoch>>
 
 JoinRuntimeCreation(f) ==
@@ -221,7 +234,6 @@ JoinRuntimeCreation(f) ==
           runtimeDisposed,
           managedCallEpoch,
           entryPointCallEpoch,
-          readyEpoch,
           realmEpoch>>
 
 StartDuplicateRuntime(f) ==
@@ -242,7 +254,6 @@ StartDuplicateRuntime(f) ==
           runtimeDisposed,
           managedCallEpoch,
           entryPointCallEpoch,
-          readyEpoch,
           realmEpoch>>
 
 CompleteRuntimeSuccess ==
@@ -261,7 +272,6 @@ CompleteRuntimeSuccess ==
           runtimeDisposed,
           managedCallEpoch,
           entryPointCallEpoch,
-          readyEpoch,
           realmEpoch>>
 
 CompleteRuntimeFailure ==
@@ -281,7 +291,6 @@ CompleteRuntimeFailure ==
           runtimeDisposed,
           managedCallEpoch,
           entryPointCallEpoch,
-          readyEpoch,
           realmEpoch>>
 
 UseReadyRuntime(f) ==
@@ -301,7 +310,6 @@ UseReadyRuntime(f) ==
           runtimeDisposed,
           managedCallEpoch,
           entryPointCallEpoch,
-          readyEpoch,
           realmEpoch>>
 
 ObserveFailedRuntime(f) ==
@@ -322,7 +330,6 @@ ObserveFailedRuntime(f) ==
           runtimeDisposed,
           managedCallEpoch,
           entryPointCallEpoch,
-          readyEpoch,
           realmEpoch>>
 
 CompleteAcquisitionSuccess(f) ==
@@ -349,7 +356,6 @@ CompleteAcquisitionSuccess(f) ==
           runtimeDisposed,
           managedCallEpoch,
           entryPointCallEpoch,
-          readyEpoch,
           realmEpoch>>
 
 CompleteAcquisitionFailure(f) ==
@@ -374,10 +380,6 @@ CompleteAcquisitionFailure(f) ==
         IF Mutation = FailPeerOnLocalFailure
         THEN [publishedRoot EXCEPT ![OtherFacade(f)] = NoRoot]
         ELSE publishedRoot
-    /\ readyEpoch' =
-        IF Mutation = FailPeerOnLocalFailure
-        THEN [readyEpoch EXCEPT ![OtherFacade(f)] = NoEpoch]
-        ELSE readyEpoch
     /\ runtimePhase' =
         IF Mutation = DisposeRuntimeOnFailure
         THEN RuntimeAbsent
@@ -414,7 +416,6 @@ StartDuplicateAcquisition(f) ==
           runtimeDisposed,
           managedCallEpoch,
           entryPointCallEpoch,
-          readyEpoch,
           realmEpoch>>
 
 CompleteValidationSuccess(f) ==
@@ -423,7 +424,14 @@ CompleteValidationSuccess(f) ==
     /\ publishedRoot' = [publishedRoot EXCEPT ![f] = acquiredRoot[f]]
     /\ isolationOwed' =
         [isolationOwed EXCEPT ![OtherFacade(f)] = FALSE]
-    /\ readyEpoch' = [readyEpoch EXCEPT ![f] = realmEpoch]
+    /\ managedCallEpoch' =
+        IF Mutation = InvokeManagedOnReadyTransition
+        THEN [managedCallEpoch EXCEPT ![f] = realmEpoch]
+        ELSE managedCallEpoch
+    /\ entryPointCallEpoch' =
+        IF Mutation = InvokeManagedOnReadyTransition
+        THEN [entryPointCallEpoch EXCEPT ![f] = realmEpoch]
+        ELSE entryPointCallEpoch
     /\ UNCHANGED
         <<waiters,
           runtimePhase,
@@ -433,8 +441,6 @@ CompleteValidationSuccess(f) ==
           acquiredRoot,
           failureKind,
           runtimeDisposed,
-          managedCallEpoch,
-          entryPointCallEpoch,
           realmEpoch>>
 
 CompleteValidationFailure(f) ==
@@ -462,10 +468,6 @@ CompleteValidationFailure(f) ==
         ELSE [failureKind EXCEPT ![f] = ExportValidationFailure]
     /\ isolationOwed' =
         [isolationOwed EXCEPT ![f] = phase[OtherFacade(f)] # Ready]
-    /\ readyEpoch' =
-        IF Mutation = FailPeerOnLocalFailure
-        THEN [readyEpoch EXCEPT ![OtherFacade(f)] = NoEpoch]
-        ELSE readyEpoch
     /\ runtimePhase' =
         IF Mutation = DisposeRuntimeOnFailure
         THEN RuntimeAbsent
@@ -499,7 +501,6 @@ CallManagedOperation(f) ==
           isolationOwed,
           runtimeDisposed,
           entryPointCallEpoch,
-          readyEpoch,
           realmEpoch>>
 
 CallEntryPoint(f) ==
@@ -518,7 +519,6 @@ CallEntryPoint(f) ==
           isolationOwed,
           runtimeDisposed,
           managedCallEpoch,
-          readyEpoch,
           realmEpoch>>
 
 LoseReadyState(f) ==
@@ -538,7 +538,25 @@ LoseReadyState(f) ==
           runtimeDisposed,
           managedCallEpoch,
           entryPointCallEpoch,
-          readyEpoch,
+          realmEpoch>>
+
+LoseFailedState(f) ==
+    /\ Mutation = LoseFailureWithoutRestart
+    /\ phase[f] = Failed
+    /\ phase' = [phase EXCEPT ![f] = AwaitingRuntime]
+    /\ failureKind' = [failureKind EXCEPT ![f] = LostFailedState]
+    /\ UNCHANGED
+        <<waiters,
+          runtimePhase,
+          runtimeStarts,
+          initializationStarts,
+          acquisitionStarts,
+          acquiredRoot,
+          publishedRoot,
+          isolationOwed,
+          runtimeDisposed,
+          managedCallEpoch,
+          entryPointCallEpoch,
           realmEpoch>>
 
 RestartRealm ==
@@ -558,7 +576,6 @@ RestartRealm ==
     /\ runtimeDisposed' = FALSE
     /\ managedCallEpoch' = [f \in Facades |-> NoEpoch]
     /\ entryPointCallEpoch' = [f \in Facades |-> NoEpoch]
-    /\ readyEpoch' = [f \in Facades |-> NoEpoch]
     /\ realmEpoch' = realmEpoch + 1
 
 FacadeProgress(f) ==
@@ -573,10 +590,11 @@ FacadeProgress(f) ==
     \/ CompleteValidationSuccess(f)
     \/ CompleteValidationFailure(f)
     \/ LoseReadyState(f)
+    \/ LoseFailedState(f)
 
 RuntimeProgress == CompleteRuntimeSuccess \/ CompleteRuntimeFailure
 
-Next ==
+RawNext ==
     \/ \E f \in Facades, c \in Callers : RequestInitialization(f, c)
     \/ RuntimeProgress
     \/ \E f \in Facades : FacadeProgress(f)
@@ -584,13 +602,22 @@ Next ==
     \/ \E f \in Facades : CallEntryPoint(f)
     \/ RestartRealm
 
+WithHistory(action) ==
+    /\ action
+    /\ previousPhase' = phase
+    /\ previousRealmEpoch' = realmEpoch
+    /\ previousManagedCallEpoch' = managedCallEpoch
+    /\ previousEntryPointCallEpoch' = entryPointCallEpoch
+
+Next == WithHistory(RawNext)
+
 Spec ==
     /\ Init
     /\ [][Next]_vars
     /\ \A f \in Facades, c \in Callers :
-        WF_vars(RequestInitialization(f, c))
-    /\ WF_vars(RuntimeProgress)
-    /\ \A f \in Facades : WF_vars(FacadeProgress(f))
+        WF_vars(WithHistory(RequestInitialization(f, c)))
+    /\ WF_vars(WithHistory(RuntimeProgress))
+    /\ \A f \in Facades : WF_vars(WithHistory(FacadeProgress(f)))
 
 TypeOK ==
     /\ phase \in [Facades -> FacadePhases]
@@ -606,8 +633,11 @@ TypeOK ==
     /\ runtimeDisposed \in BOOLEAN
     /\ managedCallEpoch \in [Facades -> Nat \cup {NoEpoch}]
     /\ entryPointCallEpoch \in [Facades -> Nat \cup {NoEpoch}]
-    /\ readyEpoch \in [Facades -> Nat \cup {NoEpoch}]
     /\ realmEpoch \in Nat
+    /\ previousPhase \in [Facades -> FacadePhases]
+    /\ previousRealmEpoch \in Nat
+    /\ previousManagedCallEpoch \in [Facades -> Nat \cup {NoEpoch}]
+    /\ previousEntryPointCallEpoch \in [Facades -> Nat \cup {NoEpoch}]
 
 OneSharedRuntimeCreation == runtimeStarts <= 1
 
@@ -638,9 +668,11 @@ ReadyHasCompleteState ==
             /\ acquiredRoot[f] = ExpectedRoot(f)
             /\ publishedRoot[f] = ExpectedRoot(f)
 
-ReadyPersistsWithinRealm ==
+TerminalPhasePersistsUntilRestart ==
     \A f \in Facades :
-        (phase[f] = Ready) <=> (readyEpoch[f] = realmEpoch)
+        (previousPhase[f] \in TerminalPhases /\
+         previousRealmEpoch = realmEpoch)
+        => phase[f] = previousPhase[f]
 
 FacadeNeverDisposesRuntime == ~runtimeDisposed
 
@@ -659,6 +691,21 @@ InitializationInvokesNoManagedCode ==
         phase[f] \in ActivePhases =>
             /\ managedCallEpoch[f] # realmEpoch
             /\ entryPointCallEpoch[f] # realmEpoch
+
+ManagedCallsStartReady ==
+    \A f \in Facades :
+        ((managedCallEpoch[f] # previousManagedCallEpoch[f]) /\
+         managedCallEpoch[f] = realmEpoch)
+        => previousPhase[f] = Ready
+
+EntryPointCallsStartReady ==
+    \A f \in Facades :
+        ((entryPointCallEpoch[f] # previousEntryPointCallEpoch[f]) /\
+         entryPointCallEpoch[f] = realmEpoch)
+        => previousPhase[f] = Ready
+
+ManagedCodeStartsReady ==
+    ManagedCallsStartReady /\ EntryPointCallsStartReady
 
 RequestedEventuallyTerminates ==
     \A f \in Facades :
