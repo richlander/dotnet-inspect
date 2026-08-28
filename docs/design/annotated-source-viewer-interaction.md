@@ -26,10 +26,11 @@ The modal's open state, local selection, annotation choices, presentation
 choices, and detail are transient viewer state. This document does not add
 them to browser history, workspace definitions, or share packets.
 
-This owner has one bounded output to the shell contract: before dismissing the
-modal for Escape, the shell offers Escape to the topmost owner-issued transient
-layer. The viewer reports whether it consumed the gesture. Inspect Web UI still
-owns modal dismissal, history composition, and destination focus.
+This effort makes one bounded responsibility transfer from Inspect Web UI:
+viewer-local transient layers get the first opportunity to consume Escape in
+the Annotated Source modal. The viewer reports whether it consumed the gesture;
+the shell retains modal dismissal, history composition, and destination focus.
+No other modal receives this exception from this design.
 
 ## Experience
 
