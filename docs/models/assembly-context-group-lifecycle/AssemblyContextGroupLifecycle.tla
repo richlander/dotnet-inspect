@@ -7,7 +7,10 @@ CONSTANTS
     MaxRetainedImages,
     AllowEarlyRelease,
     AllowEarlySnapshotRelease,
-    AllowRejectedRetention
+    AllowRejectedRetention,
+    AllowSuccessfulPolicyViolation,
+    AllowReleasedAsRejected,
+    AllowExceptionalFailureCaching
 
 ASSUME /\ ParticipantCount \in Nat \ {0}
        /\ CallbackCount \in Nat \ {0}
@@ -15,11 +18,16 @@ ASSUME /\ ParticipantCount \in Nat \ {0}
        /\ AllowEarlyRelease \in BOOLEAN
        /\ AllowEarlySnapshotRelease \in BOOLEAN
        /\ AllowRejectedRetention \in BOOLEAN
+       /\ AllowSuccessfulPolicyViolation \in BOOLEAN
+       /\ AllowReleasedAsRejected \in BOOLEAN
+       /\ AllowExceptionalFailureCaching \in BOOLEAN
 
 Participants == 1..ParticipantCount
 Callbacks == 1..CallbackCount
 
 CallbackStates == {"Unused", "Admitted", "Active", "Done"}
+CallbackOutcomes ==
+    {"Pending", "Succeeded", "Rejected", "ReleasedFailure", "OpenFailure"}
 ParticipantStates ==
     {"Cold", "Opening", "Reserved", "Ready", "Rejected", "Released"}
 GroupStates == {"Open", "Disposed", "Released"}
@@ -35,9 +43,10 @@ Target(callback) ==
 VARIABLES
     callbackState,
     callbackHasView,
+    callbackOutcome,
     releaseOnExit,
     participantState,
-    openCount,
+    openingCallback,
     retainedImages,
     groupState,
     releasePhase,
@@ -46,13 +55,18 @@ VARIABLES
     admissionWitness,
     quiescenceWitness,
     resourceOrderWitness,
-    activeViewWitness
+    activeViewWitness,
+    successfulPolicyWitness,
+    releasedAccessWitness,
+    exceptionalRollbackWitness
 
 vars ==
-    <<callbackState, callbackHasView, releaseOnExit, participantState,
-      openCount, retainedImages, groupState, releasePhase, resourceState,
+    <<callbackState, callbackHasView, callbackOutcome, releaseOnExit,
+      participantState, openingCallback, retainedImages, groupState,
+      releasePhase, resourceState,
       releaseCount, admissionWitness, quiescenceWitness,
-      resourceOrderWitness, activeViewWitness>>
+      resourceOrderWitness, activeViewWitness, successfulPolicyWitness,
+      releasedAccessWitness, exceptionalRollbackWitness>>
 
 LiveCallbacks ==
     {callback \in Callbacks:
@@ -67,10 +81,12 @@ Init ==
         [callback \in Callbacks |-> "Unused"]
     /\ callbackHasView =
         [callback \in Callbacks |-> FALSE]
+    /\ callbackOutcome =
+        [callback \in Callbacks |-> "Pending"]
     /\ releaseOnExit \in [Callbacks -> BOOLEAN]
     /\ participantState =
         [participant \in Participants |-> "Cold"]
-    /\ openCount =
+    /\ openingCallback =
         [participant \in Participants |-> 0]
     /\ retainedImages = 0
     /\ groupState = "Open"
@@ -81,6 +97,9 @@ Init ==
     /\ quiescenceWitness = TRUE
     /\ resourceOrderWitness = TRUE
     /\ activeViewWitness = TRUE
+    /\ successfulPolicyWitness = TRUE
+    /\ releasedAccessWitness = TRUE
+    /\ exceptionalRollbackWitness = TRUE
 
 AdmitCallback(callback) ==
     /\ callbackState[callback] = "Unused"
@@ -88,25 +107,28 @@ AdmitCallback(callback) ==
     /\ callbackState' =
         [callbackState EXCEPT ![callback] = "Admitted"]
     /\ admissionWitness' =
-        admissionWitness /\ (groupState = "Open")
+        (admissionWitness /\ (groupState = "Open"))
     /\ UNCHANGED
-        <<callbackHasView, releaseOnExit, participantState, openCount,
+        <<callbackHasView, callbackOutcome, releaseOnExit,
+          participantState, openingCallback,
           retainedImages, groupState, releasePhase, resourceState,
           releaseCount, quiescenceWitness, resourceOrderWitness,
-          activeViewWitness>>
+          activeViewWitness, successfulPolicyWitness,
+          releasedAccessWitness, exceptionalRollbackWitness>>
 
 StartOpen(callback) ==
     /\ callbackState[callback] = "Admitted"
     /\ participantState[Target(callback)] = "Cold"
     /\ participantState' =
         [participantState EXCEPT ![Target(callback)] = "Opening"]
-    /\ openCount' =
-        [openCount EXCEPT ![Target(callback)] = @ + 1]
+    /\ openingCallback' =
+        [openingCallback EXCEPT ![Target(callback)] = callback]
     /\ UNCHANGED
-        <<callbackState, callbackHasView, releaseOnExit, retainedImages,
-          groupState, releasePhase, resourceState, releaseCount,
+        <<callbackState, callbackHasView, callbackOutcome, releaseOnExit,
+          retainedImages, groupState, releasePhase, resourceState, releaseCount,
           admissionWitness, quiescenceWitness, resourceOrderWitness,
-          activeViewWitness>>
+          activeViewWitness, successfulPolicyWitness,
+          releasedAccessWitness, exceptionalRollbackWitness>>
 
 ReserveImage(participant) ==
     /\ participantState[participant] = "Opening"
@@ -115,42 +137,125 @@ ReserveImage(participant) ==
         [participantState EXCEPT ![participant] = "Reserved"]
     /\ retainedImages' = retainedImages + 1
     /\ UNCHANGED
-        <<callbackState, callbackHasView, releaseOnExit, openCount,
+        <<callbackState, callbackHasView, callbackOutcome, releaseOnExit,
+          openingCallback,
           groupState, releasePhase, resourceState, releaseCount,
           admissionWitness, quiescenceWitness, resourceOrderWitness,
-          activeViewWitness>>
+          activeViewWitness, successfulPolicyWitness,
+          releasedAccessWitness, exceptionalRollbackWitness>>
 
 RejectForBudget(participant) ==
     /\ participantState[participant] = "Opening"
     /\ retainedImages = MaxRetainedImages
+    /\ openingCallback[participant] \in Callbacks
+    /\ callbackState' =
+        [callbackState EXCEPT
+            ![openingCallback[participant]] = "Done"]
+    /\ callbackOutcome' =
+        [callbackOutcome EXCEPT
+            ![openingCallback[participant]] = "Rejected"]
     /\ participantState' =
-        [participantState EXCEPT ![participant] = "Rejected"]
+        [participantState EXCEPT
+            ![participant] =
+                (IF /\ releaseOnExit[openingCallback[participant]]
+                    /\ groupState = "Open"
+                    /\ ~AllowRejectedRetention
+                 THEN "Released"
+                 ELSE "Rejected")]
+    /\ openingCallback' =
+        [openingCallback EXCEPT ![participant] = 0]
     /\ UNCHANGED
-        <<callbackState, callbackHasView, releaseOnExit, openCount,
-          retainedImages, groupState, releasePhase, resourceState,
+        <<callbackHasView, releaseOnExit, retainedImages,
+          groupState, releasePhase, resourceState,
           releaseCount, admissionWitness, quiescenceWitness,
-          resourceOrderWitness, activeViewWitness>>
+          resourceOrderWitness, activeViewWitness,
+          successfulPolicyWitness, releasedAccessWitness,
+          exceptionalRollbackWitness>>
 
 PublishImage(participant) ==
     /\ participantState[participant] = "Reserved"
+    /\ openingCallback[participant] \in Callbacks
+    /\ callbackState' =
+        [callbackState EXCEPT
+            ![openingCallback[participant]] = "Active"]
+    /\ callbackHasView' =
+        [callbackHasView EXCEPT
+            ![openingCallback[participant]] = TRUE]
     /\ participantState' =
         [participantState EXCEPT ![participant] = "Ready"]
+    /\ openingCallback' =
+        [openingCallback EXCEPT ![participant] = 0]
     /\ UNCHANGED
-        <<callbackState, callbackHasView, releaseOnExit, openCount,
+        <<callbackOutcome, releaseOnExit,
           retainedImages, groupState, releasePhase, resourceState,
           releaseCount, admissionWitness, quiescenceWitness,
-          resourceOrderWitness, activeViewWitness>>
+          resourceOrderWitness, activeViewWitness,
+          successfulPolicyWitness, releasedAccessWitness,
+          exceptionalRollbackWitness>>
 
 RejectReservedImage(participant) ==
     /\ participantState[participant] = "Reserved"
+    /\ openingCallback[participant] \in Callbacks
+    /\ callbackState' =
+        [callbackState EXCEPT
+            ![openingCallback[participant]] = "Done"]
+    /\ callbackOutcome' =
+        [callbackOutcome EXCEPT
+            ![openingCallback[participant]] = "Rejected"]
     /\ participantState' =
-        [participantState EXCEPT ![participant] = "Rejected"]
+        [participantState EXCEPT
+            ![participant] =
+                (IF /\ releaseOnExit[openingCallback[participant]]
+                    /\ groupState = "Open"
+                    /\ ~AllowRejectedRetention
+                 THEN "Released"
+                 ELSE "Rejected")]
+    /\ openingCallback' =
+        [openingCallback EXCEPT ![participant] = 0]
     /\ retainedImages' = retainedImages - 1
     /\ UNCHANGED
-        <<callbackState, callbackHasView, releaseOnExit, openCount,
+        <<callbackHasView, releaseOnExit,
           groupState, releasePhase, resourceState, releaseCount,
           admissionWitness, quiescenceWitness, resourceOrderWitness,
-          activeViewWitness>>
+          activeViewWitness, successfulPolicyWitness,
+          releasedAccessWitness, exceptionalRollbackWitness>>
+
+FailReservedOpen(participant) ==
+    /\ participantState[participant] = "Reserved"
+    /\ openingCallback[participant] \in Callbacks
+    /\ callbackState' =
+        [callbackState EXCEPT
+            ![openingCallback[participant]] = "Done"]
+    /\ callbackOutcome' =
+        [callbackOutcome EXCEPT
+            ![openingCallback[participant]] = "OpenFailure"]
+    /\ participantState' =
+        [participantState EXCEPT
+            ![participant] =
+                (IF AllowExceptionalFailureCaching
+                 THEN "Rejected"
+                 ELSE IF /\ releaseOnExit[openingCallback[participant]]
+                         /\ groupState = "Open"
+                      THEN "Released"
+                      ELSE "Cold")]
+    /\ openingCallback' =
+        [openingCallback EXCEPT ![participant] = 0]
+    /\ retainedImages' = retainedImages - 1
+    /\ exceptionalRollbackWitness' =
+        (exceptionalRollbackWitness
+         /\ callbackOutcome'[openingCallback[participant]] = "OpenFailure"
+         /\ participantState'[participant] =
+            (IF /\ releaseOnExit[openingCallback[participant]]
+                /\ groupState = "Open"
+             THEN "Released"
+             ELSE "Cold")
+         /\ openingCallback'[participant] = 0
+         /\ retainedImages' = retainedImages - 1)
+    /\ UNCHANGED
+        <<callbackHasView, releaseOnExit, groupState, releasePhase,
+          resourceState, releaseCount, admissionWitness,
+          quiescenceWitness, resourceOrderWitness, activeViewWitness,
+          successfulPolicyWitness, releasedAccessWitness>>
 
 EnterCallback(callback) ==
     /\ callbackState[callback] = "Admitted"
@@ -160,19 +265,22 @@ EnterCallback(callback) ==
     /\ callbackHasView' =
         [callbackHasView EXCEPT ![callback] = TRUE]
     /\ UNCHANGED
-        <<releaseOnExit, participantState, openCount, retainedImages,
+        <<callbackOutcome, releaseOnExit, participantState, openingCallback,
+          retainedImages,
           groupState, releasePhase, resourceState, releaseCount,
           admissionWitness, quiescenceWitness, resourceOrderWitness,
-          activeViewWitness>>
+          activeViewWitness, successfulPolicyWitness,
+          releasedAccessWitness, exceptionalRollbackWitness>>
 
-FinishUnavailableCallback(callback) ==
+FinishRejectedCallback(callback) ==
     /\ callbackState[callback] = "Admitted"
-    /\ participantState[Target(callback)] \in {"Rejected", "Released"}
+    /\ participantState[Target(callback)] = "Rejected"
     /\ callbackState' =
         [callbackState EXCEPT ![callback] = "Done"]
+    /\ callbackOutcome' =
+        [callbackOutcome EXCEPT ![callback] = "Rejected"]
     /\ IF /\ releaseOnExit[callback]
           /\ groupState = "Open"
-          /\ participantState[Target(callback)] = "Rejected"
        THEN IF AllowRejectedRetention
             THEN UNCHANGED participantState
             ELSE participantState' =
@@ -180,10 +288,33 @@ FinishUnavailableCallback(callback) ==
                         ![Target(callback)] = "Released"]
        ELSE UNCHANGED participantState
     /\ UNCHANGED
-        <<callbackHasView, releaseOnExit, openCount, retainedImages,
+        <<callbackHasView, releaseOnExit, openingCallback, retainedImages,
           groupState, releasePhase, resourceState,
           releaseCount, admissionWitness, quiescenceWitness,
-          resourceOrderWitness, activeViewWitness>>
+          resourceOrderWitness, activeViewWitness,
+          successfulPolicyWitness, releasedAccessWitness,
+          exceptionalRollbackWitness>>
+
+FinishReleasedCallback(callback) ==
+    /\ callbackState[callback] = "Admitted"
+    /\ participantState[Target(callback)] = "Released"
+    /\ callbackState' =
+        [callbackState EXCEPT ![callback] = "Done"]
+    /\ callbackOutcome' =
+        [callbackOutcome EXCEPT
+            ![callback] =
+                IF AllowReleasedAsRejected
+                THEN "Rejected"
+                ELSE "ReleasedFailure"]
+    /\ releasedAccessWitness' =
+        (releasedAccessWitness
+         /\ callbackOutcome'[callback] = "ReleasedFailure")
+    /\ UNCHANGED
+        <<callbackHasView, releaseOnExit, participantState,
+          openingCallback, retainedImages, groupState, releasePhase,
+          resourceState, releaseCount, admissionWitness,
+          quiescenceWitness, resourceOrderWitness, activeViewWitness,
+          successfulPolicyWitness, exceptionalRollbackWitness>>
 
 CompleteCallback(callback) ==
     /\ callbackState[callback] = "Active"
@@ -191,27 +322,44 @@ CompleteCallback(callback) ==
         [callbackState EXCEPT ![callback] = "Done"]
     /\ callbackHasView' =
         [callbackHasView EXCEPT ![callback] = FALSE]
-    /\ IF /\ releaseOnExit[callback]
-          /\ groupState = "Open"
+    /\ callbackOutcome' =
+        [callbackOutcome EXCEPT ![callback] = "Succeeded"]
+    /\ IF /\ groupState = "Open"
           /\ participantState[Target(callback)] = "Ready"
+          /\ IF AllowSuccessfulPolicyViolation
+             THEN ~releaseOnExit[callback]
+             ELSE releaseOnExit[callback]
        THEN /\ participantState' =
                     [participantState EXCEPT
                         ![Target(callback)] = "Released"]
             /\ retainedImages' = retainedImages - 1
        ELSE /\ UNCHANGED <<participantState, retainedImages>>
+    /\ successfulPolicyWitness' =
+        (successfulPolicyWitness
+         /\ IF /\ groupState = "Open"
+               /\ participantState[Target(callback)] = "Ready"
+               /\ releaseOnExit[callback]
+            THEN /\ participantState'[Target(callback)] = "Released"
+                 /\ retainedImages' = retainedImages - 1
+            ELSE /\ participantState'[Target(callback)] =
+                     participantState[Target(callback)]
+                 /\ retainedImages' = retainedImages)
     /\ UNCHANGED
-        <<releaseOnExit, openCount, groupState, releasePhase,
+        <<releaseOnExit, openingCallback, groupState, releasePhase,
           resourceState, releaseCount, admissionWitness,
-          quiescenceWitness, resourceOrderWitness, activeViewWitness>>
+          quiescenceWitness, resourceOrderWitness, activeViewWitness,
+          releasedAccessWitness, exceptionalRollbackWitness>>
 
 DisposeGroup ==
     /\ groupState = "Open"
     /\ groupState' = "Disposed"
     /\ UNCHANGED
-        <<callbackState, callbackHasView, releaseOnExit,
-          participantState, openCount, retainedImages, releasePhase,
+        <<callbackState, callbackHasView, callbackOutcome, releaseOnExit,
+          participantState, openingCallback, retainedImages, releasePhase,
           resourceState, releaseCount, admissionWitness,
-          quiescenceWitness, resourceOrderWitness, activeViewWitness>>
+          quiescenceWitness, resourceOrderWitness, activeViewWitness,
+          successfulPolicyWitness, releasedAccessWitness,
+          exceptionalRollbackWitness>>
 
 BeginGroupRelease ==
     /\ groupState = "Disposed"
@@ -220,12 +368,13 @@ BeginGroupRelease ==
     /\ releasePhase' = "Resources"
     /\ releaseCount' = releaseCount + 1
     /\ quiescenceWitness' =
-        quiescenceWitness /\ (LiveCallbacks = {})
+        (quiescenceWitness /\ (LiveCallbacks = {}))
     /\ UNCHANGED
-        <<callbackState, callbackHasView, releaseOnExit,
-          participantState, openCount, retainedImages, groupState,
+        <<callbackState, callbackHasView, callbackOutcome, releaseOnExit,
+          participantState, openingCallback, retainedImages, groupState,
           resourceState, admissionWitness, resourceOrderWitness,
-          activeViewWitness>>
+          activeViewWitness, successfulPolicyWitness,
+          releasedAccessWitness, exceptionalRollbackWitness>>
 
 BeginEarlyGroupRelease ==
     /\ AllowEarlyRelease
@@ -236,32 +385,36 @@ BeginEarlyGroupRelease ==
     /\ releaseCount' = releaseCount + 1
     /\ quiescenceWitness' = FALSE
     /\ UNCHANGED
-        <<callbackState, callbackHasView, releaseOnExit,
-          participantState, openCount, retainedImages, groupState,
+        <<callbackState, callbackHasView, callbackOutcome, releaseOnExit,
+          participantState, openingCallback, retainedImages, groupState,
           resourceState, admissionWitness, resourceOrderWitness,
-          activeViewWitness>>
+          activeViewWitness, successfulPolicyWitness,
+          releasedAccessWitness, exceptionalRollbackWitness>>
 
 ReleaseOwnedResource ==
     /\ releasePhase = "Resources"
     /\ resourceState = "Owned"
     /\ resourceState' = "Released"
     /\ UNCHANGED
-        <<callbackState, callbackHasView, releaseOnExit,
-          participantState, openCount, retainedImages, groupState,
+        <<callbackState, callbackHasView, callbackOutcome, releaseOnExit,
+          participantState, openingCallback, retainedImages, groupState,
           releasePhase, releaseCount, admissionWitness,
-          quiescenceWitness, resourceOrderWitness, activeViewWitness>>
+          quiescenceWitness, resourceOrderWitness, activeViewWitness,
+          successfulPolicyWitness, releasedAccessWitness,
+          exceptionalRollbackWitness>>
 
 BeginSnapshotRelease ==
     /\ releasePhase = "Resources"
     /\ resourceState = "Released"
     /\ releasePhase' = "Snapshots"
     /\ resourceOrderWitness' =
-        resourceOrderWitness /\ (resourceState = "Released")
+        (resourceOrderWitness /\ (resourceState = "Released"))
     /\ UNCHANGED
-        <<callbackState, callbackHasView, releaseOnExit,
-          participantState, openCount, retainedImages, groupState,
+        <<callbackState, callbackHasView, callbackOutcome, releaseOnExit,
+          participantState, openingCallback, retainedImages, groupState,
           resourceState, releaseCount, admissionWitness,
-          quiescenceWitness, activeViewWitness>>
+          quiescenceWitness, activeViewWitness, successfulPolicyWitness,
+          releasedAccessWitness, exceptionalRollbackWitness>>
 
 BeginEarlySnapshotRelease ==
     /\ AllowEarlySnapshotRelease
@@ -270,10 +423,11 @@ BeginEarlySnapshotRelease ==
     /\ releasePhase' = "Snapshots"
     /\ resourceOrderWitness' = FALSE
     /\ UNCHANGED
-        <<callbackState, callbackHasView, releaseOnExit,
-          participantState, openCount, retainedImages, groupState,
+        <<callbackState, callbackHasView, callbackOutcome, releaseOnExit,
+          participantState, openingCallback, retainedImages, groupState,
           resourceState, releaseCount, admissionWitness,
-          quiescenceWitness, activeViewWitness>>
+          quiescenceWitness, activeViewWitness, successfulPolicyWitness,
+          releasedAccessWitness, exceptionalRollbackWitness>>
 
 ReleaseParticipant(participant) ==
     /\ releasePhase = "Snapshots"
@@ -284,14 +438,16 @@ ReleaseParticipant(participant) ==
        THEN retainedImages' = retainedImages - 1
        ELSE UNCHANGED retainedImages
     /\ activeViewWitness' =
-        activeViewWitness
-        /\ ~(\E callback \in Callbacks:
-                /\ callbackState[callback] = "Active"
-                /\ Target(callback) = participant)
+        (activeViewWitness
+         /\ ~(\E callback \in Callbacks:
+                 /\ callbackState[callback] = "Active"
+                 /\ Target(callback) = participant))
     /\ UNCHANGED
-        <<callbackState, callbackHasView, releaseOnExit, openCount,
-          groupState, releasePhase, resourceState, releaseCount,
-          admissionWitness, quiescenceWitness, resourceOrderWitness>>
+        <<callbackState, callbackHasView, callbackOutcome, releaseOnExit,
+          openingCallback, groupState, releasePhase, resourceState,
+          releaseCount, admissionWitness, quiescenceWitness,
+          resourceOrderWitness, successfulPolicyWitness,
+          releasedAccessWitness, exceptionalRollbackWitness>>
 
 CompleteGroupRelease ==
     /\ releasePhase = "Snapshots"
@@ -300,10 +456,12 @@ CompleteGroupRelease ==
     /\ releasePhase' = "Complete"
     /\ groupState' = "Released"
     /\ UNCHANGED
-        <<callbackState, callbackHasView, releaseOnExit,
-          participantState, openCount, retainedImages, resourceState,
-          releaseCount, admissionWitness, quiescenceWitness,
-          resourceOrderWitness, activeViewWitness>>
+        <<callbackState, callbackHasView, callbackOutcome, releaseOnExit,
+          participantState, openingCallback, retainedImages,
+          resourceState, releaseCount, admissionWitness,
+          quiescenceWitness, resourceOrderWitness, activeViewWitness,
+          successfulPolicyWitness, releasedAccessWitness,
+          exceptionalRollbackWitness>>
 
 Next ==
     \/ \E callback \in Callbacks:
@@ -318,10 +476,14 @@ Next ==
         PublishImage(participant)
     \/ \E participant \in Participants:
         RejectReservedImage(participant)
+    \/ \E participant \in Participants:
+        FailReservedOpen(participant)
     \/ \E callback \in Callbacks:
         EnterCallback(callback)
     \/ \E callback \in Callbacks:
-        FinishUnavailableCallback(callback)
+        FinishRejectedCallback(callback)
+    \/ \E callback \in Callbacks:
+        FinishReleasedCallback(callback)
     \/ \E callback \in Callbacks:
         CompleteCallback(callback)
     \/ DisposeGroup
@@ -338,13 +500,15 @@ Fairness ==
     /\ \A callback \in Callbacks:
         /\ WF_vars(StartOpen(callback))
         /\ WF_vars(EnterCallback(callback))
-        /\ WF_vars(FinishUnavailableCallback(callback))
+        /\ WF_vars(FinishRejectedCallback(callback))
+        /\ WF_vars(FinishReleasedCallback(callback))
         /\ WF_vars(CompleteCallback(callback))
     /\ \A participant \in Participants:
         /\ WF_vars(ReserveImage(participant))
         /\ WF_vars(RejectForBudget(participant))
         /\ WF_vars(PublishImage(participant))
         /\ WF_vars(RejectReservedImage(participant))
+        /\ WF_vars(FailReservedOpen(participant))
         /\ WF_vars(ReleaseParticipant(participant))
     /\ WF_vars(BeginGroupRelease)
     /\ WF_vars(BeginEarlyGroupRelease)
@@ -359,9 +523,10 @@ Spec ==
 TypeOK ==
     /\ callbackState \in [Callbacks -> CallbackStates]
     /\ callbackHasView \in [Callbacks -> BOOLEAN]
+    /\ callbackOutcome \in [Callbacks -> CallbackOutcomes]
     /\ releaseOnExit \in [Callbacks -> BOOLEAN]
     /\ participantState \in [Participants -> ParticipantStates]
-    /\ openCount \in [Participants -> Nat]
+    /\ openingCallback \in [Participants -> (Callbacks \union {0})]
     /\ retainedImages \in Nat
     /\ groupState \in GroupStates
     /\ releasePhase \in ReleasePhases
@@ -371,6 +536,9 @@ TypeOK ==
     /\ quiescenceWitness \in BOOLEAN
     /\ resourceOrderWitness \in BOOLEAN
     /\ activeViewWitness \in BOOLEAN
+    /\ successfulPolicyWitness \in BOOLEAN
+    /\ releasedAccessWitness \in BOOLEAN
+    /\ exceptionalRollbackWitness \in BOOLEAN
 
 RetainedImagesStayWithinBudget ==
     retainedImages <= MaxRetainedImages
@@ -378,9 +546,18 @@ RetainedImagesStayWithinBudget ==
 RetainedImageAccountingIsExact ==
     retainedImages = Cardinality(RetainedParticipants)
 
-ParticipantOpensAtMostOnce ==
+OpeningOwnershipIsExact ==
     \A participant \in Participants:
-        openCount[participant] <= 1
+        /\ (participantState[participant] \in {"Opening", "Reserved"}) =
+            (openingCallback[participant] \in Callbacks)
+        /\ (openingCallback[participant] \in Callbacks =>
+                /\ callbackState[openingCallback[participant]] = "Admitted"
+                /\ Target(openingCallback[participant]) = participant)
+
+CompletedCallbacksHaveOutcomes ==
+    \A callback \in Callbacks:
+        (callbackState[callback] = "Done") =
+            (callbackOutcome[callback] # "Pending")
 
 ActiveCallbacksHoldLocalViews ==
     \A callback \in Callbacks:
@@ -401,9 +578,19 @@ OwnedResourcesPrecedeGroupSnapshots ==
 RejectedReleaseAfterUseIsTerminal ==
     \A callback \in Callbacks:
         /\ callbackState[callback] = "Done"
+        /\ callbackOutcome[callback] = "Rejected"
         /\ releaseOnExit[callback]
         /\ groupState = "Open"
-        => participantState[Target(callback)] # "Rejected"
+        => participantState[Target(callback)] = "Released"
+
+SuccessfulCompletionHonorsReleasePolicy ==
+    successfulPolicyWitness
+
+ReleasedParticipantAccessFails ==
+    releasedAccessWitness
+
+ExceptionalFailureRollsBackAndHonorsReleasePolicy ==
+    exceptionalRollbackWitness
 
 ActiveViewsSurviveGroupRelease ==
     activeViewWitness
@@ -433,11 +620,11 @@ EveryAdmittedCallbackSettles ==
         callbackState[callback] # "Unused"
             ~> callbackState[callback] = "Done"
 
-EveryStartedOpenSettles ==
+EveryStartedOpenSettlesOrRollsBack ==
     \A participant \in Participants:
         participantState[participant] \in {"Opening", "Reserved"}
             ~> participantState[participant]
-                \in {"Ready", "Rejected", "Released"}
+                \in {"Cold", "Ready", "Rejected", "Released"}
 
 DisposedGroupEventuallyReleases ==
     groupState = "Disposed" ~> groupState = "Released"

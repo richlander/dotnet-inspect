@@ -15,12 +15,14 @@ reserved or ready at once.
 The modeled interactions are:
 
 - callback admission before disposal;
-- one participant-local lazy open, including budget rejection and rejection
-  after reservation;
-- cached ready or rejected outcomes for ordinary access, with unavailable
-  one-shot completion terminally releasing its participant;
+- participant-local lazy opening, including budget rejection, typed rejection
+  after reservation, and exceptional rollback that leaves ordinary access
+  retryable;
+- cached ready or rejected outcomes, distinct exceptional open and
+  already-released failures, and callback ownership of each in-flight open;
 - callback-local views that survive release of the group's retained reference;
-- the release-after-use path used by one-shot asynchronous participant work;
+- the release-after-use path used by one-shot asynchronous participant work,
+  including successful, rejected, and exceptional completion;
 - disposal that closes admission immediately and waits for callbacks to become
   quiescent;
 - owned-resource release before full-group snapshot release; and
@@ -52,27 +54,31 @@ rules are consistent over its bounded state space.
 | --- | --- |
 | `RetainedImagesStayWithinBudget` | Concurrent reservations never exceed the configured aggregate image budget. |
 | `RetainedImageAccountingIsExact` | The retained charge equals the participants whose image is reserved or ready. |
-| `ParticipantOpensAtMostOnce` | A participant's cached ready, rejected, or released result is never reopened. |
+| `OpeningOwnershipIsExact` | Every opening or reserved participant has exactly one admitted callback that owns that attempt. |
+| `CompletedCallbacksHaveOutcomes` | Every completed callback records success, typed rejection, released-participant failure, or exceptional open failure. |
 | `ActiveCallbacksHoldLocalViews` | An active callback retains its local immutable image view even if the group drops its own reference. |
 | `NoAdmissionAfterDisposal` | Callback admission occurs only while the group is open. |
 | `GroupReleaseWaitsForQuiescence` | Full-group resource release begins only after every admitted callback settles. |
 | `OwnedResourcesPrecedeGroupSnapshots` | Full-group release disposes owned resources before participant snapshots. |
 | `RejectedReleaseAfterUseIsTerminal` | A one-shot callback that observes a cached rejection releases that participant before completing while the group remains open. |
+| `SuccessfulCompletionHonorsReleasePolicy` | Successful one-shot completion releases the participant while ordinary successful completion retains it while the group remains open. |
+| `ReleasedParticipantAccessFails` | Access that reaches an already-released participant records a terminal failure rather than a cached typed rejection. |
+| `ExceptionalFailureRollsBackAndHonorsReleasePolicy` | Exceptional post-reservation failure releases the image charge, leaves ordinary access retryable, and terminally releases one-shot access while the group remains open. |
 | `ActiveViewsSurviveGroupRelease` | Full-group snapshot release never reaches a participant still used by an active callback. |
 | `GroupReleaseBeginsExactlyOnce` | Disposal claims the full-group release path at most once. |
 | `GroupReleaseRequiresDisposal` | Full-group release cannot begin while the group remains open. |
 | `ReleasedGroupOwnsNothing` | A released group retains no image charge, resource, or participant snapshot. |
 | `ParticipantLocalOpening` | A participant waiting in another participant's open path does not disable this participant's open action. |
-| `EveryAdmittedCallbackSettles` | Under weak fairness, each admitted callback reaches active completion or a cached unavailable result. |
-| `EveryStartedOpenSettles` | Under weak fairness, each started open reaches ready, rejected, or released. |
+| `EveryAdmittedCallbackSettles` | Under weak fairness, each admitted callback reaches successful, rejected, or exceptional completion. |
+| `EveryStartedOpenSettlesOrRollsBack` | Under weak fairness, each started open reaches ready, rejected, released, or retryable rollback. |
 | `DisposedGroupEventuallyReleases` | Under weak fairness, a disposed group eventually reaches terminal release. |
 
-The admission, quiescence, resource-order, and active-view claims use
-independent monotonic witness variables. Weakening the corresponding
-transition guard falsifies the witness rather than making the invariant a
-restatement of that guard. The rejected release-after-use claim is a
-post-state invariant over completed one-shot callbacks and has its own
-retention mutation.
+The admission, quiescence, resource-order, active-view, successful-completion,
+released-access, and exceptional-rollback claims use independent monotonic
+witness variables. Weakening the corresponding transition rule falsifies its
+witness rather than making the invariant a restatement of that rule. The
+rejected release-after-use claim is a post-state invariant over completed
+one-shot callbacks and has its own retention mutation.
 
 ## Configurations
 
@@ -83,6 +89,9 @@ retention mutation.
 | `BrokenEarlyRelease.cfg` | Enables a deliberate mutation that lets full-group release begin before callbacks quiesce; TLC must report a counterexample. |
 | `BrokenResourceOrder.cfg` | Lets full-group snapshot release begin while the owned resource remains live; TLC must report the ordering violation. |
 | `BrokenRejectedRetention.cfg` | Retains a rejected participant after unavailable one-shot completion; TLC must report the terminal-release violation. |
+| `BrokenSuccessfulPolicy.cfg` | Inverts successful ordinary and one-shot release policy; TLC must report the completion-policy violation. |
+| `BrokenReleasedAccess.cfg` | Reports access to an already-released participant as cached rejection; TLC must report the outcome violation. |
+| `BrokenExceptionalRollback.cfg` | Caches exceptional post-reservation failure as rejection; TLC must report the rollback violation. |
 
 ## Running TLC
 
@@ -96,15 +105,13 @@ java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC \
 java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC \
   -cleanup -config Liveness.cfg \
   AssemblyContextGroupLifecycle.tla
-java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC -cleanup \
-  -config BrokenEarlyRelease.cfg \
-  AssemblyContextGroupLifecycle.tla
-java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC -cleanup \
-  -config BrokenResourceOrder.cfg \
-  AssemblyContextGroupLifecycle.tla
-java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC -cleanup \
-  -config BrokenRejectedRetention.cfg \
-  AssemblyContextGroupLifecycle.tla
+for config in BrokenEarlyRelease BrokenResourceOrder \
+  BrokenRejectedRetention BrokenSuccessfulPolicy BrokenReleasedAccess \
+  BrokenExceptionalRollback; do
+  java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC \
+    -cleanup -noGenerateSpecTE -config "$config.cfg" \
+    AssemblyContextGroupLifecycle.tla
+done
 ```
 
 Run these commands sequentially. Concurrent TLC processes in one directory
@@ -114,8 +121,12 @@ share the default `states/` checkpoint path unless each receives a distinct
 The first two commands must complete without errors. The broken configurations
 must fail `GroupReleaseWaitsForQuiescence`,
 `OwnedResourcesPrecedeGroupSnapshots`, and
-`RejectedReleaseAfterUseIsTerminal`, respectively. A successful mutation run
-would mean its probe no longer exercises the intended rule.
+`RejectedReleaseAfterUseIsTerminal`,
+`SuccessfulCompletionHonorsReleasePolicy`,
+`ReleasedParticipantAccessFails`, and
+`ExceptionalFailureRollsBackAndHonorsReleasePolicy`, respectively. A
+successful mutation run would mean its probe no longer exercises the intended
+rule.
 
 ## TLC evidence
 
@@ -126,14 +137,19 @@ repository-pinned TLA+ `v1.8.0` prerelease (`TLC2 2026.08.21.155922`, rev
 
 | Configuration | Result | Generated states | Distinct states | Maximum depth |
 | --- | --- | ---: | ---: | ---: |
-| `Safety.cfg` | No error | 10,671 | 4,797 | 19 |
-| `Liveness.cfg` | No error | 1,343 | 739 | 17 |
+| `Safety.cfg` | No error | 17,483 | 10,492 | 21 |
+| `Liveness.cfg` | No error | 1,621 | 1,100 | 17 |
 | `BrokenEarlyRelease.cfg` | `GroupReleaseWaitsForQuiescence` violated | 52 | 46 | 4 |
 | `BrokenResourceOrder.cfg` | `OwnedResourcesPrecedeGroupSnapshots` violated | 57 | 49 | 4 |
-| `BrokenRejectedRetention.cfg` | `RejectedReleaseAfterUseIsTerminal` violated | 229 | 155 | 6 |
+| `BrokenRejectedRetention.cfg` | `RejectedReleaseAfterUseIsTerminal` violated | 130 | 97 | 5 |
+| `BrokenSuccessfulPolicy.cfg` | `SuccessfulCompletionHonorsReleasePolicy` violated | 195 | 140 | 6 |
+| `BrokenReleasedAccess.cfg` | `ReleasedParticipantAccessFails` violated | 1,897 | 1,066 | 7 |
+| `BrokenExceptionalRollback.cfg` | `ExceptionalFailureRollsBackAndHonorsReleasePolicy` violated | 395 | 272 | 5 |
 
 The normal configurations explored their complete bounded state graphs. The
 broken configurations stopped at their first expected counterexamples:
 full-group release began while a callback was still live, snapshot release
-began before resource release, and unavailable one-shot completion retained its
-rejected participant.
+began before resource release, unavailable one-shot completion retained its
+rejected participant, successful completion inverted its release policy,
+already-released access returned cached rejection, and exceptional rollback
+cached a terminal rejection instead of following ordinary or one-shot policy.
