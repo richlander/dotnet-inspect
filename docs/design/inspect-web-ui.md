@@ -479,6 +479,12 @@ or repeat a facet under another subject. Distinct registry IDs may share a
 display label; the UI neither deduplicates them nor derives identity from that
 label.
 
+`BrowserNavigationConsumerTests.RegistryLensDescriptorsRemainAuthoritative`
+must supply ordered owner-issued descriptors including one absent from every
+legacy browser array plus unavailable and failed cases. It must prove Inspect
+Web renders the exact membership, order, IDs, and statuses without local
+fallback. Issue #4917 owns implementation of this UI gate.
+
 ### Library selection
 
 The Library view lists every library admitted from the active coordinate and an

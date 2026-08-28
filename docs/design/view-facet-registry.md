@@ -209,11 +209,11 @@ whether and when the role is preferred. A role is not persisted identity, and
 a consumer does not infer one from `Title` or `Id`.
 
 The initial role vocabulary is `PackageOverview`, `RootOverview`,
-`LibraryReferences`, and `TypeApi`. Each role is carried by exactly one
-descriptor and agrees with that descriptor's subject contract. Adding a role
-extends this typed handoff; changing a role assignment is a coordinated
-Registry and Navigation contract change with focused evidence, not a
-consumer-side edit.
+`LibraryReferences`, `TypeApi`, and `MemberOverview`. Each role is carried by
+exactly one descriptor and agrees with that descriptor's subject contract.
+Adding a role extends this typed handoff; changing a role assignment is a
+coordinated Registry and Navigation contract change with focused evidence, not
+a consumer-side edit.
 
 The descriptor does not expose:
 
@@ -250,8 +250,9 @@ The returned collection is immutable and already ordered by kind then `Order`,
 or by `Order` for kind-scoped discovery. A consumer must not sort it again.
 
 `ViewFacetRegistryTests.StaticDiscovery_DoesNotExecuteOrAcquire` must provide
-facet bindings that fail if invoked and prove descriptor discovery still
-succeeds.
+throwing execution, artifact-open/acquisition, cache, alias, dynamic-provider,
+filesystem, and network sentinels and prove descriptor discovery succeeds
+without invoking any of them.
 
 ### Target-aware discovery
 
@@ -316,7 +317,9 @@ from the catalog and cover an exact available hit, unavailable hit, failed hit,
 wrong-subject hit, and syntactically valid and invalid unknown values. Throwing
 execution, acquisition, alias, dynamic-provider, filesystem, and network
 sentinels must prove unknown lookup returns without consulting any fallback or
-facet binding.
+facet binding. The wrong-subject fixture must give the known registration a
+throwing availability evaluator plus the same complete sentinel set and prove
+`Inapplicable` is returned before any of them is invoked.
 
 ### Navigation handoff
 
@@ -355,7 +358,7 @@ Orders are sparse and local to one structural subject kind.
 | `type.api` | API | API shape and member inventory for the active Type. | Type | 100 | Type API |
 | `type.metadata` | Metadata | Metadata records and attributes for the active Type. | Type | 200 | — |
 | `type.source` | Source | Source or decompiled code for the active Type. | Type | 300 | — |
-| `member.overview` | Overview | Signature, documentation, and overload context for the active Member. | Member | 100 | — |
+| `member.overview` | Overview | Signature, documentation, and overload context for the active Member. | Member | 100 | Member overview |
 | `member.call-graph` | Call graph | Incoming and outgoing calls for the active Member. | Member | 200 | — |
 | `member.facts` | Facts | Metadata, IL, safety, and analysis facts for the active Member. | Member | 300 | — |
 | `member.source` | Source | Source or decompiled code for the active Member. | Member | 400 | — |

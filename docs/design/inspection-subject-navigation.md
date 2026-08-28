@@ -166,10 +166,11 @@ The conceptual subject identity family is:
 Identity equality never uses display text, filename, list position, metadata
 token alone, or backend arrival order.
 
-A navigation lens identity combines a structural subject kind with one
-view-facet registry identity. The registry owns the stable facet identity;
-Inspection Subject Navigation owns the subject binding. Library Metadata and
-Type Metadata can therefore share a label without sharing identity.
+A navigation lens identity combines one exact structural subject identity with
+one view-facet registry identity. The registry owns the stable facet identity;
+Inspection Subject Navigation owns the exact subject binding. Library Metadata
+and Type Metadata can therefore share a label without sharing identity, while
+two Types using `type.api` remain distinct navigation lens identities.
 
 ### Snapshot
 
@@ -273,6 +274,7 @@ The initial semantic recommendations are:
 | Library | References |
 | Package Root | Package Overview |
 | Other Root | Root owner's registry role, initially Root Overview |
+| Member | Member Overview |
 
 The exact identities and membership come from the View Facet Registry. If the
 preferred descriptor is unavailable or failed, navigation selects the first
@@ -474,6 +476,8 @@ The eventual subject-navigation implementation must include named gates for:
 - `SameCoordinateReconciliation_FollowsSubjectTable`
 - `CoordinateVariation_UsesTypedCorrespondence`
 - `LensReconciliation_PreservesExactSubjectScopedIdentity`
+- `RegistryResolutionOutcomesRetainExactEvidence`
+- `RegistryDescriptorsRemainOwnerOrdered`
 - `RetainedSession_UsesInstalledSnapshotAsOnlyPriorState`
 - `RetainedSession_RejectsCallerSuppliedPriorSnapshot`
 - `RetainedSession_RejectsSuppliedSameSessionSnapshotCustody`
