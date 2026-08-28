@@ -100,14 +100,31 @@ public static class NuspecParser
                 "The package manifest has an invalid document root.");
         }
 
-        XElement[] metadataElements =
+        XElement[] metadataCandidates =
         [
             .. root.Elements().Where(element =>
                 element.Name.LocalName.Equals(
                     "metadata",
-                    StringComparison.Ordinal)
-                && IsNuspecNamespace(element.Name.Namespace)),
+                    StringComparison.Ordinal)),
         ];
+        XElement[] nuspecMetadataCandidates =
+        [
+            .. metadataCandidates.Where(element =>
+                IsNuspecNamespace(element.Name.Namespace)),
+        ];
+        XElement[] metadataElements =
+        [
+            .. nuspecMetadataCandidates.Where(element =>
+                IsCompatibleMetadataNamespace(
+                    root.Name.Namespace,
+                    element.Name.Namespace)),
+        ];
+        if (nuspecMetadataCandidates.Length != metadataElements.Length)
+        {
+            throw new InvalidDataException(
+                "The package manifest metadata namespace does not match its document root.");
+        }
+
         if (metadataElements.Length > 1)
         {
             throw new InvalidDataException(
@@ -251,7 +268,7 @@ public static class NuspecParser
     private static bool IsNuspecNamespace(XNamespace ns)
     {
         var uri = ns.NamespaceName;
-        if (string.IsNullOrWhiteSpace(uri))
+        if (uri.Length == 0)
             return true;
 
         const string prefix = "http://schemas.microsoft.com/packaging/";
@@ -260,4 +277,10 @@ public static class NuspecParser
             && uri.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
             && uri.EndsWith(suffix, StringComparison.OrdinalIgnoreCase);
     }
+
+    private static bool IsCompatibleMetadataNamespace(
+        XNamespace rootNamespace,
+        XNamespace metadataNamespace) =>
+        string.IsNullOrEmpty(rootNamespace.NamespaceName)
+            || rootNamespace == metadataNamespace;
 }
