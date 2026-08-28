@@ -984,6 +984,21 @@ public sealed class StateMachineCompletenessTests
                 detail = ex.Message;
                 return CorpusOutcome.Inaccessible;
             }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                // Same reasoning as the traverse catch below, applied at the
+                // site that reaches it first. 400 randomized header corruptions
+                // and six adversarial header values produced only
+                // BadImageFormatException here, so this is not chasing an
+                // observed escape -- it is making CorpusOutcome's documented
+                // "every file reaches exactly one outcome" true by construction
+                // rather than true by luck. Round 2 showed what the alternative
+                // costs: an OverflowException escaped TryMeasure and aborted the
+                // whole sweep, which proves nothing and reads like an
+                // infrastructure fault rather than a corpus finding.
+                detail = $"{ex.GetType().Name}: {ex.Message}";
+                return undecodable;
+            }
 
             using (pe)
             {
@@ -992,7 +1007,7 @@ public sealed class StateMachineCompletenessTests
                 {
                     hasMetadata = pe.HasMetadata;
                 }
-                catch (BadImageFormatException ex)
+                catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
                     detail = $"{ex.GetType().Name}: {ex.Message}";
                     return undecodable;
