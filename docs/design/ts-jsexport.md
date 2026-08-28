@@ -375,9 +375,9 @@ facade transformations; they do not create another managed operation.
 The runtime dispatch identity is opaque input, distinct from both the managed
 method name and the public TypeScript binding. The generated implementation
 indexes the narrowed export aggregate with that exact key. It never relies on a
-bare method name or registration order to select an overload. The current
-surface authenticates but does not project that key; #4791 owns the focused
-input-contract prerequisite.
+bare method name or registration order to select an overload.
+`JsExportFunction.RuntimeDispatchKey` projects the authenticated key as the
+focused input-contract prerequisite owned by #4791.
 
 Each supported overload remains a distinct managed operation and receives its
 own facade function. This is correspondence over runtime exports, not
@@ -623,8 +623,9 @@ The current implementation predates this decision:
 - authenticated async return-wire discovery recognizes compiler-generated
   `MoveNext` result sinks but not a runtime-async export's own physical body;
 - `JsExportSurfaceBuilder` authenticates each generated registration's
-  signature hash but omits that exact dispatch identity from
-  `JsExportFunction`; and
+  signature hash and preserves the exact dispatch identity as
+  `JsExportFunction.RuntimeDispatchKey`, but the current emitter does not
+  consume it; and
 - the current emitter traverses declaring-type paths with ordinary property
   lookup, invokes a bare runtime method name, rejects same-spelling managed
   operations, and rejects distinct enum or DTO identities with the same simple

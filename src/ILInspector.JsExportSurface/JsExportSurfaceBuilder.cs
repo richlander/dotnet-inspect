@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
 
@@ -114,17 +115,24 @@ public static class JsExportSurfaceBuilder
                         FormatMemberLocation(type, member),
                         "bodyless JS exports have no runtime wrapper");
                 }
+                int managedNameExportCount =
+                    type.Members.Count(candidate =>
+                        HasJsExportEvidence(candidate)
+                        && candidate.Name == member.Name);
+                string? runtimeDispatchKey = null;
                 if (bodyIndex is null
                         ? member.HasRuntimeJsExportWrapperCandidate
                             == false
                         : member.HasRuntimeJsExportWrapperCandidate
                                 != true
-                            || !HasAuthenticatedRuntimeJsExportWrapper(
+                            || !TryGetAuthenticatedRuntimeJsExportWrapper(
                                 bodyIndex,
                                 surface.AssemblyIdentity,
                                 type,
                                 member,
-                                incompleteBodyTokens))
+                                incompleteBodyTokens,
+                                managedNameExportCount,
+                                out runtimeDispatchKey))
                 {
                     throw new UnsupportedJsExportSurfaceException(
                         FormatMemberLocation(type, member),
@@ -153,6 +161,7 @@ public static class JsExportSurfaceBuilder
                 {
                     DeclaringType = type.FullName,
                     Name = member.Name,
+                    RuntimeDispatchKey = runtimeDispatchKey,
                     ReturnType = signature.ReturnType ?? member.ReturnType ?? "void",
                     ReturnTypeReferences =
                         signature.ReturnTypeReferences,
@@ -857,13 +866,16 @@ public static class JsExportSurfaceBuilder
     /// <c>GeneratedJsExportAuthenticationTests.Build_RejectsUnreachableGeneratedWrapperEntry</c>
     /// gates that.
     /// </remarks>
-    static bool HasAuthenticatedRuntimeJsExportWrapper(
+    static bool TryGetAuthenticatedRuntimeJsExportWrapper(
         LibraryBodyIndex bodyIndex,
         ApiAssemblyIdentity? assemblyIdentity,
         ApiType declaringType,
         ApiMember export,
-        IReadOnlySet<int> incompleteBodyTokens)
+        IReadOnlySet<int> incompleteBodyTokens,
+        int managedNameExportCount,
+        out string? runtimeDispatchKey)
     {
+        runtimeDispatchKey = null;
         if (export.MetadataToken is not { } exportToken
             || export.RuntimeJsExportWrapperCandidates is not
                 { Count: > 0 } candidates)
@@ -899,7 +911,9 @@ public static class JsExportSurfaceBuilder
                     wrapper,
                     export.Name,
                     incompleteBodyTokens,
-                    out DirectCall? registration))
+                    managedNameExportCount,
+                    out DirectCall? registration,
+                    out int signatureHash))
                 continue;
             if (incompleteBodyTokens.Contains(wrapper.MetadataToken))
                 continue;
@@ -946,6 +960,11 @@ public static class JsExportSurfaceBuilder
                     continue;
                 }
 
+                runtimeDispatchKey =
+                    export.Name
+                    + "."
+                    + signatureHash.ToString(
+                        CultureInfo.InvariantCulture);
                 return true;
             }
         }
@@ -961,9 +980,12 @@ public static class JsExportSurfaceBuilder
         MethodIdentity wrapper,
         string exportName,
         IReadOnlySet<int> incompleteBodyTokens,
-        out DirectCall? registration)
+        int managedNameExportCount,
+        out DirectCall? registration,
+        out int signatureHash)
     {
         registration = null;
+        signatureHash = 0;
         if (candidate.RegistrationCount <= 0
             || candidate.ModuleVersionId is not { } moduleVersionId
             || incompleteBodyTokens.Contains(
@@ -990,6 +1012,14 @@ public static class JsExportSurfaceBuilder
         if (bindings.Length != candidate.RegistrationCount)
             return false;
 
+        if (!RuntimeJsExportWrapperName.TryGetSignatureHash(
+                wrapper.Name,
+                exportName,
+                out uint expectedSignatureHash))
+        {
+            return false;
+        }
+
         DirectCall[] named =
         [
             .. bindings.Where(call => string.Equals(
@@ -997,26 +1027,43 @@ public static class JsExportSurfaceBuilder
                 runtimeBindingName,
                 StringComparison.Ordinal)),
         ];
-        if (named is not [var match]
+        if (named.Length != managedNameExportCount)
+        {
+            return false;
+        }
+
+        DirectCall[] matching =
+        [
+            .. named.Where(call => HasSignatureHash(
+                call,
+                expectedSignatureHash)),
+        ];
+        if (matching is not [var match]
             || match.IsReachable != true
-            || match.ResolvedArgumentValues.Count != 3
-            || !RuntimeJsExportWrapperName.TryGetSignatureHash(
-                wrapper.Name,
-                exportName,
-                out uint expectedSignatureHash)
             || match.ResolvedArgumentValues[1].Single is not
                 {
                     Kind: ResolvedValueSourceKind.Int32Literal,
-                    Int32Value: { } signatureHash,
-                }
-            || unchecked((uint)signatureHash) != expectedSignatureHash)
+                    Int32Value: { } matchedSignatureHash,
+                })
         {
             return false;
         }
 
         registration = match;
+        signatureHash = matchedSignatureHash;
         return true;
     }
+
+    static bool HasSignatureHash(
+        DirectCall registration,
+        uint expectedSignatureHash) =>
+        registration.ResolvedArgumentValues.Count == 3
+        && registration.ResolvedArgumentValues[1].Single is
+            {
+                Kind: ResolvedValueSourceKind.Int32Literal,
+                Int32Value: { } signatureHash,
+            }
+        && unchecked((uint)signatureHash) == expectedSignatureHash;
 
     /// <summary>
     /// Requires the registration's marshaler descriptor to be the span Analysis
