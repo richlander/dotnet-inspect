@@ -129,6 +129,34 @@ public class ResearchFactRegistryTests
     }
 
     [Fact]
+    public void
+        AnalysisIndexCache_KeysDescriptorEvidenceByAcquisitionRegistration()
+    {
+        string path = typeof(ResearchFixture).Assembly.Location;
+        AssemblyResolutionProvenance provenance =
+            AssemblyResolutionProvenance.Local(
+                "Research descriptor-cache test");
+        ResolvedAssemblyReference first =
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                provenance);
+        ResolvedAssemblyReference second =
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                provenance);
+
+        LibraryBodyIndex firstIndex =
+            AnalysisIndexCache.ForAssembly(first);
+
+        Assert.Same(
+            firstIndex,
+            AnalysisIndexCache.ForAssembly(first));
+        Assert.NotSame(
+            firstIndex,
+            AnalysisIndexCache.ForAssembly(second));
+    }
+
+    [Fact]
     public void AnalysisIndexCache_CaseDistinctPathsRetainDistinctEvidence()
     {
         string directory = Directory.CreateTempSubdirectory(

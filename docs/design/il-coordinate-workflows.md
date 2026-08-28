@@ -1,5 +1,28 @@
 # IL coordinate workflows
 
+## Owner and boundaries
+
+`ILInspector.Research` owns the IL-offset projection composition: it joins
+Metadata, Instructions, SourceLink, and Analysis evidence for one selected
+assembly coordinate. The typed request may consume an already-selected
+`ResolvedAssemblyReference`; Research does not construct that descriptor,
+redefine its identity or MVID validation, or redefine Analysis feature
+semantics.
+
+When a descriptor is present, Research snapshots its guarded content through
+Metadata, requests Analysis evidence over those immutable bytes, and keys
+Research's derived-index reuse by the descriptor's
+`AssemblyAcquisitionRegistration`. It does not reopen the descriptor's path.
+A request without a descriptor retains the existing path compatibility route.
+`ProjectILOffset_DescriptorSemanticEvidenceDoesNotReopenPath` is the
+non-vacuity gate for this handoff; the existing
+`ProjectILOffset_CostContextUsesPhysicalAsyncBody` test gates descriptor-less
+compatibility.
+
+This contract does not own CLI source selection, assembly descriptor
+construction, Analysis index construction policy, PDB acquisition, or
+multi-assembly coordinate joins.
+
 `library --il-offsets <file>` is a prototype for explaining sparse runtime
 coordinates. It assumes another tool has already collected MethodDef token + IL
 offset pairs and normalizes them into a simple text file:

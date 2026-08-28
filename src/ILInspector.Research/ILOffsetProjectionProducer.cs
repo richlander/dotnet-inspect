@@ -135,10 +135,18 @@ public static class ILOffsetProjectionProducer
         bool wantsCost = Includes(request, ILOffsetProjectionCapabilities.CostContext);
         if (wantsAllocation || wantsSafety || wantsCost)
         {
+            string assemblyDisplayName =
+                request.Assembly?.Path
+                ?? request.Assembly?.Identity.Name
+                ?? context.AssemblyPath;
             // One shared, cached index acquisition for all three semantic contexts: opening the
             // library body index is expensive, and each context is just a different filtered
             // projection over the same Analysis evidence.
-            if (!TryOpenAnalysisIndex(context.AssemblyPath, out var index, out var indexError))
+            if (!TryOpenAnalysisIndex(
+                    request.Assembly,
+                    assemblyDisplayName,
+                    out var index,
+                    out var indexError))
             {
                 var failureKind = wantsAllocation
                     ? ILOffsetProjectionFailureKind.AllocationAnalysisUnavailable
@@ -150,7 +158,11 @@ public static class ILOffsetProjectionProducer
             if (wantsAllocation)
                 allocationContext = BuildAllocationContext(index, request.MethodToken, request.ILOffset);
             if (wantsSafety)
-                safetyContext = BuildSafetyContext(index, context.AssemblyPath, request.MethodToken, request.ILOffset);
+                safetyContext = BuildSafetyContext(
+                    index,
+                    assemblyDisplayName,
+                    request.MethodToken,
+                    request.ILOffset);
             if (wantsCost)
                 costContext = BuildCostContext(index, request.MethodToken, request.ILOffset);
         }
@@ -274,13 +286,16 @@ public static class ILOffsetProjectionProducer
     /// contexts instead of re-opening the assembly for each one.
     /// </summary>
     static bool TryOpenAnalysisIndex(
+        ResolvedAssemblyReference? assembly,
         string assemblyPath,
         [NotNullWhen(true)] out Analysis.LibraryBodyIndex? index,
         out string error)
     {
         try
         {
-            index = AnalysisIndexCache.ForPath(assemblyPath);
+            index = assembly is null
+                ? AnalysisIndexCache.ForPath(assemblyPath)
+                : AnalysisIndexCache.ForAssembly(assembly);
             error = "";
             return true;
         }
