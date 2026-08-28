@@ -1280,7 +1280,141 @@ public sealed class StateMachineCompletenessTests
     /// generously — either CLI field non-zero — and the structural
     /// preconditions around it are read strictly.
     /// </summary>
-    static ManagedClaim ReadManagedClaim(Stream stream, ref string? detail)
+    /// <summary>
+    /// The enumerations above reach every exit path out of
+    /// <c>ReadManagedClaim</c>.
+    ///
+    /// This is the test that justifies the bound those enumerations use. They
+    /// stop at <c>peOffset + 512</c>, and that number was chosen by hand -- the
+    /// same kind of choice that produced six rounds of findings, just moved up
+    /// one level, from "which lengths are interesting" to "how far is far
+    /// enough". Asserting the bound is big enough by inspection would repeat the
+    /// mistake in a new place.
+    ///
+    /// So the bound is not asserted, it is measured. Every path out of the
+    /// method names itself through an <c>out</c> parameter, definite assignment
+    /// makes the compiler reject any path that does not, and this test requires
+    /// the enumerated range to reach all of them. If the bound were too small,
+    /// some later path would go unreached and this test would say which one. If
+    /// a future change adds a path beyond the bound, the same thing happens.
+    ///
+    /// The eleventh site is the I/O failure handler, which no file content can
+    /// reach, so a stream that throws on read covers it directly rather than
+    /// being excused as an exception to the rule. Coverage here is total, with
+    /// no carve-out to keep honest.
+    /// </summary>
+    [Fact]
+    public void ReadManagedClaim_EnumeratedRange_ReachesEveryExitPath()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(StateMachineCompletenessTests).Assembly.Location);
+
+        int peOffset = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(0x3C));
+        int bound = Math.Min(image.Length - 1, peOffset + 512);
+
+        SortedSet<int> reached = [];
+        string? detail = null;
+
+        for (int length = 0; length <= bound; length++)
+        {
+            using MemoryStream prefix = new(image.AsSpan(0, length).ToArray());
+            ReadManagedClaim(prefix, ref detail, out int site);
+            reached.Add(site);
+        }
+
+        byte[] copy = (byte[])image.Clone();
+
+        foreach (byte value in (byte[])[0x00, 0xFF, 0x7F])
+        {
+            for (int offset = 0; offset <= bound; offset++)
+            {
+                byte original = copy[offset];
+                copy[offset] = value;
+
+                using MemoryStream corrupted = new(copy);
+                ReadManagedClaim(corrupted, ref detail, out int site);
+                reached.Add(site);
+
+                copy[offset] = original;
+            }
+        }
+
+        using (ThrowingStream throwing = new())
+        {
+            ReadManagedClaim(throwing, ref detail, out int site);
+            reached.Add(site);
+        }
+
+        int[] unreached = [.. Enumerable
+            .Range(1, ReadManagedClaimExitSites)
+            .Except(reached)];
+
+        Assert.True(
+            unreached.Length == 0,
+            $"The enumerated range (bound {bound}) never reached exit " +
+            $"{(unreached.Length == 1 ? "path" : "paths")} " +
+            $"{string.Join(", ", unreached)} of {ReadManagedClaimExitSites}, so " +
+            $"the range does not exercise the whole method and a defect on an " +
+            $"unreached path would not be found by either enumeration.");
+    }
+
+    /// <summary>
+    /// A stream that fails the way an unreadable file fails, so the I/O handler
+    /// in <c>ReadManagedClaim</c> can be reached without depending on file
+    /// permissions, which vary by platform and do not constrain a root user.
+    /// </summary>
+    sealed class ThrowingStream : Stream
+    {
+        public override bool CanRead => true;
+
+        public override bool CanSeek => true;
+
+        public override bool CanWrite => false;
+
+        public override long Length => 4096;
+
+        public override long Position { get; set; }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new IOException("simulated unreadable file");
+
+        public override int Read(Span<byte> buffer) =>
+            throw new IOException("simulated unreadable file");
+
+        public override long Seek(long offset, SeekOrigin origin) => 0;
+
+        public override void Flush()
+        {
+        }
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+    }
+
+    /// <summary>
+    /// Number of distinct exit paths out of <c>ReadManagedClaim</c>. The
+    /// enumeration coverage test requires every one of them to be reached.
+    /// </summary>
+    const int ReadManagedClaimExitSites = 12;
+
+    static ManagedClaim ReadManagedClaim(Stream stream, ref string? detail) =>
+        ReadManagedClaim(stream, ref detail, out _);
+
+    /// <summary>
+    /// The exit-path-reporting overload. <paramref name="exitSite"/> is an
+    /// <c>out</c> parameter rather than a field or a return flag on purpose:
+    /// definite assignment means the compiler refuses to build any path out of
+    /// this method that does not name itself. A future early return cannot be
+    /// added silently and then go unenumerated, which is the failure mode that
+    /// produced six rounds of findings.
+    /// </summary>
+    static ManagedClaim ReadManagedClaim(
+        Stream stream,
+        ref string? detail,
+        out int exitSite)
     {
         try
         {
@@ -1305,27 +1439,32 @@ public sealed class StateMachineCompletenessTests
             // whatsoever about what it used to be.
             if (read >= 1 && dos[0] != (byte)'M')
             {
+                exitSite = 1;
                 return ManagedClaim.No;
             }
 
             if (read >= 2 && dos[1] != (byte)'Z')
             {
+                exitSite = 2;
                 return ManagedClaim.No;
             }
 
             if (read < 2)
             {
+                exitSite = 3;
                 return ManagedClaim.Indeterminate;
             }
 
             if (read < dos.Length)
             {
+                exitSite = 4;
                 return ManagedClaim.Indeterminate;
             }
 
             int peOffset = BinaryPrimitives.ReadInt32LittleEndian(dos[0x3C..]);
             if (peOffset < 0 || peOffset > stream.Length - 24)
             {
+                exitSite = 5;
                 return ManagedClaim.Indeterminate;
             }
 
@@ -1339,6 +1478,7 @@ public sealed class StateMachineCompletenessTests
                 || coff[2] != 0
                 || coff[3] != 0)
             {
+                exitSite = 6;
                 return ManagedClaim.Indeterminate;
             }
 
@@ -1347,12 +1487,14 @@ public sealed class StateMachineCompletenessTests
             int optionalSize = BinaryPrimitives.ReadUInt16LittleEndian(coff[^4..]);
             if (optionalSize is < 2 or > 1024)
             {
+                exitSite = 7;
                 return ManagedClaim.Indeterminate;
             }
 
             byte[] optional = new byte[optionalSize];
             if (stream.ReadAtLeast(optional, optionalSize, throwOnEndOfStream: false) < optionalSize)
             {
+                exitSite = 8;
                 return ManagedClaim.Indeterminate;
             }
 
@@ -1369,12 +1511,14 @@ public sealed class StateMachineCompletenessTests
 
             if (directories < 0)
             {
+                exitSite = 9;
                 return ManagedClaim.Indeterminate;
             }
 
             int cli = directories + (CliDirectoryIndex * 8);
             if (optionalSize < cli + 8)
             {
+                exitSite = 10;
                 return ManagedClaim.Indeterminate;
             }
 
@@ -1398,6 +1542,7 @@ public sealed class StateMachineCompletenessTests
             // zero, so requiring both before skipping is the direction that
             // cannot hide damage.
             ReadOnlySpan<byte> entry = optional.AsSpan(cli, 8);
+            exitSite = 12;
             return BinaryPrimitives.ReadUInt32LittleEndian(entry) != 0
                 || BinaryPrimitives.ReadUInt32LittleEndian(entry[4..]) != 0
                 ? ManagedClaim.Yes
@@ -1407,6 +1552,7 @@ public sealed class StateMachineCompletenessTests
             when (ex is IOException or UnauthorizedAccessException)
         {
             detail = ex.Message;
+            exitSite = 11;
             return ManagedClaim.Unreadable;
         }
     }
