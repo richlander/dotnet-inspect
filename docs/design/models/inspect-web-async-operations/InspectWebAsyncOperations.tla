@@ -70,6 +70,7 @@ VARIABLES
     progressAttempts,
     progressDeliveries,
     released,
+    postReleaseReportAttempted,
     publicationWasAuthorized,
     callbackObservedAfterRelease,
     producerStartedAfterPreCancel,
@@ -87,6 +88,7 @@ vars ==
       progressAttempts,
       progressDeliveries,
       released,
+      postReleaseReportAttempted,
       publicationWasAuthorized,
       callbackObservedAfterRelease,
       producerStartedAfterPreCancel,
@@ -104,6 +106,7 @@ Init ==
     /\ progressAttempts = [op \in Operations |-> 0]
     /\ progressDeliveries = [op \in Operations |-> 0]
     /\ released = [op \in Operations |-> FALSE]
+    /\ postReleaseReportAttempted = [op \in Operations |-> FALSE]
     /\ publicationWasAuthorized = TRUE
     /\ callbackObservedAfterRelease = FALSE
     /\ producerStartedAfterPreCancel = FALSE
@@ -130,6 +133,7 @@ StartFirst ==
           progressAttempts,
           progressDeliveries,
           released,
+          postReleaseReportAttempted,
           publicationWasAuthorized,
           callbackObservedAfterRelease,
           producerStartedAfterPreCancel,
@@ -163,6 +167,7 @@ StartSecond ==
           progressAttempts,
           progressDeliveries,
           released,
+          postReleaseReportAttempted,
           publicationWasAuthorized,
           callbackObservedAfterRelease,
           producerStartedAfterPreCancel,
@@ -183,6 +188,7 @@ RequestCancel(op) ==
           progressAttempts,
           progressDeliveries,
           released,
+          postReleaseReportAttempted,
           publicationWasAuthorized,
           callbackObservedAfterRelease,
           producerStartedAfterPreCancel,
@@ -197,7 +203,7 @@ BeginProducer(op) ==
              THEN [producerPhase EXCEPT ![op] = Canceled]
              ELSE [producerPhase EXCEPT ![op] = Running]
     /\ producerStartedAfterPreCancel' =
-        IF Mutation = RunCanceledBeforeStart /\ cancelRequested[op]
+        IF cancelRequested[op] /\ producerPhase'[op] = Running
         THEN TRUE
         ELSE producerStartedAfterPreCancel
     /\ UNCHANGED
@@ -211,6 +217,7 @@ BeginProducer(op) ==
           progressAttempts,
           progressDeliveries,
           released,
+          postReleaseReportAttempted,
           publicationWasAuthorized,
           callbackObservedAfterRelease,
           operationStartedAfterDispose>>
@@ -229,7 +236,8 @@ ReportProgress(op) ==
         THEN op
         ELSE visibleOperation
     /\ publicationWasAuthorized' =
-        IF Mutation = StaleProgress /\ ~HasPublicationAuthority(op)
+        IF progressDeliveries'[op] > progressDeliveries[op]
+           /\ ~HasPublicationAuthority(op)
         THEN FALSE
         ELSE publicationWasAuthorized
     /\ UNCHANGED
@@ -241,6 +249,7 @@ ReportProgress(op) ==
           cancelRequested,
           cancelForwardCount,
           released,
+          postReleaseReportAttempted,
           callbackObservedAfterRelease,
           producerStartedAfterPreCancel,
           operationStartedAfterDispose>>
@@ -277,6 +286,7 @@ CompleteSuccess(op) ==
           progressAttempts,
           progressDeliveries,
           released,
+          postReleaseReportAttempted,
           callbackObservedAfterRelease,
           producerStartedAfterPreCancel,
           operationStartedAfterDispose>>
@@ -308,6 +318,7 @@ CompleteFailure(op) ==
           progressAttempts,
           progressDeliveries,
           released,
+          postReleaseReportAttempted,
           callbackObservedAfterRelease,
           producerStartedAfterPreCancel,
           operationStartedAfterDispose>>
@@ -327,6 +338,7 @@ CompleteCanceled(op) ==
           progressAttempts,
           progressDeliveries,
           released,
+          postReleaseReportAttempted,
           publicationWasAuthorized,
           callbackObservedAfterRelease,
           producerStartedAfterPreCancel,
@@ -355,17 +367,25 @@ Release(op) ==
           cancelForwardCount,
           progressAttempts,
           progressDeliveries,
+          postReleaseReportAttempted,
           publicationWasAuthorized,
           callbackObservedAfterRelease,
           producerStartedAfterPreCancel,
           operationStartedAfterDispose>>
 
 ReportAfterRelease(op) ==
-    /\ Mutation = CallbackAfterRelease
     /\ released[op]
-    /\ ~callbackObservedAfterRelease
-    /\ callbackObservedAfterRelease' = TRUE
-    /\ progressDeliveries' = [progressDeliveries EXCEPT ![op] = @ + 1]
+    /\ ~postReleaseReportAttempted[op]
+    /\ postReleaseReportAttempted' =
+        [postReleaseReportAttempted EXCEPT ![op] = TRUE]
+    /\ progressDeliveries' =
+        IF Mutation = CallbackAfterRelease
+        THEN [progressDeliveries EXCEPT ![op] = @ + 1]
+        ELSE progressDeliveries
+    /\ callbackObservedAfterRelease' =
+        IF progressDeliveries'[op] > progressDeliveries[op]
+        THEN TRUE
+        ELSE callbackObservedAfterRelease
     /\ UNCHANGED
         <<ownerPhase,
           current,
@@ -408,6 +428,7 @@ DisposeOwner ==
           progressAttempts,
           progressDeliveries,
           released,
+          postReleaseReportAttempted,
           publicationWasAuthorized,
           callbackObservedAfterRelease,
           producerStartedAfterPreCancel,
@@ -430,6 +451,7 @@ StartSecondAfterDispose ==
           progressAttempts,
           progressDeliveries,
           released,
+          postReleaseReportAttempted,
           publicationWasAuthorized,
           callbackObservedAfterRelease,
           producerStartedAfterPreCancel>>
@@ -458,6 +480,7 @@ TypeOK ==
     /\ progressAttempts \in [Operations -> 0..MaxProgress]
     /\ progressDeliveries \in [Operations -> Nat]
     /\ released \in [Operations -> BOOLEAN]
+    /\ postReleaseReportAttempted \in [Operations -> BOOLEAN]
     /\ publicationWasAuthorized \in BOOLEAN
     /\ callbackObservedAfterRelease \in BOOLEAN
     /\ producerStartedAfterPreCancel \in BOOLEAN

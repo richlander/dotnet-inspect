@@ -87,8 +87,18 @@ The recorded run used OpenJDK 25.0.4 and TLA+ tools 1.8.0
 `tla2tools.jar` has SHA-256
 `eabd140a70f49eb9305a3bd3f3df944eddf87e5a90d329789085f8953a80533a`.
 With two operations and one progress attempt per operation, TLC generated
-4,337 states, found 1,954 distinct states, reached depth 12, and reported no
+9,017 states, found 3,917 distinct states, reached depth 14, and reported no
 error.
+
+The positive model explicitly explores a suppressed callback attempt after
+release. Its progress-authority, pre-start-cancellation, and post-release
+callback witnesses derive from the modeled delivery or producer-start event,
+not from `Mutation`. Three scratch guard-removal probes make each forbidden
+event unconditional under the positive configuration; they respectively
+violate `PublicationRequiresAuthority`,
+`CanceledBeforeStartDoesNotRun`, and `NoCallbackAfterRelease`. These probes
+gate the witness wiring but are not additional product behaviors or checked-in
+configurations.
 
 ## Counterexample mutations
 

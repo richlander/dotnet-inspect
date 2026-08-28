@@ -215,13 +215,14 @@ fails and quiesces only operations assigned to that epoch. The epoch check,
 rather than an operation-ID encoding convention, prevents a message from a
 terminated worker realm from acquiring authority in its replacement.
 
-Allocation and worker dispatch are one synchronous owner action. Worker-backed
-starts therefore reach one worker port in increasing page-sequence order,
-although main-thread-native operations can leave gaps. The owner assigns an
-operation ID to at most one worker epoch and posts at most one `Start`; retry
-creates a new operation. The worker keeps one highest-seen sequence per epoch
-and rejects a non-increasing `Start`, so completed-ID replay does not require
-per-operation tombstones.
+For worker-backed operations, allocation and placement in the worker owner's
+dispatch queue are one synchronous action. When the assigned epoch is ready,
+that action posts `Start`; while it is starting, the owner holds dispatches in
+increasing page-sequence order. Main-thread-native operations can leave gaps.
+The owner assigns an operation ID to at most one worker epoch and posts at most
+one `Start`; retry creates a new operation. The worker keeps one highest-seen
+sequence per epoch and rejects a non-increasing `Start`, so completed-ID replay
+does not require per-operation tombstones.
 
 ### Start and authority
 
@@ -230,7 +231,15 @@ Starting an operation:
 1. synchronously installs its loading state and ID;
 2. logically cancels and revokes any active predecessor;
 3. publishes the new ID as the sole authority for that feature session; and
-4. starts the owned producer, posting a start message when it is worker-backed.
+4. starts the owned producer, posting or holding a start message when it is
+   worker-backed.
+
+A held pre-readiness operation already has its ID, loading state, logical
+outcome, and worker-epoch assignment. Cancellation or supersession removes the
+held dispatch and resolves quiescence locally because no worker resource or
+producer exists; it sends no `Cancel`. `Ready` flushes only still-active held
+starts in sequence order. Startup failure fails every pending held operation,
+resolves its quiescence, and closes the epoch.
 
 The feature's producer cannot mutate UI state directly. Success, failure,
 progress, and cleanup reach the feature only through authority-checking
@@ -257,7 +266,9 @@ suppression must not become silent error suppression.
 the logical outcome, revokes publication authority, aborts owned main-thread
 work, and sends one cancellation request when the operation is worker-backed.
 An omitted reason is normalized to `"user"` before any state or transport
-transition. Later calls change nothing.
+transition. A worker cancellation request is sent only after `Start` was
+posted; a held pre-readiness start follows the local path above. Later calls
+change nothing.
 
 The worker acknowledges whether it observed the operation as queued, running,
 or not active. An acknowledgment is not proof that managed work stopped. C#
@@ -322,6 +333,7 @@ Messages are closed, versioned records.
 Main to worker:
   Start(kind, operationId, operationSequence, payload)
   Cancel(operationId, reason)
+  Probe(probeId)
 
 Worker to main:
   Ready(workerEpoch, idleHeartbeatInterval)
@@ -330,6 +342,7 @@ Worker to main:
   Accepted(operationId, bounded(maxSilentInterval) | unbounded)
   Rejected(operationId, error, diagnostic)
   Heartbeat(workerEpoch)
+  ProbeAcknowledged(probeId)
   CancelAcknowledged(operationId, queued | running | not-active)
   Progress(operationId, payload)
   Terminal(operationId,
@@ -349,15 +362,22 @@ failure; a worker that can parse an incompatible inbound envelope reports
 `WorkerFailure`. Both paths terminate the incompatible realm and close the
 epoch.
 
-After readiness, invalid operation IDs, unsafe or non-increasing
-`operationSequence` values, active duplicate IDs, unknown operation kinds, and
-invalid payloads produce `Rejected` without invoking managed code. A valid
-increasing sequence is consumed even when a later kind or payload check rejects
-the start, so retry requires a new operation. `Rejected` is the operation's
-pre-admission terminal path: it supplies a failed outcome and proves that no
-producer or operation-scoped worker resource exists, so `quiesced` resolves.
-The main-thread record remains only when it must still consume an
-acknowledgment for a `Cancel` sent before rejection arrived.
+After readiness, invalid never-accepted operation IDs, unsafe or
+non-increasing `operationSequence` values, unknown operation kinds, and invalid
+payloads produce `Rejected` without invoking managed code. A valid increasing
+sequence is consumed even when a later kind or payload check rejects the start,
+so retry requires a new operation. An ID that already has an active accepted
+record is ambiguous rather than rejectable; it reports `WorkerFailure` and
+closes the epoch.
+
+`Rejected` is a never-accepted operation's pre-admission terminal path. When
+the logical outcome is still pending, it supplies the failed outcome. When
+cancellation, supersession, or disposal already completed the outcome, that
+outcome remains authoritative and the rejection goes to the diagnostic sink.
+In both cases rejection proves that no producer or operation-scoped worker
+resource exists, so `quiesced` resolves. The main-thread record remains only
+when it must still consume an acknowledgment for a `Cancel` sent before
+rejection arrived.
 
 For an accepted `Start`, the worker validates the operation ID, numeric
 sequence, kind, and payload; installs the queued record; advances its sequence
@@ -369,14 +389,15 @@ and the advertised maximum silent interval for worker-level liveness
 accounting, and rejects an interval that does not match the registered policy
 for that operation kind.
 
-Unknown message kinds and repeated terminal messages are explicit protocol
-failures. The operation owner gates the complementary cross-epoch property:
-one operation ID and sequence pair is assigned and dispatched at most once. A
-`Cancel` race is the sole unknown-operation exception: `not-active` says that
-no queued or running producer received the request. The main thread accepts
-that acknowledgment only when it has observed, or subsequently observes,
-either `Rejected` or the operation's terminal and quiesced messages. It is
-never interpreted as successful physical cancellation.
+Unknown message kinds, ambiguous active duplicates, and repeated terminal
+messages are epoch-level protocol failures. The operation owner gates the
+complementary cross-epoch property: one operation ID and sequence pair is
+assigned and dispatched at most once. A `Cancel` race is the sole
+unknown-operation exception: `not-active` says that no queued or running
+producer received the request. The main thread accepts that acknowledgment only
+when it has observed, or subsequently observes, either `Rejected` or the
+operation's terminal and quiesced messages. It is never interpreted as
+successful physical cancellation.
 
 The main-thread owner records whether it sent `Cancel` and retains the protocol
 record until it has received either `Rejected` or both `Terminal` and
@@ -438,28 +459,38 @@ never shrinks that allowance. Each valid liveness message renews that epoch
 deadline from its receipt. Silence cannot justify automatic termination while
 any accepted operation or epoch-work lease is `unbounded`.
 
-An epoch watchdog may terminate the worker only after the current epoch
-allowance expires without a valid liveness message. This is a worker-level
-lease violation, not an operation timeout. A bounded advertisement requires a
-real-browser gate measuring that operation kind's maximum silent worker
-occupancy in `inspect-web-async-browser`. Otherwise the operation must advertise
-`unbounded`, and hard termination remains an explicit whole-runtime recovery
-choice that reports the loss of in-flight work and worker-local caches.
+Expiry never terminates the worker on the watchdog task that first observes it.
+The owner enters a suspect state, posts `Probe`, and rebases one full current
+epoch allowance from that send. Any valid worker message, including the matching
+`ProbeAcknowledged`, clears suspicion. Termination is eligible only when that
+post-probe allowance expires without liveness while the main-loop cadence
+monitor shows no local scheduling gap beyond tolerance. A late watchdog task or
+other main-loop discontinuity rebases the allowance and requires a new probe
+rather than judging already-queued worker messages.
+
+This two-stage expiry is a worker-level lease violation, not an operation
+timeout. A bounded advertisement requires a real-browser gate measuring that
+operation kind's maximum silent worker occupancy in
+`inspect-web-async-browser`. Otherwise the operation must advertise `unbounded`,
+and hard termination remains an explicit whole-runtime recovery choice that
+reports the loss of in-flight work and worker-local caches.
 
 Watchdog time does not accrue while the document is hidden, frozen, in the
 back-forward cache, or otherwise lifecycle-suspended. The lifecycle handler
 suspends evaluation before background timer throttling can be mistaken for
 worker silence. On resume, it rebases the full current startup, idle, accepted,
-and epoch-work allowance from the resume time. Automatic termination is not
-eligible until that complete post-resume allowance elapses without a fresh
-valid liveness message.
+and epoch-work allowance from the resume time and requires a new probe.
+Automatic termination is not eligible until that complete post-resume allowance
+elapses without a fresh valid liveness message and the main loop remains
+continuously schedulable.
 
 A worker startup failure is terminal for that worker epoch. The main thread
-fails every operation assigned to it, revokes the epoch, and may create a new
-worker under explicit retry policy. Main-thread-native operations remain owned
-by their producers and are not failed merely because the worker changed. A
-worker crash or hard termination loses runtime-owned caches and in-flight
-physical work; messages from the old epoch remain stale.
+fails every operation assigned to it, including held pre-readiness starts,
+revokes the epoch, and may create a new worker under explicit retry policy.
+Main-thread-native operations remain owned by their producers and are not
+failed merely because the worker changed. A worker crash or hard termination
+loses runtime-owned caches and in-flight physical work; messages from the old
+epoch remain stale.
 
 Closing an epoch also resolves every outstanding `quiesced` promise assigned to
 that epoch. Realm destruction is the physical release boundary for its managed
@@ -552,6 +583,23 @@ The current .NET 11 toolchain rejects
 tracks that unsupported shape and its JS thread-affinity problem. This design
 does not depend on it.
 
+Epoch-work lifecycle uses a separate broker-scoped callback contract, not the
+operation progress delegate. The worker registers one synchronous epoch
+reporter with the managed browser host after facade initialization. A managed
+broker invokes `started(workId, allowance)` before an outliving producer's last
+operation wrapper returns and invokes `finished(workId)` from that producer's
+`finally`. The worker translates those calls to `EpochWorkStarted` and
+`EpochWorkFinished`, rejects duplicate or unmatched work IDs, and removes each
+finished lease. Normal epoch shutdown unregisters and releases the reporter;
+hard termination releases it with the worker realm. The managed host never
+retains it across epochs.
+
+This contract depends on the authenticated synchronous-delegate support owned
+by [#5005](https://github.com/richlander/dotnet-inspect/issues/5005). Its gate
+must prove that the epoch reporter may outlive one operation callback, that
+producer `finally` ends each work lease, and that normal shutdown or realm
+destruction prevents later invocation.
+
 Shared physical work needs a broker rather than one caller owning its progress
 delegate. Package acquisition, for example, can fan one producer's progress
 out to every still-authorized operation waiting on that package coordinate. A
@@ -638,22 +686,26 @@ Adoption is incremental:
    one cached CPU-heavy query and one network acquisition through typed
    messages, including the managed terminal-result envelope. This temporary
    canary does not become the production facade.
-3. Land the base `ts-jsexport` TypeScript module and its separately owned
-   inspect-web consumer migration from
-   [#4792](https://github.com/richlander/dotnet-inspect/issues/4792). Before
+3. Land the base `ts-jsexport` TypeScript module and the production inspect-web
+   consumer migration owned by
+   [#5003](https://github.com/richlander/dotnet-inspect/issues/5003). Before
    production worker adoption, that facade must avoid `window` and DOM state,
    accept host configuration explicitly, keep entry-point execution explicit,
-   and publish neither the raw runtime nor raw exports.
-4. Move the worker-safe generated facade initialization and engine invocation
+   and publish neither the raw runtime nor raw exports. The lowering-parity
+   canary in [#4792](https://github.com/richlander/dotnet-inspect/issues/4792)
+   remains separate evidence, not the production migration.
+4. Land authenticated synchronous-delegate support from
+   [#5005](https://github.com/richlander/dotnet-inspect/issues/5005) and its
+   broker-scoped epoch-reporter canary.
+5. Move the worker-safe generated facade initialization and engine invocation
    into one long-lived worker. Keep package/workspace caches worker-local.
-5. Replace feature generation and request-ID checks with the shared authority
+6. Replace feature generation and request-ID checks with the shared authority
    owner, preserving feature rendering, errors, retry, and queueing.
-6. Replace singleton source cancellation with operation IDs, the managed
+7. Replace singleton source cancellation with operation IDs, the managed
    registry, and explicit queued and invoked cancellation settlement.
-7. Land separately owned `ILInspector.JsExportSurface` and `ts-jsexport`
-   support for authenticated synchronous delegate parameters, then add coarse
-   source progress as its first real-consumer canary.
-8. Add progress or cancellation checkpoints to other operations only with
+8. Add coarse source progress as the first operation-scoped consumer of the
+   delegate support.
+9. Add progress or cancellation checkpoints to other operations only with
    measured user value and focused gates.
 
 `spotlight-package-search.ts` may continue to use main-thread browser `fetch`;
@@ -701,24 +753,27 @@ These gates are design requirements and do not yet exist:
   concurrent feature-session ID uniqueness, worker-independent logical IDs,
   at-most-once assignment, explicit safe-integer sequence ordering and
   exhaustion, replay after record removal, duplicate/unknown IDs, readiness,
-  accepted-versus-rejected start closure, payload-bearing terminal variants,
-  queued cancellation settlement, bare-cancel reason normalization,
-  outstanding-acknowledgment races, settlement deadlines that cannot terminate
-  an epoch, startup, idle, accepted-operation, and epoch-work leases, bounded
-  and unbounded liveness, busy-versus-wedged discrimination, shared-waiter
-  quiescence, record release, crash, restart, main-thread-operation isolation,
-  and stale-message tests;
+  held pre-readiness start, cancellation, supersession, and startup-failure
+  closure, accepted-versus-rejected start closure, active-duplicate epoch
+  failure, payload-bearing terminal variants, queued cancellation settlement,
+  bare-cancel reason normalization, outstanding-acknowledgment races,
+  settlement deadlines that cannot terminate an epoch, startup, idle,
+  accepted-operation, and epoch-work leases, bounded and unbounded liveness,
+  probe and main-loop-discontinuity handling, busy-versus-wedged
+  discrimination, shared-waiter quiescence, record release, crash, restart,
+  main-thread-operation isolation, and stale-message tests;
 - `inspect-web-async-interop`: compiled and browser-executed typed managed
   result classification before Task/Promise projection, Promise-rejection
-  failure handling, authenticated synchronous delegates, delegate release,
-  cancellation-registry behavior, and `Func<Task>` negative
-  characterizations;
+  failure handling, authenticated operation- and epoch-scoped synchronous
+  delegates, broker lease start, finish, and release, cancellation-registry
+  behavior, and `Func<Task>` negative characterizations;
 - `inspect-web-async-browser`: a real browser heartbeat and paint canary while
   a pinned managed CPU operation runs, measured maximum silent occupancy for
   every bounded operation kind, a shorter sibling that cannot terminate a
   healthy busy worker, cold and warm readiness, idle and broker-owned work,
-  hide, freeze, resume, and back-forward-cache transitions, plus progress,
-  cancellation, supersession, and worker-restart scenarios; and
+  hide, freeze, resume, back-forward-cache transitions, an overdue watchdog
+  task, and a long main-thread task with already-queued worker messages, plus
+  progress, cancellation, supersession, and worker-restart scenarios; and
 - `inspect-web-async-performance`: pinned interpreter and AOT measurements for
   worker startup, first operation, cached operation, message payload transfer,
   and peak memory.

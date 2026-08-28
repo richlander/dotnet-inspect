@@ -687,10 +687,18 @@ entry-point invocation, build ordering, availability of the SDK-owned
 `dotnet.d.ts`, stale-output checks, and publication. This document supplies the
 TypeScript module handoff but does not decide those consumer contracts.
 
-Issue #4792 records the required real-consumer async canary as independently
-reviewable inspect-web work. This design consumes its end-to-end result without
-restating or owning the consumer's build graph, runtime selection, canary
-operation, or browser-smoke policy.
+Issue [#5003](https://github.com/richlander/dotnet-inspect/issues/5003) owns
+that production inspect-web consumer migration. It is distinct from issue
+[#4792](https://github.com/richlander/dotnet-inspect/issues/4792), which records
+the required real-consumer async-lowering canary as
+independently reviewable inspect-web work. This design consumes both results
+without moving consumer build, deployment, or browser-smoke policy into the
+generator.
+
+Issue [#5005](https://github.com/richlander/dotnet-inspect/issues/5005)
+separately owns authenticated synchronous delegate parameters and their exact
+TypeScript function types. Unsupported delegates continue to fail publication
+until that prerequisite lands.
 
 Issue #4842 separately records the multi-assembly browser canary. It proves
 that two generated facade modules attach to one consumer-coordinated runtime
