@@ -1155,6 +1155,8 @@ that race in the same files. `docs/stacked-prs.md` owns the mechanics.
 - Restacking your own slices is the exception to the no-force-push rule. Use
   `--force-with-lease` and post a `range-diff` proving only the base changed.
 - Apply review depth and the canonical eligibility table per slice and
-  stack-wide. Every moved head needs a review-clean round; restacking never
-  retires findings.
+  stack-wide. Every upper-slice restack and every other moved head needs a
+  review-clean round. The sole exception is a bottom open slice with a
+  user-approved exact-head trivial-interaction waiver; restacking never retires
+  findings.
 - Stop when another slice would exist only to continue the stack.
