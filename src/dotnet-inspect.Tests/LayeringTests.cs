@@ -337,13 +337,6 @@ public sealed class LayeringTests
             "ILInspector.MetadataPrimitives",
             "ILInspector.MetadataPrimitives.csproj");
         var sources = EvaluatedSources(project);
-        string[] tableLayoutReaders = sources
-            .Where(file =>
-                CallsMethod(file.Source, "GetTableMetadataOffset")
-                || CallsMethod(file.Source, "GetTableRowSize"))
-            .Select(file => file.Name)
-            .Order(StringComparer.Ordinal)
-            .ToArray();
         string reader = Assert.Single(
             sources,
             file => file.Name
@@ -353,10 +346,23 @@ public sealed class LayeringTests
                 System.Reflection.BindingFlags.Public
                 | System.Reflection.BindingFlags.Static
                 | System.Reflection.BindingFlags.DeclaredOnly));
+        MetadataLayoutCall[] layoutCalls = MetadataLayoutCalls();
 
         Assert.Equal(
-            [$"{nameof(MethodSemanticsRowReader)}.cs"],
-            tableLayoutReaders);
+            ["GetTableMetadataOffset", "GetTableRowSize"],
+            layoutCalls
+                .Select(call => call.Api)
+                .Order(StringComparer.Ordinal));
+        Assert.All(
+            layoutCalls,
+            call =>
+            {
+                Assert.Equal(
+                    "ILInspector.MetadataPrimitives.MethodSemanticsRowReader",
+                    call.CallerType);
+                Assert.Equal(ILOpCode.Call, call.OpCode);
+                Assert.Equal(TableIndex.MethodSemantics, call.Table);
+            });
         Assert.Contains("TableIndex.MethodSemantics", reader);
         Assert.DoesNotContain("TableIndex table", reader);
         Assert.DoesNotContain("TableIndex tableIndex", reader);
@@ -380,10 +386,12 @@ public sealed class LayeringTests
             type => Assert.Equal(
                 "ILInspector.MetadataPrimitives",
                 type.Namespace));
-        Type[] exportedTypes =
-            typeof(MethodSemanticsRowReader).Assembly.ExportedTypes.ToArray();
+        Type[] apiTypes = typeof(MethodSemanticsRowReader).Assembly
+            .GetTypes()
+            .Where(IsExternallyVisible)
+            .ToArray();
         Assert.DoesNotContain(
-            exportedTypes.SelectMany(PublicSignatureTypes),
+            apiTypes.SelectMany(ExternallyVisibleSignatureTypes),
             type => ContainsSignatureType(type, typeof(TableIndex)));
         Type[] forbiddenRetention =
         [
@@ -392,27 +400,42 @@ public sealed class LayeringTests
             typeof(PEMemoryBlock),
             typeof(BlobReader),
         ];
-        Type[] methodSemanticsTypes = exportedTypes
+        Type[] methodSemanticsTypes = typeof(MethodSemanticsRowReader).Assembly
+            .GetTypes()
             .Where(type => type.FullName?.StartsWith(
                 "ILInspector.MetadataPrimitives.MethodSemantics",
                 StringComparison.Ordinal) is true)
             .ToArray();
-        Assert.Contains(
-            typeof(MethodSemanticsReadResult.Success),
-            methodSemanticsTypes);
-        Assert.Contains(
-            typeof(MethodSemanticsReadResult.MalformedInput),
-            methodSemanticsTypes);
+        Type[] resultVariants = typeof(MethodSemanticsReadResult).GetNestedTypes(
+            System.Reflection.BindingFlags.Public
+            | System.Reflection.BindingFlags.NonPublic);
+        Assert.Equal(
+            [
+                nameof(MethodSemanticsReadResult.MalformedInput),
+                nameof(MethodSemanticsReadResult.NoMetadata),
+                nameof(MethodSemanticsReadResult.RetainedAssociationBudgetExceeded),
+                nameof(MethodSemanticsReadResult.Success),
+                nameof(MethodSemanticsReadResult.UnsupportedWindowsMetadata),
+            ],
+            resultVariants
+                .Select(type => type.Name)
+                .Order(StringComparer.Ordinal));
+        Assert.All(
+            resultVariants,
+            variant => Assert.Contains(variant, methodSemanticsTypes));
         Assert.DoesNotContain(
             methodSemanticsTypes
                 .SelectMany(type => type.GetFields(
                     System.Reflection.BindingFlags.Public
                     | System.Reflection.BindingFlags.NonPublic
-                    | System.Reflection.BindingFlags.Instance)),
-            field => forbiddenRetention.Any(
-                forbidden => ContainsSignatureType(
-                    field.FieldType,
-                    forbidden)));
+                    | System.Reflection.BindingFlags.Instance
+                    | System.Reflection.BindingFlags.Static
+                    | System.Reflection.BindingFlags.DeclaredOnly)),
+            field => ContainsPointerShaped(field.FieldType)
+                || forbiddenRetention.Any(
+                    forbidden => ContainsSignatureType(
+                        field.FieldType,
+                        forbidden)));
     }
 
     [Fact]
@@ -495,10 +518,148 @@ public sealed class LayeringTests
             $@"\b{System.Text.RegularExpressions.Regex.Escape(method)}\s*\(",
             System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
-    private static IEnumerable<Type> PublicSignatureTypes(Type type)
+    private sealed record MetadataLayoutCall(
+        string CallerType,
+        string Api,
+        ILOpCode OpCode,
+        TableIndex? Table);
+
+    private static MetadataLayoutCall[] MetadataLayoutCalls()
     {
-        const System.Reflection.BindingFlags DeclaredPublic =
+        using var stream = File.OpenRead(
+            typeof(MethodSemanticsRowReader).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        MetadataReader metadata = peReader.GetMetadataReader();
+        List<MetadataLayoutCall> calls = [];
+
+        foreach (TypeDefinitionHandle typeHandle in metadata.TypeDefinitions)
+        {
+            TypeDefinition type = metadata.GetTypeDefinition(typeHandle);
+            string typeNamespace = metadata.GetString(type.Namespace);
+            string typeName = metadata.GetString(type.Name);
+            string qualifiedType = string.IsNullOrEmpty(typeNamespace)
+                ? typeName
+                : $"{typeNamespace}.{typeName}";
+
+            foreach (MethodDefinitionHandle methodHandle in type.GetMethods())
+            {
+                MethodDefinition method =
+                    metadata.GetMethodDefinition(methodHandle);
+                if (method.RelativeVirtualAddress == 0)
+                    continue;
+
+                MethodInstructions body = MethodInstructions.Decode(
+                    peReader.GetMethodBody(method.RelativeVirtualAddress));
+                Assert.True(
+                    body.IsComplete,
+                    $"Could not inspect {qualifiedType}."
+                        + metadata.GetString(method.Name));
+                for (int index = 0; index < body.Instructions.Length; index++)
+                {
+                    DecodedInstruction instruction = body.Instructions[index];
+                    if (instruction.Operand != OperandKind.InlineMethod
+                        || LayoutApi(
+                            metadata,
+                            checked((int)instruction.OperandValue))
+                            is not { } api)
+                    {
+                        continue;
+                    }
+
+                    TableIndex? table = instruction.OpCode == ILOpCode.Call
+                        && index > 0
+                        && TryGetInt32Constant(
+                            body.Instructions[index - 1],
+                            out int value)
+                            ? (TableIndex)value
+                            : null;
+                    calls.Add(
+                        new MetadataLayoutCall(
+                            qualifiedType,
+                            api,
+                            instruction.OpCode,
+                            table));
+                }
+            }
+        }
+
+        return [.. calls];
+    }
+
+    private static string? LayoutApi(
+        MetadataReader metadata,
+        int token)
+    {
+        EntityHandle handle = MetadataTokens.EntityHandle(token);
+        if (handle.Kind != HandleKind.MemberReference)
+            return null;
+
+        MemberReference member = metadata.GetMemberReference(
+            (MemberReferenceHandle)handle);
+        if (member.Parent.Kind != HandleKind.TypeReference)
+            return null;
+
+        TypeReference type = metadata.GetTypeReference(
+            (TypeReferenceHandle)member.Parent);
+        if (!metadata.StringComparer.Equals(
+                type.Namespace,
+                "System.Reflection.Metadata.Ecma335")
+            || !metadata.StringComparer.Equals(
+                type.Name,
+                "MetadataReaderExtensions"))
+        {
+            return null;
+        }
+
+        string name = metadata.GetString(member.Name);
+        return name is "GetTableMetadataOffset" or "GetTableRowSize"
+            ? name
+            : null;
+    }
+
+    private static bool TryGetInt32Constant(
+        DecodedInstruction instruction,
+        out int value)
+    {
+        if (instruction.OpCode is >= ILOpCode.Ldc_i4_0
+            and <= ILOpCode.Ldc_i4_8)
+        {
+            value = (int)instruction.OpCode - (int)ILOpCode.Ldc_i4_0;
+            return true;
+        }
+
+        switch (instruction.OpCode)
+        {
+            case ILOpCode.Ldc_i4_m1:
+                value = -1;
+                return true;
+            case ILOpCode.Ldc_i4_s:
+            case ILOpCode.Ldc_i4:
+                value = checked((int)instruction.OperandValue);
+                return true;
+            default:
+                value = 0;
+                return false;
+        }
+    }
+
+    private static bool IsExternallyVisible(Type type)
+    {
+        if (!type.IsNested)
+            return type.IsPublic;
+
+        return type.DeclaringType is not null
+            && IsExternallyVisible(type.DeclaringType)
+            && (type.IsNestedPublic
+                || type.IsNestedFamily
+                || type.IsNestedFamORAssem);
+    }
+
+    private static IEnumerable<Type> ExternallyVisibleSignatureTypes(Type type)
+    {
+        const System.Reflection.BindingFlags Declared =
             System.Reflection.BindingFlags.Public
+            | System.Reflection.BindingFlags.NonPublic
             | System.Reflection.BindingFlags.Instance
             | System.Reflection.BindingFlags.Static
             | System.Reflection.BindingFlags.DeclaredOnly;
@@ -516,7 +677,8 @@ public sealed class LayeringTests
                 yield return constraint;
         }
 
-        foreach (System.Reflection.MethodInfo method in type.GetMethods(DeclaredPublic))
+        foreach (System.Reflection.MethodInfo method in type.GetMethods(Declared)
+            .Where(IsExternallyVisible))
         {
             yield return method.ReturnType;
             foreach (System.Reflection.ParameterInfo parameter in method.GetParameters())
@@ -530,7 +692,8 @@ public sealed class LayeringTests
         }
 
         foreach (System.Reflection.ConstructorInfo constructor
-            in type.GetConstructors(DeclaredPublic))
+            in type.GetConstructors(Declared)
+                .Where(IsExternallyVisible))
         {
             foreach (System.Reflection.ParameterInfo parameter
                 in constructor.GetParameters())
@@ -540,7 +703,9 @@ public sealed class LayeringTests
         }
 
         foreach (System.Reflection.PropertyInfo property
-            in type.GetProperties(DeclaredPublic))
+            in type.GetProperties(Declared)
+                .Where(property => property.GetAccessors(nonPublic: true)
+                    .Any(IsExternallyVisible)))
         {
             yield return property.PropertyType;
             foreach (System.Reflection.ParameterInfo parameter
@@ -550,14 +715,52 @@ public sealed class LayeringTests
             }
         }
 
-        foreach (System.Reflection.FieldInfo field in type.GetFields(DeclaredPublic))
+        foreach (System.Reflection.FieldInfo field in type.GetFields(Declared)
+            .Where(IsExternallyVisible))
             yield return field.FieldType;
 
-        foreach (System.Reflection.EventInfo eventInfo in type.GetEvents(DeclaredPublic))
+        foreach (System.Reflection.EventInfo eventInfo in type.GetEvents(Declared)
+            .Where(eventInfo => new[]
+                {
+                    eventInfo.GetAddMethod(nonPublic: true),
+                    eventInfo.GetRemoveMethod(nonPublic: true),
+                    eventInfo.GetRaiseMethod(nonPublic: true),
+                }
+                .Any(method => method is not null
+                    && IsExternallyVisible(method))))
         {
             if (eventInfo.EventHandlerType is not null)
                 yield return eventInfo.EventHandlerType;
         }
+    }
+
+    private static bool IsExternallyVisible(
+        System.Reflection.MethodBase method) =>
+        method.IsPublic || method.IsFamily || method.IsFamilyOrAssembly;
+
+    private static bool IsExternallyVisible(
+        System.Reflection.FieldInfo field) =>
+        field.IsPublic || field.IsFamily || field.IsFamilyOrAssembly;
+
+    private static bool ContainsPointerShaped(Type type)
+    {
+        if (type == typeof(IntPtr)
+            || type == typeof(UIntPtr)
+            || type.IsPointer
+            || type.IsFunctionPointer)
+        {
+            return true;
+        }
+
+        if (type.HasElementType
+            && type.GetElementType() is { } elementType
+            && ContainsPointerShaped(elementType))
+        {
+            return true;
+        }
+
+        return type.IsGenericType
+            && type.GetGenericArguments().Any(ContainsPointerShaped);
     }
 
     private static bool ContainsSignatureType(Type type, Type expected)

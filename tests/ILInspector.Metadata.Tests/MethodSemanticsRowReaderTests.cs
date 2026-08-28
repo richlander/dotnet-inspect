@@ -51,7 +51,7 @@ public sealed class MethodSemanticsRowReaderTests
         RawSemanticsRow[] expected =
         [
             new(1, MethodSemanticsAssociationKind.Property, 1, 0),
-            new(2, MethodSemanticsAssociationKind.Property, 1, 0x40),
+            new(2, MethodSemanticsAssociationKind.Property, 1, 0x8040),
             new(3, MethodSemanticsAssociationKind.Property, 1, 0x03),
             new(4, MethodSemanticsAssociationKind.Property, 1, 0x02),
             new(5, MethodSemanticsAssociationKind.Property, 1, 0x02),
