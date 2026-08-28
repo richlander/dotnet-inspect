@@ -181,7 +181,9 @@ try
     // SharedOptions.AddOutputOptionsTo against the real System.CommandLine parse (so it
     // covers =-syntax and concatenated forms the arg-preprocessor token scan misses),
     // which is why no --rows gate remains here.
-    var rowLimitMode = args.Any(a => a == "--rows" || a.StartsWith("--rows=", StringComparison.Ordinal));
+    var rowLimitMode = args
+        .TakeWhile(a => a != "--")
+        .Any(a => a == "--rows" || a.StartsWith("--rows=", StringComparison.Ordinal));
 
     if (CommandLineBuilder.TryGetStaleArgumentError(args, out var staleArgumentError))
     {

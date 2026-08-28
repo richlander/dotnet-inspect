@@ -296,11 +296,12 @@ public static class ArgumentPreprocessor
         string optionName = precedingToken.Split('=', 2)[0];
         return !precedingToken.Contains('=', StringComparison.Ordinal)
             && OptionsWithFollowingValue.Contains(optionName)
-            && !IsOptionWithOptionalFollowingValue(args, optionName);
+            && !IsOptionWithOptionalFollowingValue(args, index - 1, optionName);
     }
 
     private static bool IsOptionWithOptionalFollowingValue(
         string[] args,
+        int optionIndex,
         string optionName)
     {
         if (OptionsWithOptionalFollowingValue.Contains(optionName))
@@ -309,11 +310,46 @@ public static class ArgumentPreprocessor
         if (!PackageOptionsWithOptionalFollowingValue.Contains(optionName))
             return false;
 
-        string? explicitCommand = args.FirstOrDefault(
-            token => !token.StartsWith('-') && KnownCommands.Contains(token));
+        string? explicitCommand = FindExplicitCommand(args, optionIndex);
         return explicitCommand is null
             || explicitCommand.Equals("package", StringComparison.OrdinalIgnoreCase)
             || explicitCommand.Equals("router", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? FindExplicitCommand(string[] args, int end)
+    {
+        for (var i = 0; i < end; i++)
+        {
+            string token = args[i];
+            if (token == "--")
+                break;
+
+            if (!token.StartsWith('-'))
+                return KnownCommands.Contains(token) ? token : null;
+
+            if (token.Contains('=', StringComparison.Ordinal))
+                continue;
+
+            if (token is "--head" or "--tail"
+                && i + 1 < end
+                && bool.TryParse(args[i + 1], out _))
+            {
+                i++;
+                continue;
+            }
+
+            string optionName = token.Split('=', 2)[0];
+            if (!OptionsWithFollowingValue.Contains(optionName) || i + 1 >= end)
+                continue;
+
+            bool optional =
+                OptionsWithOptionalFollowingValue.Contains(optionName)
+                || PackageOptionsWithOptionalFollowingValue.Contains(optionName);
+            if (!optional || !args[i + 1].StartsWith('-'))
+                i++;
+        }
+
+        return null;
     }
 
     private static readonly string[] SelectAliases = ["-S", "-s", "--select", "--section"];
@@ -348,7 +384,8 @@ public static class ArgumentPreprocessor
         "--min-confidence", "--triage-shape", "--top", "--session",
         "--package-prefix", "--depth", "-n", "--rows", "--source",
         "--add-source", "--nugetconfig", "--columns", "--fields", "-v", "-T",
-        "--tips", "-S", "-s", "--select", "--section", "-D", "--discover"
+        "--tips", "-S", "-s", "--select", "--section", "-D", "--discover",
+        "--at", "--file", "--finding", "--readme", "--relationship", "--repo"
     };
     internal const string EscapedAtCategoryPrefix = "__dotnet_inspect_at__";
 

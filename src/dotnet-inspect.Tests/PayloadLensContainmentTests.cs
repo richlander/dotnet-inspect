@@ -89,6 +89,17 @@ public class PayloadLensContainmentTests : IDisposable
     }
 
     [Fact]
+    public void ChildCli_LineLimitIgnoresRowsLiteralAfterOptionTerminator()
+    {
+        var (output, error) = RunCliCore(
+            ["package", "--help", "-n1", "--", "--rows"]);
+
+        Assert.Empty(error);
+        Assert.Single(
+            output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    [Fact]
     public void ReadmeLens_VisuallyEncodesThePayloadOnStdout()
     {
         using var package = HostilePackage.Create();

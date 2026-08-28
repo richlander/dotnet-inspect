@@ -29124,6 +29124,31 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Fact]
+    public async Task PackageContentStdout_NormalizesRenderedLineEndings()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Projection.ContentNewlines",
+            "README.md",
+            "first\nsecond");
+        try
+        {
+            var result = await RunAppAsync(
+                "package", packagePath,
+                "--content", "--path", "README.md",
+                "--tips", "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.DoesNotContain('\r', result.Output);
+            Assert.EndsWith("\n", result.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData("Signed")]
     [InlineData("Sign*")]

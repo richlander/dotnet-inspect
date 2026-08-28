@@ -3518,10 +3518,7 @@ public class PackageCommand
             ? RenderPackageFileContentJsonl(textRows)
             : RenderPackageFileContentBlocks(textRows);
 
-        if (ProjectionDestinationWriter.IsFile(destination))
-            ProjectionDestinationWriter.WriteText(destination, output);
-        else
-            Console.Write(output);
+        ProjectionDestinationWriter.WriteText(destination, output);
 
         return 0;
     }

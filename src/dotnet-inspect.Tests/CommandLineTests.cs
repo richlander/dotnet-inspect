@@ -729,6 +729,28 @@ public class CommandLineTests
         Assert.Null(CommandLineBuilder.TailLines);
     }
 
+    [Fact]
+    public void PreprocessArgs_RequiredProjectReadmeValueCanResembleLineLimit()
+    {
+        CommandLineBuilder.PreprocessArgs(
+            ["project", "--readme", "-n1", "--help"]);
+
+        Assert.Null(CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
+    }
+
+    [Fact]
+    public void PreprocessArgs_CommandLikeValuesDoNotChangeImplicitPackageContext()
+    {
+        CommandLineBuilder.PreprocessArgs(
+            ["--source", "api", "Foo.nupkg", "--path", "-n1"]);
+        Assert.Equal(1, CommandLineBuilder.HeadLines);
+
+        CommandLineBuilder.PreprocessArgs(
+            ["Foo", "--path", "-n1", "-t", "project"]);
+        Assert.Equal(1, CommandLineBuilder.HeadLines);
+    }
+
     [Theory]
     [InlineData("--out", "-n1")]
     [InlineData("--output", "-n1")]
