@@ -791,6 +791,201 @@ public class IlToolsActivationTests
     }
 
     [Fact]
+    public void WindowsPrWorkflow_MapsEachSelectorToOneFocusedSuite()
+    {
+        string workflow = File.ReadAllText(
+            Path.Combine(RepoRoot, ".github", "workflows", "windows-pr.yml"))
+            .ReplaceLineEndings("\n");
+
+        Assert.Contains("name: Windows PR Validation", workflow);
+        Assert.Contains("default: queries", workflow);
+        Assert.Contains("runs-on: windows-latest", workflow);
+        Assert.Contains(
+            "      target_ref:\n" +
+            "        description: 'Branch, tag, SHA, or " +
+            "refs/pull/<number>/head to validate'\n" +
+            "        required: true\n" +
+            "        type: string",
+            workflow);
+        Assert.Contains(
+            "group: windows-pr-${{ inputs.target_ref }}-${{ inputs.suite }}",
+            workflow);
+        Assert.Contains(
+            "      - uses: actions/checkout@v6\n" +
+            "        with:\n" +
+            "          ref: ${{ inputs.target_ref }}",
+            workflow);
+        Assert.Equal(
+            1,
+            workflow.Split(
+                "uses: actions/checkout@v6",
+                StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("\n  schedule:", workflow);
+        Assert.DoesNotContain("platform-test", workflow);
+        Assert.Contains(
+            "run: dotnet build dotnet-inspect.slnx -c Release",
+            workflow);
+
+        (string Suite, string Command)[] suites =
+        [
+            (
+                "queries",
+                "dotnet run --project " +
+                "src/DotnetInspector.Queries.Tests -c Release"),
+            (
+                "cli",
+                "dotnet run --project src/dotnet-inspect.Tests -c Release -- " +
+                "-trait- \"Speed=Slow\""),
+            (
+                "services",
+                "dotnet run --project " +
+                "src/DotnetInspector.Services.Tests -c Release"),
+            (
+                "analysis",
+                "dotnet run --project src/ILInspector.Analysis.Tests " +
+                "-c Release -- -trait- \"Speed=Slow\""),
+            (
+                "decompiler",
+                "dotnet run --project src/ILInspector.Decompiler.Tests " +
+                "-c Release -- -trait- \"Speed=Slow\""),
+            (
+                "metadata",
+                "dotnet run --project tests/ILInspector.Metadata.Tests " +
+                "-c Release"),
+        ];
+        Assert.Contains(
+            "        options:\n" +
+            "          - queries\n" +
+            "          - cli\n" +
+            "          - services\n" +
+            "          - analysis\n" +
+            "          - decompiler\n" +
+            "          - metadata\n\n" +
+            "permissions:",
+            workflow);
+
+        foreach ((string suite, string command) in suites)
+        {
+            Assert.Contains($"          - {suite}", workflow);
+            Assert.Contains(
+                $"if: inputs.suite == '{suite}'\n        run: {command}",
+                workflow);
+        }
+
+        foreach (string suite in new[]
+        {
+            "cli",
+            "metadata",
+        })
+        {
+            Assert.Equal(
+                3,
+                workflow.Split(
+                    $"inputs.suite == '{suite}'",
+                    StringSplitOptions.None).Length - 1);
+        }
+
+        foreach (string suite in new[]
+        {
+            "queries",
+            "services",
+            "analysis",
+            "decompiler",
+        })
+        {
+            Assert.Equal(
+                1,
+                workflow.Split(
+                    $"inputs.suite == '{suite}'",
+                    StringSplitOptions.None).Length - 1);
+        }
+
+        int checkout = workflow.IndexOf(
+            "- uses: actions/checkout@v6",
+            StringComparison.Ordinal);
+        int build = workflow.IndexOf("- name: Build", StringComparison.Ordinal);
+        int install = workflow.IndexOf(
+            "- name: Install ilasm/ildasm/mdv",
+            StringComparison.Ordinal);
+        int firstSuite = workflow.IndexOf(
+            "- name: Run query tests",
+            StringComparison.Ordinal);
+        int lastSuite = workflow.IndexOf(
+            "- name: Run metadata tests",
+            StringComparison.Ordinal);
+        int terminalCheck = workflow.IndexOf(
+            "- name: Check ilasm/ildasm/mdv result",
+            StringComparison.Ordinal);
+        Assert.True(checkout >= 0);
+        Assert.True(build >= 0);
+        Assert.True(checkout < build);
+        Assert.True(build < install);
+        Assert.True(install < firstSuite);
+        Assert.True(firstSuite < lastSuite);
+        Assert.True(lastSuite < terminalCheck);
+        foreach (string oracleSuiteStep in new[]
+        {
+            "Run CLI tests",
+            "Run metadata tests",
+        })
+        {
+            int oracleSuite = workflow.IndexOf(
+                $"- name: {oracleSuiteStep}",
+                StringComparison.Ordinal);
+            Assert.True(install < oracleSuite);
+        }
+
+        int nextStep = workflow.IndexOf(
+            "\n      - ",
+            install + 1,
+            StringComparison.Ordinal);
+        string installStep = workflow[install..nextStep];
+        Assert.Equal(
+            "- name: Install ilasm/ildasm/mdv\n" +
+            "        id: iltools\n" +
+            "        if: >-\n" +
+            "          inputs.suite == 'cli' ||\n" +
+            "          inputs.suite == 'metadata'\n" +
+            "        continue-on-error: true\n" +
+            "        timeout-minutes: 5\n" +
+            "        shell: bash\n" +
+            "        run: |\n" +
+            "          printf 'ILTOOLS_BASH=%s\\n' " +
+            "\"$(cygpath -w \"$(command -v bash)\")\" >> \"$GITHUB_ENV\"\n" +
+            "          eng/restore-iltools.sh --rid win-x64 --mdv " +
+            "--native-paths >> \"$GITHUB_PATH\"\n",
+            installStep);
+        Assert.Equal(
+            1,
+            workflow.Split(
+                "eng/restore-iltools.sh --rid win-x64 --mdv --native-paths",
+                StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            1,
+            workflow.Split(
+                "continue-on-error:",
+                StringSplitOptions.None).Length - 1);
+
+        string checkStep = workflow[terminalCheck..].TrimEnd();
+        Assert.Equal(
+            "- name: Check ilasm/ildasm/mdv result\n" +
+            "        if: >-\n" +
+            "          !cancelled() &&\n" +
+            "          steps.build.outcome == 'success' &&\n" +
+            "          steps.iltools.outcome != 'success' &&\n" +
+            "          (\n" +
+            "            inputs.suite == 'cli' ||\n" +
+            "            inputs.suite == 'metadata'\n" +
+            "          )\n" +
+            "        shell: bash\n" +
+            "        run: |\n" +
+            "          echo \"::error::Restoring ilasm/ildasm/mdv failed, " +
+            "so oracle-backed tests skipped.\" >&2\n" +
+            "          exit 1",
+            checkStep);
+    }
+
+    [Fact]
     public void DeepInspectWorkflow_CertifiesDailyAndOnDemand()
     {
         string workflow = File.ReadAllText(
