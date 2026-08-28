@@ -13,6 +13,7 @@
     <DefaultTargetFramework Condition="'$(DefaultTargetFramework)' == '' and '$(OfficialBuild)' == 'true' and '$(PublishAot)' == 'false'">net10.0</DefaultTargetFramework>
     <DefaultTargetFramework Condition="'$(DefaultTargetFramework)' == ''">net$(NETCoreAppMaximumVersion)</DefaultTargetFramework>
     <EnablePreviewFeatures>true</EnablePreviewFeatures>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <!--
       Only tools are packable or publishable, and those are project properties
       rather than consequences of whichever SDK command was run (issue #3330).
