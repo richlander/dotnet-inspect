@@ -261,7 +261,8 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
 | Running a review round | `docs/round-orchestration.md` |
 | Querying GitHub PR and CI status | `docs/github-status-queries.md` |
 | Hosting a network-accessible inspect-web demo | `docs/runbooks/inspect-web-demo-hosting.md` |
-| Installing and pinning TLA+ and Java, or curated TLA+ examples | `docs/runbooks/tla-plus-setup.md` |
+| Installing and pinning TLA+ and Java | `docs/runbooks/tla-plus-setup.md` |
+| TLA+ methodology and curated examples | `docs/tla-plus-methodology.md` |
 | Release and publishing | `docs/release-workflow.md` |
 | Changes spanning Markout and this repo | `docs/markout-co-development.md` |
 
@@ -379,7 +380,9 @@ feature's correctness depends on significant stateful, concurrent, distributed,
 or scheduling interactions, use a small TLA+ model that states the relevant
 safety and liveness properties, and model-check it before implementation.
 (See [`docs/runbooks/tla-plus-setup.md`](docs/runbooks/tla-plus-setup.md) for
-installing and pinning the TLA+ tools and Java, and curated model examples.)
+installing and pinning the TLA+ tools and Java, and
+[`docs/tla-plus-methodology.md`](docs/tla-plus-methodology.md) for modeling
+methodology and curated examples.)
 Use the model to evaluate whether the interaction or algorithm is effective,
 and keep the design specification focused on what the system must guarantee.
 Link the model from the owning design and record its assumptions, checking
