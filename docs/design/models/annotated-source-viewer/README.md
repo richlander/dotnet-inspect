@@ -69,15 +69,15 @@ error:
 
 | Result | Value |
 | --- | ---: |
-| Generated states | 89,514 |
-| Distinct states | 8,328 |
+| Generated states | 83,886 |
+| Distinct states | 6,216 |
 | Search depth | 13 |
 
 The coverage run reported nonzero distinct transitions for every top-level
-action. The smallest count was 12 for `OpenModal`; representative transition
-counts were 240 for `OpenEmbeddedChip`, 480 each for the two dismissal
-actions, 816 for `CloseCurrentDetail`, and 2,064 each for
-`ToggleAnnotation` and `ToggleMedium`.
+action. The smallest count was four for `OpenEmbeddedChip`; representative
+transition counts were 12 each for `OpenModal` and the two dismissal actions,
+580 for `CloseCurrentDetail`, and 2,064 each for `ToggleAnnotation` and
+`ToggleMedium`.
 
 ## Mutation evidence
 
@@ -92,7 +92,7 @@ Each produced a concrete counterexample:
 | Restore focus to a sibling medium's chip | `FocusMatchesTransition` |
 | Drop focus after removing the primary annotation | `FocusMatchesTransition` |
 | Preserve stale reported state after an annotation toggle | `ReportedStateIsDerived` |
-| Preserve Finding detail through modal dismissal | `ModalDetailExistsOnlyWhileOpen` |
+| Preserve Finding detail through modal dismissal | `DetailShapes` |
 
 The mutations are evidence that these properties are observed by the checked
 invariants rather than restatements that TLC cannot falsify.

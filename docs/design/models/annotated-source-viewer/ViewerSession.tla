@@ -231,13 +231,14 @@ DismissModal ==
        THEN modalPrimary
        ELSE NoPrimary
   /\ embeddedDetail' = NoDetail
+  /\ modalPrimary' = NoPrimary
   /\ modalDetail' = NoDetail
-  /\ active' = active
-  /\ visibleMedia' = visibleMedia
-  /\ reported' = reported
+  /\ active' = defaults
+  /\ visibleMedia' = {"CSharp"}
+  /\ reported' = Reported(active', defaults)
   /\ focus' = ExploreFocus
   /\ eventPulse' = ~eventPulse
-  /\ UNCHANGED <<defaults, modalPrimary>>
+  /\ UNCHANGED defaults
 
 DismissModalByEscape ==
   /\ surface = "Modal"
@@ -508,12 +509,11 @@ ModalOpeningIsFresh ==
 ModalDismissalIsExact ==
   lastAction \in {"DismissEscape", "DismissPointer"} =>
     /\ surface = "Embedded"
-    /\ embeddedPrimary =
-         IF Transferable(modalPrimary, defaults)
-         THEN modalPrimary
-         ELSE NoPrimary
     /\ embeddedDetail = NoDetail
+    /\ modalPrimary = NoPrimary
     /\ modalDetail = NoDetail
+    /\ active = defaults
+    /\ visibleMedia = {"CSharp"}
     /\ focus = ExploreFocus
 
 EscapeCannotBypassDetail ==
