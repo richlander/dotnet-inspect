@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using DotnetInspector.AssemblyOnlyHost.Fixture;
@@ -124,6 +125,9 @@ public sealed class LayeringTests
             ],
             CommandErrorOwnershipTests.ProjectPackageDependencies(project)
                 .Order(StringComparer.OrdinalIgnoreCase));
+        Assert.Contains(
+            "<IsAotCompatible>true</IsAotCompatible>",
+            File.ReadAllText(project));
     }
 
     [Fact]
@@ -322,6 +326,151 @@ public sealed class LayeringTests
         Assert.DoesNotContain("MetadataTokens", classifier);
         Assert.DoesNotContain("ReadSerializedString", classifier);
         Assert.DoesNotContain("ReadUTF8", classifier);
+    }
+
+    [Fact]
+    public void MetadataPrimitives_MethodSemanticsReaderIsIsolated()
+    {
+        string projectDirectory = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "src",
+            "ILInspector.MetadataPrimitives");
+        var sources = Directory.EnumerateFiles(
+                projectDirectory,
+                "*.cs",
+                SearchOption.TopDirectoryOnly)
+            .Select(path => (
+                Name: Path.GetFileName(path),
+                Source: File.ReadAllText(path)))
+            .ToArray();
+        string[] tableLayoutReaders = sources
+            .Where(file =>
+                file.Source.Contains(
+                    ".GetTableMetadataOffset(",
+                    StringComparison.Ordinal)
+                || file.Source.Contains(
+                    ".GetTableRowSize(",
+                    StringComparison.Ordinal))
+            .Select(file => file.Name)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        string reader = Assert.Single(
+            sources,
+            file => file.Name
+                == $"{nameof(MethodSemanticsRowReader)}.cs").Source;
+        System.Reflection.MethodInfo read = Assert.Single(
+            typeof(MethodSemanticsRowReader).GetMethods(
+                System.Reflection.BindingFlags.Public
+                | System.Reflection.BindingFlags.Static
+                | System.Reflection.BindingFlags.DeclaredOnly));
+
+        Assert.Equal(
+            [$"{nameof(MethodSemanticsRowReader)}.cs"],
+            tableLayoutReaders);
+        Assert.Contains("TableIndex.MethodSemantics", reader);
+        Assert.DoesNotContain("TableIndex table", reader);
+        Assert.DoesNotContain("TableIndex tableIndex", reader);
+        Assert.Equal(
+            [
+                typeof(PEReader),
+                typeof(MethodSemanticsReadBudget),
+            ],
+            read.GetParameters().Select(parameter => parameter.ParameterType));
+        Assert.Equal(typeof(MethodSemanticsReadResult), read.ReturnType);
+        Assert.All(
+            new[]
+            {
+                typeof(MethodSemanticsAssociationKind),
+                typeof(MethodSemanticsRow),
+                typeof(MethodSemanticsMalformedReason),
+                typeof(MethodSemanticsReadResult),
+                typeof(MethodSemanticsReadBudget),
+                typeof(MethodSemanticsRowReader),
+            },
+            type => Assert.Equal(
+                "ILInspector.MetadataPrimitives",
+                type.Namespace));
+        Assert.DoesNotContain(
+            typeof(MethodSemanticsRowReader).Assembly.ExportedTypes
+                .SelectMany(type => type.GetMethods())
+                .SelectMany(method => method.GetParameters()),
+            parameter => parameter.ParameterType == typeof(TableIndex));
+        Type[] forbiddenRetention =
+        [
+            typeof(PEReader),
+            typeof(MetadataReader),
+            typeof(PEMemoryBlock),
+            typeof(BlobReader),
+        ];
+        Assert.DoesNotContain(
+            typeof(MethodSemanticsRowReader).Assembly.ExportedTypes
+                .Where(type =>
+                    type.Namespace == "ILInspector.MetadataPrimitives"
+                    && type.Name.StartsWith(
+                        "MethodSemantics",
+                        StringComparison.Ordinal))
+                .SelectMany(type => type.GetFields(
+                    System.Reflection.BindingFlags.Public
+                    | System.Reflection.BindingFlags.NonPublic
+                    | System.Reflection.BindingFlags.Instance)),
+            field => forbiddenRetention.Contains(field.FieldType));
+    }
+
+    [Fact]
+    public void MetadataPrimitives_MethodSemanticsPlatformProbesAreWired()
+    {
+        string root = CommandErrorOwnershipTests.RepositoryRoot();
+        string probeDirectory = Path.Combine(
+            root,
+            "tests",
+            "ILInspector.MetadataPrimitives.PlatformProbe");
+        string probe = File.ReadAllText(
+            Path.Combine(probeDirectory, "Program.cs"));
+        string nativeProject = File.ReadAllText(
+            Path.Combine(
+                probeDirectory,
+                "MethodSemanticsPlatformProbe.csproj"));
+        string browserProject = File.ReadAllText(
+            Path.Combine(
+                probeDirectory,
+                "MethodSemanticsBrowserProbe.csproj"));
+        string runner = File.ReadAllText(
+            Path.Combine(
+                root,
+                "eng",
+                "run-method-semantics-platform-probe.sh"));
+        string workflow = File.ReadAllText(
+            Path.Combine(root, ".github", "workflows", "ci.yml"));
+        string changeDetection = File.ReadAllText(
+            Path.Combine(root, "eng", "ci-detect-changes.sh"));
+
+        Assert.Contains("MethodSemanticsRowReader.Read(", probe);
+        Assert.Contains("row.RawSemantics", probe);
+        Assert.Contains("row.AssociationKind", probe);
+        Assert.Contains("row.AssociationRowNumber", probe);
+        Assert.Contains("MetadataTokens.GetRowNumber(row.Method)", probe);
+        Assert.Contains("<PublishAot>true</PublishAot>", nativeProject);
+        Assert.Contains(
+            "<IsPublishable>true</IsPublishable>",
+            nativeProject);
+        Assert.Contains(
+            "Microsoft.NET.Sdk.WebAssembly",
+            browserProject);
+        Assert.Contains(
+            "<IsPublishable>true</IsPublishable>",
+            browserProject);
+        Assert.Contains(
+            "run-method-semantics-platform-probe.sh nativeaot",
+            workflow);
+        Assert.Contains(
+            "run-method-semantics-platform-probe.sh browser",
+            workflow);
+        Assert.Contains("dotnet publish", runner);
+        Assert.Contains("node --experimental-default-type=module", runner);
+        Assert.Contains(
+            "tests/ILInspector.MetadataPrimitives.PlatformProbe/*) "
+                + "CODE=true; WEB=true",
+            changeDetection);
     }
 
     [Fact]

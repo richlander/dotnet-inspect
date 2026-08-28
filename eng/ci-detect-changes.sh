@@ -281,6 +281,7 @@ while IFS= read -r -d '' file; do
     src/UnionPolyfill.cs|src/DotnetInspector.*/*|src/ILInspector.*/*|src/CSharpText/*|src/InertText/*|src/NuGetFetch/*|src/SourceLinkFetch/*) CODE=true; WEB=true ;;
     src/tsbindgen/*) CODE=true; WEB=true ;;
     src/*) CODE=true ;;
+    tests/ILInspector.MetadataPrimitives.PlatformProbe/*) CODE=true; WEB=true ;;
     tests/*) CODE=true ;;
     tools/DecompilerHarness/*.md|tools/DecompilerHarness/*.txt) ;;
     tools/DecompilerHarness/*) CODE=true ;;
