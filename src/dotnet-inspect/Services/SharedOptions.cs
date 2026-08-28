@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
+using System.Globalization;
 using DotnetInspector.CommandLine;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -246,6 +247,17 @@ public class SharedOptions
         command.Options.Add(Head);
         command.Options.Add(Tail);
 
+        AddRowWindowValidators(command, supportsRowWindows);
+    }
+
+    /// <summary>
+    /// Adds the validators for shared row-window options already available to a command,
+    /// including options inherited from an ancestor command.
+    /// </summary>
+    public void AddRowWindowValidators(
+        Command command,
+        bool supportsRowWindows = true)
+    {
         // --head and --tail name a direction, so asking for both is not a narrower
         // window but a contradiction. This applies with or without --rows.
         command.Validators.Add(result =>
@@ -307,8 +319,16 @@ public class SharedOptions
 
             // -n counts output lines. With --rows the count comes from the spec, so a
             // second count is ambiguous rather than redundant.
-            if (result.GetValue(Limit) is not null)
+            if (result.GetResult(Limit) is { Implicit: false } limitResult
+                && limitResult.Tokens.Count > 0
+                && int.TryParse(
+                    limitResult.Tokens[^1].Value,
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out _))
+            {
                 result.AddError($"--rows {token} already carries the count, so it cannot combine with -n; drop one.");
+            }
         });
     }
 
