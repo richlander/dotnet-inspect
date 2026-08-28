@@ -318,7 +318,9 @@ The request owner must distinguish:
 | Census mode with a privileged contained anchor | Invalid request |
 | Structurally valid mode unsupported by the descriptor | Typed capability rejection before execution |
 | Unsupported report surface | Typed capability rejection before execution |
+| Missing or unbounded universe description | Typed capability rejection before execution |
 | Universe lacking required subject/evidence capability | Typed capability rejection before execution |
+| Missing structural producer or query prerequisite | Typed capability rejection before execution |
 | Unsupported result projection | Typed capability rejection before execution |
 | Wider universe supplied to a narrow report surface | Valid when declared; report surface remains narrow |
 | Same analysis offered as rows and graph | Two supported projections, not two producer identities |
@@ -368,6 +370,7 @@ The target implementation is unverified until these named gates land:
 - `AnalysisCapability_RejectsUnsupportedModeBeforeProducerExecution`
 - `AnalysisCapability_RejectsUnsupportedSurfaceBeforeProducerExecution`
 - `AnalysisCapability_RejectsUnsatisfiedUniverseBeforeProducerExecution`
+- `AnalysisCapability_RejectsMissingStructuralPrerequisiteBeforeProducerExecution`
 - `AnalysisCapability_RejectsUnsupportedProjectionBeforeProducerExecution`
 - `AnalysisCapability_AllDeclaredRejectionsPrecedeProducerExecution`
 - `AnalysisCapability_RejectionDoesNotUseFindingInspectionState`
