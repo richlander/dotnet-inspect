@@ -147,8 +147,7 @@ only whether the supplied description satisfies the selected analysis
 descriptor's declared requirements.
 
 The universe description must state a finite bound. A missing or unbounded
-description is rejected before acquisition or producer execution in either
-question mode.
+description is rejected before producer execution in either question mode.
 
 Universe breadth cannot mutate the report surface. Universe failure or
 incompleteness cannot be repaired by silently removing a requested member,
@@ -229,6 +228,7 @@ descriptor before producer execution. It checks:
 
 - report-surface kind and typed target roles;
 - Targeted or Census mode invariants;
+- analysis-descriptor support for the requested mode;
 - universe subject and evidence requirements;
 - structurally registered producer and query prerequisites; and
 - requested projection support.
@@ -238,11 +238,11 @@ inspection, a successful empty result, or a Finding state. Validation must not
 execute the producer merely to decide whether the producer is supported.
 
 The request owner declares a closed set of rejection reasons covering invalid
-mode, unsupported surface, unsatisfied or unbounded universe, missing
-structural prerequisite, and unsupported projection. Every rejection is
-decided before producer execution. User-gesture provenance, capability
-authorization, and cost enforcement remain host-preflight responsibilities
-under
+mode, descriptor-unsupported mode, unsupported surface, unsatisfied or
+unbounded universe, missing structural prerequisite, and unsupported
+projection. Every rejection is decided before producer execution. User-gesture
+provenance, capability authorization, and cost enforcement remain
+host-preflight responsibilities under
 [Progressive disclosure](progressive-disclosure.md).
 
 ### Capability is not observation
@@ -316,6 +316,7 @@ The request owner must distinguish:
 | Configured descriptor with no request | Structurally discoverable capability only |
 | Targeted mode with no accepted anchor | Invalid request |
 | Census mode with a privileged contained anchor | Invalid request |
+| Structurally valid mode unsupported by the descriptor | Typed capability rejection before execution |
 | Unsupported report surface | Typed capability rejection before execution |
 | Universe lacking required subject/evidence capability | Typed capability rejection before execution |
 | Unsupported result projection | Typed capability rejection before execution |
@@ -362,8 +363,9 @@ The target implementation is unverified until these named gates land:
 - `AnalysisRequest_TargetedRequiresAcceptedAnchor`
 - `AnalysisRequest_CensusRejectsPrivilegedContainedAnchor`
 - `AnalysisRequest_RejectsMissingOrUnboundedUniverseBeforeProducerExecution`
-- `AnalysisCapability_StructuralDiscoveryDoesNotResolveContentOrProbeEffectiveness`
+- `AnalysisCapability_StructuralDiscoveryDoesNotResolveContentExecuteProducersOrProbeEffectiveness`
 - `AnalysisCapability_ListsConfiguredUnobservedIntegrationDescriptors`
+- `AnalysisCapability_RejectsUnsupportedModeBeforeProducerExecution`
 - `AnalysisCapability_RejectsUnsupportedSurfaceBeforeProducerExecution`
 - `AnalysisCapability_RejectsUnsatisfiedUniverseBeforeProducerExecution`
 - `AnalysisCapability_RejectsUnsupportedProjectionBeforeProducerExecution`
