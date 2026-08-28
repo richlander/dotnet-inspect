@@ -222,6 +222,11 @@ Multiple annotations may remain active while one explicit primary selection
 owns detail. Implementations must not infer it from active-annotation array
 order.
 
+The authoritative interaction mechanics are the bounded
+[`SurfaceSession`](models/annotated-source-interaction/SurfaceSession.tla)
+design model. The prose below states the user-visible guarantees and ownership
+that implementations consume rather than defining a second transition system.
+
 Embedded and full mode have separate local interaction state within one
 workspace entry:
 
@@ -305,20 +310,30 @@ maintaining an unrelated modal history.
   that entry with the embedded-mode workspace view. This also applies to a
   direct full-mode link, including when it is the first history entry.
 - **Member** and **Source** navigation record the current view before moving.
+- Navigating closes transient Finding detail before recording the origin.
+  Finding detail, focus, and scroll position are not required history state.
 - Back from a destination restores the originating package, type, member,
   overload, Annotated Source section, and full explorer mode.
 - Forward restores the destination.
 - Local selection, toggles, Finding detail, and scrolling do not create
   back-stack entries.
-- Session history may restore local explorer state and scroll for a previously
-  visited entry. It must at minimum restore the full-mode view and its primary
-  selection.
+- Session history restores each entry's mode and required mode-local state:
+  primary selection, active annotation set, visible media, and coordinate
+  preferences. A host may additionally restore scroll position.
 - Changing members while Annotated Source is active keeps both the section and
   embedded/full mode when the destination supports them. The destination gets
   fresh entry-local state: embedded starts at its default state; full starts at
   the direct-full defaults with no primary selection or detail. No source
   member's primary, detail, annotation set, or presentation state transfers.
-  Back and Forward restore each entry's own mode and local state.
+  Back and Forward restore each entry's own required mode-local state.
+
+The bounded
+[`EntryRestoration`](models/annotated-source-interaction/EntryRestoration.tla)
+design model is authoritative for replace-versus-push behavior, sticky mode,
+fresh destination state, forward-history truncation, and exact restoration.
+Inspection Subject Navigation owns asynchronous subject resolution,
+supersession, and effect authority; this interaction model consumes one atomic
+current-authority outcome rather than redefining those mechanisms.
 
 `WorkspaceSharePacket` and `WorkspaceSharePacketTransposer` in
 `DotnetInspector.Queries` own the packet representation of Annotated Source
@@ -479,6 +494,9 @@ accepted as a named follow-up.
 
 The interaction model requires:
 
+- TLC checks of the shipped `SurfaceSession` and `EntryRestoration`
+  configurations, including nonzero action coverage and the documented
+  non-vacuity mutations;
 - surface-specific markup/action matrix tests proving every chip-shaped element
   is a button with exactly one documented verb;
 - embedded-reader tests proving Finding detail is available while
@@ -515,7 +533,8 @@ The interaction model requires:
   Escape falls through without changing embedded primary, retained full state,
   or focus;
 - member-navigation tests proving mode is sticky, destination-local state
-  starts fresh, and Back/Forward restore each entry;
+  starts fresh, navigation closes transient Finding detail, and Back/Forward
+  restore each entry's required mode-local state;
 - canonical packet codec, transposer, and Browser bridge vectors proving v2
   embedded/full mode, v1-to-embedded compatibility, invalid-mode rejection,
   and separation from the section field;
