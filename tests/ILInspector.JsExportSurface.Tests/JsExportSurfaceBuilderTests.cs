@@ -1155,11 +1155,6 @@ public sealed class JsExportSurfaceBuilderTests
         ];
 
         Assert.Equal(2, functions.Length);
-        Assert.All(
-            functions,
-            function => Assert.Matches(
-                "^Identify\\.[0-9]+$",
-                function.RuntimeDispatchKey));
         Assert.Equal(
             2,
             functions
@@ -1293,6 +1288,196 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
+    public void Build_PreservesNegativeRuntimeDispatchKeyLiteral()
+    {
+        string path = typeof(OverloadedExportFixture).Assembly.Location;
+        ApiSurface extracted = ExtractApiSurface(path);
+        ApiType fixture = Assert.Single(
+            extracted.Types,
+            type => type.Name == nameof(OverloadedExportFixture));
+        fixture.Members =
+        [
+            .. fixture.Members.Where(
+                member => member.Name
+                    == nameof(OverloadedExportFixture.Identify)),
+        ];
+        extracted.FilteredRuntimeJsExportFacts = [];
+        extracted.Types = [fixture];
+        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(path);
+        JsExportFunction intFunction = Assert.Single(
+            JsExportSurfaceBuilder.Build(
+                extracted,
+                bodyIndex).Functions,
+            function => function.Parameters is
+            [
+                {
+                    Type: "int",
+                },
+            ]);
+        int originalSignatureHash = int.Parse(
+            intFunction.RuntimeDispatchKey!.AsSpan(
+                "Identify.".Length),
+            CultureInfo.InvariantCulture);
+        ApiMember intExport = Assert.Single(
+            fixture.Members,
+            member => member.SignatureModel?.Parameters is
+            [
+                {
+                    Type: "int",
+                },
+            ]);
+        RuntimeJsExportWrapperCandidate candidate = Assert.Single(
+            intExport.RuntimeJsExportWrapperCandidates!,
+            candidate =>
+            {
+                MethodIdentity method = Assert.Single(
+                    bodyIndex.Methods,
+                    method => method.MetadataToken
+                        == candidate.WrapperMethodToken);
+                Assert.True(
+                    RuntimeJsExportWrapperName.TryGetSignatureHash(
+                        method.Name,
+                        nameof(OverloadedExportFixture.Identify),
+                        out uint wrapperHash));
+                return wrapperHash
+                    == unchecked((uint)originalSignatureHash);
+            });
+        MethodIdentity wrapper = Assert.Single(
+            bodyIndex.Methods,
+            method => method.MetadataToken
+                == candidate.WrapperMethodToken);
+        DirectCall wrapperCall = Assert.Single(
+            bodyIndex.DirectCalls,
+            call => call.EvidenceMethod.MetadataToken
+                    == wrapper.MetadataToken
+                && call.Callee.Name.StartsWith(
+                    $"<{wrapper.Name}>g____Stub|",
+                    StringComparison.Ordinal));
+        MethodIdentity stub = Assert.Single(
+            bodyIndex.Methods,
+            method => method.MetadataToken
+                == wrapperCall.CalleeDefinitionToken);
+        DirectCall registration = Assert.Single(
+            bodyIndex.DirectCalls,
+            call => call.EvidenceMethod.MetadataToken
+                    == candidate.RegistrationMethodToken
+                && call.Callee.Name == "BindManagedFunction"
+                && call.FirstArgumentStringLiteral?.EndsWith(
+                    ":Identify",
+                    StringComparison.Ordinal) == true
+                && call.ResolvedArgumentValues[1].Single
+                    is
+                    {
+                        Kind:
+                            ResolvedValueSourceKind.Int32Literal,
+                        Int32Value: { } signatureHash,
+                    }
+                && signatureHash == originalSignatureHash);
+
+        const uint unsignedSignatureHash = uint.MaxValue;
+        const int signedSignatureHash = -1;
+        Assert.Equal(
+            unsignedSignatureHash,
+            unchecked((uint)signedSignatureHash));
+        string wrapperName =
+            $"__Wrapper_Identify_{unsignedSignatureHash}";
+        MethodIdentity rewrittenWrapper = wrapper with
+        {
+            Name = wrapperName,
+        };
+        MethodIdentity rewrittenStub = stub with
+        {
+            Name = stub.Name.Replace(
+                $"<{wrapper.Name}>",
+                $"<{wrapperName}>",
+                StringComparison.Ordinal),
+        };
+        ResolvedValueSource hashSource = Assert.IsType<
+            ResolvedValueSource>(
+                registration.ResolvedArgumentValues[1].Single);
+        var rewrittenArguments = new ResolvedValueSets(
+        [
+            registration.ResolvedArgumentValues[0],
+            new ResolvedValueSet(
+                [
+                    hashSource with
+                    {
+                        Int32Value = signedSignatureHash,
+                    },
+                ],
+                isResolved: true),
+            registration.ResolvedArgumentValues[2],
+        ]);
+        ImmutableArray<MethodIdentity> methods =
+        [
+            .. bodyIndex.Methods.Select(method =>
+                method.MetadataToken == wrapper.MetadataToken
+                    ? rewrittenWrapper
+                    : method.MetadataToken == stub.MetadataToken
+                        ? rewrittenStub
+                        : method),
+        ];
+        ImmutableArray<DirectCall> calls =
+        [
+            .. bodyIndex.DirectCalls.Select(call =>
+                call.EvidenceMethod.MetadataToken
+                        == registration.EvidenceMethod.MetadataToken
+                    && call.ILOffset == registration.ILOffset
+                    ? call with
+                    {
+                        ResolvedArgumentValues =
+                            rewrittenArguments,
+                    }
+                    : call.EvidenceMethod.MetadataToken
+                            == wrapper.MetadataToken
+                        ? call with
+                        {
+                            Caller = rewrittenWrapper,
+                            EvidenceMethod = rewrittenWrapper,
+                        }
+                        : call.EvidenceMethod.MetadataToken
+                                == stub.MetadataToken
+                            ? call with
+                            {
+                                Caller = rewrittenStub,
+                                EvidenceMethod = rewrittenStub,
+                            }
+                            : call),
+        ];
+        LibraryBodyIndex rewrittenIndex =
+            LibraryBodyIndex.FromEvidence(
+                methods,
+                [],
+                diagnostics: bodyIndex.Diagnostics,
+                directCalls: calls,
+                resultSinks: bodyIndex.ResultSinks);
+
+        JsExportFunction rewrittenFunction = Assert.Single(
+            JsExportSurfaceBuilder.Build(
+                extracted,
+                rewrittenIndex).Functions,
+            function => function.Parameters is
+            [
+                {
+                    Type: "int",
+                },
+            ]);
+        Assert.Equal(
+            $"Identify.{signedSignatureHash}",
+            rewrittenFunction.RuntimeDispatchKey);
+        string json = JsonSerializer.Serialize(
+            new ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = extracted.AssemblyIdentity,
+                Functions = [rewrittenFunction],
+            });
+        Assert.Contains(
+            $"\"RuntimeDispatchKey\":\"Identify.{signedSignatureHash}\"",
+            json,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Build_DoesNotBorrowAnotherOverloadWrapperRegistration()
     {
         string path = typeof(OverloadedExportFixture).Assembly.Location;
@@ -1327,10 +1512,10 @@ public sealed class JsExportSurfaceBuilderTests
                     Type: "int",
                 },
             ]);
-        uint intHash = uint.Parse(
+        uint intHash = unchecked((uint)int.Parse(
             intFunction.RuntimeDispatchKey!.AsSpan(
                 "Identify.".Length),
-            CultureInfo.InvariantCulture);
+            CultureInfo.InvariantCulture));
         RuntimeJsExportWrapperCandidate wrongCandidate = Assert.Single(
             overloads[0].RuntimeJsExportWrapperCandidates!,
             candidate =>

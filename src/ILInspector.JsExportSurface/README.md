@@ -144,6 +144,7 @@ calls the other.
 `Build_WithBodiesRejectsLegacyNullWrapperProvenance`,
 `Build_DoesNotCreditPrefixSiblingWrapper`,
 `Build_ProjectsDistinctRuntimeDispatchKeysForCompiledOverloads`,
+`Build_PreservesNegativeRuntimeDispatchKeyLiteral`,
 `Build_DoesNotBorrowAnotherOverloadWrapperRegistration`,
 `Build_RejectsDiagnosedRuntimeWrapperChain`,
 `Build_ProjectsRuntimeQualifiedDeclaringTypePath`,

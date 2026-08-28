@@ -71,10 +71,13 @@ public sealed class JsExportFunction
     /// </summary>
     /// <remarks>
     /// The body-backed builder derives this key only from the authenticated
-    /// <c>BindManagedFunction</c> registration and wrapper signature hash.
+    /// <c>BindManagedFunction</c> registration and wrapper signature hash,
+    /// retaining the registration's signed <c>int32</c> literal spelling.
     /// Declaration-only and hand-composed surfaces may leave it unset.
     /// <c>JsExportSurfaceBuilderTests.Build_ProjectsDistinctRuntimeDispatchKeysForCompiledOverloads</c>
-    /// gates the projection.
+    /// and
+    /// <c>JsExportSurfaceBuilderTests.Build_PreservesNegativeRuntimeDispatchKeyLiteral</c>
+    /// gate the projection.
     /// </remarks>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? RuntimeDispatchKey { get; init; }
