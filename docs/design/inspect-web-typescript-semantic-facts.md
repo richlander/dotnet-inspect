@@ -292,7 +292,7 @@ fact returns `Unavailable(MissingApiFact)`.
 | Properties, indexes, call, or construct signatures | Any type | Empty is `Resolved([])` |
 | Alias target | Symbol with the alias flag | Unknown sentinel is `Unavailable` |
 | Module exports and named lookup | Module symbol | Empty list is `Resolved([])`; lookup miss is `Absent` |
-| Resolved module and source file | Static string-literal module reference | Unresolved is `Absent` |
+| Module symbol | Static string-literal module reference | Missing symbol is `Absent` |
 | Constant value | Enum member, property access, or element access | `Absent` |
 
 Calling a category-specific query with any other subject returns
@@ -393,14 +393,15 @@ The adapter exposes repository results for:
 - a node's direct and contextual types;
 - the parameter type at a selected signature position;
 - the source symbol of shorthand and export specifiers;
-- module exports and named export lookup;
-- the resolved project and source file for a statically resolvable module
-  reference; and
+- module symbols, their declarations, exports, and named export lookup; and
 - TypeScript constant values when the checker provides one.
 
-An unresolved computed module reference, non-constant expression, or missing
-contextual type is reported honestly. The adapter neither rejects the source
-construct nor infers an answer with a second parser.
+A static module specifier without a module symbol is `Absent`; this includes a
+side-effect import whose target is a non-module script. Computed and dynamic
+module references are `NotApplicable`. A non-constant expression or missing
+contextual type is `Absent`. The adapter neither rejects the source construct
+nor infers an answer with a second parser or a reimplementation of TypeScript
+module resolution.
 
 ## TypeScript compatibility boundary
 
@@ -476,8 +477,10 @@ script. Its gate contains:
    signature identity, `this`, rest, generic, and predicate cases. No minimum
    argument count is inferred.
 7. **Context, module, and constant queries:** distinguishes direct and
-   contextual types, resolves static module/export identities and checker
-   constants, and returns explicit absence for computed or unresolved cases.
+   contextual types, resolves module-symbol, declaration, and export identities
+   plus checker constants, returns `Absent` for unresolved static specifiers and
+   symbol-less side-effect imports, and returns `NotApplicable` for computed or
+   dynamic references.
    Coordinate correlation covers leading trivia, CRLF, non-BMP text, byte-to-
    UTF-16 conversion by a caller, exact matches, ambiguous spans, and a
    same-length source mutation that must return `SourceContentMismatch`. It also
