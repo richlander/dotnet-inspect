@@ -510,13 +510,18 @@ a deterministic total-order comparer, complete input sequences, and no source,
 CLI, rendering, or concurrency behavior. Those owners remain outside this
 component.
 
+First-time `Top` resolution is a distinct model transition. Ranking and
+comparison are enabled only after that transition succeeds; a cached resolver
+lets later named sequences apply the same stage directly.
+
 [`SemanticRowSelection.cfg`](../models/SemanticRowSelection.cfg) checks all
 plans up to two stages over two named sequences containing up to three distinct
 values. It checks type safety, atomic publication, completion only after every
 sequence, at-most-once resolver invocation and consistent resolver metadata,
 sequence/stage failure precedence through the exact successful-history prefix
 at every cursor, terminal failures against their current strict-range or
-callback cause, resolver completion before comparer failure, each stage's input
+callback cause, resolver visibility no earlier than its traversal cursor,
+resolver completion before ranking or comparer failure, each stage's input
 against the preceding stage's output, live rows against completed history,
 every successful stage's exact semantics through checks independent of the
 transition helpers (including strict `Range`, stage-local reindexing, and ranked
@@ -536,7 +541,7 @@ java -XX:+UseParallelGC \
   -config SemanticRowSelection.cfg SemanticRowSelection.tla
 ```
 
-TLC generated and checked 1,935,634 distinct states to depth 7 with no errors
+TLC generated and checked 2,224,914 distinct states to depth 9 with no errors
 or material counterexamples. Deadlock checking is disabled because success,
 strict failure, and callback failure are intentional terminal states; the
 model permits terminal stuttering and separately checks eventual termination.

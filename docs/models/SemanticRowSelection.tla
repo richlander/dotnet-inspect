@@ -226,20 +226,15 @@ FailRange ==
           resolverCalls, resolverFirstKey, history>>
 
 ResolveTop ==
-    /\ IF resolverCalls[stagePosition] = 0
-       THEN /\ resolverCalls' =
-                   [resolverCalls EXCEPT ![stagePosition] = 1]
-            /\ resolverFirstKey' =
-                   [resolverFirstKey EXCEPT ![stagePosition] = keyPosition]
-       ELSE /\ UNCHANGED <<resolverCalls, resolverFirstKey>>
-
-ApplyTop ==
     /\ status = "Running"
     /\ stagePosition <= Len(plan)
     /\ plan[stagePosition].kind = "Top"
-    /\ ResolveTop
-    /\ IF /\ plan[stagePosition].callback = "ResolverFailure"
-           /\ resolverCalls[stagePosition] = 0
+    /\ resolverCalls[stagePosition] = 0
+    /\ resolverCalls' =
+        [resolverCalls EXCEPT ![stagePosition] = 1]
+    /\ resolverFirstKey' =
+        [resolverFirstKey EXCEPT ![stagePosition] = keyPosition]
+    /\ IF plan[stagePosition].callback = "ResolverFailure"
        THEN /\ status' = "ResolverFailure"
             /\ published' = FALSE
             /\ failure' =
@@ -249,38 +244,49 @@ ApplyTop ==
                     stagePosition,
                     0,
                     Len(currentRows))
+       ELSE /\ UNCHANGED <<status, published, failure>>
+    /\ UNCHANGED
+        <<input, plan, keyPosition, stagePosition, currentRows, results,
+          history>>
+
+ApplyTop ==
+    /\ status = "Running"
+    /\ stagePosition <= Len(plan)
+    /\ plan[stagePosition].kind = "Top"
+    /\ resolverCalls[stagePosition] = 1
+    /\ plan[stagePosition].callback # "ResolverFailure"
+    /\ IF /\ plan[stagePosition].callback = "ComparerFailure"
+           /\ Len(currentRows) >= 2
+       THEN /\ status' = "ComparerFailure"
+            /\ published' = FALSE
+            /\ failure' =
+                FailureRecord(
+                    "ComparerFailure",
+                    keyPosition,
+                    stagePosition,
+                    0,
+                    Len(currentRows))
             /\ UNCHANGED
                 <<stagePosition, currentRows, results, history>>
-       ELSE IF /\ plan[stagePosition].callback = "ComparerFailure"
-               /\ Len(currentRows) >= 2
-            THEN /\ status' = "ComparerFailure"
-                 /\ published' = FALSE
-                 /\ failure' =
-                    FailureRecord(
-                        "ComparerFailure",
-                        keyPosition,
-                        stagePosition,
-                        0,
-                        Len(currentRows))
-                 /\ UNCHANGED
-                    <<stagePosition, currentRows, results, history>>
-            ELSE /\ LET nextRows ==
-                            Take(
-                                Rank(
-                                    currentRows,
-                                    plan[stagePosition].order),
-                                plan[stagePosition].count)
-                    IN /\ currentRows' = nextRows
-                       /\ history' = RecordStage(nextRows)
-                 /\ stagePosition' = stagePosition + 1
-                 /\ UNCHANGED <<results, status, published, failure>>
-    /\ UNCHANGED <<input, plan, keyPosition>>
+       ELSE /\ LET nextRows ==
+                       Take(
+                           Rank(
+                               currentRows,
+                               plan[stagePosition].order),
+                           plan[stagePosition].count)
+               IN /\ currentRows' = nextRows
+                  /\ history' = RecordStage(nextRows)
+            /\ stagePosition' = stagePosition + 1
+            /\ UNCHANGED <<results, status, published, failure>>
+    /\ UNCHANGED
+        <<input, plan, keyPosition, resolverCalls, resolverFirstKey>>
 
 Next ==
     AdvanceSequence
     \/ ApplyPositionalStage
     \/ ApplyValidRange
     \/ FailRange
+    \/ ResolveTop
     \/ ApplyTop
 
 Spec ==
@@ -326,6 +332,18 @@ ResolverMetadataIsConsistent ==
 LexicallyAtOrBefore(leftKey, leftStage, rightKey, rightStage) ==
     leftKey < rightKey
     \/ (leftKey = rightKey /\ leftStage <= rightStage)
+
+ResolversFollowTraversal ==
+    \A stage \in 1..MaxStages:
+        resolverCalls[stage] = 1 =>
+            /\ stage <= Len(plan)
+            /\ plan[stage].kind = "Top"
+            /\ resolverFirstKey[stage] \in Keys
+            /\ LexicallyAtOrBefore(
+                resolverFirstKey[stage],
+                stage,
+                keyPosition,
+                stagePosition)
 
 FailuresRespectTraversal ==
     status \in FailureKinds =>
