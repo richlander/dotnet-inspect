@@ -114,8 +114,11 @@ factory and caller cancellation, crash, rename failure, and invalid initial
 state enabled. The model records its filesystem and fairness assumptions,
 checked safety and liveness properties, bounds, action coverage, and adversarial
 negative controls alongside the executable specification. Its results are
-evidence about the model, not the implementation; model-to-implementation
-correspondence is currently unverified.
+evidence about the model, not the implementation. The model's
+[implementation correspondence](models/package-cache-publication/README.md#implementation-correspondence)
+maps selected observable outcomes to Release gates while leaving formal
+equivalence, exact runtime traces, crash behavior, and the filesystem's atomic
+rename premise unverified.
 
 ## Precedents
 
