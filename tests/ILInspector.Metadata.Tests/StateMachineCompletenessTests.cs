@@ -783,8 +783,7 @@ public sealed class StateMachineCompletenessTests
         byte[] image = File.ReadAllBytes(
             typeof(StateMachineCompletenessTests).Assembly.Location);
 
-        int peOffset = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(0x3C));
-        int bound = Math.Min(image.Length - 1, peOffset + 512);
+        int bound = HeaderReadExtent(image);
 
         string prefix = Path.Combine(
             Path.GetTempPath(),
@@ -842,8 +841,7 @@ public sealed class StateMachineCompletenessTests
         byte[] image = File.ReadAllBytes(
             typeof(StateMachineCompletenessTests).Assembly.Location);
 
-        int peOffset = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(0x3C));
-        int bound = Math.Min(image.Length - 1, peOffset + 512);
+        int bound = HeaderReadExtent(image);
 
         string path = Path.Combine(
             Path.GetTempPath(),
@@ -1063,8 +1061,7 @@ public sealed class StateMachineCompletenessTests
         byte[] image = File.ReadAllBytes(
             typeof(StateMachineCompletenessTests).Assembly.Location);
 
-        int peOffset = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(0x3C));
-        int bound = Math.Min(image.Length - 1, peOffset + 512);
+        int bound = HeaderReadExtent(image);
 
         HashSet<ClaimExitSite> skipping = [];
         string? detail = null;
@@ -1136,6 +1133,38 @@ public sealed class StateMachineCompletenessTests
             $"{string.Join(", ", missing)} is declared a silent-skip path but "
                 + "no enumerated input reached it that way, so the declared set "
                 + "no longer describes the reader.");
+    }
+
+    /// <summary>
+    /// The last byte offset <c>ReadManagedClaim</c> can consult for this image.
+    ///
+    /// The reader touches exactly three regions: the 64-byte DOS header, the
+    /// 24-byte PE signature and COFF header at <c>peOffset</c>, and the
+    /// optional header of the declared size after that. The furthest byte it
+    /// can reach is therefore derived from the image itself, not chosen.
+    ///
+    /// The enumerations used to stop at <c>peOffset + 512</c>, a number picked
+    /// by hand and justified by the claim that the coverage test would go red
+    /// if it were too small. Round 8's own fix prompted re-measuring that claim,
+    /// and it was false: coverage stays green at a bound of 63, because byte
+    /// 0x3C is the <c>peOffset</c> field and corrupting it redirects parsing
+    /// into arbitrary file content, reaching the deep exit sites from inside
+    /// even a tiny range. The number was never measured by that test; the
+    /// earlier result that appeared to measure it was stale.
+    ///
+    /// Deriving the extent removes the judgement instead of re-justifying it.
+    /// Perturbing every byte the reader can read is a property of this image,
+    /// checkable against the three reads above, and it moves automatically if
+    /// those reads change.
+    /// </summary>
+    static int HeaderReadExtent(byte[] image)
+    {
+        int peOffset = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(0x3C));
+        int optionalSize =
+            BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(peOffset + 20));
+
+        int furthest = Math.Max(0x3F, peOffset + 24 + optionalSize - 1);
+        return Math.Min(image.Length - 1, furthest);
     }
 
     /// <summary>
@@ -1555,24 +1584,25 @@ public sealed class StateMachineCompletenessTests
     /// The enumerations above reach every exit path out of
     /// <c>ReadManagedClaim</c>.
     ///
-    /// This is the test that justifies the bound those enumerations use. They
-    /// stop at <c>peOffset + 512</c>, and that number was chosen by hand -- the
-    /// same kind of choice that produced six rounds of findings, just moved up
-    /// one level, from "which lengths are interesting" to "how far is far
-    /// enough". Asserting the bound is big enough by inspection would repeat the
-    /// mistake in a new place.
+    /// Every path names itself through an <c>out</c> parameter, definite
+    /// assignment makes the compiler reject any path that does not, and this
+    /// test requires the inputs to reach all of them. A path added later that
+    /// nothing exercises fails here and says which one.
     ///
-    /// So the bound is not asserted, it is measured. Every path out of the
-    /// method names itself through an <c>out</c> parameter, definite assignment
-    /// makes the compiler reject any path that does not, and this test requires
-    /// the enumerated range to reach all of them. If the bound were too small,
-    /// some later path would go unreached and this test would say which one. If
-    /// a future change adds a path beyond the bound, the same thing happens.
+    /// What this test does **not** do is justify the enumerations' bound. It
+    /// used to claim that, on the reasoning that a bound too small would leave
+    /// a later path unreached. Re-measuring after round 8 showed the claim was
+    /// false: coverage stays green at a bound of 63, because byte 0x3C is the
+    /// <c>peOffset</c> field and corrupting it redirects parsing into arbitrary
+    /// file content, so the deep sites are reachable from inside a tiny range.
+    /// The bound is now derived from the image instead -- see
+    /// <see cref="HeaderReadExtent"/> -- which removes the judgement rather
+    /// than resting it on a test that was not measuring it.
     ///
-    /// The eleventh site is the I/O failure handler, which no file content can
-    /// reach, so a stream that throws on read covers it directly rather than
-    /// being excused as an exception to the rule. Coverage here is total, with
-    /// no carve-out to keep honest.
+    /// The I/O failure handler is the one site no file content can reach, so a
+    /// stream that throws on read covers it directly rather than being excused
+    /// as an exception to the rule. Coverage here is total, with no carve-out
+    /// to keep honest.
     ///
     /// Round 7 found that total coverage was not the same as total coverage of
     /// the outcomes. Reading the CLI directory answers either "present" or
@@ -1592,8 +1622,7 @@ public sealed class StateMachineCompletenessTests
         byte[] image = File.ReadAllBytes(
             typeof(StateMachineCompletenessTests).Assembly.Location);
 
-        int peOffset = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(0x3C));
-        int bound = Math.Min(image.Length - 1, peOffset + 512);
+        int bound = HeaderReadExtent(image);
 
         HashSet<ClaimExitSite> reached = [];
         string? detail = null;
