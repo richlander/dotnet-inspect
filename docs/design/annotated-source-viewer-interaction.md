@@ -254,7 +254,8 @@ focus to **Explore**.
 Focus is trapped inside the open modal by Inspect Web UI. Successful
 destination navigation closes the modal and lets the destination/history
 owner focus the destination. A rejected, unavailable, or superseded request
-keeps the modal and its useful current state visible.
+supplies visible failure content and a stable rendered focus target to the
+shared modal owner; that owner controls dismissal and destination focus.
 
 ## Source presentation
 
