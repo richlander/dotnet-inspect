@@ -401,6 +401,42 @@ universe yields no candidate for it. Request capability separately validates
 the Workspace surface, Census mode, finite Type-evidence universe, and selected
 projection. Neither operation scans metadata or probes Section effectiveness.
 
+### Universe capability requirements
+
+The Integration analysis descriptor issues a closed, ordered set of typed
+universe requirements. Each requirement has a stable identity, names the
+configured Integration concepts that depend on it, and declares one provider
+capability. The Workspace Census requires:
+
+- finite selected-Type population membership with owner-issued Type identity;
+- ordered source participants with typed outcomes and authoritative provenance;
+- structured Integration evidence for the producer policies attached to each
+  configured concept;
+- structured peer-reference binding in an explicit binding context;
+- exact peer resolution, including terminal forwarding outcomes, over one
+  finite owner-issued binding/comparison domain; and
+- retained completeness limits plus rejected, unavailable, and failed members.
+
+The universe provider declares which of those capabilities its description
+supplies without scanning the population. Generic request-capability validation
+compares those declarations with the Integration-issued requirements before
+producer execution. A typed unsatisfied-universe rejection identifies every
+unmet requirement and its affected concept descriptors, so capability
+introspection can explain which Integration questions the supplied universe
+cannot answer. A validated plan retains the exact satisfied requirement
+identities and catalog revision; it does not replace them with a generic
+`TypeEvidenceAvailable` flag.
+
+Passing request-capability validation proves that the provider can perform the
+required operations over its declared finite boundary. It does not promise
+that every peer later discovered by producer execution is present or healthy.
+A particular unavailable, ambiguous, rejected, malformed, or unresolved peer
+is an execution outcome that makes the affected Census attempt incomplete; it
+does not retroactively change structural or request capability. Conversely, a
+provider that cannot perform exact peer resolution or report completeness is
+rejected before execution rather than allowed to manufacture `Out` or empty
+results.
+
 ### Evidence-visible frontier
 
 The Census begins with structured Integration evidence from source Types
@@ -715,6 +751,8 @@ Integration graph behavior until its replacement path has parity gates.
 | Raw extension observation has no Integration concept | Supporting evidence; no candidate |
 | Raw opportunity fulfilled by an observed adapter | Accounted `Suppressed` attempt |
 | Fulfilling adapter exists only in another binding context | Current-context attempt is not suppressed |
+| Universe provider lacks exact peer-resolution capability | Typed unsatisfied-universe rejection before execution |
+| Capable provider cannot resolve one discovered peer | Failed incomplete attempt; request capability remains unchanged |
 | Peer assembly unavailable or ambiguous | Typed failure; never `Out` |
 | Selected peer assembly lacks the exact Type | Typed failure; never `Out` |
 | Forwarder resolves to selected terminal Type | `In` with forwarding evidence |
@@ -739,6 +777,10 @@ The target implementation is unverified until these named gates land:
 - `IntegrationCapability_ListsConfiguredUnobservedConcepts`
 - `IntegrationCapability_DoesNotExecuteProducersOrProbeSections`
 - `IntegrationCapability_RejectsUnsupportedCensusRequestBeforeExecution`
+- `IntegrationCapability_DeclaresTypedUniverseRequirementsByConcept`
+- `IntegrationCapability_UnsatisfiedUniverseNamesRequirementsAndConcepts`
+- `IntegrationCapability_ValidatedUniverseRetainsExactRequirementIdentities`
+- `IntegrationCapability_CandidateFailureDoesNotChangeRequestCapability`
 - `IntegrationCensus_AccountsForEveryRequiredSourceParticipant`
 - `IntegrationCensus_AccountsForEveryDiscoveredCandidateAttempt`
 - `IntegrationCensus_RejectsMissingDuplicateOrExtraneousCandidateAttempts`
