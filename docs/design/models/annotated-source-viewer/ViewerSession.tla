@@ -145,13 +145,16 @@ VARIABLES
   closedMedia,
   dismissedPrimary,
   toggledFinding,
-  removedPrimary
+  togglePriorActive,
+  togglePriorPrimary,
+  togglePriorDetail
 
 vars ==
   <<defaults, surface, embeddedPrimary, embeddedDetail, modalPrimary,
     modalDetail, active, visibleMedia, reported, focus, eventPulse,
     lastAction, escapeLayered, closedDetail, closedSurface, closedActive,
-    closedMedia, dismissedPrimary, toggledFinding, removedPrimary>>
+    closedMedia, dismissedPrimary, toggledFinding, togglePriorActive,
+    togglePriorPrimary, togglePriorDetail>>
 
 CurrentDetail ==
   IF surface = "Embedded" THEN embeddedDetail ELSE modalDetail
@@ -212,7 +215,9 @@ ClearDismissHistory ==
 
 ClearToggleHistory ==
   /\ toggledFinding' = NoValue
-  /\ removedPrimary' = FALSE
+  /\ togglePriorActive' = defaults
+  /\ togglePriorPrimary' = NoPrimary
+  /\ togglePriorDetail' = NoDetail
 
 ClearHistory ==
   /\ ClearCloseHistory
@@ -239,7 +244,9 @@ Init ==
   /\ closedMedia = {"CSharp"}
   /\ dismissedPrimary = NoPrimary
   /\ toggledFinding = NoValue
-  /\ removedPrimary = FALSE
+  /\ togglePriorActive = defaults
+  /\ togglePriorPrimary = NoPrimary
+  /\ togglePriorDetail = NoDetail
 
 OpenEmbeddedChip(target) ==
   /\ surface = "Embedded"
@@ -425,7 +432,9 @@ ToggleAnnotation(finding) ==
         /\ modalDetail' = nextDetail
         /\ focus' = AnnotationToggleFocus(finding)
         /\ toggledFinding' = finding
-        /\ removedPrimary' = removesPrimary
+        /\ togglePriorActive' = active
+        /\ togglePriorPrimary' = modalPrimary
+        /\ togglePriorDetail' = modalDetail
   /\ eventPulse' = ~eventPulse
   /\ lastAction' = "ToggleAnnotation"
   /\ ClearCloseHistory
@@ -502,7 +511,12 @@ TypeOK ==
   /\ closedMedia \in SUBSET Media
   /\ dismissedPrimary \in [kind : PrimaryKinds, value : Values]
   /\ toggledFinding \in Findings \cup {NoValue}
-  /\ removedPrimary \in BOOLEAN
+  /\ togglePriorActive \in SUBSET Annotatable
+  /\ togglePriorPrimary \in [kind : PrimaryKinds, value : Values]
+  /\ togglePriorDetail \in
+       [finding : Findings \cup {NoValue},
+        opener  : OpenerKinds,
+        target  : Targets \cup {NoValue}]
 
 PrimaryShapes ==
   /\ (embeddedPrimary.kind = "None") = (embeddedPrimary = NoPrimary)
@@ -558,10 +572,20 @@ DetailClosureRestoresExactFocus ==
 
 AnnotationToggleOutcomeIsExact ==
   lastAction = "ToggleAnnotation" =>
-    /\ focus = AnnotationToggleFocus(toggledFinding)
-    /\ (removedPrimary =>
-          /\ modalPrimary = NoPrimary
-          /\ modalDetail = NoDetail)
+    LET wasActive == toggledFinding \in togglePriorActive
+        expectedActive ==
+          IF wasActive
+          THEN togglePriorActive \ {toggledFinding}
+          ELSE togglePriorActive \cup {toggledFinding}
+        removedPrimary ==
+          /\ wasActive
+          /\ togglePriorPrimary = FindingPrimary(toggledFinding)
+    IN /\ active = expectedActive
+       /\ modalPrimary =
+            IF removedPrimary THEN NoPrimary ELSE togglePriorPrimary
+       /\ modalDetail =
+            IF removedPrimary THEN NoDetail ELSE togglePriorDetail
+       /\ focus = AnnotationToggleFocus(toggledFinding)
 
 ModalOpeningIsFresh ==
   lastAction = "OpenModal" =>

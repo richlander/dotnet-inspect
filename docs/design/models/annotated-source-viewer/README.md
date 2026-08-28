@@ -21,8 +21,8 @@ The model assumes:
 The model explores every subset of the two annotatable Findings as the default
 set. Its finite configuration contains three Findings, three targets, two
 media, and one selectable node. These bounds exercise empty, singleton,
-all-equal, C#-only, IL-only, dual-target, and unanchored cases without claiming
-that production cardinality is bounded.
+all-equal, C# presentation, IL-only, dual-target, and unanchored cases without
+claiming that production cardinality is bounded.
 
 ## Checked behavior
 
@@ -36,8 +36,8 @@ The safety invariants check:
 - exact derivation of **Default**, **All**, **Clear**, and **Custom**;
 - a concrete valid focus target throughout an open modal;
 - exact chip-or-inspector focus restoration from historical detail evidence;
-- stable control focus and exact clearing when an annotation toggle removes
-  the primary Finding;
+- stable control focus plus exact annotation membership, primary, and detail
+  outcomes derived from pre-toggle state;
 - fresh modal initialization and transfer of a representable embedded primary;
 - exact dismissal, embedded-primary derivation, and **Explore** focus; and
 - the rule that Escape cannot dismiss the modal while Finding detail is open.
@@ -77,19 +77,19 @@ error:
 
 | Result | Value |
 | --- | ---: |
-| Generated states | 82,470 |
-| Distinct states | 6,164 |
+| Generated states | 87,078 |
+| Distinct states | 6,524 |
 | Search depth | 11 |
 
 The coverage run reported nonzero distinct transitions for every top-level
 action. The smallest count was four for `OpenEmbeddedChip`; representative
 transition counts were 12 for `OpenModal`, 40 each for the two dismissal
-actions, 652 for `CloseCurrentDetail`, 2,376 for `ToggleAnnotation`, and 1,824
+actions, 652 for `CloseCurrentDetail`, 2,736 for `ToggleAnnotation`, and 1,824
 for `ToggleMedium`.
 
 ## Mutation evidence
 
-Nine deliberate one-line mutations were run against the same configuration.
+Eleven deliberate one-line mutations were run against the same configuration.
 Each produced a concrete counterexample:
 
 | Mutation | Violated invariant |
@@ -103,6 +103,8 @@ Each produced a concrete counterexample:
 | Preserve stale reported state after an annotation toggle | `ReportedStateIsDerived` |
 | Preserve Finding detail through modal dismissal | `DetailShapes` |
 | Preserve a stale embedded primary through dismissal | `ModalDismissalIsExact` |
+| Clear an unrelated primary while toggling another Finding | `AnnotationToggleOutcomeIsExact` |
+| Make annotation membership toggle a no-op | `AnnotationToggleOutcomeIsExact` |
 
 The mutations are evidence that these properties are observed by the checked
 invariants rather than restatements that TLC cannot falsify.
