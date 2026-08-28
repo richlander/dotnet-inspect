@@ -213,6 +213,14 @@ fails and quiesces only operations assigned to that epoch. The epoch check,
 rather than an operation-ID encoding convention, prevents a message from a
 terminated worker realm from acquiring authority in its replacement.
 
+Allocation and worker dispatch are one synchronous owner action. Worker-backed
+starts therefore reach one worker port in increasing page-sequence order,
+although main-thread-native operations can leave gaps. The owner assigns an
+operation ID to at most one worker epoch and posts at most one `Start`; retry
+creates a new operation. The worker keeps one highest-seen sequence per epoch
+and rejects a non-increasing `Start`, so completed-ID replay does not require
+per-operation tombstones.
+
 ### Start and authority
 
 Starting an operation:
@@ -314,7 +322,8 @@ Main to worker:
   Cancel(operationId, reason)
 
 Worker to main:
-  Accepted(operationId)
+  Accepted(operationId, bounded(maxSilentInterval) | unbounded)
+  Heartbeat(workerEpoch)
   CancelAcknowledged(operationId, queued | running | not-active)
   Progress(operationId, payload)
   Terminal(operationId,
@@ -325,23 +334,34 @@ Worker to main:
   WorkerFailure(workerEpoch, diagnostic)
 ```
 
-Unknown versions, message kinds, operation IDs, duplicate starts, invalid
-payloads, and repeated terminal messages are explicit protocol failures. A
-`Cancel` race is the sole operation-ID exception: `not-active` says that no
-queued or running producer received the request. The main thread accepts that
-acknowledgment only when it has observed, or subsequently observes, the
-operation's terminal and quiesced messages. It is never interpreted as
-successful physical cancellation.
+Unknown versions, message kinds, operation IDs, invalid payloads,
+non-increasing start sequences within an epoch, active duplicate IDs, and
+repeated terminal messages are explicit protocol failures. The operation owner
+gates the complementary cross-epoch property: one operation ID is assigned and
+dispatched at most once. A `Cancel` race is the sole operation-ID exception:
+`not-active` says that no queued or running producer received the request. The
+main thread accepts that acknowledgment only when it has observed, or
+subsequently observes, the operation's terminal and quiesced messages. It is
+never interpreted as successful physical cancellation.
+
+On `Start`, the worker validates the version, epoch, increasing sequence, kind,
+and payload; installs the queued record; advances its sequence high-water mark;
+and posts `Accepted` before invoking managed code. `Accepted` means queue
+admission, not producer start or completion. Any progress, terminal, or
+quiescence message before acceptance is a protocol failure. The main-thread
+owner records acceptance and the advertised maximum silent interval for
+worker-level liveness accounting, and rejects an interval that does not match
+the registered policy for that operation kind.
 
 The main-thread owner records whether it sent `Cancel` and retains the protocol
 record until it has received both `Terminal` and `Quiesced` plus the one
 expected cancellation acknowledgment. An early `not-active` remains pending
-until terminal and quiescence validate the completion race. A missing
-acknowledgment, terminal result, or quiescence message is bounded by the
-operation's worker-response deadline. Expiry reports a visible protocol
-failure, terminates the worker, and closes the epoch; it does not guess a
-physical outcome. Epoch closure is the only path that releases such an
-unsettled main-thread record without all expected messages.
+until terminal and quiescence validate the completion race. A per-operation
+settlement deadline can report a missing acknowledgment, terminal result, or
+quiescence message as a visible protocol failure, but it does not infer
+physical completion, resolve `quiesced`, or terminate the shared worker. The
+record remains until the expected messages arrive or a separately justified
+epoch closure destroys the realm.
 
 The worker retains active records only while an operation is queued or running.
 For queued cancellation, the worker posts `CancelAcknowledged(queued)`, releases
@@ -368,6 +388,26 @@ The worker initializes one generated facade and one .NET runtime. Concurrent
 operations reuse that runtime and its package/workspace caches. Feature owners
 or the operation session do not dispose the shared runtime.
 
+The worker posts `Heartbeat` from its event loop while it can process tasks.
+Before managed invocation, each operation kind declares through `Accepted`
+either a measured maximum interval during which it may legitimately prevent
+the worker from emitting any liveness message, or `unbounded`. Progress and
+other valid worker messages also prove liveness. The epoch watchdog permits the
+largest current bounded interval plus scheduling tolerance; a pending
+unaccepted start, canceled waiter, or shorter concurrent operation never
+shrinks that allowance. Each valid liveness message renews that epoch deadline
+from its receipt. Silence cannot justify automatic termination while any
+accepted operation is `unbounded`.
+
+An epoch watchdog may terminate the worker only after every accepted
+operation's advertised allowance has expired without a valid liveness message.
+This is a worker-level lease violation, not an operation timeout. A bounded
+advertisement requires a real-browser gate measuring that operation kind's
+maximum silent worker occupancy in `inspect-web-async-browser`. Otherwise the
+operation must advertise `unbounded`, and hard termination remains an explicit
+whole-runtime recovery choice that reports the loss of in-flight work and
+worker-local caches.
+
 A worker startup failure is terminal for that worker epoch. The main thread
 fails every operation assigned to it, revokes the epoch, and may create a new
 worker under explicit retry policy. Main-thread-native operations remain owned
@@ -379,9 +419,10 @@ Closing an epoch also resolves every outstanding `quiesced` promise assigned to
 that epoch. Realm destruction is the physical release boundary for its managed
 registry and JavaScript callbacks, even when no `Quiesced` message can arrive.
 A startup failure first terminates its partial worker realm, then closes the
-epoch. A worker that merely stops responding is not presumed quiescent; the
-worker-response deadline must terminate it before disposal or protocol
-settlement can finish.
+epoch. A worker that merely stops responding is not presumed quiescent.
+Disposal that requires physical release must either receive quiescence, observe
+a justified epoch-watchdog violation, or explicitly choose whole-runtime
+termination; a per-operation deadline cannot silently make that choice.
 
 The implementation should start from the official .NET 11 Web Worker template
 and client protocol introduced by
@@ -471,9 +512,11 @@ out to every still-authorized operation waiting on that package coordinate. A
 shared producer owns a broker-scoped progress sink and cancellation lifetime,
 not any caller's delegate or `CancellationTokenSource`. Each exported
 operation attaches its delegate as one broker subscription and removes it in
-its own `finally`. Canceling one waiter removes that subscription but does not
-cancel shared work needed by another; the broker may cancel physical work only
-after its last waiter leaves and the producer contract permits cancellation.
+its own `finally`. Its await uses the operation token to stop waiting and enter
+that `finally` without canceling the shared producer task. The wrapper can then
+return `Canceled` and quiesce independently while another authorized waiter
+continues. The broker may cancel physical work only after its last waiter
+leaves and the producer contract permits cancellation.
 
 ## Effects on C# API design
 
@@ -601,17 +644,23 @@ These gates are design requirements and do not yet exist:
   quiescence;
 - `inspect-web-async-worker-protocol`: closed-message parsing, epoch isolation,
   concurrent feature-session ID uniqueness, worker-independent logical IDs,
-  duplicate/unknown IDs, payload-bearing terminal variants, queued
-  cancellation settlement, outstanding-acknowledgment races, record release,
-  crash, restart, main-thread-operation isolation, and stale-message tests;
+  at-most-once assignment, sequence replay after record removal,
+  duplicate/unknown IDs, acceptance ordering and semantics, payload-bearing
+  terminal variants, queued cancellation settlement,
+  outstanding-acknowledgment races, settlement deadlines that cannot terminate
+  an epoch, bounded and unbounded liveness leases, busy-versus-wedged
+  discrimination, shared-waiter quiescence, record release, crash, restart,
+  main-thread-operation isolation, and stale-message tests;
 - `inspect-web-async-interop`: compiled and browser-executed typed managed
   result classification before Task/Promise projection, Promise-rejection
   failure handling, authenticated synchronous delegates, delegate release,
   cancellation-registry behavior, and `Func<Task>` negative
   characterizations;
 - `inspect-web-async-browser`: a real browser heartbeat and paint canary while
-  a pinned managed CPU operation runs, plus progress, cancellation,
-  supersession, and worker-restart scenarios; and
+  a pinned managed CPU operation runs, measured maximum silent occupancy for
+  every bounded operation kind, a shorter sibling that cannot terminate a
+  healthy busy worker, plus progress, cancellation, supersession, and
+  worker-restart scenarios; and
 - `inspect-web-async-performance`: pinned interpreter and AOT measurements for
   worker startup, first operation, cached operation, message payload transfer,
   and peak memory.
