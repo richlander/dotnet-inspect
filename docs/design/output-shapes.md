@@ -372,21 +372,19 @@ It must preserve terminal containment and ensure that any rejected export is
 decided before its destination is mutated.
 
 Tool-authored companion sections still use the stream split: for example,
-`package X -S "Package README file" --print --info` writes the framed, encoded
-document to stdout and the `# Info` table to stderr.
+`package X -S "Package README file" --print --info` writes the encoded document
+directly to stdout and the `# Info` table to stderr.
 
 Two consequences define the boundary:
 
 - `--jsonl` preserves the payload as a JSON string value. The wire format
   escapes control characters as required by JSON; parsing the JSON reconstructs
   the original value.
-- `--content` and target `--print` write framing to stdout. `--content`
-  delimits each matched file with a
-  `------------ <package> :: <path> ------------` banner; `--print` uses its
-  row-identity and line-metadata frame. Every frame field is contained.
-  `--print` additionally prefixes each terminal-safe payload line with a
-  tool-owned `|` followed by one space, so payload text cannot forge a sibling
-  frame.
+- `--content` delimits each matched file with a
+  `------------ <package> :: <path> ------------` banner. Current unary
+  `--print` writes its selected payload directly, without a tool-authored frame
+  or line-prefix gutter. The pending payload design owns any future multi-row
+  framing and its containment contract.
 
 These are gated by `PayloadLensContainmentTests`, which runs the built CLI over
 a package whose README carries bidi, ESC, and LS hazards and asserts encoded
@@ -604,8 +602,7 @@ active exception-handling regions, `Context: Callsite` shows the call-like
 operation at the coordinate, `Context: Return Address` points back to the prior
 call, `--urls` returns the anchored source location, `--paths` returns the PDB
 document path, and `--print --bare` returns the visually encoded payload at the
-location without the normal frame or gutter. Use `--print --out <path>` instead
-for exact payload export.
+location. Use `--print --out <path>` instead for exact payload export.
 
 ## Design discipline for future flags
 
@@ -624,8 +621,9 @@ The stable shape vocabulary is:
 - `--row` is the released exactly-one address gesture. The pending L2
   integration and L3 designs own its relationship to stage-local positions and
   semantic selection.
-- `--bare` is a presentation modifier: for one selected payload, it strips the
-  surrounding frame and payload gutter.
+- `--bare` is a presentation modifier. Current unary `--print` emits the
+  selected payload without document decoration; the pending payload design owns
+  its future multi-row meaning.
 - `--raw` / `--blob` are URL-shape modifiers: they control the form of emitted
   GitHub links, not the shape of the payload itself.
 - `--plaintext` remains distinct from `--bare`; if it stays in the product, it is

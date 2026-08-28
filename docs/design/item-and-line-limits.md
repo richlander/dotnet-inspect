@@ -52,8 +52,7 @@ CLI tokens
 -> shared RowSelection component executes the plan
 -> L2 binds the selected sequences back to their declared row sets
 -> payload or field projection
--> optional L3 rendered-line selection
--> format rendering
+-> format-specific presentation and optional line selection
 ```
 
 Every format receives the same selected typed rows. A renderer may add headings,
@@ -66,8 +65,11 @@ the source owner must acquire a broader extent and let the semantic owner finish
 selection. The focused source design will define that proof and the associated
 completion states.
 
-Rendered-line selection occurs after payload or report text exists. It does not
-limit item acquisition and cannot be pushed into Markout table-row selection.
+The pending payload design owns the last step's exact branches. Ordinary report
+windowing consumes formatter-produced report text. Per-payload line selection
+must instead produce complete payload values before a structured format encodes
+them. Neither operation limits item acquisition or can be pushed into Markout
+table-row selection.
 
 ## Landing order
 
