@@ -75,7 +75,12 @@ another. A blob-authored name is reflection syntax whose escapes are meaningful
 -- `E\+Kind` names the metadata type `E+Kind`, not one spelled with a backslash
 -- so it is normalized first and never matched verbatim. Both sides of the
 guard/decode pair classify a name the same way, so the two remain aligned
-either way. The guard also resolves a repeated enum name
+either way. That classification belongs to a single pending lookup, not to a
+spelling: the provider records only that the name it produced most recently
+came from the blob, and clears that mark when it produces a handle-derived
+name. Remembering spellings instead would let a blob-authored occurrence
+change how a later handle-derived occurrence of the same spelling resolves,
+making a consumed width depend on argument order. The guard also resolves a repeated enum name
 once rather than once per array element, because the element count is
 attacker-chosen and per-element parsing is the amplification the guard exists to
 prevent.

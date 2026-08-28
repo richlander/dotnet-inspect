@@ -359,14 +359,14 @@ public static class AttributeDecoder
             : EnumUnderlyingPrimitive.WithoutAssemblyQualification(name);
 
     /// <summary>Type provider for attribute-blob decoding: primitives as C# keywords, everything else as its full name (enums and typeof targets).</summary>
-    sealed class ArgTypeProvider(
+    internal sealed class ArgTypeProvider(
         MetadataReader reader,
         bool preserveSerializedTypeNames,
         Action<int>? beforeMaterialize,
         Func<string, PrimitiveTypeCode>? enumUnderlyingType) : ICustomAttributeTypeProvider<string>
     {
         Dictionary<string, TypeDefinitionHandle>? _typeDefinitionsByName;
-        HashSet<string>? _serializedNames;
+        bool _lastNameFromBlob;
         readonly MaterializationContext? _materializationContext =
             beforeMaterialize?.Target as MaterializationContext;
 
@@ -392,24 +392,33 @@ public static class AttributeDecoder
         public bool IsSystemType(string type) => type == "System.Type";
         public string GetSZArrayType(string elementType) => elementType + "[]";
         public string GetTypeFromDefinition(MetadataReader r, TypeDefinitionHandle handle, byte rawTypeKind)
-            => TypeResolver.GetTypeNameFromDefinition(r, handle, ObserveBeforeMaterialize);
+        {
+            _lastNameFromBlob = false;
+            return TypeResolver.GetTypeNameFromDefinition(r, handle, ObserveBeforeMaterialize);
+        }
+
         public string GetTypeFromReference(MetadataReader r, TypeReferenceHandle handle, byte rawTypeKind)
-            => TypeResolver.GetTypeName(
+        {
+            _lastNameFromBlob = false;
+            return TypeResolver.GetTypeName(
                 r,
                 handle,
                 context: null,
                 beforeMaterialize: ObserveBeforeMaterialize) ?? "object";
+        }
+
         public string GetTypeFromSerializedName(string name)
         {
-            string projected = preserveSerializedTypeNames
+            // Record that the name produced most recently came from the blob.
+            // SRM asks for a type name and then immediately asks for that
+            // name's underlying enum type, so this tracks the provenance of the
+            // pending lookup rather than remembering spellings. A set would
+            // accumulate, and a spelling that is legitimately handle-derived
+            // later in the same blob would then be resolved as blob syntax.
+            _lastNameFromBlob = true;
+            return preserveSerializedTypeNames
                 ? name
                 : EnumUnderlyingPrimitive.WithoutAssemblyQualification(name);
-            // Remember that this spelling came from the blob. Its escapes are
-            // reflection syntax and must be resolved before lookup, unlike a
-            // handle-derived name which is matched verbatim.
-            (_serializedNames ??= new HashSet<string>(StringComparer.Ordinal))
-                .Add(projected);
-            return projected;
         }
 
         public PrimitiveTypeCode GetUnderlyingEnumType(string type)
@@ -420,11 +429,10 @@ public static class AttributeDecoder
             // straight from its handle, and normalizing here would make the two
             // sides skip different widths. A blob-authored name is reflection
             // syntax, so it is normalized first and never matched verbatim.
-            if (_serializedNames?.Contains(type) != true
-                && TypeDefinitionsByName.TryGetValue(type, out var exact))
-            {
+            bool fromBlob = _lastNameFromBlob;
+            _lastNameFromBlob = false;
+            if (!fromBlob && TypeDefinitionsByName.TryGetValue(type, out var exact))
                 return EnumUnderlyingPrimitive.FromDefinition(reader, exact);
-            }
 
             string normalized = EnumUnderlyingPrimitive.NormalizeSerializedName(type);
             if (TypeDefinitionsByName.TryGetValue(normalized, out var handle))

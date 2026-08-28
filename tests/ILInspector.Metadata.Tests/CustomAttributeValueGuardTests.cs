@@ -2697,6 +2697,35 @@ public sealed class CustomAttributeValueGuardTests
         Assert.Equal(7L, decoded.Value.FixedArguments[0].Value);
     }
 
+    [Fact]
+    public void BlobAuthoredNameDoesNotChangeALaterHandleDerivedLookup()
+    {
+        // Provenance belongs to one pending lookup, not to a spelling. If a
+        // blob names a spelling that a handle-derived name also uses, the
+        // handle-derived occurrence must still resolve to its exact metadata
+        // type. Remembering spellings instead made the second occurrence
+        // resolve as reflection syntax, so the width a decode consumed
+        // depended on where the name appeared in the blob.
+        using var image = Open(BuildEscapeCollisionImage());
+        var provider = new AttributeDecoder.ArgTypeProvider(
+            image.Reader,
+            preserveSerializedTypeNames: false,
+            beforeMaterialize: null,
+            enumUnderlyingType: null);
+        const string Spelling = @"Samples.E\+Kind";
+
+        PrimitiveTypeCode before = provider.GetUnderlyingEnumType(Spelling);
+
+        provider.GetTypeFromSerializedName(Spelling);
+        PrimitiveTypeCode blob = provider.GetUnderlyingEnumType(Spelling);
+
+        PrimitiveTypeCode after = provider.GetUnderlyingEnumType(Spelling);
+
+        Assert.Equal(PrimitiveTypeCode.Int32, before);
+        Assert.Equal(PrimitiveTypeCode.Int64, blob);
+        Assert.Equal(before, after);
+    }
+
     static byte[] BuildEscapeCollisionImage()
     {
         var metadata = CreateMetadata("EscapeCollision");
