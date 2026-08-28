@@ -45,6 +45,24 @@ step that moves one waiting caller to `CallerCancelled` also changes shared
 protocol state or another caller. `CallerCancellationIsLocal` requires that
 monitor to remain false.
 
+## Implementation correspondence
+
+This mapping is traceability, not a refinement proof. It identifies where the
+current implementation realizes a modeled concern and which Release gate
+checks the observable result. Exact runtime traces, scheduler steps, and formal
+equivalence between the TLA+ state machine and C# remain unverified.
+
+| Modeled concern | Current implementation | Release evidence | Correspondence |
+| --- | --- | --- | --- |
+| One process-local acquisition and joined outcome | `AsyncCache.GetOrAddAsync` publishes one `Lazy<Task<T>>`; `PackageExtractor` keys `s_packageRequests` by the normalized acquisition request. | `GetOrAddAsync_ConcurrentRequestsShareOneTask`; `ExtractPackageAsync_ConcurrentRequestsShareOneDownload`; `ExtractPackageAsync_ConcurrentFailedAttemptSettlesWaitersAndCanRetry` | Observable success and shared non-success are gated. |
+| Non-success eviction and retry | `AsyncCache.ResolveAsync` removes faulted, cancelled, and predicate-rejected entries. `PackageExtractor` uses `shouldCache: false`, making the filesystem entry authoritative for every later request. | `GetOrAddAsync_FaultedResolutionCanRetry`; `GetOrAddAsync_CancelledResolutionCanRetry`; `GetOrAddAsync_RejectedResultCanRetry`; `ExtractPackageAsync_ConcurrentFailedAttemptSettlesWaitersAndCanRetry` | Observable retry and retained waiter outcome are gated. The exact remove-before-outer-task-completion interval is established by source ordering but has no deterministic implementation gate. |
+| Caller-only cancellation | The package extraction API has no caller cancellation token. A consumer may abandon or independently wrap its own wait, but that is outside the package acquisition protocol. | None | Model environment action, not an implementation-correspondence claim. |
+| Probe, existence check, validity recheck, and invalid-slot preservation | `NuGetCache.CommitPackage` rechecks a present target before rejecting it and never deletes an invalid final slot. | `CommitPackage_PreservesExistingInvalidEntry`; `CommitPackage_InvalidPackageLeavesNoVisibleEntry` | Observable invalid-slot behavior is gated. |
+| Staged validation, marker write, and atomic publication | `NuGetCache.CommitPackage` builds and validates a unique sibling staging tree, writes its marker, and calls `Directory.Move` to the final path. | `CommitPackage_InvalidPackageLeavesNoVisibleEntry`; `CommitPackage_ConcurrentPublishersConvergeOnOneCompleteTree` | Final outcomes are gated. Intermediate atomic visibility relies on the documented local-filesystem rename premise rather than a deterministic C# trace gate. |
+| Losing publisher convergence | The `Directory.Move` `IOException` filter accepts only a winner that passes `IsCommittedPackageValid`; otherwise the failure remains visible. | `CommitPackage_ConcurrentPublishersConvergeOnOneCompleteTree`; `CommitThatLosesToInadmissibleCachedContent_IsNotServed` | Valid-winner success and inadmissible-winner rejection are gated. |
+| Reader admission of committed content | `FileSystemPackageStore` surfaces marked final slots and `PackageContentAdmission` revalidates the retained archive against the extracted tree before use. | `CacheHitWithArchive_RejectsMutatedExtractedDll`; `ProductOwned_DeletedNupkg_DoesNotAdmitMutatedTree` | Admitted cache hits are gated; marker presence alone is not treated as complete package admission. |
+| Process crash and unrelated rename failure | These are nondeterministic environment actions used to explore protocol consequences under the model's filesystem assumptions. | None | Model-only exploration; no crash-durability or arbitrary-filesystem implementation claim. |
+
 ## Assumptions and non-claims
 
 The checked model assumes:
@@ -65,8 +83,8 @@ HTTP transport, ZIP extraction, byte-level persistence, package version
 resolution, dependency traversal, and equivalence between the model and the
 implementation are non-claims. TLC results establish properties of this model
 under these assumptions and bounds, not properties of the shipped
-implementation. Model-to-implementation correspondence is currently
-unverified.
+implementation. The correspondence table records selected observable gates; it
+does not establish formal or complete model-to-implementation equivalence.
 
 ## Checked configurations
 
