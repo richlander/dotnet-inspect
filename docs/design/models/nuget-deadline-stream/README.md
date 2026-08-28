@@ -18,11 +18,13 @@ read, and at most one caller disposal. It covers:
 - a distinct per-read cancellation;
 - caller cancellation, operation expiry, and request expiry;
 - a cancellation callback delayed past monotonic deadline observation;
-- data, EOF, transport failure, and a read stalled until owner disposal;
+- data, EOF, a deadline-eligible transport abort, and a read stalled until
+  owner disposal;
 - owner abort success or failure;
 - synchronous disposal order: inner, owner, deadline state;
 - asynchronous disposal order: inner, deadline state, owner; and
-- EOF racing deadline callback dispatch and deadline-state completion.
+- EOF racing deadline callback dispatch, caller disposal, and deadline-state
+  completion.
 
 The model deliberately excludes request acquisition before ownership transfer,
 metadata-body parsing and its separate deadline, retries, multi-source
@@ -37,6 +39,12 @@ paths and does not assert exactly-once owner disposal. It does assert that each
 path starts at most once and that deadline-state completion cannot overtake a
 running cancellation callback.
 
+EOF and caller disposal compete to claim deadline cleanup. The winner
+unregisters the callback and disposes the deadline resources. A caller-disposal
+path that observes cleanup already claimed does not join its completion; it
+continues its own owner cleanup while the original cleanup owner retains the
+obligation to finish.
+
 ## Checked properties
 
 | Property | Claim |
@@ -45,13 +53,14 @@ running cancellation callback.
 | `ResultShapeIsConsistent` | A completed read has exactly one typed result, and only deadline results retain abort-cleanup failure |
 | `ReadResultIsWrittenAtMostOnce` | The read receives at most one terminal classification |
 | `ReadCancellationPrecedesDeadlineTranslation` | A distinct per-read cancellation observed before timeout translation begins retains its own classification |
+| `TransportFailureIsNotReclassified` | A deadline-eligible transport abort that occurs before any outer deadline remains a transport failure even if the per-read token is also canceled |
 | `ClassificationFollowsPrecedence` | Deadline attribution follows caller cancellation, operation expiry, then request expiry |
 | `NoLateSuccess` | Data or EOF is admitted only when no applicable outer deadline has elapsed at the post-read check |
 | `EofDisarmsDeadlineTranslation` | Once EOF wins the post-read check, later expiry cannot reinterpret that result as timeout |
 | `AbortFailureIsRetained` | A deadline result produced after failed abort cleanup retains that failure |
 | `AbortStartsAtMostOnce` | Callback and read-side deadline observation cannot each start an abort |
-| `DeadlineCompletionWaitsForCallback` | Deadline resources do not complete while their cancellation callback is still running |
-| `CompletedDisposalOwnsCleanup` | Completed caller disposal includes inner, deadline-state, and caller-owner cleanup |
+| `DeadlineOwnershipIsSafe` | Active deadline state has no cleanup owner, claimed state has exactly one, and resource cleanup does not overtake its running cancellation callback |
+| `CompletedDisposalLeavesDeadlineOwned` | Completed caller disposal includes inner and caller-owner cleanup and leaves deadline cleanup claimed, though another owner may still be completing it |
 | `StartedAbortEventuallyCompletes` | Every started abort finishes |
 | `StartedDisposalEventuallyCompletes` | Every started synchronous or asynchronous disposal finishes |
 | `ImmediateReadEventuallyCompletes` | A started non-stalling read reaches one result |
@@ -75,6 +84,7 @@ behaviors:
 | --- | --- |
 | Delayed callbacks cannot admit late data | `NuGetDeadlineRaceTests.StreamConsumption_UsesElapsedTimeWhenTimerCallbackIsDelayed` |
 | A distinct per-read cancellation wins before timeout translation starts | `NuGetDeadlineTests.PreCancelledPerReadToken_PrecedesExpiredRequestDeadline` |
+| A pre-deadline I/O failure remains an I/O failure | `NuGetDeadlineTests.IoFailureBeforeDeadline_RemainsAnIoFailure` |
 | EOF disarms later deadline translation | `NuGetDeadlineTests.CompletedPackageStream_RemainsAtEofAfterDeadline` |
 | Caller cancellation remains caller cancellation | `NuGetDeadlineTests.PackageCallerCancellation_IsNotReportedAsADeadline` |
 | Async cleanup does not deadlock with abort | `NuGetDeadlineTests.DisposeAsync_DoesNotBlockOnAbortCleanup` and `InlineAsyncCompletion_DoesNotDeadlockAbortCleanup` |
@@ -112,21 +122,18 @@ The result below came from:
 - Eclipse Temurin OpenJDK `25.0.4.1+1`, Windows x64; and
 - a run on 2026-08-27.
 
-SANY parsed the module successfully. TLC exhaustively generated 111,893 states,
-found 32,395 distinct states, and completed the state graph at depth 18 with no
-error in eight seconds. TLC checked the five temporal-property branches over
-161,975 total distinct behavior-checking states.
+SANY parsed the module successfully. TLC exhaustively generated 115,322 states,
+found 33,077 distinct states, and completed the state graph at depth 18 with no
+error in six seconds. TLC checked the five temporal-property branches over
+165,385 total distinct behavior-checking states.
 
-Action coverage reports transitions from every one of the 27 model actions.
-`AdvancePastCompletedDeadline` contributed 44 transitions but no new distinct
-state; those transitions converge on states also reached when deadline
-completion advances disposal directly. Every other action contributed both
-transitions and distinct states.
+Action coverage reports transitions and distinct states from every one of the
+28 model actions.
 
 ### Mutation probes
 
 Each probe changed a scratch copy, enabled only the named claim, and ran TLC
-again. All fifteen produced the expected named violation. `TypeOK` is the one
+again. All sixteen produced the expected named violation. `TypeOK` is the one
 unprobed property because it is a state-shape guard rather than a behavioral
 claim.
 
@@ -134,19 +141,20 @@ claim.
 | --- | --- | --- | --- |
 | DS1 | Record a completed data read with no result | `ResultShapeIsConsistent` | Violated |
 | DS2 | Permit a second write of the read result | `ReadResultIsWrittenAtMostOnce` | Violated |
-| DS3 | Begin timeout translation despite an already observed per-read cancellation | `ReadCancellationPrecedesDeadlineTranslation` | Violated |
+| DS3 | Record a timeout after an already observed per-read cancellation | `ReadCancellationPrecedesDeadlineTranslation` | Violated |
 | DS4 | Let request expiry outrank simultaneous caller or operation expiry | `ClassificationFollowsPrecedence` | Violated |
 | DS5 | Admit data after an applicable deadline elapsed | `NoLateSuccess` | Violated |
 | DS6 | Reinterpret an established EOF as a later deadline | `EofDisarmsDeadlineTranslation` | Violated |
 | DS7 | Drop abort-cleanup failure from a deadline result | `AbortFailureIsRetained` | Violated |
 | DS8 | Let the cancellation callback start abort twice | `AbortStartsAtMostOnce` | Violated |
-| DS9 | Complete deadline state while its callback is still running | `DeadlineCompletionWaitsForCallback` | Violated |
-| DS10 | Finish asynchronous disposal without marking the stream disposed | `CompletedDisposalOwnsCleanup` | Violated |
+| DS9 | Complete deadline state while its callback is still running | `DeadlineOwnershipIsSafe` | Violated |
+| DS10 | Finish asynchronous disposal without marking the stream disposed | `CompletedDisposalLeavesDeadlineOwned` | Violated |
 | DS11 | Remove weak fairness from abort progress | `StartedAbortEventuallyCompletes` | Violated |
 | DS12 | Remove weak fairness from disposal progress | `StartedDisposalEventuallyCompletes` | Violated |
 | DS13 | Remove weak fairness from immediate-read progress | `ImmediateReadEventuallyCompletes` | Violated |
 | DS14 | Remove weak fairness from unblocked stalled-read progress | `UnblockedStalledReadEventuallyCompletes` | Violated |
 | DS15 | Remove weak fairness from deadline-state progress | `EofEventuallyCompletesDeadline` | Violated |
+| DS16 | Reclassify a pre-deadline transport failure as read cancellation | `TransportFailureIsNotReclassified` | Violated |
 
 The shipped model produced no material counterexample. The mutation
 counterexamples establish that its behavioral claims are sensitive to the

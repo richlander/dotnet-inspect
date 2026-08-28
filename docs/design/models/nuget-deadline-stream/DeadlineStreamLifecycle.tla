@@ -8,10 +8,10 @@ ReadPhases ==
     {"Idle", "Checking", "Reading", "InnerDone", "WaitingAbort", "Done"}
 
 InnerPlans ==
-    {"Data", "Eof", "TransportFailure", "StallUntilAbort"}
+    {"Data", "Eof", "DeadlineAbort", "StallUntilAbort"}
 
 InnerResults ==
-    {"None", "Data", "Eof", "TransportFailure", "Abort"}
+    {"None", "Data", "Eof", "DeadlineAbort", "Abort"}
 
 ReadResults ==
     {"None", "Data", "Eof", "ReadCanceled", "CallerCanceled",
@@ -19,6 +19,9 @@ ReadResults ==
 
 DeadlineStates ==
     {"Active", "Completing", "Completed"}
+
+DeadlineOwners ==
+    {"None", "Eof", "Dispose"}
 
 AbortStates ==
     {"Idle", "Running", "Done"}
@@ -54,6 +57,7 @@ InitialState(innerPlan) ==
      requestExpired |-> FALSE,
      endOfStream |-> FALSE,
      deadlineState |-> "Active",
+     deadlineOwner |-> "None",
      abortState |-> "Idle",
      abortOrigin |-> "None",
      abortFailure |-> FALSE,
@@ -63,6 +67,7 @@ InitialState(innerPlan) ==
      callerOwnerDispose |-> "Idle",
      resultIncludesAbortFailure |-> FALSE,
      resultWrites |-> 0,
+     transportFailureObserved |-> FALSE,
      readCancellationWitness |-> TRUE,
      precedenceWitness |-> TRUE,
      successWitness |-> TRUE]
@@ -74,6 +79,13 @@ DeadlineExpired ==
     state.callerCancelled
     \/ state.operationExpired
     \/ state.requestExpired
+
+ReadCancellationWinsNow ==
+    /\ state.readCancelled
+    /\ (state.readPhase = "Checking"
+        \/ (state.readPhase = "InnerDone"
+            /\ (state.innerResult \in {"Data", "Eof"}
+                \/ DeadlineExpired)))
 
 ExpectedDeadlineResult ==
     IF state.callerCancelled
@@ -99,6 +111,27 @@ WithReadResult(result, includesAbortFailure, precedenceOK, successOK) ==
         !.resultWrites = @ + 1,
         !.precedenceWitness = @ /\ precedenceOK,
         !.successWitness = @ /\ successOK]
+
+WithReadCancellationResult ==
+    LET producedResult == "ReadCanceled"
+    IN [WithReadResult(
+            producedResult,
+            FALSE,
+            TRUE,
+            TRUE) EXCEPT
+            !.readCancellationWitness =
+                @
+                /\ ReadCancellationWinsNow
+                /\ producedResult = "ReadCanceled"]
+
+WithTransportFailureResult ==
+    LET producedResult == "TransportFailure"
+    IN [WithReadResult(
+            producedResult,
+            FALSE,
+            TRUE,
+            TRUE) EXCEPT
+            !.transportFailureObserved = TRUE]
 
 WithAbortStarted(origin, nextReadPhase) ==
     [state EXCEPT
@@ -131,40 +164,33 @@ StartRead ==
 
 CheckReadStartCanceled ==
     /\ state.readPhase = "Checking"
-    /\ state.readCancelled
-    /\ state' =
-        [WithReadResult(
-            "ReadCanceled",
-            FALSE,
-            TRUE,
-            TRUE) EXCEPT
-            !.readCancellationWitness =
-                @ /\ state.readCancelled]
+    /\ ReadCancellationWinsNow
+    /\ state' = WithReadCancellationResult
 
 CheckReadStartDeadline ==
     /\ state.readPhase = "Checking"
-    /\ ~state.readCancelled
+    /\ ~ReadCancellationWinsNow
     /\ DeadlineExpired
     /\ IF state.abortState = "Idle"
        THEN state' =
                 [WithAbortStarted("Read", "WaitingAbort") EXCEPT
                     !.readCancellationWitness =
-                        @ /\ ~state.readCancelled]
+                        @ /\ ~ReadCancellationWinsNow]
        ELSE state' =
                 [state EXCEPT
                     !.readPhase = "WaitingAbort",
                     !.readCancellationWitness =
-                        @ /\ ~state.readCancelled]
+                        @ /\ ~ReadCancellationWinsNow]
 
 CheckReadStartContinue ==
     /\ state.readPhase = "Checking"
-    /\ ~state.readCancelled
+    /\ ~ReadCancellationWinsNow
     /\ ~DeadlineExpired
     /\ state' = [state EXCEPT !.readPhase = "Reading"]
 
 CompletePlannedInner ==
     /\ state.readPhase = "Reading"
-    /\ state.innerPlan \in {"Data", "Eof", "TransportFailure"}
+    /\ state.innerPlan \in {"Data", "Eof", "DeadlineAbort"}
     /\ state' =
         [state EXCEPT
             !.readPhase = "InnerDone",
@@ -182,34 +208,27 @@ CompleteStalledInner ==
 
 ObserveCanceledInner ==
     /\ state.readPhase = "InnerDone"
-    /\ state.readCancelled
-    /\ state' =
-        [WithReadResult(
-            "ReadCanceled",
-            FALSE,
-            TRUE,
-            TRUE) EXCEPT
-            !.readCancellationWitness =
-                @ /\ state.readCancelled]
+    /\ ReadCancellationWinsNow
+    /\ state' = WithReadCancellationResult
 
 ObserveDeadlineAfterInner ==
     /\ state.readPhase = "InnerDone"
-    /\ ~state.readCancelled
+    /\ ~ReadCancellationWinsNow
     /\ DeadlineExpired
     /\ IF state.abortState = "Idle"
        THEN state' =
                 [WithAbortStarted("Read", "WaitingAbort") EXCEPT
                     !.readCancellationWitness =
-                        @ /\ ~state.readCancelled]
+                        @ /\ ~ReadCancellationWinsNow]
        ELSE state' =
                 [state EXCEPT
                     !.readPhase = "WaitingAbort",
                     !.readCancellationWitness =
-                        @ /\ ~state.readCancelled]
+                        @ /\ ~ReadCancellationWinsNow]
 
 ObserveData ==
     /\ state.readPhase = "InnerDone"
-    /\ ~state.readCancelled
+    /\ ~ReadCancellationWinsNow
     /\ ~DeadlineExpired
     /\ state.innerResult = "Data"
     /\ state' =
@@ -221,7 +240,7 @@ ObserveData ==
 
 ObserveEof ==
     /\ state.readPhase = "InnerDone"
-    /\ ~state.readCancelled
+    /\ ~ReadCancellationWinsNow
     /\ ~DeadlineExpired
     /\ state.innerResult = "Eof"
     /\ state' =
@@ -238,15 +257,9 @@ ObserveEof ==
 
 ObserveTransportFailure ==
     /\ state.readPhase = "InnerDone"
-    /\ ~state.readCancelled
     /\ ~DeadlineExpired
-    /\ state.innerResult \in {"TransportFailure", "Abort"}
-    /\ state' =
-        WithReadResult(
-            "TransportFailure",
-            FALSE,
-            TRUE,
-            TRUE)
+    /\ state.innerResult \in {"DeadlineAbort", "Abort"}
+    /\ state' = WithTransportFailureResult
 
 ClassifyDeadlineAfterAbort ==
     /\ state.readPhase = "WaitingAbort"
@@ -329,11 +342,21 @@ CompleteCallerOwnerDispose ==
                 THEN "Disposed"
                 ELSE @]
 
-BeginDeadlineCompletion ==
+BeginEofDeadlineCompletion ==
     /\ state.deadlineState = "Active"
-    /\ (state.endOfStream \/ state.disposePhase = "Deadline")
+    /\ state.endOfStream
     /\ state' =
-        [state EXCEPT !.deadlineState = "Completing"]
+        [state EXCEPT
+            !.deadlineState = "Completing",
+            !.deadlineOwner = "Eof"]
+
+BeginDisposeDeadlineCompletion ==
+    /\ state.deadlineState = "Active"
+    /\ state.disposePhase = "Deadline"
+    /\ state' =
+        [state EXCEPT
+            !.deadlineState = "Completing",
+            !.deadlineOwner = "Dispose"]
 
 CompleteDeadlineState ==
     /\ state.deadlineState = "Completing"
@@ -343,20 +366,23 @@ CompleteDeadlineState ==
         [state EXCEPT
             !.deadlineState = "Completed",
             !.disposePhase =
-                IF state.disposePhase = "Deadline"
+                IF state.deadlineOwner = "Dispose"
+                   /\ state.disposePhase = "Deadline"
                 THEN IF state.disposeMode = "Sync"
                      THEN "Done"
                      ELSE "Owner"
                 ELSE @,
             !.stream =
-                IF state.disposePhase = "Deadline"
+                IF state.deadlineOwner = "Dispose"
+                   /\ state.disposePhase = "Deadline"
                    /\ state.disposeMode = "Sync"
                 THEN "Disposed"
                 ELSE @]
 
-AdvancePastCompletedDeadline ==
+AdvancePastClaimedDeadline ==
     /\ state.disposePhase = "Deadline"
-    /\ state.deadlineState = "Completed"
+    /\ state.deadlineOwner = "Eof"
+    /\ state.deadlineState \in {"Completing", "Completed"}
     /\ state' =
         [state EXCEPT
             !.disposePhase =
@@ -390,10 +416,11 @@ DisposeProgress ==
     CompleteInnerDispose
     \/ StartCallerOwnerDispose
     \/ CompleteCallerOwnerDispose
-    \/ AdvancePastCompletedDeadline
+    \/ AdvancePastClaimedDeadline
 
 DeadlineProgress ==
-    BeginDeadlineCompletion
+    BeginEofDeadlineCompletion
+    \/ BeginDisposeDeadlineCompletion
     \/ CompleteDeadlineState
 
 Next ==
@@ -430,6 +457,7 @@ TypeOK ==
          requestExpired : BOOLEAN,
          endOfStream : BOOLEAN,
          deadlineState : DeadlineStates,
+         deadlineOwner : DeadlineOwners,
          abortState : AbortStates,
          abortOrigin : AbortOrigins,
          abortFailure : BOOLEAN,
@@ -439,6 +467,7 @@ TypeOK ==
          callerOwnerDispose : OwnerDisposeStates,
          resultIncludesAbortFailure : BOOLEAN,
          resultWrites : 0..2,
+         transportFailureObserved : BOOLEAN,
          readCancellationWitness : BOOLEAN,
          precedenceWitness : BOOLEAN,
          successWitness : BOOLEAN]
@@ -454,6 +483,10 @@ ReadResultIsWrittenAtMostOnce ==
 
 ReadCancellationPrecedesDeadlineTranslation ==
     state.readCancellationWitness
+
+TransportFailureIsNotReclassified ==
+    state.transportFailureObserved =>
+        state.readResult = "TransportFailure"
 
 ClassificationFollowsPrecedence ==
     state.precedenceWitness
@@ -474,15 +507,18 @@ AbortFailureIsRetained ==
 AbortStartsAtMostOnce ==
     state.abortStarts <= 1
 
-DeadlineCompletionWaitsForCallback ==
-    state.deadlineState = "Completed" =>
+DeadlineOwnershipIsSafe ==
+    /\ (state.deadlineState = "Active") <=>
+        (state.deadlineOwner = "None")
+    /\ state.deadlineState = "Completed" =>
         ~(state.abortState = "Running"
           /\ state.abortOrigin = "Callback")
 
-CompletedDisposalOwnsCleanup ==
+CompletedDisposalLeavesDeadlineOwned ==
     state.disposePhase = "Done" =>
         /\ state.stream = "Disposed"
-        /\ state.deadlineState = "Completed"
+        /\ state.deadlineState \in {"Completing", "Completed"}
+        /\ state.deadlineOwner # "None"
         /\ state.callerOwnerDispose = "Done"
 
 StartedAbortEventuallyCompletes ==
