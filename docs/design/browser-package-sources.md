@@ -174,7 +174,8 @@ sealed class PackageSourceResultFactory
     PackageSourceOperationResult<T> Failed<T>(
         PackageSourceCapabilities capability,
         PackageSourceFailureKind kind,
-        PackageSourceCoordinate? coordinate);
+        PackageSourceCoordinate? coordinate)
+        where T : IPackageSourceResult;
 }
 ```
 
@@ -192,8 +193,15 @@ authority from `Key` is invalid.
 
 `PackageSourceResultIdentity` equality compares producer keys ordinally,
 association by reference identity, and transport kind by enum value. Validation
-uses that complete equality; producer equality alone cannot admit an
-observation into a source-scoped result.
+uses that complete equality for public source semantics. Producer equality
+alone cannot admit an observation into a source-scoped result.
+
+Value equality does not prove construction provenance: two runtime clients may
+have equal producer, association, and transport values. Each
+`PackageSourceResultFactory` therefore creates one private issuer reference and
+stamps it on every result, observation, failure, and operation outcome. The
+issuer is not a fourth public identity role. It has no public accessor, text,
+serialization value, or caller-controlled construction path.
 
 `PackageSourceKind` remains the retained transport distinction. NuGetFetch does
 not expose a second opaque transport identity. Resource failover and individual
@@ -341,10 +349,11 @@ projections use the HTTP producer factory.
 
 Every built-in `IPackageSourceClient` owns one
 `PackageSourceResultFactory`, permanently bound to one immutable
-`PackageSourceResultIdentity`. Supported custom-client registration receives
-the same kind of bound factory. Result, observation, manifest, payload, and
-operation-outcome construction is closed through that factory rather than
-accepting independent identity arguments.
+`PackageSourceResultIdentity` and one private issuer reference. Supported
+custom-client registration receives the same kind of bound factory. Result,
+observation, manifest, payload, and operation-outcome construction is closed
+through that factory rather than accepting independent identity or issuer
+arguments.
 
 The same closed-construction rule applies after publication: identity-bearing
 result and failure types expose no public copy constructor, clone, init setter,
@@ -369,22 +378,23 @@ The exact client identity is then carried without reconstruction:
   timeout, invalid-response, bounded-response, and transport outcomes.
 
 Concrete operation values implement the owner-controlled
-`IPackageSourceResult` contract. `Succeeded<T>` validates the value's complete
-source identity against the bound factory before wrapping it. `Failed<T>`
-constructs both the failure and its operation wrapper from the factory's
-identity and closed failure inputs; it does not accept a separately constructed
-failure. The closed operation result contains exactly one of value or failure.
-Its success and failed variants have the same closed constructor, copy, and
-init-setter rules as their payloads.
+`IPackageSourceResult` contract. `Succeeded<T>` validates both the value's
+complete public source identity and its private issuer reference against the
+bound factory before wrapping it. `Failed<T>` constructs both the failure and
+its operation wrapper with the factory's identity and issuer from closed
+failure inputs; it does not accept a separately constructed failure. The closed
+operation result contains exactly one of value or failure. Its success and
+failed variants have the same closed constructor, copy, and init-setter rules
+as their payloads.
 
 For collection results, the bound factory first snapshots the supplied
 observations into private storage, then validates the snapshot against its
-identity, then publishes a read-only view that does not expose the backing
-array. Mutating the original list or array cannot alter the result after
+identity and issuer, then publishes a read-only view that does not expose the
+backing array. Mutating the original list or array cannot alter the result after
 construction. Projection helpers similarly take the bound factory rather than
-independent producer, association, and transport arguments. Mixed identity is
-a construction error, and empty success and failure remain equally
-attributable.
+independent producer, association, transport, or issuer arguments. Mixed
+identity or foreign-factory provenance is a construction error, and empty
+success and failure remain equally attributable.
 
 Multi-source aggregation remains above NuGetFetch. It retains producer identity
 as provenance but does not use producer equality alone to collapse configured
@@ -497,7 +507,8 @@ currently depend on the exact canonical authority bytes. Implementation slices
 for issues #4797 and #4805 must either preserve those bytes exactly or introduce
 an explicit cache-key version and migration; their owner gates make that
 decision. This contract does not silently rotate their persisted slots. The
-final removal slice deletes the temporary reader gate with the legacy type.
+final removal slice deletes the temporary reader and behavior gates with the
+legacy type.
 
 ### Gates
 
@@ -546,10 +557,12 @@ Implementation is not complete until Release gates establish:
   constant and canonical v3 endpoint projection issue one producer while
   retaining distinct transport kinds;
 - `SourceResultFactoryBindsIssuingIdentity` proves built-in clients construct
-  every result through their bound factory and reject a foreign candidate;
+  every result through their bound factory; two factories with value-equal
+  public source identities reject each other's candidates by issuer reference;
 - `SourceOperationOutcomesBindIssuingIdentity` proves success rejects a value
-  from another source and failed outcomes can contain only the bound factory's
-  owner-constructed failure, with exactly one value or failure per outcome;
+  from another factory, including one with equal public source identity, and
+  failed outcomes can contain only the bound factory's owner-constructed
+  failure, with exactly one value or failure per outcome;
 - `SourceResultCollectionsAreImmutableSnapshots` proves mutation of the
   supplied list or array after construction cannot alter the result and no
   mutable backing collection is exposed;
@@ -557,6 +570,9 @@ Implementation is not complete until Release gates establish:
   prove result, operation-outcome, and failure types have no public constructor,
   clone, copy constructor, or init setter that can replace identity or summary
   text;
+- `SourceResultIssuerIsPrivateConstructionEvidence` proves the issuer has no
+  public member or caller construction path and enters no structured or
+  diagnostic projection;
 - `FailureFactoryAcceptsNoArbitraryRetainedText` locks the public construction
   surface and the closed failure-kind-to-summary mapping;
 - `RetainedFailureHasNoConfiguredEndpointOrRecognizedCredentialText` covers
@@ -564,7 +580,11 @@ Implementation is not complete until Release gates establish:
   failure and diagnostic projection;
 - `LegacyPackageSourceIdentitySurfaceMatchesMigrationSet` prevents the
   additive compatibility window from acquiring any new legacy type,
-  formatting, equality, or factory consumer; and
+  formatting, equality, or factory consumer;
+- `LegacyPackageSourceIdentityBehaviorRemainsStable` pins exact vectors for
+  legacy factories, `NuGetOrg`, `Value`, endpoint-shaped formatting, equality,
+  and equal-value hash consistency throughout the compatibility window without
+  requiring a cross-process numeric hash value; and
 - the NuGetFetch `browser-wasm` build remains the platform compilation gate.
 
 The credential-path gate is relational consumer evidence, not a duplicate
@@ -602,8 +622,9 @@ can supply exact packages and versions without pretending to support package
 search. A feed that has no defined symbol-package download resource does not
 construct `.snupkg` URLs under `PackageBaseAddress`.
 
-Resolved resources are runtime state scoped to the canonical source identity.
-They are not persisted into portable source configuration.
+Resolved resources are runtime state scoped to configured-source authority.
+They are not persisted into portable source configuration or authorized by
+producer equality.
 
 ### NuGet Gallery source
 
@@ -663,19 +684,22 @@ Its limitations remain visible:
 
 The Gallery source is the browser default. Desktop configuration may continue
 to represent NuGet.org through its canonical v3 service index while sharing the
-same package-source identity and provenance label. Transport strategy is a
-host capability, not a second visible producer.
+same producer provenance label. Package composition determines whether their
+configured authorities are equivalent. Transport strategy is a host capability,
+not a second visible producer.
 
-The canonical producer identity for both transports is
-`https://api.nuget.org/v3/index.json`. The Gallery browser client uses that
-identity without requesting the URL. A registry ID is a user-interface handle,
-not a producer identity or cache key.
+Both transports use the owner-issued canonical NuGet.org producer constant. Its
+safe display is `https://api.nuget.org/v3/index.json`; its key follows the
+versioned producer-key contract. The Gallery browser client uses the constant
+without requesting the displayed URL. A registry ID is a user-interface
+handle, not a producer identity or cache key.
 
 Candidate caches additionally identify the discovery contract and its version,
 such as complete listing-aware enumeration versus keyword search. A
 search-derived listed-only result cannot answer a complete version-enumeration
 request. Payload caches may be shared across the Gallery browser and v3
-transports because both name the same immutable NuGet.org producer.
+transports only after the package owner composes their configured authorities.
+Their shared NuGet.org producer label alone does not authorize cache sharing.
 
 ### Local-folder source
 
@@ -712,12 +736,14 @@ fields, URL user information, queries, and fragments. Descriptor names, IDs,
 and paths are treated as public. Runtime credentials are never part of this
 registry.
 
-Changing a descriptor's kind or canonical endpoint creates a new source
-identity. The browser invalidates that registry entry's resolved resources,
-candidate state, credentials, and payload-cache eligibility rather than
-rewriting the previous producer. Registering the canonical NuGet.org v3
-endpoint alongside the built-in Gallery source creates one producer with two
-available transports, not two candidate authorities.
+Changing a descriptor's kind or canonical endpoint creates a new configured
+authority identity. The browser invalidates that registry entry's resolved
+resources, candidate state, credentials, and payload-cache eligibility rather
+than rewriting the previous authority. Registering the canonical NuGet.org v3
+endpoint alongside the built-in Gallery source creates one shared producer
+label with two available transports. Package composition #4797 decides whether
+their configured authorities form one candidate authority; producer equality
+alone does not.
 
 The registry reserves built-in IDs. A bundle may select the canonical Gallery
 descriptor but cannot replace it or register another source under its ID.
@@ -1169,12 +1195,12 @@ Candidate projection remains inside the same operation deadline as the metadata
 request.
 
 Source operations now return typed outcomes. Search and version results carry
-normalized package coordinates, producer identity, discovery contract, and
-source-relative listing state. Payload results carry the exact coordinate,
-producer, transport profile, payload kind, and caller-owned stream. Expected
-source failures before a payload stream is returned retain the producer,
-transport profile, capability, and exact coordinate when applicable, and
-distinguish unsupported capability, exact payload absence, authentication,
+normalized package coordinates, complete `PackageSourceResultIdentity`,
+discovery contract, and source-relative listing state. Payload results carry
+the exact coordinate, complete result identity, payload kind, and caller-owned
+stream. Expected source failures before a payload stream is returned retain the
+complete result identity, capability, and exact coordinate when applicable,
+and distinguish unsupported capability, exact payload absence, authentication,
 timeout, malformed metadata, bounded-response rejection, and transport
 failure. Their retained messages are source-safe summaries rather than
 transport URLs or response text. Caller cancellation remains cancellation,
@@ -1239,9 +1265,9 @@ Browser version picker; wildcard and range dependency selection excludes
 unlisted versions and fails closed when listing authority is absent. The typed
 payload's advertised length flows through the shared
 `PackagePayloadAcquisition` admission and store pipeline, so Browser cache
-reservation, archive limits, producer authorization, and publication are not
-reimplemented in the host. Desktop package-resolution consumers remain on the
-compatibility path.
+reservation, archive limits, configured-source authority authorization, and
+publication are not reimplemented in the host. Desktop package-resolution
+consumers remain on the compatibility path.
 
 The v3 compatibility adapter exposes search, version, manifest, and
 package-payload operations. It validates package coordinates before any
@@ -1366,11 +1392,13 @@ Implementation is not complete until gates prove:
   fetch targets;
 - v3 resource discovery remains source-relative;
 - multi-source latest selection retains every reporting source;
-- selecting Gallery and canonical NuGet.org v3 transports reports one producer,
+- when package-owner composition establishes one configured authority,
+  selecting Gallery and canonical NuGet.org v3 transports reports one producer,
   succeeds when either applicable transport succeeds, and fails only when both
   fail;
 - a mirror lag does not redirect a Gallery-only candidate to that mirror;
-- source-scoped candidate and payload caches cannot cross producers;
+- source-scoped candidate and payload caches cannot cross configured
+  authorities, including two authorities with the same producer label;
 - a keyword-search/latest cache entry cannot answer complete listing-aware
   enumeration, and incomplete listing metadata cannot populate that cache;
 - source-relative listing states cover `listed`, `unlisted`, `unknown`, and
