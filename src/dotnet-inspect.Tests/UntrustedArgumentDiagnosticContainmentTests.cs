@@ -240,6 +240,31 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
     }
 
     [Fact]
+    public async Task ChildOutputCapture_DoesNotSplitUnicodeAtRetainedBoundaries()
+    {
+        string scalar = char.ConvertFromUtf32(0x1F600);
+        string headSplit =
+            new string('H', CapturedOutputHeadCharacters - 1) +
+            scalar +
+            new string('T', CapturedOutputTailCharacters);
+        string tailSplit =
+            new string('H', CapturedOutputHeadCharacters) +
+            "O" +
+            scalar +
+            new string('T', CapturedOutputTailCharacters - 1);
+
+        var headCapture = await CaptureTextAsync(new StringReader(headSplit));
+        var tailCapture = await CaptureTextAsync(new StringReader(tailSplit));
+
+        Assert.Equal(2, headCapture.OmittedCharacterCount);
+        Assert.Equal(3, tailCapture.OmittedCharacterCount);
+        Assert.DoesNotContain('\uD83D', headCapture.Text);
+        Assert.DoesNotContain('\uDE00', tailCapture.Text);
+        JsonSerializer.Serialize(headCapture.Text);
+        JsonSerializer.Serialize(tailCapture.Text);
+    }
+
+    [Fact]
     public void ChildOutputCapture_FailureIsReportedWithoutEscapingTheDiagnosticPath()
     {
         Task<BoundedTextCapture> stdout =
@@ -247,9 +272,24 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
         Task<BoundedTextCapture> stderr =
             Task.FromResult(new BoundedTextCapture("", 0));
 
-        WaitForOutputCapture(stdout, stderr);
+        _ = WaitForOutputCapture(Task.WhenAll(stdout, stderr));
 
         Assert.Equal("<capture failed: pipe failed>", CapturedText(stdout));
+    }
+
+    [Fact]
+    public async Task ChildOutputCapture_LateFailureIsObserved()
+    {
+        var source = new TaskCompletionSource<BoundedTextCapture>();
+        Task allCaptures = Task.WhenAll(
+            source.Task,
+            Task.FromResult(new BoundedTextCapture("", 0)));
+
+        Task observation = WaitForOutputCapture(allCaptures, timeoutMilliseconds: 0);
+        source.SetException(new IOException("late pipe failure"));
+
+        await observation;
+        Assert.True(allCaptures.IsFaulted);
     }
 
     /// <summary>
@@ -529,8 +569,11 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
 
         // Drain both pipes before waiting; a synchronous read of one blocks
         // until EOF and lets the child deadlock filling the other.
-        var stdout = CaptureTextAsync(process.StandardOutput);
-        var stderr = CaptureTextAsync(process.StandardError);
+        using var stdoutReader = process.StandardOutput;
+        using var stderrReader = process.StandardError;
+        var stdout = CaptureTextAsync(stdoutReader);
+        var stderr = CaptureTextAsync(stderrReader);
+        Task allCaptures = Task.WhenAll(stdout, stderr);
         if (!process.WaitForExit(childExitTimeoutMilliseconds))
         {
             _deleteCacheOnDispose = false;
@@ -538,7 +581,7 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
             OutOfProcessCliProcess.KillAndWaitForExit(
                 process,
                 TimeSpan.FromMilliseconds(OutputCaptureTimeoutMilliseconds));
-            WaitForOutputCapture(stdout, stderr);
+            _ = WaitForOutputCapture(allCaptures);
             throw new TimeoutException(CreateChildFailureDiagnostic(
                 $"did not exit after {childExitTimeoutMilliseconds / 1000} seconds",
                 executable,
@@ -549,7 +592,7 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
                 _cacheDirectory));
         }
 
-        WaitForOutputCapture(stdout, stderr);
+        _ = WaitForOutputCapture(allCaptures);
         if (!stdout.IsCompletedSuccessfully || !stderr.IsCompletedSuccessfully)
         {
             _deleteCacheOnDispose = false;
@@ -646,6 +689,21 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
             }
         }
 
+        int tailStart = tailCount == tail.Length ? tailWriteIndex : 0;
+        if (totalCharacters > head.Length + tailCount)
+        {
+            if (head.Length > 0 && char.IsHighSurrogate(head[^1]))
+            {
+                head.Length--;
+            }
+
+            if (tailCount > 0 && char.IsLowSurrogate(tail[tailStart]))
+            {
+                tailStart = (tailStart + 1) % tail.Length;
+                tailCount--;
+            }
+        }
+
         long omittedCharacters = totalCharacters - head.Length - tailCount;
         var text = new StringBuilder(head.Length + tailCount + 64);
         text.Append(head);
@@ -656,7 +714,6 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
 
         if (tailCount > 0)
         {
-            int tailStart = tailCount == tail.Length ? tailWriteIndex : 0;
             int firstCount = Math.Min(tailCount, tail.Length - tailStart);
             text.Append(tail, tailStart, firstCount);
             text.Append(tail, 0, tailCount - firstCount);
@@ -665,17 +722,26 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
         return new BoundedTextCapture(text.ToString(), omittedCharacters);
     }
 
-    private static void WaitForOutputCapture(
-        Task<BoundedTextCapture> stdout,
-        Task<BoundedTextCapture> stderr)
+    private static Task WaitForOutputCapture(
+        Task allCaptures,
+        int timeoutMilliseconds = OutputCaptureTimeoutMilliseconds)
     {
-        var allCaptures = Task.WhenAll(stdout, stderr);
-        Task.WhenAny(
+        Task completed = Task.WhenAny(
                 allCaptures,
-                Task.Delay(OutputCaptureTimeoutMilliseconds))
+                Task.Delay(timeoutMilliseconds))
             .GetAwaiter()
             .GetResult();
-        _ = allCaptures.Exception;
+        if (completed == allCaptures)
+        {
+            _ = allCaptures.Exception;
+            return Task.CompletedTask;
+        }
+
+        return allCaptures.ContinueWith(
+            static capture => _ = capture.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     private static string CapturedText(Task<BoundedTextCapture> capture)
