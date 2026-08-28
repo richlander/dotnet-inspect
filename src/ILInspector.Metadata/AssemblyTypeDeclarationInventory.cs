@@ -74,6 +74,7 @@ public static class AssemblyTypeDeclarationInventoryReader
             }
 
             MetadataReader reader = peReader.GetMetadataReader();
+            assembly.ValidateArtifactContent(peReader);
             AssemblyReferenceIdentity actual =
                 AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
             if (actual != assembly.Identity)
