@@ -89,7 +89,8 @@ internal sealed class LibraryBodyAsyncSourceResolver
     }
 
     internal LibraryBodyAnalysisPlan ExpandEvidenceScope(
-        LibraryBodyAnalysisPlan plan)
+        LibraryBodyAnalysisPlan plan,
+        Func<MethodIdentity, bool> sourceAdmitted)
     {
         IReadOnlySet<int>? bodyScope = plan.MethodScope;
         Dictionary<int, ImmutableArray<TypeRef>>?
@@ -122,6 +123,12 @@ internal sealed class LibraryBodyAsyncSourceResolver
                     MethodIdentity source)
                     in ExecutionSourceMethodsByMoveNextToken())
                 {
+                    if (HasMalformedCompilerGeneratedLiftedName(
+                            source)
+                        || !sourceAdmitted(source))
+                    {
+                        continue;
+                    }
                     AddEvidenceSource(
                         typeScopeEvidenceSources,
                         moveNextToken,
@@ -346,11 +353,9 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 physicalMethod.MetadataToken);
         if (physicalHandle.Kind
                 != HandleKind.MethodDefinition
-            || !ImplementsAsyncStateMachine(
-                _reader.GetTypeDefinition(
-                    methodDefinition.GetDeclaringType()))
-            || !IsMoveNextBody(
-                (MethodDefinitionHandle)physicalHandle))
+            || !IsAsyncStateMachineExecutionMethod(
+                (MethodDefinitionHandle)physicalHandle,
+                methodDefinition))
         {
             return null;
         }
@@ -362,18 +367,6 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 DeclaredSourceMethodsByMoveNextToken();
         StateMachineExecutionMethods stateMachineExecutions =
             _stateMachineExecutionMethods.Value;
-        if (stateMachineExecutions.SourceByExecutionToken.TryGetValue(
-                physicalMethod.MetadataToken,
-                out MethodIdentity? executionSource))
-        {
-            if (includeGeneratedIntermediate)
-                return executionSource;
-            return actionableSources.TryGetValue(
-                physicalMethod.MetadataToken,
-                out MethodIdentity? actionableExecutionSource)
-                ? actionableExecutionSource
-                : null;
-        }
         if (executionMethods.RejectedStateMachines.Contains(
                 stateMachineType)
             || _ambiguousAsyncStateMachineTypes?.Contains(
@@ -388,12 +381,25 @@ internal sealed class LibraryBodyAsyncSourceResolver
             throw new BadImageFormatException(
                 "The state-machine source is invalid or ambiguous.");
         }
+        if (stateMachineExecutions.SourceByExecutionToken.TryGetValue(
+                physicalMethod.MetadataToken,
+                out MethodIdentity? executionSource))
+        {
+            if (includeGeneratedIntermediate)
+                return ValidateGeneratedIntermediate(
+                    executionSource);
+            return actionableSources.TryGetValue(
+                physicalMethod.MetadataToken,
+                out MethodIdentity? actionableExecutionSource)
+                ? actionableExecutionSource
+                : null;
+        }
         if (executionMethods.SourceByMoveNextToken.TryGetValue(
                 physicalMethod.MetadataToken,
                 out MethodIdentity? source))
         {
             if (includeGeneratedIntermediate)
-                return source;
+                return ValidateGeneratedIntermediate(source);
             return actionableSources.TryGetValue(
                     physicalMethod.MetadataToken,
                     out MethodIdentity? actionableSource)
@@ -407,6 +413,71 @@ internal sealed class LibraryBodyAsyncSourceResolver
             return source;
         }
         return null;
+    }
+
+    MethodIdentity ValidateGeneratedIntermediate(
+        MethodIdentity source)
+    {
+        if (HasMalformedCompilerGeneratedLiftedName(source))
+        {
+            throw new BadImageFormatException(
+                "The generated state-machine source name is invalid.");
+        }
+
+        return source;
+    }
+
+    internal bool HasMalformedCompilerGeneratedLiftedName(
+        MethodIdentity source)
+    {
+        if (!CompilerGeneratedNames
+                .HasLiftedMethodMarker(source.Name)
+            || CompilerGeneratedNames
+                .IsLocalFunctionOrLambda(source.Name))
+        {
+            return false;
+        }
+
+        return CreateAuthenticatedSourceOwner(
+            source).HasMalformedGeneratedLiftedName;
+    }
+
+    internal bool HasMalformedCompilerGeneratedLiftedName(
+        AuthenticatedSourceOwner source) =>
+        source.HasMalformedGeneratedLiftedName;
+
+    internal AuthenticatedSourceOwner
+        CreateAuthenticatedSourceOwner(
+            MethodIdentity source)
+    {
+        EntityHandle handle = MetadataTokens.EntityHandle(
+            source.MetadataToken);
+        if (handle.Kind != HandleKind.MethodDefinition)
+        {
+            return new AuthenticatedSourceOwner(
+                source,
+                HasGeneratedCode: false,
+                IsCompilerGenerated: false,
+                IsAuthenticatedTopLevelEntryPoint: false);
+        }
+
+        MethodDefinition definition =
+            _reader.GetMethodDefinition(
+                (MethodDefinitionHandle)handle);
+        CustomAttributeHandleCollection attributes =
+            definition.GetCustomAttributes();
+        return new AuthenticatedSourceOwner(
+            source,
+            _primaryMetadataResolver
+                .HasGeneratedCodeAttribute(
+                    attributes),
+            _primaryMetadataResolver
+                .HasCompilerGeneratedAttribute(
+                    attributes)
+                || _primaryMetadataResolver
+                    .IsCompilerGeneratedTypeOrEnclosing(
+                        definition.GetDeclaringType()),
+            IsAuthenticatedTopLevelEntryPoint: false);
     }
 
     internal void Prewarm()
@@ -453,6 +524,39 @@ internal sealed class LibraryBodyAsyncSourceResolver
                         stateMachineType))
             ? AsyncSourceResolution.Unresolved
             : AsyncSourceResolution.None;
+    }
+
+    internal bool IsAsyncStateMachineExecutionMethod(
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition methodDefinition) =>
+        ImplementsAsyncStateMachine(
+            _reader.GetTypeDefinition(
+                methodDefinition.GetDeclaringType()))
+        && IsMoveNextBody(methodHandle);
+
+    internal bool IsAuthenticatedAsyncStateMachineExecutionMethod(
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition methodDefinition)
+    {
+        if (!IsAsyncStateMachineExecutionMethod(
+                methodHandle,
+                methodDefinition))
+        {
+            return false;
+        }
+
+        try
+        {
+            return TryGetAsyncStateMachineMoveNext(
+                    methodDefinition.GetDeclaringType(),
+                    out MethodDefinitionHandle executionMethod)
+                && executionMethod == methodHandle;
+        }
+        catch (Exception ex)
+            when (IsRecoverableMethodFailure(ex))
+        {
+            return false;
+        }
     }
 
     /// <summary>

@@ -87,8 +87,8 @@ The cache model provides:
 
 - content scoped to the source that supplied it;
 - producer-feed and payload-location provenance on every opened package;
-- one shared acquisition task per exact coordinate, authorized-producer set,
-  cache root, and acquisition policy within a process;
+- one registry-selected acquisition task per exact coordinate,
+  authorized-producer set, cache root, and acquisition policy within a process;
 - complete-tree visibility through marked, atomic directory publication;
 - convergence on one valid winner when processes publish concurrently; and
 - no lock ordering between package coordinates.
@@ -96,6 +96,29 @@ The cache model provides:
 It does not guarantee globally unique work. Separate processes may download and
 extract the same immutable coordinate concurrently. It also does not provide a
 power-loss-durable filesystem transaction.
+
+### Executable interaction model
+
+The
+[package cache publication TLA+ model](models/package-cache-publication/README.md)
+is the executable companion to this design. It models one exact acquisition
+key, process-local task joining and eviction, independent cross-process
+publishers, validity probe and recheck races, staging, atomic rename, loser
+convergence, the removal/completion overlap, caller and factory cancellation,
+retry, and process crash.
+
+The full safety and quiet liveness configurations check two processes, three
+callers per process, and two attempts per process. A reduced two-caller
+configuration checks tolerant liveness properties with injected failure,
+factory and caller cancellation, crash, rename failure, and invalid initial
+state enabled. The model records its filesystem and fairness assumptions,
+checked safety and liveness properties, bounds, action coverage, and adversarial
+negative controls alongside the executable specification. Its results are
+evidence about the model, not the implementation. The model's
+[implementation correspondence](models/package-cache-publication/README.md#implementation-correspondence)
+maps selected observable outcomes to Release gates while leaving formal
+equivalence, exact runtime traces, crash behavior, and the filesystem's atomic
+rename premise unverified.
 
 ## Precedents
 
@@ -135,9 +158,13 @@ revalidates the returned producer. The current ordered-source-list key must
 migrate with the broader source-policy work in
 [#3752](https://github.com/richlander/dotnet-inspect/issues/3752).
 
-The registry entry is removed after completion, whether acquisition succeeds
-or fails, because the committed filesystem entry remains authoritative and is
-revalidated by later requests.
+The value factory settles before the registry entry is removed, and the outer
+shared task becomes observable as completed only after removal. A replacement
+request can therefore start in the short interval between removal and old
+waiters observing completion. Existing waiters retain their original task and
+observe its outcome; replacement callers use the new task. This overlap does
+not duplicate a still-running value factory, and the committed filesystem entry
+remains authoritative and is revalidated by every replacement request.
 
 The acquisition factory only downloads, extracts, validates, and commits its
 own coordinate. It does not resolve dependencies or wait on another registry
