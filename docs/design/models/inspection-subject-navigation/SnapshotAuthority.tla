@@ -18,11 +18,14 @@
 (*   the unconsumed effect authority       effect                            *)
 (*   authority held by a consumer          hostAuthority                     *)
 (*                                                                          *)
-(* Snapshots carry provenance.  A session snapshot records the origin of the *)
-(* snapshot it was derived from, and only session snapshots can carry a      *)
-(* session lens.  A caller- or foreign-supplied snapshot carries a lens that *)
-(* a session snapshot never has, so a committed retained lens that came from *)
-(* caller data is detectable rather than indistinguishable.                  *)
+(* Snapshots carry custody as well as provenance.  Custody says who is       *)
+(* holding the value: `sessionInstalled` is the snapshot the session         *)
+(* installed, and `supplied` is any value handed in by a consumer.  A stale  *)
+(* copy of this session's own earlier snapshot is still supplied, so it stays *)
+(* detectable even though its origin and its lens look like session data.    *)
+(* Each installed snapshot also records the origin and the custody of the     *)
+(* snapshot it was derived from, so adopting a supplied value is visible in   *)
+(* the result rather than inferred.                                          *)
 (*                                                                          *)
 (* `basisWitness`, `snapshotStabilityWitness`, `rejectionAuthorityWitness`,  *)
 (* and `executeWitness` are latching booleans.  Each re-derives,             *)
@@ -68,8 +71,17 @@ vars == << installed, retainedCommits, command, result, effectEpoch, effect,
 Modes == {"retained", "stateless"}
 AllLenses == SessionLenses \cup ForeignLenses
 
-NoSnapshot ==
-  [origin |-> "none", rev |-> 0, lens |-> "none", derivedFrom |-> "none"]
+Custodies == {"sessionInstalled", "supplied", "initial", "none"}
+
+Snapshot(origin, custody, rev, lens, derivedFrom, derivedCustody) ==
+  [ origin         |-> origin,
+    custody        |-> custody,
+    rev            |-> rev,
+    lens           |-> lens,
+    derivedFrom    |-> derivedFrom,
+    derivedCustody |-> derivedCustody ]
+
+NoSnapshot == Snapshot("none", "none", 0, "none", "none", "none")
 
 \* Prior state a caller might hand in explicitly.  "caller" is a snapshot the
 \* consumer invented, "foreign" is one from another session or host, and
@@ -78,19 +90,23 @@ NoSnapshot ==
 \* rule is about who owns the prior state, not about whether the value looks
 \* plausible.
 SuppliedSnapshots ==
-  { [origin |-> o, rev |-> 1, lens |-> l, derivedFrom |-> o] :
+  { Snapshot(o, "supplied", 1, l, o, "supplied") :
       o \in {"caller", "foreign"}, l \in ForeignLenses }
   \cup
-  { [origin |-> "session", rev |-> 0, lens |-> l, derivedFrom |-> "session"] :
+  { Snapshot("session", "supplied", 0, l, "session", "supplied") :
       l \in SessionLenses }
 
 LensesOfSnapshot(s) ==
   IF s.origin = "session" THEN SessionLenses ELSE ForeignLenses
 
-NoCommand == [mode |-> "none", lens |-> "none", prior |-> NoSnapshot]
+\* Operations and their results are correlated by a stable operation ID that
+\* the session assigns on submission.  Every result records the ID of the
+\* operation it answers, so a claim can name one operation's own outcome
+\* instead of settling for some outcome having happened.
+NoCommand == [id |-> 0, mode |-> "none", lens |-> "none", prior |-> NoSnapshot]
 NoResult ==
-  [mode |-> "none", outcome |-> "none", lens |-> "none", basis |-> "none",
-   reason |-> "none"]
+  [id |-> 0, mode |-> "none", outcome |-> "none", lens |-> "none",
+   basis |-> "none", reason |-> "none"]
 
 Authority(rev, intent, epoch) ==
   [session |-> SessionId, rev |-> rev, intent |-> intent, epoch |-> epoch]
@@ -101,12 +117,17 @@ ForeignAuthority ==
   [session |-> ForeignSessionId, rev |-> 1, intent |-> 1, epoch |-> 1]
 
 \* TypeOK only types the state.  Whether the installed snapshot is
-\* session-owned is a safety claim, checked by NoForeignRetainedState.
+\* session-owned is a safety claim, checked by
+\* InstalledSnapshotIsSessionCustody.
 TypeOK ==
   /\ installed.origin \in {"session", "caller", "foreign"}
+  /\ installed.custody \in Custodies
+  /\ installed.derivedCustody \in Custodies
   /\ installed.lens \in AllLenses
   /\ installed.rev \in Nat
   /\ retainedCommits \in Nat
+  /\ command.id \in 0 .. MaxCommands
+  /\ result.id \in 0 .. MaxCommands
   /\ command.mode \in Modes \cup {"none"}
   /\ command.lens \in AllLenses \cup {"none"}
   /\ command.prior \in SuppliedSnapshots \cup {NoSnapshot}
@@ -120,9 +141,9 @@ TypeOK ==
   /\ executeWitness \in BOOLEAN
 
 Init ==
-  /\ installed = [origin |-> "session", rev |-> 0,
-                  lens |-> CHOOSE l \in SessionLenses : TRUE,
-                  derivedFrom |-> "initial"]
+  /\ installed = Snapshot("session", "sessionInstalled", 0,
+                          CHOOSE l \in SessionLenses : TRUE,
+                          "initial", "initial")
   /\ retainedCommits = 0
   /\ command = NoCommand
   /\ result = NoResult
@@ -144,7 +165,8 @@ Init ==
 SubmitCommand(mode, lens, prior) ==
   /\ command = NoCommand
   /\ commandsIssued < MaxCommands
-  /\ command' = [mode |-> mode, lens |-> lens, prior |-> prior]
+  /\ command' = [id |-> commandsIssued + 1, mode |-> mode, lens |-> lens,
+                 prior |-> prior]
   /\ commandsIssued' = commandsIssued + 1
   /\ effect' = NoAuthority
   /\ UNCHANGED << installed, retainedCommits, result, effectEpoch,
@@ -165,8 +187,9 @@ SubmitCommand(mode, lens, prior) ==
 RejectSuppliedPriorState ==
   /\ command.mode = "retained"
   /\ command.prior # NoSnapshot
-  /\ result' = [mode |-> "retained", outcome |-> "rejected", lens |-> "none",
-                basis |-> "none", reason |-> "suppliedPriorState"]
+  /\ result' = [id |-> command.id, mode |-> "retained", outcome |-> "rejected",
+                lens |-> "none", basis |-> "none",
+                reason |-> "suppliedPriorState"]
   /\ effectEpoch' = effectEpoch + 1
   /\ effect' = Authority(installed.rev, commandsIssued, effectEpoch + 1)
   /\ hostAuthority' = effect'
@@ -195,8 +218,9 @@ RejectLensOutsideInstalledSnapshot ==
   /\ command.mode = "retained"
   /\ command.prior = NoSnapshot
   /\ command.lens \notin LensesOfSnapshot(installed)
-  /\ result' = [mode |-> "retained", outcome |-> "rejected", lens |-> "none",
-                basis |-> "none", reason |-> "lensNotInInstalledSnapshot"]
+  /\ result' = [id |-> command.id, mode |-> "retained", outcome |-> "rejected",
+                lens |-> "none", basis |-> "none",
+                reason |-> "lensNotInInstalledSnapshot"]
   /\ effectEpoch' = effectEpoch + 1
   /\ effect' = Authority(installed.rev, commandsIssued, effectEpoch + 1)
   /\ hostAuthority' = effect'
@@ -219,25 +243,26 @@ RejectLensOutsideInstalledSnapshot ==
 
 (***************************************************************************)
 (* Retained execution.  The basis is the installed snapshot and nothing      *)
-(* else; the replacement snapshot records what it was derived from.  If this *)
-(* action ever took its basis from `command.prior`, `derivedFrom` would say  *)
-(* so and NoForeignRetainedState would fail.                                 *)
+(* else; the replacement snapshot records the origin and the custody of what *)
+(* it was derived from.  If this action ever took its basis from             *)
+(* `command.prior`, `derivedCustody` would record `supplied` and             *)
+(* InstalledSnapshotIsSessionCustody would fail, including for a stale       *)
+(* same-session copy whose origin and lens look like session data.           *)
 (***************************************************************************)
 ExecuteRetained ==
   /\ command.mode = "retained"
   /\ command.prior = NoSnapshot
   /\ command.lens \in LensesOfSnapshot(installed)
   /\ LET basis == installed IN
-       /\ installed' = [origin      |-> "session",
-                        rev         |-> basis.rev + 1,
-                        lens        |-> command.lens,
-                        derivedFrom |-> basis.origin]
-       /\ result' = [mode |-> "retained", outcome |-> "applied",
-                     lens |-> command.lens, basis |-> basis.origin,
-                     reason |-> "none"]
+       /\ installed' = Snapshot("session", "sessionInstalled", basis.rev + 1,
+                                command.lens, basis.origin, basis.custody)
+       /\ result' = [id |-> command.id, mode |-> "retained",
+                     outcome |-> "applied", lens |-> command.lens,
+                     basis |-> basis.origin, reason |-> "none"]
        /\ basisWitness' =
             /\ basisWitness
             /\ basis = installed
+            /\ basis.custody = "sessionInstalled"
             /\ basis.origin = "session"
             /\ command.prior = NoSnapshot
   /\ retainedCommits' = retainedCommits + 1
@@ -261,9 +286,9 @@ StatelessLensAdmissible ==
 ExecuteStateless ==
   /\ command.mode = "stateless"
   /\ StatelessLensAdmissible
-  /\ result' = [mode |-> "stateless", outcome |-> "applied",
-                lens |-> command.lens, basis |-> command.prior.origin,
-                reason |-> "none"]
+  /\ result' = [id |-> command.id, mode |-> "stateless",
+                outcome |-> "applied", lens |-> command.lens,
+                basis |-> command.prior.origin, reason |-> "none"]
   /\ command' = NoCommand
   /\ UNCHANGED << installed, retainedCommits, effectEpoch, effect,
                   hostAuthority, commandsIssued, basisWitness,
@@ -276,8 +301,9 @@ ExecuteStateless ==
 RejectStatelessLens ==
   /\ command.mode = "stateless"
   /\ ~StatelessLensAdmissible
-  /\ result' = [mode |-> "stateless", outcome |-> "rejected", lens |-> "none",
-                basis |-> "none", reason |-> "lensNotInSuppliedPriorState"]
+  /\ result' = [id |-> command.id, mode |-> "stateless",
+                outcome |-> "rejected", lens |-> "none", basis |-> "none",
+                reason |-> "lensNotInSuppliedPriorState"]
   /\ command' = NoCommand
   /\ UNCHANGED << installed, retainedCommits, effectEpoch, effect,
                   hostAuthority, commandsIssued, basisWitness,
@@ -371,11 +397,17 @@ Spec == Init /\ [][Next]_vars /\ Fairness
 (* Invariants.                                                             *)
 (***************************************************************************)
 
-\* No supplied snapshot becomes retained authority.  The installed
-\* snapshot is always session-owned and always derived from session state.
-NoForeignRetainedState ==
+\* No supplied snapshot becomes retained state.  The installed snapshot is
+\* always in session custody, is session-owned, carries a session lens, and
+\* was derived from a snapshot that was itself in session custody.  The
+\* custody conjunct is what rejects a stale copy of this session's own
+\* earlier snapshot: that value has session origin and a session lens, so
+\* origin and lens alone would accept it.
+InstalledSnapshotIsSessionCustody ==
+  /\ installed.custody = "sessionInstalled"
   /\ installed.origin = "session"
   /\ installed.derivedFrom \in {"session", "initial"}
+  /\ installed.derivedCustody \in {"sessionInstalled", "initial"}
   /\ installed.lens \in SessionLenses
 
 \* Only retained execution installs state.  A stateless evaluation, a typed
@@ -383,8 +415,20 @@ NoForeignRetainedState ==
 \* break this.
 OnlyRetainedExecutionInstalls == installed.rev = retainedCommits
 
-\* A retained operation used the installed snapshot as its only prior state.
+\* A retained operation used the session-custody installed snapshot as its
+\* only prior state.
 RetainedPriorStateIsInstalledSnapshot == basisWitness
+
+\* Operations and results stay correlated.  A result always names a submitted
+\* operation, an in-flight operation is always one past the outstanding
+\* result, and once nothing is in flight the outstanding result belongs to the
+\* most recent operation.  A result that forgot or reused an operation ID
+\* breaks this.
+OperationAndResultAreCorrelated ==
+  /\ (result.mode # "none") => result.id \in 1 .. commandsIssued
+  /\ (command.mode # "none") => (command.id = commandsIssued /\
+                                 result.id = command.id - 1)
+  /\ (command.mode = "none") => result.id = commandsIssued
 
 \* Only the retained apply action may replace the installed snapshot.  Every
 \* other step, including stateless execution, stateless rejection, retained
@@ -429,20 +473,28 @@ StaleOrForeignAuthorityNeverExecutes == executeWitness
 (***************************************************************************)
 (* Liveness and progress.                                                  *)
 (***************************************************************************)
-EveryCommandResolves == (command # NoCommand) ~> (command = NoCommand)
+\* Each operation reaches its own result, named by the same operation ID.
+\* Another operation resolving does not discharge this one.
+EveryCommandResolves ==
+  \A id \in 1 .. MaxCommands : (command.id = id) ~> (result.id = id)
 
 EffectEventuallyConsumed == (effect # NoAuthority) ~> (effect = NoAuthority)
 
 \* Every retained operation that arrives carrying explicitly supplied prior
-\* state reaches the typed rejection, rather than being applied or left
-\* pending.  This holds for caller, foreign, and stale same-session prior
-\* values alike, because the rule is about who owns retained prior state.  An
-\* execution path that accepted supplied prior state would reach an applied
-\* retained result instead and break this property.
+\* state reaches its own typed rejection, identified by that operation's ID,
+\* rather than being applied or left pending.  This holds for caller,
+\* foreign, and stale same-session prior values alike, because the rule is
+\* about who owns retained prior state.  Naming the ID matters: a later
+\* operation that is wrongly applied is not excused by an earlier operation
+\* having been rejected.
 SuppliedRetainedPriorStateIsAlwaysRejected ==
-  (command.mode = "retained" /\ command.prior # NoSnapshot)
-    ~> ( /\ result.mode = "retained"
-         /\ result.outcome = "rejected"
-         /\ result.reason = "suppliedPriorState" )
+  \A id \in 1 .. MaxCommands :
+    ( /\ command.id = id
+      /\ command.mode = "retained"
+      /\ command.prior # NoSnapshot )
+      ~> ( /\ result.id = id
+           /\ result.mode = "retained"
+           /\ result.outcome = "rejected"
+           /\ result.reason = "suppliedPriorState" )
 
 =============================================================================

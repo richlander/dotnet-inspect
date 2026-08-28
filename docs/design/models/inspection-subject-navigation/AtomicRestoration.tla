@@ -17,6 +17,7 @@
 (*   the last committed subject+lens      lastCommit                       *)
 (*   preparations a newer intent replaced supersededPreparations           *)
 (*   preparations that failed             failedPreparations               *)
+(*   how each attempt ended               settlement                       *)
 (*                                                                         *)
 (* Navigation's own preparation has two explicitly tracked halves.  The     *)
 (* subject half and the lens half are each working, ready, or failed, so    *)
@@ -56,13 +57,19 @@ VARIABLES
   lastCommit,
   supersededPreparations,
   failedPreparations,
+  settlement,
   commitWitness
 
 vars == << intent, prep, visibleSubject, visibleLens, lastCommit,
-           supersededPreparations, failedPreparations, commitWitness >>
+           supersededPreparations, failedPreparations, settlement,
+           commitWitness >>
 
 Tokens == 1 .. MaxIntent
 PreparationStates == {"none", "working", "ready", "failed"}
+
+\* How each restoration attempt ended.  Every attempt that starts reaches one
+\* of these reasons, and the reason names which path it took.
+SettlementReasons == {"none", "committed", "aborted", "discarded"}
 
 NoPreparation == [subject |-> PriorSubject, lens |-> PriorLens,
                   subjectState |-> "none", lensState |-> "none",
@@ -99,6 +106,7 @@ TypeOK ==
   /\ visibleLens.origin \in 0 .. MaxIntent
   /\ supersededPreparations \subseteq Tokens
   /\ failedPreparations \subseteq Tokens
+  /\ \A t \in Tokens : settlement[t] \in SettlementReasons
   /\ commitWitness \in BOOLEAN
   /\ \A t \in Tokens :
        /\ prep[t].live \in BOOLEAN
@@ -116,6 +124,7 @@ Init ==
   /\ lastCommit = [subject |-> PriorSubject, lens |-> PriorLens, token |-> 0]
   /\ supersededPreparations = {}
   /\ failedPreparations = {}
+  /\ settlement = [t \in Tokens |-> "none"]
   /\ commitWitness = TRUE
 
 (***************************************************************************)
@@ -130,7 +139,7 @@ BeginRestoration(subject, lens) ==
   /\ supersededPreparations' =
        supersededPreparations \cup {t \in Tokens : prep[t].live}
   /\ UNCHANGED << visibleSubject, visibleLens, lastCommit, failedPreparations,
-                  commitWitness >>
+                  settlement, commitWitness >>
 
 \* Navigation resolves the subject half of the prepared snapshot.  Nothing is
 \* installed: preparation is invisible until the transaction commits.
@@ -139,7 +148,8 @@ PrepareSubject(t) ==
   /\ prep[t].subjectState = "working"
   /\ prep' = [prep EXCEPT ![t].subjectState = "ready"]
   /\ UNCHANGED << intent, visibleSubject, visibleLens, lastCommit,
-                  supersededPreparations, failedPreparations, commitWitness >>
+                  supersededPreparations, failedPreparations, settlement,
+                  commitWitness >>
 
 \* The subject half fails.  Reachable while the lens half is still working and
 \* also after the lens half is already ready.
@@ -149,7 +159,7 @@ FailSubjectPreparation(t) ==
   /\ prep' = [prep EXCEPT ![t].subjectState = "failed"]
   /\ failedPreparations' = failedPreparations \cup {t}
   /\ UNCHANGED << intent, visibleSubject, visibleLens, lastCommit,
-                  supersededPreparations, commitWitness >>
+                  supersededPreparations, settlement, commitWitness >>
 
 \* Navigation resolves the lens half of the same prepared snapshot.
 PrepareLens(t) ==
@@ -157,7 +167,8 @@ PrepareLens(t) ==
   /\ prep[t].lensState = "working"
   /\ prep' = [prep EXCEPT ![t].lensState = "ready"]
   /\ UNCHANGED << intent, visibleSubject, visibleLens, lastCommit,
-                  supersededPreparations, failedPreparations, commitWitness >>
+                  supersededPreparations, failedPreparations, settlement,
+                  commitWitness >>
 
 \* The lens half fails.  Reachable while the subject half is still working and
 \* also after the subject half is already ready.
@@ -167,7 +178,7 @@ FailLensPreparation(t) ==
   /\ prep' = [prep EXCEPT ![t].lensState = "failed"]
   /\ failedPreparations' = failedPreparations \cup {t}
   /\ UNCHANGED << intent, visibleSubject, visibleLens, lastCommit,
-                  supersededPreparations, commitWitness >>
+                  supersededPreparations, settlement, commitWitness >>
 
 \* Another restoration participant reports readiness or failure.
 PeerReady(t, p) ==
@@ -175,7 +186,8 @@ PeerReady(t, p) ==
   /\ prep[t].peers[p] = "working"
   /\ prep' = [prep EXCEPT ![t].peers[p] = "ready"]
   /\ UNCHANGED << intent, visibleSubject, visibleLens, lastCommit,
-                  supersededPreparations, failedPreparations, commitWitness >>
+                  supersededPreparations, failedPreparations, settlement,
+                  commitWitness >>
 
 PeerFailed(t, p) ==
   /\ prep[t].live
@@ -183,7 +195,7 @@ PeerFailed(t, p) ==
   /\ prep' = [prep EXCEPT ![t].peers[p] = "failed"]
   /\ failedPreparations' = failedPreparations \cup {t}
   /\ UNCHANGED << intent, visibleSubject, visibleLens, lastCommit,
-                  supersededPreparations, commitWitness >>
+                  supersededPreparations, settlement, commitWitness >>
 
 (***************************************************************************)
 (* The coordinator commits one prepared snapshot.  Subject and lens become  *)
@@ -198,6 +210,7 @@ CommitRestoration(t) ==
   /\ lastCommit' = [subject |-> prep[t].subject, lens |-> prep[t].lens,
                     token |-> t]
   /\ prep' = [prep EXCEPT ![t] = NoPreparation]
+  /\ settlement' = [settlement EXCEPT ![t] = "committed"]
   /\ commitWitness' =
        /\ commitWitness
        /\ t = intent
@@ -213,14 +226,19 @@ AbortRestoration(t) ==
   /\ prep[t].live
   /\ AttemptFailed(prep[t])
   /\ prep' = [prep EXCEPT ![t] = NoPreparation]
+  /\ settlement' = [settlement EXCEPT ![t] = "aborted"]
   /\ UNCHANGED << intent, visibleSubject, visibleLens, lastCommit,
                   supersededPreparations, failedPreparations, commitWitness >>
 
-\* A superseded preparation finishes late and is discarded unused.
+\* A superseded preparation that did not fail finishes late and is discarded
+\* unused.  A failed preparation is excluded here: supersession does not
+\* relabel a failure, so it still settles through abort.
 DiscardSupersededPreparation(t) ==
   /\ prep[t].live
   /\ t # intent
+  /\ ~AttemptFailed(prep[t])
   /\ prep' = [prep EXCEPT ![t] = NoPreparation]
+  /\ settlement' = [settlement EXCEPT ![t] = "discarded"]
   /\ UNCHANGED << intent, visibleSubject, visibleLens, lastCommit,
                   supersededPreparations, failedPreparations, commitWitness >>
 
@@ -287,26 +305,57 @@ PreparationIsInvisible ==
   \A t \in Tokens :
     prep[t].live => (visibleSubject.origin # t /\ visibleLens.origin # t)
 
+\* An attempt that is still live has not settled, so a settlement reason is
+\* recorded once, by the step that ended the attempt.
+LiveAttemptHasNoSettlement ==
+  \A t \in Tokens : prep[t].live => settlement[t] = "none"
+
+\* A failed preparation settles as aborted or has not settled yet.  It is
+\* never relabelled as committed or as an ordinary superseded discard, even
+\* when a newer intent superseded it as well.
+FailedAttemptSettlesAsAborted ==
+  \A t \in Tokens :
+    t \in failedPreparations => settlement[t] \in {"none", "aborted"}
+
+\* A committed attempt neither failed nor was superseded.  This correlates the
+\* recorded reason with the failure and supersession histories rather than
+\* trusting the label on its own.
+CommittedAttemptWasNeitherFailedNorSuperseded ==
+  \A t \in Tokens :
+    settlement[t] = "committed" =>
+      /\ t \notin failedPreparations
+      /\ t \notin supersededPreparations
+
+\* The visible pair came from the one attempt recorded as committed, or from
+\* the prior pair when nothing has committed yet.
+VisiblePairComesFromACommittedAttempt ==
+  visibleSubject.origin # 0 => settlement[visibleSubject.origin] = "committed"
+
 (***************************************************************************)
 (* Liveness.                                                               *)
 (***************************************************************************)
 
-\* Every restoration attempt settles, by commit, abort, or discard, rather
-\* than leaving the transaction open forever.
+\* Every restoration attempt settles with its own recorded reason rather than
+\* leaving the transaction open or ending anonymously.  The consequent names
+\* the same token as the antecedent, so another attempt settling does not
+\* discharge this one.
 EveryAttemptSettles ==
-  (\E t \in Tokens : prep[t].live) ~> (\A t \in Tokens : ~prep[t].live)
+  \A t \in Tokens :
+    prep[t].live ~> (~prep[t].live /\ settlement[t] # "none")
 
 \* A failed attempt settles specifically through abort: whichever half or
-\* participant failed, the transaction closes instead of waiting for the
-\* remaining halves to arrive.
+\* participant failed, the transaction closes with the aborted reason, not
+\* merely as no longer live and not as a discard.
 FailedAttemptsAbort ==
   \A t \in Tokens :
-    (prep[t].live /\ AttemptFailed(prep[t])) ~> ~prep[t].live
+    (prep[t].live /\ AttemptFailed(prep[t]))
+      ~> (~prep[t].live /\ settlement[t] = "aborted")
 
-\* A navigation half-failure reaches the same settled state, including when
-\* the other half is already prepared.
+\* A navigation half-failure reaches the same aborted settlement, including
+\* when the other half is already prepared.
 HalfFailedAttemptsSettle ==
   \A t \in Tokens :
-    (prep[t].live /\ NavigationFailed(prep[t])) ~> ~prep[t].live
+    (prep[t].live /\ NavigationFailed(prep[t]))
+      ~> (~prep[t].live /\ settlement[t] = "aborted")
 
 =============================================================================

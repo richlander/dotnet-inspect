@@ -462,11 +462,14 @@ The eventual subject-navigation implementation must include named gates for:
 - `LensReconciliation_PreservesExactSubjectScopedIdentity`
 - `RetainedSession_UsesInstalledSnapshotAsOnlyPriorState`
 - `RetainedSession_RejectsCallerSuppliedPriorSnapshot`
+- `RetainedSession_RejectsSuppliedSameSessionSnapshotCustody`
+- `SuppliedPriorRejection_CorrelatesExactOperation`
 - `Maintenance_SerializesInRequestOrderAcrossCompletionTiming`
 - `Maintenance_CannotInstallDuringUnconsumedEffect`
 - `EffectAuthority_RequiresExactCurrentSessionRevisionIntentAndEpoch`
 - `ExternalIntentAbort_ReleasesMaintenanceAfterAcknowledgement`
 - `CanonicalRestoration_PreparesAndCommitsSubjectLensAtomically`
+- `CanonicalRestoration_FailedPreparationSettlesAsAbort`
 
 Inspect Web needs non-vacuity gates that fail when it:
 

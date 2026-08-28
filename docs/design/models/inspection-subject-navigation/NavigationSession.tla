@@ -353,6 +353,7 @@ Fairness ==
   /\ \A n \in 1 .. MaxMaintenance : WF_vars(RebuildMaintenance(n))
   /\ WF_vars(AdmitMaintenance)
   /\ WF_vars(AcknowledgeEffect)
+  /\ \A token \in 1 .. MaxIntent : WF_vars(SupersededResultDiscarded(token))
 
 Spec == Init /\ [][Next]_vars /\ Fairness
 
@@ -406,6 +407,16 @@ NoStaleVisibleEffect == visibleWitness
 (***************************************************************************)
 ExplicitWorkEventuallyResolves ==
   (explicit # NoExplicitWork) ~> (explicit = NoExplicitWork)
+
+\* The same claim per intent token.  The aggregate property above can be
+\* discharged by a newer intent resolving, which says nothing about the older
+\* operation.  This one names the token: the operation that carried it must
+\* stop being in flight and must also stop being an outstanding superseded
+\* result, so supersession is a settlement rather than an open end.
+EveryExplicitIntentSettles ==
+  \A token \in 1 .. MaxIntent :
+    (explicit # NoExplicitWork /\ explicit.token = token)
+      ~> (explicit.token # token /\ token \notin superseded)
 
 EffectEventuallyConsumed ==
   (effect # NoAuthority) ~> (effect = NoAuthority)

@@ -6,7 +6,7 @@ They replace prose state-machine description with specifications a model
 checker can exhaust.
 
 There are three independent models. None imports another, and each is small
-enough for TLC to explore its entire state space in about a second.
+enough for TLC to explore its entire state space in a second or two.
 
 | Model | Mechanism |
 | --- | --- |
@@ -47,6 +47,21 @@ maintenance requests, and operations. They establish that no permitted
 interleaving within those bounds violates the invariants; they are not
 inductive proofs for unbounded runs.
 
+## Correlated claims
+
+A claim that says "an operation like this eventually reaches an outcome like
+that" can be discharged by some *other* operation's outcome. Every claim in
+these models that could fall into that trap names the thing it is talking
+about: a maintenance request number, an intent token, a restoration token and
+its recorded settlement reason, or a navigation operation ID that the result
+carries back. The three models therefore carry three correlation currencies:
+
+| Model | Currency | Used by |
+| --- | --- | --- |
+| `NavigationSession.tla` | maintenance request number, intent token | per-request admission and per-token settlement |
+| `AtomicRestoration.tla` | restoration token plus a settlement reason | per-attempt settlement and commit provenance |
+| `SnapshotAuthority.tla` | operation ID assigned on submission | per-operation resolution and rejection |
+
 ## `NavigationSession.tla`
 
 One retained navigation session holding zero or one installed snapshot. The
@@ -72,25 +87,26 @@ a consumer holding authority that has since stopped being current.
 | `MaintenanceRequestOrder` | Maintenance was admitted in owner-issued request order, never fact-completion order, and the queue stays ordered and outstanding |
 | `NoStaleVisibleEffect` | Every render, focus, or outcome effect executed under exactly the session's current unconsumed authority |
 
-Progress is stated per request rather than only for the queue as a whole. Each
-property below names a specific blocker and requires the request to be admitted
-once that blocker's disclosed release path runs, so abort, acknowledgement,
-abandonment, and rebuild have to be real release paths.
+Progress is stated per request and per intent token rather than only for the
+session as a whole. Each property below names a specific blocker or a specific
+token, so another request's admission or a newer intent's resolution cannot
+discharge it.
 
 | Liveness property | Claim |
 | --- | --- |
 | `ExplicitWorkEventuallyResolves` | Explicit work always reaches a result, a retained outcome, or an abort |
+| `EveryExplicitIntentSettles` | Each intent token's own operation stops being in flight and stops being an outstanding superseded result, so supersession settles rather than dangles |
 | `EffectEventuallyConsumed` | Unconsumed authority is eventually acknowledged, abandoned, or superseded |
 | `MaintenanceEventuallyDrains` | The whole queue eventually drains |
-| `EveryQueuedRequestIsAdmitted` | Every queued request is eventually admitted, so the head advances and the request leaves the queue |
+| `EveryQueuedRequestIsAdmitted` | Every queued request is eventually admitted, so the head advances and that request leaves the queue |
 | `BlockedMaintenanceResumes` | A request blocked by unresolved explicit work or an unconsumed effect is still admitted once that work resolves and that effect is released |
 | `MaintenanceResumesAfterAbort` | A request blocked behind an external prerequisite abort is admitted after that abort effect is acknowledged or abandoned |
 | `StaleBasisMaintenanceResumes` | A request whose basis a newer snapshot invalidated rebuilds, re-gathers, and is admitted |
 
-Liveness uses weak fairness on explicit resolution, per-request fact gathering
-and rebuilding, maintenance admission, and acknowledgement. Beginning a new
-explicit intent is deliberately unfair and bounded, so TLC can show that the
-queue drains once intents stop arriving.
+Liveness uses weak fairness on explicit resolution, discarding superseded
+results, per-request fact gathering and rebuilding, maintenance admission, and
+acknowledgement. Beginning a new explicit intent is deliberately unfair and
+bounded, so TLC can show that the queue drains once intents stop arriving.
 
 ## `AtomicRestoration.tla`
 
@@ -103,6 +119,11 @@ half and the lens half are each working, ready, or failed, so navigation can
 fail before either half resolves, after the subject half alone, or after the
 lens half alone. Each of those failures has to settle through abort with
 neither half becoming visible.
+
+Every attempt records its own settlement reason: `committed`, `aborted`, or
+`discarded`. A failed preparation settles as `aborted` even when a newer intent
+superseded it as well, because the ordinary superseded-discard path explicitly
+excludes failed preparations. Supersession does not relabel a failure.
 
 The visible subject and the visible lens are modelled as two separate
 variables, each tagged with the intent that installed it. That is the shape a
@@ -120,12 +141,16 @@ action that disturbed the visible pair is detected.
 | `NoSupersededCommit` | A preparation a newer intent replaced never became visible |
 | `FailedPreparationNeverVisible` | A preparation that failed in either navigation half or in a peer never became visible |
 | `PreparationIsInvisible` | A live preparation never leaks its subject or lens before commit |
+| `LiveAttemptHasNoSettlement` | A settlement reason is recorded once, by the step that ended the attempt |
+| `FailedAttemptSettlesAsAborted` | A failed preparation settles as aborted, never as a commit and never as an ordinary superseded discard |
+| `CommittedAttemptWasNeitherFailedNorSuperseded` | An attempt recorded as committed appears in neither the failure nor the supersession history |
+| `VisiblePairComesFromACommittedAttempt` | The token that installed the visible pair is the one recorded as committed |
 
 | Liveness property | Claim |
 | --- | --- |
-| `EveryAttemptSettles` | Every attempt reaches commit, abort, or discard rather than leaving the transaction open |
-| `FailedAttemptsAbort` | An attempt with any failed participant settles instead of waiting for the remaining participants |
-| `HalfFailedAttemptsSettle` | A navigation half-failure settles too, including when the other half is already prepared |
+| `EveryAttemptSettles` | Every attempt settles with its own recorded reason; another attempt settling does not discharge it |
+| `FailedAttemptsAbort` | An attempt with any failed participant settles with the aborted reason, not merely as no longer live |
+| `HalfFailedAttemptsSettle` | A navigation half-failure reaches that same aborted settlement, including when the other half is already prepared |
 
 ## `SnapshotAuthority.tla`
 
@@ -134,15 +159,20 @@ operation reads prior state only from its session's installed snapshot and
 rejects explicitly supplied prior state with a typed outcome. A stateless
 evaluation may consume an explicit prior snapshot as data and retains nothing.
 
-The supplied prior-state domain covers a snapshot the consumer invented, one
-minted by another session, and a stale copy of this session's own earlier
-snapshot. All three are rejected in retained mode: the rule is about who owns
-retained prior state, not about whether the supplied value looks plausible.
+Snapshots carry **custody** as well as origin. Custody says who holds the
+value: `sessionInstalled` is the snapshot the session installed, and `supplied`
+is any value handed in by a consumer. A stale copy of this session's own
+earlier snapshot has session origin and a session lens, so origin and lens
+alone would accept it; its custody keeps it detectably supplied. Each installed
+snapshot also records the origin and the custody of the snapshot it was derived
+from, so adopting a supplied value shows up in the installed record rather than
+having to be inferred.
 
-Snapshots carry provenance, and only a session snapshot can carry a session
-lens, so a committed lens that came from supplied data is detectable rather
-than indistinguishable. The replacement snapshot records the origin of the
-snapshot it was derived from.
+Operations and results are correlated by an **operation ID** that the session
+assigns on submission and every result carries back. That is what lets a claim
+name one operation's own outcome instead of settling for some outcome having
+occurred: a later operation that is wrongly applied is not excused by an
+earlier one having been rejected.
 
 A retained typed rejection is still a retained result. It changes no installed
 state, but it advances the effect epoch and returns current retained
@@ -153,9 +183,10 @@ retained authority, whether it succeeds or is rejected.
 | Invariant | Claim |
 | --- | --- |
 | `TypeOK` | State stays within its declared shape |
-| `NoForeignRetainedState` | No supplied snapshot becomes retained authority; the installed snapshot is always session-owned and session-derived |
+| `InstalledSnapshotIsSessionCustody` | The installed snapshot is in session custody, session-owned, carries a session lens, and was derived from a snapshot that was itself in session custody, so no supplied value — including a stale same-session copy — becomes retained state |
 | `OnlyRetainedExecutionInstalls` | The installed revision advances only through retained execution |
-| `RetainedPriorStateIsInstalledSnapshot` | Every retained operation used the installed snapshot as its only prior state |
+| `RetainedPriorStateIsInstalledSnapshot` | Every retained operation used the session-custody installed snapshot as its only prior state |
+| `OperationAndResultAreCorrelated` | Every result names a submitted operation, an in-flight operation is one past the outstanding result, and with nothing in flight the outstanding result belongs to the most recent operation |
 | `NonApplyStepsPreserveInstalledSnapshot` | Stateless execution, stateless rejection, retained rejection, and the authority-only steps left the whole installed snapshot record unchanged, compared field by field rather than by revision counting |
 | `RetainedRejectionHasExactAuthorityAndInstallsNothing` | Every retained rejection advanced the effect epoch, returned authority naming this session, the unchanged installed revision, the current operation, and the new epoch, and installed nothing |
 | `RetainedCommittedLensEqualsInstalledLens` | The retained committed lens equals the installed snapshot's lens and is never a lens only supplied data could carry |
@@ -165,9 +196,9 @@ retained authority, whether it succeeds or is rejected.
 
 | Liveness property | Claim |
 | --- | --- |
-| `EveryCommandResolves` | Every submitted operation reaches a result or a typed rejection |
+| `EveryCommandResolves` | Each operation reaches the result carrying its own operation ID |
 | `EffectEventuallyConsumed` | Unconsumed authority is eventually acknowledged, abandoned, or superseded |
-| `SuppliedRetainedPriorStateIsAlwaysRejected` | Every retained operation carrying explicitly supplied prior state reaches the typed rejection instead of being applied or left pending |
+| `SuppliedRetainedPriorStateIsAlwaysRejected` | Every retained operation carrying explicitly supplied prior state reaches its own typed rejection, identified by that operation's ID |
 
 ## Alignment with the owning document
 
@@ -181,10 +212,10 @@ remaining differences are deliberate abstractions rather than disagreements:
   returns a semantically changed, revision-advancing snapshot. `retained`
   covers only outcomes that leave the installed snapshot unchanged: `Rejected`,
   `Failed`, and an `Unavailable` outcome whose complete refreshed snapshot,
-  including its descriptors and active subject, is unchanged.
-  A superseded operation returns with no visible effect at all. Every
-  non-superseded class still takes a new effect epoch, which is what keeps two
-  results that share a revision distinguishable.
+  including its descriptors and active subject, is unchanged. A superseded
+  operation returns with no visible effect at all. Every non-superseded class
+  still takes a new effect epoch, which is what keeps two results that share a
+  revision distinguishable.
 - **Superseded maintenance results.** A newer explicit intent invalidates
   already gathered maintenance facts. The queued request remains, rebuilds
   from the replacement snapshot, and re-gathers before admission.
@@ -193,7 +224,9 @@ remaining differences are deliberate abstractions rather than disagreements:
   under test is that a prepared pair installs together.
 - **Unmodelled currencies.** Action IDs, generations, descriptor states,
   diagnostics, and correspondence are not modelled. Subjects, lenses, and
-  snapshots are opaque values.
+  snapshots are opaque values. The operation ID and settlement reason in the
+  models are correlation currencies for the specifications, not proposed
+  product fields.
 
 ## Guard witnesses
 
@@ -215,6 +248,11 @@ model bookkeeping, not product state.
 than its revision, so a step that rewrote the snapshot's lens or provenance
 while leaving the revision alone is still caught. Probe `SA5`/`SA6` below
 demonstrates exactly that gap in revision arithmetic.
+
+The settlement reason in `AtomicRestoration.tla` is not a witness. It is
+ordinary modelled state that the settling step records, and the invariants
+cross-check it against the independently maintained failure and supersession
+histories.
 
 ## Running TLC
 
@@ -263,8 +301,14 @@ report `Model checking completed. No error has been found.`
 | Model | States generated | Distinct states | Search depth |
 | --- | --- | --- | --- |
 | `NavigationSession.tla` | 9,834 | 1,867 | 15 |
-| `AtomicRestoration.tla` | 87,321 | 13,097 | 11 |
+| `AtomicRestoration.tla` | 78,733 | 13,097 | 11 |
 | `SnapshotAuthority.tla` | 13,767 | 4,850 | 9 |
+
+Adding the settlement reason, the operation ID, and snapshot custody did not
+change any distinct-state count, because each is fully determined by state the
+models already carried. That is the point: the invariants re-derive the same
+fact from independently maintained history and would diverge if a step
+mislabelled its outcome.
 
 Deadlock checking is disabled in all three configs. A behaviour that has issued
 every intent, drained its queue, and consumed its last effect has nothing left
@@ -305,6 +349,7 @@ records how to reproduce them.
 | NS10 | Drop fairness on explicit resolution | `ExplicitWorkEventuallyResolves` | violated |
 | NS11 | Stop releasing the effect on acknowledgement | `EffectEventuallyConsumed` | violated |
 | NS12 | Stop releasing the effect on acknowledgement | `MaintenanceEventuallyDrains` | violated |
+| NS13 | Let a superseded operation stay outstanding forever | `EveryExplicitIntentSettles` | violated |
 | AR1 | Commit the restored subject without the restored lens | `NoPartialInstallation` | violated |
 | AR2 | Drop the current-intent requirement from commit | `CommitRequiresReadyParticipantsAndCurrentIntent` | violated |
 | AR3 | Drop the current-intent requirement from commit | `NoSupersededCommit` | violated |
@@ -314,7 +359,13 @@ records how to reproduce them.
 | AR7 | Abort only on peer failure, never on a navigation half-failure | `HalfFailedAttemptsSettle` | violated |
 | AR8 | Abort only on peer failure, never on a navigation half-failure | `EveryAttemptSettles` | violated |
 | AR9 | Abort only on peer failure, never on a navigation half-failure | `FailedAttemptsAbort` | violated |
-| SA1 | Take the retained basis from supplied prior state | `NoForeignRetainedState` | violated |
+| AR10 | Let the superseded-discard path swallow a failed preparation | `FailedAttemptSettlesAsAborted` | violated |
+| AR11 | Record an abort as a discard | `FailedAttemptsAbort` | violated |
+| AR12 | Let the superseded-discard path swallow a failed preparation | `FailedAttemptsAbort` | violated |
+| AR13 | Record a commit while the preparation is still live | `LiveAttemptHasNoSettlement` | violated |
+| AR14 | Drop the current-intent requirement from commit | `CommittedAttemptWasNeitherFailedNorSuperseded` | violated |
+| AR15 | Record a commit under the discard reason | `VisiblePairComesFromACommittedAttempt` | violated |
+| SA1 | Take the retained basis from supplied prior state | `InstalledSnapshotIsSessionCustody` | violated |
 | SA2 | Take the retained basis from supplied prior state | `RetainedPriorStateIsInstalledSnapshot` | violated |
 | SA3 | Take the retained basis from supplied prior state | `SuppliedRetainedPriorStateIsAlwaysRejected` | violated |
 | SA4 | Let stateless evaluation install session state | `OnlyRetainedExecutionInstalls` | violated |
@@ -327,11 +378,22 @@ records how to reproduce them.
 | SA11 | Skip authority revalidation before deferred work | `StaleOrForeignAuthorityNeverExecutes` | violated |
 | SA12 | Drop fairness on command resolution | `EveryCommandResolves` | violated |
 | SA13 | Drop fairness on acknowledgement | `EffectEventuallyConsumed` | violated |
+| SA14 | Apply a later supplied-prior operation once an earlier one was rejected | `SuppliedRetainedPriorStateIsAlwaysRejected` | violated |
+| SA15 | Adopt only the stale same-session supplied snapshot | `InstalledSnapshotIsSessionCustody` | violated |
+| SA16 | Adopt only the stale same-session supplied snapshot | `RetainedPriorStateIsInstalledSnapshot` | violated |
+| SA17 | Return a result that does not record its operation ID | `OperationAndResultAreCorrelated` | violated |
 
-`SA6` is the one probe that is expected not to fire. It applies the same
-mutation as `SA5` and checks the revision-arithmetic invariant instead, which
-does not notice a snapshot rewritten in place. That pair is why
+Forty-five probes, forty-four expected violations and one expected pass. `SA6`
+is the one probe expected not to fire: it applies the same mutation as `SA5`
+and checks the revision-arithmetic invariant instead, which does not notice a
+snapshot rewritten in place. That pair is why
 `NonApplyStepsPreserveInstalledSnapshot` compares the record.
+
+Three probes exist specifically because a claim used to be satisfiable by the
+wrong thing. `AR11` records an abort under the discard reason, `SA14` applies a
+later supplied-prior operation after an earlier one was rejected, and `SA15`
+adopts only the stale same-session supplied snapshot, whose origin and lens are
+indistinguishable from session data.
 
 ## Changing a model
 
@@ -339,7 +401,8 @@ Keep each model independent and finite. Raising `MaxIntent`, `MaxMaintenance`,
 `MaxCommands`, or the `Peers`, `Subjects`, and `Lenses` sets grows the state
 space quickly and buys little: the shipped bounds are the smallest that reach
 supersession, out-of-order fact completion, half-failed preparation, stale
-authority, and abort. When a design rule changes, change the action that states
-it, keep the paired witness an independent re-derivation, and re-run TLC before
-updating the counts above. A claim added to a table needs a probe added with
-it.
+authority, abort, and one operation's outcome standing next to another's. When
+a design rule changes, change the action that states it, keep the paired
+witness an independent re-derivation, and re-run TLC before updating the counts
+above. A claim added to a table needs a probe added with it, and a claim about
+one operation's outcome should name that operation.
