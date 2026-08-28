@@ -219,6 +219,67 @@ public class IlBodyDiffNormalizationTests
     }
 
     [Fact]
+    public void RejectedArrayIdentityIsIndependentOfTypeSpecRowNumbers()
+    {
+        byte[] rejectedArray = ArrayTypeSignature(6);
+        var oldImage = BuildCallImage(
+            "Shapes",
+            "Library",
+            targetSignature: ModifiedTypeSpecParameterSignature(1),
+            typeSpecifications: [rejectedArray]);
+        var newImage = BuildCallImage(
+            "Shapes",
+            "Library",
+            targetSignature: ModifiedTypeSpecParameterSignature(2),
+            typeSpecifications: [new byte[] { 0x08 }, rejectedArray]);
+
+        Assert.True(CompareImages(oldImage, newImage).IsExact);
+    }
+
+    [Fact]
+    public void RejectedArrayIdentityPreservesResolvedTypeReferences()
+    {
+        byte[] signature = RejectedArrayAndTypeRefParameterSignature();
+        var oldImage = BuildCallImage(
+            "Shapes",
+            "Library",
+            targetSignature: signature,
+            signatureTypeName: "Payload.One");
+        var newImage = BuildCallImage(
+            "Shapes",
+            "Library",
+            targetSignature: signature,
+            signatureTypeName: "Payload.Two");
+
+        Assert.Equal(IlBodyDiffOutcome.OperandDiff, CompareImages(oldImage, newImage).Outcome);
+    }
+
+    [Fact]
+    public void CompareStreams_DoesNotAlignRejectedArraysWithDifferentResolvedTypeReferences()
+    {
+        byte[] signature = RejectedArrayAndTypeRefParameterSignature();
+        using var oldStream = new MemoryStream(BuildCallImage(
+            "Shapes",
+            methodSignature: signature,
+            signatureTypeName: "Payload.One",
+            emitCall: false));
+        using var newStream = new MemoryStream(BuildCallImage(
+            "Shapes",
+            methodSignature: signature,
+            signatureTypeName: "Payload.Two",
+            emitCall: false));
+
+        var result = IlAssemblyDiff.CompareStreams(
+            oldStream,
+            "old.dll",
+            newStream,
+            "new.dll").Diff;
+
+        Assert.Equal(0, result.ComparedBodyCount);
+        Assert.Equal(0, result.PairExactCount);
+    }
+
+    [Fact]
     public void CompareStreams_AppliesRequestedNormalization()
     {
         using var oldStream = new MemoryStream(BuildCallImage("Old", "System.Runtime"));
@@ -270,6 +331,19 @@ public class IlBodyDiffNormalizationTests
             oldImage,
             newImage,
             IlBodyDiffNormalization.NormalizePlatformAssemblyScope).IsExact);
+        Assert.True(CompareImages(
+            oldImage,
+            newImage,
+            IlBodyDiffNormalization.NormalizeCurrentAssemblyScope).IsExact);
+    }
+
+    [Fact]
+    public void NormalizeCurrentAssemblyScope_DoesNotRewriteArrayBounds()
+    {
+        byte[] signature = AcceptedArrayParameterSignature(6);
+        var oldImage = BuildCallImage("6", "Library", targetSignature: signature);
+        var newImage = BuildCallImage("7", "Library", targetSignature: signature);
+
         Assert.True(CompareImages(
             oldImage,
             newImage,
@@ -392,6 +466,7 @@ public class IlBodyDiffNormalizationTests
         string? referenceAssemblyName = null,
         string? memberName = null,
         string? typeName = null,
+        string? signatureTypeName = null,
         byte[]? targetSignature = null,
         byte[]? methodSignature = null,
         byte[][]? typeSpecifications = null,
@@ -431,6 +506,13 @@ public class IlBodyDiffNormalizationTests
                 default,
                 default,
                 default);
+            if (signatureTypeName is not null)
+            {
+                metadata.AddTypeReference(
+                    reference,
+                    metadata.GetOrAddString("System"),
+                    metadata.GetOrAddString(signatureTypeName));
+            }
             var type = metadata.AddTypeReference(
                 reference,
                 selfReference ? default : metadata.GetOrAddString("System"),
@@ -524,15 +606,17 @@ public class IlBodyDiffNormalizationTests
         0x00, // zero lower bound
     ];
 
-    static byte[] ModifiedTypeSpecParameterSignature() =>
-    [
-        0x00, // default method signature
-        0x01, // one parameter
-        0x01, // void return type
-        0x1f, // required modifier
-        0x06, // TypeSpec row 1
-        0x08, // int32 parameter type
-    ];
+    static byte[] ModifiedTypeSpecParameterSignature(int row = 1)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00); // default method signature
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x01); // void return type
+        signature.WriteByte(0x1f); // required modifier
+        signature.WriteCompressedInteger((row << 2) | 2);
+        signature.WriteByte(0x08); // int32 parameter type
+        return signature.ToArray();
+    }
 
     static byte[] RejectedArrayAndModifiedTypeSpecParameterSignature() =>
     [
@@ -558,6 +642,35 @@ public class IlBodyDiffNormalizationTests
         signature.WriteByte(0x08); // int32
         return signature.ToArray();
     }
+
+    static byte[] RejectedArrayAndTypeRefParameterSignature() =>
+    [
+        0x00, // default method signature
+        0x02, // two parameters
+        0x01, // void return type
+        0x14, // ARRAY
+        0x08, // int32 element type
+        0x01, // rank 1
+        0x01, // one size
+        0x06, // size 6
+        0x00, // no lower bounds
+        0x12, // class
+        0x05, // TypeRef row 1
+    ];
+
+    static byte[] AcceptedArrayParameterSignature(int size) =>
+    [
+        0x00, // default method signature
+        0x01, // one parameter
+        0x01, // void return type
+        0x14, // ARRAY
+        0x08, // int32 element type
+        0x01, // rank 1
+        0x01, // one size
+        (byte)size,
+        0x01, // one lower bound
+        0x00, // zero lower bound
+    ];
 
     static byte[] BuildStringImage(string assemblyName, string value)
     {

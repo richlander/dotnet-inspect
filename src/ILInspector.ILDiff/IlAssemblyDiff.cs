@@ -1,7 +1,9 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Security.Cryptography;
 using ILInspector.Metadata;
 
 namespace ILInspector.Instructions;
@@ -409,9 +411,7 @@ public static class IlAssemblyDiff
 
         string instance = signature.Header.IsInstance ? "instance" : "static";
         string genericArity = signature.GenericParameterCount > 0 ? $"<{signature.GenericParameterCount}>" : "";
-        string signatureText = context.ArrayShapeRejections.HasRejection
-            ? context.ArrayShapeRejections.Identity(reader, method.Signature)
-            : $"{instance} {signature.ReturnType}({string.Join(", ", signature.ParameterTypes)})";
+        string signatureText = $"{instance} {signature.ReturnType}({string.Join(", ", signature.ParameterTypes)})";
         return new MethodIdentityResult(
             $"{resolvedType.Value}::{name}{genericArity}#{signatureText}",
             null);
@@ -465,31 +465,35 @@ public static class IlAssemblyDiff
 sealed class SignatureIdentityContext
 {
     public MetadataTypeNameFailure? Failure { get; private set; }
-    public ArrayShapeIdentityRejections ArrayShapeRejections { get; } = new();
 
     public void Reject(MetadataTypeNameFailure failure)
         => Failure ??= failure;
 }
 
-sealed class ArrayShapeIdentityRejections
+static class RejectedArrayShapeIdentity
 {
-    // An enclosing signature hashes only its TypeSpec tokens. Retain every visited TypeSpec
-    // hash so falling back for one rejected array does not discard other referenced content.
-    readonly List<string> _typeSpecifications = [];
-
-    public bool HasRejection { get; private set; }
-
-    public void Reject() => HasRejection = true;
-
-    public void RecordTypeSpecification(MetadataReader reader, BlobHandle signature)
-        => _typeSpecifications.Add(GuardedProviderDecode.RejectedIdentity(reader, signature));
-
-    public string Identity(MetadataReader reader, BlobHandle signature)
+    public static string Format(string elementType, ArrayShape shape)
     {
-        string identity = GuardedProviderDecode.RejectedIdentity(reader, signature);
-        return _typeSpecifications.Count == 0
-            ? identity
-            : $"{identity}[{string.Join(',', _typeSpecifications)}]";
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        Append(hash, shape.Rank);
+        Append(hash, shape.Sizes.Length);
+        foreach (int size in shape.Sizes)
+            Append(hash, size);
+        Append(hash, shape.LowerBounds.Length);
+        foreach (int lowerBound in shape.LowerBounds)
+            Append(hash, lowerBound);
+
+        Span<byte> digest = stackalloc byte[32];
+        if (!hash.TryGetHashAndReset(digest, out int written) || written != digest.Length)
+            throw new CryptographicException("Could not hash the rejected array shape.");
+        return $"{elementType}[<unsupported-array-shape:{Convert.ToHexString(digest)}>]";
+    }
+
+    static void Append(IncrementalHash hash, int value)
+    {
+        Span<byte> bytes = stackalloc byte[sizeof(int)];
+        BinaryPrimitives.WriteInt32LittleEndian(bytes, value);
+        hash.AppendData(bytes);
     }
 }
 
@@ -552,17 +556,13 @@ sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, Signatur
         byte rawTypeKind)
     {
         var specification = reader.GetTypeSpecification(handle);
-        bool decoded = GuardedProviderDecode.TryTypeSpec(
+        return GuardedProviderDecode.TryTypeSpec(
             reader,
             handle,
             this,
             genericContext,
-            out var type);
-        _context.ArrayShapeRejections.RecordTypeSpecification(
-            reader,
-            specification.Signature);
-        return decoded
-            ? type
+            out var decoded)
+            ? decoded
             : GuardedProviderDecode.RejectedIdentity(reader, specification.Signature);
     }
 
@@ -572,8 +572,7 @@ sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, Signatur
         if (ArrayShapeText.TryFormat(elementType, shape, out string text))
             return text;
 
-        _context.ArrayShapeRejections.Reject();
-        return text;
+        return RejectedArrayShapeIdentity.Format(elementType, shape);
     }
     public string GetByReferenceType(string elementType) => $"{elementType}&";
     public string GetPointerType(string elementType) => $"{elementType}*";

@@ -2,7 +2,6 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
-using System.Text;
 using ILInspector.Metadata;
 
 namespace ILInspector.Instructions;
@@ -36,11 +35,6 @@ public static partial class IlBodyDiff
                     OperandKind.InlineSig => ResolveSignature((int)instruction.OperandValue),
                     _ => throw new InvalidOperationException($"Operand kind {instruction.Operand} is not a metadata token."),
                 };
-                if (reader.IsAssembly && instruction.Operand != OperandKind.InlineString)
-                {
-                    string assembly = reader.GetString(reader.GetAssemblyDefinition().Name);
-                    value = NormalizeAssemblyScopes(value, assembly);
-                }
                 operand = new IlOperandIdentity(IlOperandIdentityKind.Token, value);
                 failure = null;
                 return true;
@@ -212,63 +206,57 @@ public static partial class IlBodyDiff
         string FormatTypeSpecification(TypeSpecificationHandle handle)
         {
             var specification = reader.GetTypeSpecification(handle);
-            var provider = new SignatureIdentityProvider();
+            var provider = new SignatureIdentityProvider(this);
             return GuardedProviderDecode.TryTypeSpec(
                 reader,
                 handle,
                 provider,
                 null,
                 out var decoded)
-                && !provider.HasArrayShapeRejection
                 ? decoded
-                : provider.RejectedIdentity(reader, specification.Signature);
+                : GuardedProviderDecode.RejectedIdentity(reader, specification.Signature);
         }
 
         MethodSignature<string> DecodeMethod(MethodDefinition method)
         {
-            var provider = new SignatureIdentityProvider();
+            var provider = new SignatureIdentityProvider(this);
             return GuardedProviderDecode.TryMethod(reader, method, provider, null, out var decoded)
-                && !provider.HasArrayShapeRejection
                 ? decoded
                 : GuardedProviderDecode.FallbackSignature(
-                    provider.RejectedIdentity(reader, method.Signature));
+                    GuardedProviderDecode.RejectedIdentity(reader, method.Signature));
         }
 
         MethodSignature<string> DecodeMemberReferenceMethod(MemberReference member)
         {
-            var provider = new SignatureIdentityProvider();
+            var provider = new SignatureIdentityProvider(this);
             return GuardedProviderDecode.TryMemberRefMethod(reader, member, provider, null, out var decoded)
-                && !provider.HasArrayShapeRejection
                 ? decoded
                 : GuardedProviderDecode.FallbackSignature(
-                    provider.RejectedIdentity(reader, member.Signature));
+                    GuardedProviderDecode.RejectedIdentity(reader, member.Signature));
         }
 
         ImmutableArray<string> DecodeMethodSpecification(MethodSpecification specification)
         {
-            var provider = new SignatureIdentityProvider();
+            var provider = new SignatureIdentityProvider(this);
             return GuardedProviderDecode.TryMethodSpec(reader, specification, provider, null, out var decoded)
-                && !provider.HasArrayShapeRejection
                 ? decoded
-                : [provider.RejectedIdentity(reader, specification.Signature)];
+                : [GuardedProviderDecode.RejectedIdentity(reader, specification.Signature)];
         }
 
         string DecodeField(FieldDefinition field)
         {
-            var provider = new SignatureIdentityProvider();
+            var provider = new SignatureIdentityProvider(this);
             return GuardedProviderDecode.TryField(reader, field, provider, null, out var decoded)
-                && !provider.HasArrayShapeRejection
                 ? decoded
-                : provider.RejectedIdentity(reader, field.Signature);
+                : GuardedProviderDecode.RejectedIdentity(reader, field.Signature);
         }
 
         string DecodeMemberReferenceField(MemberReference member)
         {
-            var provider = new SignatureIdentityProvider();
+            var provider = new SignatureIdentityProvider(this);
             return GuardedProviderDecode.TryMemberRefField(reader, member, provider, null, out var decoded)
-                && !provider.HasArrayShapeRejection
                 ? decoded
-                : provider.RejectedIdentity(reader, member.Signature);
+                : GuardedProviderDecode.RejectedIdentity(reader, member.Signature);
         }
 
         string FormatTypeDefinition(TypeDefinitionHandle handle)
@@ -298,7 +286,12 @@ public static partial class IlBodyDiff
             string name = reader.GetString(type.Name);
             string fullName = Dotted(reader.GetString(type.Namespace), name);
             if (type.ResolutionScope.Kind == HandleKind.AssemblyReference)
-                return $"[{AssemblyReferenceIdentity(reader, (AssemblyReferenceHandle)type.ResolutionScope)}]{fullName}";
+            {
+                string assembly = AssemblyReferenceIdentity(
+                    reader,
+                    (AssemblyReferenceHandle)type.ResolutionScope);
+                return $"[{NormalizeAssemblyIdentity(assembly)}]{fullName}";
+            }
             if (type.ResolutionScope.Kind == HandleKind.TypeReference && s_climbDepth < MaxClimbDepth)
             {
                 s_climbDepth++;
@@ -327,7 +320,7 @@ public static partial class IlBodyDiff
             return reader.GetString(field.Name);
         }
 
-        string CurrentAssemblyName()
+        public string CurrentAssemblyName()
             => (normalization & IlBodyDiffNormalization.NormalizeCurrentAssemblyScope) != 0
                 ? "<current>"
                 : reader.IsAssembly ? reader.GetString(reader.GetAssemblyDefinition().Name) : "";
@@ -338,49 +331,32 @@ public static partial class IlBodyDiff
         static string Escape(string value)
             => value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal);
 
-        string NormalizeAssemblyScopes(string value, string currentAssembly)
+        public string NormalizeAssemblyIdentity(string identity)
         {
+            if (!reader.IsAssembly)
+                return identity;
+
             bool normalizeCurrent =
                 (normalization & IlBodyDiffNormalization.NormalizeCurrentAssemblyScope) != 0;
             bool normalizePlatform =
                 (normalization & IlBodyDiffNormalization.NormalizePlatformAssemblyScope) != 0;
             if (!normalizeCurrent && !normalizePlatform)
-                return value;
+                return identity;
 
-            StringBuilder? normalized = null;
-            int copied = 0;
-            int open = value.IndexOf('[', StringComparison.Ordinal);
-            while (open >= 0)
+            ReadOnlySpan<char> identitySpan = identity;
+            int comma = identitySpan.IndexOf(',');
+            ReadOnlySpan<char> name = comma >= 0 ? identitySpan[..comma] : identitySpan;
+            string currentAssembly = reader.GetString(reader.GetAssemblyDefinition().Name);
+            if (normalizeCurrent && name.Equals(currentAssembly, StringComparison.Ordinal))
+                return "<current>";
+            if (normalizePlatform
+                && !name.Equals(currentAssembly, StringComparison.Ordinal)
+                && IsPlatformAssembly(name))
             {
-                int close = value.IndexOf(']', open + 1);
-                if (close < 0)
-                    break;
-
-                ReadOnlySpan<char> identity = value.AsSpan(open + 1, close - open - 1);
-                int comma = identity.IndexOf(',');
-                ReadOnlySpan<char> name = comma >= 0 ? identity[..comma] : identity;
-                string? normalizedScope = normalizeCurrent && name.Equals(currentAssembly, StringComparison.Ordinal)
-                    ? "<current>"
-                    : normalizePlatform && !name.Equals(currentAssembly, StringComparison.Ordinal)
-                        && IsPlatformAssembly(name)
-                            ? "<platform>"
-                            : null;
-                if (normalizedScope is not null)
-                {
-                    normalized ??= new StringBuilder(value.Length);
-                    normalized.Append(value, copied, open - copied);
-                    normalized.Append('[').Append(normalizedScope).Append(']');
-                    copied = close + 1;
-                }
-
-                open = value.IndexOf('[', close + 1);
+                return "<platform>";
             }
 
-            if (normalized is null)
-                return value;
-
-            normalized.Append(value, copied, value.Length - copied);
-            return normalized.ToString();
+            return identity;
         }
 
         static bool IsPlatformAssembly(ReadOnlySpan<char> name)
@@ -395,6 +371,14 @@ public static partial class IlBodyDiff
 
     sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, object?>
     {
+        readonly MetadataOperandResolver _resolver;
+
+        public SignatureIdentityProvider(MetadataOperandResolver resolver)
+        {
+            ArgumentNullException.ThrowIfNull(resolver);
+            _resolver = resolver;
+        }
+
         // Malformed metadata can make a declaring type or resolution-scope chain cyclic, so
         // the TypeName climbs below would recurse until an uncatchable StackOverflowException.
         // Cap the climb ([ThreadStatic] so concurrent decodes stay independent) and degrade
@@ -402,13 +386,6 @@ public static partial class IlBodyDiff
         [ThreadStatic]
         static int s_climbDepth;
         const int MaxClimbDepth = 256;
-
-        readonly ArrayShapeIdentityRejections _arrayShapeRejections = new();
-
-        public bool HasArrayShapeRejection => _arrayShapeRejections.HasRejection;
-
-        public string RejectedIdentity(MetadataReader reader, BlobHandle signature)
-            => _arrayShapeRejections.Identity(reader, signature);
 
         public string GetPrimitiveType(PrimitiveTypeCode typeCode)
             => typeCode switch
@@ -443,17 +420,13 @@ public static partial class IlBodyDiff
         public string GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
         {
             var specification = reader.GetTypeSpecification(handle);
-            bool decoded = GuardedProviderDecode.TryTypeSpec(
+            return GuardedProviderDecode.TryTypeSpec(
                 reader,
                 handle,
                 this,
                 genericContext,
-                out var type);
-            _arrayShapeRejections.RecordTypeSpecification(
-                reader,
-                specification.Signature);
-            return decoded
-                ? type
+                out var decoded)
+                ? decoded
                 : GuardedProviderDecode.RejectedIdentity(reader, specification.Signature);
         }
 
@@ -463,8 +436,7 @@ public static partial class IlBodyDiff
             if (ArrayShapeText.TryFormat(elementType, shape, out string text))
                 return text;
 
-            _arrayShapeRejections.Reject();
-            return text;
+            return RejectedArrayShapeIdentity.Format(elementType, shape);
         }
         public string GetByReferenceType(string elementType) => $"{elementType}&";
         public string GetPointerType(string elementType) => $"{elementType}*";
@@ -482,7 +454,7 @@ public static partial class IlBodyDiff
             return $"method {instance}{convention}{signature.ReturnType} *({FormatParameterList(signature)})";
         }
 
-        static string TypeName(MetadataReader reader, TypeDefinitionHandle handle)
+        string TypeName(MetadataReader reader, TypeDefinitionHandle handle)
         {
             var type = reader.GetTypeDefinition(handle);
             string name = reader.GetString(type.Name);
@@ -494,18 +466,23 @@ public static partial class IlBodyDiff
                 finally { s_climbDepth--; }
             }
             string ns = reader.GetString(type.Namespace);
-            string assembly = reader.IsAssembly ? reader.GetString(reader.GetAssemblyDefinition().Name) : "";
+            string assembly = _resolver.CurrentAssemblyName();
             return $"[{assembly}]{(ns.Length == 0 ? name : $"{ns}.{name}")}";
         }
 
-        static string TypeName(MetadataReader reader, TypeReferenceHandle handle)
+        string TypeName(MetadataReader reader, TypeReferenceHandle handle)
         {
             var type = reader.GetTypeReference(handle);
             string name = reader.GetString(type.Name);
             string ns = reader.GetString(type.Namespace);
             string fullName = ns.Length == 0 ? name : $"{ns}.{name}";
             if (type.ResolutionScope.Kind == HandleKind.AssemblyReference)
-                return $"[{AssemblyReferenceIdentity(reader, (AssemblyReferenceHandle)type.ResolutionScope)}]{fullName}";
+            {
+                string assembly = AssemblyReferenceIdentity(
+                    reader,
+                    (AssemblyReferenceHandle)type.ResolutionScope);
+                return $"[{_resolver.NormalizeAssemblyIdentity(assembly)}]{fullName}";
+            }
             if (type.ResolutionScope.Kind == HandleKind.TypeReference && s_climbDepth < MaxClimbDepth)
             {
                 s_climbDepth++;
