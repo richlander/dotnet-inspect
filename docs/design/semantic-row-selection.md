@@ -5,18 +5,17 @@
 Focused component design proposal for
 [#4677](https://github.com/richlander/dotnet-inspect/issues/4677).
 It defines the intended replacement for the semantic-selection portion of the
-existing umbrella design. The current product does not implement this contract,
-and the umbrella remains the integration target until the stacked composition
-successor adopts this component.
+existing umbrella design. The stacked composition map adopts this component and
+retires the umbrella assignment. The current product does not implement this
+contract.
 
 All asserted behavior is unverified until the Release gates in
 [Required gates](#required-gates) land.
 
 Related designs:
 
-- [Item and line limits](item-and-line-limits.md) is the existing umbrella
-  target. A stacked successor will reduce it to a composition map and transfer
-  semantic-selection authority to this component.
+- [Item and line selection composition](item-and-line-limits.md) maps this
+  component to the CLI, source-acquisition, payload, and Markout owners.
 - [Inspection layers](inspection-layers.md) places the consumer-neutral
   component below L2 so CLI and browser-facing section pipelines can share it.
 - [Row query and ordering](row-query-order.md) owns predicate evaluation,

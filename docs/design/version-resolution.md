@@ -8,9 +8,9 @@ The command modes, listing rules, source-scoped candidate caches, and
 payload-provenance rules describe current behavior. Package source mapping and
 the remaining source-policy boundaries are tracked by the
 [package source model](package-source-model.md).
-Result-limit and short-selector examples use the approved target contract from
-[Item and line limits](item-and-line-limits.md); those spellings remain
-unreleased until its implementation lands.
+Result-limit and short-selector examples use grammar from the superseded
+umbrella design. [Item and line selection composition](item-and-line-limits.md)
+tracks the focused replacements; those spellings remain unreleased.
 
 ## Four modes
 
@@ -291,11 +291,12 @@ listing, so verifying a known unlisted version reports it rather than
 "not found". When listing status is unknown (fail-open, or a non-nuget.org
 feed), versions are reported as listed.
 
-`--include-unlisted` composes with the other `--versions` lenses. With a limit
-(`--versions -n 1 --include-unlisted`) it takes the listing-aware path. A pinned
-`Name@Version` and `Name@latest` still emit a one-row tagged table rather than a
-bare version, so the result always carries the `listed`/`unlisted` column the
-flag requests.
+`--include-unlisted` composes with the other `--versions` lenses. The released
+explicit single-version lens takes the listing-aware path. The pending L3 and
+source designs must decide future semantic-selection syntax and pushdown
+without losing listing status. A pinned `Name@Version` and `Name@latest` still
+emit a one-row tagged table rather than a bare version, so the result always
+carries the `listed`/`unlisted` column the flag requests.
 (`Name@latest` resolves through the listing-aware latest path, so its single row
 is listed by construction.) With an addressable range (`Name@A..B --versions
 --include-unlisted`) the vector is resolved from the full listing set — unlisted
@@ -344,7 +345,7 @@ offline mode, and unsupported local feed URLs are not cached as misses.
 | Pinned package `.nupkg` extraction | Uses a global or app payload only when its recorded producer is eligible; downloads otherwise. |
 | Bare package version resolution | Uses the version-resolution cache with a 1-hour TTL, then NuGet. When producer-authorized local payloads exist, an uncached network lookup is bounded to one second and timeout diagnostics offer exact local pins; those diagnostic versions are never selected automatically, and package caches are still used only after a version is resolved. |
 | Bare package `--preview` resolution | Uses a separate prerelease-aware version-resolution cache with a 1-hour TTL, then NuGet. |
-| Single-version listing (`--version` or `--versions -n 1`) | Combines matching-flavor latest entries with uncached source listings. Without `--preview`, an empty stable listing stays empty rather than falling back to a prerelease. |
+| Explicit single-version listing (`--version`) | Combines matching-flavor latest entries with uncached source listings. Without `--preview`, an empty stable listing stays empty rather than falling back to a prerelease. Future semantic-selection syntax and acquisition are pending. |
 | Wildcard version resolution | Uses the same version-list cache as `--versions` with a 1-hour TTL for nuget.org-backed sources. |
 | Addressable package range | Uses the version-list cache to resolve the vector; package caches are consulted only after a caller selects a cell. |
 | `@latest` package resolution | Always checks NuGet and bypasses version/metadata caches. |
@@ -410,15 +411,13 @@ and `PackageVersionVectorTests.ResolveAsync_FallsThroughFailedHttpSource`.
 
 `--versions-with-feed` keeps provenance that the merged views discard. It shows
 which feeds carry each coordinate, including a coordinate published by more than
-one feed. Under the target item-limit contract, its declared row is one
-`(version, feed)` observation, so `--versions-with-feed -n N` selects N rows.
-This differs from the released count-valued lens option, which selects N
-distinct versions and then emits every carrying feed. The primary version order
-is the containing Vector's order: newest-first for a bare package and caller
-direction for `Package@A..B`. Equal-version rows then sort by the credential-free
-canonical producer key in ordinal order. Presentation labels do not define this
-tie-breaker, and reversing source declaration order cannot change which rows an
-item limit selects.
+one feed. Its declared row is one `(version, feed)` observation. The pending L3
+and source-pushdown designs own how future semantic selection composes with
+those rows; this document chooses no replacement count syntax or cutoff rule.
+The primary version order is the containing Vector's order: newest-first for a
+bare package and caller direction for `Package@A..B`. Equal-version rows then
+sort by the credential-free canonical producer key in ordinal order.
+Presentation labels do not define this tie-breaker.
 
 ### Listing status across sources
 

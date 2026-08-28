@@ -208,10 +208,11 @@ many primary subject payloads may be acquired. Output shape controls how
 already-selected data is projected or reduced. These cardinalities are
 independent.
 
-The result-limit gestures in this section describe the approved
-[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) target, not
-released behavior. [Item and line limits](item-and-line-limits.md) records the
-current implementation status and required gates.
+The result-limit gestures in this section came from the superseded umbrella
+[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) design, not
+released behavior or current implementation authority.
+[Item and line selection composition](item-and-line-limits.md) tracks the
+focused replacements.
 
 `--versions` selects a version **Vector** while retaining package focus. A bare
 package's Vector is newest-first. A `Package@A..B` Vector instead preserves the
@@ -231,11 +232,11 @@ output-shape rules apply:
 | `--versions` | Select the version Vector. | Resolve version metadata; acquire zero package payloads. |
 | `--count` | Reduce the selected Vector to a Scalar count. | None. Count the bounded, prerelease-filtered addresses already selected. |
 | `--urls` | Project URL-bearing rows to a URL Vector. | None. Valid only if the version-row schema exposes a URL. |
-| `-n N` | Select the first N rows in declared Vector order. | May stop only when provider order delivers that declared prefix; bare newest-first input must exhaust before choosing rows. |
-| `-n N --tail` | Select the last N rows in declared Vector order. | May stop only when provider order delivers that declared suffix first; bare newest-first input may stop after N matching oldest rows. |
-| `--rows N..M` | Select an absolute range of stable declared-order version rows. | May stop only when provider order can assign those declared addresses without unseen rows. |
+| Future Head gesture (spelling pending) | Apply a lenient Head stage to the current version sequence. | The source-pushdown design must prove the same prefix as the shared reference executor. |
+| Future Tail gesture (spelling pending) | Apply a lenient Tail stage to the current version sequence. | The source-pushdown design must prove the same suffix as the shared reference executor. |
+| Future range gesture (spelling pending) | Apply a strict Range stage to the current version sequence. | The source-pushdown design must prove the same result or strict failure as the shared reference executor. |
 | `--print` | Reject: the version row set declares no printable capability. | None. Reject during preflight without evaluating or acquiring a package payload. |
-| `-n N --lines` | Clip the rendered version report to its first N lines. | None. A line window does not bound version-metadata enumeration. |
+| Future line gesture (spelling pending) | Select rendered report lines without changing version rows. | None. The pending payload/line design owns exact behavior. |
 
 Shape reducers do not revise operation arity. In particular:
 

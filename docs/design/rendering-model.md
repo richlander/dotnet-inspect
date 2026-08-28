@@ -4,9 +4,10 @@ This document describes the conceptual model for how dotnet-inspect commands con
 
 See also [Output Composition Model](output-composition.md) for how section
 selection, filtering, and writer capabilities compose end-to-end.
-[Item and line limits](item-and-line-limits.md) owns the approved target for
-multi-item print projection; released behavior remains unary until that
-implementation lands.
+[Item and line selection composition](item-and-line-limits.md) maps the focused
+row-selection, CLI, source, payload, and rendering designs replacing the former
+umbrella target. Released behavior remains unary until those designs and their
+implementation land.
 
 ## Two Axes of Control
 
@@ -61,7 +62,7 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 | `--value` | Scalar projection | Prints one scalar cell or field from a selected section; use `--row N\|first\|last` when multiple rows match |
 | `--urls` | URL projection | Prints URL-bearing selected-section rows as a URL list, JSONL rows, or a JSON array |
 | `--paths` | Path projection | Prints path-bearing selected-section rows as a path list, JSONL rows, or a JSON array |
-| `--print` | Row payload | Target: from exactly one selected row set, print one framed or structured result per row; unary `--bare`/unstructured `--out` remove that envelope |
+| `--print` | Row payload | Current command-owned payload projection; future multi-item behavior belongs to the pending focused payload design |
 | `--versions` | Version history | Available versions from nuget.org |
 | `--library` | Library metadata | Delegates to library inspection |
 
@@ -109,14 +110,13 @@ A mode-switch flag says "show me this aspect of the subject." It does not intera
 
 ### Each lens owns its own rendering
 
-The `--files` view renders a tree. The `--versions` view renders a list. In the
-multi-item target, `--print` requires one selected row set and projects every
-row to a framed document success or failure; `--row N` narrows that set to one
-stable address. `--jsonl`
-emits one complete success/failure object per selected row. `member -S "Call
-Graph"` renders a Markdown edge table by default; `--tree` and `--mermaid`
-select standalone graph renderings, while `--markdown --mermaid` embeds the
-diagram in the composable Markdown document. These rendering choices are
+The `--files` view renders a tree. The `--versions` view renders a list. The
+pending focused payload design will define future multi-row print cardinality,
+addressing, framing, and structured forms; this rendering document does not
+settle them. `member -S "Call Graph"` renders a Markdown edge table by default;
+`--tree` and `--mermaid` select standalone graph renderings, while
+`--markdown --mermaid` embeds the diagram in the composable Markdown document.
+These rendering choices are
 intrinsic to the lens, not controlled by verbosity. A lens may support its own
 sub-options (e.g. `--files --all` to include all files, not just DLLs) but those
 are scoped to that lens.

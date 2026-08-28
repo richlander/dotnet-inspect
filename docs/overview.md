@@ -147,9 +147,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Rendering model](design/rendering-model.md): output mode and verbosity design.
 - [Progressive disclosure](design/progressive-disclosure.md): base/domain scope,
   discovery budgets, `-D`/`-S`, capabilities, and limiter behavior.
-- [Item and line limits](design/item-and-line-limits.md): target `-n`,
-  range-only `--rows`, ranked `--top`, line windows, and multi-item printable
-  payload behavior.
+- [Item and line selection composition](design/item-and-line-limits.md):
+  component map for the focused semantic-row, CLI, source-pushdown, payload,
+  and Markout designs replacing the former umbrella limit design.
 - [Semantic row selection](design/semantic-row-selection.md): dependency-free
   ordered-stage, strict-window, reindexing, and all-or-failure sequence
   component.

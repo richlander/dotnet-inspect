@@ -69,8 +69,9 @@ sections:
 | `--type` | Row filter by type name | Type listing sections |
 
 These filters work uniformly across all renderers, including JSON.
-The short `-m`/`-t` aliases retire with the universal item-limit design; see
-[Item and line limits](item-and-line-limits.md).
+The pending L3 design in
+[Item and line selection composition](item-and-line-limits.md) will decide the
+future short aliases.
 
 ## 4. Writer Selection
 

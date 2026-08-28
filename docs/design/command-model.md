@@ -137,10 +137,9 @@ When commands or flags are deprecated:
 3. After two minor versions, deprecated items may be removed
 
 This is the default compatibility policy, not a requirement that every syntax
-change enter deprecation. The explicitly approved
-[#4677 result-limit migration](item-and-line-limits.md#compatibility-and-migration)
-is an exception: its low compatibility bar permits atomic removal of the named
-aliases and count grammars without a warning period.
+change enter deprecation. The pending L3 design in
+[Item and line selection composition](item-and-line-limits.md) will define the
+compatibility policy for #4677 CLI aliases and count grammars.
 
 Current deprecations:
 

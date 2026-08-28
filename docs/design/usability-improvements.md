@@ -4,8 +4,9 @@ Findings from observing LLM sessions using dotnet-inspect to migrate a project f
 
 > [!NOTE]
 > This document records the compatibility assumptions of that investigation.
-> [Item and line limits](item-and-line-limits.md) supersedes them specifically
-> for count-bearing options and the short `-m`/`-t` selector aliases.
+> The pending L3 design in
+> [Item and line selection composition](item-and-line-limits.md) will supersede
+> them where it changes count-bearing options or short selector aliases.
 
 ## Context
 

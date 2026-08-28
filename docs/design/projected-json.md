@@ -8,10 +8,11 @@ JSON contracts.
 **Lowered** names the point where this JSON path joins Markout. The command
 builds the same Markout view used by Markdown, TSV, and JSONL. Product-owned
 section/view adapters resolve section identities, construct Markout inline
-values, and supply stable table keys. The resolved writer plan is then passed
-to Markout, which mechanically applies its section/projection/window options
-while serializing the view. A JSON formatter receives the resulting field,
-table, list, and tree callbacks, renders semantic inline slots with Markout's
+values, supply stable table keys, and hand already-selected rows to the
+presentation boundary. The resolved writer plan is then passed to Markout,
+which mechanically applies its section and projection options while
+serializing the view. A JSON formatter receives the resulting field, table,
+list, and tree callbacks, renders semantic inline slots with Markout's
 plain-text semantics, and assembles them into one JSON document. It is a
 sibling formatter, not a projection over the typed JSON graph and not a parser
 for rendered Markdown or table text.
@@ -41,10 +42,11 @@ The pilots do not yet satisfy the full contract. In particular, the current
 global rendered-line limiter can truncate their lowered JSON, section and field
 keys are still derived from display headings, and section-scoped projection has
 not been proven over broad multi-section documents.
-[Item and line limits](item-and-line-limits.md) now owns the settled target:
-semantic item/range windows happen before encoding, and line windows modify
-each printable content value rather than truncating serialized JSON. These are
-hardening targets, not accepted compatibility behavior.
+[Semantic row selection](semantic-row-selection.md) now owns the focused
+pre-encoding item-stage semantics. The pending payload/line design listed in
+[Item and line selection composition](item-and-line-limits.md) will settle how
+complete JSON values carry line-selected content. These are hardening targets,
+not accepted compatibility behavior.
 
 Related docs:
 
@@ -53,7 +55,9 @@ Related docs:
 - [Inspection layers](inspection-layers.md) assigns sections and shapes to L2
   and format selection to L3.
 - [Progressive disclosure](progressive-disclosure.md) defines section
-  selection, projection validation, and row windows.
+  selection and projection validation.
+- [Semantic row selection](semantic-row-selection.md) defines ordered
+  selection over complete logical row sequences.
 - [Output composition](output-composition.md) defines writer capability and
   single- versus multi-section constraints.
 
@@ -94,23 +98,23 @@ display columns from JSON property names.
 | --- | --- | --- |
 | `--json` | Typed | Preserve the established typed contract. |
 | `--json -S ...` | Typed | Do not lower; the command's typed section-selection contract applies. |
-| `--json --rows ...` | Typed | Do not lower; the command's typed absolute-range contract applies. |
+| `--json --rows ...` | Typed | Preserve released typed routing; the pending L3 design owns future item grammar. |
 | `--json --compact` | Typed | Do not lower; change whitespace where the typed contract supports it. |
 | `--json -D ... --fields/--columns ...` | Lens contract | Let discovery own its JSON and projection; do not enter document routing. |
 | `--json --fields/--columns ... --value/--print/...` | Payload contract | Resolve the accepted payload projection first; the field/column request selects its source where supported. |
 | `--json --fields ...` | Lowered | Apply the selected section's declared field/annotation projection. |
 | `--json --columns ...` | Lowered | Apply table-column projection through the section model. |
 | Lowered JSON plus `-S` | Lowered | Select sections before applying per-section projection. |
-| Lowered JSON plus `-n`/`--rows` | Lowered | Select semantic items/ranges before JSON serialization. |
+| Lowered JSON plus released row/line gestures | Lowered | Preserve current routing; future item selection must consume the shared component before serialization. |
 | Lowered JSON plus `--compact` | Lowered | Change whitespace only. |
-| Printable JSON plus `-n N --lines` | Payload contract | Clip each selected content value before serialization; never truncate encoded JSON. |
+| Printable JSON plus future line selection | Payload contract | The pending payload/line design must preserve complete encoded values and owns the exact syntax and clipping behavior. |
 
-`-S`, `-n`, `--rows`, and `--compact` do not opt into lowering. They modify
-whichever dialect the request already selected. Every adopted lowered path must
-honor or reject these modifiers rather than ignore them. Typed modifier
-conformance is separate work: this routing decision neither promises that every
-command accepts those combinations nor legitimizes an existing silently
-dropped modifier.
+Released section, row, line, and compact modifiers do not opt into lowering.
+They modify whichever dialect the request already selected. Every adopted
+lowered path must honor or reject supported modifiers rather than ignore them.
+Typed modifier conformance and future selection syntax are separate work: this
+routing decision neither promises that every command accepts those
+combinations nor legitimizes an existing silently dropped modifier.
 
 Payload projections such as `--count`, `--value`, `--print`, `--urls`, and
 `--paths` keep the contracts in [Output shapes](output-shapes.md). An accepted
@@ -125,16 +129,12 @@ layout, and other lens-owned output either honors its own accepted projection
 or rejects it under the lens contract; a central JSON router may not pull that
 request into the normal lowered-document path.
 
-The settled [item and line limit](item-and-line-limits.md) contract imposes
-three format requirements:
-
-- limit flags do not choose the typed or lowered dialect;
-- semantic item/range windows apply before JSON encoding; and
-- printable line windows clip each content string before encoding, preserving
-  one complete structured success/failure object per selected row.
-
-Non-print document JSON has no textual payload to line-window and rejects
-`--lines` before stdout.
+The focused owners in
+[Item and line selection composition](item-and-line-limits.md) must preserve
+two format boundaries: item selection completes before JSON encoding, and any
+accepted payload/line operation produces complete encoded values rather than
+truncating serialized JSON. The pending L3 and payload/line designs own exact
+syntax, clipping, and rejection behavior.
 
 ## Ownership and pipeline
 
@@ -143,10 +143,11 @@ The dialect split does not change layer ownership.
 | Decision | Owner |
 | --- | --- |
 | Parse flags, select JSON format/dialect, commit stdout, choose exit code | L3 CLI |
-| Select ordered sections and apply row/field/column shape decisions | L2 section model |
+| Select ordered sections and apply field/column shape decisions | L2 section model |
+| Execute normalized semantic row-selection plans | `DotnetInspector.RowSelection`, orchestrated by the applicable product owner |
 | Resolve projection names against each selected section schema | L2 projection service |
 | Produce display strings, section identities, and stable table keys | L2 section/view adapters |
-| Apply the resolved writer plan and deliver formatter callbacks | Markout serialization |
+| Receive already-selected rows, apply the resolved presentation plan, and deliver formatter callbacks | Markout serialization |
 | Map a representable lowered document to JSON | Lowered JSON formatter |
 | Preserve the command's existing typed JSON schema | Typed command serializer |
 | Produce inspection facts and typed failures | Owning query/producer |
@@ -157,7 +158,8 @@ The normal lowered path is:
 parse request
   -> resolve selected sections
   -> resolve projection separately for each selected section
-  -> apply the resolved shape/window plan and lower display values
+  -> execute semantic row selection
+  -> apply the resolved shape plan and lower selected display values
   -> validate/buffer the complete JSON document
   -> commit the document to stdout once
 ```
@@ -570,9 +572,10 @@ Adopt one coherent command family at a time.
    combined-family composition, lens precedence, labeled-array preservation,
    Markout inline-to-plain rendering, pinned machine-key plans, graph-field
    parity, the pinned `vocabulary --fields` alias, representability preflight,
-   transactional stdout, and integration with the item/range/line limit
-   contract around the existing `find`/`vocabulary` formatter. Move or expose
-   projection decisions at the L2 boundary.
+   transactional stdout, the semantic-selection handoff, and the separate
+   complete-value boundary for future payload-line behavior around the existing
+   `find`/`vocabulary` formatter. Move or expose projection decisions at the L2
+   boundary.
 2. **Audit every projection-capable route.** Prove that each accepted
    `--json --fields/--columns` request is owned by a lens/payload, rendered as
    lowered JSON, or rejected visibly. Add fail-closed routing or an explicit
@@ -679,7 +682,7 @@ implemented:
 | `ProjectedJsonMachineKeyTests` | Every shipped or newly adopted root field, section, field, column, and labeled array has a unique pinned machine key independent of display-heading changes. |
 | `ProjectedJsonDiagnosticsTests` | Partial, unmatched, projected-away, all-`PassThrough`, empty, no-result, no-data, and unrepresentable requests have the documented output/stderr/exit behavior; unmatched-name failure requires at least one applicable `Project` section. |
 | `ProjectedJsonAtomicityTests` | Every pre-commit projection/formatter failure leaves stdout empty; removing the buffer fails the test. |
-| `ProjectedJsonWindowingTests` | Semantic item/range windows happen before encoding; multi-print line windows modify each content value; every structured result remains complete. |
+| `ProjectedJsonSelectionHandoffTests` | Once semantic selection is adopted, lowered JSON receives already-selected values and serializes one complete JSON document; the pending payload/line owner supplies its own clipping or rejection gates. |
 | `ProjectedJsonFormatParityTests` | Every adopted table section has decoded key/order/value parity with JSONL from the same `-S <section>` shape, including Markout semantic inline values and empty-string padding for short rows. |
 | `ProjectedJsonNativeAotSmoke` | A published NativeAOT CLI executes both dialects without reflection fallback or trim/AOT warnings on the emit path. |
 
@@ -700,7 +703,8 @@ JSON.
 - No general field-to-column alias; the shipped `vocabulary` exception is
   command-owned and gated.
 - No second item-domain, range, line-window, or multi-print contract; this
-  document consumes [Item and line limits](item-and-line-limits.md).
+  document consumes the focused owners listed in
+  [Item and line selection composition](item-and-line-limits.md).
 - No silent fallback from requested lowered JSON to typed or unprojected JSON.
 - No reconstruction of sections, rows, or trees from rendered Markdown.
 - No assumption that a future typed Markout seam may change the shipped lowered
