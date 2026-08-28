@@ -1033,6 +1033,64 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
+    /// The boundary of what this oracle can see, pinned deliberately.
+    ///
+    /// A managed assembly whose CLI directory has been zeroed in both fields is
+    /// skipped as NotManaged. That is the one way a file that really was a
+    /// managed assembly can leave the population without the sweep reporting
+    /// anything, so it should be a stated limitation rather than a behaviour
+    /// nobody wrote down.
+    ///
+    /// It is not fixable here. Once both fields are zero the file is
+    /// byte-for-byte indistinguishable from a native image at every layer this
+    /// oracle reads, and SRM cannot tell "not managed" from "managed but
+    /// damaged" once it has rejected the headers either. Answering
+    /// Unclassifiable instead would make every native DLL in every corpus
+    /// unclassifiable, which would retire the gate. Reporting the gap belongs
+    /// to the product's failure contract, not to a wider guess here.
+    ///
+    /// Round 7 is why this exists: the "absent" answer was unreachable by both
+    /// enumerations and shared an exit site with "present", so nothing measured
+    /// it and nothing described it. The test is two-sided so that a reader that
+    /// skipped everything could not satisfy it.
+    /// </summary>
+    [Fact]
+    public void TryMeasure_ZeroedCliDirectory_IsSkippedAsTheKnownBlindSpot()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(StateMachineCompletenessTests).Assembly.Location);
+
+        int cliOffset = CliDirectoryFileOffset(image);
+
+        string intact = Path.Combine(
+            Path.GetTempPath(), $"sm-intact-{Guid.NewGuid():N}.dll");
+        string zeroed = Path.Combine(
+            Path.GetTempPath(), $"sm-zeroed-{Guid.NewGuid():N}.dll");
+
+        try
+        {
+            File.WriteAllBytes(intact, image);
+
+            byte[] copy = (byte[])image.Clone();
+            copy.AsSpan(cliOffset, 8).Clear();
+            File.WriteAllBytes(zeroed, copy);
+
+            Assert.Equal(
+                CorpusOutcome.Measured,
+                TryMeasure(intact, out _, out _));
+
+            Assert.Equal(
+                CorpusOutcome.NotManaged,
+                TryMeasure(zeroed, out _, out _));
+        }
+        finally
+        {
+            File.Delete(intact);
+            File.Delete(zeroed);
+        }
+    }
+
+    /// <summary>
     /// The negative half of the same seam. Routing damage to DecodeFailed is
     /// only correct if files that are genuinely not managed assemblies still
     /// reach NotManaged; a gate that answered DecodeFailed for everything would
