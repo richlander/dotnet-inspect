@@ -138,8 +138,8 @@ See `USE.md` in the TLA+ repository for the full command list (`tla2sany.SANY`,
 TLA+ is used per
 [`AGENTS.md`](../../AGENTS.md#keep-specifications-readable-model-interactions)
 to check stateful/concurrent interaction designs that are hard to reason about
-in prose alone. All current models are on open, unmerged design PRs (not yet
-on `main`); links point at the PR branch.
+in prose alone. The inventory names each model's owning or introducing PR;
+links point at `main` or the active PR branch.
 
 | Model(s) | PR | Description |
 | --- | --- | --- |
@@ -147,25 +147,16 @@ on `main`); links point at the PR branch.
 | [`NavigationSession.tla`](https://github.com/richlander/dotnet-inspect/blob/design/inspection-subject-navigation/docs/design/models/inspection-subject-navigation/NavigationSession.tla), [`AtomicRestoration.tla`](https://github.com/richlander/dotnet-inspect/blob/design/inspection-subject-navigation/docs/design/models/inspection-subject-navigation/AtomicRestoration.tla), [`SnapshotAuthority.tla`](https://github.com/richlander/dotnet-inspect/blob/design/inspection-subject-navigation/docs/design/models/inspection-subject-navigation/SnapshotAuthority.tla) (plus matching `.cfg` files and a model [`README.md`](https://github.com/richlander/dotnet-inspect/blob/design/inspection-subject-navigation/docs/design/models/inspection-subject-navigation/README.md)) | [#4830](https://github.com/richlander/dotnet-inspect/pull/4830) | Three independent models backing [Inspection subject navigation](../design/inspection-subject-navigation.md): retained-session intent/supersession/maintenance ordering and effect authority (`NavigationSession`), one-transaction canonical subject+lens restoration (`AtomicRestoration`), and retained-versus-stateless execution and which prior state each may read (`SnapshotAuthority`). Each is scoped to one mechanism; none models identity ranking, availability semantics, UI accessibility, or implementation conformance. |
 | [`SemanticRowSelection.tla`](https://github.com/richlander/dotnet-inspect/blob/docs/4677-selection-planning/docs/models/SemanticRowSelection.tla) ([`.cfg`](https://github.com/richlander/dotnet-inspect/blob/docs/4677-selection-planning/docs/models/SemanticRowSelection.cfg)) | [#4815](https://github.com/richlander/dotnet-inspect/pull/4815) | Models one immutable row-selection plan applied to ordered named sequences for [Semantic row selection](../design/semantic-row-selection.md): sequence-major/stage-major traversal, strict `Range`, positional `Head`/`Tail`, ranked `Top`, resolver caching, callback failure, withheld publication, and atomic success. Checks type safety, atomic publication, at-most-once resolver invocation, sequence/stage failure precedence, and termination under weak fairness. |
 | [`TsJsExportLifecycle.tla`](https://github.com/richlander/dotnet-inspect/blob/design/jsexport-lifecycle-tla/docs/design/models/ts-jsexport-lifecycle/TsJsExportLifecycle.tla) (plus scenario and mutation configurations and a model [`README.md`](https://github.com/richlander/dotnet-inspect/blob/design/jsexport-lifecycle-tla/docs/design/models/ts-jsexport-lifecycle/README.md)) | [#4918](https://github.com/richlander/dotnet-inspect/pull/4918) | Models two generated `ts-jsexport` facades, two callers per facade, one shared SDK runtime, shared-in-flight and serialized coordination, local failure isolation, terminal state, and bounded realm restart. Checks four success/failure scenarios and twelve targeted counterexample mutations without claiming implementation or browser conformance. |
+| [`PackageCachePublication.tla`](https://github.com/richlander/dotnet-inspect/blob/models/package-cache-publication/docs/design/models/package-cache-publication/PackageCachePublication.tla) (plus safety, liveness, mutation, and reachability configurations and a model [`README.md`](https://github.com/richlander/dotnet-inspect/blob/models/package-cache-publication/docs/design/models/package-cache-publication/README.md)) | [#4925](https://github.com/richlander/dotnet-inspect/pull/4925) | Models one exact package coordinate across process-local single-flight registries and independent cross-process publishers for [Cache concurrency and publication](../design/cache-concurrency.md). Checks atomic visibility, joined-task outcomes, retry after shared non-success, waiter settlement, exact losing-attempt convergence, and the removal-before-observable-completion overlap without claiming implementation equivalence. |
 
 Each PR records its own TLC run (states generated, distinct states, max
-depth) inline next to its model description. [#4815](https://github.com/richlander/dotnet-inspect/pull/4815)
-records a run against the pinned `v1.8.0` prerelease `tla2tools.jar` exactly
-(TLC `2026.08.21.155922`, rev `9787e65`); the other two PRs' recorded TLC
-versions predate that pin and were not re-verified against it as part of
-writing this runbook.
-
-### Known in-progress work, not yet checked in
-
-As of this writing, one additional model exists only as uncommitted files in a
-contributor's local worktree and is not linked above because it has no pushed
-branch or PR to point at:
-
-- `PackageCachePublication.tla` (plus `Safety`/`Liveness`/`BrokenAtomic`/
-  `BrokenEviction` configs and a README), for
-  [`cache-concurrency.md`](../design/cache-concurrency.md).
-
-Update this table once it is committed and pushed.
+depth) inline next to its model description. [#4815](https://github.com/richlander/dotnet-inspect/pull/4815),
+[#4918](https://github.com/richlander/dotnet-inspect/pull/4918), and
+[#4925](https://github.com/richlander/dotnet-inspect/pull/4925) record runs
+against the pinned `v1.8.0` prerelease `tla2tools.jar` exactly (TLC
+`2026.08.21.155922`, rev `9787e65`); the earlier PRs' recorded TLC versions
+predate that pin and were not re-verified against it as part of writing this
+runbook.
 
 ## Check in models as you go
 
