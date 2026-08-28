@@ -274,22 +274,24 @@ Roslyn-free, and free of inspected-assembly loading. It answers product
 questions such as:
 
 - What type or member artifact should be emitted for this metadata target?
-- Which closure members belong to the artifact under the requested policy?
 - Which declarations are product-owned source shape rather than RTS scaffolding?
 - Which base/interface/constructor relationships are real and spellable?
-- Which method bodies are included, and which members are declaration-only?
+- Which typed declaration, body, and generated-fragment facts are available?
+- Which requested method bodies can be rendered, and which members are
+  declaration-only?
 
 The artifact provider should return structured diagnostics when it cannot
 produce an artifact. RTS should surface those diagnostics; it should not patch
 the artifact with local C#.
 
-Initial typed closure derivation belongs with artifact production: the provider
-can derive same-assembly roots, source facts, and member requirements from the
-raised `IrFunction`. RTS remains responsible for Roslyn oracle growth and passes
-only the target/oracle closure roots and facts discovered by compile feedback.
-Target-body rendering is also provider-owned: RTS selects the target and carries
-the provider-produced body/provenance, but should not call the C# output printer
-directly.
+Initial typed closure derivation and same-assembly root selection belong to the
+`tools/DecompilerHarness` planner defined by
+[`csharp-member-recompilation.md`](csharp-member-recompilation.md). The product
+provider returns its owner-issued declaration, body, and generated-fragment
+facts; RTS composes them with Metadata and instruction evidence and owns Roslyn
+oracle growth. Target-body rendering remains provider-owned: RTS selects the
+target and carries the provider-produced body/provenance, but should not call
+the C# output printer directly.
 
 The product/shared side should own truthful declaration facts that are useful
 beyond ReturnToSender: namespaces, type/member signatures, base/interface
@@ -749,7 +751,9 @@ the existing compile-back status buckets.
 | ReturnToSender detail | Existing status |
 | --- | --- |
 | artifact compiles, product diffs match requested scopes | `Exact` |
-| artifact compiles, IL/body diff mismatches selected bodies | `OpcodeDiff` |
+| artifact compiles, opcode names differ | `OpcodeDiff` |
+| artifact compiles, opcode names match but operands differ | `OperandDiff` |
+| artifact compiles, but the comparison or target receipt is unavailable | `FidelityUnavailable` |
 | artifact compiles, API/body-signal/C# diff mismatches requested scope | `OpcodeDiff` or diff detail under the selected top-level status |
 | product artifact cannot be produced | `ContextFail` |
 | artifact source does not compile | `RecompileFail` |
@@ -785,9 +789,10 @@ ignorable taste/options, not-yet-raised source sugar, structuring residue,
 semantic opcode deltas, invalid rows, and unclassified frontiers. Shared JSON
 uses source file names, not absolute local paths, in the finding projection.
 
-The existing corpus sensor gates on `Exact`, `OpcodeDiff`, `RecompileFail`, and
-`ContextFail`. ReturnToSender planning reasons should be structured details
-underneath those statuses, not replacement top-level metrics.
+The existing corpus sensor gates on `Exact`, `OpcodeDiff`, `OperandDiff`,
+`FidelityUnavailable`, `RecompileFail`, and `ContextFail`. ReturnToSender
+planning reasons should be structured details underneath those statuses, not
+replacement top-level metrics.
 
 Example report:
 
@@ -796,8 +801,10 @@ ReturnToSender over N targets
 
   Exact         : X
   OpcodeDiff    : Y
-  RecompileFail : Z
-  ContextFail   : A
+  OperandDiff   : Z
+  FidelityUnavailable : A
+  RecompileFail : B
+  ContextFail   : C
 
 Plan layers:
   artifact request      : resolved / failed

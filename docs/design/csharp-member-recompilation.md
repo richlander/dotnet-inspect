@@ -521,6 +521,13 @@ produces a `CompileReferenceInventory` containing every candidate considered.
 Selection produces either one immutable `CompileReferenceSet` or a typed
 failure. Discovery order is never a binding policy.
 
+Before descriptor construction or selection, discovery requests the
+owner-issued retained-content digest from
+[#4916](https://github.com/richlander/dotnet-inspect/issues/4916) for the source
+artifact and every candidate. If any required digest capability or result is
+unavailable, discovery returns `ReferenceDigestUnavailable` and no
+`CompileReferenceSet` exists.
+
 Each `CompileReferenceDescriptor` records:
 
 - a stable inventory ID and selected ordinal;
@@ -533,12 +540,9 @@ Each `CompileReferenceDescriptor` records:
 - aliases and embed-interop role;
 - whether platform policy authorized it as a trusted platform reference.
 
-Every descriptor digest is the owner-issued result from
-[#4916](https://github.com/richlander/dotnet-inspect/issues/4916), computed over
-the same retained bytes later supplied to Metadata and Roslyn. Until that
-capability exists, digest-dependent reference selection is a pre-commit refusal;
-tools do not hash a mutable path or independently opened stream to fill the
-field.
+Every descriptor digest is computed over the same retained bytes later supplied
+to Metadata and Roslyn. Tools do not hash a mutable path or independently opened
+stream to fill the field.
 
 The selected set records the current source artifact separately, including its
 acquisition registration, retained snapshot, digest, and module identity. The
@@ -888,13 +892,13 @@ Each iteration follows one ordered transition:
    final unspellable, missing, ambiguous, or incomplete provider is a policy
    refusal and produces `Declined`; it cannot add a reference from a compiler
    search path.
-4. Check the pre-attempt owner capabilities required by this exact plan:
-   retained-content digests, the artifact manifest, and generated-definition
-   correspondence when the plan carries those obligations. If one is
-   unavailable, produce pre-commit `Declined` with that exact capability reason;
-   this is distinct from static closure `Incomplete`. Otherwise, after static
-   closure is `Complete`, cross `ProductAttemptCommit` for that exact plan and
-   invoke product artifact production.
+4. Check the remaining pre-attempt owner capabilities required by this exact
+   plan: the artifact manifest and generated-definition correspondence when the
+   plan carries those obligations. If one is unavailable, produce pre-commit
+   `Declined` with that exact capability reason; this is distinct from static
+   closure `Incomplete`. Otherwise, after static closure is `Complete`, cross
+   `ProductAttemptCommit` for that exact plan and invoke product artifact
+   production.
 5. Bind the returned participant manifest to the exact source-artifact digest
    and compare it with `ArtifactParticipantPlan`. A missing or mismatched
    manifest produces `Failed`. Exact coverage issues
