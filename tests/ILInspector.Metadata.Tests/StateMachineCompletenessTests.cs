@@ -1312,13 +1312,13 @@ public sealed class StateMachineCompletenessTests
         int peOffset = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(0x3C));
         int bound = Math.Min(image.Length - 1, peOffset + 512);
 
-        SortedSet<int> reached = [];
+        HashSet<ClaimExitSite> reached = [];
         string? detail = null;
 
         for (int length = 0; length <= bound; length++)
         {
             using MemoryStream prefix = new(image.AsSpan(0, length).ToArray());
-            ReadManagedClaim(prefix, ref detail, out int site);
+            ReadManagedClaim(prefix, ref detail, out ClaimExitSite site);
             reached.Add(site);
         }
 
@@ -1332,7 +1332,7 @@ public sealed class StateMachineCompletenessTests
                 copy[offset] = value;
 
                 using MemoryStream corrupted = new(copy);
-                ReadManagedClaim(corrupted, ref detail, out int site);
+                ReadManagedClaim(corrupted, ref detail, out ClaimExitSite site);
                 reached.Add(site);
 
                 copy[offset] = original;
@@ -1341,21 +1341,20 @@ public sealed class StateMachineCompletenessTests
 
         using (ThrowingStream throwing = new())
         {
-            ReadManagedClaim(throwing, ref detail, out int site);
+            ReadManagedClaim(throwing, ref detail, out ClaimExitSite site);
             reached.Add(site);
         }
 
-        int[] unreached = [.. Enumerable
-            .Range(1, ReadManagedClaimExitSites)
-            .Except(reached)];
+        ClaimExitSite[] all = Enum.GetValues<ClaimExitSite>();
+        ClaimExitSite[] unreached = [.. all.Except(reached)];
 
         Assert.True(
             unreached.Length == 0,
             $"The enumerated range (bound {bound}) never reached exit " +
             $"{(unreached.Length == 1 ? "path" : "paths")} " +
-            $"{string.Join(", ", unreached)} of {ReadManagedClaimExitSites}, so " +
-            $"the range does not exercise the whole method and a defect on an " +
-            $"unreached path would not be found by either enumeration.");
+            $"{string.Join(", ", unreached)} of {all.Length}, so the range does " +
+            $"not exercise the whole method and a defect on an unreached path " +
+            $"would not be found by either enumeration.");
     }
 
     /// <summary>
@@ -1395,10 +1394,54 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
-    /// Number of distinct exit paths out of <c>ReadManagedClaim</c>. The
-    /// enumeration coverage test requires every one of them to be reached.
+    /// Every way out of <c>ReadManagedClaim</c>, one member per path.
+    ///
+    /// These are names rather than numbers so the set of paths is derived from
+    /// this declaration instead of being restated as a count that can drift
+    /// away from it. Adding a member without wiring it to a path fails the
+    /// coverage test as unreached, and wiring a path requires naming a member.
+    /// Two paths reporting the same member would still hide one of them, but a
+    /// duplicated name reads as obviously wrong at the point of use in a way a
+    /// duplicated integer does not.
     /// </summary>
-    const int ReadManagedClaimExitSites = 12;
+    enum ClaimExitSite
+    {
+        /// <summary>The first signature byte is present and is not <c>M</c>.</summary>
+        SignatureFirstByteWrong,
+
+        /// <summary>The second signature byte is present and is not <c>Z</c>.</summary>
+        SignatureSecondByteWrong,
+
+        /// <summary>The stream ends inside the two-byte signature.</summary>
+        SignatureIncomplete,
+
+        /// <summary>The stream ends inside the DOS header.</summary>
+        DosHeaderIncomplete,
+
+        /// <summary>The PE offset does not address a COFF header in the stream.</summary>
+        PeOffsetOutOfRange,
+
+        /// <summary>The PE signature is absent or the COFF header is short.</summary>
+        PeSignatureMissing,
+
+        /// <summary>The declared optional header size is not a believable size.</summary>
+        OptionalHeaderSizeImplausible,
+
+        /// <summary>The stream ends inside the optional header.</summary>
+        OptionalHeaderIncomplete,
+
+        /// <summary>The optional header magic is neither PE32 nor PE32+.</summary>
+        OptionalHeaderMagicUnrecognised,
+
+        /// <summary>The optional header stops before the CLI directory.</summary>
+        CliDirectoryBeyondOptionalHeader,
+
+        /// <summary>The stream could not be read at all.</summary>
+        StreamUnreadable,
+
+        /// <summary>The CLI directory was read and answered.</summary>
+        CliDirectoryRead,
+    }
 
     static ManagedClaim ReadManagedClaim(Stream stream, ref string? detail) =>
         ReadManagedClaim(stream, ref detail, out _);
@@ -1414,7 +1457,7 @@ public sealed class StateMachineCompletenessTests
     static ManagedClaim ReadManagedClaim(
         Stream stream,
         ref string? detail,
-        out int exitSite)
+        out ClaimExitSite exitSite)
     {
         try
         {
@@ -1439,32 +1482,32 @@ public sealed class StateMachineCompletenessTests
             // whatsoever about what it used to be.
             if (read >= 1 && dos[0] != (byte)'M')
             {
-                exitSite = 1;
+                exitSite = ClaimExitSite.SignatureFirstByteWrong;
                 return ManagedClaim.No;
             }
 
             if (read >= 2 && dos[1] != (byte)'Z')
             {
-                exitSite = 2;
+                exitSite = ClaimExitSite.SignatureSecondByteWrong;
                 return ManagedClaim.No;
             }
 
             if (read < 2)
             {
-                exitSite = 3;
+                exitSite = ClaimExitSite.SignatureIncomplete;
                 return ManagedClaim.Indeterminate;
             }
 
             if (read < dos.Length)
             {
-                exitSite = 4;
+                exitSite = ClaimExitSite.DosHeaderIncomplete;
                 return ManagedClaim.Indeterminate;
             }
 
             int peOffset = BinaryPrimitives.ReadInt32LittleEndian(dos[0x3C..]);
             if (peOffset < 0 || peOffset > stream.Length - 24)
             {
-                exitSite = 5;
+                exitSite = ClaimExitSite.PeOffsetOutOfRange;
                 return ManagedClaim.Indeterminate;
             }
 
@@ -1478,7 +1521,7 @@ public sealed class StateMachineCompletenessTests
                 || coff[2] != 0
                 || coff[3] != 0)
             {
-                exitSite = 6;
+                exitSite = ClaimExitSite.PeSignatureMissing;
                 return ManagedClaim.Indeterminate;
             }
 
@@ -1487,14 +1530,14 @@ public sealed class StateMachineCompletenessTests
             int optionalSize = BinaryPrimitives.ReadUInt16LittleEndian(coff[^4..]);
             if (optionalSize is < 2 or > 1024)
             {
-                exitSite = 7;
+                exitSite = ClaimExitSite.OptionalHeaderSizeImplausible;
                 return ManagedClaim.Indeterminate;
             }
 
             byte[] optional = new byte[optionalSize];
             if (stream.ReadAtLeast(optional, optionalSize, throwOnEndOfStream: false) < optionalSize)
             {
-                exitSite = 8;
+                exitSite = ClaimExitSite.OptionalHeaderIncomplete;
                 return ManagedClaim.Indeterminate;
             }
 
@@ -1511,14 +1554,14 @@ public sealed class StateMachineCompletenessTests
 
             if (directories < 0)
             {
-                exitSite = 9;
+                exitSite = ClaimExitSite.OptionalHeaderMagicUnrecognised;
                 return ManagedClaim.Indeterminate;
             }
 
             int cli = directories + (CliDirectoryIndex * 8);
             if (optionalSize < cli + 8)
             {
-                exitSite = 10;
+                exitSite = ClaimExitSite.CliDirectoryBeyondOptionalHeader;
                 return ManagedClaim.Indeterminate;
             }
 
@@ -1542,7 +1585,7 @@ public sealed class StateMachineCompletenessTests
             // zero, so requiring both before skipping is the direction that
             // cannot hide damage.
             ReadOnlySpan<byte> entry = optional.AsSpan(cli, 8);
-            exitSite = 12;
+            exitSite = ClaimExitSite.CliDirectoryRead;
             return BinaryPrimitives.ReadUInt32LittleEndian(entry) != 0
                 || BinaryPrimitives.ReadUInt32LittleEndian(entry[4..]) != 0
                 ? ManagedClaim.Yes
@@ -1552,7 +1595,7 @@ public sealed class StateMachineCompletenessTests
             when (ex is IOException or UnauthorizedAccessException)
         {
             detail = ex.Message;
-            exitSite = 11;
+            exitSite = ClaimExitSite.StreamUnreadable;
             return ManagedClaim.Unreadable;
         }
     }
