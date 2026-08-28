@@ -83,6 +83,51 @@ binding is unverified pending
 | `MetadataNamedTypeReference` | One decoded signature detached from its reader | Which exact named type definition and metadata scope the signature denotes | Resolution to an acquired assembly, constructed-type shape, or display spelling |
 | `StateMachineRelationship` and `StateMachineRelationshipResult` | One physical metadata module | Which kickoff, same-module state-machine type, and exact interface implementation methods form an authenticated compiler-state-machine relationship, or why structural authentication failed | Analysis attribution, decompiler reconstruction eligibility, source ownership, or presentation policy |
 
+`ApiMember.CSharpOperatorDeclaration` persists metadata's structural
+representability proof.
+`ApiMember.HasCSharpOperatorDeclarationClassification` distinguishes an
+extracted `Unknown` from an older or shell-produced surface that never carried
+the fact. Declaration consumers must not replace an extracted `Unknown` after a
+JSON round-trip by inferring declaring-type participation from display text.
+`ApiMember.SignatureModel` likewise persists parameter and return-type structure;
+older surfaces use that model for required operator pairs rather than treating
+missing structure as a wildcard. Current extraction additionally persists
+`ApiMember.OperatorPairingKey`, a digest of strict metadata structure that
+retains defining-assembly provenance.
+`ApiMember.HasOperatorPairingKey` distinguishes older surfaces from an
+extraction that could not produce the key; the latter fails closed rather than
+falling back to display identity.
+Operator representability remains `Unknown` when a resolved definition's kind
+could not be authenticated, and required custom modifiers are not erased into
+an affirmative source proof. A non-interface declaration also cannot acquire
+C# operator identity from abstract or virtual method flags on an operator form
+C# requires to be static, where those flags are impossible; the C# 14 instance
+compound-assignment family is an ordinary instance member, so `virtual`,
+`abstract`, `override`, `sealed override`, and the `virtual final newslot` of an
+implicit interface implementation are all legal there and must not be rejected.
+Static-ness for that family is proved by the shape rule instead, and the
+MethodDef static flag must agree with the signature header. The
+compiler-produced hierarchy cases in
+`ReferenceEqualityMetadataFactsTests` and the adversarial signature cases in
+`OperatorApiSurfaceTests`, including
+`CSharpOperatorDeclaration_IgnoresUnavailableEncodingKindForNonConversion` and
+`OperatorKindAuthenticationFailureRemainsUnknownAndVisible`, gate those
+boundaries; `CSharpOperatorDeclaration_RejectsStaticAbstractClassOperator`,
+`CSharpOperatorDeclaration_RejectsVirtualStaticClassOperator`, and
+`CSharpOperatorDeclaration_RejectsStaticFlagHeaderMismatch` gate the modifier
+and header negatives, while
+`CSharpOperatorDeclaration_AcceptsVirtualInstanceAssignmentOperators`,
+`CSharpOperatorDeclaration_ProvesStaticnessForAssignmentOperators`,
+`ApiSurface_ReportsVirtualInstanceAssignmentOperatorsAsDeclarations`, and
+`VirtualInstanceAssignmentOperatorDeclarationTests` gate the instance
+assignment scoping.
+`ApiOutputFormatterTests.ApiTypeJson_PersistsStructuredSignatureModel` and the
+operator proof and pair JSON tests in `ApiOutputFormatterTests` and
+`CSharpDeclarationWriterTests`, especially
+`ApiTypeJson_PersistsOperatorPairingIdentity` and
+`MemberDeclaration_DoesNotPairSameDisplayTypesFromDifferentAssemblies`, gate
+this contract.
+
 #### `DotnetInspector.Queries`
 
 | Currency | Scope | Answers | Does not answer |
@@ -455,7 +500,7 @@ Find your question here; the shape census below says what to use.
 | 7 | "Show a type to a human or an agent." | Display | `TypeNode.Render()` or the owning output projection |
 | 8 | "Look a type up in XML documentation." | Projection | XML-doc id projection — *not* the identity digest |
 | 9 | "Round-trip a declaration plus its body through compile-back." | Fidelity | Metadata/CSharp typed shell and printer for the declaration; Decompiler body production for supported body/codegen shapes |
-| 10 | "Survive a JSON round-trip." | Persistence | A persisted projection key on `ApiMember` |
+| 10 | "Survive a JSON round-trip." | Persistence | Persisted `ApiMember` structural facts plus its canonical projection key |
 
 Scenarios 1 through 5 are the ones most often conflated. Selection, lookup,
 resolution, correspondence, and durable location want different shapes:
@@ -463,9 +508,11 @@ selection may be approximate on the admit side but must be loud about matching
 nothing; lookup names must be exact but are not identity; resolution must retain
 candidate and hop evidence; correspondence remains catalog-owned; and durable
 addresses must be revalidated. The member layer models its own split correctly
-— `MemberTargetSelector` in, `MemberAnchor` out. The type command still lacks a
-typed user-facing selector, but that is separate from Metadata's exact lookup
-and resolution currencies.
+— `MemberTargetSelector` in, `MemberAnchor` out. The type command's member
+filter retains the selector's kind qualifier and exact source-name family
+through parsing, then applies those semantics to `ApiMember` values rather than
+matching names alone. `Type_KindQualifiedOperatorMemberFilter_PreservesSelector`
+and `KindQualifiedFilter_MatchesOnlyTheRequestedMemberKind` gate that bridge.
 
 ## The rule that generates most of the others
 
@@ -630,6 +677,17 @@ instead of falling back to partial string matching."
 Selector is the question; anchor is the answer. Do not use an anchor where a
 selector belongs — constructing an anchor costs canonicalization and hashing,
 which is precisely the work a cheap pre-filter exists to avoid.
+
+A source `++` or `--` selector denotes the exact static/instance metadata-name
+pair, not a prefix glob. `MemberTargetSelector.ExactNameFamily` carries that
+question through resolution while an explicitly entered `*` or `?` remains a
+glob. `MemberTargetSelector.FilterSelector` also preserves any `operator:`,
+`explicit:`, or `extension:` qualifier when a command needs the cheaper
+member-filter path rather than full target resolution.
+`MemberTargetResolverTests.GetCandidates_IncrementTokenIncludesStaticAndInstanceShapes`,
+`TypeMatcherTests.IncrementSourceFilter_MatchesOnlyExactNameFamily`, and the
+CLI `Member_IncrementToken_SelectsStaticAndInstanceShapes` gate the typed
+resolver, filter, and command paths.
 
 ### `MemberCanonicalSignature` — the DocId-shaped grammar
 

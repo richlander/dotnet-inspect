@@ -147,7 +147,7 @@ public static class MemberCommand
                     mergeOptions.MemberFilter,
                     StringComparer.OrdinalIgnoreCase)
                 {
-                    impliedSelector.Name
+                    impliedSelector.FilterName
                 };
                 var mergedArity =
                     mergeOptions.MemberGenericArity
@@ -259,13 +259,13 @@ public static class MemberCommand
                     // would match a non-public member, hint at --all instead of dead-ending.
                     if (!options.IncludeAll && apiDllPath is { } dllForHint)
                     {
-                        var allMemberNames = AssemblyReader.ExtractApiSurface(dllForHint, includeAll: true)?
+                        var allMembers = AssemblyReader.ExtractApiSurface(dllForHint, includeAll: true)?
                             .Types.FirstOrDefault(t => t.FullName == apiType.FullName)?
-                            .Members.Select(m => m.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-                        if (allMemberNames is { Count: > 0 })
+                            .Members;
+                        if (allMembers is { Count: > 0 })
                         {
                             var nonPublic = ApiTypeLookupService.FindNonPublicMatches(
-                                memberValidation.MissedFilters, allMemberNames);
+                                memberValidation.MissedFilters, allMembers);
                             if (nonPublic.Count > 0)
                                 memberValidation = memberValidation with { NonPublicMatches = nonPublic };
                         }
@@ -321,12 +321,10 @@ public static class MemberCommand
                 }
 
                 var memberName = effectiveOptions.MemberFilter.First();
-                var selector = new MemberTargetSelector(
-                    memberName,
-                    memberName,
-                    effectiveOptions.OverloadIndex,
-                    effectiveOptions.MemberDigest,
-                    GenericArity: effectiveOptions.MemberGenericArity);
+                var selector =
+                    CreateTargetSelector(
+                        memberName,
+                        effectiveOptions);
                 var memberResolution = MemberTargetResolver.Resolve(apiType, selector, effectiveOptions.KindFilter);
                 if (memberResolution.Diagnostic is { } diagnostic)
                 {
@@ -348,7 +346,7 @@ public static class MemberCommand
                     WriteAccessorSelectionRequired(apiType, selected);
                     return 1;
                 }
-                apiType.Members = [selected];
+                NarrowMembers(apiType, [selected]);
                 var detailDllPath = apiType.SourceAssemblyPath ?? apiDllPath;
                 effectiveOptions = effectiveOptions with
                 {
@@ -397,7 +395,7 @@ public static class MemberCommand
                     return 1;
                 }
 
-                apiType.Members = arityCandidates;
+                NarrowMembers(apiType, arityCandidates);
             }
 
             if (effectiveOptions.OverloadIndex is null
@@ -853,18 +851,52 @@ public static class MemberCommand
     private static bool IsPureSelector(string[]? select, string name) =>
         select is { Length: 1 } && select[0].Equals(name, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Narrows a type's rendered member inventory to a selection while retaining
+    /// the full declaring inventory. Declaration rendering asks the declaring
+    /// type about siblings a C# declaration requires — the <c>op_Inequality</c>
+    /// that lets <c>op_Equality</c> spell as <c>operator ==</c> — so every
+    /// narrowing path must record what it removed, not just the digest/index one.
+    /// </summary>
+    private static void NarrowMembers(ApiType apiType, List<ApiMember> members)
+    {
+        apiType.DeclaringMembers ??= apiType.Members;
+        apiType.Members = members;
+    }
+
     private static List<ApiMember> GetCandidateMembers(ApiType apiType, MemberOptions options, string memberName)
         => GetTargetCandidates(apiType, options, memberName)
             .Select(candidate => candidate.Member)
             .ToList();
 
-    private static IReadOnlyList<MemberTargetCandidate> GetTargetCandidates(ApiType apiType, MemberOptions options, string memberName)
+    private static IReadOnlyList<MemberTargetCandidate> GetTargetCandidates(
+        ApiType apiType,
+        MemberOptions options,
+        string memberName)
         => MemberTargetResolver.GetCandidates(
-                apiType,
-                options.MemberGenericArity is { } arity
-                    ? new MemberTargetSelector(memberName, memberName, GenericArity: arity)
-                    : new MemberTargetSelector(memberName, memberName),
-                options.KindFilter);
+            apiType,
+            CreateTargetSelector(memberName, options),
+            options.KindFilter);
+
+    private static MemberTargetSelector CreateTargetSelector(
+        string memberName,
+        MemberOptions options)
+    {
+        MemberTargetSelector selector =
+            MemberTargetSelector.Parse(memberName);
+        return selector with
+        {
+            OverloadIndex =
+                options.OverloadIndex
+                    ?? selector.OverloadIndex,
+            DigestPrefix =
+                options.MemberDigest
+                    ?? selector.DigestPrefix,
+            GenericArity =
+                options.MemberGenericArity
+                    ?? selector.GenericArity,
+        };
+    }
 
     private static string GetMemberSectionName(string kind) => kind switch
     {

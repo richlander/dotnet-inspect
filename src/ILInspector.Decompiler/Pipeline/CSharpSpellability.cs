@@ -283,9 +283,29 @@ internal static class CSharpSpellability
     /// <c>.ctor</c> target must degrade. Otherwise the name sanitizer's legal
     /// <c>__ctor</c> fallback would be presented as Full fidelity and could
     /// silently bind an unrelated real <c>__ctor</c> member (#3129).
+    /// <para>
+    /// The known-framework operator exemption in
+    /// <see cref="IsUnverifiedOperatorLikeMethod"/> is exempted here for the same
+    /// reason, in reverse: it is an ordinary-CALL exemption, because a call to one
+    /// of those operators renders as operator syntax (<c>a == b</c>) and no
+    /// <c>op_</c> name reaches the output. A method group has no operator syntax
+    /// to render into — <c>string.op_Equality</c> reaches the output verbatim and
+    /// is CS0571 — so the exemption must not follow the method into this position.
+    /// </para>
     /// </summary>
     static NameIssue? MethodGroupTargetIssue(MethodRef method)
-        => MethodIssue(method, isMethodGroupTarget: true);
+    {
+        if (method.IsOperator == MetadataFactState.Yes
+            || IsExactSpecialNameOperatorLikeMethod(method)
+            || IsUnresolvedKnownFrameworkOperator(method))
+        {
+            return Issue(
+                DecompilerFidelityDiscriminators.OperatorMethodGroup,
+                $"operator method '{method.Name}' has no C# method-group spelling");
+        }
+
+        return MethodIssue(method, isMethodGroupTarget: true);
+    }
 
     static NameIssue? MethodIssue(MethodRef method, bool isMethodGroupTarget)
     {
@@ -301,6 +321,21 @@ internal static class CSharpSpellability
             return Issue(
                 DecompilerFidelityDiscriminators.AccessorMetadataUnavailable,
                 $"method '{method.Name}' looks like a property/event accessor but accessor metadata was unavailable; explicit accessor calls have no C# spelling");
+        }
+
+        if (IsUnverifiedOperatorLikeMethod(method))
+        {
+            return Issue(
+                DecompilerFidelityDiscriminators.OperatorMetadataUnavailable,
+                $"method '{method.Name}' has a C# operator name but defining metadata was unavailable; an explicit call has no C# spelling when the target is a genuine operator");
+        }
+
+        if (method.IsOperator != MetadataFactState.Yes
+            && IsExactSpecialNameOperatorLikeMethod(method))
+        {
+            return Issue(
+                DecompilerFidelityDiscriminators.OperatorSpecialNameCall,
+                $"SpecialName operator method '{method.Name}' has no explicit C# method-call spelling");
         }
 
         // Check the metadata name as it stands, not a >g__ decode of it, ONLY when the
@@ -357,6 +392,36 @@ internal static class CSharpSpellability
                 || method.Name.StartsWith("set_", StringComparison.Ordinal)
                 || method.Name.StartsWith("add_", StringComparison.Ordinal)
                 || method.Name.StartsWith("remove_", StringComparison.Ordinal));
+
+    static bool IsUnverifiedOperatorLikeMethod(MethodRef method)
+        => method.IsOperator == MetadataFactState.Unknown
+            && method.IsSpecialName
+            && OperatorNames.IsCSharpOperatorMethodName(method.Name)
+            && !MemberIdentity.IsKnownFrameworkOperator(method);
+
+    /// <summary>
+    /// The exact complement of <see cref="IsUnverifiedOperatorLikeMethod"/>: an
+    /// operator-named method whose defining metadata never resolved
+    /// (<see cref="MetadataFactState.Unknown"/>) but whose framework identity is
+    /// known, so it IS a genuine operator even though no MethodDef proved it.
+    /// Only <see cref="MethodGroupTargetIssue"/> consults this, because only the
+    /// method-group position has to spell the <c>op_</c> name itself. Requires no
+    /// <see cref="MethodRef.IsSpecialNameInferred"/> answer: an exact SpecialName
+    /// already degrades through
+    /// <see cref="IsExactSpecialNameOperatorLikeMethod"/>, so this predicate is
+    /// what closes the inferred case.
+    /// </summary>
+    static bool IsUnresolvedKnownFrameworkOperator(MethodRef method)
+        => method.IsOperator == MetadataFactState.Unknown
+            && method.IsSpecialName
+            && OperatorNames.IsCSharpOperatorMethodName(method.Name)
+            && MemberIdentity.IsKnownFrameworkOperator(method);
+
+    static bool IsExactSpecialNameOperatorLikeMethod(MethodRef method)
+        => method.IsSpecialName
+            && !method.IsSpecialNameInferred
+            && method.GenericParameterCount == 0
+            && OperatorNames.IsMetadataOperatorMethodName(method.Name);
 
     // A local function name is emitted through CSharpNaming.EscapeIdentifier, so a
     // reserved keyword (e.g. return -> @return) is spellable; only a name with

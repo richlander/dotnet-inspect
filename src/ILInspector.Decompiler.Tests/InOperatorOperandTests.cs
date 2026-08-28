@@ -85,6 +85,50 @@ public class InOperatorOperandTests
         Assert.DoesNotContain("op_False", output);
     }
 
+    [Fact]
+    public void KnownOperatorWithoutValueSpelling_DegradesRenderedInvocation()
+    {
+        var truthy = TypeRef.Definition("Test", "Samples", "Truthy");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var opTrue = new MethodRef(
+            truthy,
+            "op_True",
+            boolType,
+            [truthy],
+            HasThis: false)
+        {
+            IsSpecialName = true,
+            IsOperator = MetadataFactState.Yes,
+        };
+        var body = new BlockContainer();
+        var block = new Block();
+        block.Add(new Return(
+            new Call(
+                opTrue,
+                isVirtual: false,
+                [new LoadArgument(0, "value", truthy)])));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Test", "Samples", "Owner"),
+            new MethodSignature(
+                boolType,
+                [new Parameter("value", truthy)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        DecompilerResult result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.Contains("Truthy.op_True(value)", result.Output);
+        Assert.Contains(
+            result.Diagnostics,
+            diagnostic => diagnostic.Id
+                == DiagnosticIds.UnrepresentableMetadataName);
+    }
+
     static string RenderFixture(string typeName, string methodName)
     {
         using var source = MetadataSource.Open(typeof(InOperatorProbe).Assembly.Location);
@@ -93,6 +137,7 @@ public class InOperatorOperandTests
         Assert.Equal(DecompilationFidelity.Full, function!.Fidelity);
         var result = CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method));
         Assert.NotNull(result.Output);
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
         return result.Output!;
     }
 }

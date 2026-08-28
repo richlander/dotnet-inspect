@@ -36,6 +36,26 @@ public sealed record MemberTargetSelector(
     string? Kind = null,
     int? GenericArity = null)
 {
+    public IReadOnlyList<string>? ExactNameFamily { get; init; }
+    public string FilterName =>
+        ExactNameFamily is null
+            ? Name
+            : ExactNameFamilyToken ?? RequestedText;
+    public string? ExactNameFamilyToken { get; init; }
+
+    /// <summary>
+    /// Member-filter spelling that preserves an explicit kind and exact source
+    /// families such as <c>operator:++</c>.
+    /// </summary>
+    public string FilterSelector
+        => Kind switch
+        {
+            "operator" => $"operator:{FilterName}",
+            "explicit-interface-implementation" => $"explicit:{FilterName}",
+            "extension-method" => $"extension:{FilterName}",
+            _ => FilterName,
+        };
+
     public string NormalizedSelector
     {
         get
@@ -53,7 +73,7 @@ public sealed record MemberTargetSelector(
                         ? $":{accessorIndex}"
                         : "")
                 : OverloadIndex is { } index ? $":{index}" : "";
-            return $"{kindPrefix}{Name}{suffix}";
+            return $"{kindPrefix}{FilterName}{suffix}";
         }
     }
 
@@ -78,13 +98,26 @@ public sealed record MemberTargetSelector(
         overloadIndex ??= accessorIndex;
         var genericArity = FqnParser.GetMemberGenericArity(overloadHead);
         var name = FqnParser.NormalizeMemberName(overloadHead);
+        IReadOnlyList<string>? exactNameFamily =
+            name.EndsWith('*')
+                && (overloadHead.Contains("++", StringComparison.Ordinal)
+                    || overloadHead.Contains("--", StringComparison.Ordinal))
+                ? [name[..^1], $"{name[..^1]}Assignment"]
+                : null;
         return new MemberTargetSelector(
             requested,
             name,
             overloadIndex,
             digest,
             kind,
-            genericArity);
+            genericArity)
+        {
+            ExactNameFamily = exactNameFamily,
+            ExactNameFamilyToken =
+                exactNameFamily is null
+                    ? null
+                    : overloadHead,
+        };
     }
 
     public static string? NormalizeKindQualifier(string value)
@@ -185,7 +218,19 @@ public static class MemberTargetResolver
         IReadOnlyCollection<string>? kindFilter = null)
     {
         var declaringMembers = type.Members
-            .Where(member => TypeMatcher.MatchesMemberName(member.Name, selector.Name));
+            .Where(member =>
+                selector.ExactNameFamily is { Count: > 0 } exactNames
+                    ? exactNames.Contains(
+                        member.Name,
+                        StringComparer.Ordinal)
+                    : selector.Name.Contains('*')
+                    || selector.Name.Contains('?')
+                    ? TypeMatcher.MatchesGlob(
+                        member.Name,
+                        selector.Name)
+                    : TypeMatcher.MatchesMemberName(
+                        member.Name,
+                        selector.Name));
 
         if (selector.Kind is { Length: > 0 })
             declaringMembers = declaringMembers.Where(member => string.Equals(member.Kind, selector.Kind, StringComparison.OrdinalIgnoreCase));

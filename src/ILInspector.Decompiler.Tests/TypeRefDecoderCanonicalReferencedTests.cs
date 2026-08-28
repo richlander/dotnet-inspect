@@ -64,7 +64,11 @@ public sealed class TypeRefDecoderCanonicalReferencedTests
         Assert.Equal("Newtonsoft.Json", type.Assembly);
     }
 
-    static TypeRef DecodeTypeReference(string assemblyName, byte[]? token)
+    static TypeRef DecodeTypeReference(
+        string assemblyName,
+        byte[]? token,
+        string @namespace = "System",
+        string name = "Decimal")
     {
         var mb = new MetadataBuilder();
         mb.AddModule(
@@ -84,8 +88,8 @@ public sealed class TypeRefDecoderCanonicalReferencedTests
 
         var typeRef = mb.AddTypeReference(
             scope,
-            mb.GetOrAddString("System"),
-            mb.GetOrAddString("Decimal"));
+            mb.GetOrAddString(@namespace),
+            mb.GetOrAddString(name));
 
         var root = new MetadataRootBuilder(mb);
         var image = new BlobBuilder();

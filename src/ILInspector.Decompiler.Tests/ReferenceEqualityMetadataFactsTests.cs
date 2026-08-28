@@ -15,6 +15,213 @@ namespace ILInspector.Decompiler.Tests;
 public class ReferenceEqualityMetadataFactsTests
 {
     [Fact]
+    public void ExternalGenericBaseUnknownOperatorProof_PreservesLocalReferenceIdentity()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "reference-equality-generic-base-local-").FullName;
+        try
+        {
+            string path = Emit(
+                directory,
+                "local",
+                "LocalReferenceIdentity",
+                """
+                using System.Collections.Generic;
+
+                public sealed class TypedList : List<string>
+                {
+                    public static bool operator ==(TypedList left, TypedList right)
+                        => left.Count == right.Count;
+                    public static bool operator !=(TypedList left, TypedList right)
+                        => left.Count != right.Count;
+                    public override bool Equals(object? value) => false;
+                    public override int GetHashCode() => 0;
+                }
+
+                public static class Probe
+                {
+                    public static bool RefSame(TypedList left, TypedList right)
+                        => (object)left == (object)right;
+                }
+                """);
+
+            using var source =
+                MetadataSource.OpenWithoutSymbols(path);
+            string output = Render(
+                source,
+                "Probe",
+                "RefSame");
+
+            Assert.Contains(
+                "return (object)left == (object)right;",
+                output);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ExternalGenericBaseUnknownOperatorProof_PreservesCrossAssemblyReferenceIdentity()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "reference-equality-generic-base-cross-").FullName;
+        try
+        {
+            string library = Emit(
+                directory,
+                "library",
+                "ReferenceIdentityLibrary",
+                """
+                using System.Collections.Generic;
+
+                public sealed class TypedList : List<string>
+                {
+                    public static bool operator ==(TypedList left, TypedList right)
+                        => left.Count == right.Count;
+                    public static bool operator !=(TypedList left, TypedList right)
+                        => left.Count != right.Count;
+                    public override bool Equals(object? value) => false;
+                    public override int GetHashCode() => 0;
+                }
+                """);
+            string consumer = Emit(
+                directory,
+                "consumer",
+                "ReferenceIdentityConsumer",
+                """
+                public static class Probe
+                {
+                    public static bool RefSame(TypedList left, TypedList right)
+                        => (object)left == (object)right;
+                }
+                """,
+                [MetadataReference.CreateFromFile(library)]);
+            var resolver =
+                new SingleAssemblyResolver(
+                    "ReferenceIdentityLibrary",
+                    library);
+            using var context =
+                new MetadataContext(resolver);
+            using var source =
+                MetadataSource.OpenWithoutSymbols(
+                    consumer,
+                    resolver,
+                    context);
+
+            string output = Render(
+                source,
+                "Probe",
+                "RefSame");
+
+            Assert.Contains(
+                "return (object)left == (object)right;",
+                output);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void FailedExternalDefinitionKind_RemainsUnknownForOperatorProof()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "operator-kind-failure-").FullName;
+        try
+        {
+            string dependency = Emit(
+                directory,
+                "dependency",
+                "KindDependency",
+                """
+                namespace KindDependency;
+                public class Base<T>;
+                """);
+            string derived = Emit(
+                directory,
+                "derived",
+                "KindDerived",
+                """
+                namespace KindDerived;
+                public sealed class Derived
+                    : KindDependency.Base<int>;
+                """,
+                [MetadataReference.CreateFromFile(dependency)]);
+            string sourcePath = Emit(
+                directory,
+                "source",
+                "KindSource",
+                """
+                public sealed class Box
+                {
+                    public static Box operator +(
+                        Box left,
+                        KindDerived.Derived right)
+                        => left;
+                }
+                """,
+                [
+                    MetadataReference.CreateFromFile(dependency),
+                    MetadataReference.CreateFromFile(derived),
+                ]);
+            var resolver =
+                new KindFailureResolver(
+                    derived,
+                    dependency);
+            using var context =
+                new MetadataContext(resolver);
+            using var stream =
+                File.OpenRead(sourcePath);
+            using var pe =
+                new PEReader(stream);
+            MetadataReader reader =
+                pe.GetMetadataReader();
+            ResolvedAssemblyReference sourceAssembly =
+                ResolvedAssemblyReference.CreateFromPath(
+                    sourcePath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            FailedExternalDefinitionKind_RemainsUnknownForOperatorProof)));
+            var relationshipResolver =
+                new CrossAssemblyTypeResolver(
+                    reader,
+                    sourceAssembly,
+                    context);
+            TypeDefinitionHandle box =
+                Assert.Single(
+                    reader.TypeDefinitions,
+                    handle =>
+                        reader.GetString(
+                            reader.GetTypeDefinition(handle).Name)
+                        == "Box");
+            MethodDefinition method =
+                reader.GetMethodDefinition(
+                    Assert.Single(
+                        reader.GetTypeDefinition(box)
+                            .GetMethods(),
+                        handle =>
+                            reader.GetString(
+                                reader.GetMethodDefinition(handle)
+                                    .Name)
+                            == "op_Addition"));
+
+            Assert.Equal(
+                OperatorMetadata.DeclarationClassification.Unknown,
+                relationshipResolver
+                    .ClassifyCSharpOperatorDeclaration(
+                        reader,
+                        method));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void StructuredDefinitionNames_DoNotShareExactIdentity()
     {
         var assembly = new AssemblyReferenceIdentity(
@@ -988,6 +1195,65 @@ public class ReferenceEqualityMetadataFactsTests
                     AssemblyResolutionProvenance.Local(
                         "ReferenceEqualityMetadataFactsTests"))
                 : _runtime.Resolve(identity, scope);
+    }
+
+    sealed class KindFailureResolver
+        : IAssemblyReferenceResolver
+    {
+        readonly ResolvedAssemblyReference _derived;
+        readonly ResolvedAssemblyReference _dependency;
+        readonly IAssemblyReferenceResolver _runtime =
+            TestAssemblyReferenceResolvers.RuntimeAssemblies();
+
+        public KindFailureResolver(
+            string derived,
+            string dependency)
+        {
+            _derived =
+                ResolvedAssemblyReference.CreateFromPath(
+                derived,
+                AssemblyResolutionProvenance.Local(
+                    nameof(KindFailureResolver)));
+            using var stream = File.OpenRead(dependency);
+            using var pe = new PEReader(stream);
+            AssemblyReferenceIdentity identity =
+                AssemblyReferenceIdentity
+                .FromAssemblyDefinition(
+                    pe.GetMetadataReader());
+            _dependency =
+                ResolvedAssemblyReference.Create(
+                identity,
+                path: null,
+                () => throw new IOException(
+                    "Synthetic definition-kind read failure."),
+                AssemblyResolutionProvenance.Local(
+                    nameof(KindFailureResolver)));
+        }
+
+        public ResolvedAssemblyReference? Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope)
+            => identity.Name == _derived.Identity.Name
+                ? _derived
+                : identity.Name == _dependency.Identity.Name
+                ? _dependency
+                : _runtime.Resolve(identity, scope);
+    }
+
+    static string Render(
+        MetadataSource source,
+        string typeName,
+        string methodName)
+    {
+        var function =
+            IrImporter.Import(
+                source,
+                typeName,
+                methodName);
+        Assert.NotNull(function);
+        IrPasses.Run(function!);
+        function!.CheckInvariant();
+        return CSharpPrinter.Print(function).Output!;
     }
 
     static string Emit(

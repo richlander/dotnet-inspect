@@ -50,7 +50,7 @@ and laundering presentation back out:
 - Primary path: `signature.ParameterTypesSummary` →
   `ApiParameter.TypeWithModifier` (a `Render()` string), then
   `NormalizeCanonicalParameters` → `NormalizeDynamicToObject`.
-- Fallback path (JSON-round-tripped surface; `SignatureModel` is `[JsonIgnore]`):
+- Fallback path (older or abbreviated surface with no `SignatureModel`):
   re-parse `member.Signature` via `LegacyCanonicalMemberName`,
   `ExtractCanonicalParameterList`, `ExtractCanonicalIndexerParameterList`,
   `AbbreviateSignature`, each also passed through `NormalizeDynamicToObject`.
@@ -112,10 +112,10 @@ spelling. This **centralizes the split at the fact owner** and lets identity
 
 ## Where the canonical spelling lives (the real decision)
 
-Identity has two entry points — the live `SignatureModel` (transient,
-`[JsonIgnore]`) and the persisted `member.Signature`/`ReturnType` strings (used
-after JSON round-trip). The canonical spelling must be available to **both**,
-which means it must survive JSON. Three options:
+Identity has two entry points — the structured `SignatureModel` (persisted by
+current JSON) and the `member.Signature`/`ReturnType` compatibility strings used
+when an older or abbreviated surface lacks that model. The canonical spelling
+must be available to **both**. The original design considered three options:
 
 ### Option A — Canonical fields on the typed model
 

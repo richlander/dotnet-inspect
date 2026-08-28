@@ -1195,7 +1195,7 @@ public class ApiCommand
         var members = type.Members.Where(m => !MemberFilters.IsCompilerGenerated(m.Name));
 
         if (options.MemberFilter.Count > 0)
-            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, options.MemberFilter));
+            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m, options.MemberFilter));
 
         if (options.UnsafeOnly)
             members = members.Where(m => m.IsUnsafe);
@@ -1420,7 +1420,9 @@ public class ApiCommand
                 continue;
             }
 
-            WriteConstraintResolutionDiagnostic(failure);
+            WriteConstraintResolutionDiagnostic(
+                failure,
+                IsOperatorClassificationFailure(api, failure));
         }
     }
 
@@ -1629,7 +1631,7 @@ public class ApiCommand
         {
             if (selectedMemberNames is { Count: > 0 }
                 && !TypeMatcher.MatchesMemberFilter(
-                    member.Name,
+                    member,
                     selectedMemberNames))
             {
                 continue;
@@ -1674,7 +1676,9 @@ public class ApiCommand
         foreach (ApiSurfaceInspectionFailure failure in failures.Take(
             ApiSurface.MaxVisibleConstraintResolutionFailures))
         {
-            WriteConstraintResolutionDiagnostic(failure);
+            WriteConstraintResolutionDiagnostic(
+                failure,
+                IsOperatorClassificationFailure(api, failure));
         }
         if (failures.Count
             > ApiSurface.MaxVisibleConstraintResolutionFailures)
@@ -1693,7 +1697,8 @@ public class ApiCommand
     }
 
     static void WriteConstraintResolutionDiagnostic(
-        ApiSurfaceInspectionFailure failure)
+        ApiSurfaceInspectionFailure failure,
+        bool isOperatorClassificationFailure)
     {
         if (failure.SubjectToken == 0
             && failure.Kind == "ResourceLimit")
@@ -1715,12 +1720,30 @@ public class ApiCommand
                 : $" via '{AssemblyIdentityFormatter.Format(
                     failure.DependencyAssembly)}'";
         CommandError.WriteWarning(
-            "Generic-constraint classification was incomplete"
+            (isOperatorClassificationFailure
+                ? "Operator declaration classification was incomplete"
+                : "Generic-constraint classification was incomplete")
                 + $"{assembly}{dependency} "
                 + $"at 0x{failure.SubjectToken:X8} "
                 + $"({failure.Mechanism}/{failure.Kind}): "
                 + failure.Detail);
     }
+
+    static bool IsOperatorClassificationFailure(
+        ApiSurface api,
+        ApiSurfaceInspectionFailure failure)
+        => api.Types
+            .Where(type =>
+                string.Equals(
+                    type.SourceAssemblyPath,
+                    failure.SourceAssemblyPath,
+                    StringComparison.Ordinal))
+            .SelectMany(static type => type.Members)
+            .Any(member =>
+                member.MetadataToken == failure.SubjectToken
+                && member.Kind == "operator"
+                && member.HasCSharpOperatorDeclarationClassification
+                && member.CSharpOperatorDeclaration is null);
 
     /// <summary>
     /// Fails a projection whose names cannot apply to the selected shape, rather than exiting 0
@@ -3557,7 +3580,7 @@ public class ApiCommand
         var members = type.Members;
 
         if (options.MemberFilter.Count > 0)
-            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, options.MemberFilter)).ToList();
+            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m, options.MemberFilter)).ToList();
 
         if (options.KindFilter.Count > 0)
             members = members.Where(m => options.KindFilter.Contains(m.Kind)).ToList();

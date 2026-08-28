@@ -4177,6 +4177,182 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void RenderingSnapshotPreservesNegativeOperatorProof()
+    {
+        var member = new ApiMember
+        {
+            Name = "op_Multiply",
+            Kind = "operator",
+            Signature = "int op_Multiply(int left, int right)",
+            IsStatic = true,
+            Accessibility = "public",
+            CSharpOperatorDeclaration = false
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Unrelated",
+            Kind = "class",
+            Members = [member]
+        };
+
+        string source = _printer.Print(new CSharpTypePrintRequest(type)).Source;
+
+        Assert.Contains(
+            "public static int op_Multiply(int left, int right);",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("operator *", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RenderingSnapshotPreservesOperatorSiblingContext()
+    {
+        static ApiMember Operator(string name) => new()
+        {
+            Name = name,
+            Kind = "operator",
+            Signature = $"bool {name}(Pair left, Pair right)",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "bool",
+                MemberName = name,
+                Parameters =
+                [
+                    new ApiParameter { Type = "Pair", Name = "left" },
+                    new ApiParameter { Type = "Pair", Name = "right" },
+                ]
+            },
+            IsStatic = true,
+            Accessibility = "public",
+            CSharpOperatorDeclaration = true
+        };
+
+        var equality = Operator("op_Equality");
+        var inequality = Operator("op_Inequality");
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Pair",
+            Kind = "class",
+            Members = [equality],
+            DeclaringMembers = [equality, inequality]
+        };
+
+        string source = _printer.Print(new CSharpTypePrintRequest(type)).Source;
+
+        Assert.Contains(
+            "public static bool operator ==(Pair left, Pair right);",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RenderingSnapshotPreservesOperatorPairingProvenance()
+    {
+        static ApiMember Operator(
+            string name,
+            string pairingKey) => new()
+        {
+            Name = name,
+            Kind = "operator",
+            Signature = $"bool {name}(Pair left, Pair right)",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "bool",
+                MemberName = name,
+                Parameters =
+                [
+                    new ApiParameter { Type = "Pair", Name = "left" },
+                    new ApiParameter { Type = "Pair", Name = "right" },
+                ]
+            },
+            IsStatic = true,
+            Accessibility = "public",
+            CSharpOperatorDeclaration = true,
+            HasCSharpOperatorDeclarationClassification = true,
+            OperatorPairingKey = pairingKey,
+            HasOperatorPairingKey = true,
+        };
+
+        var equality = Operator("op_Equality", "assembly-a");
+        var inequality = Operator("op_Inequality", "assembly-b");
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Pair",
+            Kind = "class",
+            Members = [equality],
+            DeclaringMembers = [equality, inequality]
+        };
+
+        string source =
+            _printer.Print(new CSharpTypePrintRequest(type)).Source;
+
+        Assert.Contains(
+            "public static bool op_Equality(Pair left, Pair right);",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "operator ==",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RenderingSnapshotPreservesCanonicalOperatorPairTypes()
+    {
+        static ApiMember Operator(string name, string tuple) => new()
+        {
+            Name = name,
+            Kind = "operator",
+            Signature = $"bool {name}(Pair left, {tuple} right)",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "bool",
+                CanonicalReturnType = "System.Boolean",
+                MemberName = name,
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Type = "Pair",
+                        CanonicalType = "Samples.Pair",
+                        Name = "left",
+                    },
+                    new ApiParameter
+                    {
+                        Type = tuple,
+                        CanonicalType = "System.ValueTuple<System.Int32,System.Int32>",
+                        Name = "right",
+                    },
+                ]
+            },
+            IsStatic = true,
+            Accessibility = "public",
+            CSharpOperatorDeclaration = true
+        };
+
+        var equality = Operator("op_Equality", "(int x, int y)");
+        var inequality = Operator("op_Inequality", "(int width, int height)");
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Pair",
+            Kind = "class",
+            Members = [equality],
+            DeclaringMembers = [equality, inequality]
+        };
+
+        string source = _printer.Print(new CSharpTypePrintRequest(type)).Source;
+
+        Assert.Contains(
+            "public static bool operator ==(Pair left, (int x, int y) right);",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void SnapshotTypeForRendering_CarriesSegmentParameterOwnership()
     {
         var type = new ApiType

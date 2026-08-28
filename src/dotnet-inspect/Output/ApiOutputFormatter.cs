@@ -531,7 +531,7 @@ public static class ApiOutputFormatter
         bool topFieldsOnly = options.Verbosity == Verbosity.Quiet
             || (options is TypeOptions { MarkdownExplicitlySet: true } && !memberDetail);
         var title = memberDetail
-            ? $"{FormatGenericFullName(type)}.{OperatorNames.FormatDisplayName(selectedMember!.Name)}"
+            ? $"{FormatGenericFullName(type)}.{FormatMemberDisplayName(selectedMember!)}"
             : $"{FormatGenericFullName(type)}{packageInfo}";
 
         return new TypeView
@@ -640,13 +640,13 @@ public static class ApiOutputFormatter
                             : expandOverloads
                                 ? group
                                     .GroupBy(m => m.Name)
-                                    .OrderBy(g => OperatorNames.FormatDisplayName(g.Key), StringComparer.Ordinal)
+                                    .OrderBy(g => FormatMemberDisplayName(g.First()), StringComparer.Ordinal)
                                     .SelectMany(overloads => overloads
                                         .OrderBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
                                         .Select(member => new List<ApiMember> { member }))
                             : group
                                 .GroupBy(m => m.Name)
-                                .OrderBy(g => OperatorNames.FormatDisplayName(g.Key), StringComparer.Ordinal)
+                                .OrderBy(g => FormatMemberDisplayName(g.First()), StringComparer.Ordinal)
                                 .Select(overloads => overloads
                                     .OrderBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
                                     .ToList()))
@@ -692,14 +692,14 @@ public static class ApiOutputFormatter
             {
                 var groups = members
                     .GroupBy(m => m.Name)
-                    .OrderBy(g => OperatorNames.FormatDisplayName(g.Key), StringComparer.Ordinal)
+                    .OrderBy(g => FormatMemberDisplayName(g.First()), StringComparer.Ordinal)
                     .ToList();
 
                 if (expandOverloads)
                 {
                     return groups
                         .SelectMany(g => g.OrderBy(GetMemberSignatureSortKey, StringComparer.Ordinal))
-                        .Select(m => new TreeNode(CSharpIdentifier.ContainRenderedText(m.Signature ?? OperatorNames.FormatDisplayName(m.Name))))
+                        .Select(m => new TreeNode(CSharpIdentifier.ContainRenderedText(m.Signature ?? FormatMemberDisplayName(m))))
                         .ToList();
                 }
 
@@ -710,9 +710,9 @@ public static class ApiOutputFormatter
                             .OrderBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
                             .ToList();
                         if (ordered.Count == 1)
-                            return new TreeNode(CSharpIdentifier.ContainRenderedText(ordered[0].Signature ?? OperatorNames.FormatDisplayName(ordered[0].Name)));
+                            return new TreeNode(CSharpIdentifier.ContainRenderedText(ordered[0].Signature ?? FormatMemberDisplayName(ordered[0])));
 
-                        var displayName = OperatorNames.FormatDisplayName(g.Key);
+                        var displayName = FormatMemberDisplayName(ordered[0]);
                         return new TreeNode($"{displayName} ({ordered.Count} overloads)");
                     })
                     .ToList();
@@ -723,7 +723,7 @@ public static class ApiOutputFormatter
                 .Select(m => new TreeNode(
                     m.IsFinalizer
                         ? ShapeDestructorSpelling(declaringType)
-                        : CSharpIdentifier.ContainRenderedText(m.Signature ?? OperatorNames.FormatDisplayName(m.Name))))
+                        : CSharpIdentifier.ContainRenderedText(m.Signature ?? FormatMemberDisplayName(m))))
                 .ToList();
         }
 
@@ -822,7 +822,7 @@ public static class ApiOutputFormatter
         var members = type.Members.Where(m => !IsCompilerGenerated(m.Name));
 
         if (memberFilter.Count > 0)
-            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, memberFilter));
+            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m, memberFilter));
 
         if (kindFilter?.Count > 0)
             members = members.Where(m => kindFilter.Contains(m.Kind));
@@ -848,7 +848,7 @@ public static class ApiOutputFormatter
             .ToList();
         if (options.MemberFilter.Count > 0)
             enumMembers = enumMembers
-                .Where(m => TypeMatcher.MatchesMemberFilter(m.Name, options.MemberFilter))
+                .Where(m => TypeMatcher.MatchesMemberFilter(m, options.MemberFilter))
                 .ToList();
         if (options.UnsafeOnly)
             enumMembers = [];
@@ -865,7 +865,7 @@ public static class ApiOutputFormatter
 
         var rows = enumMembers.Select(m => new EnumValueRow
         {
-            Name = OperatorNames.FormatDisplayName(m.Name),
+            Name = FormatMemberDisplayName(m),
             Value = m.EnumValue.ToString()!,
             Description = hasAnyDocs ? (m.Documentation.Summary ?? "") : null
         }).ToList();
@@ -953,7 +953,7 @@ public static class ApiOutputFormatter
                 var digest = ApiMemberIdentity.GetMemberAnchor(type, m).Fingerprint;
                 return new MemberRow(
                     select,
-                    OperatorNames.FormatDisplayName(m.Name),
+                    FormatMemberDisplayName(m),
                     MarkoutInline.Code(digest),
                     MarkoutInline.Code(sigDisplay),
                     hasDocs ? (m.Documentation.Summary ?? "") : null);
@@ -1223,7 +1223,7 @@ public static class ApiOutputFormatter
                 {
                     var rows = byName.Select(e =>
                         new ConstructorSummaryRow(
-                            OperatorNames.FormatDisplayName(e.members[0].Name),
+                            FormatMemberDisplayName(e.members[0]),
                             e.members.Count.ToString(),
                             SignatureDecodeMarker(e.members))).ToList();
                     if (hasOverloads)
@@ -1236,7 +1236,7 @@ public static class ApiOutputFormatter
                 {
                     var rows = byName.Select(e =>
                         new ConstructorSummaryRow(
-                            OperatorNames.FormatDisplayName(e.members[0].Name),
+                            FormatMemberDisplayName(e.members[0]),
                             e.members.Count.ToString(),
                             SignatureDecodeMarker(e.members))).ToList();
                     view.FinalizerSummaryRows = rows;
@@ -1246,7 +1246,7 @@ public static class ApiOutputFormatter
                 {
                     var rows = byName.Select(e =>
                         new MethodSummaryRow(
-                            OperatorNames.FormatDisplayName(e.members[0].Name),
+                            FormatMemberDisplayName(e.members[0]),
                             MemberReturnType(e.members[0]),
                             e.members.Count.ToString(),
                             SignatureDecodeMarker(e.members))).ToList();
@@ -1262,7 +1262,7 @@ public static class ApiOutputFormatter
                     {
                         var m = e.members[0];
                         return new PropertySummaryRow(
-                            OperatorNames.FormatDisplayName(m.Name),
+                            FormatMemberDisplayName(m),
                             MemberReturnType(m),
                             MemberAccessors(m),
                             SignatureDecodeMarker(e.members));
@@ -1274,7 +1274,7 @@ public static class ApiOutputFormatter
                 {
                     var rows = byName.Select(e =>
                         new FieldSummaryRow(
-                            OperatorNames.FormatDisplayName(e.members[0].Name),
+                            FormatMemberDisplayName(e.members[0]),
                             CSharpIdentifier.ContainRenderedText(e.members[0].ReturnType ?? ""),
                             SignatureDecodeMarker(e.members))).ToList();
                     view.FieldSummaryRows = rows;
@@ -1286,7 +1286,7 @@ public static class ApiOutputFormatter
                     {
                         var m = e.members[0];
                         return new EventSummaryRow(
-                            OperatorNames.FormatDisplayName(m.Name),
+                            FormatMemberDisplayName(m),
                             CSharpIdentifier.ContainRenderedText(m.ReturnType ?? m.Signature ?? ""));
                     }).ToList();
                     eventsView.SummaryRows = rows;
@@ -3021,7 +3021,7 @@ public static class ApiOutputFormatter
             .ToList();
 
         if (memberFilter?.Count > 0)
-            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, memberFilter)).ToList();
+            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m, memberFilter)).ToList();
 
         if (unsafeOnly)
             members = members.Where(m => m.IsUnsafe).ToList();
@@ -3059,7 +3059,17 @@ public static class ApiOutputFormatter
     /// </remarks>
     internal static string GetMemberDisplaySignature(ApiType type, ApiMember member)
         => CSharpIdentifier.ContainRenderedText(
-            member.Signature ?? $"{FormatGenericFullName(type)}.{OperatorNames.FormatDisplayName(member.Name)}");
+            member.Signature ?? $"{FormatGenericFullName(type)}.{FormatMemberDisplayName(member)}");
+
+    internal static string FormatMemberDisplayName(ApiMember member)
+        => member.Kind == "operator"
+            ? OperatorNames.FormatDisplayName(member.Name)
+            : CSharpIdentifier.ContainRenderedText(member.Name);
+
+    private static string FormatMemberDisplayNameUntreated(ApiMember member)
+        => member.Kind == "operator"
+            ? OperatorNames.FormatDisplayNameUntreated(member.Name)
+            : member.Name;
 
     private static string GetMemberSelectorName(ApiMember member)
         => ApiMemberIdentity.GetMemberSelectorName(member);
@@ -3164,7 +3174,7 @@ public static class ApiOutputFormatter
             return new ApiTableRow(
                 ApiViewText.Field(kindLabel),
                 ApiViewText.Field(
-                    OperatorNames.FormatDisplayNameUntreated(m.Name)),
+                    FormatMemberDisplayNameUntreated(m)),
                 returnType,
                 detail);
         }).ToList();

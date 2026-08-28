@@ -13,12 +13,11 @@ namespace ILInspector.Metadata.Tests;
 /// Containment (issue #3319) respells a hostile name in the <em>display</em>
 /// signature and leaves it raw in identity. That split has a sharp edge: the
 /// raw-signature identity fallback, used whenever
-/// <see cref="ApiMember.SignatureModel"/> is absent — which is always, after a
-/// JSON round-trip, because it is <c>[JsonIgnore]</c> — locates the member name
-/// by searching the display signature for the raw spelling. A respelling makes
-/// that search miss, and the generic arity is silently dropped, so a
-/// round-tripped <c>M&lt;T&gt;(int)</c> pairs as <c>M(int)</c> and no longer
-/// matches the same member read live.
+/// <see cref="ApiMember.SignatureModel"/> is absent on an older or abbreviated
+/// surface, locates the member name by searching the display signature for the
+/// raw spelling. A respelling makes that search miss, and the generic arity is
+/// silently dropped, so a model-less <c>M&lt;T&gt;(int)</c> pairs as
+/// <c>M(int)</c> and no longer matches the same member read live.
 ///
 /// These names cannot come from a compiled fixture. C# admits Unicode category
 /// Cf in identifiers, but ECMA-334 requires identifiers to be normalized with
@@ -92,7 +91,8 @@ public sealed class HostileNameIdentityTests
         Assert.Contains("<T>", live, StringComparison.Ordinal);
 
         var (rtType, rtMember) = RoundTrip(surface, name);
-        Assert.Null(rtMember.SignatureModel);
+        Assert.NotNull(rtMember.SignatureModel);
+        rtMember.SignatureModel = null; // Simulate a legacy serialized surface.
 
         Assert.Equal(live, ApiMemberIdentity.GetCanonicalSignature(rtType, rtMember));
     }

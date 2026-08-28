@@ -1108,6 +1108,9 @@ internal sealed class LibraryMethodAnalysisRunner(
                 SignatureHeader = signature.Header.RawValue,
                 RequiredParameterCount =
                     signature.RequiredParameterCount,
+                IsOperator = MetadataOperatorFacts.FromMethodDefinition(
+                    reader,
+                    methodDefinition),
                 IsVirtualDispatchOpen =
                     _infrastructure.DispatchCanTargetOverride(
                         typeDefinition,

@@ -34,6 +34,20 @@ public static class MethodStructuralSignature
         IReadOnlyDictionary<TypeDefinitionHandle, string>? typeNameOverrides)
         => new StructuralSignatureBuilder(reader, typeNameOverrides)
             .BuildMethod(method, methodName);
+
+    /// <summary>
+    /// Builds a strict operator-pairing key while erasing parameter by-reference
+    /// encoding, which C# ignores when matching required operator pairs.
+    /// </summary>
+    public static string BuildOperatorPairing(
+        MetadataReader reader,
+        MethodDefinition method)
+        => new StructuralSignatureBuilder(
+            reader,
+            typeNameOverrides: null,
+            workBudget: new StructuralSignatureWorkBudget(),
+            eraseByReference: true)
+            .BuildMethod(method, "#operator-pair");
 }
 
 /// <summary>
@@ -428,6 +442,7 @@ public sealed class StructuralSignatureBuilder
     readonly IReadOnlyDictionary<TypeDefinitionHandle, string>? _typeNameOverrides;
     readonly StructuralSignatureWorkBudget _workBudget;
     readonly StructuralSignatureTypeProvider _provider;
+    readonly bool _eraseParameterByReference;
     readonly Dictionary<TypeDefinitionHandle, StructuralTypeKey> _typeKeys = [];
     readonly Dictionary<TypeDefinitionHandle, string> _typeSegments = [];
     readonly Dictionary<BlobHandle, StructuralEncodedSignature> _methodSignatures = [];
@@ -449,7 +464,8 @@ public sealed class StructuralSignatureBuilder
     internal StructuralSignatureBuilder(
         MetadataReader reader,
         IReadOnlyDictionary<TypeDefinitionHandle, string>? typeNameOverrides,
-        StructuralSignatureWorkBudget workBudget)
+        StructuralSignatureWorkBudget workBudget,
+        bool eraseByReference = false)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(workBudget);
@@ -457,6 +473,7 @@ public sealed class StructuralSignatureBuilder
         _typeNameOverrides = typeNameOverrides;
         _workBudget = workBudget;
         _provider = new StructuralSignatureTypeProvider(workBudget);
+        _eraseParameterByReference = eraseByReference;
     }
 
     /// <summary>Builds a method key, optionally substituting its name.</summary>
@@ -542,7 +559,9 @@ public sealed class StructuralSignatureBuilder
         MethodSignature<StructuralSignatureType> signature =
             method.DecodeSignature(_provider, null);
         int encodedLength =
-            StructuralSignatureKey.MethodSignatureLength(signature);
+            StructuralSignatureKey.MethodSignatureLength(
+                signature,
+                _eraseParameterByReference);
         if (encodedLength > MetadataSafetyPolicy.MaxStructuralSignatureChars)
         {
             throw new BadImageFormatException(
@@ -550,7 +569,10 @@ public sealed class StructuralSignatureBuilder
         }
         _workBudget.Charge(encodedLength);
         var builder = new StringBuilder(encodedLength);
-        StructuralSignatureKey.AppendMethodSignature(builder, signature);
+        StructuralSignatureKey.AppendMethodSignature(
+            builder,
+            signature,
+            _eraseParameterByReference);
         signatureKey = new StructuralEncodedSignature(builder.ToString());
         _methodSignatures.Add(method.Signature, signatureKey);
         return signatureKey;
@@ -594,7 +616,8 @@ static class StructuralSignatureKey
 
     internal static void AppendMethodSignature(
         StringBuilder builder,
-        MethodSignature<StructuralSignatureType> signature)
+        MethodSignature<StructuralSignatureType> signature,
+        bool eraseParameterByReference = false)
     {
         builder.Append('S');
         AppendNumber(builder, signature.Header.RawValue);
@@ -603,11 +626,18 @@ static class StructuralSignatureKey
         AppendNumber(builder, signature.ParameterTypes.Length);
         AppendPart(builder, signature.ReturnType);
         foreach (StructuralSignatureType parameter in signature.ParameterTypes)
-            AppendPart(builder, parameter);
+        {
+            AppendPart(
+                builder,
+                eraseParameterByReference
+                    ? parameter.WithoutTopLevelByReference()
+                    : parameter);
+        }
     }
 
     internal static int MethodSignatureLength(
-        MethodSignature<StructuralSignatureType> signature)
+        MethodSignature<StructuralSignatureType> signature,
+        bool eraseParameterByReference = false)
     {
         int length = checked(
             1
@@ -617,7 +647,14 @@ static class StructuralSignatureKey
             + NumberLength(signature.ParameterTypes.Length)
             + PartLength(signature.ReturnType.EncodedLength));
         foreach (StructuralSignatureType parameter in signature.ParameterTypes)
-            length = checked(length + PartLength(parameter.EncodedLength));
+        {
+            StructuralSignatureType normalized =
+                eraseParameterByReference
+                    ? parameter.WithoutTopLevelByReference()
+                    : parameter;
+            length = checked(
+                length + PartLength(normalized.EncodedLength));
+        }
         return length;
     }
 
@@ -849,6 +886,8 @@ abstract class StructuralSignatureType
 
     internal int EncodedLength { get; }
     internal abstract void AppendTo(StringBuilder builder);
+    internal virtual StructuralSignatureType WithoutTopLevelByReference()
+        => this;
 }
 
 sealed class EncodedStructuralSignatureType(string encoded)
@@ -879,6 +918,12 @@ sealed class PartPrefixStructuralSignatureType
         builder.Append(_prefix);
         StructuralSignatureKey.AppendPart(builder, _value);
     }
+
+    internal override StructuralSignatureType
+        WithoutTopLevelByReference()
+        => _prefix == 'b'
+            ? _value
+            : this;
 }
 
 sealed class TypeUseStructuralSignatureType

@@ -788,6 +788,202 @@ public class ApiOutputFormatterTests
         Assert.Contains("\"is_finalizer\": true", json, System.StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void ApiTypeJson_PersistsNegativeCSharpOperatorProof()
+    {
+        var type = new ApiType
+        {
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "op_Multiply",
+                    Kind = "operator",
+                    Signature = "int op_Multiply(int left, int right)",
+                    CSharpOperatorDeclaration = false,
+                    HasCSharpOperatorDeclarationClassification = true,
+                },
+            ],
+        };
+
+        string json = System.Text.Json.JsonSerializer.Serialize(
+            type,
+            ApiTypeJsonContext.Default.ApiType);
+        string compactJson = System.Text.Json.JsonSerializer.Serialize(
+            type,
+            ApiTypeCompactJsonContext.Default.ApiType);
+
+        Assert.Contains(
+            "\"c_sharp_operator_declaration\": false",
+            json,
+            System.StringComparison.Ordinal);
+        Assert.Contains(
+            "\"c_sharp_operator_declaration\":false",
+            compactJson,
+            System.StringComparison.Ordinal);
+        Assert.Contains(
+            "\"has_c_sharp_operator_declaration_classification\": true",
+            json,
+            System.StringComparison.Ordinal);
+        Assert.Contains(
+            "\"has_c_sharp_operator_declaration_classification\":true",
+            compactJson,
+            System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ApiTypeJson_PersistsUnknownCSharpOperatorProof()
+    {
+        var type = new ApiType
+        {
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "op_Explicit",
+                    Kind = "operator",
+                    Signature =
+                        "IContract op_Explicit(Widget value)",
+                    HasCSharpOperatorDeclarationClassification = true,
+                },
+            ],
+        };
+
+        string json = System.Text.Json.JsonSerializer.Serialize(
+            type,
+            ApiTypeJsonContext.Default.ApiType);
+        string compactJson = System.Text.Json.JsonSerializer.Serialize(
+            type,
+            ApiTypeCompactJsonContext.Default.ApiType);
+
+        Assert.DoesNotContain(
+            "\"c_sharp_operator_declaration\"",
+            json,
+            System.StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "\"c_sharp_operator_declaration\"",
+            compactJson,
+            System.StringComparison.Ordinal);
+        Assert.Contains(
+            "\"has_c_sharp_operator_declaration_classification\": true",
+            json,
+            System.StringComparison.Ordinal);
+        Assert.Contains(
+            "\"has_c_sharp_operator_declaration_classification\":true",
+            compactJson,
+            System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ApiTypeJson_PersistsOperatorPairingIdentity()
+    {
+        var type = new ApiType
+        {
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "op_Equality",
+                    Kind = "operator",
+                    HasOperatorPairingKey = true,
+                    OperatorPairingKey = "A1B2",
+                },
+            ],
+        };
+
+        string json = System.Text.Json.JsonSerializer.Serialize(
+            type,
+            ApiTypeJsonContext.Default.ApiType);
+        string compactJson = System.Text.Json.JsonSerializer.Serialize(
+            type,
+            ApiTypeCompactJsonContext.Default.ApiType);
+
+        Assert.Contains(
+            "\"operator_pairing_key\": \"A1B2\"",
+            json,
+            System.StringComparison.Ordinal);
+        Assert.Contains(
+            "\"operator_pairing_key\":\"A1B2\"",
+            compactJson,
+            System.StringComparison.Ordinal);
+        Assert.Contains(
+            "\"has_operator_pairing_key\": true",
+            json,
+            System.StringComparison.Ordinal);
+        Assert.Contains(
+            "\"has_operator_pairing_key\":true",
+            compactJson,
+            System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ApiTypeJson_PersistsStructuredSignatureModel()
+    {
+        var type = new ApiType
+        {
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "op_Equality",
+                    Kind = "operator",
+                    Signature = "bool op_Equality(Widget left, Widget right)",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "bool",
+                        CanonicalReturnType = "System.Boolean",
+                        MemberName = "op_Equality",
+                        Parameters =
+                        [
+                            new ApiParameter
+                            {
+                                Name = "left",
+                                Type = "Widget",
+                                CanonicalType = "Samples.Widget",
+                            },
+                            new ApiParameter
+                            {
+                                Name = "right",
+                                Type = "Widget",
+                                CanonicalType = "Samples.Widget",
+                            },
+                        ],
+                    },
+                },
+            ],
+        };
+
+        string json = System.Text.Json.JsonSerializer.Serialize(
+            type,
+            ApiTypeJsonContext.Default.ApiType);
+        string compactJson = System.Text.Json.JsonSerializer.Serialize(
+            type,
+            ApiTypeCompactJsonContext.Default.ApiType);
+        var restored = System.Text.Json.JsonSerializer.Deserialize(
+            json,
+            ApiTypeJsonContext.Default.ApiType)!;
+        var compactRestored = System.Text.Json.JsonSerializer.Deserialize(
+            compactJson,
+            ApiTypeCompactJsonContext.Default.ApiType)!;
+
+        Assert.Contains("\"signature_model\":", json, System.StringComparison.Ordinal);
+        Assert.Contains("\"signature_model\":", compactJson, System.StringComparison.Ordinal);
+        Assert.Equal(
+            "System.Boolean",
+            Assert.Single(restored.Members).SignatureModel?.CanonicalReturnType);
+        Assert.Equal(
+            "Samples.Widget",
+            Assert.Single(compactRestored.Members).SignatureModel?.Parameters[0].CanonicalType);
+    }
+
     /// <summary>
     /// Real-artifact canary for issue #3664. The single-member decompiled-source
     /// view supplies its own generic-parameter names, which makes the ApiSignature

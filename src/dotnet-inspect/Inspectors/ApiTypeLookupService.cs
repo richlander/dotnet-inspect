@@ -147,18 +147,15 @@ internal static class ApiTypeLookupService
         if (filters.Count == 0)
             return new MemberFilterValidationResult([], []);
 
-        var memberNames = type.Members
-            .Select(m => m.Name)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
         List<string> missedFilters = [];
 
         foreach (var filter in filters)
         {
-            bool isGlob = filter.Contains('*') || filter.Contains('?');
-            bool anyMatch = isGlob
-                ? memberNames.Any(n => TypeMatcher.MatchesGlob(n, filter))
-                : memberNames.Any(n => TypeMatcher.MatchesMemberName(n, filter));
+            bool anyMatch =
+                type.Members.Any(
+                    member => TypeMatcher.MatchesMemberFilter(
+                        member,
+                        filter));
 
             if (!anyMatch)
                 missedFilters.Add(filter);
@@ -167,7 +164,9 @@ internal static class ApiTypeLookupService
         if (missedFilters.Count == 0)
             return new MemberFilterValidationResult([], []);
 
-        var memberLookup = TypeMatcher.LookupMembers(memberNames, missedFilters);
+        var memberLookup = TypeMatcher.LookupMembers(
+            type.Members.Select(m => m.Name).Distinct(StringComparer.OrdinalIgnoreCase),
+            missedFilters);
         return new MemberFilterValidationResult(missedFilters, memberLookup.Suggestions);
     }
 
@@ -178,15 +177,34 @@ internal static class ApiTypeLookupService
     /// </summary>
     public static IReadOnlyList<string> FindNonPublicMatches(
         IReadOnlyCollection<string> missedFilters,
+        IReadOnlyCollection<ApiMember> allMembers)
+    {
+        List<string> matches = [];
+        foreach (var filter in missedFilters)
+        {
+            if (allMembers.Any(
+                    member => TypeMatcher.MatchesMemberFilter(
+                        member,
+                        filter)))
+            {
+                matches.Add(filter);
+            }
+        }
+        return matches;
+    }
+
+    public static IReadOnlyList<string> FindNonPublicMatches(
+        IReadOnlyCollection<string> missedFilters,
         IReadOnlyCollection<string> allMemberNames)
     {
         List<string> matches = [];
         foreach (var filter in missedFilters)
         {
-            bool isGlob = filter.Contains('*') || filter.Contains('?');
-            bool anyMatch = isGlob
-                ? allMemberNames.Any(n => TypeMatcher.MatchesGlob(n, filter))
-                : allMemberNames.Any(n => TypeMatcher.MatchesMemberName(n, filter));
+            bool anyMatch =
+                allMemberNames.Any(
+                    name => TypeMatcher.MatchesMemberFilter(
+                        name,
+                        filter));
 
             if (anyMatch)
                 matches.Add(filter);

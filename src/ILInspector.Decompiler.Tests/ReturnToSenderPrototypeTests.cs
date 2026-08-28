@@ -234,7 +234,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_AllFullReportsConcreteDeclarationItCannotRepresent()
+    public void CompileBackTargets_AllFullIncludesGenericDeclarations()
     {
         var assemblyPath = CompileFixture("""
             public static class Target
@@ -255,27 +255,30 @@ public class ReturnToSenderPrototypeTests
                 RoundTripScope.All,
                 RoundTripBodyPolicy.Full));
 
-            Assert.False(result.BodyComplete);
-            var failure = Assert.Single(
+            Assert.True(result.BodyComplete);
+            var genericBody = Assert.Single(
                 result.FullBodies,
                 body => body.Member == "Unrelated.Echo");
-            Assert.Equal(MemberBodyProductionStatus.Failed, failure.Status);
-            Assert.Contains("not represented", failure.Failure, StringComparison.Ordinal);
+            Assert.Equal(
+                MemberBodyProductionStatus.Complete,
+                genericBody.Status);
+            Assert.Null(genericBody.Failure);
             Assert.Contains(
-                result.Plan.Diagnostics,
-                diagnostic => diagnostic.Reason == "declaration-not-represented"
-                              && diagnostic.Detail == "Unrelated.Echo");
-            Assert.DoesNotContain("Echo", result.Source, StringComparison.Ordinal);
+                "Echo<T>",
+                result.Source,
+                StringComparison.Ordinal);
             Assert.NotNull(result.Comparison);
             Assert.Equal(RoundTripComparisonStatus.Completed, result.Comparison.Status);
-            Assert.Equal(2, result.Comparison.Members.Length);
-            var unavailable = Assert.Single(
+            var comparison = Assert.Single(
                 result.Comparison.Members,
-                member => member.Target.Method == failure.Method);
-            Assert.Equal(RoundTripEvidenceStatus.Unavailable, unavailable.CSharpStatus);
-            Assert.Equal(IlBodyDiffOutcome.Unavailable, unavailable.IlStatus);
-            Assert.Contains("not represented", unavailable.CSharpFailure, StringComparison.Ordinal);
-            Assert.Contains("not represented", unavailable.IlFailure, StringComparison.Ordinal);
+                member => member.Target.Method == genericBody.Method);
+            Assert.Equal(
+                RoundTripEvidenceStatus.Exact,
+                comparison.CSharpStatus);
+            Assert.NotEqual(
+                IlBodyDiffOutcome.Unavailable,
+                comparison.IlStatus);
+            Assert.Null(comparison.CSharpFailure);
         }
         finally
         {
@@ -1281,6 +1284,55 @@ public class ReturnToSenderPrototypeTests
                     StringComparison.Ordinal),
                 result.Source);
             Assert.DoesNotContain("System_Collections_IEnumerable_GetEnumerator", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsExternalExplicitInterfaceOrdinaryOperatorName()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractPath = CompileFixture(
+            """
+            namespace Contracts;
+
+            public interface IOrdinaryEquality
+            {
+                bool op_Equality(IOrdinaryEquality other);
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "Contracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class OrdinaryEqualityImpl : Contracts.IOrdinaryEquality
+            {
+                bool Contracts.IOrdinaryEquality.op_Equality(
+                    Contracts.IOrdinaryEquality other) => true;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "OrdinaryEqualityImpl",
+                    "Contracts.IOrdinaryEquality.op_Equality",
+                    0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "Contracts.IOrdinaryEquality.op_Equality(",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain("operator ==", result.Source, StringComparison.Ordinal);
         }
         finally
         {
@@ -3257,6 +3309,573 @@ public class ReturnToSenderPrototypeTests
             Assert.False(result.UsedCompileBackFloor, result.Detail);
             Assert.Contains("int IHasOpName.op_Custom()", result.Source, StringComparison.Ordinal);
             Assert.DoesNotContain("IHasOpName_op_Custom", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsExplicitInterfaceOrdinaryOperatorName()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class ExplicitOrdinaryEquality : IOrdinaryEquality
+            {
+                bool IOrdinaryEquality.op_Equality(IOrdinaryEquality other)
+                {
+                    return true;
+                }
+            }
+
+            public interface IOrdinaryEquality
+            {
+                bool op_Equality(IOrdinaryEquality other);
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExplicitOrdinaryEquality",
+                    "IOrdinaryEquality.op_Equality",
+                    0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "bool IOrdinaryEquality.op_Equality(",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain("operator ==", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DoesNotRetypeOrdinaryEqualityNamedSibling()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class OrdinaryEqualityNames
+            {
+                public static bool op_Equality(OrdinaryEqualityNames left, OrdinaryEqualityNames right)
+                {
+                    return true;
+                }
+
+                public static bool op_Inequality(OrdinaryEqualityNames left, OrdinaryEqualityNames right)
+                {
+                    return false;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "OrdinaryEqualityNames",
+                    "op_Equality",
+                    0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("bool op_Equality(", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("operator !=", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ClosureIncludesCalledEqualityOperatorPair()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Row
+            {
+                public static bool operator ==(Row left, Row right) => true;
+                public static bool operator !=(Row left, Row right) => false;
+                public override bool Equals(object obj) => obj is Row;
+                public override int GetHashCode() => 0;
+            }
+
+            public static class Consumer
+            {
+                public static bool Same(Row left, Row right) => left == right;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Consumer", "Same", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("operator ==(", result.Source, StringComparison.Ordinal);
+            Assert.Contains("operator !=(", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullBodiesIncludeCalledEqualityOperatorPair()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Row
+            {
+                public static bool operator ==(Row left, Row right) => true;
+                public static bool operator !=(Row left, Row right) => false;
+                public override bool Equals(object obj) => obj is Row;
+                public override int GetHashCode() => 0;
+            }
+
+            public static class Consumer
+            {
+                public static bool Same(Row left, Row right) => left == right;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Consumer", "Same", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(
+                MemberBodyProductionStatus.Complete,
+                Assert.Single(
+                    result.FullBodies,
+                    static body =>
+                        body.Member == "Row.op_Equality").Status);
+            Assert.Equal(
+                MemberBodyProductionStatus.Complete,
+                Assert.Single(
+                    result.FullBodies,
+                    static body =>
+                        body.Member == "Row.op_Inequality").Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullBodiesMatchOverloadedOperatorParameters()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Row
+            {
+                public static bool operator ==(Row left, Row right) => true;
+                public static bool operator !=(Row left, Row right) => false;
+                public static bool operator ==(Row left, int right) => false;
+                public static bool operator !=(Row left, int right) => true;
+                public override bool Equals(object obj) => false;
+                public override int GetHashCode() => 0;
+            }
+
+            public static class Consumer
+            {
+                public static bool Same(Row value) => value == 1;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Consumer", "Same", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.Exact,
+                result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Equal(
+                2,
+                result.FullBodies.Count(
+                    static body =>
+                        body.Member == "Row.op_Equality"
+                        && body.Status
+                            == MemberBodyProductionStatus.Complete));
+            Assert.Equal(
+                2,
+                result.FullBodies.Count(
+                    static body =>
+                        body.Member == "Row.op_Inequality"
+                        && body.Status
+                            == MemberBodyProductionStatus.Complete));
+            Assert.DoesNotContain(
+                result.FullBodies,
+                static body =>
+                    body.Member is
+                        "Row.op_Equality"
+                        or "Row.op_Inequality"
+                    && body.Status
+                        != MemberBodyProductionStatus.Complete);
+            int equalityStart = result.Source.IndexOf(
+                "operator ==(Row left, int right)",
+                StringComparison.Ordinal);
+            Assert.True(equalityStart >= 0, result.Source);
+            int equalityEnd = result.Source.IndexOf(
+                '}',
+                equalityStart);
+            Assert.Contains(
+                "return false;",
+                result.Source[equalityStart..equalityEnd]);
+            int inequalityStart = result.Source.IndexOf(
+                "operator !=(Row left, int right)",
+                StringComparison.Ordinal);
+            Assert.True(inequalityStart >= 0, result.Source);
+            int inequalityEnd = result.Source.IndexOf(
+                '}',
+                inequalityStart);
+            Assert.Contains(
+                "return true;",
+                result.Source[inequalityStart..inequalityEnd]);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullBodiesMatchConversionReturnTypes()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Money
+            {
+                public static implicit operator int(Money value) => 7;
+                public static implicit operator string(Money value) => "money";
+            }
+
+            public static class Consumer
+            {
+                public static string Describe(Money value) => value;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Consumer",
+                    "Describe",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.Exact,
+                result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Equal(
+                2,
+                result.FullBodies.Count(
+                    static body =>
+                        body.Member == "Money.op_Implicit"
+                        && body.Status
+                            == MemberBodyProductionStatus.Complete));
+            Assert.DoesNotContain(
+                result.FullBodies,
+                static body =>
+                    body.Member == "Money.op_Implicit"
+                    && body.Status
+                        != MemberBodyProductionStatus.Complete);
+            Assert.Contains("return 7;", result.Source);
+            Assert.Contains("return \"money\";", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullBodiesDistinguishMethodGenericArity()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Box
+            {
+                public static int Helper() => 1;
+                public static int Helper<T>() => 2;
+
+                public static Box operator +(Box left, Box right)
+                {
+                    _ = Helper<int>();
+                    return left;
+                }
+            }
+
+            public static class Consumer
+            {
+                public static Box Add(Box left, Box right) => left + right;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Consumer", "Add", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            int genericStart = result.Source.IndexOf(
+                "int Helper<T>()",
+                StringComparison.Ordinal);
+            Assert.True(genericStart >= 0, result.Source);
+            int genericEnd = result.Source.IndexOf('}', genericStart);
+            Assert.Contains(
+                "return 2;",
+                result.Source[genericStart..genericEnd],
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "return 1;",
+                result.Source[genericStart..genericEnd],
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ClosureSelectsConversionByReturnType()
+    {
+        var assemblyPath = CompileFixture("""
+            public readonly struct Value
+            {
+                public static explicit operator int(Value value) => 0;
+                public static explicit operator checked int(Value value) => 1;
+                public static explicit operator long(Value value) => 0L;
+                public static explicit operator checked long(Value value) => 1L;
+            }
+
+            public static class Consumer
+            {
+                public static long Convert(Value value) => checked((long)value);
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Consumer", "Convert", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains(
+                "explicit operator checked long(",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesOperatorWithExternalEndpointType()
+    {
+        var assemblyPath = CompileFixture("""
+            using System.Text;
+
+            public readonly struct Holder
+            {
+                public static Holder operator +(Holder left, StringBuilder right)
+                    => left;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Holder",
+                    "op_Addition",
+                    0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            var holder = Assert.Single(
+                result.Plan.Types,
+                type => type.Name == "Holder");
+            Assert.Contains(
+                holder.Members,
+                member => member.Name == "op_Addition"
+                    && member.Kind == CompileBackMemberKind.Operator);
+            Assert.Contains("operator +", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ResolvesClosureOperatorWithExternalEndpointType()
+    {
+        var assemblyPath = CompileFixture("""
+            using System.Text;
+
+            public sealed class Value
+            {
+                public static bool operator ==(Value left, StringBuilder right)
+                    => false;
+                public static bool operator !=(Value left, StringBuilder right)
+                    => true;
+                public override bool Equals(object? other) => false;
+                public override int GetHashCode() => 0;
+            }
+
+            public sealed class Holder
+            {
+                public bool Prop => new Value() == new StringBuilder();
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Holder",
+                    "get_Prop",
+                    0)]));
+
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.Exact,
+                result.Status);
+            Assert.Contains(
+                "operator ==(Value left, StringBuilder right)",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ClosurePairsOperatorsWithDifferentRefKinds()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Row
+            {
+                public static bool operator ==(in Row left, in Row right) => true;
+                public static bool operator !=(Row left, Row right) => false;
+                public override bool Equals(object obj) => obj is Row;
+                public override int GetHashCode() => 0;
+            }
+
+            public static class Consumer
+            {
+                public static bool Same(Row left, Row right) => left == right;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Consumer", "Same", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(
+                result.Source.Contains("operator ==(", StringComparison.Ordinal),
+                result.Source);
+            Assert.True(
+                result.Source.Contains("operator !=(", StringComparison.Ordinal),
+                result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_OperatorPairDoesNotDuplicateTargetSibling()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Row
+            {
+                public static bool operator ==(in Row left, in Row right) => true;
+                public static bool operator !=(Row left, Row right) => !(left == right);
+                public override bool Equals(object obj) => obj is Row;
+                public override int GetHashCode() => 0;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Row", "op_Inequality", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("operator ==(", result.Source, StringComparison.Ordinal);
+            Assert.Contains("operator !=(", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ClosureDoesNotPairOrdinaryEqualityNamedMethod()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class OrdinaryEqualityNames
+            {
+                public static bool op_Equality(OrdinaryEqualityNames left, OrdinaryEqualityNames right)
+                    => true;
+
+                public static bool op_Inequality(OrdinaryEqualityNames left, OrdinaryEqualityNames right)
+                    => false;
+            }
+
+            public static class Consumer
+            {
+                public static bool Same(OrdinaryEqualityNames left, OrdinaryEqualityNames right)
+                    => OrdinaryEqualityNames.op_Equality(left, right);
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Consumer", "Same", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("bool op_Equality(", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("op_Inequality", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("operator !=", result.Source, StringComparison.Ordinal);
         }
         finally
         {
@@ -8595,12 +9214,21 @@ public class ReturnToSenderPrototypeTests
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             var number = Assert.Single(result.Plan.Types, type => type.Name == "CustomNumber");
-            Assert.Contains(number.Members, member =>
-                member.Name == "op_CheckedAddition"
-                && member.SourceFacts.Any(fact => fact.Id == "typed-closure-method" && fact.Detail == "op_CheckedAddition"));
-            Assert.Contains(number.Members, member =>
-                member.Name == "op_Addition"
-                && member.SourceFacts.Any(fact => fact.Id == "typed-closure-method" && fact.Detail == "op_Addition"));
+            var checkedAddition = Assert.Single(number.Members, member => member.Name == "op_CheckedAddition");
+            Assert.Contains(
+                checkedAddition.SourceFacts,
+                fact => fact.Id == "typed-closure-method" && fact.Detail == "op_CheckedAddition");
+            Assert.DoesNotContain(
+                checkedAddition.SourceFacts,
+                fact => fact.Id == "operator-pair-sibling");
+
+            var addition = Assert.Single(number.Members, member => member.Name == "op_Addition");
+            Assert.Contains(
+                addition.SourceFacts,
+                fact => fact.Id == "operator-pair-sibling" && fact.Detail == "op_Addition");
+            Assert.DoesNotContain(
+                addition.SourceFacts,
+                fact => fact.Id == "typed-closure-method");
         }
         finally
         {

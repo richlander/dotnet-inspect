@@ -1,4 +1,6 @@
+using System.Reflection.PortableExecutable;
 using System.Text;
+using System.Text.Json;
 using ILInspector.Metadata;
 
 namespace ILInspector.CSharp.Tests;
@@ -1400,9 +1402,591 @@ public sealed class CSharpDeclarationWriterTests
     public void MemberDeclaration_FormatsOperatorsWithTupleReturns(string name, string signature, string expected)
     {
         var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
-        var member = new ApiMember { Name = name, Kind = "method", Signature = signature, IsStatic = true };
+        var member = new ApiMember { Name = name, Kind = "operator", Signature = signature, IsStatic = true };
 
         Assert.Equal(expected, CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
+    [Fact]
+    public void MemberDeclaration_LeavesOrdinaryOperatorNamedMemberAsMethod()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "op_AdditionAssignment",
+            Kind = "method",
+            Signature = "void op_AdditionAssignment(int other)",
+        };
+
+        Assert.Equal(
+            "public void op_AdditionAssignment(int other)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
+    [Theory]
+    [InlineData(
+        "op_Addition",
+        false,
+        "Samples.Tuples op_Addition(Samples.Tuples left, Samples.Tuples right)",
+        "public Samples.Tuples op_Addition(Samples.Tuples left, Samples.Tuples right)")]
+    [InlineData(
+        "op_Equality",
+        true,
+        "bool op_Equality(Samples.Tuples left, Samples.Tuples right)",
+        "public static bool op_Equality(Samples.Tuples left, Samples.Tuples right)")]
+    public void MemberDeclaration_LeavesUnrepresentableOperatorShapesAsMethods(
+        string name,
+        bool isStatic,
+        string signature,
+        string expected)
+    {
+        var member = new ApiMember
+        {
+            Name = name,
+            Kind = "operator",
+            Signature = signature,
+            IsStatic = isStatic,
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Tuples",
+            Kind = "class",
+            Members = [member],
+        };
+
+        Assert.Equal(expected, CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
+    [Fact]
+    public void MemberDeclaration_UsesDeclaringInventoryForSelectedOperatorSibling()
+    {
+        var equality = new ApiMember
+        {
+            Name = "op_Equality",
+            Kind = "operator",
+            Signature = "bool op_Equality(Samples.Tuples left, Samples.Tuples right)",
+            SignatureModel = OperatorMember(
+                "op_Equality",
+                null,
+                "Samples.Tuples").SignatureModel,
+            IsStatic = true,
+        };
+        var inequality = new ApiMember
+        {
+            Name = "op_Inequality",
+            Kind = "operator",
+            Signature = "bool op_Inequality(Samples.Tuples left, Samples.Tuples right)",
+            SignatureModel = OperatorMember(
+                "op_Inequality",
+                null,
+                "Samples.Tuples").SignatureModel,
+            IsStatic = true,
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Tuples",
+            Kind = "class",
+            Members = [equality],
+            DeclaringMembers = [equality, inequality],
+        };
+
+        Assert.Equal(
+            "public static bool operator ==(Samples.Tuples left, Samples.Tuples right)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, equality));
+    }
+
+    [Theory]
+    [InlineData("in", "Samples.Widget", null, "Samples.Widget")]
+    [InlineData(null, "Samples.Widget?", null, "Samples.Widget")]
+    [InlineData(null, "dynamic", null, "object")]
+    public void MemberDeclaration_PairsOperatorsByCSharpTypeIdentity(
+        string? equalityModifier,
+        string equalityType,
+        string? inequalityModifier,
+        string inequalityType)
+    {
+        var equality = OperatorMember(
+            "op_Equality",
+            equalityModifier,
+            equalityType);
+        var inequality = OperatorMember(
+            "op_Inequality",
+            inequalityModifier,
+            inequalityType);
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+            Members = [equality, inequality],
+        };
+
+        Assert.Contains(
+            " operator ==",
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, equality),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            " operator !=",
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, inequality),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MemberDeclaration_PreservesMatchingOperatorPairAcrossJsonRoundTrip()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                OperatorMember("op_Equality", null, "Samples.Widget"),
+                OperatorMember("op_Inequality", null, "Samples.Widget"),
+            ],
+        };
+
+        var roundTripped = JsonSerializer.Deserialize<ApiType>(
+            JsonSerializer.Serialize(type))!;
+        var equality = Assert.Single(
+            roundTripped.Members,
+            member => member.Name == "op_Equality");
+        var inequality = Assert.Single(
+            roundTripped.Members,
+            member => member.Name == "op_Inequality");
+
+        Assert.NotNull(equality.SignatureModel);
+        Assert.NotNull(inequality.SignatureModel);
+        Assert.Contains(
+            " operator ==",
+            CSharpDeclarationWriter.RenderMemberDeclaration(roundTripped, equality),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            " operator !=",
+            CSharpDeclarationWriter.RenderMemberDeclaration(roundTripped, inequality),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MemberDeclaration_PreservesMismatchedOperatorPairAcrossJsonRoundTrip()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                OperatorMember("op_Equality", null, "Samples.Widget"),
+                OperatorMember("op_Inequality", null, "Samples.Other"),
+            ],
+        };
+
+        var roundTripped = JsonSerializer.Deserialize<ApiType>(
+            JsonSerializer.Serialize(type))!;
+        var equality = Assert.Single(
+            roundTripped.Members,
+            member => member.Name == "op_Equality");
+        var inequality = Assert.Single(
+            roundTripped.Members,
+            member => member.Name == "op_Inequality");
+
+        Assert.NotNull(equality.SignatureModel);
+        Assert.NotNull(inequality.SignatureModel);
+        Assert.Contains(
+            " op_Equality(",
+            CSharpDeclarationWriter.RenderMemberDeclaration(roundTripped, equality),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            " op_Inequality(",
+            CSharpDeclarationWriter.RenderMemberDeclaration(roundTripped, inequality),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            " operator ==",
+            CSharpDeclarationWriter.RenderMemberDeclaration(roundTripped, equality),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            " operator !=",
+            CSharpDeclarationWriter.RenderMemberDeclaration(roundTripped, inequality),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MemberDeclaration_DoesNotPairSameDisplayTypesFromDifferentAssemblies()
+    {
+        var equality = OperatorMember(
+            "op_Equality",
+            null,
+            "Samples.Widget");
+        equality.HasOperatorPairingKey = true;
+        equality.OperatorPairingKey = "assembly-a";
+        var inequality = OperatorMember(
+            "op_Inequality",
+            null,
+            "Samples.Widget");
+        inequality.HasOperatorPairingKey = true;
+        inequality.OperatorPairingKey = "assembly-b";
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+            Members = [equality, inequality],
+        };
+
+        var roundTripped = JsonSerializer.Deserialize<ApiType>(
+            JsonSerializer.Serialize(type))!;
+        equality = Assert.Single(
+            roundTripped.Members,
+            member => member.Name == "op_Equality");
+        inequality = Assert.Single(
+            roundTripped.Members,
+            member => member.Name == "op_Inequality");
+
+        Assert.Contains(
+            " op_Equality(",
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                roundTripped,
+                equality),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            " op_Inequality(",
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                roundTripped,
+                inequality),
+            StringComparison.Ordinal);
+    }
+
+    static ApiMember OperatorMember(
+        string name,
+        string? firstParameterModifier,
+        string firstParameterType)
+    {
+        string firstParameter = string.IsNullOrEmpty(firstParameterModifier)
+            ? firstParameterType
+            : $"{firstParameterModifier} {firstParameterType}";
+        return new ApiMember
+        {
+            Name = name,
+            Kind = "operator",
+            Signature = $"bool {name}({firstParameter} left, Samples.Widget right)",
+            IsStatic = true,
+            CSharpOperatorDeclaration = true,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "bool",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Name = "left",
+                        Type = firstParameterType,
+                        Modifier = firstParameterModifier,
+                    },
+                    new ApiParameter
+                    {
+                        Name = "right",
+                        Type = "Samples.Widget",
+                    },
+                ],
+            },
+        };
+    }
+
+    [Fact]
+    public void MemberDeclaration_RequiresRepresentableOperatorSibling()
+    {
+        var equality = new ApiMember
+        {
+            Name = "op_Equality",
+            Kind = "operator",
+            Signature = "bool op_Equality(Samples.Tuples left, Samples.Tuples right)",
+            IsStatic = true,
+            CSharpOperatorDeclaration = true,
+        };
+        var invalidInequality = new ApiMember
+        {
+            Name = "op_Inequality",
+            Kind = "operator",
+            Signature = "bool op_Inequality(Samples.Tuples left, Samples.Tuples right)",
+            IsStatic = true,
+            CSharpOperatorDeclaration = false,
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Tuples",
+            Kind = "class",
+            Members = [equality],
+            DeclaringMembers = [equality, invalidInequality],
+        };
+
+        Assert.Equal(
+            "public static bool op_Equality(Samples.Tuples left, Samples.Tuples right)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, equality));
+    }
+
+    [Fact]
+    public void MemberDeclaration_DoesNotUseMissingPairStructureAsWildcard()
+    {
+        var equality = new ApiMember
+        {
+            Name = "op_Equality",
+            Kind = "operator",
+            Signature = "bool op_Equality(Samples.Pair left, Samples.Pair right)",
+            IsStatic = true,
+            CSharpOperatorDeclaration = true,
+        };
+        var inequality = new ApiMember
+        {
+            Name = "op_Inequality",
+            Kind = "operator",
+            Signature = "bool op_Inequality(Samples.Other left, Samples.Other right)",
+            IsStatic = true,
+            CSharpOperatorDeclaration = true,
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Pair",
+            Kind = "class",
+            Members = [equality],
+            DeclaringMembers = [equality, inequality],
+        };
+
+        Assert.Equal(
+            "public static bool op_Equality(Samples.Pair left, Samples.Pair right)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, equality));
+    }
+
+    [Fact]
+    public void MemberDeclaration_PreservesNegativeOperatorProofAcrossJsonRoundTrip()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "op_Multiply",
+                    Kind = "operator",
+                    Signature = "int op_Multiply(int left, int right)",
+                    IsStatic = true,
+                    CSharpOperatorDeclaration = false,
+                },
+            ],
+        };
+        var roundTripped = JsonSerializer.Deserialize<ApiType>(
+            JsonSerializer.Serialize(type))!;
+        var member = Assert.Single(roundTripped.Members);
+
+        Assert.False(member.CSharpOperatorDeclaration);
+        Assert.Equal(
+            "public static int op_Multiply(int left, int right)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(roundTripped, member));
+    }
+
+    [Fact]
+    public void MemberDeclaration_DoesNotPromoteExtractedUnknownOperatorProof()
+    {
+        var member = new ApiMember
+        {
+            Name = "op_Explicit",
+            Kind = "operator",
+            Signature =
+                "Samples.IContract op_Explicit(Samples.Widget value)",
+            IsStatic = true,
+            HasCSharpOperatorDeclarationClassification = true,
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+            Members = [member],
+        };
+        var roundTripped = JsonSerializer.Deserialize<ApiType>(
+            JsonSerializer.Serialize(type))!;
+        ApiMember restored = Assert.Single(roundTripped.Members);
+
+        Assert.True(
+            restored.HasCSharpOperatorDeclarationClassification);
+        Assert.Null(restored.CSharpOperatorDeclaration);
+        Assert.Equal(
+            "public static Samples.IContract op_Explicit(Samples.Widget value)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                roundTripped,
+                restored));
+    }
+
+    [Fact]
+    public void MemberDeclaration_LegacyOperatorWithoutProofKeepsShapeFallback()
+    {
+        var member = new ApiMember
+        {
+            Name = "op_Implicit",
+            Kind = "operator",
+            Signature =
+                "Samples.Widget op_Implicit(int value)",
+            IsStatic = true,
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+            Members = [member],
+        };
+
+        Assert.Equal(
+            "public static implicit operator Samples.Widget(int value)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
+    [Theory]
+    [InlineData(
+        "op_AdditionAssignment",
+        "void op_AdditionAssignment(Samples.Tuples other)",
+        "public void operator +=(Samples.Tuples other)")]
+    [InlineData(
+        "op_CheckedAdditionAssignment",
+        "void op_CheckedAdditionAssignment(Samples.Tuples other)",
+        "public void operator checked +=(Samples.Tuples other)")]
+    [InlineData(
+        "op_ModulusAssignment",
+        "void op_ModulusAssignment(Samples.Tuples other)",
+        "public void operator %=(Samples.Tuples other)")]
+    [InlineData(
+        "op_CheckedMultiplicationAssignment",
+        "void op_CheckedMultiplicationAssignment(Samples.Tuples other)",
+        "public void operator checked *=(Samples.Tuples other)")]
+    [InlineData(
+        "op_IncrementAssignment",
+        "void op_IncrementAssignment()",
+        "public void operator ++()")]
+    public void MemberDeclaration_FormatsInstanceAssignmentOperators(
+        string name,
+        string signature,
+        string expected)
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
+        var member = new ApiMember { Name = name, Kind = "operator", Signature = signature };
+
+        Assert.Equal(expected, CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
+    [Theory]
+    [InlineData(
+        "op_CheckedModulusAssignment",
+        "void op_CheckedModulusAssignment(int other)",
+        false,
+        null,
+        "public void op_CheckedModulusAssignment(int other)")]
+    [InlineData(
+        "op_AdditionAssignment",
+        "Samples.Tuples op_AdditionAssignment(Samples.Tuples left, Samples.Tuples right)",
+        true,
+        null,
+        "public static Samples.Tuples op_AdditionAssignment(Samples.Tuples left, Samples.Tuples right)")]
+    [InlineData(
+        "op_AdditionAssignment",
+        "Samples.Tuples op_AdditionAssignment(int other)",
+        false,
+        null,
+        "public Samples.Tuples op_AdditionAssignment(int other)")]
+    [InlineData(
+        "op_AdditionAssignment",
+        "void op_AdditionAssignment(int left, int right)",
+        false,
+        null,
+        "public void op_AdditionAssignment(int left, int right)")]
+    [InlineData(
+        "op_AdditionAssignment",
+        "void op_AdditionAssignment(int other)",
+        false,
+        "private",
+        "private void op_AdditionAssignment(int other)")]
+    [InlineData(
+        "op_AdditionAssignment",
+        "void op_AdditionAssignment(ref int other)",
+        false,
+        null,
+        "public void op_AdditionAssignment(ref int other)")]
+    [InlineData(
+        "op_AdditionAssignment",
+        "void op_AdditionAssignment(out int other)",
+        false,
+        null,
+        "public void op_AdditionAssignment(out int other)")]
+    public void MemberDeclaration_LeavesNonCSharpAssignmentShapesAsMethods(
+        string name,
+        string signature,
+        bool isStatic,
+        string? accessibility,
+        string expected)
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = name,
+            Kind = "operator",
+            Signature = signature,
+            IsStatic = isStatic,
+            Accessibility = accessibility,
+        };
+
+        Assert.Equal(expected, CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
+    [Fact]
+    public void MemberDeclaration_FormatsInAssignmentOperatorParameter()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "op_AdditionAssignment",
+            Kind = "operator",
+            Signature = "void op_AdditionAssignment(in Samples.Tuples other)",
+        };
+
+        Assert.Equal(
+            "public void operator +=(in Samples.Tuples other)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
+    [Fact]
+    public void MemberDeclaration_UsesStructuredAssignmentParameterModifiers()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "op_AdditionAssignment",
+            Kind = "operator",
+            Signature = "void op_AdditionAssignment(ref int other)",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "void",
+                MemberName = "op_AdditionAssignment",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Name = "other",
+                        Type = "int",
+                        Modifier = "ref",
+                    }
+                ],
+            },
+        };
+
+        Assert.Equal(
+            "public void op_AdditionAssignment(ref int other)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
     }
 
     [Theory]
@@ -1795,4 +2379,121 @@ public sealed class CSharpDeclarationWriterTests
                 }
             ]
         };
+}
+
+/// <summary>
+/// Compiler-produced fixtures for C# 14 virtual/abstract/override/sealed-override
+/// instance compound-assignment operators. Roslyn emits these with the ordinary
+/// virtual-dispatch method flags, which the general non-interface abstract/virtual
+/// rejection previously read as "impossible for an operator" and classified as an
+/// exact No — so the surface lost the operator spelling entirely.
+/// </summary>
+public sealed class VirtualInstanceAssignmentOperatorDeclarationTests
+{
+    [Theory]
+    [InlineData(
+        nameof(VirtualAssignmentOperatorBaseFixture),
+        "op_AdditionAssignment",
+        "public virtual void operator +=(int value)")]
+    [InlineData(
+        nameof(VirtualAssignmentOperatorBaseFixture),
+        "op_SubtractionAssignment",
+        "public abstract void operator -=(int value)")]
+    [InlineData(
+        nameof(VirtualAssignmentOperatorBaseFixture),
+        "op_IncrementAssignment",
+        "public virtual void operator ++()")]
+    [InlineData(
+        nameof(VirtualAssignmentOperatorDerivedFixture),
+        "op_AdditionAssignment",
+        "public override void operator +=(int value)")]
+    [InlineData(
+        nameof(VirtualAssignmentOperatorDerivedFixture),
+        "op_SubtractionAssignment",
+        "public override void operator -=(int value)")]
+    [InlineData(
+        nameof(VirtualAssignmentOperatorDerivedFixture),
+        "op_IncrementAssignment",
+        "public sealed override void operator ++()")]
+    public void MemberDeclaration_SpellsVirtualInstanceAssignmentOperators(
+        string typeName,
+        string memberName,
+        string expected)
+    {
+        var (type, member) = FindMember(typeName, memberName);
+
+        Assert.Equal(
+            "operator",
+            member.Kind);
+        Assert.Equal(
+            expected,
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
+    /// <summary>
+    /// The close negative: a STATIC operator on the same fixture assembly carries
+    /// none of those flags, so it keeps its plain static operator spelling and
+    /// proves the scoping did not leak virtual-dispatch modifiers onto forms C#
+    /// requires to be static.
+    /// </summary>
+    [Fact]
+    public void MemberDeclaration_LeavesStaticOperatorsWithoutVirtualModifiers()
+    {
+        var (type, member) = FindMember(
+            nameof(VirtualAssignmentOperatorBaseFixture),
+            "op_Addition");
+
+        string declaration =
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.DoesNotContain("virtual", declaration, StringComparison.Ordinal);
+        Assert.DoesNotContain("abstract", declaration, StringComparison.Ordinal);
+        Assert.DoesNotContain("override", declaration, StringComparison.Ordinal);
+        Assert.Contains("static", declaration, StringComparison.Ordinal);
+        Assert.Contains("operator +", declaration, StringComparison.Ordinal);
+    }
+
+    static (ApiType Type, ApiMember Member) FindMember(
+        string typeName,
+        string memberName)
+    {
+        using var pe = new PEReader(
+            File.OpenRead(
+                typeof(VirtualInstanceAssignmentOperatorDeclarationTests)
+                    .Assembly
+                    .Location));
+        var type = Assert.Single(
+            ApiSurfaceExtractor.Extract(pe).Types,
+            candidate => candidate.Name == typeName);
+        var member = Assert.Single(
+            type.Members,
+            candidate => candidate.Name == memberName);
+        return (type, member);
+    }
+}
+
+public abstract class VirtualAssignmentOperatorBaseFixture
+{
+    public int Value;
+
+    public virtual void operator +=(int value) => Value += value;
+
+    public abstract void operator -=(int value);
+
+    public virtual void operator ++() => Value++;
+
+    public static VirtualAssignmentOperatorBaseFixture operator +(
+        VirtualAssignmentOperatorBaseFixture left,
+        int right)
+        => left;
+}
+
+public class VirtualAssignmentOperatorDerivedFixture
+    : VirtualAssignmentOperatorBaseFixture
+{
+    public override void operator +=(int value) => Value += value;
+
+    public override void operator -=(int value) => Value -= value;
+
+    public sealed override void operator ++() => Value++;
 }

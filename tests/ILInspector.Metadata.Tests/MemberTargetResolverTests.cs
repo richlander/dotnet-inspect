@@ -58,6 +58,74 @@ public class MemberTargetResolverTests
     }
 
     [Fact]
+    public void GetCandidates_IncrementTokenIncludesStaticAndInstanceShapes()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Sample",
+            Name = "Counter",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "op_Increment",
+                    Kind = "operator",
+                    Signature =
+                        "Sample.Counter op_Increment(Sample.Counter value)",
+                    IsStatic = true,
+                },
+                new ApiMember
+                {
+                    Name = "op_IncrementAssignment",
+                    Kind = "operator",
+                    Signature =
+                        "void op_IncrementAssignment()",
+                },
+                new ApiMember
+                {
+                    Name = "op_IncrementBogus",
+                    Kind = "method",
+                    Signature =
+                        "void op_IncrementBogus()",
+                },
+            ],
+        };
+
+        MemberTargetSelector selector =
+            MemberTargetSelector.Parse("++");
+        IReadOnlyList<MemberTargetCandidate> candidates =
+            MemberTargetResolver.GetCandidates(type, selector);
+
+        Assert.Equal("op_Increment*", selector.Name);
+        Assert.Equal(
+            ["op_Increment", "op_IncrementAssignment"],
+            selector.ExactNameFamily);
+        Assert.Equal("++", selector.NormalizedSelector);
+        Assert.Equal(
+            selector.ExactNameFamily,
+            MemberTargetSelector
+                .Parse(selector.NormalizedSelector)
+                .ExactNameFamily);
+        Assert.Equal(
+            ["op_Increment", "op_IncrementAssignment"],
+            candidates.Select(
+                candidate => candidate.Member.Name));
+
+        var explicitGlob = MemberTargetResolver.GetCandidates(
+            type,
+            MemberTargetSelector.Parse("op_Increment*"));
+        Assert.Equal(
+            [
+                "op_Increment",
+                "op_IncrementAssignment",
+                "op_IncrementBogus",
+            ],
+            explicitGlob.Select(
+                candidate => candidate.Member.Name));
+    }
+
+    [Fact]
     public void Resolve_OverloadIndexUsesMemberIndexDisplayOrderButReturnsDeclaringIndex()
     {
         var type = CreateSurface().Types[0];

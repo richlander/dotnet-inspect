@@ -285,11 +285,27 @@ public static class FqnParser
             return memberName;
 
         var compact = memberName.Replace(" ", "", StringComparison.Ordinal);
+        bool isChecked = compact.StartsWith(
+            "checked",
+            StringComparison.OrdinalIgnoreCase);
+        string token = isChecked
+            ? compact["checked".Length..]
+            : compact;
+        if (token is
+                "+=" or "-=" or "*=" or "/=" or "%="
+                or "&=" or "|=" or "^=" or "<<=" or ">>=" or ">>>="
+            && OperatorNames.MetadataNameFromSourceToken(
+                token,
+                parameterCount: 1,
+                isChecked) is { } assignmentName)
+        {
+            return assignmentName;
+        }
+
         return compact.ToLowerInvariant() switch
         {
             "implicit" => "op_Implicit",
             "explicit" => "op_Explicit",
-            "checkedimplicit" => "op_CheckedImplicit",
             "checkedexplicit" => "op_CheckedExplicit",
             "+" => "op_Addition",
             "checked+" => "op_CheckedAddition",
@@ -299,10 +315,10 @@ public static class FqnParser
             "checked*" => "op_CheckedMultiply",
             "/" => "op_Division",
             "%" => "op_Modulus",
-            "++" => "op_Increment",
-            "checked++" => "op_CheckedIncrement",
-            "--" => "op_Decrement",
-            "checked--" => "op_CheckedDecrement",
+            "++" => "op_Increment*",
+            "checked++" => "op_CheckedIncrement*",
+            "--" => "op_Decrement*",
+            "checked--" => "op_CheckedDecrement*",
             "==" => "op_Equality",
             "!=" => "op_Inequality",
             "<" => "op_LessThan",

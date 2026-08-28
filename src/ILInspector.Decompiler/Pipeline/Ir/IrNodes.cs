@@ -84,21 +84,26 @@ public sealed record MethodRef(
     public ImmutableArray<TypeRef> TypeArguments { get; init; } = [];
 
     /// <summary>
-    /// The generic method DEFINITION's parameter types, with its own type
-    /// parameters left as <c>!!N</c> placeholders (before the MethodSpec
-    /// substitution that produces <see cref="ParameterTypes"/>). Populated only
-    /// for a generic method instantiation; empty otherwise. Lets a consumer
-    /// identify the source member independent of the instantiation — two calls to
-    /// <c>G&lt;int&gt;</c> and <c>G&lt;string&gt;</c> of one <c>G&lt;T&gt;(T)</c>
-    /// share this signature though their <see cref="ParameterTypes"/> differ.
+    /// Generic arity from the MethodDef/MemberRef signature. Unlike
+    /// <see cref="TypeArguments"/>, this remains available on an open reference.
+    /// </summary>
+    public int GenericParameterCount { get; init; }
+
+    /// <summary>
+    /// The member definition's parameter types before declaring-type or method
+    /// type-argument substitution. Lets a consumer identify the source member
+    /// independently of an instantiation whose <see cref="ParameterTypes"/> may
+    /// make distinct definitions look alike. Gated by
+    /// <c>GenericDeclaringTypeSignatureCollision_UsesDefinitionSignature</c>.
     /// </summary>
     public ImmutableArray<TypeRef> DefinitionParameterTypes { get; init; } = [];
 
     /// <summary>
-    /// The generic method definition's return type before MethodSpec
-    /// substitution. Populated with <see cref="DefinitionParameterTypes"/> so
-    /// return-only generic signature distinctions remain available during
-    /// cross-assembly method resolution.
+    /// The member definition's return type before declaring-type or method
+    /// type-argument substitution. Populated with
+    /// <see cref="DefinitionParameterTypes"/> so return-only generic signature
+    /// distinctions remain available during member resolution. Gated by
+    /// <c>GenericReturnSignatureCollision_UsesDefinitionReturnType</c>.
     /// </summary>
     public TypeRef? DefinitionReturnType { get; init; }
 
@@ -198,6 +203,8 @@ public sealed record MethodRef(
     /// for MethodDefs; unresolved MemberRefs carry no flags, so the importer may
     /// infer this from compiler-reserved names only to preserve spellability
     /// diagnostics. C# property/event/operator sugar must use narrower facts.
+    /// <c>ResolvedMemberRef_PreservesExactSpecialNameOperatorEvidence</c> gates
+    /// the resolved-MemberRef transition from inference to exact evidence.
     /// </summary>
     public bool IsSpecialName { get; init; }
 

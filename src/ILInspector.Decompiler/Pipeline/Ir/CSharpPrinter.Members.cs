@@ -690,12 +690,22 @@ public sealed partial class CSharpPrinter
         string typeArguments = call.Callee.TypeArguments.IsEmpty
             ? ""
             : $"<{string.Join(", ", call.Callee.TypeArguments.Select(TypeText))}>";
+        if (IsInstanceAssignmentOperatorCall(call))
+            return OperatorSpelling(call)!;
         if (!call.Callee.HasThis)
         {
             // C# compiles user-defined operators TO these calls; the
             // operator spelling is the faithful inverse.
             if (IsOperatorCall(call))
                 return OperatorSpelling(call)!;
+            if (call.Callee.IsOperator == MetadataFactState.Yes
+                || call.Callee.IsSpecialName
+                    && !call.Callee.IsSpecialNameInferred
+                    && call.Callee.GenericParameterCount == 0
+                    && CSharpText.OperatorNames
+                        .IsMetadataOperatorMethodName(
+                        call.Callee.Name))
+                _explicitOperatorInvocations.Add(call);
             // An extension method's static call C.M(receiver, args) renders as the
             // instance form receiver.M(args) the source used. No IL anchor chooses
             // between the two forms (taste rule case 3), and the runtime writes the

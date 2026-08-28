@@ -1089,9 +1089,10 @@ internal static class CSharpDeclarationWriter
             var typeName = FormatConstructorTypeName(type);
             signature = $"{typeName}{FormatConstructorCall(signature)}";
         }
-        else if (member.Name.StartsWith("op_", StringComparison.Ordinal))
+        else if (member.Kind == "operator"
+            && member.Name.StartsWith("op_", StringComparison.Ordinal))
         {
-            signature = FormatOperatorSignature(signature, member.Name);
+            signature = FormatOperatorSignature(type, signature, member);
         }
         else if (member.Kind is "method" or "extension-method" or "explicit-interface-implementation"
             && !IsExplicitInterfaceEvent(member))
@@ -1824,7 +1825,7 @@ internal static class CSharpDeclarationWriter
             signature = $"{FormatConstructorTypeName(type)}({parameters})";
             return true;
         }
-        if (member.Kind == "method"
+        if (member.Kind is "method" or "operator"
             && methodParameters is not { Count: > 0 }
             && model.MemberName is { Length: > 0 } memberName
             && model.ReturnType is { Length: > 0 } returnType)
@@ -1867,8 +1868,8 @@ internal static class CSharpDeclarationWriter
             return true;
         }
 
-        // Keep extension projections, explicit implementations, operators, and
-        // unsupported event shapes on compatibility text until the remaining
+        // Keep extension projections, explicit implementations, and unsupported
+        // event shapes on compatibility text until the remaining
         // declaration-level facts are represented in ApiSignature.
         return false;
 
@@ -2205,16 +2206,51 @@ internal static class CSharpDeclarationWriter
     /// occurrence is identified as the whole-token one immediately followed by <c>(</c>
     /// rather than by textual position.
     /// </remarks>
-    static string FormatOperatorSignature(string signature, string methodName)
+    static string FormatOperatorSignature(
+        ApiType type,
+        string signature,
+        ApiMember member)
     {
+        string methodName = member.Name;
         if (!TryFindMemberNameBeforeParameterList(signature, methodName, out int nameIndex, out int parenStart))
             return signature;
 
         var returnType = signature[..nameIndex].TrimEnd();
         var parameters = signature[parenStart..];
+        int parameterCount = member.SignatureModel?.ParameterCount
+            ?? OperatorParameterCount(parameters);
+        bool hasRefOrOutParameter = member.SignatureModel is { } signatureModel
+            ? signatureModel.Parameters.Any(
+                parameter => parameter.Modifier is "ref" or "out" or "ref readonly")
+            : OperatorParametersHaveRefOrOutModifier(parameters);
+        bool isPublic = member.Accessibility is null or "public";
+        // Extraction proves declaring-type participation structurally. A
+        // shell-produced member may lack that fact, so its fallback remains
+        // shape-only; extracted facts survive JSON round-trips.
+        bool isCSharpDeclaration =
+            member.HasCSharpOperatorDeclarationClassification
+                ? member.CSharpOperatorDeclaration == true
+                : member.CSharpOperatorDeclaration
+                    ?? OperatorNames.IsCSharpOperatorDeclaration(
+                        methodName,
+                        member.IsStatic,
+                        isPublic,
+                        returnType,
+                        parameterCount,
+                        hasRefOrOutParameter,
+                        hasByRefReturn:
+                            returnType.StartsWith(
+                                "ref ",
+                                StringComparison.Ordinal)
+                            || returnType.Contains(
+                                "] ref ",
+                                StringComparison.Ordinal));
+        if (!isCSharpDeclaration || !HasRequiredOperatorSibling(type, member))
+            return signature;
 
         if (methodName.StartsWith("op_Checked", StringComparison.Ordinal)
-            && OperatorNames.MapBinaryOrUnary(methodName["op_Checked".Length..]) is { } checkedSymbol)
+            && (OperatorNames.MapBinaryOrUnary(methodName["op_Checked".Length..])
+                ?? OperatorNames.MapCheckedAssignment(methodName["op_Checked".Length..])) is { } checkedSymbol)
             return $"{returnType} operator checked {checkedSymbol}{parameters}";
 
         return methodName switch
@@ -2224,6 +2260,96 @@ internal static class CSharpDeclarationWriter
             "op_CheckedExplicit" => $"explicit operator checked {returnType}{parameters}",
             _ => $"{returnType} {OperatorNames.FormatDisplayName(methodName)}{parameters}"
         };
+    }
+
+    static bool HasRequiredOperatorSibling(ApiType type, ApiMember member)
+    {
+        string? siblingName = OperatorNames.RequiredOperatorSibling(member.Name);
+        if (siblingName is null
+            || !type.Members.Any(candidate => ReferenceEquals(candidate, member)))
+        {
+            return true;
+        }
+
+        return (type.DeclaringMembers ?? type.Members).Any(candidate =>
+            candidate.Kind == "operator"
+            && candidate.Name == siblingName
+            && (candidate.HasCSharpOperatorDeclarationClassification
+                ? candidate.CSharpOperatorDeclaration == true
+                : candidate.CSharpOperatorDeclaration is not false)
+            && SameOperatorSignature(member, candidate));
+    }
+
+    static bool SameOperatorSignature(ApiMember left, ApiMember right)
+    {
+        if (left.HasOperatorPairingKey || right.HasOperatorPairingKey)
+        {
+            return left.HasOperatorPairingKey
+                && right.HasOperatorPairingKey
+                && left.OperatorPairingKey is not null
+                && left.OperatorPairingKey
+                    == right.OperatorPairingKey;
+        }
+
+        if (left.SignatureModel is not { } leftSignature
+            || right.SignatureModel is not { } rightSignature)
+        {
+            return false;
+        }
+
+        return OperatorNames.OperatorPairingTypesMatch(
+                leftSignature.EffectiveCanonicalReturnType,
+                rightSignature.EffectiveCanonicalReturnType)
+            && leftSignature.Parameters.Count
+                == rightSignature.Parameters.Count
+            && leftSignature.Parameters.Zip(
+                rightSignature.Parameters,
+                static (leftParameter, rightParameter) =>
+                    OperatorNames.OperatorPairingTypesMatch(
+                        leftParameter.EffectiveCanonicalType,
+                        rightParameter.EffectiveCanonicalType))
+                .All(static equal => equal);
+    }
+
+    static int OperatorParameterCount(string parameters)
+    {
+        if (parameters.Length == 0 || parameters[0] != '(')
+            return -1;
+        int close = Matching(parameters, 0, '(', ')');
+        if (close != parameters.Length - 1)
+            return -1;
+        return SplitTopLevel(parameters[1..close]).Count();
+    }
+
+    static bool OperatorParametersHaveRefOrOutModifier(string parameters)
+    {
+        if (parameters.Length == 0 || parameters[0] != '(')
+            return true;
+        int close = Matching(parameters, 0, '(', ')');
+        if (close != parameters.Length - 1)
+            return true;
+
+        foreach (string parameter in SplitTopLevel(parameters[1..close]))
+        {
+            string remainder = parameter.TrimStart();
+            while (remainder.StartsWith("[", StringComparison.Ordinal))
+            {
+                int attributeEnd = Matching(remainder, 0, '[', ']');
+                if (attributeEnd < 0)
+                    return true;
+                remainder = remainder[(attributeEnd + 1)..].TrimStart();
+            }
+            if (remainder.StartsWith("this ", StringComparison.Ordinal))
+                remainder = remainder["this ".Length..].TrimStart();
+            if (remainder.StartsWith("scoped ", StringComparison.Ordinal))
+                remainder = remainder["scoped ".Length..].TrimStart();
+            if (remainder.StartsWith("ref ", StringComparison.Ordinal)
+                || remainder.StartsWith("out ", StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>

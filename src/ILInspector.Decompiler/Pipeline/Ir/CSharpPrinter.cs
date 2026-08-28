@@ -56,6 +56,7 @@ public sealed partial class CSharpPrinter
     readonly HashSet<string> _reservedScopeNames;
     readonly List<DecompilerDecision> _decisions;
     readonly HashSet<string> _decisionKeys;
+    readonly HashSet<Call> _explicitOperatorInvocations;
     readonly IrNode _stackSlotTelemetryScope;
 
     CSharpPrinter(
@@ -65,7 +66,8 @@ public sealed partial class CSharpPrinter
         StackSlotUnifierTelemetryBuilder? stackSlotTelemetry = null,
         IrNode? stackSlotTelemetryScope = null,
         List<DecompilerDecision>? decisions = null,
-        HashSet<string>? decisionKeys = null)
+        HashSet<string>? decisionKeys = null,
+        HashSet<Call>? explicitOperatorInvocations = null)
     {
         _function = function;
         _options = options ?? PrinterOptions.Default;
@@ -78,6 +80,7 @@ public sealed partial class CSharpPrinter
         _stackSlotTelemetryScope = stackSlotTelemetryScope ?? function.Body;
         _decisions = decisions ?? [];
         _decisionKeys = decisionKeys ?? [];
+        _explicitOperatorInvocations = explicitOperatorInvocations ?? [];
     }
 
     // The output-path pass context: stepping off, plus the optional cross-method
@@ -371,7 +374,18 @@ public sealed partial class CSharpPrinter
     }
 
     DecompilerResult Result(string output, IrFunction function)
-        => new(output, function.Fidelity, [.. function.Diagnostics])
+        => new(
+            output,
+            _explicitOperatorInvocations.Count > 0
+                ? DecompilationFidelity.Partial
+                : function.Fidelity,
+            [
+                .. function.Diagnostics,
+                .. _explicitOperatorInvocations.Select(
+                    call => new DecompilerDiagnostic(
+                        DiagnosticIds.UnrepresentableMetadataName,
+                        $"metadata operator '{call.Callee.Name}' rendered as an explicit invocation, which C# forbids")),
+            ])
         {
             ConstructorChain = _constructorChain,
             FieldInitializers = _fieldInitializers,
@@ -394,7 +408,7 @@ public sealed partial class CSharpPrinter
     /// brace block. The single-statement shape is structural (the emitted
     /// top-level statement list plus the lifts the printer already tracked), never
     /// a re-parse of the rendered text: because the body is exactly one statement
-    /// with no lifted declarations, its whole printed form is that one
+    /// with no lifted declarations or statement-local preludes, its whole printed form is that one
     /// <c>&lt;expr&gt;;</c>, so folding it to <c>head =&gt; &lt;expr&gt;;</c> is a
     /// language-guaranteed equivalence. The only text-derived input is whether
     /// that statement actually wrapped: a single-line body already folds on the
@@ -423,18 +437,21 @@ public sealed partial class CSharpPrinter
     /// leading local declaration (a <c>stackalloc</c>-to-pointer return inside an
     /// <c>unsafe</c> block) prints a decl first, not a bare <c>return </c>, so the
     /// keyword prefix keeps the flag off.</item>
-    /// <item>A single <see cref="ExpressionStatement"/> has no leading-decl lift
-    /// path, so its whole printed form is that one statement — but under the new
-    /// memory-safety rules the printer may wrap a lone unsafe statement as
+    /// <item>A statement that emitted a typed prelude (for example the synthetic
+    /// receiver local required by a C# 14 instance compound assignment) is
+    /// excluded before the text check: one IR statement printed as multiple C#
+    /// statements cannot become an expression-bodied member.</item>
+    /// <item>An otherwise single <see cref="ExpressionStatement"/> may still be
+    /// wrapped under the new memory-safety rules as
     /// <c>unsafe { &lt;stmt&gt;; }</c>, whose printed form ends in <c>}</c>, not
     /// <c>;</c>. The trailing-<c>;</c> guard keeps the flag off for that wrapper
     /// (the extractor rejects it too), so no keyword prefix is needed to
     /// discriminate the un-wrapped case.</item>
     /// </list>
     /// </summary>
-    static bool IsFoldableSingleStatement(IReadOnlyList<IrNode> statements, string output)
+    bool IsFoldableSingleStatement(IReadOnlyList<IrNode> statements, string output)
     {
-        if (statements is not [var only])
+        if (statements is not [var only] || _statementsWithLiftedPrelude.Contains(only))
             return false;
         var trimmed = output.AsSpan().Trim();
         if (!trimmed.Contains('\n') || trimmed[^1] != ';')
@@ -503,6 +520,15 @@ public sealed partial class CSharpPrinter
     /// </summary>
     bool _checkedContext;
 
+    /// <summary>
+    /// Instance compound-assignment calls whose receiver was materialized into a
+    /// statement-level synthetic local, mapped to that local's name. C# requires
+    /// the left operand of a compound assignment to be a variable (CS0131), so a
+    /// receiver the IL inlined — <c>Get() += 1</c> — is bound to a local first
+    /// and the operator spelling then names that local.
+    /// </summary>
+    readonly Dictionary<Call, string> _materializedReceivers = [];
+
     /// <summary>An explicit base/this chain call lifted out of a constructor body to its signature initializer (base/this calls are invalid as body statements).</summary>
     string? _constructorChain;
     IrNode? _chainStatement;
@@ -529,6 +555,17 @@ public sealed partial class CSharpPrinter
     /// </summary>
     readonly List<IrNode> _topLevelStatements = [];
     bool _topLevelHasLabel;
+
+    /// <summary>
+    /// IR statements whose printer path emitted a leading C# statement before
+    /// the statement's primary spelling. The range-map start override is the
+    /// typed emission invariant for this shape: receiver and stackalloc
+    /// materialization set it exactly when one IR statement expands into
+    /// multiple C# statements. A top-level member containing one such node is
+    /// not a single-expression body. The member-level compile gate is
+    /// <c>CSharpPrinterReceiverTests.InlinedReceiver_InstanceAssignment_WholeMemberStaysBlockAndCompiles</c>.
+    /// </summary>
+    readonly HashSet<IrNode> _statementsWithLiftedPrelude = [];
 
     /// <summary>Pinned local slots a <see cref="Fixed"/> statement owns: declared by the fixed header (skipped up front) and read as a pointer of the fixed's element type.</summary>
     readonly HashSet<int> _fixedLocals = [];
@@ -1892,7 +1929,8 @@ public sealed partial class CSharpPrinter
                 _stackSlotTelemetry,
                 stackSlotTelemetryScope: localFunction,
                 decisions: _decisions,
-                decisionKeys: _decisionKeys)
+                decisionKeys: _decisionKeys,
+                explicitOperatorInvocations: _explicitOperatorInvocations)
             {
                 _labelScopeSuffix = AllocateNestedLabelScopeSuffix(),
             };
@@ -1916,7 +1954,9 @@ public sealed partial class CSharpPrinter
     {
         if (_printedRanges is null)
         {
-            AppendStatementCore(sb, node, indent, out _);
+            AppendStatementCore(sb, node, indent, out int? liftedStartOverride);
+            if (liftedStartOverride is not null)
+                _statementsWithLiftedPrelude.Add(node);
             return;
         }
         int start = sb.Length;
@@ -1930,6 +1970,8 @@ public sealed partial class CSharpPrinter
         try
         {
             AppendStatementCore(sb, node, indent, out statementStartOverride);
+            if (statementStartOverride is not null)
+                _statementsWithLiftedPrelude.Add(node);
             contextRanges = _contextRanges;
             contextualExpressions = _contextualExpressions;
         }
@@ -2347,6 +2389,31 @@ public sealed partial class CSharpPrinter
             sb.Append(pad).Append("}");
             CaptureContextRange(tupleSwitch, switchStart, sb.Length);
             sb.AppendLf(";");
+            return;
+        }
+        if (node is ExpressionStatement { Expression: Call instanceAssignment } assignmentStatement
+            && IsInstanceAssignmentOperatorCall(instanceAssignment)
+            && RequiresMaterializedReceiver(instanceAssignment))
+        {
+            var receiver = instanceAssignment.Arguments[0];
+            string localName = FreshSyntheticLocalName("__receiver");
+            sb.Append(pad)
+                .Append(TypeText(instanceAssignment.Callee.DeclaringType))
+                .Append(' ')
+                .Append(localName)
+                .Append(" = ")
+                .Append(Expression(receiver))
+                .AppendLf(";");
+            statementStartOverride = sb.Length;
+            _materializedReceivers[instanceAssignment] = localName;
+            try
+            {
+                sb.Append(pad).AppendLf(Statement(assignmentStatement)!);
+            }
+            finally
+            {
+                _materializedReceivers.Remove(instanceAssignment);
+            }
             return;
         }
         if (node is Return { Value: StackAllocate stackAllocate }
@@ -3432,6 +3499,8 @@ public sealed partial class CSharpPrinter
             // A user-defined checked ++/-- as a statement spells checked(x++),
             // which is CS0201 in statement position; use a checked { ... } block.
             IncrementDecrement { IsChecked: true } id => CheckedIncrementStatement(e, id),
+            Call call when IsCheckedInstanceAssignmentOperatorCall(call)
+                => CheckedInstanceAssignmentStatement(e, call),
             // C# requires an expression statement to be an invocation, object
             // creation, await, or inc/decrement. A bare value — a stack slot
             // discarded by an IL `pop`, a comparison, the caught exception, an
@@ -4911,11 +4980,7 @@ public sealed partial class CSharpPrinter
 
     string FreshSyntheticLocalName(string baseName)
     {
-        var used = new HashSet<string>(
-            _function.Signature.Parameters.Select(p => p.Name)
-                .Concat(_function.LocalNames.Where(name => !string.IsNullOrWhiteSpace(name)).Select(name => name!))
-                .Concat(_syntheticLocalNames),
-            StringComparer.Ordinal);
+        IReadOnlySet<string> used = CurrentScopeNames();
         string chosen = baseName;
         if (used.Contains(baseName))
         {
@@ -5657,15 +5722,41 @@ public sealed partial class CSharpPrinter
         _ => false,
     };
 
-    /// <summary>True when a non-instance call renders as a C# operator (`a != b`, `-x`) rather than a method invocation — the compound form that must parenthesize as an operand.</summary>
+    /// <summary>True when a call renders as C# operator syntax rather than a method invocation.</summary>
     bool IsOperatorCall(Call call)
         => AnnotatedSourceNodeKindProjection.OperatorKind(call) is not null;
+
+    bool IsInstanceAssignmentOperatorCall(Call call)
+        => call.Callee.HasThis
+            && AnnotatedSourceNodeKindProjection.OperatorKind(call) == "AssignmentStatement";
+
+    bool IsCheckedInstanceAssignmentOperatorCall(Call call)
+        => IsInstanceAssignmentOperatorCall(call)
+            && call.Callee.Name.StartsWith("op_Checked", StringComparison.Ordinal);
+
+    /// <summary>
+    /// True when an instance compound-assignment call can only be spelled as a
+    /// statement, so an enclosing expression-bodied form
+    /// (<see cref="LambdaText"/>) must take the block path instead. Two
+    /// independent reasons, and each is invalid C# as an expression body:
+    /// <list type="bullet">
+    /// <item>the checked form needs a <c>checked { ... }</c> statement, because
+    /// <c>checked(box += 1)</c> is CS0201; and</item>
+    /// <item>a receiver that is not a C# variable needs the statement-level
+    /// materialization local, because <c>Create() += 1</c> is CS0131.</item>
+    /// </list>
+    /// An assignable receiver in the unchecked form stays expression-bodied.
+    /// </summary>
+    bool RequiresStatementFormInstanceAssignment(Call call)
+        => IsInstanceAssignmentOperatorCall(call)
+            && (call.Callee.Name.StartsWith("op_Checked", StringComparison.Ordinal)
+                || RequiresMaterializedReceiver(call));
 
     /// <summary>
     /// The direct idiom for a negated operator-spelled equality/inequality
     /// CALL (`!(Type.op_Equality(a, b))` -> `a != b`, and the reverse), the
     /// call-shaped counterpart of the native <c>ceq</c>-opcode fold above
-    /// (#2955). Restricted to <see cref="MemberIdentity.IsKnownCoreLibraryOperator"/>
+    /// (#2955). Restricted to <see cref="MemberIdentity.IsKnownFrameworkOperator"/>
     /// (currently <see cref="string"/>/<see cref="Type"/>), where the BCL
     /// guarantees op_Equality and op_Inequality are each other's exact logical
     /// inverse for every input — including IEEE-754 float/double, where
@@ -5689,7 +5780,7 @@ public sealed partial class CSharpPrinter
     /// as-is).
     /// </summary>
     string? InvertedEqualityOperatorCallText(Call call)
-        => call is { Arguments: [var left, var right] } && MemberIdentity.IsKnownCoreLibraryOperator(call.Callee)
+        => call is { Arguments: [var left, var right] } && MemberIdentity.IsKnownFrameworkOperator(call.Callee)
             ? call.Callee.Name switch
             {
                 "op_Equality" => $"{OperatorOperand(left)} != {OperatorOperand(right)}",
@@ -5737,15 +5828,23 @@ public sealed partial class CSharpPrinter
     /// </summary>
     bool IsStatementExpression(IrExpression expression) => expression switch
     {
-        Call call => !IsOperatorCall(call),
+        Call call => IsInstanceAssignmentOperatorCall(call) || !IsOperatorCall(call),
         CallIndirect or NewObject or IncrementDecrement or AwaitExpression or LocalFunctionInvocation => true,
         _ => false,
     };
 
-    static Precedence? OperatorCallPrecedence(Call call)
+    Precedence? OperatorCallPrecedence(Call call)
     {
         var arguments = call.Arguments;
         string name = call.Callee.Name;
+        if (IsInstanceAssignmentOperatorCall(call))
+        {
+            if (name.StartsWith("op_Checked", StringComparison.Ordinal))
+                return null;
+            return name is "op_IncrementAssignment" or "op_DecrementAssignment"
+                ? Precedence.Primary
+                : Precedence.Assignment;
+        }
         if (name.StartsWith("op_Checked", StringComparison.Ordinal))
             name = "op_" + name["op_Checked".Length..];
 
@@ -5787,7 +5886,53 @@ public sealed partial class CSharpPrinter
     /// <summary>The operator form of an op_* call, or null when the name has no spelling (op_True/op_False and friends stay as calls).</summary>
     string? OperatorSpelling(Call call)
     {
+        if (!_checkedContext || OperatorNames.CheckedOperator(call.Callee.Name) is null)
+            return OperatorSpellingCore(call);
+
+        _checkedContext = false;
+        try
+        {
+            string? spelling = OperatorSpellingCore(call);
+            return spelling is null ? null : $"unchecked({spelling})";
+        }
+        finally
+        {
+            _checkedContext = true;
+        }
+    }
+
+    string? OperatorSpellingCore(Call call)
+    {
         var arguments = call.Arguments;
+
+        if (call.Callee.HasThis && arguments.Count >= 1)
+        {
+            string name = call.Callee.Name;
+            bool isChecked = name.StartsWith("op_Checked", StringComparison.Ordinal);
+            string? suffix = isChecked
+                ? name["op_Checked".Length..]
+                : name.StartsWith("op_", StringComparison.Ordinal)
+                    ? name["op_".Length..]
+                    : null;
+            string? symbol = suffix is null
+                ? null
+                : isChecked
+                    ? OperatorNames.MapCheckedAssignment(suffix)
+                    : OperatorNames.MapAssignment(suffix);
+            if (symbol is null)
+                return null;
+
+            bool isIncrement = suffix is "IncrementAssignment" or "DecrementAssignment";
+            if (isIncrement ? arguments.Count != 1 : arguments.Count != 2)
+                return null;
+
+            string RenderSpelling() => isIncrement
+                ? $"{InstanceAssignmentReceiver(call)}{symbol}"
+                : $"{InstanceAssignmentReceiver(call)} {symbol} {InstanceAssignmentRightOperand(call)}";
+            return !isChecked
+                ? RenderSpelling()
+                : WrapChecked(RenderSpelling);
+        }
 
         // User-defined checked operators (C# 11). The metadata name encodes the
         // checked overload (op_CheckedAddition, op_CheckedSubtraction, ...); the
@@ -5829,6 +5974,121 @@ public sealed partial class CSharpPrinter
         }
         return null;
     }
+
+    string InstanceAssignmentReceiver(Call call)
+        => _materializedReceivers.TryGetValue(call, out string? materialized)
+            ? materialized
+            : EffectiveType(call.Arguments[0])?.Kind == TypeRefKind.Pointer
+                ? $"(*{OperatorOperand(call.Arguments[0])})"
+            : OperatorOperand(call.Arguments[0]);
+
+    /// <summary>
+    /// True when an instance compound-assignment call's receiver is not a C#
+    /// variable, so the operator spelling would be CS0131 ("the left-hand side
+    /// of an assignment must be a variable, property or indexer" — and a
+    /// property is not accepted for this operator form either). Release IL
+    /// routinely inlines a single-use receiver, producing exactly this shape
+    /// from <c>Box b = Get(); b += 1;</c>.
+    /// </summary>
+    /// <remarks>
+    /// A by-ref or pointer receiver is left alone: a struct receiver always
+    /// arrives as an address, its spelling is already a place, and binding the
+    /// pointed-to value to a local would mutate a copy.
+    /// </remarks>
+    bool RequiresMaterializedReceiver(Call call)
+    {
+        if (call.Arguments.Count == 0)
+            return false;
+        var receiver = call.Arguments[0];
+        if (!IsAssignableReceiverPlace(receiver))
+        {
+            return receiver.ResultType
+                is not { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer };
+        }
+
+        TypeRef? receiverType = EffectiveType(receiver);
+        if (receiverType?.Kind == TypeRefKind.ByRef)
+            receiverType = receiverType.ElementType;
+        if (receiverType?.Kind is
+            TypeRefKind.GenericParameter
+            or TypeRefKind.MethodGenericParameter)
+        {
+            return false;
+        }
+        return receiverType is not null
+            && (receiver is LoadArgument
+                {
+                    Index: 0,
+                    Name: "this",
+                }
+                || !receiverType.Equals(call.Callee.DeclaringType))
+            && IsConcreteReferenceParameter(
+                call.Callee.DeclaringType);
+    }
+
+    static bool IsAssignableReceiverPlace(IrExpression receiver) => receiver switch
+    {
+        // Address-of forms print as the underlying place (OperatorOperand strips
+        // the address-of), and every one of those places is a C# variable.
+        LoadArgumentAddress or LoadLocalAddress or LoadFieldAddress or LoadElementAddress => true,
+        LoadArgument or LoadLocal or LoadStackSlot or LoadField or LoadElement => true,
+        LoadIndirect => true,
+        _ => false,
+    };
+
+    string InstanceAssignmentRightOperand(Call call)
+    {
+        IrExpression argument = call.Arguments[1];
+        if (call.Callee.ParameterTypes.IsDefaultOrEmpty)
+            return OperatorOperand(argument);
+
+        TypeRef parameter = call.Callee.ParameterTypes[0];
+        TypeRef valueParameter = parameter.Kind == TypeRefKind.ByRef
+            ? parameter.ElementType!
+            : parameter;
+        if (OperatorOverloadFidelityCast(argument, valueParameter) is { } fidelityCast)
+            return fidelityCast;
+        return parameter.Kind == TypeRefKind.ByRef
+            ? OperatorOperand(argument)
+            : CoerceText(argument, parameter);
+    }
+
+    string? OperatorOverloadFidelityCast(IrExpression argument, TypeRef parameter)
+    {
+        bool collectionTargetCast =
+            argument is CollectionExpression
+            && parameter.Kind is TypeRefKind.Definition
+                or TypeRefKind.GenericInstance
+                or TypeRefKind.SzArray
+                or TypeRefKind.Array;
+        if (!IsConcreteReferenceParameter(parameter)
+            && !collectionTargetCast)
+            return null;
+        string parameterText = TypeText(parameter);
+        if (argument is Constant { Value: null })
+            return $"({parameterText})null";
+        var argumentType = EffectiveType(argument);
+        if (argumentType?.Kind == TypeRefKind.ByRef)
+            argumentType = argumentType.ElementType;
+        if (argumentType is null
+            || argumentType.Equals(parameter)
+                && !RequiresContextualOperatorCast(argument))
+            return null;
+        return $"({parameterText}){OperatorOperand(argument)}";
+    }
+
+    static bool RequiresContextualOperatorCast(IrExpression argument)
+        => RendersAsDynamic(argument)
+            || argument is Lambda
+                or DelegateCreation
+                or AddressOfMethod
+                or CollectionExpression
+                or Conditional
+                or Coalesce
+                or SwitchExpression
+                or UnionSwitchExpression
+                or TupleSwitchExpression
+                or PatternSwitchExpression;
 
     /// <summary>
     /// An operand of a user-defined operator call. The operator's parameters may
@@ -6204,6 +6464,21 @@ public sealed partial class CSharpPrinter
             _printedRanges = printedRanges;
             _printedRangeMetadata = printedRangeMetadata;
             _expressionText = expressionText;
+        }
+    }
+
+    string CheckedInstanceAssignmentStatement(ExpressionStatement owner, Call call)
+    {
+        _printedRanges?.SetNodeKind(owner, "CheckedStatement");
+        bool saved = _checkedContext;
+        _checkedContext = true;
+        try
+        {
+            return $"checked {{ {OperatorSpelling(call)}; }}";
+        }
+        finally
+        {
+            _checkedContext = saved;
         }
     }
 

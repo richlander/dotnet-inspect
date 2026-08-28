@@ -9,6 +9,39 @@ namespace ILInspector.Metadata.Tests;
 public class ApiMemberIdentityTests
 {
     [Theory]
+    [InlineData("op_Implicit")]
+    [InlineData("op_Explicit")]
+    [InlineData("op_CheckedExplicit")]
+    public void IsConversionOperator_UsesCompleteMetadataVocabulary(string name)
+        => Assert.True(ApiMemberIdentity.IsConversionOperator(name));
+
+    [Fact]
+    public void GetMemberAnchor_DisambiguatesCheckedExplicitConversionsByReturnType()
+    {
+        var type = new ApiType { Namespace = "N", Name = "C" };
+        ApiMember Conversion(string returnType) => new()
+        {
+            Name = "op_CheckedExplicit",
+            Kind = "operator",
+            ReturnType = returnType,
+            Signature = $"{returnType} op_CheckedExplicit(N.C value)",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = returnType,
+                MemberName = "op_CheckedExplicit",
+                Parameters = [new ApiParameter { Name = "value", Type = "N.C" }],
+            },
+        };
+
+        var intAnchor = ApiMemberIdentity.GetMemberAnchor(type, Conversion("int"));
+        var longAnchor = ApiMemberIdentity.GetMemberAnchor(type, Conversion("long"));
+
+        Assert.EndsWith("~int", intAnchor.CanonicalSignature, StringComparison.Ordinal);
+        Assert.EndsWith("~long", longAnchor.CanonicalSignature, StringComparison.Ordinal);
+        Assert.NotEqual(intAnchor.Fingerprint, longAnchor.Fingerprint);
+    }
+
+    [Theory]
     [InlineData(".ctor", false, ".ctor")]
     [InlineData("op_Addition", false, "operator:op_Addition")]
     [InlineData("IFoo.Bar", false, "explicit:IFoo.Bar")]
@@ -123,8 +156,8 @@ public class ApiMemberIdentityTests
             .ToList();
         Assert.Equal(2, liveIndexers.Count);
 
-        // Round-trip through JSON. SignatureModel is [JsonIgnore], so the deserialized
-        // members have no SignatureModel and exercise the raw-signature fallback path.
+        // Current JSON preserves SignatureModel. Clear it after round-trip to exercise
+        // compatibility with older model-less surfaces.
         var json = JsonSerializer.Serialize(surface);
         var roundTripped = JsonSerializer.Deserialize<ApiSurface>(json)!;
         var roundTrippedType = roundTripped.Types.Single(t => t.Name.EndsWith(nameof(IndexerFixture), StringComparison.Ordinal));
@@ -132,7 +165,11 @@ public class ApiMemberIdentityTests
             .Where(member => member.Kind == "property" && member.Signature != null && member.Signature.Contains("this[", StringComparison.Ordinal))
             .ToList();
         Assert.Equal(2, roundTrippedIndexers.Count);
-        Assert.All(roundTrippedIndexers, member => Assert.Null(member.SignatureModel));
+        foreach (var member in roundTrippedIndexers)
+        {
+            Assert.NotNull(member.SignatureModel);
+            member.SignatureModel = null;
+        }
 
         // The fallback must still disambiguate by parameter type on the round-tripped
         // surface (parsed from the raw "this[...]" signature text), and -- critically --
@@ -274,8 +311,8 @@ public class ApiMemberIdentityTests
         using var peReader = new PEReader(stream);
         var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
 
-        // Round-trip through JSON. SignatureModel is [JsonIgnore], so the deserialized
-        // members have no SignatureModel and exercise the GetCanonicalSignature fallback.
+        // Current JSON preserves SignatureModel. Clear it after round-trip to exercise
+        // the GetCanonicalSignature fallback for older surfaces.
         var json = JsonSerializer.Serialize(surface);
         var roundTripped = JsonSerializer.Deserialize<ApiSurface>(json)!;
 
@@ -284,7 +321,11 @@ public class ApiMemberIdentityTests
             .Where(member => member.Kind == "operator" && member.Name == "op_Explicit")
             .ToList();
         Assert.Equal(2, conversions.Count);
-        Assert.All(conversions, member => Assert.Null(member.SignatureModel));
+        foreach (var member in conversions)
+        {
+            Assert.NotNull(member.SignatureModel);
+            member.SignatureModel = null;
+        }
 
         // The fallback must still disambiguate by return type on the round-tripped surface,
         // using the persisted ApiMember.ReturnType.
@@ -316,7 +357,8 @@ public class ApiMemberIdentityTests
             type => type.Name.EndsWith(nameof(AttributedParameterFixture), StringComparison.Ordinal));
         var persistedMember = persistedType.Members.Single(
             member => member.Name == nameof(AttributedParameterFixture.M));
-        Assert.Null(persistedMember.SignatureModel);
+        Assert.NotNull(persistedMember.SignatureModel);
+        persistedMember.SignatureModel = null;
 
         var liveCanonical = ApiMemberIdentity.GetCanonicalSignature(liveType, liveMember);
         var persistedCanonical = ApiMemberIdentity.GetCanonicalSignature(persistedType, persistedMember);
@@ -347,7 +389,8 @@ public class ApiMemberIdentityTests
             type => type.Name.EndsWith(nameof(AttributedParameterFixture), StringComparison.Ordinal));
         var persistedIndexer = persistedType.Members.Single(
             member => member.Kind == "property" && member.Name == "Item");
-        Assert.Null(persistedIndexer.SignatureModel);
+        Assert.NotNull(persistedIndexer.SignatureModel);
+        persistedIndexer.SignatureModel = null;
 
         var liveCanonical = ApiMemberIdentity.GetCanonicalSignature(liveType, liveIndexer);
         var persistedCanonical = ApiMemberIdentity.GetCanonicalSignature(persistedType, persistedIndexer);

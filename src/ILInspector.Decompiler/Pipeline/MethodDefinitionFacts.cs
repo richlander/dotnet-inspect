@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using CSharpText;
 using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
@@ -271,10 +272,20 @@ internal static class MethodDefinitionFacts
     internal static bool IsUnmanagedCallersOnly(MetadataReader reader, MethodDefinition method)
         => HasAttribute(reader, method.GetCustomAttributes(), "System.Runtime.InteropServices", "UnmanagedCallersOnlyAttribute");
 
-    internal static bool IsOperator(MethodDefinition method, string methodName, bool hasThis)
-        => !hasThis
-            && methodName.StartsWith("op_", StringComparison.Ordinal)
-            && (method.Attributes & System.Reflection.MethodAttributes.SpecialName) != 0;
+    /// <summary>
+    /// The C#-raising operator proof for a resolved MethodDef. A raise spells a
+    /// CALL as operator syntax, so the bar is C# <em>source representability</em>
+    /// — strictly narrower than the CLI operator vocabulary that metadata and
+    /// API classification use (<see cref="OperatorNames.IsMetadataOperatorMethod"/>).
+    /// metadata that no C# compiler could have produced — a private operator, a
+    /// <c>ref</c> parameter, a void return, or a binary operator on a declaring
+    /// type that participates in neither operand — stays an ordinary call rather
+    /// than becoming operator syntax with different semantics.
+    /// </summary>
+    internal static bool IsOperator(
+        MetadataReader reader,
+        MethodDefinition method)
+        => OperatorMetadata.IsCSharpOperatorDeclaration(reader, method);
 
     internal static AccessorKind ReadAccessorKind(MetadataReader reader, TypeDefinition declaringType, MethodDefinitionHandle method)
     {

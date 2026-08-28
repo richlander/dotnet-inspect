@@ -1,8 +1,10 @@
 using System.Collections.Immutable;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Runtime.Loader;
 
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
@@ -52,6 +54,19 @@ public class CrossAssemblyMethodFactsTests
     }
 
     [Fact]
+    public void GenericDeclaringTypeSignatureCollision_UsesDefinitionSignature()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+
+        AssertCallRefKind(
+            source,
+            "UseGenericDeclaringTypeOut",
+            "DefinitionCollision",
+            ArgumentRefKind.Out);
+    }
+
+    [Fact]
     public void GenericReturnSignatureCollision_UsesDefinitionReturnType()
     {
         using var fixture = MethodCollisionFixture.Create();
@@ -68,6 +83,171 @@ public class CrossAssemblyMethodFactsTests
         };
 
         Assert.False(fixture.Resolve(callee).RequiresUnsafe);
+    }
+
+    [Fact]
+    public void PlatformMethodSignature_DoesNotAcceptAttackerOwnedCoreTypeName()
+    {
+        using var source = MetadataSource.Open(
+            typeof(CrossAssemblyMethodFactsTests).Assembly.Location,
+            null,
+            TestAssemblyReferenceResolvers.TrustedPlatformAssemblies());
+        var attackerInt = TypeRef.Definition(
+            "Attacker",
+            "System",
+            "Int32");
+        var callee = new MethodRef(
+            TypeRef.CoreLib("System", "Math"),
+            "Abs",
+            attackerInt,
+            [attackerInt],
+            HasThis: false);
+
+        MethodRef resolved = source.CrossAssembly.Upgrade(
+            callee,
+            resolveRequiresUnsafe: false);
+
+        Assert.Equal(
+            ParameterRefKindFacts.Unknown,
+            resolved.ParameterRefKindsFacts);
+    }
+
+    [Fact]
+    public void PlatformFieldSignature_DoesNotAcceptAttackerOwnedCoreTypeName()
+    {
+        using var source = MetadataSource.Open(
+            typeof(CrossAssemblyMethodFactsTests).Assembly.Location,
+            null,
+            TestAssemblyReferenceResolvers.TrustedPlatformAssemblies());
+        var field = new FieldRef(
+            TypeRef.CoreLib("System", "Decimal"),
+            "One",
+            TypeRef.Definition("Attacker", "System", "Decimal"));
+
+        FieldRef resolved = source.CrossAssembly.Upgrade(field);
+
+        Assert.Equal(MetadataFactState.Unknown, resolved.DynamicFact);
+    }
+
+    [Fact]
+    public void CoreLibraryAlias_RequiresTrustedPlatformLocalDefinition()
+    {
+        var platformIdentity = new AssemblyReferenceIdentity(
+            "System.Private.CoreLib",
+            new Version(11, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: "7cec85d7bea7798e");
+        var aliasIdentity = new AssemblyReferenceIdentity(
+            "netstandard",
+            new Version(2, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: "cc7b13ffcd2ddd51");
+        var definitionName = MetadataTypeDefinitionName.Create(
+            "System",
+            ["Func`1"]) switch
+        {
+            MetadataTypeDefinitionNameResult.Valid valid => valid.Name,
+            _ => throw new InvalidOperationException(
+                "Func metadata name is invalid"),
+        };
+        var resolved = TypeRef.GenericInstance(
+            TypeRef.DefinitionWithResolution(
+                "System.Private.CoreLib",
+                "System",
+                "Func`1",
+                ValueTypeHint.ReferenceType,
+                MetadataFactState.No,
+                enclosingType: null,
+                definitionName,
+                resolutionAssembly: null),
+            [TypeRef.MethodGenericParameter(0, "T")]);
+        var expected = TypeRef.GenericInstance(
+            TypeRef.DefinitionWithResolution(
+                TypeRef.CoreLibrary,
+                "System",
+                "Func`1",
+                ValueTypeHint.ReferenceType,
+                MetadataFactState.No,
+                enclosingType: null,
+                definitionName,
+                aliasIdentity),
+            [TypeRef.MethodGenericParameter(0)]);
+
+        Assert.True(CrossAssemblyTypeResolver.SameSignatureType(
+            resolved,
+            expected,
+            allowCoreLibraryAliases: true,
+            resolvedLocalAssembly: "System.Private.CoreLib",
+            resolvedLocalAssemblyIdentity: platformIdentity,
+            coreLibraryAliasIdentity: aliasIdentity));
+        Assert.False(CrossAssemblyTypeResolver.SameSignatureType(
+            resolved,
+            expected,
+            allowCoreLibraryAliases: true,
+            resolvedLocalAssembly: "System.Private.CoreLib",
+            resolvedLocalAssemblyIdentity: platformIdentity with
+            {
+                PublicKeyToken = null,
+            },
+            coreLibraryAliasIdentity: aliasIdentity));
+    }
+
+    [Fact]
+    public void OperatorRelationship_DistinguishesSameNamedTypesFromAssemblyVersions()
+    {
+        using var fixture = OperatorAssemblyCollisionFixture.Create();
+        using var context = new MetadataContext(fixture);
+        using var source = MetadataSource.OpenWithoutSymbols(
+            fixture.SubjectPath,
+            fixture,
+            context);
+        MethodDefinition method = source.Reader.MethodDefinitions
+            .Select(source.Reader.GetMethodDefinition)
+            .Single(candidate =>
+                source.Reader.GetString(candidate.Name) == "op_Increment");
+
+        OperatorMetadata.DeclarationClassification classification =
+            source.CrossAssembly.ClassifyCSharpOperatorDeclaration(
+                source.Reader,
+                method);
+
+        Assert.Equal(
+            OperatorMetadata.DeclarationClassification.No,
+            classification);
+    }
+
+    [Fact]
+    public void OperatorRelationship_PreservesSourceLocalGenericArgumentIdentity()
+    {
+        using var fixture =
+            GenericOperatorOriginFixture.Create();
+        using var context = new MetadataContext(fixture);
+        using var source = MetadataSource.OpenWithoutSymbols(
+            fixture.SubjectPath,
+            fixture,
+            context);
+
+        Assert.Equal(
+            OperatorMetadata.DeclarationClassification.No,
+            Classify("op_Implicit"));
+        Assert.Equal(
+            OperatorMetadata.DeclarationClassification.Yes,
+            Classify("op_Explicit"));
+
+        OperatorMetadata.DeclarationClassification Classify(
+            string name)
+        {
+            MethodDefinition method =
+                source.Reader.MethodDefinitions
+                    .Select(source.Reader.GetMethodDefinition)
+                    .Single(candidate =>
+                        source.Reader.GetString(candidate.Name)
+                            == name);
+            return source.CrossAssembly
+                .ClassifyCSharpOperatorDeclaration(
+                    source.Reader,
+                    method);
+        }
     }
 
     [Fact]
@@ -300,6 +480,45 @@ public class CrossAssemblyMethodFactsTests
     }
 
     [Fact]
+    public void PlatformGenericByRefMemberRef_RecoversParameterRefKinds()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(
+            fixture.ConsumerPath,
+            null,
+            TestAssemblyReferenceResolvers.TrustedPlatformAssemblies());
+
+        var call = SingleCall(
+            source,
+            nameof(CrossAssemblyFixtureMethods.UseLazyInitializer),
+            "EnsureInitialized");
+
+        Assert.Equal(
+            ParameterRefKindFacts.Known,
+            call.Callee.ParameterRefKindsFacts);
+        Assert.Equal(
+            ArgumentRefKind.Ref,
+            call.Callee.ParameterRefKinds[0]);
+    }
+
+    [Fact]
+    public void PlatformOperatorMemberRef_RecoversOperatorFact()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(
+            fixture.ConsumerPath,
+            null,
+            TestAssemblyReferenceResolvers.TrustedPlatformAssemblies());
+
+        var call = SingleCall(
+            source,
+            nameof(CrossAssemblyFixtureMethods.UseDateTimeOffsetEquality),
+            "op_Equality");
+
+        Assert.Equal(MetadataFactState.Yes, call.Callee.IsOperator);
+    }
+
+    [Fact]
     public void CrossAssemblyGeneratedMemberRef_RecoversCompilerGeneratedFacts()
     {
         using var fixture = CrossAssemblyFixture.Create();
@@ -329,6 +548,8 @@ public class CrossAssemblyMethodFactsTests
         var call = SingleCall(source, nameof(CrossAssemblyFixtureMethods.UseRealOperator), "op_Addition");
 
         Assert.Equal(MetadataFactState.Yes, call.Callee.IsOperator);
+        Assert.True(call.Callee.IsSpecialName);
+        Assert.False(call.Callee.IsSpecialNameInferred);
     }
 
     [Fact]
@@ -342,6 +563,39 @@ public class CrossAssemblyMethodFactsTests
 
         Assert.Equal(MetadataFactState.No, addition.Callee.IsOperator);
         Assert.Equal(MetadataFactState.No, conversion.Callee.IsOperator);
+        Assert.False(addition.Callee.IsSpecialName);
+        Assert.False(addition.Callee.IsSpecialNameInferred);
+        Assert.False(conversion.Callee.IsSpecialName);
+        Assert.False(conversion.Callee.IsSpecialNameInferred);
+    }
+
+    [Theory]
+    [InlineData(
+        nameof(CrossAssemblyFixtureMethods.UseOperatorLikeStaticPointer),
+        "op_Addition",
+        false)]
+    [InlineData(
+        nameof(CrossAssemblyFixtureMethods.UseOperatorLikeVirtualPointer),
+        "op_Addition",
+        true)]
+    public void CrossAssemblyOperatorNameLookalike_FunctionPointerRecoversNotOperatorFact(
+        string methodName,
+        string targetName,
+        bool isVirtual)
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+
+        var pointer = Assert.Single(
+            ImportFunction(source, methodName)
+                .Descendants
+                .OfType<LoadFunctionPointer>());
+
+        Assert.Equal(targetName, pointer.Method.Name);
+        Assert.Equal(isVirtual, pointer.IsVirtual);
+        Assert.Equal(MetadataFactState.No, pointer.Method.IsOperator);
+        Assert.False(pointer.Method.IsSpecialName);
+        Assert.False(pointer.Method.IsSpecialNameInferred);
     }
 
     [Fact]
@@ -350,9 +604,13 @@ public class CrossAssemblyMethodFactsTests
         using var fixture = CrossAssemblyFixture.Create();
         using var source = MetadataSource.Open(fixture.ConsumerPath);
 
-        string addition = Print(source, nameof(CrossAssemblyFixtureMethods.UseOperatorLikeAddition));
-        string conversion = Print(source, nameof(CrossAssemblyFixtureMethods.UseOperatorLikeImplicit));
+        var additionResult = PrintResult(source, nameof(CrossAssemblyFixtureMethods.UseOperatorLikeAddition));
+        var conversionResult = PrintResult(source, nameof(CrossAssemblyFixtureMethods.UseOperatorLikeImplicit));
+        string addition = additionResult.Output ?? "";
+        string conversion = conversionResult.Output ?? "";
 
+        Assert.Equal(DecompilationFidelity.Full, additionResult.Fidelity);
+        Assert.Equal(DecompilationFidelity.Full, conversionResult.Fidelity);
         Assert.Contains(".op_Addition(left, right)", addition);
         Assert.DoesNotContain("left + right", addition);
         Assert.Contains(".op_Implicit(value)", conversion);
@@ -365,10 +623,278 @@ public class CrossAssemblyMethodFactsTests
         using var fixture = CrossAssemblyFixture.Create();
         using var source = MetadataSource.Open(fixture.ConsumerPath);
 
-        string output = Print(source, nameof(CrossAssemblyFixtureMethods.UseRealOperator));
+        var result = PrintResult(source, nameof(CrossAssemblyFixtureMethods.UseRealOperator));
+        string output = result.Output ?? "";
 
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
         Assert.Contains("left + right", output);
         Assert.DoesNotContain("op_Addition", output);
+    }
+
+    [Fact]
+    public void CrossAssemblyConversion_WithResolvedExternalClass_RendersOperator()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+
+        var call = SingleCall(
+            source,
+            nameof(CrossAssemblyFixtureMethods.UseExternalConversion),
+            "op_Implicit");
+        var result = PrintResult(
+            source,
+            nameof(CrossAssemblyFixtureMethods.UseExternalConversion));
+
+        Assert.Equal(
+            ValueTypeHint.ReferenceType,
+            call.Callee.ParameterTypes[0].ValueTypeHint);
+        Assert.Equal(MetadataFactState.Yes, call.Callee.IsOperator);
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains(
+            "return (ExternalConversionHolder)value;",
+            result.Output);
+        Assert.DoesNotContain("op_Implicit", result.Output);
+    }
+
+    [Fact]
+    public void SameAssemblyConversion_WithResolvedExternalClass_RendersOperator()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.LibraryPath);
+        var function = IrImporter.Import(
+            source,
+            "ExternalFacts.ExternalConversionHolder",
+            "Convert");
+
+        Assert.NotNull(function);
+        var call = Assert.Single(
+            function.Descendants.OfType<Call>(),
+            candidate => candidate.Callee.Name == "op_Implicit");
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(MetadataFactState.Yes, call.Callee.IsOperator);
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains(
+            "return (ExternalConversionHolder)value;",
+            result.Output);
+        Assert.DoesNotContain("op_Implicit", result.Output);
+    }
+
+    [Fact]
+    public void OpenGenericExternalClassConversion_RendersOperator()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.LibraryPath);
+        var function = IrImporter.Import(
+            source,
+            "ExternalFacts.GenericConversionHolder`1",
+            "Convert");
+
+        Assert.NotNull(function);
+        var call = Assert.Single(
+            function.Descendants.OfType<Call>(),
+            candidate => candidate.Callee.Name == "op_Implicit");
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(MetadataFactState.Yes, call.Callee.IsOperator);
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains(
+            "return (GenericConversionHolder<T>)value;",
+            result.Output);
+        Assert.DoesNotContain("op_Implicit", result.Output);
+    }
+
+    [Fact]
+    public void ResolvedExternalInterfaceConversion_StaysRejected()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+        TypeRef holder = fixture.Type(
+            fixture.InvalidLibraryPath,
+            "ExternalFacts",
+            "InvalidExternalConversionHolder");
+        TypeRef contract = fixture.Type(
+            fixture.ContractsPath,
+            "ExternalContracts",
+            "IExternalFace");
+        var callee = new MethodRef(
+            holder,
+            "op_Explicit",
+            holder,
+            [contract],
+            HasThis: false)
+        {
+            IsSpecialName = true,
+            IsOperator = MetadataFactState.Unknown,
+        };
+
+        MethodRef resolved = source.CrossAssembly.Upgrade(
+            callee,
+            resolveRequiresUnsafe: false);
+
+        Assert.Equal(MetadataFactState.No, resolved.IsOperator);
+    }
+
+    [Fact]
+    public void MissingOperandRelationshipDependency_KeepsOperatorUnknown()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        var siblings =
+            new MetadataSource.SiblingAssemblyReferenceResolver(
+                fixture.ConsumerPath);
+        using var source = MetadataSource.Open(
+            fixture.ConsumerPath,
+            null,
+            new DenyAssemblyResolver(
+                siblings,
+                "ExternalFacts.Contracts"));
+        TypeRef holder = fixture.Type(
+            fixture.InvalidLibraryPath,
+            "ExternalFacts",
+            "InvalidExternalConversionHolder");
+        TypeRef contract = fixture.Type(
+            fixture.ContractsPath,
+            "ExternalContracts",
+            "IExternalFace");
+        var callee = new MethodRef(
+            holder,
+            "op_Explicit",
+            holder,
+            [contract],
+            HasThis: false)
+        {
+            IsSpecialName = true,
+            IsOperator = MetadataFactState.Unknown,
+        };
+
+        MethodRef resolved = source.CrossAssembly.Upgrade(
+            callee,
+            resolveRequiresUnsafe: false);
+
+        Assert.Equal(MetadataFactState.Unknown, resolved.IsOperator);
+    }
+
+    [Fact]
+    public void MissingOperatorSignatureDependency_KeepsOperatorUnknown()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        var siblings =
+            new MetadataSource.SiblingAssemblyReferenceResolver(
+                fixture.ConsumerPath);
+        using var source = MetadataSource.Open(
+            fixture.ConsumerPath,
+            null,
+            new DenyAssemblyResolver(
+                siblings,
+                "ExternalFacts.Contracts"));
+
+        IrFunction function = ImportFunction(
+            source,
+            nameof(
+                CrossAssemblyFixtureMethods
+                    .UseExternalDependentOperator));
+        Call call = Assert.Single(
+            function.Descendants.OfType<Call>(),
+            candidate => candidate.Callee.Name == "op_Addition");
+
+        Assert.Equal(
+            MetadataFactState.Unknown,
+            call.Callee.IsOperator);
+        Assert.True(call.Callee.IsSpecialName);
+        Assert.False(call.Callee.IsSpecialNameInferred);
+
+        DecompilerResult result = CSharpPrinter.Print(function);
+
+        Assert.Equal(
+            DecompilationFidelity.Partial,
+            result.Fidelity);
+        Assert.Contains(
+            FidelityRemarks.CollectCauses(function),
+            cause => cause.Discriminator
+                == DecompilerFidelityDiscriminators
+                    .OperatorMetadataUnavailable);
+    }
+
+    [Fact]
+    public void ResolvedExternalTransitiveBaseConversion_StaysRejected()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+        TypeRef holder = fixture.Type(
+            fixture.InvalidDerivedLibraryPath,
+            "ExternalFacts",
+            "InvalidDerivedConversionHolder");
+        TypeRef baseType = fixture.Type(
+            fixture.ContractsPath,
+            "ExternalContracts",
+            "ExternalBaseX");
+        var callee = new MethodRef(
+            holder,
+            "op_Implicit",
+            baseType,
+            [holder],
+            HasThis: false)
+        {
+            IsSpecialName = true,
+            IsOperator = MetadataFactState.Unknown,
+        };
+
+        MethodRef resolved = source.CrossAssembly.Upgrade(
+            callee,
+            resolveRequiresUnsafe: false);
+
+        Assert.Equal(MetadataFactState.No, resolved.IsOperator);
+    }
+
+    [Theory]
+    [InlineData(
+        nameof(CrossAssemblyFixtureMethods.UseRealOperator),
+        "op_Addition",
+        ".op_Addition(left, right)",
+        "left + right")]
+    [InlineData(
+        nameof(CrossAssemblyFixtureMethods.UseOperatorLikeAddition),
+        "op_Addition",
+        ".op_Addition(left, right)",
+        "left + right")]
+    [InlineData(
+        nameof(CrossAssemblyFixtureMethods.UseOperatorLikeImplicit),
+        "op_Implicit",
+        ".op_Implicit(value)",
+        "return (int)value;")]
+    public void MissingCrossAssemblyOperatorMetadata_StaysExplicitAndDegrades(
+        string methodName,
+        string calleeName,
+        string expected,
+        string forbidden)
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(
+            fixture.ConsumerPath,
+            null,
+            TestAssemblyReferenceResolvers.None);
+        var function = ImportFunction(source, methodName);
+        var call = Assert.Single(
+            function.Descendants.OfType<Call>(),
+            candidate => candidate.Callee.Name == calleeName);
+
+        Assert.Equal(MetadataFactState.Unknown, call.Callee.IsOperator);
+
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.Contains(expected, result.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain(forbidden, result.Output, StringComparison.Ordinal);
+        Assert.Contains(
+            FidelityRemarks.Collect(function),
+            remark => remark.Code == DiagnosticIds.UnrepresentableMetadataName
+                && remark.Reason.Contains(
+                    "defining metadata was unavailable",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            FidelityRemarks.CollectCauses(function),
+            cause => cause.Discriminator
+                == DecompilerFidelityDiscriminators.OperatorMetadataUnavailable);
     }
 
     [Fact]
@@ -551,10 +1077,56 @@ public class CrossAssemblyMethodFactsTests
         Assert.DoesNotContain(refStructUser.ByRefLikeTypes, t => t.Name == "ExternalRefStruct");
     }
 
+    [Fact]
+    public void ResolvedMemberRef_PreservesExactSpecialNameOperatorEvidence()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-special-name-").FullName;
+        string path = Path.Combine(directory, "SpecialNameFixture.dll");
+        try
+        {
+            File.WriteAllBytes(
+                path,
+                BuildSpecialNameOperatorMemberRefAssembly());
+            using var source = MetadataSource.Open(path);
+            IrFunction? function = IrImporter.Import(
+                source,
+                "N.Consumer",
+                "Use");
+
+            Assert.NotNull(function);
+            Call call = Assert.Single(
+                function.Descendants.OfType<Call>());
+            Assert.True(call.Callee.IsSpecialName);
+            Assert.False(call.Callee.IsSpecialNameInferred);
+            Assert.Equal(
+                MetadataFactState.No,
+                call.Callee.IsOperator);
+
+            DecompilerResult result = CSharpPrinter.Print(function);
+
+            Assert.Equal(
+                DecompilationFidelity.Partial,
+                result.Fidelity);
+            Assert.Contains(
+                FidelityRemarks.CollectCauses(function),
+                cause => cause.Discriminator
+                    == DecompilerFidelityDiscriminators
+                        .OperatorSpecialNameCall);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     static string Print(MetadataSource source, string methodName)
+        => PrintResult(source, methodName).Output ?? "";
+
+    static DecompilerResult PrintResult(MetadataSource source, string methodName)
     {
         var function = ImportFunction(source, methodName);
-        return CSharpPrinter.Print(function).Output ?? "";
+        return CSharpPrinter.Print(function);
     }
 
     static string PrintRaised(MetadataSource source, string methodName)
@@ -595,6 +1167,457 @@ public class CrossAssemblyMethodFactsTests
         Assert.NotNull(function);
         function.CheckInvariant();
         return function!;
+    }
+
+    static byte[] BuildSpecialNameOperatorMemberRefAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("SpecialNameFixture.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("SpecialNameFixture"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle bad = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Bad`1"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddGenericParameter(
+            bad,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Consumer"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+
+        var methodSignature = new BlobBuilder();
+        methodSignature.WriteByte(0x00);
+        methodSignature.WriteCompressedInteger(2);
+        methodSignature.WriteByte((byte)SignatureTypeCode.Int32);
+        methodSignature.WriteByte((byte)SignatureTypeCode.Int32);
+        methodSignature.WriteByte((byte)SignatureTypeCode.Int32);
+        BlobHandle signature =
+            metadata.GetOrAddBlob(methodSignature);
+
+        var typeSpecSignature = new BlobBuilder();
+        typeSpecSignature.WriteByte(
+            (byte)SignatureTypeCode.GenericTypeInstance);
+        typeSpecSignature.WriteByte(
+            (byte)SignatureTypeKind.Class);
+        typeSpecSignature.WriteCompressedInteger(
+            MetadataTokens.GetRowNumber(bad) << 2);
+        typeSpecSignature.WriteCompressedInteger(1);
+        typeSpecSignature.WriteByte(
+            (byte)SignatureTypeCode.Int32);
+        TypeSpecificationHandle badOfInt =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(typeSpecSignature));
+        MemberReferenceHandle member = metadata.AddMemberReference(
+            badOfInt,
+            metadata.GetOrAddString("op_Addition"),
+            signature);
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        var operatorBody = new BlobBuilder();
+        var operatorInstructions = new InstructionEncoder(
+            operatorBody,
+            new ControlFlowBuilder());
+        operatorInstructions.OpCode(ILOpCode.Ldarg_0);
+        operatorInstructions.OpCode(ILOpCode.Ldarg_1);
+        operatorInstructions.OpCode(ILOpCode.Sub);
+        operatorInstructions.OpCode(ILOpCode.Ret);
+        int operatorBodyOffset = bodyEncoder.AddMethodBody(
+            operatorInstructions,
+            maxStack: 2);
+
+        var useBody = new BlobBuilder();
+        var useInstructions = new InstructionEncoder(
+            useBody,
+            new ControlFlowBuilder());
+        useInstructions.OpCode(ILOpCode.Ldarg_0);
+        useInstructions.OpCode(ILOpCode.Ldarg_1);
+        useInstructions.OpCode(ILOpCode.Call);
+        useInstructions.Token(member);
+        useInstructions.OpCode(ILOpCode.Ret);
+        int useBodyOffset = bodyEncoder.AddMethodBody(
+            useInstructions,
+            maxStack: 2);
+
+        ParameterHandle operatorParameters = metadata.AddParameter(
+            ParameterAttributes.None,
+            metadata.GetOrAddString("left"),
+            sequenceNumber: 1);
+        metadata.AddParameter(
+            ParameterAttributes.None,
+            metadata.GetOrAddString("right"),
+            sequenceNumber: 2);
+        ParameterHandle useParameters = metadata.AddParameter(
+            ParameterAttributes.None,
+            metadata.GetOrAddString("left"),
+            sequenceNumber: 1);
+        metadata.AddParameter(
+            ParameterAttributes.None,
+            metadata.GetOrAddString("right"),
+            sequenceNumber: 2);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.SpecialName,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("op_Addition"),
+            signature,
+            operatorBodyOffset,
+            operatorParameters);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Use"),
+            signature,
+            useBodyOffset,
+            useParameters);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    sealed class OperatorAssemblyCollisionFixture
+        : IAssemblyReferenceResolver, IDisposable
+    {
+        readonly string _directory;
+        readonly string _dependencyPath;
+        readonly IAssemblyReferenceResolver _runtime =
+            TestAssemblyReferenceResolvers.RuntimeAssemblies();
+
+        OperatorAssemblyCollisionFixture(
+            string directory,
+            string dependencyPath,
+            string subjectPath)
+        {
+            _directory = directory;
+            _dependencyPath = dependencyPath;
+            SubjectPath = subjectPath;
+        }
+
+        public string SubjectPath { get; }
+
+        public static OperatorAssemblyCollisionFixture Create()
+        {
+            string directory = Directory.CreateTempSubdirectory(
+                "dotnet-inspect-operator-collision-").FullName;
+            string dependencyPath = Path.Combine(directory, "dependency.dll");
+            string subjectPath = Path.Combine(directory, "subject.dll");
+            var dependency = new PersistedAssemblyBuilder(
+                new AssemblyName("Collision")
+                {
+                    Version = new Version(2, 0, 0, 0),
+                },
+                typeof(object).Assembly);
+            ModuleBuilder dependencyModule =
+                dependency.DefineDynamicModule("Collision");
+            dependencyModule.DefineType(
+                    "N.Counter",
+                    TypeAttributes.Public | TypeAttributes.Class,
+                    typeof(object))
+                .CreateType();
+            dependency.Save(dependencyPath);
+
+            var loadContext = new AssemblyLoadContext(
+                "operator-collision",
+                isCollectible: true);
+            try
+            {
+                using var dependencyImage = new MemoryStream(
+                    File.ReadAllBytes(dependencyPath),
+                    writable: false);
+                Type externalCounter = loadContext
+                    .LoadFromStream(dependencyImage)
+                    .GetType("N.Counter", throwOnError: true)!;
+                var subject = new PersistedAssemblyBuilder(
+                    new AssemblyName("Collision")
+                    {
+                        Version = new Version(1, 0, 0, 0),
+                    },
+                    typeof(object).Assembly);
+                ModuleBuilder subjectModule =
+                    subject.DefineDynamicModule("Collision");
+                TypeBuilder localCounter = subjectModule.DefineType(
+                    "N.Counter",
+                    TypeAttributes.Public | TypeAttributes.Class,
+                    typeof(object));
+                MethodBuilder increment = localCounter.DefineMethod(
+                    "op_Increment",
+                    MethodAttributes.Public
+                        | MethodAttributes.Static
+                        | MethodAttributes.SpecialName,
+                    externalCounter,
+                    [localCounter]);
+                ILGenerator il = increment.GetILGenerator();
+                il.Emit(OpCodes.Ldnull);
+                il.Emit(OpCodes.Ret);
+                localCounter.CreateType();
+                subject.Save(subjectPath);
+            }
+            finally
+            {
+                loadContext.Unload();
+            }
+
+            return new OperatorAssemblyCollisionFixture(
+                directory,
+                dependencyPath,
+                subjectPath);
+        }
+
+        public ResolvedAssemblyReference? Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope)
+            => identity.Name == "Collision"
+                && identity.Version == new Version(2, 0, 0, 0)
+                    ? ResolvedAssemblyReference.CreateFromPath(
+                        _dependencyPath,
+                        AssemblyResolutionProvenance.Local(
+                            nameof(OperatorAssemblyCollisionFixture)))
+                    : _runtime.Resolve(identity, scope);
+
+        public void Dispose()
+            => Directory.Delete(_directory, recursive: true);
+    }
+
+    sealed class GenericOperatorOriginFixture
+        : IAssemblyReferenceResolver, IDisposable
+    {
+        readonly string _directory;
+        readonly string _dependencyPath;
+        readonly IAssemblyReferenceResolver _runtime =
+            TestAssemblyReferenceResolvers.RuntimeAssemblies();
+
+        GenericOperatorOriginFixture(
+            string directory,
+            string dependencyPath,
+            string subjectPath)
+        {
+            _directory = directory;
+            _dependencyPath = dependencyPath;
+            SubjectPath = subjectPath;
+        }
+
+        public string SubjectPath { get; }
+
+        public static GenericOperatorOriginFixture Create()
+        {
+            string directory = Directory.CreateTempSubdirectory(
+                "dotnet-inspect-generic-operator-origin-")
+                .FullName;
+            string dependencyPath =
+                Path.Combine(directory, "dependency.dll");
+            string subjectPath =
+                Path.Combine(directory, "subject.dll");
+            var dependency = new PersistedAssemblyBuilder(
+                new AssemblyName("GenericOperator.Dependency"),
+                typeof(object).Assembly);
+            ModuleBuilder dependencyModule =
+                dependency.DefineDynamicModule(
+                    "GenericOperator.Dependency");
+            TypeBuilder externalBase =
+                dependencyModule.DefineType(
+                    "N.ExternalBase`1",
+                    TypeAttributes.Public
+                        | TypeAttributes.Class,
+                    typeof(object));
+            externalBase.DefineGenericParameters("T");
+            TypeBuilder externalDerived =
+                dependencyModule.DefineType(
+                    "N.ExternalDerived`1",
+                    TypeAttributes.Public
+                        | TypeAttributes.Class);
+            GenericTypeParameterBuilder derivedParameter =
+                Assert.Single(
+                    externalDerived.DefineGenericParameters("T"));
+            externalDerived.SetParent(
+                externalBase.MakeGenericType(
+                    derivedParameter));
+            externalBase.CreateType();
+            externalDerived.CreateType();
+            dependency.Save(dependencyPath);
+
+            var loadContext = new AssemblyLoadContext(
+                "generic-operator-origin",
+                isCollectible: true);
+            try
+            {
+                using var dependencyImage =
+                    new MemoryStream(
+                        File.ReadAllBytes(dependencyPath),
+                        writable: false);
+                Assembly loadedDependency =
+                    loadContext.LoadFromStream(dependencyImage);
+                Type loadedBase = loadedDependency.GetType(
+                    "N.ExternalBase`1",
+                    throwOnError: true)!;
+                Type loadedDerived = loadedDependency.GetType(
+                    "N.ExternalDerived`1",
+                    throwOnError: true)!;
+                var subject = new PersistedAssemblyBuilder(
+                    new AssemblyName("GenericOperator.Subject"),
+                    typeof(object).Assembly);
+                ModuleBuilder subjectModule =
+                    subject.DefineDynamicModule(
+                        "GenericOperator.Subject");
+                Type localArgument =
+                    subjectModule.DefineType(
+                            "N.LocalArgument",
+                            TypeAttributes.Public
+                                | TypeAttributes.Class,
+                            typeof(object))
+                        .CreateType();
+                Type otherArgument =
+                    subjectModule.DefineType(
+                            "N.OtherArgument",
+                            TypeAttributes.Public
+                                | TypeAttributes.Class,
+                            typeof(object))
+                        .CreateType();
+                TypeBuilder holder =
+                    subjectModule.DefineType(
+                        "N.Holder",
+                        TypeAttributes.Public
+                            | TypeAttributes.Class,
+                        loadedDerived.MakeGenericType(
+                            localArgument));
+                DefineConversion(
+                    holder,
+                    "op_Implicit",
+                    loadedBase.MakeGenericType(
+                        localArgument));
+                DefineConversion(
+                    holder,
+                    "op_Explicit",
+                    loadedBase.MakeGenericType(
+                        otherArgument));
+                holder.CreateType();
+                subject.Save(subjectPath);
+                ClearMvid(subjectPath);
+            }
+            finally
+            {
+                loadContext.Unload();
+            }
+
+            return new GenericOperatorOriginFixture(
+                directory,
+                dependencyPath,
+                subjectPath);
+
+            static void DefineConversion(
+                TypeBuilder holder,
+                string name,
+                Type returnType)
+            {
+                MethodBuilder method = holder.DefineMethod(
+                    name,
+                    MethodAttributes.Public
+                        | MethodAttributes.Static
+                        | MethodAttributes.SpecialName,
+                    returnType,
+                    [holder]);
+                ILGenerator il = method.GetILGenerator();
+                il.Emit(OpCodes.Ldnull);
+                il.Emit(OpCodes.Ret);
+            }
+        }
+
+        static void ClearMvid(string path)
+        {
+            byte[] image = File.ReadAllBytes(path);
+            using var pe = new PEReader(
+                new MemoryStream(image, writable: false));
+            MetadataReader reader = pe.GetMetadataReader();
+            GuidHandle handle = reader.GetModuleDefinition().Mvid;
+            int streamOffset = FindMetadataStreamOffset(
+                image,
+                pe.PEHeaders.MetadataStartOffset,
+                "#GUID");
+            int fileOffset = streamOffset
+                + ((MetadataTokens.GetHeapOffset(handle) - 1) * 16);
+            Array.Clear(image, fileOffset, 16);
+            File.WriteAllBytes(path, image);
+        }
+
+        static int FindMetadataStreamOffset(
+            byte[] image,
+            int metadataOffset,
+            string targetName)
+        {
+            int offset = metadataOffset + 12;
+            int versionLength = BitConverter.ToInt32(image, offset);
+            offset += 4 + versionLength;
+            offset = (offset + 3) & ~3;
+            offset += 2;
+            ushort streamCount = BitConverter.ToUInt16(image, offset);
+            offset += 2;
+            for (int index = 0; index < streamCount; index++)
+            {
+                int streamOffset = BitConverter.ToInt32(image, offset);
+                offset += 8;
+                int nameStart = offset;
+                while (image[offset] != 0)
+                    offset++;
+                string name = System.Text.Encoding.ASCII.GetString(
+                    image,
+                    nameStart,
+                    offset - nameStart);
+                offset = (offset + 4) & ~3;
+                if (name == targetName)
+                    return metadataOffset + streamOffset;
+            }
+
+            throw new InvalidOperationException(
+                $"Metadata stream {targetName} was not found.");
+        }
+
+        public ResolvedAssemblyReference? Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope)
+            => identity.Name == "GenericOperator.Dependency"
+                ? ResolvedAssemblyReference.CreateFromPath(
+                    _dependencyPath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(GenericOperatorOriginFixture)))
+                : _runtime.Resolve(identity, scope);
+
+        public void Dispose()
+            => Directory.Delete(_directory, recursive: true);
     }
 
     sealed class MethodCollisionFixture : IAssemblyReferenceResolver, IDisposable
@@ -957,12 +1980,26 @@ public class CrossAssemblyMethodFactsTests
     {
         readonly string _directory;
 
-        CrossAssemblyFixture(string directory, string consumerPath)
+        CrossAssemblyFixture(
+            string directory,
+            string contractsPath,
+            string libraryPath,
+            string invalidLibraryPath,
+            string invalidDerivedLibraryPath,
+            string consumerPath)
         {
             _directory = directory;
+            ContractsPath = contractsPath;
+            LibraryPath = libraryPath;
+            InvalidLibraryPath = invalidLibraryPath;
+            InvalidDerivedLibraryPath = invalidDerivedLibraryPath;
             ConsumerPath = consumerPath;
         }
 
+        public string ContractsPath { get; }
+        public string LibraryPath { get; }
+        public string InvalidLibraryPath { get; }
+        public string InvalidDerivedLibraryPath { get; }
         public string ConsumerPath { get; }
 
         public static CrossAssemblyFixture Create(bool versionDrift = false)
@@ -970,9 +2007,40 @@ public class CrossAssemblyMethodFactsTests
             var directory = Directory.CreateTempSubdirectory("dotnet-inspect-method-facts-").FullName;
             try
             {
+                string contractsPath = Emit(
+                    directory,
+                    "ExternalFacts.Contracts",
+                    """
+                    namespace ExternalContracts;
+
+                    public sealed class ExternalClass
+                    {
+                    }
+
+                    public sealed class GenericExternal<T>
+                    {
+                    }
+
+                    public interface IExternalFace
+                    {
+                    }
+
+                    public sealed class ExternalOther
+                    {
+                    }
+
+                    public class ExternalBaseX
+                    {
+                    }
+
+                    public class ExternalChild : ExternalBaseX
+                    {
+                    }
+                    """);
                 const string librarySource = """
                     using System.Reflection;
                     using System.Runtime.CompilerServices;
+                    using ExternalContracts;
 
                     [assembly: AssemblyVersion("1.0.0.0")]
 
@@ -989,7 +2057,16 @@ public class CrossAssemblyMethodFactsTests
                         public static void GenericCollision<T>(out T value) => value = default!;
                     }
 
+                    public sealed class GenericByRefLibrary<T>
+                    {
+                        private void DefinitionCollision(out T value) => value = default!;
+                        public void DefinitionCollision(out int value) => value = 42;
+                    }
+
                     public delegate int ExternalDelegate(int value);
+                    public delegate int ExternalBinaryDelegate(
+                        int left,
+                        int right);
 
                     public static class DelegateLibrary
                     {
@@ -1000,6 +2077,11 @@ public class CrossAssemblyMethodFactsTests
                     {
                         public static int op_Addition(int left, int right) => left - right;
                         public static int op_Implicit(int value) => value + 1;
+                    }
+
+                    public class OperatorLikeInstance
+                    {
+                        public virtual int op_Addition(int value) => value + 1;
                     }
 
                     public sealed class PropertyLibrary
@@ -1057,6 +2139,31 @@ public class CrossAssemblyMethodFactsTests
                             => new(left.Value + right.Value);
                     }
 
+                    public sealed class ExternalDependentOperator
+                    {
+                        public static ExternalDependentOperator operator +(
+                            ExternalDependentOperator left,
+                            ExternalClass right) => left;
+                    }
+
+                    public sealed class ExternalConversionHolder
+                    {
+                        public static implicit operator ExternalConversionHolder(
+                            ExternalClass value) => new();
+
+                        public static ExternalConversionHolder Convert(
+                            ExternalClass value) => value;
+                    }
+
+                    public sealed class GenericConversionHolder<T>
+                    {
+                        public static implicit operator GenericConversionHolder<T>(
+                            GenericExternal<T> value) => new();
+
+                        public static GenericConversionHolder<T> Convert(
+                            GenericExternal<T> value) => value;
+                    }
+
                     public ref struct ExternalRefStruct
                     {
                         public int Value;
@@ -1078,11 +2185,53 @@ public class CrossAssemblyMethodFactsTests
                 string libraryPath = Emit(
                     directory,
                     "ExternalFacts.Library",
-                    librarySource);
+                    librarySource,
+                    [MetadataReference.CreateFromFile(contractsPath)]);
+                string invalidLibraryPath = Emit(
+                    directory,
+                    "ExternalFacts.InvalidLibrary",
+                    """
+                    using ExternalContracts;
+
+                    namespace ExternalFacts;
+
+                    public sealed class InvalidExternalConversionHolder
+                    {
+                        public static explicit operator InvalidExternalConversionHolder(
+                            ExternalClass value) => new();
+                    }
+                    """,
+                    [MetadataReference.CreateFromFile(contractsPath)]);
+                PatchTypeReference(
+                    invalidLibraryPath,
+                    "ExternalClass"u8,
+                    "IExternalFace"u8);
+                string invalidDerivedLibraryPath = Emit(
+                    directory,
+                    "ExternalFacts.InvalidDerivedLibrary",
+                    """
+                    using ExternalContracts;
+
+                    namespace ExternalFacts;
+
+                    public sealed class InvalidDerivedConversionHolder
+                        : ExternalChild
+                    {
+                        public static implicit operator ExternalOther(
+                            InvalidDerivedConversionHolder value) => new();
+                    }
+                    """,
+                    [MetadataReference.CreateFromFile(contractsPath)]);
+                PatchTypeReference(
+                    invalidDerivedLibraryPath,
+                    "ExternalOther"u8,
+                    "ExternalBaseX"u8);
                 string consumerPath = Emit(
                     directory,
                     "ExternalFacts.Consumer",
                     """
+                    using ExternalContracts;
+
                     namespace ExternalFacts;
 
                     public static class Consumer
@@ -1124,6 +2273,12 @@ public class CrossAssemblyMethodFactsTests
                             return value;
                         }
 
+                        public static int UseGenericDeclaringTypeOut(GenericByRefLibrary<int> library)
+                        {
+                            library.DefinitionCollision(out var value);
+                            return value;
+                        }
+
                         public static int UseGenerated(int value)
                             => Generated__DisplayClass0_0.Run(value);
 
@@ -1136,8 +2291,22 @@ public class CrossAssemblyMethodFactsTests
                         public static int UseOperatorLikeImplicit(int value)
                             => OperatorLikeLibrary.op_Implicit(value);
 
+                        public static ExternalBinaryDelegate UseOperatorLikeStaticPointer()
+                            => OperatorLikeLibrary.op_Addition;
+
+                        public static ExternalDelegate UseOperatorLikeVirtualPointer(
+                            OperatorLikeInstance instance)
+                            => instance.op_Addition;
+
                         public static ExternalNumber UseRealOperator(ExternalNumber left, ExternalNumber right)
                             => left + right;
+
+                        public static ExternalDependentOperator UseExternalDependentOperator(
+                            ExternalDependentOperator left,
+                            ExternalClass right) => left + right;
+
+                        public static ExternalConversionHolder UseExternalConversion(
+                            ExternalClass value) => value;
 
                         public static int UseExternalRefStruct()
                         {
@@ -1194,6 +2363,14 @@ public class CrossAssemblyMethodFactsTests
                         public static bool UseUri(string value)
                             => System.Uri.TryCreate(value, System.UriKind.Absolute, out var uri) && uri is not null;
 
+                        public static object UseLazyInitializer(ref object value)
+                            => System.Threading.LazyInitializer.EnsureInitialized(ref value, () => new object());
+
+                        public static bool UseDateTimeOffsetEquality(
+                            System.DateTimeOffset left,
+                            System.DateTimeOffset right)
+                            => left == right;
+
                         public static int UseExternalInlineArray(ExternalInline4 buffer, int index)
                         {
                             System.Span<int> span = buffer;
@@ -1201,7 +2378,10 @@ public class CrossAssemblyMethodFactsTests
                         }
                     }
                     """,
-                    [MetadataReference.CreateFromFile(libraryPath)]);
+                    [
+                        MetadataReference.CreateFromFile(libraryPath),
+                        MetadataReference.CreateFromFile(contractsPath),
+                    ]);
                 if (versionDrift)
                 {
                     Emit(
@@ -1210,9 +2390,16 @@ public class CrossAssemblyMethodFactsTests
                         librarySource.Replace(
                             """AssemblyVersion("1.0.0.0")""",
                             """AssemblyVersion("2.0.0.0")""",
-                            StringComparison.Ordinal));
+                            StringComparison.Ordinal),
+                        [MetadataReference.CreateFromFile(contractsPath)]);
                 }
-                return new CrossAssemblyFixture(directory, consumerPath);
+                return new CrossAssemblyFixture(
+                    directory,
+                    contractsPath,
+                    libraryPath,
+                    invalidLibraryPath,
+                    invalidDerivedLibraryPath,
+                    consumerPath);
             }
             catch
             {
@@ -1246,6 +2433,51 @@ public class CrossAssemblyMethodFactsTests
         static ImmutableArray<MetadataReference> RuntimeReferences()
             => RoslynTestReferences.TrustedPlatform;
 
+        public TypeRef Type(
+            string assemblyPath,
+            string @namespace,
+            string name)
+        {
+            using var stream = File.OpenRead(assemblyPath);
+            using var pe = new PEReader(stream);
+            MetadataReader reader = pe.GetMetadataReader();
+            AssemblyReferenceIdentity identity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
+            var definitionName = MetadataTypeDefinitionName.Create(
+                @namespace,
+                [name]) switch
+            {
+                MetadataTypeDefinitionNameResult.Valid valid => valid.Name,
+                _ => throw new InvalidOperationException(
+                    "fixture metadata name is invalid"),
+            };
+            return TypeRef.DefinitionWithResolution(
+                identity.Name,
+                @namespace,
+                name,
+                ValueTypeHint.ReferenceType,
+                MetadataFactState.Unknown,
+                null,
+                definitionName,
+                identity);
+        }
+
+        static void PatchTypeReference(
+            string assemblyPath,
+            ReadOnlySpan<byte> original,
+            ReadOnlySpan<byte> replacement)
+        {
+            Assert.Equal(original.Length, replacement.Length);
+            byte[] image = File.ReadAllBytes(assemblyPath);
+            int offset = image.AsSpan().IndexOf(original);
+            Assert.True(offset >= 0, "fixture TypeRef name was not found");
+            replacement.CopyTo(image.AsSpan(offset, replacement.Length));
+            Assert.True(
+                image.AsSpan(offset + replacement.Length).IndexOf(original) < 0,
+                "fixture TypeRef name was not unique");
+            File.WriteAllBytes(assemblyPath, image);
+        }
+
         public void Dispose() => Directory.Delete(_directory, recursive: true);
     }
 
@@ -1260,7 +2492,14 @@ public class CrossAssemblyMethodFactsTests
         public const string UseExternalDelegate = nameof(UseExternalDelegate);
         public const string UseOperatorLikeAddition = nameof(UseOperatorLikeAddition);
         public const string UseOperatorLikeImplicit = nameof(UseOperatorLikeImplicit);
+        public const string UseOperatorLikeStaticPointer =
+            nameof(UseOperatorLikeStaticPointer);
+        public const string UseOperatorLikeVirtualPointer =
+            nameof(UseOperatorLikeVirtualPointer);
         public const string UseRealOperator = nameof(UseRealOperator);
+        public const string UseExternalDependentOperator =
+            nameof(UseExternalDependentOperator);
+        public const string UseExternalConversion = nameof(UseExternalConversion);
         public const string UseExternalRefStruct = nameof(UseExternalRefStruct);
         public const string UseExternalStruct = nameof(UseExternalStruct);
         public const string UseProperty = nameof(UseProperty);
@@ -1277,6 +2516,21 @@ public class CrossAssemblyMethodFactsTests
         public const string UseGenericByRefDynamicProperty = nameof(UseGenericByRefDynamicProperty);
         public const string UseExternalNewObject = nameof(UseExternalNewObject);
         public const string UseUri = nameof(UseUri);
+        public const string UseLazyInitializer = nameof(UseLazyInitializer);
+        public const string UseDateTimeOffsetEquality = nameof(UseDateTimeOffsetEquality);
         public const string UseExternalInlineArray = nameof(UseExternalInlineArray);
     }
+}
+
+sealed class DenyAssemblyResolver(
+    IAssemblyReferenceResolver inner,
+    string deniedAssembly)
+    : IAssemblyReferenceResolver
+{
+    public ResolvedAssemblyReference? Resolve(
+        AssemblyReferenceIdentity identity,
+        AssemblyResolutionScope scope)
+        => identity.Name == deniedAssembly
+            ? null
+            : inner.Resolve(identity, scope);
 }

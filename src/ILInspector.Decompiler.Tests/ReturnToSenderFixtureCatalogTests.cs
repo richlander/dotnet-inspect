@@ -1655,6 +1655,68 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_IndexesInstanceAssignmentOperators()
+    {
+        var fixture = CompileSourceFixture(
+            ("Class1.cs", """
+            namespace SourceProbe;
+
+            public struct Class1
+            {
+                int _value;
+
+                public void operator *=(int value)
+                {
+                    _value *= value;
+                }
+
+                public void operator ++()
+                {
+                    _value++;
+                }
+
+                public void operator checked ++()
+                {
+                    _value = checked(_value + 1);
+                }
+            }
+            """));
+        try
+        {
+            var results = ReturnToSenderSourceProbe.EvaluateTargets(
+                fixture.AssemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget(
+                        "SourceProbe.Class1",
+                        "op_MultiplicationAssignment",
+                        Overload: 0),
+                    new ReturnToSender.RequestedTarget(
+                        "SourceProbe.Class1",
+                        "op_CheckedIncrementAssignment",
+                        Overload: 0),
+                ],
+                fixture.SourcePaths);
+
+            Assert.Collection(
+                results,
+                result =>
+                {
+                    Assert.NotEqual(ReturnToSenderSourceOutcome.SourceUnavailable, result.Outcome);
+                    Assert.Equal("_value*=value;", Normalize(result.ExpectedBody));
+                },
+                result =>
+                {
+                    Assert.NotEqual(ReturnToSenderSourceOutcome.SourceUnavailable, result.Outcome);
+                    Assert.Equal("_value=checked(_value+1);", Normalize(result.ExpectedBody));
+                });
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_SplitsStaticAndInstanceConstructorSlots()
     {
         var fixture = CompileSourceFixture(
@@ -2241,6 +2303,28 @@ public class ReturnToSenderFixtureCatalogTests
         Assert.Equal("op_CheckedAddition", member.MetadataName);
         Assert.Equal("return checked(new Class1(left._value + right._value));", member.Body);
         Assert.Contains("operator", member.Evidence);
+    }
+
+    [Theory]
+    [InlineData("public void operator +=(Class1 value) { }", "op_AdditionAssignment")]
+    [InlineData("public void operator checked +=(Class1 value) { }", "op_CheckedAdditionAssignment")]
+    [InlineData("public void operator *=(Class1 value) { }", "op_MultiplicationAssignment")]
+    [InlineData("public void operator checked *=(Class1 value) { }", "op_CheckedMultiplicationAssignment")]
+    [InlineData("public void operator ++() { }", "op_IncrementAssignment")]
+    public void CSharpSourceIdentityContext_ResolvesInstanceAssignmentOperatorIdentity(
+        string declaration,
+        string expectedMetadataName)
+    {
+        var root = CSharpSyntaxTree.ParseText(
+            $"public struct Class1 {{ {declaration} }}",
+            cancellationToken: TestContext.Current.CancellationToken)
+            .GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        var op = Assert.Single(root.DescendantNodes().OfType<OperatorDeclarationSyntax>());
+
+        var context = CSharpSourceIdentityContext.Create([root]);
+        var member = Assert.Single(context.OperatorMembers(op));
+
+        Assert.Equal(expectedMetadataName, member.MetadataName);
     }
 
     [Fact]

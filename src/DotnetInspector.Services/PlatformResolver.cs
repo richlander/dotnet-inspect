@@ -233,6 +233,13 @@ public static class PlatformResolver
             yield return Path.Combine(dotnetRoot, "packs");
         }
 
+        var currentDotnetRoot = GetDotnetRootFromRuntimeDirectory(
+            RuntimeEnvironment.GetRuntimeDirectory());
+        if (!string.IsNullOrEmpty(currentDotnetRoot))
+        {
+            yield return Path.Combine(currentDotnetRoot, "packs");
+        }
+
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
             var installLocation = ReadInstallLocation();
@@ -278,6 +285,36 @@ public static class PlatformResolver
                 yield return Path.Combine(home, "dotnet", "packs");
             }
         }
+    }
+
+    internal static string? GetDotnetRootFromRuntimeDirectory(
+        string runtimeDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(runtimeDirectory))
+            return null;
+
+        string versionDirectory = runtimeDirectory.TrimEnd(
+            Path.DirectorySeparatorChar,
+            Path.AltDirectorySeparatorChar);
+        string? frameworkDirectory = Path.GetDirectoryName(versionDirectory);
+        if (frameworkDirectory is null
+            || !Path.GetFileName(frameworkDirectory).Equals(
+                "Microsoft.NETCore.App",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        string? sharedDirectory = Path.GetDirectoryName(frameworkDirectory);
+        if (sharedDirectory is null
+            || !Path.GetFileName(sharedDirectory).Equals(
+                "shared",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return Path.GetDirectoryName(sharedDirectory);
     }
 
     /// <summary>

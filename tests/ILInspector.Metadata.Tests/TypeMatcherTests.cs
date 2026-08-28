@@ -408,6 +408,79 @@ public class TypeMatcherTests
     }
 
     [Fact]
+    public void IncrementSourceFilter_MatchesOnlyExactNameFamily()
+    {
+        var filter =
+            new HashSet<string>(
+                ["++"],
+                StringComparer.OrdinalIgnoreCase);
+
+        Assert.True(
+            TypeMatcher.MatchesMemberFilter(
+                "op_Increment",
+                filter));
+        Assert.True(
+            TypeMatcher.MatchesMemberFilter(
+                "op_IncrementAssignment",
+                filter));
+        Assert.False(
+            TypeMatcher.MatchesMemberFilter(
+                "op_IncrementBogus",
+                filter));
+    }
+
+    [Fact]
+    public void ExplicitIncrementGlob_RemainsAGlob()
+    {
+        var filter =
+            new HashSet<string>(
+                ["op_Increment*"],
+                StringComparer.OrdinalIgnoreCase);
+
+        Assert.True(
+            TypeMatcher.MatchesMemberFilter(
+                "op_IncrementBogus",
+                filter));
+    }
+
+    [Theory]
+    [InlineData("Add:1")]
+    [InlineData("Add~ffffffff")]
+    [InlineData("Add<X>")]
+    public void MemberTargetSelectorsRemainLiteralInCollectionFilters(
+        string selector)
+    {
+        Assert.False(
+            TypeMatcher.MatchesMemberFilter(
+                "Add",
+                selector));
+    }
+
+    [Fact]
+    public void KindQualifiedFilter_MatchesOnlyTheRequestedMemberKind()
+    {
+        var @operator = new ApiMember
+        {
+            Name = "op_Addition",
+            Kind = "operator",
+        };
+        var method = new ApiMember
+        {
+            Name = "op_Addition",
+            Kind = "method",
+        };
+
+        Assert.True(
+            TypeMatcher.MatchesMemberFilter(
+                @operator,
+                "operator:op_Addition"));
+        Assert.False(
+            TypeMatcher.MatchesMemberFilter(
+                method,
+                "operator:op_Addition"));
+    }
+
+    [Fact]
     public void Lookup_prefers_exact_nested_segment_arities()
     {
         var candidates = new[]

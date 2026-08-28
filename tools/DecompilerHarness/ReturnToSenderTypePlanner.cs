@@ -264,6 +264,7 @@ public enum CompileBackMemberKind
     EventRemove,
     Constructor,
     Method,
+    Operator,
     Field,
 }
 
@@ -435,7 +436,8 @@ internal sealed record ExternalInterfaceRequiredMethod(
     string Name,
     int GenericArity,
     string ReturnType,
-    ImmutableArray<string> ParameterTypes);
+    ImmutableArray<string> ParameterTypes,
+    bool IsOperator);
 
 public static class CompileBackSourceComposer
 {
@@ -487,7 +489,24 @@ public static class CompileBackSourceComposer
 
     internal static ProductArtifact Compose(ArtifactRequest request)
     {
-        var closure = CreateClosureInputs(request);
+        using var operatorMetadataContext =
+            request.CompilationClosure is null
+                ? null
+                : new MetadataContext(
+                    (IAssemblyReferenceResolver)
+                    request.CompilationClosure.Resolver);
+        CrossAssemblyTypeResolver? operatorTypeResolver =
+            request.CompilationClosure is null
+                ? null
+                : new CrossAssemblyTypeResolver(
+                    request.Reader,
+                    request.CompilationClosure.TargetAssembly,
+                    operatorMetadataContext!);
+        IOperatorTypeRelationshipResolver? operatorResolver =
+            operatorTypeResolver?.CreateOperatorRelationshipResolver();
+        var closure = CreateClosureInputs(
+            request,
+            operatorResolver);
         var result = request switch
         {
             PropertyGetterArtifactRequest getter => ComposePropertyGetter(
@@ -505,7 +524,8 @@ public static class CompileBackSourceComposer
                 closure.Roots,
                 closure.Facts,
                 closure.MemberRequirements,
-                request.BodyPolicy),
+                request.BodyPolicy,
+                operatorResolver),
             PropertySetterArtifactRequest setter => ComposePropertySetter(
                 request.AssemblyPath,
                 request.Reader,
@@ -520,7 +540,8 @@ public static class CompileBackSourceComposer
                 request.SignatureText,
                 closure.Roots,
                 closure.Facts,
-                closure.MemberRequirements),
+                closure.MemberRequirements,
+                operatorResolver),
             EventAccessorArtifactRequest eventAccessor => ComposeEventAccessor(
                 request.AssemblyPath,
                 request.Reader,
@@ -537,7 +558,8 @@ public static class CompileBackSourceComposer
                 closure.Facts,
                 closure.MemberRequirements,
                 eventAccessor.SiblingAccessorBody?.Source,
-                request.BodyPolicy),
+                request.BodyPolicy,
+                operatorResolver),
             MethodArtifactRequest => ComposeMethod(
                 request.AssemblyPath,
                 request.CompilationClosure,
@@ -553,7 +575,9 @@ public static class CompileBackSourceComposer
                 closure.Roots,
                 closure.Facts,
                 closure.MemberRequirements,
-                request.TargetBody.ConstructorChain),
+                request.TargetBody.ConstructorChain,
+                operatorResolver,
+                operatorTypeResolver),
             _ => throw new ArgumentException($"Unknown artifact request type '{request.GetType().FullName}'.", nameof(request)),
         };
 
@@ -777,8 +801,26 @@ public static class CompileBackSourceComposer
     public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
-        MethodRef method)
-        => TypeProducer.TryCreateClosureMemberRequirement(reader, typeHandle, method);
+        MethodRef method,
+        IOperatorTypeRelationshipResolver? relationshipResolver = null)
+        => TypeProducer.TryCreateClosureMemberRequirement(
+            reader,
+            typeHandle,
+            method,
+            relationshipResolver);
+
+    static CompileBackMemberRequirement? TryCreateRequiredOperatorSibling(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        MethodRef method,
+        MethodDefinitionHandle excludedMethod,
+        IOperatorTypeRelationshipResolver? relationshipResolver)
+        => TypeProducer.TryCreateRequiredOperatorSibling(
+            reader,
+            typeHandle,
+            method,
+            excludedMethod,
+            relationshipResolver);
 
     public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
         MetadataReader reader,
@@ -793,7 +835,9 @@ public static class CompileBackSourceComposer
         public Dictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> MemberRequirements { get; } = [];
     }
 
-    static ArtifactClosureInputs CreateClosureInputs(ArtifactRequest request)
+    static ArtifactClosureInputs CreateClosureInputs(
+        ArtifactRequest request,
+        IOperatorTypeRelationshipResolver? relationshipResolver)
     {
         var closure = new ArtifactClosureInputs();
         var targetRoot = TopLevelRootOf(request.Reader, request.TargetType);
@@ -806,7 +850,8 @@ public static class CompileBackSourceComposer
             targetRoot,
             closure.Roots,
             closure.Facts,
-            closure.MemberRequirements);
+            closure.MemberRequirements,
+            relationshipResolver);
         foreach (var root in request.ClosureRoots)
             closure.Roots.Add(root);
         foreach (var (root, facts) in request.ClosureFacts)
@@ -826,7 +871,8 @@ public static class CompileBackSourceComposer
         TypeDefinitionHandle targetRoot,
         HashSet<TypeDefinitionHandle> closureRoots,
         Dictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
-        Dictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements)
+        Dictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements,
+        IOperatorTypeRelationshipResolver? relationshipResolver)
     {
         // Canonicalize the local assembly name so TryResolveHandle's same-assembly
         // gate matches TypeRef.Assembly, which TypeRefDecoder canonicalizes (corelib
@@ -937,8 +983,20 @@ public static class CompileBackSourceComposer
         void AddMethodFact(MethodRef method, bool allowTargetRoot = false)
         {
             AddSingleMethodFact(method, allowTargetRoot);
-            if (OperatorNames.UncheckedOperator(method.Name) is { } siblingName)
-                AddSingleMethodFact(method with { Name = siblingName }, allowTargetRoot);
+            if (method.IsOperator == MetadataFactState.Yes
+                && OperatorNames.RequiredOperatorSibling(method.Name) is { } siblingName)
+            {
+                AddMemberFact(method.DeclaringType, "method", siblingName);
+                AddMemberRequirement(
+                    method.DeclaringType,
+                    root => TryCreateRequiredOperatorSibling(
+                        reader,
+                        root,
+                        method,
+                        targetMethod,
+                        relationshipResolver),
+                    allowTargetRoot);
+            }
         }
 
         void AddSingleMethodFact(MethodRef method, bool allowTargetRoot)
@@ -954,7 +1012,11 @@ public static class CompileBackSourceComposer
                 return;
             AddMemberRequirement(
                 method.DeclaringType,
-                root => TryCreateClosureMemberRequirement(reader, root, method),
+                root => TryCreateClosureMemberRequirement(
+                    reader,
+                    root,
+                    method,
+                    relationshipResolver),
                 allowTargetRoot);
         }
 
@@ -1090,7 +1152,8 @@ public static class CompileBackSourceComposer
         IReadOnlySet<TypeDefinitionHandle> closureRoots,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements,
-        RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected)
+        RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected,
+        IOperatorTypeRelationshipResolver? relationshipResolver = null)
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var property = reader.GetPropertyDefinition(targetProperty);
@@ -1181,7 +1244,11 @@ public static class CompileBackSourceComposer
         }
         AddExplicitInterfacePropertyDeclaration(requirements, reader, targetTypeDef, targetGetter);
 
-        var production = TypeProducer.Produce(reader, requirements, diagnostics);
+        var production = TypeProducer.Produce(
+            reader,
+            requirements,
+            diagnostics,
+            relationshipResolver);
         var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
             Usings: BuildUsings(function),
@@ -1228,6 +1295,8 @@ public static class CompileBackSourceComposer
         => left.Kind == right.Kind
             && left.Identity.Type == right.Identity.Type
             && left.Identity.Method == right.Identity.Method
+            && left.IsStatic == right.IsStatic
+            && left.TypeParameters.Count == right.TypeParameters.Count
             && left.Identity.Signature == right.Identity.Signature;
 
     static void AddClosureTypeRequirements(
@@ -1348,7 +1417,8 @@ public static class CompileBackSourceComposer
         List<CompileBackTypeRequirement> requirements,
         MetadataReader reader,
         TypeDefinition targetType,
-        MethodDefinitionHandle targetMethod)
+        MethodDefinitionHandle targetMethod,
+        IOperatorTypeRelationshipResolver? relationshipResolver)
     {
         foreach (var implementationHandle in targetType.GetMethodImplementations())
         {
@@ -1382,7 +1452,10 @@ public static class CompileBackSourceComposer
             //    body and cannot be reconstructed as a bodyless declaration here; only an
             //    abstract declaration (including `static abstract`) can, so it stays on the
             //    normal path and can still reconstruct Exact.
-            if (OperatorNames.FormatDisplayName(declarationName) != declarationName)
+            if (IsOperatorMethod(
+                    reader,
+                    declaration,
+                    relationshipResolver))
             {
                 return false;
             }
@@ -1398,7 +1471,8 @@ public static class CompileBackSourceComposer
                 interfaceDef,
                 interfaceIdentity,
                 declarationHandle,
-                "explicit-interface-target-method");
+                "explicit-interface-target-method",
+                relationshipResolver);
             if (member is null)
                 return false;
 
@@ -1433,7 +1507,8 @@ public static class CompileBackSourceComposer
         MethodDefinitionHandle targetMethod,
         string metadataMethodName,
         int targetMethodGenericArity,
-        IReadOnlySet<TypeDefinitionHandle> closureRoots)
+        IReadOnlySet<TypeDefinitionHandle> closureRoots,
+        CrossAssemblyTypeResolver? operatorTypeResolver)
     {
         if (!TrySplitExplicitInterfaceMetadataName(metadataMethodName, out var interfaceMetadataName, out var targetMemberName))
             return null;
@@ -1458,9 +1533,6 @@ public static class CompileBackSourceComposer
             string declarationName = reader.GetString(declaration.Name);
             if (!string.Equals(declarationName, targetMemberName, StringComparison.Ordinal))
                 continue;
-            if (OperatorNames.FormatDisplayName(declarationName) != declarationName)
-                return null;
-
             // The explicit-member spelling emits Identifier(declarationName) =
             // CSharpIdentifier.Sanitize(declarationName). A keyword member name is escaped
             // losslessly (`class` -> `@class`, which binds back to `class`), but a member name
@@ -1486,6 +1558,7 @@ public static class CompileBackSourceComposer
                     assemblyPath,
                     compilationClosure,
                     interfaceReference,
+                    operatorTypeResolver,
                     out var requiredMethods)
                 || requiredMethods.Count == 0)
             {
@@ -1548,6 +1621,8 @@ public static class CompileBackSourceComposer
                 }
             }
             if (matchIndex < 0)
+                return null;
+            if (requiredMethods[matchIndex].IsOperator)
                 return null;
 
             // A reconstructed sibling type (or sibling sub-namespace) in the recompile
@@ -1808,6 +1883,7 @@ public static class CompileBackSourceComposer
         string assemblyPath,
         ReturnToSender.CompilationClosure? compilationClosure,
         ExternalInterfaceReferenceInfo interfaceReference,
+        CrossAssemblyTypeResolver? operatorTypeResolver,
         out IReadOnlyList<ExternalInterfaceRequiredMethod> requiredMethods)
     {
         // Read the interface surface from the SAME frozen, filename-deduplicated dependency
@@ -1911,6 +1987,7 @@ public static class CompileBackSourceComposer
                         resolver,
                         definitionAssembly.Path
                             ?? definitionAssembly.Identity.ToString(),
+                        operatorTypeResolver,
                         new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                         collected)
                     ? collected
@@ -2032,6 +2109,7 @@ public static class CompileBackSourceComposer
         ResolvedAssemblyReference requestingAssembly,
         ExternalInterfaceReferenceInfo interfaceReference,
         AssemblyDependencyResolver resolver,
+        CrossAssemblyTypeResolver? operatorTypeResolver,
         HashSet<string> visited,
         List<ExternalInterfaceRequiredMethod> methods)
     {
@@ -2069,6 +2147,7 @@ public static class CompileBackSourceComposer
                 interfaceHandle,
                 resolver,
                 assemblyKey,
+                operatorTypeResolver,
                 visited,
                 methods);
         }
@@ -2264,9 +2343,13 @@ public static class CompileBackSourceComposer
         TypeDefinitionHandle interfaceHandle,
         AssemblyDependencyResolver resolver,
         string assemblyKey,
+        CrossAssemblyTypeResolver? operatorTypeResolver,
         HashSet<string> visited,
         List<ExternalInterfaceRequiredMethod> methods)
     {
+        IOperatorTypeRelationshipResolver? relationshipResolver =
+            operatorTypeResolver?.CreateOperatorRelationshipResolver(
+                assembly);
         var interfaceDef = reader.GetTypeDefinition(interfaceHandle);
         string interfaceName = reader.GetFullTypeName(interfaceDef);
         if (!visited.Add($"{assemblyKey}|{interfaceName}"))
@@ -2315,7 +2398,10 @@ public static class CompileBackSourceComposer
             string methodName = reader.GetString(method.Name);
             if (method.Attributes.HasFlag(MethodAttributes.Static)
                 || (method.Attributes & MethodAttributes.Abstract) == 0
-                || OperatorNames.FormatDisplayName(methodName) != methodName)
+                || IsOperatorMethod(
+                    reader,
+                    method,
+                    relationshipResolver))
             {
                 return false;
             }
@@ -2352,7 +2438,11 @@ public static class CompileBackSourceComposer
                 methodName,
                 method.GetGenericParameters().Count,
                 requiredSignature.ReturnType,
-                requiredSignature.ParameterTypes));
+                requiredSignature.ParameterTypes,
+                IsOperatorMethod(
+                    reader,
+                    method,
+                    relationshipResolver)));
         }
 
         foreach (var implementationHandle in interfaceDef.GetInterfaceImplementations())
@@ -2380,6 +2470,7 @@ public static class CompileBackSourceComposer
                         (TypeDefinitionHandle)implementation.Interface,
                         resolver,
                         assemblyKey,
+                        operatorTypeResolver,
                         visited,
                         methods))
                 {
@@ -2398,6 +2489,7 @@ public static class CompileBackSourceComposer
                         assembly,
                         baseReference,
                         resolver,
+                        operatorTypeResolver,
                         visited,
                         methods))
                 {
@@ -2537,7 +2629,8 @@ public static class CompileBackSourceComposer
         string signatureText,
         IReadOnlySet<TypeDefinitionHandle> closureRoots,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
-        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements)
+        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements,
+        IOperatorTypeRelationshipResolver? relationshipResolver = null)
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var property = reader.GetPropertyDefinition(targetProperty);
@@ -2615,7 +2708,11 @@ public static class CompileBackSourceComposer
         }
         AddExplicitInterfacePropertyDeclaration(requirements, reader, targetTypeDef, targetSetter);
 
-        var production = TypeProducer.Produce(reader, requirements, diagnostics);
+        var production = TypeProducer.Produce(
+            reader,
+            requirements,
+            diagnostics,
+            relationshipResolver);
         var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
             Usings: BuildUsings(function),
@@ -2647,7 +2744,8 @@ public static class CompileBackSourceComposer
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements,
         string? siblingAccessorBody = null,
-        RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected)
+        RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected,
+        IOperatorTypeRelationshipResolver? relationshipResolver = null)
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var eventDefinition = reader.GetEventDefinition(targetEvent);
@@ -2745,7 +2843,11 @@ public static class CompileBackSourceComposer
         }
         AddExplicitInterfaceEventDeclaration(requirements, reader, explicitEvent);
 
-        var production = TypeProducer.Produce(reader, requirements, diagnostics);
+        var production = TypeProducer.Produce(
+            reader,
+            requirements,
+            diagnostics,
+            relationshipResolver);
         var module = new CompileBackModuleRequirement(
             Usings: BuildUsings(function),
             AssemblyAttributes: [],
@@ -2775,7 +2877,9 @@ public static class CompileBackSourceComposer
         IReadOnlySet<TypeDefinitionHandle> closureRoots,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements,
-        string? constructorChain = null)
+        string? constructorChain = null,
+        IOperatorTypeRelationshipResolver? operatorResolver = null,
+        CrossAssemblyTypeResolver? operatorTypeResolver = null)
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var method = reader.GetMethodDefinition(targetMethod);
@@ -2833,18 +2937,21 @@ public static class CompileBackSourceComposer
                     targetMethod,
                     methodName,
                     targetTypeParameters.Count,
-                    closureRoots)
+                    closureRoots,
+                    operatorTypeResolver)
                 : null;
         string? explicitInterfaceMemberName =
             sameAssemblyExplicitInterfaceMemberName
             ?? externalExplicitInterfaceMethod?.ExplicitInterfaceMemberName;
+        CompileBackMemberKind targetMemberKind =
+            MethodKind(reader, method, isConstructor, operatorResolver);
         var targetMembers = isConstructor && primaryConstructor is not null
             ? primaryConstructor.FieldInitializers.ToList()
             :
         [
             new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(targetIdentity.FullName, targetMethodName, overload, signatureText),
-                isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method,
+                targetMemberKind,
                 method.Attributes.HasFlag(MethodAttributes.Static),
                 targetParameters,
                 targetReturnType,
@@ -2897,14 +3004,17 @@ public static class CompileBackSourceComposer
         if (function.MethodKind is IrMethodKind.StaticConstructor)
             targetMembers.AddRange(TargetBackingFieldWriteMembers(reader, targetTypeDef, targetIdentity, function, allowStaticStores: true));
         if (!isConstructor
-            && EqualityOperatorSibling(reader, targetTypeDef, targetIdentity, methodName, signature) is { } equalitySibling)
+            && targetMemberKind == CompileBackMemberKind.Operator
+            && RequiredOperatorSibling(
+                reader,
+                targetTypeDef,
+                targetIdentity,
+                methodName,
+                targetMethod,
+                relationshipResolver: operatorResolver)
+                is { } operatorSibling)
         {
-            targetMembers.Add(equalitySibling);
-        }
-        if (!isConstructor
-            && CheckedOperatorSibling(reader, targetTypeDef, targetIdentity, methodName, signature) is { } checkedOperatorSibling)
-        {
-            targetMembers.Add(checkedOperatorSibling);
+            targetMembers.Add(operatorSibling);
         }
         if (!isConstructor
             && TypedEqualsSibling(reader, targetTypeDef, targetIdentity, methodName, signature) is { } typedEqualsSibling)
@@ -2994,7 +3104,12 @@ public static class CompileBackSourceComposer
         if (explicitInterfaceMemberName is not null)
         {
             bool explicitInterfaceShapeIsViable = externalExplicitInterfaceMethod is not null
-                || AddExplicitInterfaceMethodDeclaration(requirements, reader, targetTypeDef, targetMethod);
+                || AddExplicitInterfaceMethodDeclaration(
+                    requirements,
+                    reader,
+                    targetTypeDef,
+                    targetMethod,
+                    operatorResolver);
             if (!explicitInterfaceShapeIsViable)
             {
                 // The interface member declaration could not be supplied (unsupported
@@ -3020,7 +3135,11 @@ public static class CompileBackSourceComposer
             }
         }
 
-        var production = TypeProducer.Produce(reader, requirements, diagnostics);
+        var production = TypeProducer.Produce(
+            reader,
+            requirements,
+            diagnostics,
+            operatorResolver);
         var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
             Usings: BuildUsings(function),
@@ -3084,6 +3203,7 @@ public static class CompileBackSourceComposer
                 CompileBackMemberKind.EventRemove => CSharpShellMemberKind.EventRemove,
                 CompileBackMemberKind.Constructor => CSharpShellMemberKind.Constructor,
                 CompileBackMemberKind.Method => CSharpShellMemberKind.Method,
+                CompileBackMemberKind.Operator => CSharpShellMemberKind.Operator,
                 CompileBackMemberKind.Field => CSharpShellMemberKind.Field,
                 _ => throw new NotSupportedException(
                     $"Unsupported member declaration kind '{requirement.Kind}'."),
@@ -3203,37 +3323,41 @@ public static class CompileBackSourceComposer
     static string MethodReturnType(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
         => MetadataDeclarationQuery.GetMethodReturnType(reader, typeDef, method);
 
-    static CompileBackMemberRequirement? EqualityOperatorSibling(
+    static CompileBackMemberRequirement? RequiredOperatorSibling(
         MetadataReader reader,
         TypeDefinition typeDef,
         CompileBackTypeIdentity typeIdentity,
         string methodName,
-        MethodSignature<string> targetSignature)
+        MethodDefinitionHandle targetMethod,
+        MethodDefinitionHandle excludedMethod = default,
+        IOperatorTypeRelationshipResolver? relationshipResolver = null)
     {
-        var siblingName = methodName switch
-        {
-            "op_Equality" => "op_Inequality",
-            "op_Inequality" => "op_Equality",
-            _ => null,
-        };
+        var siblingName = OperatorNames.RequiredOperatorSibling(methodName);
         if (siblingName is null)
             return null;
 
         foreach (var methodHandle in typeDef.GetMethods())
         {
+            if (methodHandle == excludedMethod)
+                continue;
+
             var method = reader.GetMethodDefinition(methodHandle);
-            if (reader.GetString(method.Name) != siblingName)
+            if (reader.GetString(method.Name) != siblingName
+                || !IsOperatorMethod(
+                    reader,
+                    method,
+                    relationshipResolver))
             {
                 continue;
             }
 
-            var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
-            if (!OperatorSignaturesMatch(targetSignature, signature))
+            if (!OperatorSignaturesMatch(reader, targetMethod, methodHandle))
                 continue;
 
+            var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
             return new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(typeIdentity.FullName, siblingName, 0, MethodSignatureText(siblingName, signature)),
-                CompileBackMemberKind.Method,
+                CompileBackMemberKind.Operator,
                 method.Attributes.HasFlag(MethodAttributes.Static),
                 MethodParameters(reader, method, signature),
                 CompileBackTypeSignature.Display(signature.ReturnType),
@@ -3252,51 +3376,16 @@ public static class CompileBackSourceComposer
         return null;
     }
 
-    static bool OperatorSignaturesMatch(MethodSignature<string> left, MethodSignature<string> right)
-        => left.ReturnType == right.ReturnType
-            && left.ParameterTypes.SequenceEqual(right.ParameterTypes, StringComparer.Ordinal);
-
-    static CompileBackMemberRequirement? CheckedOperatorSibling(
+    static bool OperatorSignaturesMatch(
         MetadataReader reader,
-        TypeDefinition typeDef,
-        CompileBackTypeIdentity typeIdentity,
-        string methodName,
-        MethodSignature<string> targetSignature)
-    {
-        var siblingName = OperatorNames.UncheckedOperator(methodName);
-        if (siblingName is null)
-            return null;
-
-        foreach (var methodHandle in typeDef.GetMethods())
-        {
-            var method = reader.GetMethodDefinition(methodHandle);
-            if (reader.GetString(method.Name) != siblingName)
-                continue;
-
-            var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
-            if (!OperatorSignaturesMatch(targetSignature, signature))
-                continue;
-
-            return new CompileBackMemberRequirement(
-                new CompileBackMethodIdentity(typeIdentity.FullName, siblingName, 0, MethodSignatureText(siblingName, signature)),
-                CompileBackMemberKind.Method,
-                method.Attributes.HasFlag(MethodAttributes.Static),
-                MethodParameters(reader, method, signature),
-                CompileBackTypeSignature.Display(signature.ReturnType),
-                MethodTypeParameters(reader, method),
-                CompileBackStubBodyKind.Throw,
-                TargetBody: null,
-                [new CompileBackFact("metadata", "operator-pair-sibling", siblingName)],
-                MemberAttributes(reader, method.GetCustomAttributes()),
-                MethodReturnAttributes(reader, method),
-                IsAbstract: IsAbstractMethod(method),
-                IsVirtual: IsVirtualMethod(method),
-                IsOverride: false,
-                IsSealed: false);
-        }
-
-        return null;
-    }
+        MethodDefinitionHandle left,
+        MethodDefinitionHandle right)
+        => MethodStructuralSignature.BuildOperatorPairing(
+                reader,
+                reader.GetMethodDefinition(left))
+            == MethodStructuralSignature.BuildOperatorPairing(
+                reader,
+                reader.GetMethodDefinition(right));
 
     static bool IsRecordGeneratedFieldReadHelper(
         MetadataReader reader,
@@ -4165,20 +4254,86 @@ public static class CompileBackSourceComposer
     internal static string MemberIdentifierName(string metadataName, bool isConstructor)
         => isConstructor ? metadataName : CSharpNaming.SourceMethodName(metadataName);
 
+    static CompileBackMemberKind MethodKind(
+        MetadataReader reader,
+        MethodDefinition method,
+        bool isConstructor,
+        IOperatorTypeRelationshipResolver? relationshipResolver = null)
+        => isConstructor
+            ? CompileBackMemberKind.Constructor
+            : ILInspector.Metadata.OperatorMetadata
+                .ClassifyCSharpOperatorDeclaration(
+                    reader,
+                    method,
+                    relationshipResolver) switch
+                {
+                    ILInspector.Metadata.OperatorMetadata.DeclarationClassification.Yes
+                        => CompileBackMemberKind.Operator,
+                    ILInspector.Metadata.OperatorMetadata.DeclarationClassification.No
+                        => CompileBackMemberKind.Method,
+                    _ => throw new InvalidOperationException(
+                        $"Operator identity for metadata method '{reader.GetString(method.Name)}' could not be resolved."),
+                };
+
+    static bool IsOperatorMethod(
+        MetadataReader reader,
+        MethodDefinition method,
+        IOperatorTypeRelationshipResolver? relationshipResolver = null)
+        => ILInspector.Metadata.OperatorMetadata.ClassifyCSharpOperatorDeclaration(
+            reader,
+            method,
+            relationshipResolver) switch
+        {
+            ILInspector.Metadata.OperatorMetadata.DeclarationClassification.Yes
+                => true,
+            ILInspector.Metadata.OperatorMetadata.DeclarationClassification.No
+                => false,
+            _ => throw new InvalidOperationException(
+                $"Operator identity for metadata method '{reader.GetString(method.Name)}' could not be resolved."),
+        };
+
     sealed class TypeProducer
     {
         public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
             MetadataReader reader,
             TypeDefinitionHandle typeHandle,
-            MethodRef methodRef)
+            MethodRef methodRef,
+            IOperatorTypeRelationshipResolver? relationshipResolver = null)
         {
             var typeDef = reader.GetTypeDefinition(typeHandle);
             var typeIdentity = CompileBackTypeIdentity.FromDefinition(reader, typeDef);
             if (TryFindPropertyForAccessor(reader, typeDef, methodRef) is { } propertyHandle)
                 return PropertyRequirement(reader, typeDef, typeIdentity, propertyHandle, methodRef.Name);
             if (TryFindMethod(reader, typeDef, methodRef) is { } methodHandle)
-                return MethodRequirement(reader, typeDef, typeIdentity, methodHandle);
+                return MethodRequirement(
+                    reader,
+                    typeDef,
+                    typeIdentity,
+                    methodHandle,
+                    relationshipResolver: relationshipResolver);
             return null;
+        }
+
+        public static CompileBackMemberRequirement? TryCreateRequiredOperatorSibling(
+            MetadataReader reader,
+            TypeDefinitionHandle typeHandle,
+            MethodRef methodRef,
+            MethodDefinitionHandle excludedMethod,
+            IOperatorTypeRelationshipResolver? relationshipResolver)
+        {
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            if (TryFindMethod(reader, typeDef, methodRef) is not { } methodHandle)
+                return null;
+
+            var method = reader.GetMethodDefinition(methodHandle);
+            return RequiredOperatorSibling(
+                reader,
+                typeDef,
+                CompileBackTypeIdentity.FromDefinition(reader, typeDef),
+                methodRef.Name,
+                methodHandle,
+                excludedMethod,
+                relationshipResolver);
         }
 
         public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
@@ -4261,7 +4416,8 @@ public static class CompileBackSourceComposer
         public static TypeProduction Produce(
             MetadataReader reader,
             IReadOnlyList<CompileBackTypeRequirement> requirements,
-            List<CompileBackPlanningDiagnostic> diagnostics)
+            List<CompileBackPlanningDiagnostic> diagnostics,
+            IOperatorTypeRelationshipResolver? relationshipResolver = null)
         {
             var requests = new List<CSharpTypePrintRequest>();
             var producedRequirements = new List<CompileBackTypeRequirement>();
@@ -4300,7 +4456,8 @@ public static class CompileBackSourceComposer
                     rootRequirement,
                     requirementsByMetadataName,
                     producedRequirements,
-                    diagnostics);
+                    diagnostics,
+                    relationshipResolver);
                 requests.Add(TypeShellProducer.BuildPrintRequest(reader, rootSpec));
             }
 
@@ -4363,13 +4520,29 @@ public static class CompileBackSourceComposer
         {
             if (reader.GetString(method.Name) != methodRef.Name)
                 return false;
+            if (methodRef.GenericParameterCount != methodRef.TypeArguments.Length)
+                return false;
             if (method.GetGenericParameters().Count != methodRef.TypeArguments.Length)
                 return false;
             try
             {
                 var signature = GuardedDecode.MethodSignature(reader, method, IrImporter.CallerScope(reader, typeDef, method));
-                return signature.ParameterTypes.Length == methodRef.ParameterTypes.Length
-                    && signature.ParameterTypes.SequenceEqual(methodRef.ParameterTypes);
+                var typeArguments = methodRef.DeclaringType.Kind == TypeRefKind.GenericInstance
+                    ? methodRef.DeclaringType.TypeArguments
+                    : [];
+                var expectedReturnType = methodRef.DefinitionReturnType ?? methodRef.ReturnType;
+                var candidateReturnType = methodRef.DefinitionReturnType is null
+                    ? signature.ReturnType.Instantiate(typeArguments, [])
+                    : signature.ReturnType;
+                var expectedParameterTypes = methodRef.DefinitionParameterTypes.IsDefaultOrEmpty
+                    ? methodRef.ParameterTypes
+                    : methodRef.DefinitionParameterTypes;
+                var candidateParameterTypes = methodRef.DefinitionParameterTypes.IsDefaultOrEmpty
+                    ? signature.ParameterTypes.Select(parameter => parameter.Instantiate(typeArguments, []))
+                    : signature.ParameterTypes;
+                return candidateReturnType.Equals(expectedReturnType)
+                    && signature.ParameterTypes.Length == expectedParameterTypes.Length
+                    && candidateParameterTypes.SequenceEqual(expectedParameterTypes);
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
             {
@@ -4552,7 +4725,8 @@ public static class CompileBackSourceComposer
             TypeDefinition typeDef,
             CompileBackTypeIdentity typeIdentity,
             MethodDefinitionHandle methodHandle,
-            string factId = "typed-closure-method")
+            string factId = "typed-closure-method",
+            IOperatorTypeRelationshipResolver? relationshipResolver = null)
         {
             var method = reader.GetMethodDefinition(methodHandle);
             string name = reader.GetString(method.Name);
@@ -4600,7 +4774,11 @@ public static class CompileBackSourceComposer
             string identifierName = MemberIdentifierName(name, isConstructor);
             return new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(typeIdentity.FullName, identifierName, DeclaringOverloadIndex(reader, typeDef, methodHandle, name), MethodSignatureText(identifierName, signature)),
-                isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method,
+                MethodKind(
+                    reader,
+                    method,
+                    isConstructor,
+                    relationshipResolver),
                 method.Attributes.HasFlag(MethodAttributes.Static),
                 parameters,
                 isConstructor ? null : CompileBackTypeSignature.Display(methodReturnType),
@@ -4647,7 +4825,8 @@ public static class CompileBackSourceComposer
             CompileBackTypeRequirement requirement,
             IReadOnlyDictionary<string, CompileBackTypeRequirement> requirementsByMetadataName,
             List<CompileBackTypeRequirement> producedRequirements,
-            List<CompileBackPlanningDiagnostic> diagnostics)
+            List<CompileBackPlanningDiagnostic> diagnostics,
+            IOperatorTypeRelationshipResolver? relationshipResolver)
         {
             var typeDef = reader.GetTypeDefinition(handle);
             var kind = requirement.RequiredKind;
@@ -4656,7 +4835,13 @@ public static class CompileBackSourceComposer
                 : RequiredMemberRequirements(requirement);
             bool includeMemberSurface = requirement.IncludeMemberSurface;
             if (includeMemberSurface && kind != CompileBackTypeKind.Delegate)
-                AddClosureMemberSurface(reader, typeDef, requirement, members, diagnostics);
+                AddClosureMemberSurface(
+                    reader,
+                    typeDef,
+                    requirement,
+                    members,
+                    diagnostics,
+                    relationshipResolver);
             if (kind is CompileBackTypeKind.Class or CompileBackTypeKind.Record or CompileBackTypeKind.Struct)
             {
                 AddRequiredInterfaceProperties(
@@ -4664,7 +4849,8 @@ public static class CompileBackSourceComposer
                     typeDef,
                     requirement,
                     requirementsByMetadataName,
-                    members);
+                    members,
+                    relationshipResolver);
             }
             // When this class is reconstructed as the base of another shell type, a
             // derived stub constructor emits an implicit `: base()`. If the class has
@@ -4707,7 +4893,8 @@ public static class CompileBackSourceComposer
                     requirementsByMetadataName,
                     includeMemberSurface,
                     producedRequirements,
-                    diagnostics));
+                    diagnostics,
+                    relationshipResolver));
         }
 
         static void AddRequiredInterfaceProperties(
@@ -4715,7 +4902,8 @@ public static class CompileBackSourceComposer
             TypeDefinition typeDef,
             CompileBackTypeRequirement requirement,
             IReadOnlyDictionary<string, CompileBackTypeRequirement> requirementsByMetadataName,
-            List<CompileBackMemberRequirement> members)
+            List<CompileBackMemberRequirement> members,
+            IOperatorTypeRelationshipResolver? relationshipResolver)
         {
             foreach (var implementationHandle in typeDef.GetInterfaceImplementations())
             {
@@ -4742,7 +4930,8 @@ public static class CompileBackSourceComposer
                         interfaceDef,
                         interfaceRequirement,
                         interfaceMembers,
-                        diagnostics: []);
+                        diagnostics: [],
+                        relationshipResolver);
                 }
 
                 foreach (var interfaceMember in interfaceMembers.Where(
@@ -4906,7 +5095,8 @@ public static class CompileBackSourceComposer
             IReadOnlyDictionary<string, CompileBackTypeRequirement> requirementsByMetadataName,
             bool includeMemberSurface,
             List<CompileBackTypeRequirement> producedRequirements,
-            List<CompileBackPlanningDiagnostic> diagnostics)
+            List<CompileBackPlanningDiagnostic> diagnostics,
+            IOperatorTypeRelationshipResolver? relationshipResolver)
         {
             var nestedTypes = new List<CSharpTypeShellSpec>();
             foreach (var nestedHandle in typeDef.GetNestedTypes())
@@ -4939,7 +5129,8 @@ public static class CompileBackSourceComposer
                     nestedRequirement,
                     requirementsByMetadataName,
                     producedRequirements,
-                    diagnostics));
+                    diagnostics,
+                    relationshipResolver));
             }
 
             if (HasGeneratedCallSiteCache(reader, typeDef))
@@ -4962,7 +5153,8 @@ public static class CompileBackSourceComposer
                             SourceFacts: [new CompileBackFact("metadata", "generated-dynamic-delegate", identity.FullName)]),
                         requirementsByMetadataName,
                         producedRequirements,
-                        diagnostics));
+                        diagnostics,
+                        relationshipResolver));
                 }
             }
 
@@ -5103,6 +5295,7 @@ public static class CompileBackSourceComposer
             CompileBackTypeRequirement requirement,
             List<CompileBackMemberRequirement> members,
             List<CompileBackPlanningDiagnostic> diagnostics,
+            IOperatorTypeRelationshipResolver? relationshipResolver,
             bool allowUnsafeSurface = false)
         {
             if (requirement.RequiredKind == CompileBackTypeKind.Enum)
@@ -5352,9 +5545,71 @@ public static class CompileBackSourceComposer
 
                 bool isConstructor = name == ".ctor";
                 string identifierName = MemberIdentifierName(name, isConstructor);
+                var memberKind = MethodKind(
+                    reader,
+                    method,
+                    isConstructor,
+                    relationshipResolver);
+                MethodSignature<string> signature;
+                try
+                {
+                    signature = GuardedSignatureText.MethodText(
+                        reader,
+                        method,
+                        GenericContext.ForMethod(
+                            reader,
+                            typeDef,
+                            method));
+                }
+                catch (Exception ex) when (
+                    ex is BadImageFormatException
+                        or InvalidOperationException
+                        or ArgumentException)
+                {
+                    diagnostics.Add(
+                        new CompileBackPlanningDiagnostic(
+                            "member surface",
+                            "method-signature-decode-failed",
+                            name));
+                    continue;
+                }
+                string signatureIdentity =
+                    MethodSignatureText(identifierName, signature);
+                var generatedLocalFunction =
+                    IsGeneratedLocalFunctionName(name);
+                var methodDeclaration = generatedLocalFunction
+                    ? null
+                    : MetadataDeclarationQuery.GetMethod(
+                        reader,
+                        typeDef,
+                        method,
+                        signature);
+                var parameters = generatedLocalFunction
+                    ? Parameters(reader, method, signature)
+                    : ToCompileBackParameters(
+                        methodDeclaration!.Signature.Parameters);
+                var methodReturnType = generatedLocalFunction
+                    ? signature.ReturnType
+                    : methodDeclaration!.Signature.ReturnType;
+                CompileBackTypeSignature? returnType =
+                    isConstructor || methodReturnType is null
+                    ? null
+                    : CompileBackTypeSignature.Display(
+                        methodReturnType);
+                int typeParameterCount =
+                    method.GetGenericParameters().Count;
                 int existingMethodIndex = members.FindIndex(member =>
-                    member.Kind == (isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method)
-                    && member.Identity.Method == identifierName);
+                    member.Kind == memberKind
+                    && member.Identity.Method == identifierName
+                    && member.IsStatic
+                        == method.Attributes.HasFlag(
+                            MethodAttributes.Static)
+                    && member.TypeParameters.Count
+                        == typeParameterCount
+                    && (member.Identity.Signature == signatureIdentity
+                        || (member.ReturnType?.DisplayName
+                                == returnType?.DisplayName
+                            && SameParameters(member.Parameters, parameters))));
                 if (existingMethodIndex >= 0)
                 {
                     var existing = members[existingMethodIndex];
@@ -5364,37 +5619,23 @@ public static class CompileBackSourceComposer
                     };
                     continue;
                 }
+                if (!isConstructor
+                    && method.Attributes.HasFlag(
+                        MethodAttributes.SpecialName)
+                    && memberKind != CompileBackMemberKind.Operator)
+                {
+                    continue;
+                }
                 if (requirement.RequiredKind == CompileBackTypeKind.Interface && method.Attributes.HasFlag(MethodAttributes.Static))
                     continue;
-                if (method.GetGenericParameters().Count != 0)
+                if (generatedLocalFunction && typeParameterCount != 0)
                 {
-                    diagnostics.Add(new CompileBackPlanningDiagnostic("member surface", "generic-method-skipped", name));
+                    diagnostics.Add(new CompileBackPlanningDiagnostic(
+                        "member surface",
+                        "generic-local-function-skipped",
+                        name));
                     continue;
                 }
-                if (!isConstructor && method.Attributes.HasFlag(MethodAttributes.SpecialName))
-                    continue;
-
-                MethodSignature<string> signature;
-                try
-                {
-                    signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
-                }
-                catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
-                {
-                    diagnostics.Add(new CompileBackPlanningDiagnostic("member surface", "method-signature-decode-failed", name));
-                    continue;
-                }
-
-                var generatedLocalFunction = IsGeneratedLocalFunctionName(name);
-                var methodDeclaration = generatedLocalFunction
-                    ? null
-                    : MetadataDeclarationQuery.GetMethod(reader, typeDef, method, signature);
-                var parameters = generatedLocalFunction
-                    ? Parameters(reader, method, signature)
-                    : ToCompileBackParameters(methodDeclaration!.Signature.Parameters);
-                var methodReturnType = generatedLocalFunction
-                    ? signature.ReturnType
-                    : methodDeclaration!.Signature.ReturnType;
                 if (methodReturnType is null
                     || IsUnsupportedSurfaceSignature(methodReturnType)
                     || parameters.Any(parameter => IsUnsupportedSurfaceSignature(parameter.Type.DisplayName))
@@ -5406,7 +5647,7 @@ public static class CompileBackSourceComposer
                 }
                 members.Add(new CompileBackMemberRequirement(
                     new CompileBackMethodIdentity(requirement.Type.FullName, identifierName, overload++, MethodSignatureText(identifierName, signature)),
-                    isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method,
+                    memberKind,
                     IsStatic: method.Attributes.HasFlag(MethodAttributes.Static),
                     Parameters: parameters,
                     ReturnType: isConstructor ? null : CompileBackTypeSignature.Display(methodReturnType),

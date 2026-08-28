@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
+using System.Reflection.PortableExecutable;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
@@ -7,6 +9,8 @@ namespace ILInspector.Decompiler.Tests;
 
 public sealed class CSharpPrinterReceiverTests
 {
+    static readonly IAssemblyReferenceResolver RuntimeResolver =
+        TestAssemblyReferenceResolvers.TrustedPlatformAssemblies();
     static readonly TypeRef Int32Type = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef StringType = TypeRef.CoreLib("System", "String");
     static readonly TypeRef ObjectType = TypeRef.CoreLib("System", "Object");
@@ -433,21 +437,502 @@ public sealed class CSharpPrinterReceiverTests
         return CSharpPrinter.Print(function).Output!.Trim();
     }
 
-    static void AssertCompiles(string header, string body, string extraDeclarations = "")
+    /// <summary>
+    /// C# 14 instance compound assignment requires its left operand to be a
+    /// variable (CS0131). Release IL inlines a single-use receiver, so
+    /// <c>Box b = Get(); b += 1;</c> arrives with the call itself as the
+    /// receiver — printing <c>Get() += 1;</c> would not compile. The receiver is
+    /// bound to a statement-level synthetic local instead, exactly once.
+    /// </summary>
+    [Fact]
+    public void InlinedReceiver_InstanceAssignment_IsMaterializedIntoALocal()
     {
-        var errors = Recompile(header, body, extraDeclarations)
+        var result = PrintFixtureResult(nameof(InstanceAssignmentFixtures.InlinedReceiver));
+        string body = result.Output!.TrimEnd();
+
+        Assert.False(result.BodyIsSingleExpressionBody);
+        Assert.DoesNotContain("Create() +=", body);
+        Assert.Contains("InstanceAssignmentBox __receiver = InstanceAssignmentBoxFactory.Create();", body);
+        Assert.Contains("__receiver += 1;", body);
+        Assert.Equal(
+            1,
+            body.Split("InstanceAssignmentBoxFactory.Create()").Length - 1);
+        AssertCompiles("public static void M()", Indent(body), InstanceAssignmentDeclarations);
+    }
+
+    [Fact]
+    public void InlinedReceiver_InstanceAssignment_WholeMemberStaysBlockAndCompiles()
+    {
+        string assemblyPath = typeof(InstanceAssignmentFixtures).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        var type = Assert.Single(
+            ApiSurfaceExtractor.Extract(pe).Types,
+            candidate => candidate.FullName == typeof(InstanceAssignmentFixtures).FullName);
+        var member = Assert.Single(
+            type.Members,
+            candidate => candidate.Name == nameof(InstanceAssignmentFixtures.InlinedReceiver));
+
+        var rendered = MemberBodyProducer.ProduceMember(
+            type,
+            member,
+            assemblyPath,
+            pdbPath: null,
+            attributeMode: MemberRenderAttributeMode.CompilationRequired);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        string declaration = rendered.Text!.ReplaceLineEndings("\n");
+        Assert.Contains("InlinedReceiver()\n    {", declaration, StringComparison.Ordinal);
+        Assert.DoesNotContain("InlinedReceiver() =>", declaration, StringComparison.Ordinal);
+        Assert.Contains("InstanceAssignmentBox __receiver =", declaration, StringComparison.Ordinal);
+        AssertMemberCompiles(declaration, rendered.Namespaces);
+    }
+
+    [Fact]
+    public void InlinedReceiver_CheckedInstanceAssignment_KeepsCheckedSpelling()
+    {
+        string body = PrintFixture(nameof(InstanceAssignmentFixtures.InlinedReceiverChecked));
+
+        Assert.DoesNotContain("Create() +=", body);
+        Assert.Contains("InstanceAssignmentBox __receiver = InstanceAssignmentBoxFactory.Create();", body);
+        Assert.Contains("checked { __receiver += 1; }", body);
+        AssertCompiles("public static void M()", Indent(body), InstanceAssignmentDeclarations);
+    }
+
+    [Theory]
+    [InlineData(nameof(InstanceAssignmentFixtures.CheckedAssignmentLambda), "box += 1;")]
+    [InlineData(nameof(InstanceAssignmentFixtures.CheckedIncrementLambda), "box++;")]
+    public void CheckedInstanceAssignment_VoidLambdaStaysBlockBodied(
+        string methodName,
+        string statement)
+    {
+        string body = PrintFixtureWithCrossMethodImport(methodName);
+
+        Assert.Contains($"return () => {{ checked {{ {statement} }} }};", body);
+        Assert.DoesNotContain("=> checked(", body);
+        AssertCompiles(
+            "public static Action M(InstanceAssignmentBox box)",
+            Indent(body),
+            InstanceAssignmentDeclarations);
+    }
+
+    /// <summary>
+    /// A void lambda whose instance compound-assignment receiver has to be
+    /// materialized. C# has no expression-bodied spelling for these: the whole
+    /// point of materializing is that the receiver expression is not assignable,
+    /// so an expression body would emit <c>Factory.Create() += 1</c> (CS0131) or
+    /// <c>Factory.Create()++</c> (CS1059). Only the checked forms were routed to
+    /// the statement path before; the unchecked ones are the round-18 finding.
+    /// </summary>
+    [Theory]
+    [InlineData(
+        nameof(InstanceAssignmentFixtures.UncheckedAssignmentLambda),
+        "__receiver += amount;",
+        "public static Action M(int amount)")]
+    [InlineData(
+        nameof(InstanceAssignmentFixtures.UncheckedIncrementLambda),
+        "__receiver++;",
+        "public static Action M()")]
+    public void UncheckedInstanceAssignment_MaterializedReceiverVoidLambdaStaysBlockBodied(
+        string methodName,
+        string statement,
+        string header)
+    {
+        string body = PrintFixtureWithCrossMethodImport(methodName);
+
+        Assert.DoesNotContain("Create() +=", body);
+        Assert.DoesNotContain("Create()++", body);
+        Assert.DoesNotContain("=> InstanceAssignmentBoxFactory.Create()", body);
+        Assert.Contains(
+            "InstanceAssignmentBox __receiver = InstanceAssignmentBoxFactory.Create();",
+            body);
+        Assert.Contains(statement, body);
+        AssertCompiles(header, Indent(body), InstanceAssignmentDeclarations);
+    }
+
+    /// <summary>
+    /// The close control: a lambda whose receiver is already an assignable place
+    /// needs no materialization, so it keeps the expression body it always had.
+    /// The fix routes on materialization, not on "is an instance assignment".
+    /// </summary>
+    [Theory]
+    [InlineData(
+        nameof(InstanceAssignmentFixtures.UncheckedAssignableReceiverLambda),
+        "return () => box += 1;")]
+    [InlineData(
+        nameof(InstanceAssignmentFixtures.UncheckedAssignableReceiverIncrementLambda),
+        "return () => box++;")]
+    public void UncheckedInstanceAssignment_AssignableReceiverVoidLambdaStaysExpressionBodied(
+        string methodName,
+        string expected)
+    {
+        string body = PrintFixtureWithCrossMethodImport(methodName);
+
+        Assert.Contains(expected, body);
+        Assert.DoesNotContain("__receiver", body);
+        AssertCompiles(
+            "public static Action M(InstanceAssignmentBox box)",
+            Indent(body),
+            InstanceAssignmentDeclarations);
+    }
+
+    [Fact]
+    public void ConstrainedStructReceiver_InstanceAssignmentPreservesTheByRefPlace()
+    {
+        string body = PrintFixture(
+            nameof(InstanceAssignmentFixtures.ConstrainedStructReceiver));
+        var value = default(ConstrainedAssignmentCounter);
+
+        Assert.Equal(
+            1,
+            InstanceAssignmentFixtures.ConstrainedStructReceiver(
+                ref value));
+        Assert.DoesNotContain("__receiver", body);
+        Assert.Contains("value += 1;", body);
+        AssertCompiles(
+            "public static int M<T>(ref T value) where T : IConstrainedAssignmentCounter<T>",
+            Indent(body),
+            """
+            public interface IConstrainedAssignmentCounter<T>
+                where T : IConstrainedAssignmentCounter<T>
+            {
+                int Value { get; }
+                void operator +=(int value);
+            }
+            """);
+    }
+
+    [Fact]
+    public void MaterializedReceiver_AvoidsMethodGenericParameterName()
+    {
+        string body = PrintFixture(
+            nameof(InstanceAssignmentFixtures
+                .InlinedReceiverWithGenericParameter));
+
+        Assert.DoesNotContain(
+            "InstanceAssignmentBox __receiver =",
+            body);
+        Assert.Contains(
+            "InstanceAssignmentBox __receiver0 =",
+            body);
+        AssertCompiles(
+            "public static void M<__receiver>()",
+            Indent(body),
+            InstanceAssignmentDeclarations);
+    }
+
+    [Fact]
+    public void AssignableReceiver_InstanceAssignment_IsUnchanged()
+    {
+        string body = PrintFixture(nameof(InstanceAssignmentFixtures.AssignableReceiver));
+
+        Assert.DoesNotContain("__receiver", body);
+        Assert.Contains(" += 1;", body);
+        Assert.Contains(" += 2;", body);
+        AssertCompiles("public static void M()", Indent(body), InstanceAssignmentDeclarations);
+    }
+
+    [Fact]
+    public void HiddenDerivedAssignmentOperator_BaseCallMaterializesBaseReceiver()
+    {
+        string body = PrintFixture(
+            typeof(DerivedInstanceAssignmentBox),
+            nameof(DerivedInstanceAssignmentBox.InvokeBase));
+
+        Assert.Contains("BaseInstanceAssignmentBox __receiver = this;", body);
+        Assert.Contains("__receiver += value;", body);
+        Assert.DoesNotContain("this += value;", body);
+        AssertCompiles(
+            "public void InvokeBase(int value)",
+            Indent(body),
+            """
+            public class BaseInstanceAssignmentBox
+            {
+                public void operator +=(int value) { }
+            }
+
+            public sealed partial class DerivedInstanceAssignmentBox
+                : BaseInstanceAssignmentBox
+            {
+                public new void operator +=(int value) { }
+            }
+            """,
+            gateType: "DerivedInstanceAssignmentBox");
+    }
+
+    [Fact]
+    public void CollectionExpression_InstanceAssignmentPreservesSpanTarget()
+    {
+        string body = PrintFixture(
+            typeof(CollectionInstanceAssignmentBox),
+            nameof(CollectionInstanceAssignmentBox.InvokeSpan));
+
+        Assert.Contains(
+            "CollectionInstanceAssignmentBox __receiver = this;",
+            body);
+        Assert.Contains(
+            "__receiver += (Span<int>)[1, 2];",
+            body);
+        AssertCompiles(
+            "public void InvokeSpan()",
+            Indent(body),
+            """
+            public sealed partial class CollectionInstanceAssignmentBox
+            {
+                public void operator +=(Span<int> value) { }
+                public void operator +=(ReadOnlySpan<int> value) { }
+            }
+            """,
+            gateType: "CollectionInstanceAssignmentBox");
+    }
+
+    [Fact]
+    public void ConditionalRightOperand_InstanceAssignmentPreservesObjectTarget()
+    {
+        string body = PrintFixture(
+            typeof(ConditionalInstanceAssignmentBox),
+            nameof(ConditionalInstanceAssignmentBox.InvokeObject));
+
+        Assert.Contains(
+            "ConditionalInstanceAssignmentBox __receiver = this;",
+            body);
+        Assert.Contains(
+            "__receiver += (object)(choose ? null : \"\");",
+            body);
+        AssertCompiles(
+            "public void InvokeObject(bool choose)",
+            Indent(body),
+            """
+            public sealed partial class ConditionalInstanceAssignmentBox
+            {
+                public void operator +=(object? value) { }
+                public void operator +=(string? value) { }
+            }
+            """,
+            gateType: "ConditionalInstanceAssignmentBox");
+    }
+
+    [Fact]
+    public void DynamicRightOperand_InstanceAssignment_PreservesSelectedOverload()
+    {
+        var box = TypeRef.Definition("synthetic", "", "DynamicAssignmentBox");
+        var call = new Call(
+            new MethodRef(
+                box,
+                "op_AdditionAssignment",
+                VoidType,
+                [ObjectType],
+                HasThis: true)
+            {
+                IsSpecialName = true,
+                IsOperator = MetadataFactState.Yes,
+            },
+            isVirtual: false,
+            [
+                new LoadArgument(0, "box", box),
+                new LoadArgument(1, "value", ObjectType)
+                {
+                    IsDynamic = true,
+                },
+            ]);
+
+        string body = RenderStatements(
+            [
+                new Parameter("box", box),
+                new Parameter("value", ObjectType, IsDynamic: true),
+            ],
+            new ExpressionStatement(call));
+
+        Assert.Contains("box += (object)value;", body);
+        AssertCompiles(
+            "public static void M(DynamicAssignmentBox box, dynamic value)",
+            body,
+            """
+            public sealed class DynamicAssignmentBox
+            {
+                public void operator +=(object value) { }
+                public void operator +=(string value) { }
+            }
+            """);
+    }
+
+    [Fact]
+    public void PointerReceiver_InstanceAssignment_DereferencesTheReceiver()
+    {
+        var counter = TypeRef.Definition(
+            "synthetic",
+            "",
+            "PointerAssignmentCounter",
+            ValueTypeHint.ValueType);
+        var pointer = TypeRef.Pointer(counter);
+        var call = new Call(
+            new MethodRef(
+                counter,
+                "op_AdditionAssignment",
+                VoidType,
+                [Int32Type],
+                HasThis: true)
+            {
+                IsSpecialName = true,
+                IsOperator = MetadataFactState.Yes,
+            },
+            isVirtual: false,
+            [
+                new LoadArgument(0, "value", pointer),
+                new Constant(1, Int32Type),
+            ]);
+
+        string body = RenderStatements(
+            [new Parameter("value", pointer)],
+            new ExpressionStatement(call));
+
+        Assert.Contains("(*value) += 1;", body);
+        Assert.DoesNotContain("value += 1;", body);
+    }
+
+    [Fact]
+    public void LambdaRightOperand_InstanceAssignment_PreservesSelectedOverload()
+    {
+        var box = TypeRef.Definition("synthetic", "", "LambdaAssignmentBox");
+        var func = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Func`1"),
+            [Int32Type]);
+        var lambdaBlock = new Block(0);
+        lambdaBlock.Add(new Return(new Constant(1, Int32Type)));
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaBlock);
+        var lambda = new Lambda(
+            func,
+            [],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            lambdaBody);
+        var call = new Call(
+            new MethodRef(
+                box,
+                "op_AdditionAssignment",
+                VoidType,
+                [func],
+                HasThis: true)
+            {
+                IsSpecialName = true,
+                IsOperator = MetadataFactState.Yes,
+            },
+            isVirtual: false,
+            [new LoadArgument(0, "box", box), lambda]);
+
+        string body = RenderStatements(
+            [new Parameter("box", box)],
+            new ExpressionStatement(call));
+
+        Assert.Contains("box += (Func<int>)", body);
+        AssertCompiles(
+            "public static void M(LambdaAssignmentBox box)",
+            body,
+            """
+            public sealed class LambdaAssignmentBox
+            {
+                public void operator +=(System.Func<int> value) { }
+                public void operator +=(System.Linq.Expressions.Expression<System.Func<int>> value) { }
+            }
+            """);
+    }
+
+    const string InstanceAssignmentDeclarations = """
+        public sealed class InstanceAssignmentBox
+        {
+            public int Value;
+            public void operator +=(int value) => Value += value;
+            public void operator checked +=(int value) => Value = checked(Value + value);
+            public void operator ++() => Value++;
+            public void operator checked ++() => Value = checked(Value + 1);
+        }
+
+        public static class InstanceAssignmentBoxFactory
+        {
+            public static InstanceAssignmentBox Create() => new InstanceAssignmentBox();
+        }
+        """;
+
+    static string PrintFixture(string methodName)
+        => PrintFixtureResult(methodName).Output!.TrimEnd();
+
+    static string PrintFixtureWithCrossMethodImport(string methodName)
+    {
+        using var source = MetadataSource.Open(
+            typeof(InstanceAssignmentFixtures).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(InstanceAssignmentFixtures).FullName!,
+            methodName);
+        Assert.NotNull(function);
+        var result = CSharpPrinter.PrintRaised(
+            function!,
+            method => IrImporter.Import(source, method));
+        Assert.True(
+            result.Succeeded,
+            string.Join("\n", result.Diagnostics.Select(diagnostic => diagnostic.Message)));
+        return result.Output!.TrimEnd();
+    }
+
+    static string PrintFixture(Type type, string methodName)
+    {
+        using var source = MetadataSource.Open(
+            type.Assembly.Location,
+            externalPdbPath: null,
+            RuntimeResolver);
+        var function = IrImporter.Import(
+            source,
+            type.FullName!,
+            methodName);
+        Assert.NotNull(function);
+        return CSharpPrinter.PrintRaised(function!, out _).Output!.TrimEnd();
+    }
+
+    static DecompilerResult PrintFixtureResult(string methodName)
+    {
+        using var source = MetadataSource.Open(
+            typeof(InstanceAssignmentFixtures).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(InstanceAssignmentFixtures).FullName!,
+            methodName);
+        Assert.NotNull(function);
+        return CSharpPrinter.PrintRaised(function!, out _);
+    }
+
+    static string Indent(string body)
+        => string.Join(
+            "\n",
+            body.Split('\n').Select(line => line.Length == 0 ? line : "        " + line));
+
+    static void AssertCompiles(
+        string header,
+        string body,
+        string extraDeclarations = "",
+        string gateType = "__Gate")
+    {
+        var errors = Recompile(header, body, extraDeclarations, gateType)
             .Where(d => d.Severity == DiagnosticSeverity.Error)
             .Select(d => $"{d.Id}: {d.GetMessage()}")
             .ToArray();
         Assert.True(errors.Length == 0, "Rendered body must compile, got:\n  " + string.Join("\n  ", errors) + "\n--- body ---\n" + body);
     }
 
-    static ImmutableArray<Diagnostic> Recompile(string methodHeader, string body, string extraDeclarations)
+    static ImmutableArray<Diagnostic> Recompile(
+        string methodHeader,
+        string body,
+        string extraDeclarations,
+        string gateType)
     {
+        string gateDeclaration = gateType == "__Gate"
+            ? "static class __Gate"
+            : $"partial class {gateType}";
         string source = $$"""
             using System;
             {{extraDeclarations}}
-            static class __Gate
+            {{gateDeclaration}}
             {
                 {{methodHeader}}
                 {
@@ -464,6 +949,202 @@ public sealed class CSharpPrinterReceiverTests
         return compilation.GetDiagnostics();
     }
 
+    static void AssertMemberCompiles(string declaration, IReadOnlyList<string> namespaces)
+    {
+        string imports = string.Join(
+            "\n",
+            namespaces
+                .Where(ns => !string.IsNullOrWhiteSpace(ns))
+                .Distinct(StringComparer.Ordinal)
+                .Select(ns => $"using {ns};"));
+        string source = $$"""
+            {{imports}}
+            public static class __Gate
+            {
+            {{declaration}}
+            }
+            """;
+        var tree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
+        var references = RuntimeReferences().Add(
+            MetadataReference.CreateFromFile(typeof(InstanceAssignmentFixtures).Assembly.Location));
+        var compilation = CSharpCompilation.Create(
+            "__member_gate",
+            [tree],
+            references,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));
+        var errors = compilation.GetDiagnostics()
+            .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+            .Select(diagnostic => $"{diagnostic.Id}: {diagnostic.GetMessage()}")
+            .ToArray();
+        Assert.True(
+            errors.Length == 0,
+            "Rendered member must compile, got:\n  "
+                + string.Join("\n  ", errors)
+                + "\n--- member ---\n"
+                + declaration);
+    }
+
     static ImmutableArray<MetadataReference> RuntimeReferences()
         => RoslynTestReferences.TrustedPlatform;
+}
+
+/// <summary>
+/// Compiler-produced fixtures for the C# 14 instance compound-assignment
+/// receiver. Release IL for <c>InlinedReceiver</c> never stores the receiver,
+/// which is the shape that made the printer emit an unassignable left operand.
+/// </summary>
+public sealed class InstanceAssignmentBox
+{
+    public int Value;
+
+    public void operator +=(int value) => Value += value;
+
+    public void operator checked +=(int value) => Value = checked(Value + value);
+
+    public void operator ++() => Value++;
+
+    public void operator checked ++() => Value = checked(Value + 1);
+}
+
+public static class InstanceAssignmentBoxFactory
+{
+    public static InstanceAssignmentBox Create() => new();
+}
+
+public static class InstanceAssignmentFixtures
+{
+    public static void InlinedReceiver()
+    {
+        InstanceAssignmentBox box = InstanceAssignmentBoxFactory.Create();
+        box += 1;
+    }
+
+    public static void InlinedReceiverChecked()
+    {
+        InstanceAssignmentBox box = InstanceAssignmentBoxFactory.Create();
+        checked
+        {
+            box += 1;
+        }
+    }
+
+    public static Action CheckedAssignmentLambda(InstanceAssignmentBox box)
+        => () =>
+        {
+            checked
+            {
+                box += 1;
+            }
+        };
+
+    public static Action CheckedIncrementLambda(InstanceAssignmentBox box)
+        => () =>
+        {
+            checked
+            {
+                box++;
+            }
+        };
+
+    public static Action UncheckedAssignmentLambda(int amount)
+        => () =>
+        {
+            InstanceAssignmentBox box = InstanceAssignmentBoxFactory.Create();
+            box += amount;
+        };
+
+    public static Action UncheckedIncrementLambda()
+        => () =>
+        {
+            InstanceAssignmentBox box = InstanceAssignmentBoxFactory.Create();
+            box++;
+        };
+
+    public static Action UncheckedAssignableReceiverLambda(
+        InstanceAssignmentBox box)
+        => () => box += 1;
+
+    public static Action UncheckedAssignableReceiverIncrementLambda(
+        InstanceAssignmentBox box)
+        => () => box++;
+
+    public static void AssignableReceiver()
+    {
+        InstanceAssignmentBox box = InstanceAssignmentBoxFactory.Create();
+        box += 1;
+        box += 2;
+    }
+
+    public static int ConstrainedStructReceiver<T>(ref T value)
+        where T : IConstrainedAssignmentCounter<T>
+    {
+        value += 1;
+        return value.Value;
+    }
+
+    public static void InlinedReceiverWithGenericParameter<__receiver>()
+    {
+        InstanceAssignmentBox box =
+            InstanceAssignmentBoxFactory.Create();
+        box += 1;
+    }
+}
+
+public interface IConstrainedAssignmentCounter<T>
+    where T : IConstrainedAssignmentCounter<T>
+{
+    int Value { get; }
+
+    void operator +=(int value);
+}
+
+public struct ConstrainedAssignmentCounter
+    : IConstrainedAssignmentCounter<ConstrainedAssignmentCounter>
+{
+    public int Value { get; private set; }
+
+    public void operator +=(int value) => Value += value;
+}
+
+public class BaseInstanceAssignmentBox
+{
+    public void operator +=(int value) { }
+}
+
+public sealed partial class DerivedInstanceAssignmentBox
+    : BaseInstanceAssignmentBox
+{
+    public new void operator +=(int value) { }
+
+    public void InvokeBase(int value)
+    {
+        BaseInstanceAssignmentBox receiver = this;
+        receiver += value;
+    }
+}
+
+public sealed partial class CollectionInstanceAssignmentBox
+{
+    public void operator +=(Span<int> value) { }
+
+    public void operator +=(ReadOnlySpan<int> value) { }
+
+    public void InvokeSpan()
+    {
+        CollectionInstanceAssignmentBox receiver = this;
+        receiver += (Span<int>)[1, 2];
+    }
+}
+
+public sealed partial class ConditionalInstanceAssignmentBox
+{
+    public void operator +=(object? value) { }
+
+    public void operator +=(string? value) { }
+
+    public void InvokeObject(bool choose)
+    {
+        ConditionalInstanceAssignmentBox receiver = this;
+        receiver += (object?)(choose ? null : "");
+    }
 }

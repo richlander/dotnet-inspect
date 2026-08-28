@@ -293,7 +293,12 @@ public class ResearchDiffTests
             TypeRef.CoreLib("System", "Void"),
             MetadataToken: 0x06000001,
             IsStatic: true,
-            IsExtension: isExtension);
+            IsExtension: isExtension)
+        {
+            IsOperator = methodName == "op_Addition"
+                ? MetadataOperatorFact.Yes
+                : MetadataOperatorFact.No
+        };
 
         var subject = ResearchMemberIdentity.SubjectFromMethod(method);
 
@@ -308,7 +313,10 @@ public class ResearchDiffTests
         var widget = TypeRef.Definition("Asm", "Sample", "Widget");
         var toInt = new MethodIdentity(
             "Asm", Guid.Empty, widget, "op_Explicit", [widget],
-            TypeRef.CoreLib("System", "Int32"), MetadataToken: 0x06000001, IsStatic: true);
+            TypeRef.CoreLib("System", "Int32"), MetadataToken: 0x06000001, IsStatic: true)
+        {
+            IsOperator = MetadataOperatorFact.Yes
+        };
         var toLong = toInt with { ReturnType = TypeRef.CoreLib("System", "Int64"), MetadataToken = 0x06000002 };
 
         var idInt = ResearchMemberIdentity.SubjectFromMethod(toInt).Id;
@@ -317,6 +325,256 @@ public class ResearchDiffTests
         Assert.StartsWith("operator:op_Explicit~", idInt, StringComparison.Ordinal);
         Assert.StartsWith("operator:op_Explicit~", idLong, StringComparison.Ordinal);
         Assert.NotEqual(idInt, idLong);
+    }
+
+    [Fact]
+    public void ResearchMemberIdentity_TargetAliasUsesCanonicalTupleTypes()
+    {
+        var member = new ApiMember
+        {
+            Name = "op_Implicit",
+            Kind = "operator",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "(int x, int y)",
+                CanonicalReturnType = "System.ValueTuple<System.Int32,System.Int32>",
+                MemberName = "op_Implicit",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Name = "value",
+                        Type = "Widget",
+                        CanonicalType = "Samples.Widget",
+                    },
+                ],
+            },
+            IsStatic = true,
+            CSharpOperatorDeclaration = true,
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+            Members = [member],
+        };
+        var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
+        var target = new ResolvedMemberTarget(
+            type,
+            new ApiMemberHandle(type, member, anchor),
+            anchor,
+            "operator:op_Implicit",
+            "operator:op_Implicit",
+            0,
+            0,
+            0,
+            null,
+            null,
+            MemberTargetKind.Operator,
+            new BodyTarget(
+                "Samples.Widget",
+                anchor.CanonicalSignature,
+                MetadataToken: 0x06000001));
+        var identities = new HashSet<string>(StringComparer.Ordinal);
+
+        Assert.True(ResearchMemberIdentity.TryAddTargetIdentity(target, identities));
+        Assert.True(
+            identities.Contains(anchor.StableSelector),
+            $"Expected '{anchor.CanonicalSignature}' ({anchor.StableSelector}); actual identities: {string.Join(", ", identities)}.");
+    }
+
+    [Fact]
+    public void ResearchMemberIdentity_OrdinaryConversionNamedExtensionUsesBodyIdentity()
+    {
+        var member = new ApiMember
+        {
+            Name = "op_Implicit",
+            Kind = "method",
+            DeclaringType = "Samples.ConversionExtensions",
+            IsStatic = true,
+            IsExtension = true,
+            CSharpOperatorDeclaration = false,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                CanonicalReturnType = "System.Int32",
+                MemberName = "op_Implicit",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Name = "value",
+                        Type = "Widget",
+                        CanonicalType = "Samples.Widget",
+                    },
+                ],
+            },
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "ConversionExtensions",
+            Kind = "class",
+            Members = [member],
+        };
+        var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
+        var target = new ResolvedMemberTarget(
+            type,
+            new ApiMemberHandle(type, member, anchor),
+            anchor,
+            "extension:op_Implicit",
+            "extension:op_Implicit",
+            0,
+            0,
+            0,
+            null,
+            null,
+            MemberTargetKind.Method,
+            new BodyTarget(
+                "Samples.ConversionExtensions",
+                anchor.CanonicalSignature,
+                MetadataToken: 0x06000001));
+        var identities = new HashSet<string>(StringComparer.Ordinal);
+
+        Assert.True(
+            ResearchMemberIdentity.TryAddTargetIdentity(
+                target,
+                identities));
+        string identity = Assert.Single(identities);
+        Assert.StartsWith(
+            "extension:op_Implicit~",
+            identity,
+            StringComparison.Ordinal);
+        var bodySubject = ResearchMemberIdentity.SubjectFromMethod(
+            new MethodIdentity(
+                "Samples",
+                Guid.Empty,
+                TypeRef.Definition(
+                    "Samples",
+                    "Samples",
+                    "ConversionExtensions"),
+                "op_Implicit",
+                [TypeRef.Definition(
+                    "Samples",
+                    "Samples",
+                    "Widget")],
+                TypeRef.CoreLib("System", "Int32"),
+                MetadataToken: 0x06000001,
+                IsStatic: true,
+                IsExtension: true)
+            {
+                IsOperator = MetadataOperatorFact.No,
+            });
+        Assert.Equal(bodySubject.Id, identity);
+        Assert.NotEqual(anchor.StableSelector, identity);
+    }
+
+    [Fact]
+    public void ResearchMemberIdentity_UnknownMemberReferenceUsesMetadataOperatorFallback()
+    {
+        var widget = TypeRef.Definition("Asm", "Sample", "Widget");
+        var member = new MemberRef(
+            widget,
+            "op_Equality",
+            [widget, widget],
+            TypeRef.CoreLib("System", "Boolean"),
+            MemberKind.Method);
+
+        Assert.Equal(MetadataOperatorFact.Unknown, member.IsOperator);
+        Assert.StartsWith(
+            "operator:op_Equality~",
+            ResearchMemberIdentity.SubjectFromMember(member).Id,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ResearchMemberIdentity_ExactNegativeKeepsOrdinaryOperatorName()
+    {
+        var widget = TypeRef.Definition("Asm", "Sample", "Widget");
+        var member = new MemberRef(
+            widget,
+            "op_Equality",
+            [widget, widget],
+            TypeRef.CoreLib("System", "Boolean"),
+            MemberKind.Method)
+        {
+            IsOperator = MetadataOperatorFact.No
+        };
+
+        Assert.StartsWith(
+            "op_Equality~",
+            ResearchMemberIdentity.SubjectFromMember(member).Id,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A body subject and its API anchor must be the same string, or an
+    /// implementation diff cannot join a member's IL evidence to its API
+    /// identity. The operator prefix is where they used to diverge: the API side
+    /// read the <c>SpecialName</c> flag while the body side matched on the
+    /// <c>op_</c> name prefix, so an ordinary method named <c>op_Multiply</c>
+    /// produced <c>op_Multiply~…</c> on one side and <c>operator:op_Multiply~…</c>
+    /// on the other and dropped out of the diff.
+    /// </summary>
+    [Theory]
+    [InlineData("op_Multiply", false, "op_Multiply~")]
+    [InlineData("op_Addition", true, "operator:op_Addition~")]
+    [InlineData("Scale", false, "Scale~")]
+    public void BodySubjectAndApiAnchorAgreeOnTheOperatorPrefix(
+        string methodName,
+        bool isSpecialName,
+        string expectedSelectorPrefix)
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"operator-join-{Guid.NewGuid():N}.dll");
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new System.Reflection.AssemblyName("OperatorJoin"),
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("OperatorJoin");
+        var type = module.DefineType(
+            "Widget",
+            System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
+        var method = type.DefineMethod(
+            methodName,
+            System.Reflection.MethodAttributes.Public
+                | System.Reflection.MethodAttributes.Static
+                | (isSpecialName ? System.Reflection.MethodAttributes.SpecialName : 0),
+            typeof(int),
+            [typeof(int), typeof(int)]);
+        var il = method.GetILGenerator();
+        il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0);
+        il.Emit(System.Reflection.Emit.OpCodes.Ldarg_1);
+        il.Emit(System.Reflection.Emit.OpCodes.Add);
+        il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        type.CreateType();
+        assembly.Save(path);
+
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            var reader = peReader.GetMetadataReader();
+            var typeHandle = Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name) == "Widget");
+            var definition = Assert.Single(
+                reader.GetTypeDefinition(typeHandle).GetMethods().Select(reader.GetMethodDefinition),
+                candidate => reader.GetString(candidate.Name) == methodName);
+            var anchor = ApiMemberIdentity.CreateMethodAnchor(reader, typeHandle, definition);
+
+            var index = LibraryBodyIndex.Open(path);
+            var body = Assert.Single(index.Methods, candidate => candidate.Name == methodName);
+            var subject = ResearchMemberIdentity.SubjectFromMethod(body);
+
+            Assert.StartsWith(expectedSelectorPrefix, anchor.StableSelector, StringComparison.Ordinal);
+            Assert.Equal(anchor.StableSelector, subject.Id);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Theory]

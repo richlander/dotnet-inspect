@@ -843,7 +843,8 @@ public sealed class CSharpTypePrinter
             BaseType = type.BaseType,
             Interfaces = interfaces?.ToList()!,
             TypeParameters = typeParameters?.Select(SnapshotTypeParameter).ToList()!,
-            Members = members.Select(SnapshotMember).ToList()
+            Members = members.Select(SnapshotMember).ToList(),
+            DeclaringMembers = type.DeclaringMembers?.Select(SnapshotMember).ToList()
         };
     }
 
@@ -859,6 +860,11 @@ public sealed class CSharpTypePrinter
             ReturnType = member.ReturnType,
             Signature = member.Signature,
             SignatureModel = signatureModel is null ? null : SnapshotSignature(signatureModel),
+            CSharpOperatorDeclaration = member.CSharpOperatorDeclaration,
+            HasCSharpOperatorDeclarationClassification =
+                member.HasCSharpOperatorDeclarationClassification,
+            OperatorPairingKey = member.OperatorPairingKey,
+            HasOperatorPairingKey = member.HasOperatorPairingKey,
             SignatureDecodeStatus = member.SignatureDecodeStatus,
             IsStatic = member.IsStatic,
             IsVirtual = member.IsVirtual,
@@ -886,6 +892,7 @@ public sealed class CSharpTypePrinter
         return new ApiSignature
         {
             ReturnType = signature.ReturnType,
+            CanonicalReturnType = signature.CanonicalReturnType,
             ReturnAttributes = returnAttributes?.ToList()!,
             MemberName = signature.MemberName,
             IsRequired = signature.IsRequired,
@@ -919,6 +926,7 @@ public sealed class CSharpTypePrinter
             Attributes = attributes?.ToList()!,
             Name = parameter.Name,
             Type = parameter.Type,
+            CanonicalType = parameter.CanonicalType,
             Modifier = parameter.Modifier,
             HasDefault = parameter.HasDefault,
             DefaultValueText = parameter.DefaultValueText
@@ -1090,7 +1098,7 @@ public sealed class CSharpTypePrinter
             ("field", CSharpFieldInitializer) => true,
             (_, CSharpPropertyBody) when IsProperty(member) => true,
             (_, CSharpEventBody) when IsEvent(member) => true,
-            ("method" or "extension-method" or "explicit-interface-implementation" or "constructor" or "finalizer", CSharpBlockBody) => true,
+            ("method" or "operator" or "extension-method" or "explicit-interface-implementation" or "constructor" or "finalizer", CSharpBlockBody) => true,
             _ => false,
         };
         if (!validBody)

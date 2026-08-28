@@ -4263,10 +4263,23 @@ static class FidelityCheck
             ? slotModifier
             : (isAbstractStub || emitClassVirtual ? "virtual " : "");
         if (!IsStaticClass(typeDef)
+            && method.Attributes.HasFlag(MethodAttributes.SpecialName)
+            && method.GetGenericParameters().Count == 0
             && name.StartsWith("op_", StringComparison.Ordinal)
-            && OperatorDeclaration(name, returnType, parameters) is { } operatorDeclaration)
+            && OperatorDeclaration(
+                name,
+                returnType,
+                parameters,
+                isStatic,
+                (method.Attributes & MethodAttributes.MemberAccessMask)
+                    == MethodAttributes.Public,
+                sig.ParameterTypes.Length,
+                HasRefOrOutParameter(reader, method, sig)) is { } operatorDeclaration)
         {
-            sb.AppendLine($"{pad}public {unsafeModifier}static {operatorDeclaration} {{{body}}}");
+            string operatorStaticModifier = OperatorNames.IsAssignmentOperatorMethodName(name)
+                ? ""
+                : "static ";
+            sb.AppendLine($"{pad}public {unsafeModifier}{operatorStaticModifier}{operatorDeclaration} {{{body}}}");
             return;
         }
         sb.AppendLine($"{pad}public {unsafeModifier}{(isStatic ? "static " : instanceModifier)}{asyncModifier}{returnType} {Identifier(name)}{genParams}({parameters}){whereClauses} {{{body}}}");
@@ -4312,10 +4325,30 @@ static class FidelityCheck
         };
     }
 
-    static string? OperatorDeclaration(string name, string returnType, string parameters)
+    static string? OperatorDeclaration(
+        string name,
+        string returnType,
+        string parameters,
+        bool isStatic,
+        bool isPublic,
+        int parameterCount,
+        bool hasRefOrOutParameter)
     {
+        if (OperatorNames.IsAssignmentOperatorMethodName(name)
+            && !OperatorNames.IsCSharpInstanceAssignmentOperator(
+                name,
+                isStatic,
+                isPublic,
+                returnType,
+                parameterCount,
+                hasRefOrOutParameter))
+        {
+            return null;
+        }
+
         if (name.StartsWith("op_Checked", StringComparison.Ordinal)
-            && OperatorNames.MapBinaryOrUnary(name["op_Checked".Length..]) is { } checkedSymbol)
+            && (OperatorNames.MapBinaryOrUnary(name["op_Checked".Length..])
+                ?? OperatorNames.MapCheckedAssignment(name["op_Checked".Length..])) is { } checkedSymbol)
             return $"{returnType} operator checked {checkedSymbol}({parameters})";
 
         return name switch
@@ -4401,6 +4434,37 @@ static class FidelityCheck
             parts.Add($"{modifier}{ByRefKeyword(sig.ParameterTypes[i], refKinds.GetValueOrDefault(i))} {Identifier(name)}");
         }
         return string.Join(", ", parts);
+    }
+
+    static bool HasRefOrOutParameter(
+        MetadataReader reader,
+        MethodDefinition method,
+        MethodSignature<string> signature)
+    {
+        var refKinds = new Dictionary<int, ByRefParameterInfo>();
+        foreach (var handle in method.GetParameters())
+        {
+            var parameter = reader.GetParameter(handle);
+            if (parameter.SequenceNumber >= 1)
+            {
+                refKinds[parameter.SequenceNumber - 1] = new ByRefParameterInfo(
+                    parameter.Attributes,
+                    HasIsReadOnlyAttribute(reader, parameter.GetCustomAttributes()));
+            }
+        }
+
+        for (int index = 0; index < signature.ParameterTypes.Length; index++)
+        {
+            string spelling = ByRefKeyword(
+                signature.ParameterTypes[index],
+                refKinds.GetValueOrDefault(index));
+            if (spelling.StartsWith("ref ", StringComparison.Ordinal)
+                || spelling.StartsWith("out ", StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     static bool IsExtensionMethod(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method, MethodSignature<string> sig)

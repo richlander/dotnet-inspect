@@ -330,18 +330,67 @@ public static class TypeMatcher
     {
         foreach (var pattern in filter)
         {
-            if (pattern.Contains('*') || pattern.Contains('?'))
-            {
-                if (MatchesGlob(name, pattern))
-                    return true;
-            }
-            else
-            {
-                if (MatchesMemberName(name, pattern))
-                    return true;
-            }
+            if (MatchesMemberFilter(name, pattern))
+                return true;
         }
         return false;
+    }
+
+    public static bool MatchesMemberFilter(string name, string pattern)
+    {
+        MemberTargetSelector selector =
+            MemberTargetSelector.Parse(pattern);
+        return MatchesMemberName(name, selector);
+    }
+
+    public static bool MatchesMemberFilter(
+        ApiMember member,
+        IReadOnlyCollection<string> filter)
+    {
+        foreach (string pattern in filter)
+        {
+            if (MatchesMemberFilter(member, pattern))
+                return true;
+        }
+        return false;
+    }
+
+    public static bool MatchesMemberFilter(ApiMember member, string pattern)
+    {
+        MemberTargetSelector selector =
+            MemberTargetSelector.Parse(pattern);
+        return (selector.Kind is null
+                || string.Equals(
+                    selector.Kind,
+                    member.Kind,
+                    StringComparison.OrdinalIgnoreCase))
+            && MatchesMemberName(member.Name, selector);
+    }
+
+    static bool MatchesMemberName(
+        string name,
+        MemberTargetSelector selector)
+    {
+        if (selector.OverloadIndex.HasValue
+            || selector.DigestPrefix is { Length: > 0 }
+            || selector.GenericArity.HasValue)
+        {
+            return selector.RequestedText.Contains('*')
+                    || selector.RequestedText.Contains('?')
+                ? MatchesGlob(name, selector.RequestedText)
+                : MatchesMemberName(name, selector.RequestedText);
+        }
+
+        if (selector.ExactNameFamily is { } exactNames)
+        {
+            return exactNames.Any(
+                exactName => MatchesMemberName(name, exactName));
+        }
+
+        return selector.Name.Contains('*')
+            || selector.Name.Contains('?')
+                ? MatchesGlob(name, selector.Name)
+                : MatchesMemberName(name, selector.Name);
     }
 
     public static bool MatchesMemberName(string name, string pattern)

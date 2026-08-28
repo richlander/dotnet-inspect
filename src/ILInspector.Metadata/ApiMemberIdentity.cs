@@ -820,13 +820,34 @@ public static class ApiMemberIdentity
         _ => member.Name
     };
 
+    /// <summary>
+    /// The selector name for a metadata method name when the operator fact is
+    /// not available. Falls back to the CLI operator name vocabulary, which is
+    /// the best answer without the <c>SpecialName</c> flag — prefer the overload
+    /// taking <c>isOperator</c> whenever the metadata is in hand.
+    /// </summary>
     public static string GetMemberSelectorName(string metadataMethodName, bool isExtensionMethod = false)
+        => GetMemberSelectorName(
+            metadataMethodName,
+            isExtensionMethod,
+            OperatorNames.IsMetadataOperatorMethodName(metadataMethodName));
+
+    /// <summary>
+    /// The selector name for a metadata method name with the operator fact
+    /// supplied by the caller's metadata. API anchors and body subjects both
+    /// route through here so the two agree on the <c>operator:</c> prefix.
+    /// </summary>
+    public static string GetMemberSelectorName(
+        string metadataMethodName,
+        bool isExtensionMethod,
+        bool isOperator)
         => metadataMethodName switch
         {
             ".ctor" => ".ctor",
             _ when isExtensionMethod => $"extension:{metadataMethodName}",
-            _ when metadataMethodName.StartsWith("op_", StringComparison.Ordinal) => $"operator:{metadataMethodName}",
-            _ when metadataMethodName.Contains('.', StringComparison.Ordinal) => $"explicit:{metadataMethodName}",
+            _ when isOperator => $"operator:{metadataMethodName}",
+            _ when metadataMethodName.Contains('.', StringComparison.Ordinal)
+                => $"explicit:{metadataMethodName}",
             _ => metadataMethodName,
         };
 
@@ -835,10 +856,11 @@ public static class ApiMemberIdentity
 
     /// <summary>
     /// Persists <see cref="ApiMember.CanonicalSignature"/> when exact member
-    /// identity cannot be reconstructed from serialized fields. Exact declaring
-    /// type identity is already retained structurally on <see cref="ApiType"/>.
-    /// Computed while the structural model is live so a round-tripped surface
-    /// pairs with the same members read live.
+    /// identity cannot be reconstructed from serialized fields, including display
+    /// signatures with tuple syntax or contained rendering hazards. Exact declaring
+    /// type identity is retained structurally on <see cref="ApiType"/>. Computed while
+    /// the structural model is live so every supported round-tripped surface pairs
+    /// with the same members read live; non-divergent members remain unchanged.
     /// </summary>
     public static void PopulateCanonicalIdentities(
         ApiSurface surface,
@@ -864,8 +886,8 @@ public static class ApiMemberIdentity
     static bool HasCanonicalDivergence(ApiMember member, ApiSignature signature)
     {
         // Persist canonical identity for any member whose display signature carries C#
-        // tuple syntax the text fallback cannot re-canonicalize after a JSON round-trip
-        // (SignatureModel is not serialized). Two divergence sources both require it:
+        // tuple syntax the text fallback cannot re-canonicalize when SignatureModel is
+        // absent. Two divergence sources both require it:
         //   * A tuple PARAMETER is part of the identity digest; its erased spelling and
         //     element names must not leak in and cannot be recovered from display text.
         //   * A tuple RETURN type is only part of the digest for conversion operators, but
@@ -1149,7 +1171,10 @@ public static class ApiMemberIdentity
             memberName,
             parameterTypes,
             IsConversionOperator(methodName) ? returnType : null);
-        string selectorName = GetMemberSelectorName(methodName, isExtensionMethod);
+        string selectorName = GetMemberSelectorName(
+            methodName,
+            isExtensionMethod,
+            OperatorMetadata.IsMetadataOperator(reader, method));
         return (
             CreateAnchor(typeFullName, selectorName, memberName, canonicalSignature),
             returnType,
@@ -1563,8 +1588,8 @@ public static class ApiMemberIdentity
         var memberName = member.Kind == "constructor"
             ? "#ctor"
             : ExtractMemberNameWithGeneric(signature, member.Name);
-        // Raw-signature fallback (used when SignatureModel is absent, e.g. after a JSON
-        // round-trip where SignatureModel is [JsonIgnore]). member.Signature is the
+        // Raw-signature fallback (used when SignatureModel is absent, e.g. an older
+        // serialized surface). member.Signature is the
         // display string and carries `dynamic`, so scrub it back to `object` for identity
         // exactly as the SignatureModel path does — otherwise a round-tripped member's
         // fingerprint diverges from the same member read live.
@@ -1581,7 +1606,7 @@ public static class ApiMemberIdentity
     public static bool TryGetCanonicalSignature(ApiType type, ApiMember member, out string canonicalSignature)
     {
         // See GetCanonicalSignature: a persisted canonical identity is authoritative and
-        // survives the JSON round-trip that discards SignatureModel.
+        // survives older or abbreviated surfaces that omit SignatureModel.
         if (!string.IsNullOrEmpty(member.CanonicalSignature))
         {
             canonicalSignature = member.CanonicalSignature!;
@@ -1612,9 +1637,8 @@ public static class ApiMemberIdentity
             // parameter signature. Ordinary (parameterless) properties are unaffected: their
             // canonical signature format is unchanged from before this check existed.
             //
-            // ApiSurface.SignatureModel is [JsonIgnore], so a JSON-round-tripped surface
-            // (a supported, tested scenario -- see FallbackCanonicalSignature_* tests) has
-            // no SignatureModel. Falling back to "" here would make a JSON-persisted
+            // Older serialized surfaces may have no SignatureModel. Falling back to ""
+            // here would make such a persisted
             // baseline's indexer canonical signature diverge from the same indexer read
             // live from the assembly, breaking pairing between the two. So when
             // SignatureModel is absent, parse the parameter list out of the raw
@@ -2011,5 +2035,5 @@ public static class ApiMemberIdentity
     }
 
     public static bool IsConversionOperator(string memberName)
-        => memberName is "op_Implicit" or "op_Explicit" or "op_CheckedExplicit";
+        => OperatorNames.IsConversionOperatorMethodName(memberName);
 }

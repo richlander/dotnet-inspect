@@ -71,6 +71,16 @@ MethodDef, but never participates in candidate selection. The close gates are
 gated by `CompileBackTargets_LegacySignatureCannotOverrideOrdinal` and
 `SourceSignatureCorrespondence_RejectsLegacyCandidateSelection`.
 
+ReturnToSender declaration planning must preserve the metadata classifier's
+tri-state operator result. The target path resolves external endpoint facts
+through the compilation closure before choosing operator syntax; any remaining
+`Unknown` fails planning visibly instead of silently becoming an ordinary
+method. `CompileBackTargets_PreservesOperatorWithExternalEndpointType` is the
+compiler-produced target gate for this boundary.
+`CompileBackTargets_ResolvesClosureOperatorWithExternalEndpointType` requires
+the same resolver to reach closure member-surface planning; target
+classification alone is not sufficient.
+
 An assembly-bound Portable PDB does not supply the missing attribution identity.
 When present and recognized, its checksum can authenticate a mapped document's
 content, but a `#line` directive in another, potentially unsupplied compilation
@@ -543,7 +553,7 @@ starts each ID exactly once. The delayed-enumeration negative canary remains
 nineteen tests, with one ID starting eighteen times. The checker rejects that
 shape as `NON-ENUMERATED OR REPEATED CASES`.
 
-`SkeletonEmitTests` now contributes its eight cases to `pre-merge` (#3872).
+`SkeletonEmitTests` now contributes its nine cases to `pre-merge` (#3872).
 Its focused `FidelityCheck.Evaluate` calls select a typed
 `(Type, Method, Overload)` identity before method import, rendering,
 disassembly, and compile-back, reducing the class from 374.25 seconds to 13.31
@@ -647,6 +657,126 @@ Report:
 
 Invalid `Full` becoming `Partial` is an honesty improvement, not a regression,
 but say that explicitly.
+
+That rule includes confirmed operators that reach the printer without a
+contextual C# operator form. The printer observes the form it actually emitted:
+an explicit invocation of a confirmed operator lowers the result to `Partial`,
+while `op_True`/`op_False` consumed by condition rendering remain `Full`.
+`KnownOperatorWithoutValueSpelling_DegradesRenderedInvocation` and the
+compiler-produced condition cases in `InOperatorOperandTests` gate both sides.
+`StaticOperatorFactRequiresCSharpRepresentableMetadata` additionally requires a
+recognized `SpecialName` metadata operator that remains an explicit invocation
+to become `Partial`, while
+`CrossAssemblyOperatorNameLookalike_RendersMethodCall` keeps name-inferred
+ordinary methods at `Full`.
+
+Receiver temporaries must preserve both the receiver's storage semantics and
+the current C# name scope.
+`ConstrainedStructReceiver_InstanceAssignmentPreservesTheByRefPlace` executes a
+compiler-produced constrained generic struct receiver and requires its mutation
+to survive; `PointerReceiver_InstanceAssignment_DereferencesTheReceiver`
+requires an unmanaged pointer receiver to mutate the pointed-to value rather
+than advance the pointer; and
+`MaterializedReceiver_AvoidsMethodGenericParameterName` prevents a synthetic
+receiver local from colliding with a method type parameter.
+
+Confirmed metadata operators have no C# method-group spelling, including
+SpecialName methods whose full C# declaration shape is invalid.
+`KnownOperatorDelegateTarget_DegradesToPartial` and
+`SpecialNameOperatorLookalikeDelegateTarget_DegradesToPartial` require both
+forms to report the typed `operator-method-group` fidelity cause rather than
+claiming `Full`.
+`GenericSpecialNameOperatorLookalikeDelegateTarget_StaysFull` keeps generic
+ordinary methods outside that metadata-operator classification.
+`ResolvedMemberRef_PreservesExactSpecialNameOperatorEvidence` requires a
+resolved MemberRef to replace name inference with exact MethodDef provenance.
+
+Cross-assembly operator relationships compare resolved type definitions and
+assembly identities, not display-level `TypeRef` equality.
+`OperatorRelationship_DistinguishesSameNamedTypesFromAssemblyVersions` is the
+same-name, different-version gate. Generic base walking must also retain the
+definition identity of substituted source-local type arguments rather than
+interpreting their handles against the external base assembly.
+`OperatorRelationshipPreservesSourceLocalGenericArgumentIdentity` gates the
+resolution-aware API surface, and
+`OperatorRelationship_PreservesSourceLocalGenericArgumentIdentity` gates the
+decompiler resolver. Both pair a prohibited matching-argument conversion with
+a valid distinct-argument conversion.
+`OperatorRelationshipDistinguishesConstructedArgumentsWithSameDefinition`
+requires matching generic definitions to continue through their constructed
+arguments, while
+`OperatorRelationshipUsesSubstitutedArgumentResolutionOrigin` requires every
+substituted node to retain its reader-independent resolution request, including
+when its source module has an empty MVID.
+
+Operator signature encoding consistency is recursive through arrays, pointers,
+and function pointers.
+`CSharpOperatorDeclaration_RejectsNestedContradictoryTypeEncoding` supplies
+well-formed and contradictory close pairs for all three wrappers.
+Generic instantiations must also carry exactly the cumulative arity declared by
+their nested metadata-name chain.
+`CSharpOperatorDeclaration_RejectsMismatchedGenericInstantiationArity` and
+`CSharpOperatorDeclaration_UsesCumulativeNestedGenericArity` are the flat and
+nested close-pair gates.
+`ResolutionAwareSurface_RejectsExternalRelationshipConversions` also requires
+an externally resolved base chain to reject conversion to `System.Object`; the
+primitive spelling is accepted as that named type only with trusted
+core-library provenance.
+
+Unavailable external kind evidence keeps every affected operator declaration
+fail-closed rather than authenticating the encoded class/value-type shape.
+`MissingOperatorDependencyKeepsDeclarationFailClosed`,
+`MissingOperatorDependencyKeepsConversionsFailClosed`, and
+`OperatorKindAuthenticationFailureRemainsUnknownAndVisible` gate the three
+outcomes. `SelectedApiInspection_LabelsOperatorClassificationFailure` keeps the
+visible diagnostic categorized as operator declaration classification rather
+than generic-constraint classification.
+`MissingOperatorSignatureDependency_KeepsOperatorUnknown` applies the same
+boundary to the decompiler's cross-assembly resolver.
+
+Every generic-parameter reference in an operator signature must be in scope for
+the declaring type or method. Since C# operator methods are nongeneric,
+undeclared `!!n` references cannot become source declarations.
+`CSharpOperatorDeclaration_RejectsOutOfScopeMethodTypeParameter` gates direct
+and nested references, while
+`CSharpOperatorDeclaration_AcceptsConversionToDeclaringTypeParameter` keeps a
+valid declaring-type parameter live.
+
+ReturnToSender's fidelity skeleton must not promote a non-public
+assignment-shaped `SpecialName` method into a public C# operator declaration.
+`SkeletonPreservesProtectedAssignmentShapedMetadataMethod` is the whole-module
+compile-back gate. Existing operator requirements must also retain their
+metadata tokens so `Full` body policy can attach the required sibling bodies;
+`CompileBackTargets_FullBodiesIncludeCalledEqualityOperatorPair` gates that
+closure. Token attachment is signature-exact rather than name-based:
+`CompileBackTargets_FullBodiesMatchOverloadedOperatorParameters` and
+`CompileBackTargets_FullBodiesMatchConversionReturnTypes` require parameter-
+`CompileBackTargets_FullBodiesDistinguishMethodGenericArity` additionally
+requires generic and nongeneric overloads with identical display signatures to
+retain distinct declarations and bodies. Required operator siblings use strict
+metadata structural signatures rather than display type names;
+`BuildOperatorPairing_PreservesAssemblyProvenance` and
+`MemberDeclaration_DoesNotPairSameDisplayTypesFromDifferentAssemblies` gate
+assembly provenance in the metadata and persisted API paths.
+
+Exact increment and decrement selectors remain exact across normalization and
+reparse. `GetCandidates_IncrementTokenIncludesStaticAndInstanceShapes` requires
+`++` to retain only the increment and increment-assignment family rather than
+becoming the broader `op_Increment*` selector.
+
+Cross-assembly method and field matching may treat core-library facades as
+aliases only when the non-core side carries trusted platform provenance. The
+production-path gates
+`PlatformMethodSignature_DoesNotAcceptAttackerOwnedCoreTypeName` and
+`PlatformFieldSignature_DoesNotAcceptAttackerOwnedCoreTypeName` reject
+same-named attacker types, while
+`CoreLibraryAlias_RequiresTrustedPlatformLocalDefinition` rejects an untrusted
+locally opened definition and
+`PlatformForwardedByRefMemberRef_RecoversParameterRefKinds` keeps legitimate
+facade forwarding live. Reference-assembly operator declarations whose local
+value-type kind depends on another assembly remain classifiable through the
+same trusted resolution context;
+`PlatformOperatorMemberRef_RecoversOperatorFact` is that product-path gate.
 
 ### New raises, printer semantics, and structuring changes
 

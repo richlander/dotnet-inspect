@@ -62,13 +62,27 @@ public static class ResearchMemberIdentity
         if (member.Kind is "property" or "field" or "event")
             return false;
 
-        identities.Add(BodyIdentityFromTarget(target).StableSelector);
+        string apiDeclaringType = MetadataTypeNameFormatter.FormatFullName(target.ApiType);
+        bool reuseApiAnchor = member.CSharpOperatorDeclaration == true
+            && ApiMemberIdentity.IsConversionOperator(member.Name)
+            && target.Body is { } body
+            && string.Equals(
+                body.DeclaringType,
+                apiDeclaringType,
+                StringComparison.Ordinal);
+        identities.Add(
+            reuseApiAnchor
+                ? target.Anchor.StableSelector
+                : BodyIdentityFromTarget(target).StableSelector);
         return true;
     }
 
     static BodyMemberIdentity BodyIdentityFromMethod(MethodIdentity method)
         => CreateBodyIdentity(
-            ApiMemberIdentity.GetMemberSelectorName(method.Name, method.IsExtension),
+            GetMemberSelectorName(
+                method.Name,
+                method.IsExtension,
+                method.IsOperator),
             method.DeclaringType.ToQualifiedDisplayString(),
             method.Name == ".ctor" ? "#ctor" : method.Name,
             MethodGenericList(method),
@@ -82,9 +96,10 @@ public static class ResearchMemberIdentity
 
     static BodyMemberIdentity BodyIdentityFromMember(MemberRef member)
         => CreateBodyIdentity(
-            ApiMemberIdentity.GetMemberSelectorName(
+            GetMemberSelectorName(
                 member.Name,
-                isExtensionMethod: false),
+                isExtensionMethod: false,
+                member.IsOperator),
             BodyTypeName(
                 GenericMemberIdentity.OpenDeclaringType(
                     member.DeclaringType)),
@@ -100,6 +115,26 @@ public static class ResearchMemberIdentity
                 ? $"~{BodyTypeName(member.OpenSignatureReturn)}"
                 : "");
 
+    /// <summary>
+    /// The selector name for an exact or unresolved metadata operator fact.
+    /// Exact <see cref="MetadataOperatorFact.No"/> keeps an ordinary
+    /// <c>op_*</c>-named method ordinary; <see cref="MetadataOperatorFact.Unknown"/>
+    /// uses the metadata operator vocabulary so an external reference retains
+    /// the same identity as its API definition.
+    /// </summary>
+    static string GetMemberSelectorName(
+        string methodName,
+        bool isExtensionMethod,
+        MetadataOperatorFact fact)
+        => fact == MetadataOperatorFact.Unknown
+            ? ApiMemberIdentity.GetMemberSelectorName(
+                methodName,
+                isExtensionMethod)
+            : ApiMemberIdentity.GetMemberSelectorName(
+                methodName,
+                isExtensionMethod,
+                fact == MetadataOperatorFact.Yes);
+
     static BodyMemberIdentity BodyIdentityFromTarget(ResolvedMemberTarget target)
     {
         var member = target.ApiMember.Member;
@@ -112,7 +147,7 @@ public static class ResearchMemberIdentity
             : "";
         var parameters = signature is null
             ? "()"
-            : $"({string.Join(",", signature.Parameters.Select(parameter => BodyParameterTypeName(parameter.TypeWithModifier)))})";
+            : $"({string.Join(",", signature.Parameters.Select(parameter => BodyParameterTypeName(parameter.CanonicalTypeWithModifier)))})";
         var declaringType = target.Body?.DeclaringType
             ?? (member.IsExtension && !string.IsNullOrWhiteSpace(member.DeclaringType)
                 ? member.DeclaringType!
@@ -128,8 +163,9 @@ public static class ResearchMemberIdentity
             parameters,
             // Mirror the conversion-operator return-type disambiguation used by the API
             // anchor and the method-body path, so all identity producers agree.
-            ApiMemberIdentity.IsConversionOperator(member.Name) && !string.IsNullOrWhiteSpace(signature?.ReturnType)
-                ? $"~{BodyParameterTypeName(signature!.ReturnType!)}"
+            ApiMemberIdentity.IsConversionOperator(member.Name)
+                && !string.IsNullOrWhiteSpace(signature?.EffectiveCanonicalReturnType)
+                ? $"~{BodyParameterTypeName(signature!.EffectiveCanonicalReturnType!)}"
                 : "");
     }
 

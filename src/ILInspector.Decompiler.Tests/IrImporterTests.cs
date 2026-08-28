@@ -1,3 +1,16 @@
+using System.Reflection.PortableExecutable;
+using AssemblyName = System.Reflection.AssemblyName;
+using BlobHandle = System.Reflection.Metadata.BlobHandle;
+using BlobReader = System.Reflection.Metadata.BlobReader;
+using HandleKind = System.Reflection.Metadata.HandleKind;
+using MethodAttributes = System.Reflection.MethodAttributes;
+using MethodDefinition = System.Reflection.Metadata.MethodDefinition;
+using MetadataReader = System.Reflection.Metadata.MetadataReader;
+using MethodSpecification = System.Reflection.Metadata.MethodSpecification;
+using MethodSpecificationHandle = System.Reflection.Metadata.MethodSpecificationHandle;
+using ParameterAttributes = System.Reflection.ParameterAttributes;
+using TypeDefinition = System.Reflection.Metadata.TypeDefinition;
+using TypeAttributes = System.Reflection.TypeAttributes;
 using System.Reflection.Metadata.Ecma335;
 using DotnetInspector.Fixtures;
 using ILInspector.Decompiler.Pipeline;
@@ -30,6 +43,192 @@ public class IrImporterTests
 
     static Block SingleBlock(IrFunction function)
         => (Block)Assert.Single(function.Body.Children);
+
+    /// <summary>
+    /// The decompiler's operator fact licenses C# operator <em>syntax</em> for a
+    /// call, so it is a source-representability proof, not the CLI operator
+    /// vocabulary. Hand-authored metadata that no C# compiler could have emitted
+    /// — a binary operator neither of whose operands is the declaring type, a
+    /// private one, a void-returning one, or a CLI-only operator name — must
+    /// stay an ordinary call: raising <c>Bad.op_Addition(1, 2)</c> to
+    /// <c>1 + 2</c> silently replaces the callee's result with integer addition.
+    /// </summary>
+    [Theory]
+    // name, participates, isPublic, isStatic, returnsDeclaringType, expected
+    [InlineData("op_Addition", true, true, true, true, MetadataFactState.Yes)]
+    [InlineData("op_Subtraction", true, true, true, true, MetadataFactState.Yes)]
+    // Neither operand is the declaring type (CS0563).
+    [InlineData("op_Multiply", false, true, true, true, MetadataFactState.No)]
+    // Not public.
+    [InlineData("op_Division", true, false, true, true, MetadataFactState.No)]
+    // Instance, and not the C# 14 compound-assignment form.
+    [InlineData("op_Modulus", true, true, false, true, MetadataFactState.No)]
+    // Void return (CS0590).
+    [InlineData("op_BitwiseAnd", true, true, true, false, MetadataFactState.No)]
+    // A CLI operator name C# cannot declare.
+    [InlineData("op_LogicalAnd", true, true, true, true, MetadataFactState.No)]
+    [InlineData("op_Assign", true, true, true, true, MetadataFactState.No)]
+    public void StaticOperatorFactRequiresCSharpRepresentableMetadata(
+        string name,
+        bool participates,
+        bool isPublic,
+        bool isStatic,
+        bool returnsDeclaringType,
+        MetadataFactState expected)
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"operator-representability-{Guid.NewGuid():N}.dll");
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new AssemblyName("OperatorRepresentability"),
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("OperatorRepresentability");
+        var type = module.DefineType("Bad", TypeAttributes.Public | TypeAttributes.Class);
+        var attributes = MethodAttributes.SpecialName
+            | (isPublic ? MethodAttributes.Public : MethodAttributes.Private)
+            | (isStatic ? MethodAttributes.Static : 0);
+        var parameters = isStatic
+            ? (participates ? [type, type] : new Type[] { typeof(int), typeof(int) })
+            : (participates ? [type] : new Type[] { typeof(int) });
+        var method = type.DefineMethod(
+            name,
+            attributes,
+            returnsDeclaringType ? type : typeof(void),
+            parameters);
+        var il = method.GetILGenerator();
+        if (returnsDeclaringType)
+            il.Emit(System.Reflection.Emit.OpCodes.Ldnull);
+        il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        type.CreateType();
+        assembly.Save(path);
+
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            var reader = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(peReader);
+            var typeDefinition = reader.GetTypeDefinition(
+                Assert.Single(
+                    reader.TypeDefinitions,
+                    handle => reader.GetString(reader.GetTypeDefinition(handle).Name) == "Bad"));
+            var methodHandle = Assert.Single(
+                typeDefinition.GetMethods(),
+                handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == name);
+
+            Assert.Equal(
+                expected,
+                IrImporter.ResolveMethod(reader, methodHandle, GenericScope.Empty).IsOperator);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void OperatorFactNo_KeepsTheCallAsAMethodInvocation()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var declaring = TypeRef.Definition("Attacker", "", "Bad");
+        var callee = new MethodRef(declaring, "op_Addition", intType, [intType, intType], HasThis: false)
+        {
+            IsSpecialName = true,
+            IsOperator = MetadataFactState.No,
+        };
+        var call = new Call(
+            callee,
+            isVirtual: false,
+            [new Constant(1, intType), new Constant(2, intType)]);
+        var block = new Block(0);
+        block.Add(new Return(call));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(intType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        DecompilerResult result = CSharpPrinter.Print(function);
+        string output = result.Output!.Trim();
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.Contains("op_Addition(1, 2)", output);
+        Assert.DoesNotContain("1 + 2", output);
+        Assert.Contains(
+            result.Diagnostics,
+            diagnostic =>
+                diagnostic.Id
+                    == DiagnosticIds.UnrepresentableMetadataName
+                && diagnostic.Message.Contains(
+                    "C# forbids",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void InstanceAssignmentOperatorRejectsRefAndOutButAcceptsIn()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"instance-operator-ref-kinds-{Guid.NewGuid():N}.dll");
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new AssemblyName("InstanceOperatorRefKinds"),
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("InstanceOperatorRefKinds");
+        var readOnlyConstructor = typeof(System.Runtime.CompilerServices.IsReadOnlyAttribute)
+            .GetConstructor(Type.EmptyTypes)!;
+        foreach (var (typeName, attributes, isReadOnly) in new[]
+        {
+            ("RefOperator", ParameterAttributes.None, false),
+            ("OutOperator", ParameterAttributes.Out, false),
+            ("InOperator", ParameterAttributes.In, true),
+        })
+        {
+            var type = module.DefineType(
+                typeName,
+                TypeAttributes.Public | TypeAttributes.Class);
+            var method = type.DefineMethod(
+                "op_AdditionAssignment",
+                MethodAttributes.Public | MethodAttributes.SpecialName,
+                typeof(void),
+                [typeof(int).MakeByRefType()]);
+            var parameter = method.DefineParameter(1, attributes, "value");
+            if (isReadOnly)
+            {
+                parameter.SetCustomAttribute(
+                    new System.Reflection.Emit.CustomAttributeBuilder(
+                        readOnlyConstructor,
+                        []));
+            }
+            method.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+            type.CreateType();
+        }
+        assembly.Save(path);
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            var reader = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(peReader);
+            var facts = reader.TypeDefinitions
+                .Select(handle => reader.GetTypeDefinition(handle))
+                .Where(type => reader.GetString(type.Name).EndsWith("Operator", StringComparison.Ordinal))
+                .ToDictionary(
+                    type => reader.GetString(type.Name),
+                    type =>
+                    {
+                        var method = Assert.Single(
+                            type.GetMethods(),
+                            handle => reader.GetString(reader.GetMethodDefinition(handle).Name)
+                                == "op_AdditionAssignment");
+                        return IrImporter.ResolveMethod(reader, method, GenericScope.Empty).IsOperator;
+                    });
+
+            Assert.Equal(MetadataFactState.No, facts["RefOperator"]);
+            Assert.Equal(MetadataFactState.No, facts["OutOperator"]);
+            Assert.Equal(MetadataFactState.Yes, facts["InOperator"]);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 
     [Fact]
     public void PublicOnlyResolution_SkipsNonPublicSameNameOverload()
@@ -997,6 +1196,187 @@ public class IrImporterTests
         Assert.False(ContainsGenericParameter(genericCall.Callee.ReturnType));
         Assert.All(genericCall.Callee.ParameterTypes, p => Assert.False(ContainsGenericParameter(p)));
     }
+
+    [Fact]
+    public void GenericDeclaringAndMethodParameters_AreSubstitutedOnce()
+    {
+        using var source = MetadataSource.Open(
+            typeof(MethodSpecSubstitutionFixture).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(MethodSpecSubstitutionFixture).FullName!,
+            nameof(MethodSpecSubstitutionFixture.Invoke));
+
+        Assert.NotNull(function);
+        var call = Assert.Single(
+            function.Descendants.OfType<Call>(),
+            candidate => candidate.Callee.Name
+                == nameof(MethodSpecSubstitutionBox<int>.Pick));
+        Assert.Equal(function.Signature.Parameters[1].Type, call.Callee.ParameterTypes[0]);
+        Assert.Equal(function.Signature.Parameters[2].Type, call.Callee.ParameterTypes[1]);
+        Assert.Equal(
+            TypeRefKind.GenericParameter,
+            call.Callee.DefinitionParameterTypes[0].Kind);
+        Assert.Equal(
+            TypeRefKind.MethodGenericParameter,
+            call.Callee.DefinitionParameterTypes[1].Kind);
+    }
+
+    [Fact]
+    public void MalformedMethodSpecificationArity_StopsBeforeStackCorruption()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-methodspec-arity-").FullName;
+        string assemblyPath = Path.Combine(
+            directory,
+            "ILInspector.Decompiler.Tests.dll");
+        try
+        {
+            File.Copy(
+                typeof(MethodSpecArityFixture).Assembly.Location,
+                assemblyPath);
+            PatchMethodSpecificationArity(
+                assemblyPath,
+                typeof(MethodSpecArityFixture).FullName!,
+                nameof(MethodSpecArityFixture.Helper),
+                originalArity: 2,
+                replacementArity: 1);
+
+            using var source = MetadataSource.Open(assemblyPath);
+            var function = IrImporter.Import(
+                source,
+                typeof(MethodSpecArityFixture).FullName!,
+                nameof(MethodSpecArityFixture.Invoke));
+
+            Assert.NotNull(function);
+            Assert.Equal(
+                DecompilationFidelity.Partial,
+                function.Fidelity);
+            Assert.DoesNotContain(
+                function.Descendants.OfType<Call>(),
+                call => call.Callee.Name
+                    == nameof(MethodSpecArityFixture.Helper));
+            Assert.Contains(
+                function.Diagnostics,
+                diagnostic => diagnostic.Message.Contains(
+                    "method specification supplies 1 type arguments for generic arity 2",
+                    StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    static void PatchMethodSpecificationArity(
+        string assemblyPath,
+        string declaringType,
+        string methodName,
+        int originalArity,
+        byte replacementArity)
+    {
+        byte[] image = File.ReadAllBytes(assemblyPath);
+        using var pe = new PEReader(
+            new MemoryStream(image, writable: false));
+        MetadataReader reader =
+            System.Reflection.Metadata.PEReaderExtensions
+                .GetMetadataReader(pe);
+        BlobHandle signatureHandle = default;
+        for (int row = 1;
+            row <= reader.GetTableRowCount(TableIndex.MethodSpec);
+            row++)
+        {
+            MethodSpecificationHandle handle =
+                MetadataTokens.MethodSpecificationHandle(row);
+            MethodSpecification specification =
+                reader.GetMethodSpecification(handle);
+            if (specification.Method.Kind
+                != HandleKind.MethodDefinition)
+            {
+                continue;
+            }
+
+            MethodDefinition definition =
+                reader.GetMethodDefinition(
+                    (MethodDefinitionHandle)specification.Method);
+            TypeDefinition owner = reader.GetTypeDefinition(
+                definition.GetDeclaringType());
+            BlobReader signature = reader.GetBlobReader(
+                specification.Signature);
+            if (reader.GetFullTypeName(owner) == declaringType
+                && reader.GetString(definition.Name) == methodName
+                && signature.ReadByte() == 0x0A
+                && signature.ReadCompressedInteger()
+                    == originalArity)
+            {
+                signatureHandle = specification.Signature;
+                break;
+            }
+        }
+
+        Assert.False(signatureHandle.IsNil);
+        int blobStreamOffset = FindMetadataStreamOffset(
+            image,
+            pe.PEHeaders.MetadataStartOffset,
+            "#Blob");
+        int heapOffset = MetadataTokens.GetHeapOffset(
+            signatureHandle);
+        int entryOffset = blobStreamOffset + heapOffset;
+        int payloadOffset = entryOffset
+            + CompressedIntegerSize(image[entryOffset]);
+        Assert.Equal(0x0A, image[payloadOffset]);
+        Assert.Equal(originalArity, image[payloadOffset + 1]);
+        Assert.True(image[entryOffset] >= 4);
+        Assert.True((image[entryOffset] & 0x80) == 0);
+        image[entryOffset]--;
+        image[payloadOffset + 1] = replacementArity;
+        File.WriteAllBytes(assemblyPath, image);
+    }
+
+    static int FindMetadataStreamOffset(
+        byte[] image,
+        int metadataOffset,
+        string targetName)
+    {
+        int offset = metadataOffset + 12;
+        int versionLength = BitConverter.ToInt32(
+            image,
+            offset);
+        offset += 4 + versionLength;
+        offset = (offset + 3) & ~3;
+        offset += 2;
+        ushort streamCount = BitConverter.ToUInt16(
+            image,
+            offset);
+        offset += 2;
+        for (int index = 0; index < streamCount; index++)
+        {
+            int streamOffset = BitConverter.ToInt32(
+                image,
+                offset);
+            offset += 8;
+            int nameStart = offset;
+            while (image[offset] != 0)
+                offset++;
+            string name = System.Text.Encoding.ASCII.GetString(
+                image,
+                nameStart,
+                offset - nameStart);
+            offset = (offset + 4) & ~3;
+            if (name == targetName)
+                return metadataOffset + streamOffset;
+        }
+
+        throw new InvalidOperationException(
+            $"Metadata stream {targetName} was not found.");
+    }
+
+    static int CompressedIntegerSize(byte first)
+        => (first & 0x80) == 0
+            ? 1
+            : (first & 0xC0) == 0x80
+                ? 2
+                : 4;
 
     [Fact]
     public void NestedType_ImportsByFullyQualifiedName()
@@ -6376,7 +6756,7 @@ public class EnumConstantTests
         // other — a user-defined `operator ==`/`operator !=` pair could
         // legally implement unrelated semantics. The BCL guarantees
         // String/Type's op_Equality/op_Inequality genuinely are exact
-        // inverses (MemberIdentity.IsKnownCoreLibraryOperator), but an
+        // inverses (MemberIdentity.IsKnownFrameworkOperator), but an
         // arbitrary user type carrying real specialname/operator metadata
         // is NOT in that trusted set, so `!(a == b)` must stay un-folded
         // and parenthesized here even though it still spells as `a == b`
@@ -6567,7 +6947,7 @@ public class EnumConstantTests
     }
 
     [Fact]
-    public void UnresolvedNameInferredOpAddition_PreservesOperatorFallback()
+    public void UnresolvedNameInferredOpAddition_RemainsMethodCall()
     {
         var intType = TypeRef.CoreLib("System", "Int32");
         var declaring = TypeRef.Definition("ExternalFacts.Library", "ExternalFacts", "OperatorLikeLibrary");
@@ -6587,8 +6967,179 @@ public class EnumConstantTests
 
         string output = CSharpPrinter.Print(function).Output!.Trim();
 
-        Assert.Contains("return a + b;", output);
-        Assert.DoesNotContain("op_Addition", output);
+        Assert.Contains(".op_Addition(a, b)", output);
+        Assert.DoesNotContain("return a + b;", output);
+    }
+
+    [Fact]
+    public void UnresolvedBigIntegerLookalikeConversion_RemainsMethodCall()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var declaring = TypeRef.Definition("Attacker", "System.Numerics", "BigInteger");
+        var callee = new MethodRef(
+            declaring,
+            "op_Implicit",
+            declaring,
+            [intType],
+            HasThis: false)
+        {
+            IsSpecialName = true,
+            IsOperator = MetadataFactState.Unknown,
+        };
+        var call = new Call(
+            callee,
+            isVirtual: false,
+            [new LoadArgument(0, "value", intType)]);
+        var block = new Block(0);
+        block.Add(new Return(call));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(
+            declaring,
+            [],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "T"),
+            signature,
+            [],
+            container);
+
+        string output = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.Contains(".op_Implicit(value)", output);
+        Assert.DoesNotContain("(BigInteger)value", output);
+    }
+
+    [Fact]
+    public void UnresolvedExactNameBigIntegerLookalikeConversion_RemainsMethodCall()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var declaring = TypeRef.Definition("System.Runtime.Numerics", "System.Numerics", "BigInteger");
+        var callee = new MethodRef(
+            declaring,
+            "op_Implicit",
+            declaring,
+            [intType],
+            HasThis: false)
+        {
+            IsSpecialName = true,
+            IsOperator = MetadataFactState.Unknown,
+        };
+        var call = new Call(
+            callee,
+            isVirtual: false,
+            [new LoadArgument(0, "value", intType)]);
+        var block = new Block(0);
+        block.Add(new Return(call));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(
+            declaring,
+            [],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "T"),
+            signature,
+            [],
+            container);
+
+        string output = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.Contains(".op_Implicit(value)", output);
+        Assert.DoesNotContain("(BigInteger)value", output);
+    }
+
+    /// <summary>
+    /// <c>System.Numerics.BigInteger</c> ships from <c>System.Runtime.Numerics</c>
+    /// on .NET and from <c>System.Numerics</c> on .NET Framework and its facades.
+    /// Both are the same trusted framework identity once the declaring type's
+    /// public-key token is verified, so the int conversion spells as a cast for
+    /// either. The token proof is what excludes a lookalike — see the negatives
+    /// below, which use the very same names.
+    /// </summary>
+    [Theory]
+    [InlineData("System.Runtime.Numerics")]
+    [InlineData("System.Numerics")]
+    public void TrustedBigIntegerConversion_SpellsAsCast(string assembly)
+    {
+        string output = PrintBigIntegerLookalikeConversion(
+            assembly,
+            "System.Numerics",
+            "BigInteger",
+            MetadataFactState.Yes);
+
+        Assert.Contains("(BigInteger)value", output);
+        Assert.DoesNotContain("op_Implicit", output);
+    }
+
+    [Theory]
+    // The exact framework names without the token proof.
+    [InlineData("System.Runtime.Numerics", "System.Numerics", "BigInteger", MetadataFactState.Unknown)]
+    [InlineData("System.Numerics", "System.Numerics", "BigInteger", MetadataFactState.Unknown)]
+    [InlineData("System.Numerics", "System.Numerics", "BigInteger", MetadataFactState.No)]
+    // Token-proved platform assemblies, but not this type.
+    [InlineData("System.Numerics", "System.Numerics", "BigDecimal", MetadataFactState.Yes)]
+    [InlineData("System.Numerics", "Contoso.Numerics", "BigInteger", MetadataFactState.Yes)]
+    [InlineData("System.Numerics.Vectors", "System.Numerics", "BigInteger", MetadataFactState.Yes)]
+    public void UntrustedOrMismatchedBigIntegerConversion_RemainsMethodCall(
+        string assembly,
+        string typeNamespace,
+        string typeName,
+        MetadataFactState trustedPlatform)
+    {
+        string output = PrintBigIntegerLookalikeConversion(
+            assembly,
+            typeNamespace,
+            typeName,
+            trustedPlatform);
+
+        Assert.Contains(".op_Implicit(value)", output);
+        Assert.DoesNotContain($"({typeName})value", output);
+    }
+
+    static string PrintBigIntegerLookalikeConversion(
+        string assembly,
+        string typeNamespace,
+        string typeName,
+        MetadataFactState trustedPlatform)
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var declaring = TypeRef.Definition(assembly, typeNamespace, typeName);
+        var callee = new MethodRef(
+            declaring,
+            "op_Implicit",
+            declaring,
+            [intType],
+            HasThis: false)
+        {
+            IsSpecialName = true,
+            IsOperator = MetadataFactState.Unknown,
+            DeclaringTypeIsTrustedPlatform = trustedPlatform,
+        };
+        var call = new Call(
+            callee,
+            isVirtual: false,
+            [new LoadArgument(0, "value", intType)]);
+        var block = new Block(0);
+        block.Add(new Return(call));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(
+            declaring,
+            [],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "T"),
+            signature,
+            [],
+            container);
+        return CSharpPrinter.Print(function).Output!.Trim();
     }
 
     [Fact]

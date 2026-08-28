@@ -17,6 +17,15 @@ selector details survive past command-line parsing:
 - generic method arity from `M<T>` / `M<TKey,TValue>`
 - kind qualifiers: `operator:`, `explicit:`, and `extension:`
 
+The type command's `-m` path is a pre-filter rather than a full member-target
+resolution, but it must not flatten those selector facts back to a name.
+`MemberTargetSelector.FilterSelector` carries the kind and exact source-name
+family through command parsing, and `TypeMatcher` applies the kind against the
+`ApiMember` before matching its name.
+`Type_KindQualifiedOperatorMemberFilter_PreservesSelector` and
+`KindQualifiedFilter_MatchesOnlyTheRequestedMemberKind` are the non-vacuity
+gates.
+
 The resolver returns `ResolvedMemberTarget`, which carries the API member handle,
 its `MemberAnchor`, selector/declaring overload indexes, and a `BodyTarget` when
 the selected API member maps to a physical declaring member. Projected extension
@@ -52,6 +61,63 @@ suffix deliberately uses the same delimiter shape as XML documentation member
 identity so XML lookup and API anchors do not invent divergent spellings for the
 same return-type disambiguator; XML documentation is precedent, not the owning
 authority for the API identity grammar.
+
+## Operator vocabularies
+
+"Is this an operator?" has two different answers, and conflating them produces
+either invalid C# or a lost identity join. `CSharpText.OperatorNames` owns both,
+as separate model-free helpers:
+
+- **Metadata (CLI) classification** — `IsMetadataOperatorMethod` /
+  `IsMetadataOperatorMethodName`. The complete ECMA-335 I.10.3 vocabulary
+  (Tables I.4 and I.5 plus the I.10.3.3 conversions), the checked and C# 14
+  compound-assignment names, and the Visual Basic arithmetic names, gated on the
+  `SpecialName` flag and zero generic arity. This is what API `Kind` and stable
+  operator selectors use. `op_LogicalAnd`, `op_AddressOf`, `op_Assign`, and
+  `op_CheckedImplicit` are operators here even though C# cannot declare them; an
+  ordinary method named `op_Multiply` is not an operator at all, and a bare
+  `op_` prefix never classifies.
+- **C# source representability** — `IsCSharpOperatorMethodName` for the name and
+  `IsCSharpOperatorDeclaration` for the full shape: accessibility, static-ness
+  (except the C# 14 instance compound-assignment form), parameter arity and
+  `ref`/`out` modifiers, return shape, and declaring-type participation
+  (`DeclaringTypeParticipates`). `ILInspector.Metadata.OperatorMetadata` answers
+  both questions from metadata handles for producers holding SRM evidence.
+  Interface and base/derived conversion exclusions use relationships proven
+  inside that image. The SRM-only classifier does not open external endpoint
+  assemblies, so it fails closed when an external interface or inheritance
+  relationship cannot be disproved from local signature and hierarchy facts.
+  `OperatorApiSurfaceTests` gates the unresolved-interface,
+  transitive-inheritance, enum/delegate, and valid external-endpoint cases.
+
+The full shape also rejects a static MethodDef whose signature header says
+instance, and abstract/virtual operators on classes or structs; C# permits the
+static-abstract/virtual form only on interfaces. The close negatives are
+`CSharpOperatorDeclaration_RejectsStaticFlagHeaderMismatch` and
+`CSharpOperatorDeclaration_RejectsStaticAbstractClassOperator`.
+
+Declaration rendering, decompiler raising (`MethodRef.IsOperator`), and
+Return-to-Sender closure use the C# proof, because each of them turns the answer
+into C# operator *syntax*. Metadata that satisfies the first question but not
+the second — a private operator, a binary operator whose declaring type is
+neither operand, a `void`-returning one — stays an ordinary method there rather
+than becoming invalid or semantics-changing C#.
+An unresolved cross-assembly `op_*` call also stays explicit rather than
+guessing operator syntax; because a genuine operator cannot be called
+explicitly in C#, the decompiler marks that output Partial until the defining
+metadata proves either the operator or ordinary-method identity.
+`CrossAssemblyMethodFactsTests` gates both dependency-present identities and
+the dependency-absent degradation.
+
+The operator answer is also an identity fact. `ApiMemberIdentity` reads it from
+the `SpecialName` flag, and body identity must agree or an implementation diff
+splits one member into two subjects. `ILInspector.Analysis.MetadataOperatorFact`
+carries it through `MethodIdentity` (exact — the identity names a MethodDef whose
+own metadata supplies it) and `MemberRef` (`Unknown` for an unresolved reference,
+which knows less than the definition). `ResearchMemberIdentity` consumes those,
+falling back to the metadata name vocabulary only for `Unknown`. Because the
+`MemberRef` value is knowledge rather than identity, it is deliberately excluded
+from that record's equality and hashing; `MethodIdentity`'s participates.
 
 ## Boundaries
 

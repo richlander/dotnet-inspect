@@ -967,6 +967,39 @@ public class PlatformResolverTests
         }
     }
 
+    [Theory]
+    [InlineData("/opt/dotnet/shared/Microsoft.NETCore.App/10.0.0", "/opt/dotnet")]
+    [InlineData("/opt/dotnet/shared/Microsoft.NETCore.App/10.0.0/", "/opt/dotnet")]
+    public void GetDotnetRootFromRuntimeDirectory_RecognizesRuntimeLayout(
+        string runtimeDirectory,
+        string expected)
+    {
+        if (Path.DirectorySeparatorChar != '/')
+        {
+            runtimeDirectory = runtimeDirectory.Replace(
+                '/',
+                Path.DirectorySeparatorChar);
+            expected = expected.Replace('/', Path.DirectorySeparatorChar);
+        }
+
+        Assert.Equal(
+            expected,
+            PlatformResolver.GetDotnetRootFromRuntimeDirectory(
+                runtimeDirectory));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("/opt/dotnet/shared/Other.Runtime/10.0.0")]
+    [InlineData("/opt/dotnet/not-shared/Microsoft.NETCore.App/10.0.0")]
+    public void GetDotnetRootFromRuntimeDirectory_RejectsOtherLayouts(
+        string runtimeDirectory)
+    {
+        Assert.Null(
+            PlatformResolver.GetDotnetRootFromRuntimeDirectory(
+                runtimeDirectory));
+    }
+
     [Fact]
     public void GetSharedDirectory_WhenDotnetRootNotSet_UsesCurrentRuntime()
     {

@@ -6299,6 +6299,19 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_KindQualifiedOperatorMemberFilter_PreservesSelector()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "Decimal", "--framework", "runtime",
+            "-m", "operator:op_Addition", "-v", "d",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("op_Addition", output);
+        Assert.DoesNotContain("No members matched", error);
+    }
+
+    [Fact]
     public async Task Member_ConstructorSelector_NormalizesCtorAlias()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -18593,6 +18606,23 @@ public partial class CommandExecutionTests
         {
             SourceAssemblyPath = Path,
         };
+        api.Types.Add(type);
+        api.Types.Add(new ApiType
+        {
+            Name = "OtherAssemblyOperator",
+            SourceAssemblyPath = "/tmp/operator.dll",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "op_Implicit",
+                    Kind = "operator",
+                    MetadataToken = MethodToken,
+                    HasCSharpOperatorDeclarationClassification = true,
+                    CSharpOperatorDeclaration = null,
+                },
+            ],
+        });
         api.ConstraintResolutionFailuresBySubject[
             new ApiSurfaceInspectionSubject(Path, MethodToken)] =
             [failure];
@@ -18615,6 +18645,53 @@ public partial class CommandExecutionTests
         Assert.Contains(
             "via 'Dependency, Version=1.0.0.0, "
                 + "Culture=neutral, PublicKeyToken=null'",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SelectedApiInspection_LabelsOperatorClassificationFailure()
+    {
+        const int MethodToken = 0x06000001;
+        var api = new ApiSurface();
+        var type = new ApiType
+        {
+            Name = "Consumer",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "op_Implicit",
+                    Kind = "operator",
+                    MetadataToken = MethodToken,
+                    HasCSharpOperatorDeclarationClassification = true,
+                    CSharpOperatorDeclaration = null,
+                },
+            ],
+        };
+        api.Types.Add(type);
+        api.ConstraintResolutionFailuresBySubject[
+            new ApiSurfaceInspectionSubject(null, MethodToken)] =
+            [
+                new ApiSurfaceInspectionFailure(
+                    "resolve generic parameter constraints",
+                    MethodToken,
+                    MetadataTypeNameFailureMechanism.Metadata,
+                    "Missing",
+                    "Dependency unavailable."),
+            ];
+
+        var (_, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WarnSelectedApiInspectionIncomplete(
+                api,
+                type));
+
+        Assert.Contains(
+            "Operator declaration classification was incomplete",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Generic-constraint classification was incomplete",
             error,
             StringComparison.Ordinal);
     }

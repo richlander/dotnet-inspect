@@ -38,6 +38,7 @@ internal static class MemberResolver
                             method,
                             signature.ParameterTypes),
                     GenericArity = signature.GenericParameterCount,
+                    IsOperator = MetadataOperatorFacts.FromMethodDefinition(reader, method),
                 };
             }
             case HandleKind.MemberReference:
