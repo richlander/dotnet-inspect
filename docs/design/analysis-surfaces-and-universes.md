@@ -97,7 +97,8 @@ declares:
 
 - supported report-surface kinds;
 - supported question modes;
-- accepted target roles;
+- accepted target roles and, for each supported mode, whether each role is a
+  privileged anchor or a report-domain identity only;
 - universe requirements;
 - producer and query prerequisites;
 - cost and capability requirements; and
@@ -119,7 +120,8 @@ The report surface identifies the domain the answer is about.
 | Workspace | One owner-issued workspace or operation target |
 
 These kinds do not mint identities or define structural composition. They bind
-owner-issued identities to the analysis descriptor's accepted target roles.
+owner-issued identities to the analysis descriptor's accepted target roles and
+mode-specific target functions.
 
 The report surface is independent of evidence breadth. A Member report may use
 a workspace-wide universe without becoming a Workspace report. A Library
@@ -165,15 +167,17 @@ Question mode states whether the report has privileged anchors.
 
 | Mode | Invariant |
 | --- | --- |
-| Targeted | The report surface contains one or more typed anchors accepted by the analysis descriptor. |
-| Census | The report surface identifies the reporting domain, but no contained subject is privileged as an anchor. |
+| Targeted | The report surface contains one or more targets bound to descriptor-declared privileged-anchor roles. |
+| Census | The report surface identifies the reporting domain using descriptor-declared domain-only roles; no target is bound to a privileged-anchor role. |
 
 Both modes require a finite universe. Census does not authorize unbounded feed
 search, dependency traversal, acquisition, or analysis.
 
-The analysis descriptor owns target relevance. Ownership, attachment, endpoint
-incidence, and bounded neighborhood are examples of producer-specific
-relevance rules; this generic owner defines none of them.
+The analysis descriptor owns target function and relevance. Its role
+declarations make anchor privilege mechanically visible to the generic planner.
+Ownership, attachment, endpoint incidence, and bounded neighborhood are
+examples of producer-specific relevance rules; this generic owner defines none
+of them.
 
 Question mode is not graph mode:
 
@@ -287,14 +291,14 @@ question mode, or Finding inspection topology.
 The following examples demonstrate the request fields without specifying the
 participating owners' behavior:
 
-| Analysis | Report surface | Universe | Mode | Projection |
+| Analysis | Report surface and target function | Universe | Mode | Projection |
 | --- | --- | --- | --- | --- |
-| Integrations | Library | Workspace Types | Targeted | Rows |
-| Calls | Member | Workspace Members | Targeted | Graph |
-| Integrations | Workspace | Workspace Types | Census | Rows or matrix |
-| Integrations | Workspace | Workspace Types | Census | Graph |
-| Manifest facts | Workspace | Prefix-selected package manifests | Census | Rows |
-| Integrations | Workspace | Project-graph package Types | Census | Rows or graph |
+| Integrations | Library / privileged anchor | Workspace Types | Targeted | Rows |
+| Calls | Member / privileged anchor | Workspace Members | Targeted | Graph |
+| Integrations | Workspace / report-domain identity | Workspace Types | Census | Rows or matrix |
+| Integrations | Workspace / report-domain identity | Workspace Types | Census | Graph |
+| Manifest facts | Workspace / report-domain identity | Prefix-selected package manifests | Census | Rows |
+| Integrations | Workspace / report-domain identity | Project-graph package Types | Census | Rows or graph |
 
 Issue #3629 is the Integration-owned workspace Census canary. Issue #4947 adds
 Integration-owned candidate inventory and universe-adjustment requirements.
@@ -314,8 +318,8 @@ The request owner must distinguish:
 | Case | Request interpretation |
 | --- | --- |
 | Configured descriptor with no request | Structurally discoverable capability only |
-| Targeted mode with no accepted anchor | Invalid request |
-| Census mode with a privileged contained anchor | Invalid request |
+| Targeted mode with no target in a descriptor-declared privileged-anchor role | Invalid request |
+| Census mode with a target in a descriptor-declared privileged-anchor role | Invalid request |
 | Structurally valid mode unsupported by the descriptor | Typed capability rejection before execution |
 | Unsupported report surface | Typed capability rejection before execution |
 | Supported surface with an unsupported target role | Typed capability rejection before execution |
@@ -365,6 +369,7 @@ The target implementation is unverified until these named gates land:
 - `AnalysisRequest_UniverseBreadthCannotWidenReportSurface`
 - `AnalysisRequest_TargetedRequiresAcceptedAnchor`
 - `AnalysisRequest_CensusRejectsPrivilegedContainedAnchor`
+- `AnalysisRequest_ModeValidationDerivesFromDeclaredTargetFunctions`
 - `AnalysisRequest_RejectsMissingOrUnboundedUniverseBeforeProducerExecution`
 - `AnalysisCapability_StructuralDiscoveryDoesNotResolveContentExecuteProducersOrProbeEffectiveness`
 - `AnalysisCapability_ListsConfiguredUnobservedIntegrationDescriptors`
