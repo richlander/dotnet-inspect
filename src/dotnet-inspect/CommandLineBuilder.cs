@@ -28,6 +28,19 @@ public static class CommandLineBuilder
     public static int? TailLines => ArgumentPreprocessor.TailLines;
 
     /// <summary>
+    /// Returns whether the parsed route owns <c>-n</c> as a typed item limit rather
+    /// than delegating it to the host's rendered-line writer.
+    /// </summary>
+    public static bool UsesTypedItemLimit(
+        System.CommandLine.ParseResult result)
+    {
+        return result.CommandResult.Command.Name == PackageSearchCommand.Name
+            && result.CommandResult.Parent is
+                System.CommandLine.Parsing.CommandResult parentCommand
+            && parentCommand.Command.Name == PackageCommand.Name;
+    }
+
+    /// <summary>
     /// Delegates to <see cref="ArgumentPreprocessor.TryGetStaleDirectionFlagError"/>.
     /// </summary>
     public static bool TryGetStaleDirectionFlagError(string[] args, out string? error)
