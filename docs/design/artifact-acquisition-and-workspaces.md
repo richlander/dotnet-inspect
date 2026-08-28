@@ -464,6 +464,21 @@ optional companion and consume that proof. The shared graph document may retain
 its serialized `package` subject kind as a full-host contract; core assembly
 queries do not construct package subjects or parse package provenance.
 
+`DotnetInspector.PackageQueries` is that optional package-aware query companion.
+Its `PackageWorkspaceIntegrationsQuery` consumes the current package-role
+realization proof and the package-neutral `AssemblyContextIntegrationsQuery`.
+It scans implementation assets in their product role order, then scans only
+surface assets without an implementation correspondence. Results retain
+immutable package and asset identity beside each typed participant outcome
+without exposing package content or merging the role groups.
+`PackageAssemblyContextRealizationTests.PackageWorkspaceIntegrationsQuery_UsesImplementationRoleAndReferenceFallback`
+gates role selection, package/asset provenance, ordering, and reference-only
+fallback.
+`PackageAssemblyContextRealizationTests.PackageWorkspaceIntegrationsQuery_SharedRoleDoesNotDuplicateLibraries`
+gates the shared-role case. Moving the existing package realization itself out
+of core Queries remains part of the broader workspace-realization migration,
+not this query-adapter slice.
+
 ### Project adapter
 
 The project adapter interprets restore outputs and project build products. A
