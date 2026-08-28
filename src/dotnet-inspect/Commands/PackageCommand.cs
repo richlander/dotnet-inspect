@@ -3868,10 +3868,7 @@ public class PackageCommand
         ProjectionDestination destination)
     {
         var output = content.EndsWith('\n') ? content : content + '\n';
-        var rendered = ProjectionDestinationWriter.IsFile(destination)
-            ? output
-            : new InertString(TextPolicy.Prose, output).ToString();
-        ProjectionDestinationWriter.WriteText(destination, rendered);
+        ProjectionDestinationWriter.WriteRenderedText(destination, output);
         return 0;
     }
 
@@ -3882,7 +3879,7 @@ public class PackageCommand
         if (content.ExactContent is { } exact)
             ProjectionDestinationWriter.WriteExactBytes(destination, exact);
         else
-            ProjectionDestinationWriter.WriteText(destination, content.Content);
+            ProjectionDestinationWriter.WriteRenderedText(destination, content.Content);
     }
 
     private static List<PackageFile> GetPackageFileRows(InspectionResult result, string section)

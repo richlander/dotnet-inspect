@@ -697,6 +697,39 @@ public class CommandLineTests
     }
 
     [Theory]
+    [InlineData("--path", "-n1")]
+    [InlineData("--path", "-1")]
+    [InlineData("--library", "-n1")]
+    [InlineData("--library", "-1")]
+    [InlineData("--version", "-n1")]
+    [InlineData("--version", "-1")]
+    [InlineData("--versions", "-n1")]
+    [InlineData("--versions", "-1")]
+    [InlineData("--versions-with-feed", "-n1")]
+    [InlineData("--versions-with-feed", "-1")]
+    public void PreprocessArgs_OptionalPackageValueDoesNotHideLineLimit(
+        string option,
+        string lineLimit)
+    {
+        CommandLineBuilder.PreprocessArgs(["package", "Foo", option, lineLimit]);
+
+        Assert.Equal(1, CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
+    }
+
+    [Theory]
+    [InlineData("find")]
+    [InlineData("api")]
+    public void PreprocessArgs_RequiredLibraryValueCanResembleLineLimit(
+        string command)
+    {
+        CommandLineBuilder.PreprocessArgs([command, "Foo", "--library", "-n1"]);
+
+        Assert.Null(CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
+    }
+
+    [Theory]
     [InlineData("--out", "-n1")]
     [InlineData("--output", "-n1")]
     [InlineData("-o", "-n1")]
@@ -725,6 +758,23 @@ public class CommandLineTests
         var result = CommandLineBuilder.PreprocessArgs(args);
 
         Assert.Equal(["router", "System.Text.Json", "--versions"], result);
+    }
+
+    [Theory]
+    [InlineData("--head", "true")]
+    [InlineData("--head", "false")]
+    [InlineData("--tail", "true")]
+    [InlineData("--tail", "false")]
+    public void PreprocessArgs_LeadingSeparatedDirectionValueRoutesBareTarget(
+        string direction,
+        string value)
+    {
+        var result = CommandLineBuilder.PreprocessArgs(
+            [direction, value, "System.Text.Json", "-n1"]);
+
+        Assert.Equal(
+            ["router", "System.Text.Json", direction, value, "-n1"],
+            result);
     }
 
     [Theory]

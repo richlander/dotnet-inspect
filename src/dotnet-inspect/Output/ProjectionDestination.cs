@@ -1,3 +1,5 @@
+using InertText;
+
 namespace DotnetInspector.Output;
 
 /// <summary>
@@ -32,6 +34,13 @@ internal static class ProjectionDestinationWriter
 
     public static void WriteText(ProjectionDestination destination, string output)
         => WriteText(destination, writer => writer.Write(output));
+
+    public static void WriteRenderedText(
+        ProjectionDestination destination,
+        string output)
+        => WriteText(
+            destination,
+            new InertString(TextPolicy.Prose, output).ToString());
 
     public static void WriteText(
         ProjectionDestination destination,

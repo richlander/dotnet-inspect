@@ -210,6 +210,14 @@ public static class ArgumentPreprocessor
             }
 
             var optionName = token.Split('=', 2)[0];
+            if (token is "--head" or "--tail"
+                && i + 1 < args.Length
+                && bool.TryParse(args[i + 1], out _))
+            {
+                i++;
+                continue;
+            }
+
             if (OptionsWithFollowingValue.Contains(optionName)
                 && !token.Contains('=', StringComparison.Ordinal)
                 && i + 1 < args.Length
@@ -288,7 +296,24 @@ public static class ArgumentPreprocessor
         string optionName = precedingToken.Split('=', 2)[0];
         return !precedingToken.Contains('=', StringComparison.Ordinal)
             && OptionsWithFollowingValue.Contains(optionName)
-            && !OptionsWithOptionalFollowingValue.Contains(optionName);
+            && !IsOptionWithOptionalFollowingValue(args, optionName);
+    }
+
+    private static bool IsOptionWithOptionalFollowingValue(
+        string[] args,
+        string optionName)
+    {
+        if (OptionsWithOptionalFollowingValue.Contains(optionName))
+            return true;
+
+        if (!PackageOptionsWithOptionalFollowingValue.Contains(optionName))
+            return false;
+
+        string? explicitCommand = args.FirstOrDefault(
+            token => !token.StartsWith('-') && KnownCommands.Contains(token));
+        return explicitCommand is null
+            || explicitCommand.Equals("package", StringComparison.OrdinalIgnoreCase)
+            || explicitCommand.Equals("router", StringComparison.OrdinalIgnoreCase);
     }
 
     private static readonly string[] SelectAliases = ["-S", "-s", "--select", "--section"];
@@ -302,6 +327,10 @@ public static class ArgumentPreprocessor
                 "-S", "-s", "--select", "--section",
                 "-D", "--discover", "--columns", "--fields",
             ],
+            StringComparer.Ordinal);
+    private static readonly HashSet<string> PackageOptionsWithOptionalFollowingValue =
+        new(
+            ["--path", "--library", "--version", "--versions", "--versions-with-feed"],
             StringComparer.Ordinal);
     private static readonly string[] AtCategoryOptionAliases = [.. SelectAliases, "-D", "--discover"];
     private static readonly HashSet<string> SearchScopeCommands = new(StringComparer.OrdinalIgnoreCase)

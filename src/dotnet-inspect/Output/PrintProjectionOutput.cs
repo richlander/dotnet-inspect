@@ -1,6 +1,5 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using InertText;
 
 namespace DotnetInspector.Output;
 
@@ -160,9 +159,7 @@ public static class PrintProjectionOutput
             return;
         }
 
-        var rendered =
-            new InertString(TextPolicy.Prose, output.Content).ToString();
-        ProjectionDestinationWriter.WriteText(destination, rendered);
+        ProjectionDestinationWriter.WriteRenderedText(destination, output.Content);
     }
 }
 
