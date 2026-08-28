@@ -65,6 +65,10 @@ substrates, and inspection producers that will extend that space.
 - `src/ILInspector.Instructions/` is the shared IL decode + EH-aware basic-block substrate (one decoder the analyzer and decompiler converge onto); see [instruction substrate](design/instruction-substrate.md).
 - `src/ILInspector.Text/` provides the reusable `TextFindings` API for exact, ordered line inspection and generic text comparison on the shared Finding spine.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction, package/source caches, feeds, symbol package acquisition, and version resolution.
+- `src/DotnetInspector.PackageQueries/` is the optional package-aware query
+  companion. It consumes package realization proofs and package-neutral core
+  queries without adding package identity or acquisition policy to those core
+  query results.
 - `src/DotnetInspector.Artifacts/` is the package- and Metadata-free contract
   floor for generation-scoped artifact identity, typed provenance and
   diagnostics, acquisition outcomes, and owner-issued guarded access.
@@ -108,6 +112,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Artifact acquisition and workspace composition](design/artifact-acquisition-and-workspaces.md):
   the target separation between storage, source adapters, multi-source
   workspace lifetimes, packages, and assembly inspection.
+- [Assembly image lifetime and MVID correctness](design/assembly-image-lifetime.md):
+  the single-image inspection lifetime, source-specific cache scope, and
+  non-cryptographic role of MVID-scoped metadata addresses.
 - [Architecture](architecture.md): command and metadata architecture.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
 - [`ts-jsexport` TypeScript facade generation](design/ts-jsexport.md): ownership,
