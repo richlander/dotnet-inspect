@@ -2037,6 +2037,47 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public async Task DiscoverOutput_ExplicitTreeOverridesDefaultTable()
+    {
+        var schema = new DocumentSchema()
+            .Add("Results", "column", "Value");
+        var request = DiscoveryOutputRequest.From(
+            projection: null,
+            format: OutputFormat.Table,
+            tree: true);
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(DiscoverOutput.Execute(null, schema, request)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("Results", result.Output);
+        Assert.DoesNotContain("| Name |", result.Output);
+    }
+
+    [Fact]
+    public async Task DiscoverOutput_ExplicitTreeRejectsExplicitTable()
+    {
+        var schema = new DocumentSchema()
+            .Add("Results", "column", "Value");
+        var request = DiscoveryOutputRequest.From(
+            projection: null,
+            format: OutputFormat.Table,
+            tree: true,
+            tableExplicitlySet: true);
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(DiscoverOutput.Execute(null, schema, request)));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--tree cannot be combined with --table",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task DiscoverOutput_TsvNoHeaderSuppressesHeaderRow()
     {
         var schema = new DocumentSchema()

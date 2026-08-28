@@ -463,8 +463,7 @@ public static class TypeCommand
                             noHeader: options.NoHeader),
                         verbosity: (int)options.Verbosity,
                         sectionCostAnnotations: typePipeline.GetCostAnnotations(),
-                        sectionCategories: typePipeline.GetCategoryMap(),
-                        projection: options);
+                        sectionCategories: typePipeline.GetCategoryMap());
                 }
                 else if (TryWritePrefixBrowse(
                     api,

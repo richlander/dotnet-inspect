@@ -293,6 +293,29 @@ public static class DiscoverOutput
                         return 1;
                     }
                 }
+                if (request.Format == OutputFormat.Json && request.HasColumnProjection)
+                {
+                    try
+                    {
+                        var projectedColumns = ResolveProjectionColumns(request)!;
+                        OutputDestination.Write(
+                            request.OutputPath,
+                            request.Rows,
+                            writer =>
+                            {
+                                writer.Write(JsonSerializer.Serialize(
+                                    ProjectJsonRows([], projectedColumns),
+                                    DiscoveryJsonContext.Default.ListProjectedDiscoveryRow));
+                                writer.Write('\n');
+                            });
+                        return 0;
+                    }
+                    catch (Exception ex)
+                    {
+                        CommandError.Write(ex);
+                        return 1;
+                    }
+                }
                 if (request.OutputPath is not null)
                 {
                     try
@@ -304,17 +327,6 @@ public static class DiscoverOutput
                         CommandError.Write(ex);
                         return 1;
                     }
-                }
-                if (request.Format == OutputFormat.Json && request.HasColumnProjection)
-                {
-                    var projectedColumns = ResolveProjectionColumns(request)!;
-                    OutputDestination.Write(
-                        request.OutputPath,
-                        request.Rows,
-                        writer => writer.WriteLine(JsonSerializer.Serialize(
-                            ProjectJsonRows([], projectedColumns),
-                            DiscoveryJsonContext.Default.ListProjectedDiscoveryRow)));
-                    return 0;
                 }
                 return 0;
             }
@@ -375,11 +387,11 @@ public static class DiscoverOutput
         }
 
         if (request.TreeMode == DiscoveryTreeMode.Force
-            && request.Format is (
-                OutputFormat.Table
-                or OutputFormat.Tsv
-                or OutputFormat.Jsonl
-                or OutputFormat.Json))
+            && (request.TableExplicitlySet
+                || request.Format is (
+                    OutputFormat.Tsv
+                    or OutputFormat.Jsonl
+                    or OutputFormat.Json)))
         {
             CommandError.Write(
                 $"--tree cannot be combined with --{FormatName(request.Format)} discovery output.");
