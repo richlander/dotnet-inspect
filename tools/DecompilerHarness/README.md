@@ -417,6 +417,25 @@ is intentionally not projected into the authored-corpus trend store.
 `AuthoredSourceOracleManifestTests` is the enforcing gate for complete member
 sets, the Valid/Correct prerequisites, and Printer-exact opt-in.
 
+The enrolled third-party rows and manifest live on the
+`vendor/authored-source-corpus` orphan branch under `oracle/`, beside CIVIL and
+EVIL but independently gated. Restore that branch, prepare the pinned oracle
+assembly, and run the gate with:
+
+```bash
+bash eng/restore-authored-source-corpus.sh
+bash eng/prepare-authored-source-oracles.sh /tmp/source-oracle-assemblies.txt
+mapfile -t oracle_assemblies < /tmp/source-oracle-assemblies.txt
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --benchmark-authored-corpus external/authored-source-corpus/oracle/corpus.jsonl \
+  --source-oracle-manifest external/authored-source-corpus/oracle/manifest.json \
+  "${oracle_assemblies[@]}"
+```
+
+The periodic authored-corpus Deep Inspect lane runs this perfection gate before
+the separate EVIL regression ratchet. `DeepInspect_RunsTheWholeFileSourceOracleGate`
+is the non-vacuity gate for that workflow wiring.
+
 Raw syntax indexes used by fixture and on-demand source probes do not carry that
 typed correlation, so fault attribution is not attempted for them. Their
 original compile diagnostic remains visible and an invalid result is

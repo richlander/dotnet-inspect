@@ -56,7 +56,7 @@ public sealed class ILSignatureTypeProvider : ISignatureTypeProvider<string, Gen
     }
 
     public string GetSZArrayType(string elementType) => $"{elementType}[]";
-    public string GetArrayType(string elementType, ArrayShape shape) => ArrayShapeText.Format(elementType, shape.Rank);
+    public string GetArrayType(string elementType, ArrayShape shape) => ArrayShapeText.Format(elementType, shape);
     public string GetByReferenceType(string elementType) => $"{elementType}&";
     public string GetPointerType(string elementType) => $"{elementType}*";
     public string GetPinnedType(string elementType) => $"{elementType} pinned";

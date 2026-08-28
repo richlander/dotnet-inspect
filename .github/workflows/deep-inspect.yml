@@ -703,6 +703,21 @@ jobs:
       - name: Restore the vendored authored-source corpus
         run: bash eng/restore-authored-source-corpus.sh
 
+      - name: Prepare the source-oracle assembly pool
+        run: bash eng/prepare-authored-source-oracles.sh "$RUNNER_TEMP/source-oracle-assemblies.txt"
+
+      - name: Run the whole-file source-oracle gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/deep-inspect
+          mapfile -t oracle_assemblies < "$RUNNER_TEMP/source-oracle-assemblies.txt"
+          dotnet run --project tools/DecompilerHarness -c Release -- \
+            --benchmark-authored-corpus external/authored-source-corpus/oracle/corpus.jsonl \
+            --source-oracle-manifest external/authored-source-corpus/oracle/manifest.json \
+            --json "${oracle_assemblies[@]}" \
+            > artifacts/deep-inspect/source-oracle-run.json
+
       - name: Prepare the EVIL assembly pool
         run: bash eng/prepare-evil-corpus.sh "$RUNNER_TEMP/evil-pool"
 
@@ -723,7 +738,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: deep-inspect-authored-corpus
-          path: artifacts/deep-inspect/authored-corpus-run.json
+          path: |
+            artifacts/deep-inspect/authored-corpus-run.json
+            artifacts/deep-inspect/source-oracle-run.json
           if-no-files-found: warn
 
   report-scheduled-failure:

@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using DotnetInspector.Artifacts;
 using ILInspector.Metadata;
 
 namespace ILInspector.Metadata.Tests;
@@ -168,6 +169,114 @@ public class InspectionAcquisitionPlanTests
         {
             File.Delete(invalid);
         }
+    }
+
+    [Fact]
+    public void ArtifactDescriptor_PreservesRegistrationAndBindsNonEmptyMvid()
+    {
+        Guid mvid = Guid.NewGuid();
+        byte[] image =
+            BuildSimpleAssembly("ArtifactBound", "Type", mvid);
+        ArtifactAcquisitionRegistration artifactRegistration =
+            RegisterArtifact(
+                () => new MemoryStream(image, writable: false));
+
+        ResolvedAssemblyReference descriptor =
+            ResolvedAssemblyReference.CreateFromArtifactIfManaged(
+                artifactRegistration,
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Local("test"))
+            ?? throw new InvalidOperationException(
+                "The managed assembly was not recognized.");
+
+        Assert.Same(
+            artifactRegistration,
+            descriptor.Registration.ArtifactRegistration);
+        Assert.Equal(
+            mvid,
+            descriptor.Registration.ModuleVersionId);
+
+        using AssemblyInspectionSession first =
+            AssemblyInspectionSession.Open(descriptor);
+        using AssemblyInspectionSession second =
+            AssemblyInspectionSession.Open(descriptor);
+        Assert.Equal("ArtifactBound", first.AssemblyInfo().AssemblyName);
+        Assert.Equal("ArtifactBound", second.AssemblyInfo().AssemblyName);
+    }
+
+    [Fact]
+    public void ArtifactDescriptor_RejectsSameIdentityFromDifferentModuleGeneration()
+    {
+        byte[] selected =
+            BuildSimpleAssembly(
+                "ArtifactBound",
+                "Type",
+                Guid.NewGuid());
+        ArtifactAcquisitionRegistration artifactRegistration =
+            RegisterArtifact(
+                () => new MemoryStream(selected, writable: false));
+        ResolvedAssemblyReference descriptor =
+            ResolvedAssemblyReference.CreateFromArtifactIfManaged(
+                artifactRegistration,
+                () => new MemoryStream(selected, writable: false),
+                AssemblyResolutionProvenance.Local("test"))
+            ?? throw new InvalidOperationException(
+                "The managed assembly was not recognized.");
+
+        selected =
+            BuildSimpleAssembly(
+                "ArtifactBound",
+                "Type",
+                Guid.NewGuid());
+
+        Assert.Throws<BadImageFormatException>(
+            () => AssemblyImage.Open(descriptor));
+        Assert.Throws<BadImageFormatException>(
+            () => PdbContext.OpenMetadataOnly(descriptor));
+        var snapshot =
+            Assert.IsType<AssemblyImageSnapshotResult.Rejected>(
+                AssemblyImageSnapshot.Open(
+                    descriptor,
+                    static _ => true,
+                    static _ => { }));
+        Assert.Equal(
+            CandidateOpenFailureKind.InvalidImage,
+            snapshot.Failure.Kind);
+    }
+
+    [Fact]
+    public void ArtifactDescriptor_RejectsEmptyMvidModuleAndMalformedImage()
+    {
+        byte[] emptyMvid =
+            BuildSimpleAssembly(
+                "ArtifactBound",
+                "Type",
+                Guid.Empty);
+        ArtifactAcquisitionRegistration emptyMvidRegistration =
+            RegisterArtifact(
+                () => new MemoryStream(emptyMvid, writable: false));
+
+        Assert.Throws<BadImageFormatException>(
+            () => ResolvedAssemblyReference.CreateFromArtifactIfManaged(
+                emptyMvidRegistration,
+                () => new MemoryStream(emptyMvid, writable: false),
+                AssemblyResolutionProvenance.Local("test")));
+
+        byte[] module = BuildModuleImage();
+        Assert.Null(
+            ResolvedAssemblyReference.CreateFromArtifactIfManaged(
+                RegisterArtifact(
+                    () => new MemoryStream(module, writable: false)),
+                () => new MemoryStream(module, writable: false),
+                AssemblyResolutionProvenance.Local("test")));
+
+        byte[] malformed = [0x01, 0x02, 0x03];
+        Assert.Null(
+            ResolvedAssemblyReference.CreateFromArtifactIfManaged(
+                RegisterArtifact(
+                    () => new MemoryStream(malformed, writable: false)),
+                () => new MemoryStream(malformed, writable: false),
+                AssemblyResolutionProvenance.Local("test")));
     }
 
     [Fact]
@@ -1268,6 +1377,33 @@ public class InspectionAcquisitionPlanTests
             path: null,
             openRead: () => new MemoryStream(image(), writable: false),
             provenance: AssemblyResolutionProvenance.Local("test"));
+
+    static ArtifactAcquisitionRegistration RegisterArtifact(
+        Func<Stream> openRead)
+    {
+        var authority = new ArtifactGenerationAuthority();
+        ArtifactAdmissionAuthorization admission =
+            authority.CreateAdmissionAuthorization();
+        ArtifactContribution contribution;
+        using (ArtifactContributionScope scope =
+               authority.BeginContribution(admission))
+        {
+            contribution = scope.Register(
+                TestArtifactProvenance.Instance,
+                openRead);
+        }
+
+        authority.CreateRetainedContent(
+            contribution.Registration,
+            openRead);
+        authority.CompleteAdmission(admission);
+        return contribution.Registration;
+    }
+
+    sealed class TestArtifactProvenance : IArtifactProvenance
+    {
+        public static TestArtifactProvenance Instance { get; } = new();
+    }
 
     // These callers intentionally block on test gates, so dedicated threads keep the
     // test independent of ThreadPool injection timing on low-core CI runners.

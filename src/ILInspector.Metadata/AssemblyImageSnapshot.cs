@@ -146,6 +146,7 @@ public sealed class AssemblyImageSnapshot
                 }
 
                 MetadataReader reader = peReader.GetMetadataReader();
+                assembly.ValidateArtifactContent(peReader);
                 AssemblyReferenceIdentity identity =
                     AssemblyReferenceIdentity.FromAssemblyDefinition(
                         reader);
@@ -240,6 +241,7 @@ public sealed class AssemblyImageSnapshot
             }
 
             MetadataReader reader = peReader.GetMetadataReader();
+            assembly.ValidateArtifactContent(peReader);
             AssemblyReferenceIdentity identity =
                 AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
             if (!IdentityMatches(assembly.Identity, identity))
