@@ -29048,6 +29048,36 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PackageBareReadme_AppliesSemanticRowsBeforeDestination()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Projection.BareRows",
+            "README.md",
+            "selected");
+        var outputPath = Path.Combine(tempDir, "sentinel.md");
+        const string sentinel = "safe";
+        File.WriteAllText(outputPath, sentinel);
+        try
+        {
+            var result = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Package README file",
+                "--bare", "--rows", "2..2",
+                "--out", outputPath,
+                "--tips", "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains("found no package file", result.Error);
+            Assert.Equal(sentinel, File.ReadAllText(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_QuietSignedValuePerformsExplicitVerification()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -31272,6 +31302,34 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Empty(error);
             Assert.Equal(firstSkill.Text, output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_SkillsBare_AppliesRowsBeforeDefaultSelection()
+    {
+        var firstSkill = CompliantProjectSkill("skills/first/SKILL.md", "first");
+        var secondSkill = CompliantProjectSkill("skills/second/SKILL.md", "second");
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("A.Project.First", "1.0.0", "README.md", "readme", Skills:
+                [firstSkill]),
+            new ProjectDocPackage("B.Project.Second", "1.0.0", "README.md", "readme", Skills:
+                [secondSkill]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Skills",
+                "--bare", "--rows", "2..2");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal(secondSkill.Text, output.Trim());
         }
         finally
         {

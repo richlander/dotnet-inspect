@@ -3789,7 +3789,9 @@ public class PackageCommand
         var section = include.Single();
         if (section.Equals(PackageSections.FilesReadme, StringComparison.OrdinalIgnoreCase))
         {
-            var files = GetPackageFileRows(result, section);
+            var files = RowWindow.Apply(
+                options.Rows,
+                GetPackageFileRows(result, section));
             return PrintBarePackageFiles(extractPath, packageName, version, files, options, section);
         }
 

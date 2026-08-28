@@ -146,7 +146,7 @@ public static class ArgumentPreprocessor
                 break;
 
             if (args[i].Length >= 2 && args[i][0] == '-' && char.IsDigit(args[i][1])
-                && !IsFollowingOptionValue(args, i)
+                && !IsFollowingRequiredOptionValue(args, i)
                 && int.TryParse(args[i].AsSpan(1), out var headN))
             {
                 HeadLines = headN;
@@ -163,7 +163,7 @@ public static class ArgumentPreprocessor
                 if (args[i] == "--")
                     break;
 
-                if (IsFollowingOptionValue(args, i))
+                if (IsOutputPathValue(args, i))
                     continue;
 
                 if (args[i] == "-n"
@@ -253,7 +253,16 @@ public static class ArgumentPreprocessor
 
             if (token == "--tail")
             {
-                enabled = true;
+                if (i + 1 < args.Length
+                    && bool.TryParse(args[i + 1], out var separatedValue))
+                {
+                    enabled = separatedValue;
+                    i++;
+                }
+                else
+                {
+                    enabled = true;
+                }
                 continue;
             }
 
@@ -268,7 +277,7 @@ public static class ArgumentPreprocessor
         return enabled == true;
     }
 
-    private static bool IsFollowingOptionValue(string[] args, int index)
+    private static bool IsOutputPathValue(string[] args, int index)
     {
         if (index == 0)
             return false;
@@ -276,13 +285,37 @@ public static class ArgumentPreprocessor
         string precedingToken = args[index - 1];
         string optionName = precedingToken.Split('=', 2)[0];
         return !precedingToken.Contains('=', StringComparison.Ordinal)
-            && OptionsWithFollowingValue.Contains(optionName);
+            && OutputPathAliases.Contains(optionName);
+    }
+
+    private static bool IsFollowingRequiredOptionValue(
+        string[] args,
+        int index)
+    {
+        if (index == 0)
+            return false;
+
+        string precedingToken = args[index - 1];
+        string optionName = precedingToken.Split('=', 2)[0];
+        return !precedingToken.Contains('=', StringComparison.Ordinal)
+            && OptionsWithFollowingValue.Contains(optionName)
+            && !OptionsWithOptionalFollowingValue.Contains(optionName);
     }
 
     private static readonly string[] SelectAliases = ["-S", "-s", "--select", "--section"];
     private static readonly string[] ColumnsAliases = ["--columns"];
     private static readonly string[] FieldsAliases = ["--fields"];
     private static readonly string[] PathAliases = ["--path"];
+    private static readonly HashSet<string> OutputPathAliases =
+        new(["--out", "--output", "-o"], StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<string> OptionsWithOptionalFollowingValue =
+        new(
+            [
+                "-v", "-T", "--tips",
+                "-S", "-s", "--select", "--section",
+                "-D", "--discover", "--columns", "--fields",
+            ],
+            StringComparer.Ordinal);
     private static readonly string[] AtCategoryOptionAliases = [.. SelectAliases, "-D", "--discover"];
     private static readonly HashSet<string> SearchScopeCommands = new(StringComparer.OrdinalIgnoreCase)
     {

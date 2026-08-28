@@ -548,11 +548,12 @@ public class ProjectCommand
             .Where(document => document is not null)
             .Cast<PrintableDocument>()
             .ToList();
+        var visibleDocuments = RowWindow.Apply(options.Rows, documents);
 
         return PrintProjectionOutput.Write(
-            documents,
+            visibleDocuments,
             new PrintProjectionOptions(
-                options.Bare && !options.Print ? RowSelector.FromIndex(1) : options.PrintRow,
+                options.Bare && !options.Print ? RowSelector.First : options.PrintRow,
                 options.JsonOutput,
                 options.Jsonl,
                 options.JsonArray,

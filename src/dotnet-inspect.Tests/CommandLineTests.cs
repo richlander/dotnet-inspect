@@ -651,7 +651,55 @@ public class CommandLineTests
     }
 
     [Theory]
+    [InlineData("true", true)]
+    [InlineData("false", false)]
+    public void PreprocessArgs_SeparatedTailValueSetsDirection(
+        string value,
+        bool fromEnd)
+    {
+        string[] args = ["package", "Foo", "-n1", "--tail", value];
+
+        CommandLineBuilder.PreprocessArgs(args);
+
+        Assert.Equal(fromEnd ? null : 1, CommandLineBuilder.HeadLines);
+        Assert.Equal(fromEnd ? 1 : null, CommandLineBuilder.TailLines);
+    }
+
+    [Theory]
+    [InlineData("-v")]
+    [InlineData("-T")]
+    [InlineData("--tips")]
+    public void PreprocessArgs_OptionalDisplayValueDoesNotHideLineLimit(
+        string option)
+    {
+        string[] args = ["package", "Foo", option, "-n1"];
+
+        CommandLineBuilder.PreprocessArgs(args);
+
+        Assert.Equal(1, CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
+    }
+
+    [Theory]
+    [InlineData("-v")]
+    [InlineData("-T")]
+    [InlineData("--tips")]
+    public void PreprocessArgs_OptionalDisplayValueDoesNotHideHeadShorthand(
+        string option)
+    {
+        string[] args = ["package", "Foo", option, "-5"];
+
+        string[] result = CommandLineBuilder.PreprocessArgs(args);
+
+        Assert.Equal(["package", "Foo", option, "-n", "5"], result);
+        Assert.Equal(5, CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
+    }
+
+    [Theory]
     [InlineData("--out", "-n1")]
+    [InlineData("--output", "-n1")]
+    [InlineData("-o", "-n1")]
     [InlineData("--out", "-n:1")]
     [InlineData("--", "-n1")]
     [InlineData("--", "-n:1")]
