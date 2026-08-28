@@ -291,17 +291,20 @@ engine consumes their typed results and must not strengthen or reinterpret them.
 - Scope policy owns `cluster` versus `all` root selection.
 - Body policy owns selected targets, effective companion bodies, and full-body
   participation.
-- The tools-side planner discovers roots and members and builds neutral
-  `CSharpTypeShellSpec` inputs; it does not format declarations.
+- The tools-side planner discovers roots and members and submits their typed
+  identities and body policy to the product artifact provider. The provider
+  constructs `CSharpTypeShellSpec` and declaration models internally.
 - Harnesses own fixtures, comparison policy, assertions, and reporting.
 
 `TypeShellProducer` and `CSharpTypePrinter` already produce and render typed C#
 declarations. The existing member-scoped `MemberBodyProducer` seam supplies
 typed body increments without composing a parallel declaration. The harness may
 select scope, members, and typed body policies, but it must not format
-declarations or reconstruct decompiled bodies itself. Compiler feedback may
-expand a typed request but must not trigger ad hoc source patches that
-compensate for missing product behavior.
+product-policy declarations or reconstruct decompiled bodies itself. The
+tools-owned `LegacyArtifactEmitter` is the explicit exception for the separately
+labelled legacy policy; its output cannot become product admission evidence.
+Compiler feedback may expand a typed request but must not trigger ad hoc source
+patches that compensate for missing product behavior.
 
 ## Typed request and result
 
@@ -402,9 +405,16 @@ diff evidence:
   typed member correspondence, no producer failure rows, and an exact
   `CSharpBodyDiff`;
 - `Changed` requires `Complete` body inspections at both endpoints and preserves
-  the producer-owned diff rows;
+  the producer-owned diff rows only after successful typed member
+  correspondence, with no producer failure or identity rows and at least one
+  actual change row;
 - `Unavailable` retains the endpoint's `Absent` or `Failed` inspection, identity
   failure, or decompilation/diff failure reason.
+
+This target arbiter is **unverified** until
+`CSharpRoundTripChangedRejectsFailureRows` runs in Release. The shipping
+round-trip envelope currently maps any non-exact diff with complete endpoint
+inspections to `Changed`, including a diff whose only rows are failures.
 
 This precondition is deliberate: `CSharpBodyDiffResult.IsExact` alone is not the
 arbiter because an empty native diff can also arise when a body fingerprint is
@@ -477,7 +487,7 @@ The owner consumes, but does not redefine:
 - compiler diagnostics and rebuilt PE bytes from the tools compiler adapter;
 - C# and IL comparison results from their existing owners.
 
-Five adjacent-owner prerequisites are now explicit:
+Seven adjacent-owner prerequisites are now explicit:
 
 - [#4881](https://github.com/richlander/dotnet-inspect/issues/4881) is the
   `ILInspector.CSharp` design for an artifact-digest-bound participant manifest.
@@ -499,6 +509,14 @@ Five adjacent-owner prerequisites are now explicit:
   the artifact owner's on-demand digest over retained immutable content.
   Current artifact sessions expose `OpenRead`, while the owning design reserves
   digest authority to the session and marks this API unverified.
+- [#4930](https://github.com/richlander/dotnet-inspect/issues/4930) is the
+  `MemberBodyProducer` design for a complete typed occurrence manifest over each
+  receipt-bearing product `CSharpBlockBody`. Original or rebuilt IL cannot prove
+  source-only binding occurrences emitted by the product body.
+- [#4931](https://github.com/richlander/dotnet-inspect/issues/4931) is the
+  `ILInspector.CSharp` design for an owner-issued body-replacement artifact bound
+  to the template digest, typed range, preserved policy, and result digest.
+  Ordinary replacement text cannot prove owner derivation.
 
 These prerequisites do not transfer their owners' construction, validation,
 identity, or failure semantics into tools. The compile-back implementation may
@@ -783,6 +801,8 @@ in a method body. Tools create one closed, conservative
 `BodyReferenceCensus` for every original member whose real body is emitted.
 Each census comes from:
 
+- the complete Decompiler-issued product-body occurrence manifest from
+  [#4930](https://github.com/richlander/dotnet-inspect/issues/4930);
 - the complete shared `MethodInstructions` decode;
 - every metadata-token-bearing IL operand;
 - the method local signature;
@@ -790,9 +810,12 @@ Each census comes from:
 - referenced member, method-specification, type-specification, and standalone
   signatures needed to expose their named-type requirements.
 
-The census uses guarded Metadata name/signature operations and the same
-resolution context as signature spellability. It does not interpret control
-flow, evaluation-stack meaning, reachability, or product C# text. It may retain
+The census composes the owner-issued source occurrences with guarded Metadata
+name/signature operations over the original IL under the same resolution
+context as signature spellability. It does not interpret control flow,
+evaluation-stack meaning, reachability, or product C# text. Until #4930 exists,
+every receipt-bearing product body makes the census `Incomplete`; an empty
+source-occurrence set inferred from IL is not complete. The IL side may retain
 requirements that product C# later spells implicitly or eliminates. That
 conservative over-approximation may decline an unsafe artifact but cannot
 justify a false success. A source-local generated definition that is not emitted
@@ -828,14 +851,14 @@ A caller that needs both runs a separate product/decompiler request so the
 supplied source cannot make an otherwise provable member's artifact receipt
 unavailable.
 
-An authored-source control may use the product-issued `CSharpSourceArtifact`
-from the corresponding decompiler-produced rendering as its immutable source
-template and invoke that owner's typed `ReplaceBody` operation. The resulting
-source is materialized under the comparison-only request as a distinct artifact
-with its own digest. It does not inherit the template artifact's closure,
-participant coverage, admission, or receipt evidence. A missing replacement
-range, changed non-target byte, policy mismatch, or reused receipt makes the
-control unavailable rather than comparable.
+After #4931 lands, an authored-source control consumes the owner-issued
+replacement artifact derived from the corresponding decompiler-produced
+`CSharpSourceArtifact`. The result proves the template digest, typed replacement
+range, preserved rendering policy and non-target bytes, and distinct result
+digest. It does not inherit the template artifact's closure, participant
+coverage, admission, or receipt evidence. Until #4931 exists, or when its result
+is missing, stale, mismatched, or reused with any receipt, the control is
+unavailable and cannot make causal attribution.
 
 No caller-provided completeness flag or occurrence list can upgrade that result.
 Source parsing, name lookup, and emitted-IL absence cannot repair the missing
@@ -1072,9 +1095,9 @@ planning transition:
 - `Declined` is the pre-`ProductAttemptCommit` policy refusal from reference
   discovery or selection, declaration planning, closure, local requirements,
   Metadata aggregate capability, retained-content digest capability,
-  artifact-manifest capability, or required generated-correspondence
-  capability. It carries the typed reasons and selected legacy policy, when
-  permitted.
+  artifact-manifest capability, product-body occurrence capability, or required
+  generated-correspondence capability. It carries the typed reasons and selected
+  legacy policy, when permitted.
 - `Failed` when artifact production, compilation, rebuilt resolution, or
   binding fails after `ProductAttemptCommit`, including participant-manifest
   mismatch, a stalled post-commit diagnostic, and root/iteration budget
@@ -1189,10 +1212,15 @@ also blocked on #4916.
 - Consume the existing product-owned, handle-addressed
   `MemberBodyProducer.ProduceBody` result and preserve its typed body, projection,
   and failure provenance.
-- Wire the product artifact pipeline explicitly: the tools planner builds neutral
-  `CSharpTypeShellSpec` inputs, `TypeShellProducer` builds typed print requests,
-  the existing member-body seam supplies decompiled body increments, and
-  `CSharpTypePrinter` renders source.
+- Wire the product artifact pipeline explicitly: the tools planner supplies
+  artifact/member identities, roots, and body policy; the product provider
+  constructs `CSharpTypeShellSpec` and typed print requests; the existing
+  member-body seam supplies decompiled body increments; and `CSharpTypePrinter`
+  renders source.
+- Remove product-policy tools rewrites, including
+  `TryForcePublicConstructorAccessibility` and `EmitPrerenderedMember`
+  re-indentation. Product accessibility and source formatting remain
+  owner-issued.
 - Refactor legacy source construction through `LegacyArtifactEmitter` so every
   declaration, body, and fragment emission contributes to its digest-bound
   participant manifest.
@@ -1458,26 +1486,39 @@ Issue #4810 adds these named gates:
     product projects that declare their evidence and rendering request/result
     types. Product APIs cannot consume the tools-only plan or return
     `CompileClosureOutcome`, `CompileContextReceipt`, or `CompileBackVerdict`;
-    tools cannot format product C# or substitute a tools-observed participant
-    set for an owner manifest. Moving one planner surface into a product
-    component, adding product-side compiler-reference selection, adding a
-    product API that chooses compile-back roots or closure, or adding tools-side
-    accessibility flattening, declaration synthesis, or product rendering is
+    tools cannot format or synthesize product-policy C#, flatten its
+    accessibility, or substitute a tools-observed participant set for an owner
+    manifest. Moving one planner surface into a product component, adding
+    product-side compiler-reference selection, adding a product API that chooses
+    compile-back roots or closure, or adding product-policy tools-side
+    accessibility flattening, declaration synthesis, or rendering is
     mutation-verified to fail the architecture arm. Product-side candidate
     acquisition, package dependency resolution, identity and binding, typed
-    evidence, and rendering remain permitted.
-31. `AuthoredBodyControlPreservesProductRenderedShell` uses product-issued
-    `CSharpSourceArtifact` fixtures covering non-target siblings, async/unsafe
-    modifiers, finalizer spelling, and a constructor initializer. Each authored
-    control uses the typed `ReplaceBody` operation and proves every byte outside
-    the replacement range is unchanged, then materializes a distinct
-    comparison-only artifact digest with no closure, coverage, admission, or
-    compile-context receipt. Independently re-rendering the control, changing
-    any non-target byte or preserved request policy, reusing the template
-    artifact digest, or copying any receipt fails the gate. The product
-    primitive remains independently gated by
-    `SourceArtifactReplacesTheSelectedNestedMethodBlockOnly` and
-    `SourceArtifactReplacementPreservesConstructorInitializer`.
+    evidence, and rendering remain permitted. The tools-owned
+    `LegacyArtifactEmitter` is explicitly allowed to render the labelled legacy
+    artifact but cannot produce product admission or product-policy evidence.
+31. `AuthoredBodyControlPreservesProductRenderedShell` declines causal control
+    attribution while #4931 is unavailable. With its owner-issued derived
+    artifact, fixtures covering non-target siblings, async/unsafe modifiers,
+    finalizer spelling, and a constructor initializer prove the template digest,
+    typed range, preserved policy, non-target byte equality, and distinct result
+    digest. The control has no closure, coverage, admission, or compile-context
+    receipt. Supplying ordinary text, independently re-rendering the control,
+    changing any non-target byte or preserved policy, reusing the template
+    digest, or copying any receipt fails the gate.
+32. `ProductBodyClosureRequiresOwnerOccurrenceManifest` uses a product-generated
+    real body containing a binding-relevant source occurrence that is erased
+    from original and rebuilt IL. Until #4930 lands, the missing complete
+    occurrence capability produces pre-commit `Declined`. With the owner result,
+    the exact definition enters closure and rebuilt binding; removing or
+    rebinding only that occurrence makes the result unavailable. No arm parses
+    product C# or infers an empty occurrence set from IL equality.
+33. `CSharpRoundTripChangedRejectsFailureRows` supplies complete endpoint
+    inspections for exact, changed, producer-failure, identity-failure, and
+    correspondence-failure cases. Only successful correspondence with at least
+    one actual diff row and no failure/identity rows produces `Changed`; every
+    failure case is `Unavailable`. Treating `IsExact: false` alone as `Changed`
+    is mutation-verified to fail the gate.
 
 Documentation-only changes validate Markdown. Implementation milestones add the
 smallest focused product and harness checks that prove their claims.

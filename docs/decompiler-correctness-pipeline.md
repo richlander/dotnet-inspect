@@ -48,15 +48,15 @@ layout, and artifact replacement remain product responsibilities.
 
 ReturnToSender authored-body controls therefore create a separate
 comparison-only `RoundTripRequest` with the independently acquired body as its
-typed replacement. It uses the product-issued frozen `CSharpSourceArtifact`
-from the decompiled-body rendering as a source template and invokes the
-product-owned `ReplaceBody` operation, which preserves every byte outside the
-typed body range. The resulting source is materialized as a distinct control
-artifact and cannot inherit the template artifact's closure, participant
-coverage, admission, or receipt evidence. The control preserves the artifact
-and module identity, target set, scope and body policy, compiler policy, and
-frozen reference selection, but it cannot issue a compile-context receipt or
-`Exact`.
+typed replacement. After
+[#4931](https://github.com/richlander/dotnet-inspect/issues/4931) lands, it
+consumes the CSharp owner's derived replacement artifact, which binds the frozen
+source template digest, typed body range, preserved rendering policy and
+non-target bytes, and distinct result digest. The control artifact cannot
+inherit the template artifact's closure, participant coverage, admission, or
+receipt evidence. It preserves the source artifact and module identity, target
+set, scope and body policy, compiler policy, and frozen reference selection,
+but it cannot issue a compile-context receipt or `Exact`.
 
 The harness must not rediscover the target by member name, overload count,
 syntax-tree search, or textual heuristics, and it must not recompose the shell
@@ -65,10 +65,12 @@ policy, any changed non-target byte, or any reused artifact receipt makes the
 control unavailable rather than comparable. This target wiring is **unverified**
 until
 `AuthoredBodyControlPreservesProductRenderedShell` runs in the Release harness
-suite; the existing
+suite. The existing string-returning `CSharpSourceArtifact.ReplaceBody`
+primitive and its
 `SourceArtifactReplacesTheSelectedNestedMethodBlockOnly` and
-`SourceArtifactReplacementPreservesConstructorInitializer` tests gate the
-product replacement primitive.
+`SourceArtifactReplacementPreservesConstructorInitializer` tests prove byte
+replacement but not owner-issued derivation, so they cannot enable causal
+control attribution by themselves.
 
 ReturnToSender's earlier source-corpus lookup is a different, non-authoritative
 operation. It may use `CSharpText.MemberSignatureShape` to discriminate

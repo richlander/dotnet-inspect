@@ -36,11 +36,13 @@ PDB. It is not the A→IL verdict. Determinism, compilation options, references,
 compiler version, generators, and project context are reported separately as
 build-context evidence. `--authored-rebuild-fidelity` places the acquired
 authored body in a separate comparison-only request under the same artifact and
-reference policies, uses the product-owned typed replacement over the frozen
-decompiled source template, invokes product IL diff, and prints both oracle
-results plus checksum, determinism, and context status. The resulting artifact
-has a distinct digest and cannot produce an `Exact` receipt under the current
-contract.
+reference policies. After
+[#4931](https://github.com/richlander/dotnet-inspect/issues/4931) lands, it uses
+the owner-issued replacement artifact over the frozen decompiled source
+template, invokes product IL diff, and prints both oracle results plus checksum,
+determinism, and context status. The resulting artifact has a distinct digest
+and cannot produce an `Exact` receipt under the current contract; until then the
+causal control is unavailable.
 
 The existing `CB_CLUSTER=1` path already has a strong generic answer for closure
 membership: compile, read the compiler's missing-symbol diagnostics, add the
@@ -298,11 +300,13 @@ the artifact with local C#.
 Initial typed closure derivation and same-assembly root selection belong to the
 `tools/DecompilerHarness` planner defined by
 [`csharp-member-recompilation.md`](csharp-member-recompilation.md). The product
-provider returns its owner-issued declaration, body, and generated-fragment
-facts; RTS composes them with Metadata and instruction evidence and owns Roslyn
-oracle growth. Target-body rendering remains provider-owned: RTS selects the
-target and carries the provider-produced body/provenance, but should not call
-the C# output printer directly.
+provider constructs its declaration models and returns owner-issued declaration,
+body, generated-fragment, and rendering results; RTS composes them with Metadata
+and instruction evidence and owns Roslyn oracle growth. RTS selects typed
+identities, roots, and body policy, but does not construct `CSharpTypeShellSpec`,
+flatten product accessibility, re-indent product members, or call the C# output
+printer directly. The tools-owned `LegacyArtifactEmitter` is a labelled
+legacy-policy exception and cannot produce product admission evidence.
 
 The product/shared side should own truthful declaration facts that are useful
 beyond ReturnToSender: namespaces, type/member signatures, base/interface
@@ -763,21 +767,22 @@ precondition is **unverified** until its planned Release gates run.
 
 SourceLink or fixture source coverage is a sidecar oracle, not a replacement RTS
 verdict. When a product artifact fails to recompile and an authored source body
-is available for the same requested target, RTS uses the product-issued frozen
-`CSharpSourceArtifact` as a source template, invokes its typed `ReplaceBody`
-operation, and materializes the result as a distinct comparison-only artifact
-under the same artifact and reference policies. It cannot inherit artifact
-evidence or issue a compile-context receipt.
+is available for the same requested target, RTS requests #4931's owner-issued
+replacement artifact over the frozen `CSharpSourceArtifact` and materializes it
+as a distinct comparison-only artifact under the same artifact and reference
+policies. It cannot inherit artifact evidence or issue a compile-context
+receipt.
 
 If every non-target byte and preserved policy matches, an authored body that
 compiles may refine the original `RecompileFail` to `body-defect`; an authored
 body that also fails records `authored-control-failed` without assigning a
 shell, closure, or body cause. Otherwise the control is unavailable and makes no
 causal refinement. This target classification is **unverified** until
-`AuthoredBodyControlPreservesProductRenderedShell` runs. On closure root or
-iteration budget exits, `body-defect` means only that the authored body fit
-inside the byte-fixed shell while the decompiled body did not; it may still
-point at a harness closure budget limit rather than a semantic product-body bug.
+`AuthoredBodyControlPreservesProductRenderedShell` runs, and it remains
+unavailable while #4931 is absent. On closure root or iteration budget exits,
+`body-defect` means only that the authored body fit inside the byte-fixed shell
+while the decompiled body did not; it may still point at a harness closure
+budget limit rather than a semantic product-body bug.
 
 The same sidecar lane also produces a source-correspondence census for
 fixture-source coverage. The census projects source-probe rows into
