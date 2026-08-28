@@ -188,10 +188,11 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
   failure requiring an author change still supersedes the attempt, and all
   findings carry forward.
 - **Auto-merge on the final push:** once every required review is review-clean,
-  the user may authorize auto-merge for the intended final head; the agent may
-  ask. If the head moves after arming, disarm and ask again before arming the
-  new exact head. Review that head first unless the user approves its
-  exact-head trivial-interaction waiver.
+  or the intended final head/base carries an approved exact-head
+  trivial-interaction waiver, the user may authorize auto-merge for that exact
+  candidate; the agent may ask. If the head or base moves after arming, disarm
+  and ask again before arming the new exact candidate. Review that head first
+  unless the user approves its exact-head trivial-interaction waiver.
 - **"CI is ready":** the user's statement that CI has no failures and the PR is
   mergeable. Trust it without re-checking and move to the next task, such as
   dispatching the next round's reviewers.
@@ -200,21 +201,26 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
 - **Skip re-review after a trivial base interaction:** requires the user's
   approval for one exact integration head against one exact analyzed base tip.
   Offer this adjustment only for a `main`-targeting PR or bottom open stack
-  slice that changes from a review-clean head solely to integrate a moved
-  base. Every overlap must be mechanically resolved by taking the analyzed
-  base side verbatim or dropping the PR's change to that file, the resulting
-  PR diff must be a subset of the reviewed diff, and no surviving reviewed
-  claim, contract, or behavior may change. Dropping an entire conflicting-file
-  change may narrow the PR; explain why that removal does not weaken its
-  remaining claims. Present that evidence before asking. Run the affected
-  focused gates and retain all current-head CI and mergeability requirements.
-  The prior reviews remain evidence only for their reviewed head: remove
-  `review-clean`, do not describe the integration head as reviewed or
-  review-clean, and record the exact-head and exact-base waiver publicly. Any
-  later movement of either the head or base expires a pending or approved
-  waiver and re-enters carry-forward analysis. Any semantic conflict
-  resolution, new authored change, or interaction with surviving reviewed
-  behavior requires ordinary re-review.
+  slice whose waiver lineage starts at one immutable review-clean head and
+  recorded base. The first candidate changes from that reviewed head solely to
+  integrate a moved base; a renewal may change from a recorded pending or
+  approved candidate in the same lineage solely to integrate another moved
+  base. At every step, resolve each overlap mechanically by taking the analyzed
+  base side verbatim or dropping the PR's change to that file. The cumulative
+  PR diff against the newest base must remain a subset of the original reviewed
+  diff, and no surviving reviewed claim, contract, or behavior may change.
+  Dropping an entire conflicting-file change may narrow the PR; explain why
+  that removal does not weaken its remaining claims. Present that evidence
+  before asking. Run the affected focused gates and retain all current-head CI
+  and mergeability requirements. The prior reviews remain evidence only for
+  their original reviewed head: remove `review-clean`, do not describe an
+  integration head as reviewed or review-clean, and record the immutable
+  reviewed head/base plus the approved exact integration head/base publicly.
+  Any later movement of either the head or base expires the current decision
+  and re-enters carry-forward analysis; a fresh waiver requires the same
+  cumulative lineage proof. Any semantic conflict resolution, new authored
+  change, or interaction with surviving reviewed behavior requires ordinary
+  re-review.
 
 ## Before changing files
 
@@ -1145,7 +1151,8 @@ Put it under `## Demo` above validation in the PR body.
   not infer either from the label or from a prior check.
 - Never merge without explicit authorization for that PR. A clean review, green
   CI, readiness comment, or request to prepare a PR is not authorization.
-  User-directed auto-merge authorizes only the reviewed head.
+  User-directed auto-merge authorizes only the exact reviewed head or the exact
+  head/base pair carrying an approved trivial-interaction waiver.
 
 ### Stacked PRs for multi-slice issues
 

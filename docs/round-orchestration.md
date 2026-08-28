@@ -342,9 +342,11 @@ The binding criteria and evidentiary limits live in
 [Standing adjustments](../AGENTS.md#standing-adjustments). After the exact
 integration head is pushed, publish this evidence before asking:
 
-- the reviewed head, its recorded base, the new base, and the integration head;
+- the immutable reviewed head and its recorded base, the prior integration
+  head/base when renewing, and the new integration head/base;
 - every overlapping file and the mechanical resolution applied;
-- a comparison proving the resulting PR diff is a subset of the reviewed diff;
+- a comparison proving the cumulative resulting PR diff is a subset of the
+  original reviewed diff;
 - why removed or base-side changes do not alter the surviving reviewed claims,
   contracts, or behavior; and
 - the affected focused-gate results and current status observation.
@@ -354,10 +356,10 @@ the user has not already approved the adjustment, open a separate prompt only
 after the evidence appears in normal session output. Ask whether to skip
 re-review for the exact integration head; keep the prompt itself concise.
 
-On approval, record the exact-head, exact-base waiver and its evidentiary
-consequence on the PR. Keep `review-clean` absent because the new head was not
-reviewed, and continue to current-head CI, live mergeability, and merge
-authorization.
+On approval, record the immutable reviewed head/base, the approved exact
+integration head/base, and the waiver's evidentiary consequence on the PR.
+Keep `review-clean` absent because the new head was not reviewed, and continue
+to current-head CI, live mergeability, and merge authorization.
 Without approval, do not waive review; resume the ordinary replacement
 workflow when work continues. A resolution that no longer satisfies the
 criteria requires ordinary re-review. Any later head or base movement
