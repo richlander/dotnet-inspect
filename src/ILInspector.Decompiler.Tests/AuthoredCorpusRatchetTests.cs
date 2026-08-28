@@ -1426,6 +1426,57 @@ public class AuthoredCorpusRatchetTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void DeepInspect_RunsTheWholeFileSourceOracleGate()
+    {
+        string root = FindRepositoryRoot();
+        string workflow = File.ReadAllText(
+            Path.Combine(root, ".github", "workflows", "deep-inspect.yml"));
+        string poolScript = File.ReadAllText(
+            Path.Combine(root, "eng", "prepare-authored-source-oracles.sh"));
+
+        Assert.Contains(
+            "prepare-authored-source-oracles.sh \"$RUNNER_TEMP/source-oracle-assemblies.txt\"",
+            workflow,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "mapfile -t oracle_assemblies < \"$RUNNER_TEMP/source-oracle-assemblies.txt\"",
+            workflow,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--benchmark-authored-corpus external/authored-source-corpus/oracle/corpus.jsonl",
+            workflow,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--source-oracle-manifest external/authored-source-corpus/oracle/manifest.json",
+            workflow,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--json \"${oracle_assemblies[@]}\"",
+            workflow,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "<PackageReference Include=\"System.Text.Encodings.Web\" Version=\"$VERSION\" />",
+            poolScript,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "VERSION=\"10.0.10\"",
+            poolScript,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "TFM=\"net10.0\"",
+            poolScript,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ASSEMBLY_SHA256=\"91f4b016890cfd5468d46d32c451931cac34096f869cc1c8077c902d9a7f5ccd\"",
+            poolScript,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "dotnet restore \"$tmp/oracles.csproj\" --verbosity quiet >&2",
+            poolScript,
+            StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// Drift measurement is sound only when nothing went uncounted.
     ///

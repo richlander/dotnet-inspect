@@ -201,11 +201,27 @@ both can satisfy the same reference.
 The precedence rule for this case is simple: **when resolving a reference that
 can bind to both, the binding policy selects the participant backed by the
 designated artifact over the participant backed by the platform artifact**.
+The selection answer retains every other eligible entitled candidate as typed
+shadow evidence, so consumers can explain the composition without reconstructing
+policy from enumeration order. A shadowed candidate is evidence, not an active
+participant.
 That gives every acquisition system the same well-defined graph to compose
 with; it does not require specifying the current resolver's case-by-case
 accidents. Any other tie between entitled candidates needs its own stated rule
 or a diagnostic rather than a silent pick. The current resolver does not yet
 enforce this contract; tracked as **#4593**.
+
+### Executable interaction model
+
+The
+[platform overlay resolution model](models/platform-overlay-resolution/README.md)
+explores candidate registration order, designated/platform arbitration,
+unruled ties, shadow evidence, incidental version equality, and attributed
+coherence failure at traversal. Its assumptions, bounds, checked properties,
+and mutation controls are recorded beside the executable specification.
+
+TLC results are evidence about the model, not the implementation. Formal
+model-to-implementation correspondence remains unverified.
 
 ## Related
 
