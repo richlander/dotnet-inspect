@@ -1942,6 +1942,32 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void PdbSourceDeclarationIndexFailure_RemainsFailedEvidence()
+    {
+        MethodIdentity declared = DiffMethod(
+            TypeRef.Definition("Sample", "Sample", "Visible"),
+            "Run");
+        var failures = DiffCommand.PdbSourceDeclarationIndexFailures(
+            "sample.dll",
+            [declared],
+            [
+                new AnalysisDiagnostic(
+                    declared.MetadataToken,
+                    declared.Name,
+                    "Body analysis failed after declaration indexing."),
+                new AnalysisDiagnostic(
+                    0x06000002,
+                    "Sample.Hidden()",
+                    "Method identity could not be decoded."),
+            ]);
+
+        string failure = Assert.Single(failures);
+        Assert.Contains("sample.dll", failure);
+        Assert.Contains("0x06000002", failure);
+        Assert.Contains("Method identity could not be decoded.", failure);
+    }
+
+    [Fact]
     public void BuildImplementationDiffView_RendersCSharpFailure()
     {
         var subject = new ResearchSubjectKey(

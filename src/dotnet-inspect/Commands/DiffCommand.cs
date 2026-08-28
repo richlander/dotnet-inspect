@@ -1245,6 +1245,15 @@ public class DiffCommand
                 continue;
             }
 
+            foreach (string failure in PdbSourceDeclarationIndexFailures(
+                path,
+                index.DeclaredMethods,
+                index.Diagnostics))
+            {
+                logger.Log(failure);
+                indexingFailures.Add(failure);
+            }
+
             var targets = index.DeclaredMethods
                 .Select(method => (
                     Method: method,
@@ -1304,6 +1313,26 @@ public class DiffCommand
         return new PdbSourceInspectionBatch(
             results.ToImmutableDictionary(StringComparer.Ordinal),
             indexingFailures.ToImmutable());
+    }
+
+    internal static ImmutableArray<string> PdbSourceDeclarationIndexFailures(
+        string path,
+        IEnumerable<MethodIdentity> declaredMethods,
+        IEnumerable<AnalysisDiagnostic> diagnostics)
+    {
+        var declaredTokens = declaredMethods
+            .Select(static method => method.MetadataToken)
+            .ToHashSet();
+        return
+        [
+            .. diagnostics
+                .Where(diagnostic =>
+                    !declaredTokens.Contains(diagnostic.MethodToken))
+                .Select(diagnostic =>
+                    $"Could not index PDB-source target in '{path}' "
+                    + $"(method token 0x{diagnostic.MethodToken:X8}, "
+                    + $"'{diagnostic.Method}'): {diagnostic.Message}"),
+        ];
     }
 
     static (string? PackageName, string? PackageVersion) DiffPackageIdentity(

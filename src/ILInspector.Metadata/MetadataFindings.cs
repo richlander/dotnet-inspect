@@ -73,6 +73,16 @@ public static partial class MetadataFindings
             return SurfaceUnavailable<ApiTypeHandle>(subject, TypeDescriptor);
 
         var type = FindType(surface, typeFullName);
+        if (type is null
+            && FindTypeIdentityFailure(surface, typeFullName) is { } failure)
+        {
+            return SurfaceIncomplete<ApiTypeHandle>(
+                subject,
+                TypeDescriptor,
+                typeFullName,
+                failure);
+        }
+
         return type is null
             ? new FindingInspection<ApiTypeHandle>.Complete([])
             : new FindingInspection<ApiTypeHandle>.Complete(
@@ -96,6 +106,16 @@ public static partial class MetadataFindings
             return SurfaceUnavailable<ApiMemberHandle>(subject, MemberDescriptor);
 
         var type = FindType(surface, typeFullName);
+        if (type is null
+            && FindTypeIdentityFailure(surface, typeFullName) is { } failure)
+        {
+            return SurfaceIncomplete<ApiMemberHandle>(
+                subject,
+                MemberDescriptor,
+                typeFullName,
+                failure);
+        }
+
         return type is null
             ? new FindingInspection<ApiMemberHandle>.Absent(
                 FindingInspectionAbsenceKind.SubjectAbsent)
@@ -124,6 +144,16 @@ public static partial class MetadataFindings
             return SurfaceUnavailable<ApiAttributeHandle>(subject, AttributeDescriptor);
 
         var type = FindType(surface, typeFullName);
+        if (type is null
+            && FindTypeIdentityFailure(surface, typeFullName) is { } failure)
+        {
+            return SurfaceIncomplete<ApiAttributeHandle>(
+                subject,
+                AttributeDescriptor,
+                typeFullName,
+                failure);
+        }
+
         if (type is null)
             return new FindingInspection<ApiAttributeHandle>.Absent(
                 FindingInspectionAbsenceKind.SubjectAbsent);
@@ -159,6 +189,51 @@ public static partial class MetadataFindings
                 subject,
                 descriptor,
                 "The API surface is unavailable."));
+
+    static FindingInspection<T> SurfaceIncomplete<T>(
+        FindingSubject subject,
+        FindingDescriptor descriptor,
+        string typeFullName,
+        ApiSurfaceInspectionFailure failure)
+        where T : notnull
+        => new FindingInspection<T>.Failed(
+            new InspectionError(
+                subject,
+                descriptor,
+                $"The API surface is incomplete for type '{typeFullName}': "
+                + $"{failure.Operation} failed ({failure.Kind}): {failure.Detail}"));
+
+    static ApiSurfaceInspectionFailure? FindTypeIdentityFailure(
+        ApiSurface surface,
+        string typeFullName)
+        => surface.InspectionFailures.FirstOrDefault(failure =>
+            failure.Operation
+                != ApiSurfaceInspectionFailure
+                    .GenericParameterConstraintResolutionOperation
+            && MayAffectType(failure, typeFullName));
+
+    static bool MayAffectType(
+        ApiSurfaceInspectionFailure failure,
+        string typeFullName)
+    {
+        if (failure.OwningTypeDefinition is { } owner)
+        {
+            return string.Equals(
+                owner.ToMetadataFullName(),
+                typeFullName,
+                StringComparison.Ordinal);
+        }
+        if (!failure.AffectedTypeDefinitions.IsDefaultOrEmpty)
+        {
+            return failure.AffectedTypeDefinitions.Any(affected =>
+                string.Equals(
+                    affected.ToMetadataFullName(),
+                    typeFullName,
+                    StringComparison.Ordinal));
+        }
+
+        return true;
+    }
 
     public static FindingComparison<ApiTypeHandle> CompareApiTypes(
         ApiSurface oldSurface,

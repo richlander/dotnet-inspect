@@ -596,6 +596,59 @@ public class MetadataFindingsTests
     }
 
     [Fact]
+    public void TypeScopedCensuses_PartialSurfaceFailsOnlyWhenTargetMayBeHidden()
+    {
+        var partial = Surface(Type("Other"));
+        partial.InspectionFailures.Add(new ApiSurfaceInspectionFailure(
+            "type row",
+            0x02000002,
+            MetadataTypeNameFailureMechanism.Metadata,
+            "MalformedMetadata",
+            "The type row could not be decoded."));
+
+        Assert.IsType<FindingInspection<ApiTypeHandle>.Failed>(
+            MetadataFindings.InspectApiType(
+                partial,
+                Subject,
+                "TestNamespace.Widget").Value);
+        Assert.IsType<FindingInspection<ApiMemberHandle>.Failed>(
+            MetadataFindings.InspectApiMembers(
+                partial,
+                Subject,
+                "TestNamespace.Widget").Value);
+        Assert.IsType<FindingInspection<ApiAttributeHandle>.Failed>(
+            MetadataFindings.InspectApiAttributes(
+                partial,
+                Subject,
+                "TestNamespace.Widget").Value);
+
+        var valid = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                "TestNamespace",
+                ImmutableArray.Create("Broken")));
+        partial.InspectionFailures[0] = partial.InspectionFailures[0] with
+        {
+            OwningTypeDefinition = valid.Name,
+        };
+
+        Assert.IsType<FindingInspection<ApiTypeHandle>.Complete>(
+            MetadataFindings.InspectApiType(
+                partial,
+                Subject,
+                "TestNamespace.Widget").Value);
+        Assert.IsType<FindingInspection<ApiMemberHandle>.Absent>(
+            MetadataFindings.InspectApiMembers(
+                partial,
+                Subject,
+                "TestNamespace.Widget").Value);
+        Assert.IsType<FindingInspection<ApiAttributeHandle>.Absent>(
+            MetadataFindings.InspectApiAttributes(
+                partial,
+                Subject,
+                "TestNamespace.Widget").Value);
+    }
+
+    [Fact]
     public void TypeSelfPresence_RepresentsMissingTypeAsCompleteEmptyCensus()
     {
         var inspection = MetadataFindings.InspectApiType(

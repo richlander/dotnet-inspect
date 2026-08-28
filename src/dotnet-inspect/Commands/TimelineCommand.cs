@@ -455,9 +455,13 @@ public static class TimelineCommand
         where T : notnull
     {
         if (evaluation.Endpoint is null)
-            return new FindingInspection<T>.Absent(
-                FindingInspectionAbsenceKind.NoApplicableInput,
-                "The package cell has no acquired assembly set.");
+        {
+            return new FindingInspection<T>.Failed(
+                new InspectionError(
+                    subject,
+                    descriptor,
+                    "The package cell has no acquired assembly set."));
+        }
 
         return InspectAnalysisAssemblies<T>(
             evaluation.Endpoint.Paths,
@@ -502,13 +506,32 @@ public static class TimelineCommand
         FindingSubject subject,
         Func<LibraryBodyIndex, int, FindingSubject, FindingInspection<T>> inspect)
         where T : notnull
+        => InspectAnalysisAssemblies(
+            [
+                .. assemblyPaths.Select(path => (
+                    Path: path,
+                    Surface: AssemblyReader.ExtractApiSurface(path, includeAll))),
+            ],
+            typeFullName,
+            memberName,
+            descriptor,
+            subject,
+            inspect);
+
+    internal static FindingInspection<T> InspectAnalysisAssemblies<T>(
+        IReadOnlyList<(string Path, ApiSurface? Surface)> assemblies,
+        string typeFullName,
+        string memberName,
+        FindingDescriptor descriptor,
+        FindingSubject subject,
+        Func<LibraryBodyIndex, int, FindingSubject, FindingInspection<T>> inspect)
+        where T : notnull
     {
         var selector = MemberTargetSelector.Parse(memberName);
         List<(string Path, ResolvedMemberTarget Target)> targets = [];
         bool typeFound = false;
-        foreach (string path in assemblyPaths)
+        foreach (var (path, surface) in assemblies)
         {
-            var surface = AssemblyReader.ExtractApiSurface(path, includeAll);
             if (surface is null)
             {
                 return new FindingInspection<T>.Failed(
@@ -521,7 +544,24 @@ public static class TimelineCommand
             var type = surface?.Types.FirstOrDefault(type =>
                 string.Equals(type.FullName, typeFullName, StringComparison.OrdinalIgnoreCase));
             if (type is null)
+            {
+                var typeInspection = MetadataFindings.InspectApiType(
+                    surface,
+                    subject,
+                    typeFullName);
+                if (typeInspection.Value
+                    is FindingInspection<ApiTypeHandle>.Failed failure)
+                {
+                    return new FindingInspection<T>.Failed(
+                        new InspectionError(
+                            subject,
+                            descriptor,
+                            $"The API surface in '{path}' is incomplete for "
+                            + $"type '{typeFullName}': {failure.Error.Reason}"));
+                }
+
                 continue;
+            }
 
             typeFound = true;
             var resolution = MemberTargetResolver.Resolve(type, selector);
@@ -573,11 +613,27 @@ public static class TimelineCommand
                     $"Finding '{descriptor.Id}' requires a method-like target; "
                     + $"'{memberName}' resolved to {target.Kind}."));
         }
-        if (target.Body?.MetadataToken is not { } token)
+        if (target.ApiMember.Member.HasMethodBody is false)
         {
             return new FindingInspection<T>.Absent(
                 FindingInspectionAbsenceKind.NoApplicableInput,
                 $"Member '{memberName}' has no method-body target.");
+        }
+        if (target.ApiMember.Member.HasMethodBody is null)
+        {
+            return new FindingInspection<T>.Failed(
+                new InspectionError(
+                    subject,
+                    descriptor,
+                    $"Method-body presence is unavailable for member '{memberName}'."));
+        }
+        if (target.Body?.MetadataToken is not { } token)
+        {
+            return new FindingInspection<T>.Failed(
+                new InspectionError(
+                    subject,
+                    descriptor,
+                    $"Method-body identity is unavailable for member '{memberName}'."));
         }
 
         var session = OpenAnalysisSession(

@@ -475,7 +475,7 @@ public sealed class TimelineCommandTests
     }
 
     [Fact]
-    public void AnalysisTimeline_NoApplicableInputRetainsLegacySubjectAbsentPresentation()
+    public void AnalysisTimeline_MissingEndpointFailsWithoutClaimingApplicability()
     {
         var vector = Vector("1.0.0");
 
@@ -494,8 +494,84 @@ public sealed class TimelineCommandTests
             memberName: "Run");
 
         var evaluation = Assert.Single(view.Evaluations!);
-        Assert.Equal("SubjectAbsent", evaluation.State);
+        Assert.Equal("Failed", evaluation.State);
         Assert.Contains("no acquired assembly set", evaluation.Detail);
+    }
+
+    [Fact]
+    public void AnalysisTimeline_NoApplicableInputRetainsLegacySubjectAbsentPresentation()
+    {
+        string path = typeof(ISampleInterface).Assembly.Location;
+        string typeFullName = typeof(ISampleInterface).FullName!;
+        var inspection = TimelineCommand.InspectUnsafetyAssemblies(
+            [path],
+            typeFullName,
+            nameof(ISampleInterface.Execute));
+        var absent = Assert.IsType<FindingInspection<UnsafetyOccurrence>.Absent>(
+            inspection.Value);
+        Assert.Equal(
+            FindingInspectionAbsenceKind.NoApplicableInput,
+            absent.Kind);
+
+        var vector = Vector("1.0.0");
+        var endpoint = new ApiSurfaceEndpoint(
+            new AssemblySet(
+                assemblies:
+                [
+                    new AssemblySetEntry(
+                        path,
+                        path,
+                        Version: null,
+                        AssemblySetSourceKind.Assembly),
+                ],
+                diagnostics: [],
+                tempDirs: []),
+            AssemblyReader.ExtractApiSurface(path)!);
+        var view = TimelineCommand.BuildView(
+            vector,
+            typeFullName,
+            "analysis.unsafety",
+            [
+                new TimelineCommand.TimelineEvaluation(
+                    vector.Addresses[0],
+                    endpoint.Surface,
+                    Error: null,
+                    endpoint),
+            ],
+            Sections(),
+            memberName: nameof(ISampleInterface.Execute));
+
+        var evaluation = Assert.Single(view.Evaluations!);
+        Assert.Equal("SubjectAbsent", evaluation.State);
+        Assert.Contains("no method-body target", evaluation.Detail);
+    }
+
+    [Fact]
+    public void AnalysisTimeline_PartialSurfaceFailsWithoutClaimingAbsence()
+    {
+        var surface = Surface(Type("Other"));
+        surface.InspectionFailures.Add(new ApiSurfaceInspectionFailure(
+            "type row",
+            0x02000002,
+            MetadataTypeNameFailureMechanism.Metadata,
+            "MalformedMetadata",
+            "The type row could not be decoded."));
+
+        var inspection =
+            TimelineCommand.InspectAnalysisAssemblies<UnsafetyOccurrence>(
+                [("partial.dll", surface)],
+                "Sample.Widget",
+                "Run",
+                AnalysisFindings.UnsafetyDescriptor,
+                AnalysisSubject(),
+                static (_, _, _) =>
+                    throw new InvalidOperationException(
+                        "A hidden target must not reach body inspection."));
+
+        var failed = Assert.IsType<FindingInspection<UnsafetyOccurrence>.Failed>(
+            inspection.Value);
+        Assert.Contains("partial.dll", failed.Error.Reason);
+        Assert.Contains("surface is incomplete", failed.Error.Reason);
     }
 
     [Fact]
