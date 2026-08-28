@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 
 namespace ILInspector.Decompiler.Fixtures.ClassicAsync;
@@ -81,6 +82,18 @@ public static class AsyncFixtures
     public static void SetResult(int value)
         => Observed = value;
 
+    public static int RecordObserved(int value)
+    {
+        Observed = value;
+        return value;
+    }
+
+    public static Task<int> SelectAndRecord(Task<int> task)
+    {
+        Observed++;
+        return task;
+    }
+
     public static async Task SequentialWithOrdinarySetResultCall(
         Task<int> a,
         Task<int> b)
@@ -89,6 +102,17 @@ public static class AsyncFixtures
         SetResult(alpha);
         int beta = await b;
         GC.KeepAlive((alpha, beta));
+    }
+
+    public static async Task SequentialWithSeparateBuilderReceiver(
+        Task<int> a,
+        Task<int> b,
+        AsyncTaskMethodBuilder other)
+    {
+        int alpha = await a;
+        other.SetResult();
+        int beta = await b;
+        GC.KeepAlive((alpha, beta, other.Task));
     }
 
     public static async Task SequentialWithChainedFieldStores(
@@ -264,6 +288,17 @@ public static class AsyncFixtures
         return sum;
     }
 
+    public static async Task<int> AwaitInLoopWithWrappedOperand(
+        Task<int>[] tasks)
+    {
+        int sum = 0;
+        foreach (Task<int> task in tasks)
+        {
+            sum += await SelectAndRecord(task);
+        }
+        return sum;
+    }
+
     public static async Task<int> TwoAwaitsOverTasksArray(
         Task<int>[] tasks)
     {
@@ -323,8 +358,36 @@ public static class AsyncFixtures
         }
     }
 
+    public static async Task<int> AwaitInTryFinallyWithGuardedCall(
+        Task<int> a,
+        bool flag)
+    {
+        try
+        {
+            return await a;
+        }
+        finally
+        {
+            if (flag)
+            {
+                RecordObserved(1);
+            }
+        }
+    }
+
     public static async Task<int> AwaitConditional(Task<int> a, bool flag)
         => flag ? await a : 0;
+
+    public static async Task<int> AwaitConditionalWithWrappedResult(
+        Task<int> a,
+        bool flag)
+        => flag ? RecordObserved(await a) : 0;
+
+    public static async Task<int> AwaitCompoundConditional(
+        Task<int> a,
+        bool flag,
+        bool other)
+        => flag && other ? await a : 0;
 
     public static async Task<bool> DynamicReferenceIdentity(
         Task<ReferenceIdentityPlain> value,

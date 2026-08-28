@@ -24,9 +24,13 @@ public class ClassicAsyncReconstructionHonestyTests
     [InlineData("SequentialWithDeconstructionWrite")]
     [InlineData("SequentialWithCapturedNullCoalescingWrite")]
     [InlineData("SequentialWithEmbeddedIncrement")]
+    [InlineData("AwaitConditionalWithWrappedResult")]
+    [InlineData("AwaitCompoundConditional")]
+    [InlineData("AwaitInLoopWithWrappedOperand")]
     [InlineData("LoopWithFieldStore")]
     [InlineData("LoopWithAccumulatorWrite")]
     [InlineData("LoopWithClamp")]
+    [InlineData("AwaitInTryFinallyWithGuardedCall")]
     public void UnconsumedUserStoreDeclinesAtPartialFidelity(
         string methodName)
     {
@@ -132,6 +136,7 @@ public class ClassicAsyncReconstructionHonestyTests
 
     [Theory]
     [InlineData("SequentialWithOrdinarySetResultCall")]
+    [InlineData("SequentialWithSeparateBuilderReceiver")]
     [InlineData("TwoAwaitsOverTasksArray")]
     public void NaturalUnmatchedShapePreservesKickoff(
         string methodName)
