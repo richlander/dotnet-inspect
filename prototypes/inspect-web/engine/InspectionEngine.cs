@@ -4,6 +4,7 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
@@ -615,8 +616,11 @@ public static partial class InspectionEngine
 
     /// <summary>
     /// Ecosystem integration evidence for one package/version/framework workspace, produced by
-    /// <see cref="AssemblyContextIntegrationsQuery"/> over the workspace's own group. The query
-    /// owns every session; this method groups its signals for display and composes no evidence.
+    /// <see cref="PackageWorkspaceIntegrationsQuery"/> over the product-selected package roles.
+    /// Its group query owns every session; this method groups signals for display and composes no
+    /// evidence. Role selection is gated by
+    /// <c>PackageWorkspaceIntegrationsQuery_UsesImplementationRoleAndReferenceFallback</c> and
+    /// <c>PackageWorkspaceIntegrationsQuery_SharedRoleDoesNotDuplicateLibraries</c>.
     /// </summary>
     [JSExport]
     public static async Task<string> QueryPackageIntegrations(
@@ -630,30 +634,15 @@ public static partial class InspectionEngine
             targetFramework);
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
 
-        // The workspace is retained and reused, so this runs the whole-group query rather than
-        // the streaming per-participant form: that form's release is terminal for the released
-        // participant, which would leave the reused group unable to answer a later query.
-        AssemblyContextIntegrationsResult result =
-            scope.UseImplementationOrSurface(AssemblyContextIntegrationsQuery.Execute);
-        if (scope.ImplementationParticipants.Length > 0
-            && scope.ReferenceOnlySurfaceParticipants.Length > 0)
-        {
-            result = new AssemblyContextIntegrationsResult(
-            [
-                .. result.Assemblies,
-                .. scope.ReferenceOnlySurfaceParticipants.Select(participant =>
-                    scope.UseSurfaceParticipant(
-                        participant,
-                        AssemblyContextIntegrationsQuery.ExecuteParticipant)),
-            ]);
-        }
+        PackageWorkspaceIntegrationsResult result =
+            scope.QueryIntegrations();
 
         return JsonSerializer.Serialize(
             CreateIntegrations(
                 coordinate.PackageId,
                 coordinate.Version,
                 coordinate.Framework,
-                result.Assemblies),
+                result.Libraries.Select(entry => entry.Integrations)),
             BrowserJsonContext.Default.BrowserPackageIntegrations);
     }
 
