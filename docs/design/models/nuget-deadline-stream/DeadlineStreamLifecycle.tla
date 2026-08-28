@@ -67,7 +67,6 @@ InitialState(innerPlan) ==
      callerOwnerDispose |-> "Idle",
      resultIncludesAbortFailure |-> FALSE,
      resultWrites |-> 0,
-     transportFailureObserved |-> FALSE,
      readCancellationWitness |-> TRUE,
      precedenceWitness |-> TRUE,
      successWitness |-> TRUE]
@@ -125,13 +124,11 @@ WithReadCancellationResult ==
                 /\ producedResult = "ReadCanceled"]
 
 WithTransportFailureResult ==
-    LET producedResult == "TransportFailure"
-    IN [WithReadResult(
-            producedResult,
-            FALSE,
-            TRUE,
-            TRUE) EXCEPT
-            !.transportFailureObserved = TRUE]
+    WithReadResult(
+        "TransportFailure",
+        FALSE,
+        TRUE,
+        TRUE)
 
 WithAbortStarted(origin, nextReadPhase) ==
     [state EXCEPT
@@ -467,7 +464,6 @@ TypeOK ==
          callerOwnerDispose : OwnerDisposeStates,
          resultIncludesAbortFailure : BOOLEAN,
          resultWrites : 0..2,
-         transportFailureObserved : BOOLEAN,
          readCancellationWitness : BOOLEAN,
          precedenceWitness : BOOLEAN,
          successWitness : BOOLEAN]
@@ -485,7 +481,9 @@ ReadCancellationPrecedesDeadlineTranslation ==
     state.readCancellationWitness
 
 TransportFailureIsNotReclassified ==
-    state.transportFailureObserved =>
+    (/\ state.readPhase = "Done"
+     /\ state.innerResult \in {"DeadlineAbort", "Abort"}
+     /\ ~DeadlineExpired) =>
         state.readResult = "TransportFailure"
 
 ClassificationFollowsPrecedence ==
