@@ -122,14 +122,20 @@ public static class ApiCommandDefinitions
                     var typeSchemaMap = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
                     var typeFormat = opts.ResolveFormat(parseResult, OutputFormat.Table);
                     var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
-                    return DiscoverOutput.Execute(d.Discover, typeSchemaMap, tree: d.Tree,
-                        json: typeFormat == OutputFormat.Json,
-                        tsv: typeFormat == OutputFormat.Tsv,
-                        jsonl: typeFormat == OutputFormat.Jsonl,
-                        markdown: typeFormat == OutputFormat.Markdown,
+                    return DiscoverOutput.Execute(
+                        d.Discover,
+                        typeSchemaMap,
+                        DiscoveryOutputRequest.From(
+                            ProjectionAudit.Requested(parseResult, opts),
+                            typeFormat,
+                            tree: d.Tree,
+                            tableExplicitlySet: opts.IsTableExplicitlySet(parseResult),
+                            plainText: typeFormat == OutputFormat.PlainText,
+                            noHeader: parseResult.GetValue(opts.NoHeaders),
+                            formatExplicitlySet: opts.IsFormatExplicitlySet(parseResult)),
                         verbosity: (int)opts.ParseVerbosity(parseResult),
                         sectionCategories: typePipeline.GetCategoryMap(),
-                        projection: ProjectionAudit.Requested(parseResult, opts));
+                        listedCategoryDoors: null);
 
                 case TypeOptionsParser.ShowHelp:
                     CommandError.Write("Type name, pattern, or source required.");
@@ -282,14 +288,20 @@ public static class ApiCommandDefinitions
                     var memberSchemaMap = ApiCommand.GetTypeDocumentSchema(new MemberOptions());
                     var memberFormat = opts.ResolveFormat(parseResult, OutputFormat.Table);
                     var memberPipeline = ApiMemberSectionPipelines.Create(new MemberOptions());
-                    return DiscoverOutput.Execute(d.Discover, memberSchemaMap, tree: d.Tree,
-                        json: memberFormat == OutputFormat.Json,
-                        tsv: memberFormat == OutputFormat.Tsv,
-                        jsonl: memberFormat == OutputFormat.Jsonl,
-                        markdown: memberFormat == OutputFormat.Markdown,
+                    return DiscoverOutput.Execute(
+                        d.Discover,
+                        memberSchemaMap,
+                        DiscoveryOutputRequest.From(
+                            ProjectionAudit.Requested(parseResult, opts),
+                            memberFormat,
+                            tree: d.Tree,
+                            tableExplicitlySet: opts.IsTableExplicitlySet(parseResult),
+                            plainText: memberFormat == OutputFormat.PlainText,
+                            noHeader: parseResult.GetValue(opts.NoHeaders),
+                            formatExplicitlySet: opts.IsFormatExplicitlySet(parseResult)),
                         verbosity: (int)opts.ParseVerbosity(parseResult),
                         sectionCategories: memberPipeline.GetCategoryMap(),
-                        projection: ProjectionAudit.Requested(parseResult, opts));
+                        listedCategoryDoors: null);
 
                 case MemberOptionsParser.ShowHelp:
                     CommandError.Write("Type name or source required.");

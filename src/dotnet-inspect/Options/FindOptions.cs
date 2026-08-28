@@ -8,6 +8,10 @@ namespace DotnetInspector.Options;
 /// </summary>
 public record FindOptions : IAssemblySourceOptions, IProjectionOptions
 {
+    public OutputFormat Format { get; init; } = OutputFormat.Markdown;
+
+    public bool PlainText { get; init; }
+
     /// <summary>
     /// Type name or glob pattern (positional argument). Comma-separated for multiple.
     /// </summary>
@@ -114,6 +118,12 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     /// True when the user explicitly chose an output format via CLI flags.
     /// </summary>
     public bool FormatExplicitlySet { get; init; }
+
+    /// <summary>
+    /// True when a tabular format was explicitly requested, rather than supplied by an
+    /// environment default.
+    /// </summary>
+    public bool TabularExplicitlySet { get; init; }
 
     /// <summary>
     /// Suppress column headers in tabular output.

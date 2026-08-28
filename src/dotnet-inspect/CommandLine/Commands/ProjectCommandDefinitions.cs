@@ -63,6 +63,7 @@ public static class ProjectCommandDefinitions
 
         projectCommand.SetAction(async (parseResult, ct) =>
         {
+            var format = opts.ResolveFormat(parseResult);
             var frontmatterRequested = parseResult.GetValue(frontmatterOption);
             var bodyRequested = parseResult.GetValue(bodyOption);
             var contentScope = frontmatterRequested
@@ -87,10 +88,14 @@ public static class ProjectCommandDefinitions
                 FrontmatterRequested = frontmatterRequested,
                 BodyRequested = bodyRequested,
                 OutputPath = parseResult.GetValue(outOption),
-                JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
+                JsonOutput = format == OutputFormat.Json,
+                PlainText = format == OutputFormat.PlainText,
                 Tabular = opts.ResolveTabular(parseResult),
                 Tsv = opts.ResolveTsv(parseResult),
                 Jsonl = opts.ResolveJsonl(parseResult),
+                TabularExplicitlySet = opts.IsTableExplicitlySet(parseResult),
+                FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
+                Format = format,
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
                 Bare = parseResult.GetValue(opts.Bare),
                 Discover = opts.ParseDiscover(parseResult),

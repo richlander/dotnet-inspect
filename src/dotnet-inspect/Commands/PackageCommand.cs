@@ -95,16 +95,30 @@ public class PackageCommand
                     schemaMap = FilterDiscoverySchema(schemaMap, selectedSections);
             }
 
-            return DiscoverOutput.Execute(options.Discover, schemaMap,
-                tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
+            return DiscoverOutput.Execute(
+                options.Discover,
+                schemaMap,
+                DiscoveryOutputRequest.From(
+                    options,
+                    DiscoveryOutputRequest.ResolveFormat(
+                        options.Format,
+                        options.JsonOutput,
+                        options.Tsv,
+                        options.Jsonl,
+                        options.Tabular,
+                        options.Format == OutputFormat.PlainText),
+                    tree: options.Tree,
+                    tableExplicitlySet: options.TabularExplicitlySet,
+                    plainText: options.Format == OutputFormat.PlainText,
+                    noHeader: options.NoHeader,
+                    formatExplicitlySet: options.FormatExplicitlySet),
                 verbosity: (int)options.Verbosity,
                 sectionCostAnnotations: pipeline.GetCostAnnotations(),
                 sectionCategories: sectionCatalog.SelectionCategoryMap,
                 // --schema reveals the full catalog including the @Hidden pole; a static -D
                 // without --schema keeps the curated top-level view.
                 catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections(),
-                listedCategoryDoors: pipeline.GetListedCategoryDoors(),
-                projection: options);
+                listedCategoryDoors: pipeline.GetListedCategoryDoors());
         }
 
         // Bare -S selects the network-free "fixed" overview: only sections whose declared growth
@@ -1037,13 +1051,20 @@ public class PackageCommand
                         options.Discover,
                         effective,
                         schemaMap,
-                        tree: options.Tree,
-                        json: options.JsonOutput,
-                        tsv: options.Tsv,
-                        jsonl: options.Jsonl,
-                        markdown:
-                            !options.Tabular
-                            && !options.JsonOutput,
+                        DiscoveryOutputRequest.From(
+                            options,
+                            DiscoveryOutputRequest.ResolveFormat(
+                                options.Format,
+                                options.JsonOutput,
+                                options.Tsv,
+                                options.Jsonl,
+                                options.Tabular,
+                                options.Format == OutputFormat.PlainText),
+                            tree: options.Tree,
+                            tableExplicitlySet: options.TabularExplicitlySet,
+                            plainText: options.Format == OutputFormat.PlainText,
+                            noHeader: options.NoHeader,
+                            formatExplicitlySet: options.FormatExplicitlySet),
                         verbosity: (int)userVerbosity,
                         rootLabel: $"package {packageName}",
                         fullSchema: fullSchemaMap,
@@ -1057,8 +1078,7 @@ public class PackageCommand
                                 : pipeline
                                     .GetCatalogHiddenSections(),
                         listedCategoryDoors:
-                            pipeline.GetListedCategoryDoors(),
-                        projection: options),
+                            pipeline.GetListedCategoryDoors()),
                     result);
             }
             WarnEmptySections(result, options, pipeline);

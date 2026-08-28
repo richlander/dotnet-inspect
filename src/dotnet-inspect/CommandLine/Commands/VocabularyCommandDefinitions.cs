@@ -38,6 +38,8 @@ public static class VocabularyCommandDefinitions
                 JsonOutput = format == OutputFormat.Json,
                 PlainText = format == OutputFormat.PlainText,
                 Tabular = opts.ResolveTabular(parseResult),
+                TabularExplicitlySet = opts.IsTableExplicitlySet(parseResult),
+                FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
                 Tsv = opts.ResolveTsv(parseResult),
                 Jsonl = opts.ResolveJsonl(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),

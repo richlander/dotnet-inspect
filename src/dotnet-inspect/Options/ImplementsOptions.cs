@@ -8,6 +8,10 @@ namespace DotnetInspector.Options;
 /// </summary>
 public record ImplementsOptions : IAssemblySourceOptions, IProjectionOptions
 {
+    public OutputFormat Format { get; init; } = OutputFormat.Markdown;
+
+    public bool PlainText { get; init; }
+
     /// <summary>
     /// Target interface or base type to find implementers for.
     /// </summary>
@@ -87,6 +91,12 @@ public record ImplementsOptions : IAssemblySourceOptions, IProjectionOptions
     /// Emit tabular output as JSON Lines, one object per row.
     /// </summary>
     public bool Jsonl { get; init; }
+
+    /// <summary>True when a tabular format was explicitly requested.</summary>
+    public bool TabularExplicitlySet { get; init; }
+
+    /// <summary>True when the output format was explicitly requested.</summary>
+    public bool FormatExplicitlySet { get; init; }
 
     /// <summary>
     /// Suppress column headers in tabular output.

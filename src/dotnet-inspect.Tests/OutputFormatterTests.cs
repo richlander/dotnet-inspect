@@ -23,6 +23,13 @@ namespace DotnetInspector.Tests;
 [Collection("Console")]
 public class OutputFormatterTests
 {
+    private sealed record TestProjectionOptions : IProjectionOptions
+    {
+        public bool Count { get; init; }
+        public string[]? Fields { get; init; }
+        public string[]? Columns { get; init; }
+    }
+
     /// <summary>
     /// This is the named non-vacuity gate for product-owned artifact framing. It fails when the
     /// count-file writer or printable-document JSONL writer inherits CRLF from the Windows host
@@ -2004,6 +2011,200 @@ public class OutputFormatterTests
         Assert.Equal(0, exit);
         Assert.Contains("\"name\":\"Pattern\"", output);
         Assert.Contains("\"kind\":\"column\"", output);
+    }
+
+    [Fact]
+    public async Task DiscoverOutput_ExplicitTableSuppressesAutomaticTreePromotion()
+    {
+        var schema = new DocumentSchema()
+            .Add("First", "column", "Value")
+            .Add("Second", "column", "Other");
+
+        var request = DiscoveryOutputRequest.From(
+            projection: null,
+            format: OutputFormat.Table,
+            tableExplicitlySet: true);
+        var result = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(DiscoverOutput.Execute(
+                null,
+                schema,
+                request)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain("##", result.Output);
+        Assert.Contains("First", result.Output);
+        Assert.Contains("Second", result.Output);
+    }
+
+    [Fact]
+    public async Task DiscoverOutput_TsvNoHeaderSuppressesHeaderRow()
+    {
+        var schema = new DocumentSchema()
+            .Add("Results", "column", "Pattern", "Type");
+        var request = DiscoveryOutputRequest.From(
+            projection: null,
+            format: OutputFormat.Tsv,
+            noHeader: true);
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(DiscoverOutput.Execute(["Results"], schema, request)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("Pattern\tcolumn\nType\tcolumn\n", result.Output.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public async Task DiscoverOutput_PlainTextUsesPlainTextFormatter()
+    {
+        var schema = new DocumentSchema()
+            .Add("Results", "column", "Pattern");
+        var request = DiscoveryOutputRequest.From(
+            projection: null,
+            format: OutputFormat.PlainText);
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(DiscoverOutput.Execute(["Results"], schema, request)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Pattern", result.Output);
+        Assert.DoesNotContain("| Name |", result.Output);
+    }
+
+    [Fact]
+    public async Task DiscoverOutput_JsonProjectionOmitsUnselectedProperties()
+    {
+        var schema = new DocumentSchema()
+            .Add("Results", "column", "Pattern", "Type");
+        var request = DiscoveryOutputRequest.From(
+            projection: new TestProjectionOptions { Fields = ["Kind"] },
+            format: OutputFormat.Json);
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(DiscoverOutput.Execute(["Results"], schema, request)));
+
+        Assert.Equal(0, result.ExitCode);
+        using var document = JsonDocument.Parse(result.Output);
+        var rows = document.RootElement.EnumerateArray().ToArray();
+        Assert.Equal(2, rows.Length);
+        Assert.All(rows, row =>
+        {
+            Assert.Equal("column", row.GetProperty("kind").GetString());
+            Assert.False(row.TryGetProperty("name", out _));
+        });
+    }
+
+    [Theory]
+    [InlineData(OutputFormat.Json)]
+    [InlineData(OutputFormat.Jsonl)]
+    public async Task DiscoverOutput_InvalidProjectionFailsBeforeStructuredRendering(
+        OutputFormat format)
+    {
+        var schema = new DocumentSchema()
+            .Add("Results", "column", "Pattern", "Type");
+        var request = DiscoveryOutputRequest.From(
+            projection: new TestProjectionOptions { Columns = ["Missing"] },
+            format: format);
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(DiscoverOutput.Execute(["Results"], schema, request)));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("No columns matched projection", result.Error);
+        Assert.DoesNotContain("Stack trace", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(result.Output);
+    }
+
+    [Fact]
+    public async Task DiscoverOutput_RowWindowHonorsOutputDestination()
+    {
+        var directory = Directory.CreateDirectory(
+            Path.Combine(AppContext.BaseDirectory, $"discovery-output-{Guid.NewGuid():N}"));
+        try
+        {
+            var path = Path.Combine(directory.FullName, "rows.tsv");
+            var schema = new DocumentSchema()
+                .Add("Results", "column", "One", "Two", "Three");
+            var request = new DiscoveryOutputRequest
+            {
+                Format = OutputFormat.Tsv,
+                HeaderPolicy = DiscoveryHeaderPolicy.Include,
+                Rows = RowWindow.Range(2, 2),
+                OutputPath = path
+            };
+
+            var result = await ConsoleCapture.RunAsync(() =>
+                Task.FromResult(DiscoverOutput.Execute(["Results"], schema, request)));
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Output);
+            Assert.Equal(
+                "name\tkind\nTwo\tcolumn\n",
+                File.ReadAllText(path).ReplaceLineEndings("\n"));
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DiscoverOutput_EffectiveDiscoveryDistinguishesEmptyAndUnknownSections()
+    {
+        var schema = new DocumentSchema()
+            .Add("Empty", "column", "Value")
+            .Add("Present", "column", "Value");
+        var request = DiscoveryOutputRequest.From(
+            projection: null,
+            format: OutputFormat.Table);
+
+        var empty = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(DiscoverOutput.ExecuteEffective(
+                ["Empty"],
+                ["Present"],
+                schema,
+                request,
+                fullSchema: schema)));
+        var unknown = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(DiscoverOutput.ExecuteEffective(
+                ["Missing"],
+                ["Present"],
+                schema,
+                request,
+                fullSchema: schema)));
+
+        Assert.Equal(0, empty.ExitCode);
+        Assert.Contains("has no data for this query", empty.Error);
+        Assert.Equal(1, unknown.ExitCode);
+        Assert.Contains("not found", unknown.Error);
+    }
+
+    [Fact]
+    public async Task DiscoverOutput_OutputDestinationFailureIsVisibleWithoutStackTrace()
+    {
+        var directory = Directory.CreateDirectory(
+            Path.Combine(AppContext.BaseDirectory, $"discovery-output-error-{Guid.NewGuid():N}"));
+        try
+        {
+            var path = Path.Combine(directory.FullName, "missing", "rows.tsv");
+            var schema = new DocumentSchema()
+                .Add("Results", "column", "Value");
+            var request = new DiscoveryOutputRequest
+            {
+                Format = OutputFormat.Tsv,
+                OutputPath = path
+            };
+
+            var result = await ConsoleCapture.RunAsync(() =>
+                Task.FromResult(DiscoverOutput.Execute(["Results"], schema, request)));
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.NotEmpty(result.Error);
+            Assert.DoesNotContain("Stack trace", result.Error, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
     }
 
     [Fact]

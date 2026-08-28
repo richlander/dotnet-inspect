@@ -202,6 +202,7 @@ public static class SearchCommandDefinitions
             }
 
             var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
+            var format = opts.ResolveFormat(parseResult);
             var packagePrefix = parseResult.GetValue(packagePrefixOption);
             var packages = await CommandLineHelpers.MergeWithPrefixPackagesAsync(
                 parseResult.GetValue(packageOption) ?? [],
@@ -227,6 +228,8 @@ public static class SearchCommandDefinitions
             var options = new ImplementsOptions
             {
                 TargetType = targetType,
+                Format = format,
+                PlainText = format == OutputFormat.PlainText,
                 Packages = scope.Packages,
                 Assemblies = assemblies,
                 PlatformAssemblies = platformAssemblies,
@@ -237,11 +240,13 @@ public static class SearchCommandDefinitions
                 Limit = CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(typeFilterOption)),
                 Rows = opts.ParseRows(parseResult),
                 Count = parseResult.GetValue(opts.Count),
-                JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
+                JsonOutput = format == OutputFormat.Json,
                 CompactJson = parseResult.GetValue(compactOption),
                 Tabular = opts.ResolveTabular(parseResult),
                 Tsv = opts.ResolveTsv(parseResult),
                 Jsonl = opts.ResolveJsonl(parseResult),
+                TabularExplicitlySet = opts.IsTableExplicitlySet(parseResult),
+                FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 Columns = opts.ParseColumns(parseResult),

@@ -95,8 +95,11 @@ public static class FindOptionsParser
         var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies, packagePrefix,
             hasOtherScopeIndicators: projects.Length > 0 || binPaths.Length > 0 || platformAssemblies.Length > 0);
 
+        var format = opts.ResolveFormat(parseResult);
         var options = new FindOptions
         {
+            Format = format,
+            PlainText = format == OutputFormat.PlainText,
             Pattern = pattern ?? "",
             Packages = scope.Packages,
             Assemblies = assemblies,
@@ -114,12 +117,13 @@ public static class FindOptionsParser
             TypeFilter = typeFilter,
             Rows = opts.ParseRows(parseResult),
             Count = parseResult.GetValue(opts.Count),
-            JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
+            JsonOutput = format == OutputFormat.Json,
             CompactJson = parseResult.GetValue(args.CompactOption),
             Tabular = opts.ResolveTabular(parseResult),
             Tsv = opts.ResolveTsv(parseResult),
             Jsonl = opts.ResolveJsonl(parseResult),
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
+            TabularExplicitlySet = opts.IsTableExplicitlySet(parseResult),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
             Verbose = parseResult.GetValue(opts.Verbose),
             Columns = opts.ParseColumns(parseResult),
