@@ -753,6 +753,153 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
+    /// No prefix of a managed assembly, at any length, is ever reported
+    /// <c>NotManaged</c>.
+    ///
+    /// This is the class-level statement of what six rounds kept finding one
+    /// specimen at a time. Truncating a managed assembly cannot make it into a
+    /// file that was positively never managed: every prefix of one is a shape
+    /// that <em>was</em> a managed assembly until something cut it short, so the
+    /// only honest answers are "still readable" or "cannot tell". Reporting
+    /// <c>NotManaged</c> for any of them is the silent skip this gate exists to
+    /// prevent.
+    ///
+    /// The theory above samples that property at seven lengths, and sampling is
+    /// precisely how the round-6 defect survived: the theory started at length 2
+    /// and the defect was at length 1. So this enumerates every length rather
+    /// than choosing any, which removes the judgement call about which lengths
+    /// are interesting -- a judgement that was wrong once and has no reason to
+    /// be right next time.
+    ///
+    /// The bound covers the whole region the header read can touch on this
+    /// assembly, so every early-exit path in <c>ReadManagedClaim</c> is reached
+    /// by some length in the range. The theory above is kept even though this
+    /// subsumes it: it names which structure each interesting length sits at, so
+    /// a failure there says what broke, while a failure here says only where.
+    /// </summary>
+    [Fact]
+    public void TryMeasure_NoPrefixOfAManagedAssemblyIsEverNotManaged()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(StateMachineCompletenessTests).Assembly.Location);
+
+        int peOffset = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(0x3C));
+        int bound = Math.Min(image.Length - 1, peOffset + 512);
+
+        string prefix = Path.Combine(
+            Path.GetTempPath(),
+            $"sm-prefix-{Guid.NewGuid():N}.dll");
+
+        List<int> skipped = [];
+
+        try
+        {
+            for (int length = 0; length <= bound; length++)
+            {
+                File.WriteAllBytes(prefix, image.AsSpan(0, length).ToArray());
+
+                if (TryMeasure(prefix, out _, out _) == CorpusOutcome.NotManaged)
+                {
+                    skipped.Add(length);
+                }
+            }
+        }
+        finally
+        {
+            File.Delete(prefix);
+        }
+
+        Assert.True(
+            skipped.Count == 0,
+            $"{skipped.Count} prefix lengths of a managed assembly were reported " +
+            $"NotManaged and would be skipped in silence: " +
+            $"{string.Join(", ", skipped.Take(20))}" +
+            (skipped.Count > 20 ? ", ..." : string.Empty));
+    }
+
+    /// <summary>
+    /// Corrupting any single byte of the PE header region leaves a file that is
+    /// still reported as damaged rather than skipped -- except at the two
+    /// signature bytes, where being skipped is the correct answer.
+    ///
+    /// This is the corruption counterpart to the prefix enumeration above, and
+    /// it closes the other dimension the earlier rounds kept landing in. The
+    /// 400-specimen random fuzz that motivated the broad catches samples this
+    /// space; this enumerates it, so no judgement is exercised about which
+    /// offsets are worth trying.
+    ///
+    /// The property is deliberately two-sided. Offsets 0 and 1 hold "MZ", and a
+    /// file whose signature is positively wrong really is not a PE, so
+    /// <c>NotManaged</c> is right there and the test asserts it. Every other
+    /// offset in the region must not be skipped. A one-sided version would be
+    /// satisfied by never skipping anything at all, which would make the gate
+    /// fire on ordinary non-PE files; pinning both directions means the carve-out
+    /// cannot quietly widen.
+    /// </summary>
+    [Fact]
+    public void TryMeasure_SingleByteHeaderCorruption_IsNeverSilentlySkipped()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(StateMachineCompletenessTests).Assembly.Location);
+
+        int peOffset = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(0x3C));
+        int bound = Math.Min(image.Length - 1, peOffset + 512);
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"sm-corrupt-{Guid.NewGuid():N}.dll");
+
+        List<string> skipped = [];
+        List<string> unexpectedlyKept = [];
+
+        byte[] copy = (byte[])image.Clone();
+
+        try
+        {
+            foreach (byte value in (byte[])[0x00, 0xFF, 0x7F])
+            {
+                for (int offset = 0; offset <= bound; offset++)
+                {
+                    byte original = copy[offset];
+                    copy[offset] = value;
+                    File.WriteAllBytes(path, copy);
+                    copy[offset] = original;
+
+                    bool isSignatureByte = offset <= 1 && value != original;
+                    bool wasSkipped =
+                        TryMeasure(path, out _, out _) == CorpusOutcome.NotManaged;
+
+                    if (isSignatureByte && !wasSkipped)
+                    {
+                        unexpectedlyKept.Add($"offset {offset}, value 0x{value:X2}");
+                    }
+                    else if (!isSignatureByte && wasSkipped)
+                    {
+                        skipped.Add($"offset {offset}, value 0x{value:X2}");
+                    }
+                }
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+
+        Assert.True(
+            skipped.Count == 0,
+            $"{skipped.Count} single-byte header corruptions were reported " +
+            $"NotManaged and would be skipped in silence: " +
+            $"{string.Join("; ", skipped.Take(20))}" +
+            (skipped.Count > 20 ? "; ..." : string.Empty));
+
+        Assert.True(
+            unexpectedlyKept.Count == 0,
+            $"{unexpectedlyKept.Count} corruptions of the MZ signature were not " +
+            $"reported NotManaged, so the negative half of this property no " +
+            $"longer holds: {string.Join("; ", unexpectedlyKept)}");
+    }
+
+    /// <summary>
     /// A file whose <c>NumberOfRvaAndSizes</c> does not reach the CLI directory
     /// still reaches <c>DecodeFailed</c>, because SRM reads that directory
     /// regardless of the declared count.
