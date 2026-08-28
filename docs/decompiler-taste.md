@@ -145,7 +145,9 @@ one for indexer-like access:
 - Prefer `(*p)[i]` for indexer access on the pointed-to value.
 - Keep extension-shaped calls with pointer receiver parameters in static form
   (`Extensions.M(p)`) unless the receiver parameter is a by-ref `this ref T`
-  extension over the pointee; C# does not allow `this T*`.
+  extension over the pointee; C# does not allow `this T*`. The by-ref form uses
+  `p->M()` only when pointee member lookup has no same-name conflict; otherwise
+  it remains the explicit `Extensions.M(ref *p)` target.
 
 The style oracle decides the spelling where syntax permits more than one valid
 form. `dotnet/runtime`'s `.editorconfig` has no pointer-specific rule, so the

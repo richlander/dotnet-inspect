@@ -260,6 +260,37 @@ public sealed partial class CSharpPrinter
             : null;
     }
 
+    string? PointerRefExtensionStaticArguments(
+        MethodRef method,
+        IReadOnlyList<IrExpression> arguments)
+    {
+        if (arguments.Count == 0
+            || PointerRefExtensionReceiver(
+                method,
+                arguments[0]) is not { } receiver)
+        {
+            return null;
+        }
+
+        var restTypes = method.ParameterTypes.Skip(1).ToArray();
+        var restRefKinds = method.ParameterRefKinds.IsDefaultOrEmpty
+            ? method.ParameterRefKinds
+            : [.. method.ParameterRefKinds.Skip(1)];
+        string rest = Arguments(
+            arguments.Skip(1),
+            restTypes,
+            restRefKinds);
+        string refKeyword =
+            method.ParameterRefKinds is
+            [ArgumentRefKind.In, ..]
+                ? "in"
+                : "ref";
+        string first = $"{refKeyword} *{receiver}";
+        return rest.Length == 0
+            ? first
+            : $"{first}, {rest}";
+    }
+
     string PropertyTarget(MethodRef accessor, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments, string name, bool isVirtual = true, bool isEvent = false)
     {
         if (PointerMemberReceiver(instance) is { } pointerReceiver)
@@ -744,7 +775,14 @@ public sealed partial class CSharpPrinter
             // `this.`), so an unqualified call would bind to the local.
             string sourceName = CSharpNaming.SourceMethodName(call.Callee);
             string staticName = $"{sourceName}{typeArguments}";
-            string staticArgs = Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds);
+            string staticArgs =
+                PointerRefExtensionStaticArguments(
+                    call.Callee,
+                    arguments)
+                ?? Arguments(
+                    arguments,
+                    call.Callee.ParameterTypes,
+                    call.Callee.ParameterRefKinds);
             return IsEnclosingTypeAtOwnInstantiation(call.Callee.DeclaringType) && !IsStaticCallNameShadowed(sourceName)
                 ? $"{staticName}({staticArgs})"
                 : $"{TypeQualifierText(call.Callee.DeclaringType)}.{staticName}({staticArgs})";

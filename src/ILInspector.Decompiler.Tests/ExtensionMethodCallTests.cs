@@ -145,6 +145,18 @@ public class ExtensionMethodCallTests
     }
 
     [Fact]
+    public void PointerBackedRefReceiver_KeepsStaticExtensionSpelling()
+    {
+        string output = PrintRaised(
+            typeof(RefExtensionCollisionSamples),
+            nameof(
+                RefExtensionCollisionSamples
+                    .CallsPointerShadowedRefExtension));
+
+        Assert.Equal("return Value(ref *receiver);", output);
+    }
+
+    [Fact]
     public void ArrayReceiver_KeepsStaticExtensionSpelling()
     {
         string output = PrintRaised(

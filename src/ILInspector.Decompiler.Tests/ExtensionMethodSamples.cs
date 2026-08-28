@@ -74,6 +74,10 @@ public static class RefExtensionCollisionSamples
     public static string CallsShadowedRefExtension(
         ref RefExtensionCollisionReceiver receiver)
         => Value(ref receiver);
+
+    public static unsafe string CallsPointerShadowedRefExtension(
+        RefExtensionCollisionReceiver* receiver)
+        => Value(ref *receiver);
 }
 
 public static class ArrayExtensionCollisionSamples

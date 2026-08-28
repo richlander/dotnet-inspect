@@ -489,9 +489,11 @@ internal sealed class CrossAssemblyTypeResolver
     {
         while (type is
             {
-                Kind: TypeRefKind.ByRef or TypeRefKind.Pinned,
-                ElementType: { } element,
-            })
+                    Kind: TypeRefKind.ByRef
+                        or TypeRefKind.Pointer
+                        or TypeRefKind.Pinned,
+                    ElementType: { } element,
+                })
         {
             type = element;
         }
@@ -1442,13 +1444,16 @@ internal sealed class CrossAssemblyTypeResolver
                 return null;
             request = TypeResolutionRequest.FromReference(
                 identity,
-                AssemblyBindingOrigin.FromAssembly(_selfAssembly),
+                AssemblyBindingOrigin.FromAssembly(
+                    localAssembly ?? _selfAssembly),
                 ScopeFor(type),
                 definitionName);
         }
 
         TypeResolutionOutcome outcome =
-            _context.Resolve(_selfAssembly, request);
+            _context.Resolve(
+                localAssembly ?? _selfAssembly,
+                request);
         return outcome is TypeResolutionOutcome.Resolved resolved
             ? resolved.Definition
             : null;

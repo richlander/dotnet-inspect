@@ -413,6 +413,100 @@ public class ReferenceEqualityMetadataFactsTests
     }
 
     [Fact]
+    public void ExtensionConflictTransitiveBase_UsesContainingAssemblyOrigin()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "extension-conflict-origin-").FullName;
+        try
+        {
+            string rootBasePath = Emit(
+                directory,
+                "root-base",
+                "Base",
+                "namespace N; public class BaseType;");
+            string receiverBasePath = Emit(
+                directory,
+                "receiver-base",
+                "Base",
+                """
+                namespace N;
+                public class BaseType
+                {
+                    public void Target() { }
+                }
+                """);
+            string receiverPath = Emit(
+                directory,
+                "receiver",
+                "Receiver",
+                "namespace N; public class ReceiverType : BaseType;",
+                [
+                    MetadataReference.CreateFromFile(
+                        receiverBasePath),
+                ]);
+
+            var root = ResolvedAssemblyReference.CreateFromPath(
+                typeof(ReferenceEqualityMetadataFactsTests)
+                    .Assembly.Location,
+                AssemblyResolutionProvenance.Local(
+                    "ReferenceEqualityMetadataFactsTests"));
+            var receiverAssembly =
+                ResolvedAssemblyReference.CreateFromPath(
+                    receiverPath,
+                    AssemblyResolutionProvenance.Local(
+                        "ReferenceEqualityMetadataFactsTests"));
+            var policy = new OriginSensitiveHierarchyPolicy(
+                receiverAssembly,
+                ResolvedAssemblyReference.CreateFromPath(
+                    rootBasePath,
+                    AssemblyResolutionProvenance.Local(
+                        "ReferenceEqualityMetadataFactsTests")),
+                ResolvedAssemblyReference.CreateFromPath(
+                    receiverBasePath,
+                    AssemblyResolutionProvenance.Local(
+                        "ReferenceEqualityMetadataFactsTests")));
+            using var context = new MetadataContext(policy);
+            using var source = MetadataSource.Open(
+                root,
+                externalPdbPath: null,
+                policy,
+                context);
+            var receiverIdentity = new AssemblyReferenceIdentity(
+                "Receiver",
+                receiverAssembly.Identity.Version,
+                receiverAssembly.Identity.Culture,
+                receiverAssembly.Identity.PublicKeyToken);
+            TypeRef receiverType = Definition(
+                "Receiver",
+                "N",
+                "ReceiverType",
+                ["ReceiverType"],
+                receiverIdentity);
+            var extension = new MethodRef(
+                receiverType,
+                "Target",
+                TypeRef.CoreLib("System", "Void"),
+                [receiverType],
+                HasThis: false)
+            {
+                IsExtension = MetadataFactState.Yes,
+            };
+
+            MetadataFactState conflict =
+                source.CrossAssembly.ExtensionSyntaxConflict(
+                    receiverType,
+                    extension);
+            Assert.True(policy.ReceiverRequested);
+            Assert.True(policy.BaseRequestedFromReceiver);
+            Assert.Equal(MetadataFactState.Yes, conflict);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void VersionedSiblingLocalHierarchyNodes_DoNotShareVisitedIdentity()
     {
         string directory = Directory.CreateTempSubdirectory("reference-equality-versioned-hierarchy-").FullName;
@@ -1043,6 +1137,45 @@ public class ReferenceEqualityMetadataFactsTests
                     AssemblyResolutionProvenance.Local(
                         "ReferenceEqualityMetadataFactsTests"))
                 : _runtime.Resolve(identity, scope);
+    }
+
+    sealed class OriginSensitiveHierarchyPolicy(
+        ResolvedAssemblyReference receiver,
+        ResolvedAssemblyReference rootBase,
+        ResolvedAssemblyReference receiverBase) : IAssemblyBindingPolicy
+    {
+        readonly AssemblyReferenceBindingPolicy _runtime =
+            new(TestAssemblyReferenceResolvers.RuntimeAssemblies());
+
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+        public bool ReceiverRequested { get; private set; }
+        public bool BaseRequestedFromReceiver { get; private set; }
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request)
+        {
+            if (request.Target is not
+                AssemblyBindingTarget.AssemblyReference reference)
+            {
+                return _runtime.Select(request);
+            }
+            if (reference.Identity.Name == receiver.Identity.Name)
+            {
+                ReceiverRequested = true;
+                return AssemblyBindingSelection.Found(receiver);
+            }
+            if (reference.Identity.Name != rootBase.Identity.Name)
+                return _runtime.Select(request);
+
+            bool fromReceiver = request.Origin is
+                AssemblyBindingOrigin.RequestingAssembly origin
+                && ReferenceEquals(
+                origin.Registration,
+                receiver.Registration);
+            BaseRequestedFromReceiver |= fromReceiver;
+            return AssemblyBindingSelection.Found(
+                fromReceiver ? receiverBase : rootBase);
+        }
     }
 
     static string Emit(
