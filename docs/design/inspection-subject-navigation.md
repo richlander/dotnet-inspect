@@ -105,9 +105,10 @@ compile Library is tracked by
 the Type and Member identity currencies used here.
 
 [Workspace definitions](workspace-definitions.md) owns portable view-facet
-registry binding. The focused View Facet Registry work tracked by
-[#4880](https://github.com/richlander/dotnet-inspect/issues/4880) owns runtime
-lens membership, labels, and order.
+registry binding. The [View Facet Registry](view-facet-registry.md), established
+by [#4880](https://github.com/richlander/dotnet-inspect/issues/4880), owns
+runtime lens membership, labels, order, structural applicability, and
+facet-availability outcomes.
 
 [Inspect Web UI](inspect-web-ui.md) owns rendering, accessibility, focus, and
 interaction. Issue #4787 owns portable projection and complete restoration
@@ -301,6 +302,16 @@ Subject and lens activation return one of these semantic outcomes:
 | Rejected | Retains state because the command is stale, foreign, or invalid |
 | Failed | Retains state because navigation evaluation failed |
 | Superseded | Produces no visible effect because a newer explicit intent owns the session |
+
+After a lens request passes Navigation's command-currency and generation
+checks, View Facet Registry `Available`, `Unavailable`, and `Failed` results
+retain their corresponding descriptor evidence and map to `Applied`,
+`Unavailable`, and `Failed` respectively. Registry `Inapplicable` and `Unknown`
+results map to `Rejected` while retaining the exact registry result in
+diagnostic evidence. Navigation does not collapse those two results or turn a
+registry failure into unavailability. Stale, foreign, or superseded commands
+retain the Navigation outcomes defined here without evaluating a registry
+result into state.
 
 An unavailable request never silently activates a sibling, ancestor, or
 recommended Type. If the already committed subject became invalid

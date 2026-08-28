@@ -466,24 +466,18 @@ current filters, package kind, or display text.
 
 ### Lens ownership
 
-Lenses are grouped by the subject they inspect:
+The [View Facet Registry](view-facet-registry.md) owns lens membership,
+identity, labels, summaries, structural subject kind, and order. The UI renders
+the descriptors returned for the active subject in owner-issued order and
+submits their opaque IDs. It does not retain a subject-to-lens table, add a
+locally known lens, or omit an owner-issued descriptor because its current
+renderer lacks support.
 
-| Subject | Lenses |
-| ------- | ------ |
-| Package | Overview, Dependencies |
-| Library | References, Integrations, Opportunities, Analysis, Metadata |
-| Type | API, Metadata, Source |
-| Member | Overview, Call graph, Facts, Source, Annotated source |
-
-Package Dependencies contains declared package dependencies by target
-framework. Direct assembly references belong to Library References.
-Integrations, Opportunities, Analysis, and Library Metadata also describe
-assembly content.
-
-A lens appears only in its owning subject. The UI does not retain one mixed lens
-strip under Package or repeat library lenses in both Package and Library.
-Lens identity is scoped by its owning subject, so Library Metadata and Type
-Metadata are distinct lenses that may share a display label.
+A lens appears only in the subject-scoped descriptor set returned by Inspection
+Subject Navigation. The UI does not retain one mixed lens strip under Package
+or repeat a facet under another subject. Distinct registry IDs may share a
+display label; the UI neither deduplicates them nor derives identity from that
+label.
 
 ### Library selection
 

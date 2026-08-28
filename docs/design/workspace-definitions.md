@@ -293,38 +293,38 @@ Field semantics:
   scenario is not workspace-free; it references a workspace whose context
   subscribes `:Platform`.
 
-The selected query and view-facet descriptors declare the context, library,
-type, and member inputs they require and which facet combinations are valid.
-Activating a scenario resolves those descriptors and validates the supplied
-selectors against their contracts. Missing, ambiguous, or incompatible inputs
-are typed failures; a consumer never invents an undeclared selector or silently
-broadens the query. A section is not intrinsically member-scoped: its descriptor
-may operate at package, library, type, or member scope.
+The selected query descriptor declares the context, library, type, and member
+inputs it requires. Activating a scenario resolves that descriptor and
+validates the supplied selectors against its contract. Missing, ambiguous, or
+incompatible inputs are typed failures; a consumer never invents an undeclared
+selector or silently broadens the query. View-facet IDs resolve against the
+product registry and must be applicable to the exact structural subject
+prepared for the view. Issue #4787 owns validation of the complete query,
+subject, lens, and section combination; neither this schema nor the registry
+redefines another owner's selector or execution contract. A section is not
+intrinsically member-scoped: its owning execution descriptor may operate at
+package, library, type, or member scope.
 
 Lens and section values are **registry identities, not display labels or CLI
-spellings**: stable ids from a product-owned registry of view facets, in the
-pattern #3486 implements (the style-tier registry: stable never-localized id,
-title, summary, explicit order) and #3865 asks for (accessibility facets) —
-the producer owns identity, labels, and ordering; consumers render descriptors
-and submit ids. Two of #3865's properties deliberately do not transfer: its
-ids are opaque and its descriptors result-scoped, while workspace ids are
-hand-authored offline and so must be human-writable and documented — the
-borrowed pattern supplies producer ownership, not the spelling rule, which
-stays open below. CLI commands and browser lenses are projections that
-abstract these ids and may rename their own surfaces freely. This is
-load-bearing because definitions persist: a bundled demo must resolve years
-after a flag or chip label changed, which makes every id in this schema a
-compatibility surface like the anchor digest below, with an unknown id a typed
-outcome (the view-facet gate below). The example spellings in this note
-(`api`, `call-graph`) are illustrative pending the registry decision — today
-they are precisely a CLI spelling and a display-label slug, the two things the
-binding must replace or freeze. Bare ids suffice in the canonical form only
-once each field's value space is single-scope — which the registry-binding
-question must deliver, since today the `lens` field alone spans two colliding
-token spaces — and the pinned view shape is modulo that question, which may
-add a scope field. Qualified spellings (the packet's `pkg:dependencies`)
-belong to flat projections, where no structure does that job.
-Qualification-in-names is the projection's tool, never the schema's.
+spellings**: canonical IDs from the product-owned
+[View Facet Registry](view-facet-registry.md). The registry owns stable
+human-writable spelling, title, summary, structural applicability, and order;
+consumers render descriptors and submit exact IDs. CLI commands and browser
+lenses are projections that abstract these IDs and may rename their own
+surfaces freely.
+
+This is load-bearing because definitions persist: a bundled demo must resolve
+years after a flag or chip label changed. Every view-facet ID is therefore a
+compatibility surface like the anchor digest below, with an unknown ID a typed
+outcome through the view-facet gate. Current example values such as `api` and
+`call-graph` are legacy presentation tokens, not canonical IDs. New definitions
+use registry values such as `type.api` and `member.call-graph`; a schema-owned
+version transform is the single source that may map an old scoped token
+explicitly. It lowers legacy records to canonical IDs before registry
+resolution; canonical schema versions reject legacy tokens. Resolution never
+slugs a label or accepts a CLI alias. Qualified spellings such as the packet's
+`pkg:dependencies` belong to flat projections, where no structure does that
+job. Qualification-in-names is the projection's tool, never the schema's.
 
 ### The dependency boundary
 
@@ -880,47 +880,17 @@ answer; each needs a decision before or during implementation.
 - **Catalog precedence.** Collisions between two bundle catalogs, and
   whether a bundle may graft a child under a product path
   (`:Platform:MyThing`), are unresolved.
-- **View facet registry binding.** Package-root and type lenses, together
-  with package-, library-, type-, and member-scope section pipelines, are
-  presentation token spaces today, and they collide across scopes
-  (`overview`, `source`, `metadata`) — precisely because they are consumer
-  vocabularies, not contract ones. The direction is settled (view preset
-  values are product-owned registry ids that CLI commands and browser lenses
-  abstract; see the `scenario` record semantics), but the binding is not, and
-  the seemingly obvious candidate is disqualified unless frozen: section
-  descriptor names are *declared
-  display names* (`ISectionDescriptor.Name` documents itself as "Section
-  display name"), are simultaneously the CLI's `-S` token space, are
-  unique per *pipeline* only by convention (thirteen `SectionNames`
-  constants have two declaring descriptor classes each, across four
-  classes; two distinct `IL` descriptors live in different member
-  pipelines selected by CLI option shape, so a persisted `"section": "IL"`
-  does not resolve to one descriptor), and have been renamed wholesale
-  (#3229 renamed twelve in one commit — though the repo already maps old
-  names forward via `SelectResolver.LegacySectionAliases`, the strongest
-  argument for the freeze arm, with the caveat that aliases preserve
-  resolution, not identity). Binding preserved definitions to that space
-  as-is would contradict this note's own rule, so the realistic shape is a
-  minted view-facet id space in the #3486 mold, homed in the substrate per
-  [the dependency boundary](#the-dependency-boundary) and fronting the
-  existing sections and lenses, carrying today's names as presentation
-  metadata — unless the section-name space is instead frozen, which its
-  own interface documents as a repurposing. Both arms share the home
-  defect (either way the ids must move below the boundary, which
-  inspection-layers already anticipates as a project move), so the real
-  discriminator between them is stability, not location. Also unresolved:
-  how ids are spelled
-  (author-facing, so human-writable and documented); how the `lens` field
-  distinguishes package-root from type scope; and how `section`
-  distinguishes package, library, type, and member scopes. Today those
-  scopes are inferred from `type` presence, pipeline, or command shape —
-  the inference pattern the `kind` discriminator eliminated for records —
-  so the registry decision must either mint scope-unique ids or add explicit
-  scope to the view preset. The stability disciplines also differ by
-  mechanism and need different gates: minted ids are additive — never reused,
-  never renamed — while the anchor digest is derived, guarded by fixed
-  derivation; both are compatibility surfaces, but "append-only" applies only
-  to the former.
+- **Portable view-facet composition.** The
+  [View Facet Registry](view-facet-registry.md) settles canonical identity:
+  IDs are subject-prefixed, globally unique, human-writable, and additive.
+  Existing package-root and type lens tokens plus package-, library-, type-,
+  and member-scope section names remain presentation spaces; neither their
+  collisions (`overview`, `source`, `metadata`) nor CLI aliases enter registry
+  lookup. What remains open here is the portable composition owned by #4787:
+  whether the canonical view keeps separate `lens` and `section` fields, which
+  registered facet combinations are valid, and how a schema-version transform
+  migrates the bundled legacy examples. That decision consumes registry IDs
+  and descriptors; it does not mint another identity space.
 
 ## Status and gates
 
@@ -1208,8 +1178,10 @@ Definition records and product demos (this slice):
   source work before snapshot` and `canonical transitions settle annotated
   source before snapshot` specifically gate source-request settlement.
   Package-root navigation and explicit Share use the ordinary
-  Browser route, without stale packet state, until product facet ids exist; and
-- **not yet:** minted view-facet ids, complete packet view/query binding, CLI
+  Browser route, without stale packet state, until product facet IDs are
+  implemented; and
+- **not yet:** the designed View Facet Registry implementation, complete packet
+  view/query binding, CLI
   use of the codec/transposer for executable `-W`, or
   `WorkspaceContextLoader` acquisition as the CLI run substrate (the CLI still
   uses package + `--caller-package` encoding).
