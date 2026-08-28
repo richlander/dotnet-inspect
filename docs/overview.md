@@ -92,7 +92,13 @@ substrates, and inspection producers that will extend that space.
   [UI design](design/inspect-web-ui.md) owns the website's shared presentation
   and interaction language while individual components retain rendering,
   binding, and state-transition responsibilities.
-- `tools/DecompilerHarness/` owns ReturnToSender closure discovery and type-cluster planning. RTS specifies the required Metadata/CSharp request shape; `ILInspector.CSharp` owns rendering it.
+- `tools/DecompilerHarness/` owns ReturnToSender closure discovery,
+  type-cluster planning, compile-back reference selection and closure, and
+  generated-artifact admission and receipt-gated verdict composition. RTS
+  specifies the required Metadata/CSharp request shape and consumes
+  owner-issued artifact, fragment, and correspondence evidence;
+  `ILInspector.CSharp`, `ILInspector.Decompiler`, and `ILInspector.ILDiff`
+  retain ownership of producing that evidence.
 - [`docs/design/ts-jsexport.md`](design/ts-jsexport.md) owns the `ts-jsexport`
   TypeScript facade projected at build time from an
   `ILInspector.JsExportSurface`. The host-side tool consumes that evidence
