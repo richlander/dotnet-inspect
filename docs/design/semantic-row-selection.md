@@ -511,9 +511,11 @@ component.
 plans up to two stages over two named sequences containing up to three distinct
 values. It checks type safety, atomic publication, completion only after every
 sequence, at-most-once resolver invocation and consistent resolver metadata,
-sequence/stage failure precedence, strict-range evidence, ranked `Top` output,
-resolver coverage for every successful `Top`, and eventual termination under
-weak fairness.
+sequence/stage failure precedence, strict-range failure evidence, each stage's
+input against the preceding stage's output, every successful stage's exact
+semantics (including strict `Range` and stage-local reindexing), ranked `Top`
+output, resolver coverage for every successful `Top`, and eventual termination
+under weak fairness.
 
 The model was checked with the pinned TLA+ Tools v1.8.0 prerelease
 `tla2tools.jar` (published SHA-1

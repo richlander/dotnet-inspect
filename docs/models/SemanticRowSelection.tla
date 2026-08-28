@@ -138,6 +138,7 @@ HistoryEntries ==
     [key : Keys,
      stage : 1..MaxStages,
      kind : StageKinds,
+     inputRows : Rows,
      rows : Rows]
 
 Init ==
@@ -175,6 +176,7 @@ RecordStage(nextRows) ==
         [key |-> keyPosition,
          stage |-> stagePosition,
          kind |-> plan[stagePosition].kind,
+         inputRows |-> currentRows,
          rows |-> nextRows])
 
 ApplyPositionalStage ==
@@ -342,6 +344,35 @@ RangeFailureIsStrict ==
         /\ failure.required =
             RequiredPosition(plan[failure.stage])
         /\ failure.required > failure.available
+
+StageInputsFollowDeclaredOrder ==
+    \A index \in 1..Len(history):
+        LET entry == history[index]
+        IN /\ entry.kind = plan[entry.stage].kind
+           /\ IF entry.stage = 1
+              THEN entry.inputRows = input[entry.key]
+              ELSE /\ index > 1
+                   /\ history[index - 1].key = entry.key
+                   /\ history[index - 1].stage = entry.stage - 1
+                   /\ entry.inputRows = history[index - 1].rows
+
+StageOutputsMatchSemantics ==
+    \A index \in 1..Len(history):
+        LET entry == history[index]
+            stage == plan[entry.stage]
+        IN CASE stage.kind = "Head" ->
+                    entry.rows = Take(entry.inputRows, stage.count)
+             [] stage.kind = "Tail" ->
+                    entry.rows = TakeTail(entry.inputRows, stage.count)
+             [] stage.kind = "Range" ->
+                    /\ RequiredPosition(stage) <= Len(entry.inputRows)
+                    /\ entry.rows = ApplyRange(entry.inputRows, stage)
+             [] stage.kind = "Top" ->
+                    entry.rows =
+                        Take(
+                            Rank(entry.inputRows, stage.order),
+                            stage.count)
+             [] OTHER -> FALSE
 
 TopOutputsAreRanked ==
     \A index \in 1..Len(history):
