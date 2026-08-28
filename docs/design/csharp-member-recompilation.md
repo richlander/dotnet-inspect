@@ -1061,10 +1061,11 @@ when opcode and C# comparers independently return equality.
 planning transition:
 
 - `Declined` is the pre-`ProductAttemptCommit` policy refusal from reference
-  selection, declaration planning, closure, local requirements, Metadata
-  aggregate capability, retained-content digest capability, artifact-manifest
-  capability, or required generated-correspondence capability. It carries the
-  typed reasons and selected legacy policy, when permitted.
+  discovery or selection, declaration planning, closure, local requirements,
+  Metadata aggregate capability, retained-content digest capability,
+  artifact-manifest capability, or required generated-correspondence
+  capability. It carries the typed reasons and selected legacy policy, when
+  permitted.
 - `Failed` when artifact production, compilation, rebuilt resolution, or
   binding fails after `ProductAttemptCommit`, including participant-manifest
   mismatch, a stalled post-commit diagnostic, and root/iteration budget
@@ -1427,17 +1428,31 @@ Issue #4810 adds these named gates:
     after disposal but cannot make this gate pass without the captured owner
     outcome.
 28. `CompileReferenceDigestComesFromRetainedArtifactOwner` declines before
-    selection while #4916's capability is unavailable. With the owner result,
-    the descriptor digest matches the retained bytes opened under the same query
+    descriptor construction or selection while #4916's capability is
+    unavailable. With every required owner result, descriptor construction may
+    begin and each digest matches the retained bytes opened under the same query
     lease. Hashing a mutable path, hashing an independently reopened stream, or
     supplying a consumer-computed digest fails the architecture arm; replacing
-    the source after retention does not change the owner digest.
+    the source after retention does not change the owner digest. Moving
+    descriptor construction before owner digest acquisition is mutation-verified
+    to fail the ordering arm.
 29. `ScopePairDigestIncludesEveryBodyRenderingField` derives the expected
     replacement-identity fields from the `CSharpMemberBody`/`CSharpBlockBody`
     contract. Toggling source, async/unsafe modifiers,
     `SuppressDestructorSyntax`, constructor-initializer kind, or one initializer
     argument changes the pair key and produces typed `Unavailable`. Adding a new
     body rendering field without adding its digest projection fails the
+    architecture arm.
+30. `CompileBackPlanningOwnershipMatchesComponentBoundary` derives the tools
+    project that declares reference selection, same-assembly root selection,
+    closure censuses, admission, receipts, and verdict composition, and the
+    product projects that declare their evidence and rendering request/result
+    types. Product APIs cannot consume the tools-only plan or return
+    `CompileClosureOutcome`, `CompileContextReceipt`, or `CompileBackVerdict`;
+    tools cannot format product C# or substitute a tools-observed participant
+    set for an owner manifest. Moving one planner surface into a product
+    component, adding a product API that chooses compile-back roots or closure,
+    or adding a tools-side product renderer is mutation-verified to fail the
     architecture arm.
 
 Documentation-only changes validate Markdown. Implementation milestones add the
