@@ -642,8 +642,19 @@ public sealed class StateMachineCompletenessTests
     /// The theory truncates at each structure the header read walks, so a future
     /// change that reintroduces a silent skip at any one of them fails here
     /// rather than in a corpus nobody runs.
+    ///
+    /// Lengths 0 and 1 are the boundary both round-6 reviewers found
+    /// independently, and they are the reason the theory now starts at zero
+    /// rather than at two. The signature comparison read a fixed two bytes, so a
+    /// file holding a lone <c>M</c> at end of stream failed the comparison
+    /// against a byte that was never there and was called positively non-PE.
+    /// The two-byte case one row below it was already reported correctly, which
+    /// is exactly how a boundary defect survives: the specimen that would have
+    /// exposed it sat one byte outside the theory.
     /// </summary>
     [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
     [InlineData(2)]
     [InlineData(40)]
     [InlineData(64)]
@@ -702,6 +713,42 @@ public sealed class StateMachineCompletenessTests
         finally
         {
             File.Delete(plain);
+        }
+    }
+
+    /// <summary>
+    /// A short file whose first byte is present and is not <c>M</c> stays
+    /// <c>NotManaged</c>, however short it is.
+    ///
+    /// This is the negative control for the two boundary rows added to the
+    /// theory above. Those rows require a one-byte file to be
+    /// <c>Unclassifiable</c>; without this control, "treat one-byte files as
+    /// unclassifiable" would satisfy them just as well as the actual rule,
+    /// which is that a byte present and wrong is still a positive answer. A
+    /// one-byte file holding <c>M</c> is unclassifiable and a one-byte file
+    /// holding <c>X</c> is not, and only the per-byte comparison gets both.
+    /// </summary>
+    [Theory]
+    [InlineData(new byte[] { (byte)'X' })]
+    [InlineData(new byte[] { (byte)'X', (byte)'Z' })]
+    [InlineData(new byte[] { (byte)'M', (byte)'X' })]
+    public void TryMeasure_ShortFileWithWrongSignature_StaysNotManaged(byte[] content)
+    {
+        string wrong = Path.Combine(
+            Path.GetTempPath(),
+            $"sm-wrong-{Guid.NewGuid():N}.dll");
+
+        try
+        {
+            File.WriteAllBytes(wrong, content);
+
+            Assert.Equal(
+                CorpusOutcome.NotManaged,
+                TryMeasure(wrong, out _, out _));
+        }
+        finally
+        {
+            File.Delete(wrong);
         }
     }
 
@@ -1075,8 +1122,8 @@ public sealed class StateMachineCompletenessTests
     /// once it has rejected a file's headers, and because using SRM to classify
     /// SRM's own failures would make the classification circular. It reads
     /// nothing beyond the directory count and the CLI directory's two fields,
-    /// and answers <see cref="ManagedClaim.No"/> for every malformed or
-    /// truncated shape rather than guessing.
+    /// and distinguishes a shape it can positively reject from one it merely
+    /// cannot read rather than guessing.
     ///
     /// The two directions of error are not symmetric, and the code is written
     /// for that asymmetry. A false <see cref="ManagedClaim.No"/> sends a damaged
@@ -1102,9 +1149,26 @@ public sealed class StateMachineCompletenessTests
             // a truncated PE: it may well have been a managed assembly, and
             // nothing here can tell. That is a coverage hole, not a
             // classification.
-            if (read < 2 || dos[0] != (byte)'M' || dos[1] != (byte)'Z')
+            //
+            // So compare only the bytes that are actually present. A byte that
+            // is present and wrong is a positive answer; a byte that is missing
+            // is not an answer at all. Both rounds of this check are written per
+            // byte for that reason: a lone "M" at end of stream was "MZ" until
+            // something truncated it, and an empty file records nothing
+            // whatsoever about what it used to be.
+            if (read >= 1 && dos[0] != (byte)'M')
             {
                 return ManagedClaim.No;
+            }
+
+            if (read >= 2 && dos[1] != (byte)'Z')
+            {
+                return ManagedClaim.No;
+            }
+
+            if (read < 2)
+            {
+                return ManagedClaim.Indeterminate;
             }
 
             if (read < dos.Length)
