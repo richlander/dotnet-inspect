@@ -133,53 +133,37 @@ java -jar /path/to/tla2tools.jar -help   # aliases to tlc2.TLC
 See `USE.md` in the TLA+ repository for the full command list (`tla2sany.SANY`,
 `tlc2.TLC`, `tlc2.REPL`, `pcal.trans`, `tla2tex.TLA`).
 
-## Inventory: TLA+ usage in this repository
+## Curated TLA+ examples
 
 TLA+ is used per
 [`AGENTS.md`](../../AGENTS.md#keep-specifications-readable-model-interactions)
-to check stateful/concurrent interaction designs that are hard to reason about
-in prose alone. Models merged to `main` use repository-relative links; models
-on open design PRs link to their PR branch.
+to check stateful or concurrent interactions that are hard to reason about in
+prose alone.
 
-| Model(s) | PR | Description |
-| --- | --- | --- |
-| [`CompileBackAdmission.tla`](https://github.com/richlander/dotnet-inspect/blob/docs/4810-compileback-closure-provenance/docs/models/CompileBackAdmission.tla) ([`.cfg`](https://github.com/richlander/dotnet-inspect/blob/docs/4810-compileback-closure-provenance/docs/models/CompileBackAdmission.cfg)) | [#4838](https://github.com/richlander/dotnet-inspect/pull/4838) | Models the compile-back tool's planning → product-attempt → legacy-attempt → supersession → receipt/verdict transitions for [C# member recompilation](../design/csharp-member-recompilation.md). Checks termination, that `Exact` verdicts always trace to an admitted receipt, that a failed product attempt never crosses into legacy evidence, and that supersession clears the prior receipt. |
-| [`NavigationSession.tla`](https://github.com/richlander/dotnet-inspect/blob/design/inspection-subject-navigation/docs/design/models/inspection-subject-navigation/NavigationSession.tla), [`AtomicRestoration.tla`](https://github.com/richlander/dotnet-inspect/blob/design/inspection-subject-navigation/docs/design/models/inspection-subject-navigation/AtomicRestoration.tla), [`SnapshotAuthority.tla`](https://github.com/richlander/dotnet-inspect/blob/design/inspection-subject-navigation/docs/design/models/inspection-subject-navigation/SnapshotAuthority.tla) (plus matching `.cfg` files and a model [`README.md`](https://github.com/richlander/dotnet-inspect/blob/design/inspection-subject-navigation/docs/design/models/inspection-subject-navigation/README.md)) | [#4830](https://github.com/richlander/dotnet-inspect/pull/4830) | Three independent models backing [Inspection subject navigation](../design/inspection-subject-navigation.md): retained-session intent/supersession/maintenance ordering and effect authority (`NavigationSession`), one-transaction canonical subject+lens restoration (`AtomicRestoration`), and retained-versus-stateless execution and which prior state each may read (`SnapshotAuthority`). Each is scoped to one mechanism; none models identity ranking, availability semantics, UI accessibility, or implementation conformance. |
-| [`SemanticRowSelection.tla`](https://github.com/richlander/dotnet-inspect/blob/docs/4677-selection-planning/docs/models/SemanticRowSelection.tla) ([`.cfg`](https://github.com/richlander/dotnet-inspect/blob/docs/4677-selection-planning/docs/models/SemanticRowSelection.cfg)) | [#4815](https://github.com/richlander/dotnet-inspect/pull/4815) | Models one immutable row-selection plan applied to ordered named sequences for [Semantic row selection](../design/semantic-row-selection.md): sequence-major/stage-major traversal, strict `Range`, positional `Head`/`Tail`, ranked `Top`, resolver caching, callback failure, withheld publication, and atomic success. Checks type safety, atomic publication, at-most-once resolver invocation, sequence/stage failure precedence, and termination under weak fairness. |
-| [`TsJsExportLifecycle.tla`](../design/models/ts-jsexport-lifecycle/TsJsExportLifecycle.tla) (plus scenario and mutation configurations and a model [`README.md`](../design/models/ts-jsexport-lifecycle/README.md)) | [#4918](https://github.com/richlander/dotnet-inspect/pull/4918) | Models two generated `ts-jsexport` facades, two callers per facade, one shared SDK runtime, shared-in-flight and serialized coordination, local failure isolation, terminal state, and bounded realm restart. Checks four success/failure scenarios and twelve targeted counterexample mutations without claiming implementation or browser conformance. |
-| [`DeadlineStreamLifecycle.tla`](https://github.com/richlander/dotnet-inspect/blob/design/nuget-deadline-stream-model/docs/design/models/nuget-deadline-stream/DeadlineStreamLifecycle.tla) ([`.cfg`](https://github.com/richlander/dotnet-inspect/blob/design/nuget-deadline-stream-model/docs/design/models/nuget-deadline-stream/DeadlineStreamLifecycle.cfg), [`README.md`](https://github.com/richlander/dotnet-inspect/blob/design/nuget-deadline-stream-model/docs/design/models/nuget-deadline-stream/README.md)) | [#4926](https://github.com/richlander/dotnet-inspect/pull/4926) | Models one transferred NuGet payload stream, one non-empty asynchronous read, caller and per-read cancellation, operation and request expiry, delayed abort callbacks, EOF, abort failure, and synchronous or asynchronous disposal. Checks twelve safety invariants and five conditional liveness properties without claiming implementation conformance. |
+Keep each model in its own directory, normally under `docs/models/` or the
+owning design's `models/` directory. Keep its `.tla` module and any companion
+`.cfg` configurations, model `README.md`, or local exclusions for generated
+TLC artifacts together; do not place standalone model files in the parent
+models directory or combine unrelated models in one directory.
 
-Each PR records its own TLC run (states generated, distinct states, max
-depth) inline next to its model description.
-[#4815](https://github.com/richlander/dotnet-inspect/pull/4815),
-[#4830](https://github.com/richlander/dotnet-inspect/pull/4830),
-[#4918](https://github.com/richlander/dotnet-inspect/pull/4918), and
-[#4926](https://github.com/richlander/dotnet-inspect/pull/4926) record runs
-against the pinned `v1.8.0` prerelease `tla2tools.jar` exactly (TLC
-`2026.08.21.155922`, rev `9787e65`). The remaining PR's recorded TLC version
-predates that pin and was not re-verified against it as part of writing this
-runbook.
+The following table is a user-curated set of at most six merged examples, not
+an inventory of repository models. It is intentionally incomplete.
+Contributors and agents must not add a new model to this list as part of normal
+model work; only the user may add, remove, or replace a curated example.
 
-### Known in-progress work, not yet checked in
-
-As of this writing, one additional model exists only as uncommitted files in a
-contributor's local worktree and is not linked above because it has no pushed
-branch or PR to point at:
-
-- `PackageCachePublication.tla` (plus `Safety`/`Liveness`/`BrokenAtomic`/
-  `BrokenEviction` configs and a README), for
-  [`cache-concurrency.md`](../design/cache-concurrency.md).
-
-Update this table once it is committed and pushed.
+| Example | What it demonstrates |
+| --- | --- |
+| [`TsJsExportLifecycle.tla`](../design/models/ts-jsexport-lifecycle/TsJsExportLifecycle.tla) (plus scenario and mutation configurations and a model [`README.md`](../design/models/ts-jsexport-lifecycle/README.md)) | Models two generated `ts-jsexport` facades, multiple callers, one shared SDK runtime, shared-in-flight and serialized coordination, local failure isolation, terminal state, and bounded realm restart. Demonstrates separate success/failure scenarios and targeted counterexample mutations without claiming implementation or browser conformance. |
+| [`ArtifactSessionAdmission.tla`](../models/artifact-session-admission/ArtifactSessionAdmission.tla) ([`.cfg`](../models/artifact-session-admission/ArtifactSessionAdmission.cfg)) | Models `ArtifactSetSession` admission for [Artifact acquisition and workspace composition](../design/artifact-acquisition-and-workspaces.md#artifactsetsession). Demonstrates single-flight admission, incompatible-generation exclusion, voluntary and disposal-forced draining, late-result suppression, guard witnesses, and weak-fairness progress. |
+| [`AssemblyContextGroupLifecycle.tla`](../models/assembly-context-group-lifecycle/AssemblyContextGroupLifecycle.tla) (plus safety, liveness, and mutation configurations and a model [`README.md`](../models/assembly-context-group-lifecycle/README.md)) | Models the existing `AssemblyContextGroup` callback, image-budget, result-publication, finalization, disposal, and quiescent-release lifecycle for [Inspection space](../inspection-space.md). Demonstrates same-participant contention, ordinary versus one-shot release, exceptional retry, resource ordering, and independent counterexample mutations. |
 
 ## Check in models as you go
 
 A TLA+ model that exists only as uncommitted files in a local worktree is not
 a checked-in asset — it is not backed up, not reviewable, and invisible to
-every other contributor and agent until it is committed and pushed. The two
-models originally listed above were exactly this risk: real,
-apparently-finished work (model + configs + README) sitting only on one
-machine's disk.
+every other contributor and agent until it is committed and pushed. This
+guidance exists because real, apparently-finished model sets have previously
+sat only on one machine.
 
 Commit a model to its branch and push that branch as soon as it reaches a
 checkable state (parses, and TLC runs against its `.cfg` without unexpected

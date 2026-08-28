@@ -297,6 +297,36 @@ reports quiescence. Synchronous disposal may initiate this deferred release; it
 must not invalidate content under an active callback. Cleanup failures compose
 with, and never replace, the active operation failure.
 
+### Interaction model
+
+[`docs/models/artifact-session-admission/ArtifactSessionAdmission.tla`](../models/artifact-session-admission/ArtifactSessionAdmission.tla)
+model-checks the admission lifecycle described above: single-flight admission
+across concurrent demands, an incompatible-generation demand's inability to
+join or start duplicate work while a prior admission is active, voluntary
+cancellation draining, disposal-forced draining, the rule that a late adapter
+result must never publish a session or group, and that a published group's
+artifact leases release only as part of the disposal cleanup path once the
+group is quiescent. It abstracts away budget arithmetic, adapter identity,
+content digests, and query-lease authorization, and it bounds the state space
+to one outstanding published group's lease lifecycle at a time (a fresh
+admission cannot publish while the previous group awaits lease release); this
+is a scope-bounding simplification of the model, not a claim about real
+concurrent groups. A demand's requested generation is also fixed once it
+arrives; the model does not represent a caller re-deriving a different
+generation when it replans after an incompatible admission terminates.
+
+TLC 2026.08.21.155922 (rev `9787e65`, from the pinned `tla2tools.jar` v1.8.0 —
+see [`docs/runbooks/tla-plus-setup.md`](../runbooks/tla-plus-setup.md))
+checked the model with 3 demands and 2 admission generations: 16,790 states
+generated, 8,292 distinct states, no invariant violations, and no
+counterexamples for the checked liveness properties. The invariants include
+the headline `DisposalPreventsPublication` (`disposed => admission #
+"InFlight"`, since only `"InFlight"` can transition to a published outcome)
+and independent guard-witness invariants that re-derive, at the point of
+action, the exact condition each of `DisposalPreventsPublication`, the
+lease-release ordering, and outcome authorization (only a demand attached to
+the admission immediately beforehand may receive its outcome) depends on.
+
 Retaining content does not retain authority. The artifact owner issues two
 different source-neutral access leases:
 
@@ -463,6 +493,21 @@ acquisition registration. Package-aware graph and dependency queries move to an
 optional companion and consume that proof. The shared graph document may retain
 its serialized `package` subject kind as a full-host contract; core assembly
 queries do not construct package subjects or parse package provenance.
+
+`DotnetInspector.PackageQueries` is that optional package-aware query companion.
+Its `PackageWorkspaceIntegrationsQuery` consumes the current package-role
+realization proof and the package-neutral `AssemblyContextIntegrationsQuery`.
+It scans implementation assets in their product role order, then scans only
+surface assets without an implementation correspondence. Results retain
+immutable package and asset identity beside each typed participant outcome
+without exposing package content or merging the role groups.
+`PackageAssemblyContextRealizationTests.PackageWorkspaceIntegrationsQuery_UsesImplementationRoleAndReferenceFallback`
+gates role selection, package/asset provenance, ordering, and reference-only
+fallback.
+`PackageAssemblyContextRealizationTests.PackageWorkspaceIntegrationsQuery_SharedRoleDoesNotDuplicateLibraries`
+gates the shared-role case. Moving the existing package realization itself out
+of core Queries remains part of the broader workspace-realization migration,
+not this query-adapter slice.
 
 ### Project adapter
 
