@@ -78,6 +78,19 @@ public static class AsyncFixtures
         GC.KeepAlive((alpha, beta));
     }
 
+    public static void SetResult(int value)
+        => Observed = value;
+
+    public static async Task SequentialWithOrdinarySetResultCall(
+        Task<int> a,
+        Task<int> b)
+    {
+        int alpha = await a;
+        SetResult(alpha);
+        int beta = await b;
+        GC.KeepAlive((alpha, beta));
+    }
+
     public static async Task SequentialWithChainedFieldStores(
         Task<int> a,
         Task<int> b)
@@ -249,6 +262,14 @@ public static class AsyncFixtures
             sum += await task;
         }
         return sum;
+    }
+
+    public static async Task<int> TwoAwaitsOverTasksArray(
+        Task<int>[] tasks)
+    {
+        int first = await tasks[0];
+        int second = await tasks[1];
+        return first + second;
     }
 
     public static async Task<int> LoopWithFieldStore(

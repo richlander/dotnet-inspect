@@ -619,12 +619,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             return false;
 
         var tempStores = moveNext.Descendants.OfType<StoreLocal>().Where(store => store.Index != result.Index).ToList();
-        var awaitStore = tempStores.SingleOrDefault(store => ContainsNode(store.Value, getResults[0]));
-        if (awaitStore is null)
+        var awaitStores = tempStores.Where(store => ContainsNode(store.Value, getResults[0])).ToList();
+        if (awaitStores is not [var awaitStore])
             return false;
-        var zeroStore = tempStores.SingleOrDefault(store => store.Index == awaitStore.Index
-            && store.Value is Constant { Value: 0 });
-        if (zeroStore is null)
+        var zeroStores = tempStores.Where(store => store.Index == awaitStore.Index
+            && store.Value is Constant { Value: 0 }).ToList();
+        if (zeroStores is not [var zeroStore])
             return false;
         if (zeroStore.Parent is not Block zeroBlock
             || !moveNext.Descendants.OfType<ConditionalBranch>().Any(branch =>
@@ -634,11 +634,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         {
             return false;
         }
-        var finalStore = moveNext.Descendants.OfType<StoreLocal>()
-            .SingleOrDefault(store => store.Index == result.Index
+        var finalStores = moveNext.Descendants.OfType<StoreLocal>()
+            .Where(store => store.Index == result.Index
                 && store.Value is LoadLocal load
-                && load.Index == awaitStore.Index);
-        if (finalStore is null)
+                && load.Index == awaitStore.Index)
+            .ToList();
+        if (finalStores is not [var finalStore])
             return false;
         if (HasUnexpectedStore(moveNext, awaitStore, zeroStore, finalStore))
             return false;
@@ -674,8 +675,8 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         if (tasksField is null || tasksField.Field.Type.ElementType is not { } taskType)
             return false;
 
-        var getResult = GetResultCalls(moveNext).SingleOrDefault();
-        if (getResult is null)
+        var getResults = GetResultCalls(moveNext).ToList();
+        if (getResults is not [var getResult])
             return false;
         if (!HasField(moveNext, "<>7__wrap1")
             || !HasField(moveNext, "<>7__wrap2")
@@ -683,16 +684,18 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         {
             return false;
         }
-        var resultStore = moveNext.Descendants.OfType<StoreLocal>()
-            .SingleOrDefault(store => ContainsNode(store.Value, getResult));
-        if (resultStore is null)
+        var resultStores = moveNext.Descendants.OfType<StoreLocal>()
+            .Where(store => ContainsNode(store.Value, getResult))
+            .ToList();
+        if (resultStores is not [var resultStore])
             return false;
-        var accumulatorStore = moveNext.Descendants.OfType<StoreLocal>()
-            .SingleOrDefault(store => store.Value is Binary { Kind: BinaryKind.Add } binary
+        var accumulatorStores = moveNext.Descendants.OfType<StoreLocal>()
+            .Where(store => store.Value is Binary { Kind: BinaryKind.Add } binary
                 && IsWrap3Load(binary.Left)
                 && binary.Right is LoadLocal load
-                && load.Index == resultStore.Index);
-        if (accumulatorStore is null)
+                && load.Index == resultStore.Index)
+            .ToList();
+        if (accumulatorStores is not [var accumulatorStore])
             return false;
         var initialAccumulatorStore = moveNext.Descendants.OfType<StoreLocal>()
             .FirstOrDefault(store =>
@@ -873,8 +876,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         {
             if (allowedSet.Contains(statement))
                 continue;
-            if (statement.Expression is Call { Callee.Name: "AwaitUnsafeOnCompleted" or "SetException" or "SetResult" })
+            if (statement.Expression is Call call
+                && call.Callee.Name is "AwaitUnsafeOnCompleted" or "SetException" or "SetResult"
+                && IsAsyncMethodBuilder(call.Callee.DeclaringType))
+            {
                 continue;
+            }
             return true;
         }
         return false;

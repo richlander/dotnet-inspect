@@ -130,6 +130,28 @@ public class ClassicAsyncReconstructionHonestyTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("SequentialWithOrdinarySetResultCall")]
+    [InlineData("TwoAwaitsOverTasksArray")]
+    public void NaturalUnmatchedShapePreservesKickoff(
+        string methodName)
+    {
+        using var source = OpenClassicFixture(readSymbols: true);
+        IrFunction function = ImportAndRaise(source, methodName);
+
+        DecompilerResult result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.False(result.RequiresAsyncBodyModifier);
+        Assert.Contains(
+            ".Start<",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            function.Diagnostics,
+            diagnostic => diagnostic.Id == DiagnosticIds.InternalError);
+    }
+
     [Fact]
     public void SequentialAwaitLocalNameComesFromSymbols()
     {
