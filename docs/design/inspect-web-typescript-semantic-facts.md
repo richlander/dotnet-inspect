@@ -125,11 +125,12 @@ Every non-`Opened` result carries the ordered cleanup failures observed after
 its primary result:
 
 ```text
-CleanupFailure(SnapshotReleaseFailure | ApiCloseFailure, detail)
+CleanupFailure(SnapshotReleaseFailure, detail)
 ```
 
 The collection is empty when no resource was created or cleanup succeeded. A
-cleanup failure never replaces or hides the primary opening result.
+cleanup failure never replaces or hides the primary opening result. Failed-open
+cleanup uses the disposal procedure below, including its `finally` guarantee.
 
 ### Lifetime
 
@@ -146,7 +147,7 @@ files, update a snapshot in place, or mix facts observed before and after a
 source change. A caller that needs current facts disposes the complete session
 and opens a new one.
 
-Disposal releases the project snapshot and closes the TypeScript API process.
+Disposal releases the project snapshot and invokes TypeScript API closure.
 The adapter calls `Snapshot.dispose()` and calls `API.close()` in a `finally`
 block even when snapshot release fails. It returns and latches one result:
 
@@ -161,6 +162,12 @@ returns `SessionFailure(SessionDisposed)` even if it was previously poisoned;
 an active session poisoned by a process or protocol failure returns that
 latched `SessionFailure`; only a healthy active session reaches handle
 validation.
+
+The pinned sync API exposes neither its child process nor exit completion, and
+its channel swallows close and kill failures. `Disposed` therefore means
+snapshot release succeeded and `API.close()` was invoked; actual child-process
+exit after that invocation is unverified. The adapter does not import private
+channel internals to claim a stronger result.
 
 ### Source scope
 
@@ -206,10 +213,12 @@ the half-open end is `Node.end`; `length` is their difference. `line` and
 UTF-16 code units before line mapping, and a non-BMP scalar counts as its UTF-16
 surrogate pair.
 
-A source-file fact exposes a `SourceContentId`: SHA-256 over the UTF-8 encoding
-of the exact snapshot-owned source text. A caller computes the same identity
-over the text it parsed and supplies it with every coordinate query. The
-adapter compares the identity before matching a span or node kind.
+A source-file fact exposes a `SourceContentId`: SHA-256 over every UTF-16 code
+unit of the exact snapshot-owned source text serialized low byte then high byte,
+with no byte-order mark, normalization, or replacement. A caller computes the
+same identity over the text it parsed and supplies it with every coordinate
+query. This UTF-16LE representation preserves unpaired surrogates. The adapter
+compares the identity before matching a span or node kind.
 
 A parser that reports byte offsets must convert them against the same source
 text before requesting coordinate correlation. The adapter does not guess the
@@ -239,6 +248,8 @@ Unavailable(MissingApiFact | UnknownSymbol |
             UnsupportedApiValue | UnsupportedResponseShape, detail)
 InvalidCoordinate(SourceContentMismatch | OutOfRange)
 InvalidHandle(StaleSession | WrongKind)
+InvalidArgument(OutOfRange)
+NotApplicable(expectedSubject, actualSubject)
 SessionFailure(SessionDisposed | ProcessFailure | ProtocolFailure, detail)
 ```
 
@@ -252,6 +263,42 @@ TypeScript error types remain resolved `TypeFact` values with an explicit
 symbol fact; it returns `Unavailable(UnknownSymbol)`. Process and protocol
 failures poison the session and every later query returns the same
 `SessionFailure` kind.
+
+After terminal-state and handle validation, each query validates coordinates
+and arguments, then its subject category, before calling TypeScript. A wrong
+category returns `NotApplicable`; an invalid index returns `InvalidArgument`.
+For an applicable query, a documented absence returns `Absent`, an empty
+semantic collection returns `Resolved([])`, and a missing result for a required
+fact returns `Unavailable(MissingApiFact)`.
+
+| Query family | Accepted subject | TypeScript `undefined` or empty result |
+| --- | --- | --- |
+| Coordinate correlation | Source file, matching content, span, and node kind | No match is `Absent`; many are `Ambiguous` |
+| Symbol or type at syntax | Any syntax node | `Absent` |
+| Source symbol | Shorthand or export-specifier node | `Absent` |
+| Contextual type | Expression node | `Absent` |
+| Resolved signature | Call-like node | `Absent` |
+| Signature parameter type | Signature and in-range parameter index | `undefined` is `Unavailable`; bad index is `InvalidArgument` |
+| Signature target | Any signature | `Absent` |
+| Declared symbol type | Any symbol | No optional result |
+| Symbol value type | Any symbol | `Absent` |
+| Symbol type at location | Symbol and syntax node | No optional result |
+| Union or intersection constituents | Matching union or intersection type | Empty is `Resolved([])` |
+| Class or interface base types | Class or interface type | Empty is `Resolved([])` |
+| Instantiated type arguments | Type-reference type | Empty is `Resolved([])` |
+| Apparent, widened, or non-nullable type | Any type | `Unavailable` |
+| Literal base type | Literal type | `Unavailable` |
+| Base constraint | Any type | `Absent` |
+| Properties, indexes, call, or construct signatures | Any type | Empty is `Resolved([])` |
+| Alias target | Symbol with the alias flag | Unknown sentinel is `Unavailable` |
+| Module exports and named lookup | Module symbol | Empty list is `Resolved([])`; lookup miss is `Absent` |
+| Resolved module and source file | Static string-literal module reference | Unresolved is `Absent` |
+| Constant value | Enum member, property access, or element access | `Absent` |
+
+Calling a category-specific query with any other subject returns
+`NotApplicable` without invoking TypeScript. The implementation gate derives
+this table from the facade declarations so missing and stale query mappings
+both fail.
 
 Collections preserve TypeScript order when that order is semantic, such as
 parameters and type arguments. Otherwise source-backed facts are sorted by
@@ -364,8 +411,11 @@ seam, but not the unstable packages directly.
 
 The adapter batches equivalent TypeScript queries where the unstable API
 supports batching and memoizes translations by session and TypeScript object
-identity. Caches contain repository facts and handles only. They are cleared on
-session disposal.
+identity. A private session-scoped registry maps repository handles to the raw
+TypeScript objects required by follow-up queries. It is confined to the one
+unstable adapter module, never returned through the facade, and cleared during
+disposal. All other caches contain repository facts and handles only and are
+also cleared on disposal.
 
 The pinned TypeScript version is part of the owner contract. A version update
 must pass the characterization gate before the package pin changes. A changed
@@ -408,8 +458,9 @@ script. Its gate contains:
    disposed handles fail, disposal is idempotent, every failed-open path cleans
    up a partial API and snapshot, and a new session observes a new immutable
    snapshot. Fault injection at snapshot release proves API closure still runs,
-   the child process exits, cleanup failures remain visible, and repeated
-   disposal returns the same latched result.
+   cleanup failures remain visible, and repeated disposal returns the same
+   latched result. Actual child exit after the upstream close call is explicitly
+   unverified.
 3. **Fact characterization:** maps every repository node, symbol, type,
    signature, diagnostic, and source-file category used by the facade against
    TypeScript 7.0.2. Removing a mapping or adding an unknown API value fails.
@@ -429,13 +480,15 @@ script. Its gate contains:
    constants, and returns explicit absence for computed or unresolved cases.
    Coordinate correlation covers leading trivia, CRLF, non-BMP text, byte-to-
    UTF-16 conversion by a caller, exact matches, ambiguous spans, and a
-   same-length source mutation that must return `SourceContentMismatch`.
+   same-length source mutation that must return `SourceContentMismatch`. It also
+   distinguishes two unpaired-surrogate mutations with the lossless content ID.
 8. **Failure results:** mutation-tests unavailable, ambiguous, unknown-symbol,
-   error-type, invalid-coordinate, invalid-handle, disposed-session, protocol,
-   and process outcomes against their exact closed variants so none become
-   successful empty facts or an undifferentiated unavailable result. It also
-   proves disposal takes precedence over a prior poisoned state and that handle
-   validation runs only for a healthy active session.
+   error-type, invalid-coordinate, invalid-handle, invalid-argument,
+   not-applicable, disposed-session, protocol, and process outcomes against
+   their exact closed variants so none become successful empty facts or an
+   undifferentiated unavailable result. It also proves disposal takes
+   precedence over a prior poisoned state and that handle validation runs only
+   for a healthy active session.
 9. **Import isolation:** a named non-vacuity test fails if any tooling or test
    module other than the one adapter imports either unstable TypeScript API.
 10. **Artifact isolation:** runs the production build and proves the adapter,
