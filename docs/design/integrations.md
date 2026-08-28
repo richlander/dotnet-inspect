@@ -819,7 +819,7 @@ Integration graph behavior until its replacement path has parity gates.
 | Provider supplies observed but not opportunity evidence | Rejection names the unmet policy requirement and affected concepts |
 | Advertised producer policy omits its execution receipt | Census construction rejects the missing attempt; no zero or `Out` |
 | Two policies emit equal candidate coordinates | One candidate identity retains both policy correspondences and has one attempt per context |
-| Policy execution fails for one participant and concept | Its cells are incomplete; unrelated healthy cells remain eligible for zero |
+| Policy fails for a participant/concept evaluated in two contexts | Both context rows are incomplete; unrelated cells may show zero |
 | Candidate attempt fails in one binding context | Only its cell is incomplete; the same participant/concept in another context may show zero |
 | Capable provider cannot resolve one discovered peer | Failed incomplete attempt; request capability remains unchanged |
 | Peer assembly unavailable or ambiguous | Typed failure; never `Out` |
@@ -900,6 +900,7 @@ The target implementation is unverified until these named gates land:
 - `IntegrationMatrix_RepeatedLibraryAcrossContextsRemainsDistinct`
 - `IntegrationMatrix_IncompleteLibraryDoesNotRenderAsZero`
 - `IntegrationMatrix_PolicyFailureDoesNotContaminateUnrelatedCells`
+- `IntegrationMatrix_ProducerPolicyFailureIncompletesEveryBindingContextForItsConcept`
 - `IntegrationMatrix_CandidateFailureDoesNotContaminateOtherBindingContexts`
 - `IntegrationMatrix_OrdersByDeclaredParticipantContextAndConceptOrder`
 - `IntegrationGraph_OnlyInCandidatesContributeOccurrences`
