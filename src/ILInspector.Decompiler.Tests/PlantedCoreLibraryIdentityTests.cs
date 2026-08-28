@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using ILInspector.DecompilerHarness;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
@@ -141,6 +142,86 @@ public class PlantedCoreLibraryIdentityTests
                 frameworkVersion: null,
                 "runtime pack"),
             expectedCorelib: true);
+    }
+
+    /// <summary>
+    /// <see cref="CorpusMetadata"/> preserves platform provenance for a path
+    /// selected from the runtime's trusted platform assembly set.
+    /// </summary>
+    [Fact]
+    public void CorpusRuntimeAcquisition_KeepsCoreLibraryIdentity()
+    {
+        string rootPath =
+            typeof(PlantedCoreLibraryIdentityTests).Assembly.Location;
+        var root = ResolvedAssemblyReference.CreateFromPath(
+            rootPath,
+            AssemblyResolutionProvenance.Designated("corpus root"));
+        using var context = CorpusMetadata.Create([rootPath]);
+        MetadataTypeDefinitionName objectName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create("System", ["Object"]))
+            .Name;
+        ResolvedTypeDefinition definition =
+            Assert.IsType<ResolvedTypeDefinition>(
+                context.ResolveCoreLibraryDefinition(root, objectName));
+        OpenedAssembly opened = Assert.IsType<OpenedAssembly>(
+            context.Open(definition, out TypeDefinitionHandle handle));
+
+        TypeRef decoded = TypeRefDecoder.Instance.GetTypeFromDefinition(
+            opened.Reader,
+            handle,
+            rawTypeKind: 0);
+
+        Assert.Equal(TypeRef.CoreLibrary, decoded.Assembly);
+    }
+
+    /// <summary>
+    /// A platform-key-bearing loose sibling remains a local acquisition even
+    /// when corpus resolution considers it for a platform-scoped reference.
+    /// </summary>
+    [Fact]
+    public void CorpusPlatformNamedSibling_RemainsUntrusted()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "corpus-platform-sibling-").FullName;
+        try
+        {
+            string rootPath = Path.Combine(directory, "CorpusRoot.dll");
+            File.Copy(
+                typeof(PlantedCoreLibraryIdentityTests).Assembly.Location,
+                rootPath);
+            File.WriteAllBytes(
+                Path.Combine(directory, "System.Runtime.dll"),
+                BuildPlantedCoreLibrary());
+
+            var root = ResolvedAssemblyReference.CreateFromPath(
+                rootPath,
+                AssemblyResolutionProvenance.Designated("corpus root"));
+            using var context = CorpusMetadata.Create([rootPath]);
+            MetadataTypeDefinitionName fakeName =
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create("N", ["Fake"]))
+                .Name;
+            ResolvedTypeDefinition definition =
+                Assert.IsType<ResolvedTypeDefinition>(
+                    context.ResolveCoreLibraryDefinition(root, fakeName));
+            OpenedAssembly opened = Assert.IsType<OpenedAssembly>(
+                context.Open(
+                    definition,
+                    out TypeDefinitionHandle handle));
+
+            TypeRef decoded =
+                TypeRefDecoder.Instance.GetTypeFromDefinition(
+                    opened.Reader,
+                    handle,
+                    rawTypeKind: 0);
+
+            Assert.NotEqual(TypeRef.CoreLibrary, decoded.Assembly);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     /// <summary>

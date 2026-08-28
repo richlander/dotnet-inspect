@@ -419,7 +419,8 @@ public class PdbContext : IDisposable
             loadLocalPdb: false,
             loadEmbeddedPdb: true,
             maxEmbeddedPdbBytes: maxEmbeddedPdbBytes,
-            expansionBudget: expansionBudget);
+            expansionBudget: expansionBudget,
+            assemblyRegistration: assembly);
     }
 
     /// <summary>
@@ -465,7 +466,8 @@ public class PdbContext : IDisposable
             PEStreamOptions.Default,
             assembly.LastWriteTimeUtc,
             loadLocalPdb: false,
-            loadEmbeddedPdb: false);
+            loadEmbeddedPdb: false,
+            assemblyRegistration: assembly);
     }
 
     /// <summary>
@@ -495,7 +497,8 @@ public class PdbContext : IDisposable
             loadLocalPdb: false,
             loadEmbeddedPdb: true,
             maxEmbeddedPdbBytes: maxEmbeddedPdbBytes,
-            expansionBudget: expansionBudget);
+            expansionBudget: expansionBudget,
+            assemblyRegistration: assembly);
     }
 
     /// <summary>
@@ -513,7 +516,8 @@ public class PdbContext : IDisposable
             assembly.Identity.Name,
             log,
             PEStreamOptions.Default,
-            assembly.LastWriteTimeUtc);
+            assembly.LastWriteTimeUtc,
+            assemblyRegistration: assembly);
     }
 
     /// <summary>
@@ -583,7 +587,8 @@ public class PdbContext : IDisposable
             log,
             PEStreamOptions.PrefetchEntireImage | PEStreamOptions.LeaveOpen,
             assembly.LastWriteTimeUtc,
-            loadLocalPdb: true);
+            loadLocalPdb: true,
+            assemblyRegistration: assembly);
     }
 
     static PdbContext Open(
@@ -616,7 +621,8 @@ public class PdbContext : IDisposable
         bool loadLocalPdb = true,
         bool loadEmbeddedPdb = true,
         int maxEmbeddedPdbBytes = int.MaxValue,
-        PdbExpansionBudget? expansionBudget = null)
+        PdbExpansionBudget? expansionBudget = null,
+        ResolvedAssemblyReference? assemblyRegistration = null)
     {
         PEReader? peReader = null;
         PdbContext? context = null;
@@ -630,6 +636,7 @@ public class PdbContext : IDisposable
             peReader = new PEReader(
                 stream,
                 streamOptions | PEStreamOptions.LeaveOpen);
+            assemblyRegistration?.ValidateArtifactContent(peReader);
             context = new PdbContext(
                 stream,
                 peReader,
