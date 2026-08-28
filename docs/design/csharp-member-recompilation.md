@@ -368,9 +368,9 @@ must contribute typed dependency evidence under the contract below or make the
 artifact incomplete.
 
 A scope-pair key uses canonical method ordering and a versioned content digest
-over source, async/unsafe modifiers, constructor-initializer kind, and initializer
-arguments; object or collection reference equality is never used as replacement
-identity.
+over source, async/unsafe modifiers, `SuppressDestructorSyntax`,
+constructor-initializer kind, and initializer arguments; object or collection
+reference equality is never used as replacement identity.
 
 The result should carry:
 
@@ -1251,6 +1251,9 @@ required preservation boundary.
 - Scope A/B fixtures change compiler options, references, replacements, body
   policy, normalization, and input identity one at a time and require a typed
   `Unavailable` context-mismatch result.
+- Replacement-identity fixtures change source, async/unsafe modifiers,
+  `SuppressDestructorSyntax`, constructor-initializer kind, and initializer
+  arguments one at a time.
 - A reference fixture supplies different binaries with the same assembly identity
   and requires their content-hash mismatch to make scope A/B unavailable.
 - C# and IL tests retain producer-native unavailable and failed results.
@@ -1424,6 +1427,13 @@ Issue #4810 adds these named gates:
     lease. Hashing a mutable path, hashing an independently reopened stream, or
     supplying a consumer-computed digest fails the architecture arm; replacing
     the source after retention does not change the owner digest.
+29. `ScopePairDigestIncludesEveryBodyRenderingField` derives the expected
+    replacement-identity fields from the `CSharpMemberBody`/`CSharpBlockBody`
+    contract. Toggling source, async/unsafe modifiers,
+    `SuppressDestructorSyntax`, constructor-initializer kind, or one initializer
+    argument changes the pair key and produces typed `Unavailable`. Adding a new
+    body rendering field without adding its digest projection fails the
+    architecture arm.
 
 Documentation-only changes validate Markdown. Implementation milestones add the
 smallest focused product and harness checks that prove their claims.
