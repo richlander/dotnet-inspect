@@ -445,6 +445,7 @@ public sealed class BrowserEngineLayeringTests
             "ILInspector.Metadata.ApiSurface",
             "ILInspector.Metadata.ResolvedAssemblyReference",
             "ILInspector.SourceLink.SourceLinkResolver",
+            "InertText.UrlRedaction",
             "NuGetFetch.NuGetClient",
             "NuGetFetch.PackageCache",
             "NuGetFetch.PackageExtractor",
