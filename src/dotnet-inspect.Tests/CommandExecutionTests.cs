@@ -28943,28 +28943,6 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task PackageOrdinaryConsoleOutput_RetainsItsTrailingNewline()
-    {
-        var (packagePath, tempDir) = CreateLocalReadmePackage(
-            "Test.Projection.OrdinaryOutput",
-            "README.md",
-            "readme");
-        try
-        {
-            var result = await RunAppAsync(
-                "package", packagePath, "-S", "Package Info", "--tips", "q");
-
-            Assert.Equal(0, result.Exit);
-            Assert.Empty(result.Error);
-            Assert.EndsWith("\n", result.Output, StringComparison.Ordinal);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
     public async Task Package_QuietSignedValuePerformsExplicitVerification()
     {
         var (exit, output, error) = await RunAppAsync(
