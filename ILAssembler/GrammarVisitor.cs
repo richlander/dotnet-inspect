@@ -799,7 +799,7 @@ namespace ILAssembler
             {
                 (1, false) => new((0, firstValue)),
                 (1, true) => new((firstValue, null)),
-                (2, false) => new((firstValue, VisitInt32(indicies[1]).Value - firstValue + 1)),
+                (2, true) => new((firstValue, VisitInt32(indicies[1]).Value - firstValue + 1)),
                 _ => throw new UnreachableException()
             };
         }
@@ -5162,27 +5162,19 @@ namespace ILAssembler
                         suffix.WriteCompressedInteger(bounds.Length);
                         int lowerBoundsDefined = 0;
                         int upperBoundsDefined = 0;
-                        foreach (var bound in bounds)
+                        for (int i = 0; i < bounds.Length; i++)
                         {
-                            if (bound.Lower is not null)
-                            {
-                                lowerBoundsDefined++;
-                            }
-                            if (bound.Upper is not null)
-                            {
-                                upperBoundsDefined++;
-                            }
+                            if (bounds[i].Lower is not null)
+                                lowerBoundsDefined = i + 1;
+                            if (bounds[i].Upper is not null)
+                                upperBoundsDefined = i + 1;
                         }
                         suffix.WriteCompressedInteger(upperBoundsDefined);
-                        foreach (var bound in bounds)
-                        {
-                            suffix.WriteCompressedInteger(bound.Upper.GetValueOrDefault());
-                        }
+                        for (int i = 0; i < upperBoundsDefined; i++)
+                            suffix.WriteCompressedInteger(bounds[i].Upper.GetValueOrDefault());
                         suffix.WriteCompressedInteger(lowerBoundsDefined);
-                        foreach (var bound in bounds)
-                        {
-                            suffix.WriteCompressedSignedInteger(bound.Lower.GetValueOrDefault());
-                        }
+                        for (int i = 0; i < lowerBoundsDefined; i++)
+                            suffix.WriteCompressedSignedInteger(bounds[i].Lower.GetValueOrDefault());
                         break;
                     case CILParser.GenericArgumentsModifierContext genericArgs:
                         VisitTypeArgs(genericArgs.typeArgs()).Value.WriteContentTo(suffix);
