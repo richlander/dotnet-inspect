@@ -769,6 +769,13 @@ cd ../..
 dotnet run --project prototypes/inspect-web/engine.Tests -c Release
 ```
 
+`npm run analyze` runs oxlint over the TypeScript and then html-validate and
+htmlhint over the markup. Script inside a document is read by neither the
+compiler nor oxlint, so those two linters are the whole of its coverage.
+[html-hygiene.md](html-hygiene.md) records what they own and which hazards --
+inline `<script>` bodies, `iframe srcdoc`, and a remote `<base>` -- remain a
+review responsibility rather than a gate.
+
 `BrowserEngineBoundaryTests` gates the browser host's aggregate archive budget,
 central-directory entry limit before archive enumeration, role preflight before identity decoding, malformed selected-participant
 visibility, reference-only retained-image budget, duplicate XML parameter

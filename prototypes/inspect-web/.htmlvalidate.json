@@ -1,0 +1,12 @@
+{
+  "extends": ["html-validate:recommended"],
+  "rules": {
+    "doctype-style": "off",
+    "void-style": "off",
+    "long-title": "off",
+    "require-sri": ["error", { "target": "crossorigin" }],
+    "allowed-links": ["error", {
+      "allowExternal": { "include": ["^https://cdn\\.jsdelivr\\.net/"] }
+    }]
+  }
+}
