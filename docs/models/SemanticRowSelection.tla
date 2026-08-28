@@ -12,7 +12,7 @@ Keys == 1..MaxSequences
 Counts == 1..(MaxValue + 1)
 Orders == {"Ascending", "Descending"}
 CallbackKinds == {"None", "ResolverFailure", "ComparerFailure"}
-StageKinds == {"Head", "Tail", "Range", "Top"}
+StageKinds == {"Head", "Tail", "Window", "Top"}
 
 Min(a, b) == IF a < b THEN a ELSE b
 Max(a, b) == IF a > b THEN a ELSE b
@@ -42,16 +42,18 @@ HeadStages ==
 TailStages ==
     {[BaseStage("Tail") EXCEPT !.count = count] : count \in Counts}
 
-RangeStageCandidates ==
-    {[BaseStage("Range") EXCEPT
+WindowStageCandidates ==
+    {[BaseStage("Window") EXCEPT
         !.start = start,
         !.upper = upper]
-      : start \in Counts,
+      : start \in 0..(MaxValue + 1),
         upper \in 0..(MaxValue + 1)}
 
-RangeStages ==
-    {stage \in RangeStageCandidates:
-        stage.upper = 0 \/ stage.upper >= stage.start}
+WindowStages ==
+    {stage \in WindowStageCandidates:
+        stage.start = 0
+        \/ stage.upper = 0
+        \/ stage.upper >= stage.start}
 
 TopStages ==
     {[BaseStage("Top") EXCEPT
@@ -62,9 +64,25 @@ TopStages ==
         order \in Orders,
         callback \in CallbackKinds}
 
-Stages == HeadStages \union TailStages \union RangeStages \union TopStages
+Stages == HeadStages \union TailStages \union WindowStages \union TopStages
 Plans == BoundedSequences(Stages, MaxStages)
 Inputs == [Keys -> Rows]
+
+WindowFormsExist ==
+    /\ \E stage \in WindowStages:
+        /\ stage.start # 0
+        /\ stage.upper # 0
+    /\ \E stage \in WindowStages:
+        /\ stage.start = 0
+        /\ stage.upper # 0
+    /\ \E stage \in WindowStages:
+        /\ stage.start # 0
+        /\ stage.upper = 0
+    /\ \E stage \in WindowStages:
+        /\ stage.start = 0
+        /\ stage.upper = 0
+
+ASSUME WindowFormsAreModeled == WindowFormsExist
 
 Take(sequence, count) ==
     IF Len(sequence) = 0
@@ -76,14 +94,14 @@ TakeTail(sequence, count) ==
     THEN <<>>
     ELSE SubSeq(sequence, Max(1, Len(sequence) - count + 1), Len(sequence))
 
-RequiredPosition(rowRange) ==
-    IF rowRange.upper = 0 THEN rowRange.start ELSE rowRange.upper
+RequiredPosition(window) ==
+    IF window.upper = 0 THEN window.start ELSE window.upper
 
-ApplyRange(sequence, rowRange) ==
+ApplyWindow(sequence, window) ==
     SubSeq(
         sequence,
-        rowRange.start,
-        IF rowRange.upper = 0 THEN Len(sequence) ELSE rowRange.upper)
+        IF window.start = 0 THEN 1 ELSE window.start,
+        IF window.upper = 0 THEN Len(sequence) ELSE window.upper)
 
 Elements(sequence) ==
     {sequence[index] : index \in 1..Len(sequence)}
@@ -123,7 +141,7 @@ vars ==
     <<input, plan, keyPosition, stagePosition, currentRows, results,
       status, published, resolverCalls, resolverFirstKey, failure, history>>
 
-FailureKinds == {"RangeFailure", "ResolverFailure", "ComparerFailure"}
+FailureKinds == {"WindowFailure", "ResolverFailure", "ComparerFailure"}
 
 FailureRecord(kind, key, stage, required, available) ==
     [kind |-> kind,
@@ -194,12 +212,12 @@ ApplyPositionalStage ==
         <<input, plan, keyPosition, results, status, published,
           resolverCalls, resolverFirstKey, failure>>
 
-ApplyValidRange ==
+ApplyValidWindow ==
     /\ status = "Running"
     /\ stagePosition <= Len(plan)
-    /\ plan[stagePosition].kind = "Range"
+    /\ plan[stagePosition].kind = "Window"
     /\ RequiredPosition(plan[stagePosition]) <= Len(currentRows)
-    /\ LET nextRows == ApplyRange(currentRows, plan[stagePosition])
+    /\ LET nextRows == ApplyWindow(currentRows, plan[stagePosition])
        IN /\ currentRows' = nextRows
           /\ history' = RecordStage(nextRows)
     /\ stagePosition' = stagePosition + 1
@@ -207,16 +225,16 @@ ApplyValidRange ==
         <<input, plan, keyPosition, results, status, published,
           resolverCalls, resolverFirstKey, failure>>
 
-FailRange ==
+FailWindow ==
     /\ status = "Running"
     /\ stagePosition <= Len(plan)
-    /\ plan[stagePosition].kind = "Range"
+    /\ plan[stagePosition].kind = "Window"
     /\ RequiredPosition(plan[stagePosition]) > Len(currentRows)
-    /\ status' = "RangeFailure"
+    /\ status' = "WindowFailure"
     /\ published' = FALSE
     /\ failure' =
         FailureRecord(
-            "RangeFailure",
+            "WindowFailure",
             keyPosition,
             stagePosition,
             RequiredPosition(plan[stagePosition]),
@@ -284,8 +302,8 @@ ApplyTop ==
 Next ==
     AdvanceSequence
     \/ ApplyPositionalStage
-    \/ ApplyValidRange
-    \/ FailRange
+    \/ ApplyValidWindow
+    \/ FailWindow
     \/ ResolveTop
     \/ ApplyTop
 
@@ -355,8 +373,8 @@ FailuresRespectTraversal ==
                     failure.key,
                     failure.stage)
 
-ExpectedRangeEndpoint(rowRange) ==
-    IF rowRange.upper = 0 THEN rowRange.start ELSE rowRange.upper
+ExpectedWindowEndpoint(window) ==
+    IF window.upper = 0 THEN window.start ELSE window.upper
 
 FailuresMatchCurrentCause ==
     status \in FailureKinds =>
@@ -365,11 +383,11 @@ FailuresMatchCurrentCause ==
         /\ failure.key = keyPosition
         /\ failure.stage = stagePosition
         /\ failure.available = Len(currentRows)
-        /\ CASE plan[stagePosition].kind = "Range" ->
-                    /\ status = "RangeFailure"
+        /\ CASE plan[stagePosition].kind = "Window" ->
+                    /\ status = "WindowFailure"
                     /\ failure.required =
-                        ExpectedRangeEndpoint(plan[stagePosition])
-                    /\ ExpectedRangeEndpoint(plan[stagePosition]) >
+                        ExpectedWindowEndpoint(plan[stagePosition])
+                    /\ ExpectedWindowEndpoint(plan[stagePosition]) >
                         Len(currentRows)
              [] plan[stagePosition].kind = "Top" ->
                     /\ failure.required = 0
@@ -426,14 +444,21 @@ MatchesTail(inputRows, actualRows, count) ==
         actualRows[index] =
             inputRows[Len(inputRows) - Len(actualRows) + index]
 
-MatchesRange(inputRows, actualRows, rowRange) ==
-    /\ ExpectedRangeEndpoint(rowRange) <= Len(inputRows)
+MatchesWindow(inputRows, actualRows, window) ==
+    /\ ExpectedWindowEndpoint(window) <= Len(inputRows)
     /\ Len(actualRows) =
-        IF rowRange.upper = 0
-        THEN Len(inputRows) - rowRange.start + 1
-        ELSE rowRange.upper - rowRange.start + 1
+        IF window.start = 0
+        THEN IF window.upper = 0
+             THEN Len(inputRows)
+             ELSE window.upper
+        ELSE IF window.upper = 0
+             THEN Len(inputRows) - window.start + 1
+             ELSE window.upper - window.start + 1
     /\ \A index \in 1..Len(actualRows):
-        actualRows[index] = inputRows[rowRange.start + index - 1]
+        actualRows[index] =
+            inputRows[
+                (IF window.start = 0 THEN 1 ELSE window.start)
+                + index - 1]
 
 ContainsRow(rows, value) ==
     \E index \in 1..Len(rows): rows[index] = value
@@ -468,8 +493,8 @@ StageOutputsMatchSemantics ==
                         entry.inputRows,
                         entry.rows,
                         stage.count)
-             [] stage.kind = "Range" ->
-                    MatchesRange(
+             [] stage.kind = "Window" ->
+                    MatchesWindow(
                         entry.inputRows,
                         entry.rows,
                         stage)

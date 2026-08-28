@@ -71,7 +71,7 @@ The executor returns either:
 
 - selected sequences containing the original values in their selected order;
   or
-- one structured range failure and no selected output.
+- one structured window failure and no selected output.
 
 For keyed input, evaluation is all-or-failure: every sequence succeeds or the
 result contains one failure and no selected sequence collection. The failure
@@ -82,7 +82,7 @@ presentation text.
 
 The reference executor evaluates a complete logical input sequence. A source
 optimizer may avoid acquiring that complete sequence only when it can prove the
-same selected values, order, and strict-range outcome. The
+same selected values, order, and strict-window outcome. The
 source-pushdown design owns how that proof is represented and obtained.
 
 The evaluated Release compile/runtime closure contains only framework
@@ -104,12 +104,14 @@ RowSelectionPlan<TOrder>
   Stages:
     Head(count)
     Tail(count)
-    Range(start, end?)
+    Window(start?, end?)
     Top(count, resolved-ranking-order)
 ```
 
-Counts and range coordinates are positive integers. A closed range is
-1-based and inclusive. An open range has a start and no end.
+Counts and present window coordinates are positive integers. Window
+coordinates are 1-based data-row positions, and both bounds are inclusive.
+Either or both bounds may be omitted. A window with neither bound is an
+identity stage.
 
 `Take` is not a distinct semantic stage; a caller spelling with that meaning
 lowers to `Head`. `Top` carries an opaque ranking-order identity already
@@ -122,10 +124,10 @@ The plan permits repeated stages of any kind. It contains no incomplete
 modifier waiting for another token and no implicit default count. L3 owns
 rejecting or completing such syntax before construction.
 
-Plan construction rejects nonpositive counts, nonpositive range positions, and
-a closed range whose end precedes its start. The comparer resolver must return
-a non-null comparer for every `Top` order; violating that condition is caller
-misuse, not a semantic range failure.
+Plan construction rejects nonpositive counts, nonpositive present window
+positions, and a closed window whose end precedes its start. The comparer
+resolver must return a non-null comparer for every `Top` order; violating that
+condition is caller misuse, not a semantic window failure.
 
 An empty plan preserves every input value and its order without invoking the
 comparer resolver.
@@ -138,7 +140,7 @@ one executor invocation, and caches that comparer for the same stage across
 later named sequences. Repeated `Top` stages resolve independently even when
 they carry equal order values.
 
-An earlier strict `Range` failure therefore prevents a later `Top` resolver
+An earlier strict `Window` failure therefore prevents a later `Top` resolver
 from running. `ApplyNamed` considers sequences in input order and stages in
 plan order while withholding every result until all sequences succeed. A
 failure or callback exception stops that traversal: a callback reached in an
@@ -168,7 +170,7 @@ public enum RowSelectionStageKind
 {
     Head,
     Tail,
-    Range,
+    Window,
     Top
 }
 
@@ -177,13 +179,13 @@ public sealed class RowSelectionStage<TOrder>
 {
     public RowSelectionStageKind Kind { get; }
     public int Count { get; }
-    public int Start { get; }
+    public int? Start { get; }
     public int? End { get; }
     public TOrder Order { get; }
 
     public static RowSelectionStage<TOrder> Head(int count);
     public static RowSelectionStage<TOrder> Tail(int count);
-    public static RowSelectionStage<TOrder> Range(int start, int? end);
+    public static RowSelectionStage<TOrder> Window(int? start, int? end);
     public static RowSelectionStage<TOrder> Top(int count, TOrder order);
 }
 
@@ -218,31 +220,31 @@ public sealed class NamedRowSequence<T>
         IReadOnlyList<T> values);
 }
 
-public sealed class RowRangeFailure
+public sealed class RowWindowFailure
 {
     public int StageNumber { get; }
     public int RequiredPosition { get; }
     public int AvailableCount { get; }
 }
 
-public sealed class NamedRowRangeFailure
+public sealed class NamedRowWindowFailure
 {
     public RowSequenceKey Key { get; }
-    public RowRangeFailure Failure { get; }
+    public RowWindowFailure Failure { get; }
 }
 
 public sealed class RowSelectionResult<T>
 {
     public bool IsSuccess { get; }
     public IReadOnlyList<T> Values { get; }
-    public RowRangeFailure? Failure { get; }
+    public RowWindowFailure? Failure { get; }
 }
 
 public sealed class NamedRowSelectionResult<T>
 {
     public bool IsSuccess { get; }
     public IReadOnlyList<NamedRowSequence<T>> Sequences { get; }
-    public NamedRowRangeFailure? Failure { get; }
+    public NamedRowWindowFailure? Failure { get; }
 }
 
 public static class RowSelectionExecutor
@@ -268,7 +270,7 @@ members and compiler-generated metadata that does not add callable surface are
 outside the manifest.
 
 `Count` is valid for `Head`, `Tail`, and `Top`; `Start` and `End` are valid for
-`Range`; `Order` is valid for `Top`. A wrong-kind accessor throws
+`Window`; `Order` is valid for `Top`. A wrong-kind accessor throws
 `InvalidOperationException`. All required reference arguments reject null with
 `ArgumentNullException`; `comparerResolver` may be null only when the plan has
 no `Top`. Plan creation and append reject null stage entries, and named
@@ -318,8 +320,10 @@ Each stage consumes the sequence produced by the preceding stage:
 | --- | --- |
 | `Head(N)` | The first `min(N, count)` rows, in current order. |
 | `Tail(N)` | The last `min(N, count)` rows, in current order. |
-| `Range(A, B)` | Current positions A through B inclusive; fails unless position B exists. |
-| `Range(A, null)` | Current position A through the end; fails unless position A exists. |
+| `Window(A, B)` | Current positions A through B inclusive; fails unless position B exists. |
+| `Window(null, B)` | The first B current positions; fails unless position B exists. |
+| `Window(A, null)` | Current position A through the end; fails unless position A exists. |
+| `Window(null, null)` | Every current position, unchanged. |
 | `Top(N, order)` | Rank the current rows by `order`, then keep the first `min(N, count)`. |
 
 `Head`, `Tail`, and `Top` are lenient: a request larger than the current input
@@ -328,10 +332,61 @@ never reverses the surviving rows. `Top` always resolves and applies its
 ranking, including when its count is at least the current count; an oversized
 `Top` therefore returns every row in ranked order rather than baseline order.
 
-`Range` is strict. A closed range requires its end, not merely its start, to
-exist in the current input. An open range requires its start to exist. A
-strict-range failure is not an empty result and must not be reported as source
-exhaustion or successful truncation.
+`Window` is strict. A closed or prefix window requires its end to exist in the
+current input. A suffix window requires its start to exist. A strict-window
+failure is not an empty result and must not be reported as source exhaustion or
+successful truncation. A boundless identity window has no required endpoint and
+cannot fail.
+
+### Relationship to Unix, C#, and Kusto
+
+Selection positions count only declared data rows. They are the positions a
+plain-text pipeline would see after removing a rendered table header:
+
+- `Window(null, B)` has the positional shape of Unix `head -n B`;
+- `Window(A, null)` has the positional shape of Unix `tail -n +A`; and
+- `Window(A, B)` has the positional shape of
+  `tail -n +A | head -n (B - A + 1)`.
+
+The resemblance is about 1-based direction and composition. GNU `head` and
+`tail` are lenient when the requested position exceeds the input, while
+`Window` is deliberately strict so an unavailable requested row cannot look
+like successful truncation. The component's `Head` and `Tail` count stages
+retain the lenient Unix behavior.
+
+The grammar also has established CLI precedents. `sed` uses 1-based inclusive
+line-address ranges such as `10,20`; GNU `cut` accepts 1-based closed, prefix,
+and suffix lists such as `1-3`, `-3`, and `3-`; and `bat --line-range` accepts
+inclusive `30:40`, `:40`, and `30:` forms. Those tools are lenient when a bound
+exceeds available input, unlike this semantic Window.
+
+`Window` is not C# `System.Range`. C# ranges use zero-based indices, exclude the
+end, permit a boundless `..`, and support from-end `^N` operands. A C# range
+such as `1..3` selects indices 1 and 2 and permits the empty `3..3`; this
+component's `Window(1, 3)` selects data rows 1, 2, and 3. Both reject
+out-of-bounds slicing, but that shared strictness does not make their coordinate
+systems interchangeable.
+
+Kusto's `between (A .. B)` is inclusive at both ends, like a closed `Window`,
+but it filters scalar values rather than selecting row positions. Kusto
+`row_number()` supplies 1-based positions only over a serialized row set;
+`Window` instead consumes the caller's already-ordered current sequence and
+reindexes after every stage. Kusto `take` is lenient like `Head` but does not
+guarantee which records survive unless its input is sorted.
+
+References:
+
+- [GNU `head`](https://www.gnu.org/software/coreutils/manual/html_node/head-invocation.html)
+  and
+  [GNU `tail`](https://www.gnu.org/software/coreutils/manual/html_node/tail-invocation.html)
+- [GNU `sed` addresses](https://www.gnu.org/software/sed/manual/html_node/Addresses.html)
+  and
+  [GNU `cut`](https://www.gnu.org/software/coreutils/manual/html_node/cut-invocation.html)
+- [`bat --line-range`](https://github.com/sharkdp/bat/blob/master/doc/long-help.txt)
+- [C# range operator](https://learn.microsoft.com/dotnet/csharp/language-reference/operators/member-access-operators#range-operator-)
+- [Kusto `between`](https://learn.microsoft.com/kusto/query/between-operator),
+  [`row_number()`](https://learn.microsoft.com/kusto/query/row-number-function),
+  and [`take`](https://learn.microsoft.com/kusto/query/take-operator)
 
 ## Ordered composition and reindexing
 
@@ -342,27 +397,31 @@ the original ordinals.
 Conceptual examples make the evaluation order explicit:
 
 ```text
-[1, 2, 3, 4, 5, 6, 7, 8].Range[3, 4].Tail(2)
+[1, 2, 3, 4, 5, 6, 7, 8].Window[3..4].Tail(2)
 => [3, 4].Tail(2)
 => [3, 4]
 
-[1, 2, 3, 4, 5, 6, 7, 8].Range[3, 6].Tail(2)
+[1, 2, 3, 4, 5, 6, 7, 8].Window[3..6].Tail(2)
 => [3, 4, 5, 6].Tail(2)
 => [5, 6]
 
-[1, 2, 3, 4, 5, 6, 7, 8].Tail(4).Range[2, 3]
-=> [5, 6, 7, 8].Range[2, 3]
+[1, 2, 3, 4, 5, 6, 7, 8].Tail(4).Window[2..3]
+=> [5, 6, 7, 8].Window[2..3]
 => [6, 7]
 
-[1, 2, 3, 4, 5, 6, 7, 8].Head(2).Range[2, 3]
-=> [1, 2].Range[2, 3]
+[1, 2, 3, 4, 5, 6, 7, 8].Head(2).Window[2..3]
+=> [1, 2].Window[2..3]
 => error: stage 2 requires position 3, but its input has 2 rows
+
+[1, 2, 3, 4, 5, 6, 7, 8].Window[..3].Tail(2)
+=> [1, 2, 3].Tail(2)
+=> [2, 3]
 
 [4, 1, 3, 2].Top(10, ascending).Head(2)
 => [1, 2, 3, 4].Head(2)
 => [1, 2]
 
-[1, 2, 3, 4, 5, 6].Range[2, 5].Top(2, descending)
+[1, 2, 3, 4, 5, 6].Window[2..5].Top(2, descending)
 => [2, 3, 4, 5].Top(2, descending)
 => [5, 4]
 ```
@@ -410,7 +469,7 @@ values reject at the boundary so a failure never identifies an ambiguous
 input.
 
 Strict validation is atomic across those sequences. If any applicable sequence
-cannot satisfy any `Range` stage:
+cannot satisfy any `Window` stage:
 
 - evaluation fails;
 - the structured failure identifies the input key, one-based stage number,
@@ -419,25 +478,25 @@ cannot satisfy any `Range` stage:
 
 The L2 integration owner must complete this pure preflight before projection,
 rendering, per-row payload acquisition, or destination mutation. This avoids a
-presentation-dependent partial success in which one table honors a range while
+presentation-dependent partial success in which one table honors a window while
 another silently clamps or disappears.
 
 ## Failure model
 
-The single-sequence executor returns a `RowRangeFailure` with:
+The single-sequence executor returns a `RowWindowFailure` with:
 
-- `StageNumber`: the one-based index of the failing `Range` stage;
-- `RequiredPosition`: the closed range end or open range start that had to
-  exist; and
+- `StageNumber`: the one-based index of the failing `Window` stage;
+- `RequiredPosition`: the end of a closed or prefix window, or the start of a
+  suffix window, that had to exist; and
 - `AvailableCount`: the size of that stage's current input.
 
-The named-sequence executor returns `NamedRowRangeFailure`, containing the
-component-owned input `Key` and the same `RowRangeFailure`. L2 resolves the key
-through its retained map before producing a diagnostic. Failures contain no
-message, exception text, row value, or rendered identity.
+The named-sequence executor returns `NamedRowWindowFailure`, containing the
+component-owned input `Key` and the same `RowWindowFailure`. L2 resolves the
+key through its retained map before producing a diagnostic. Failures contain
+no message, exception text, row value, or rendered identity.
 
 Invalid plan construction and a missing resolved comparer are caller misuse,
-not `RowRangeFailure` outcomes. They reject before a selected result is
+not `RowWindowFailure` outcomes. They reject before a selected result is
 returned.
 
 ## Reference semantics and optimized execution
@@ -448,7 +507,7 @@ those choices are observationally equivalent only when they preserve:
 
 - the same surviving caller-owned values;
 - the same output order;
-- the same strict-range success or failure;
+- the same strict-window success or failure;
 - the same named-sequence boundary; and
 - the same all-or-failure output behavior;
 - the same set of reached `Top` stages and one resolver invocation per reached
@@ -463,26 +522,26 @@ This distinction matters when a later lenient stage would keep fewer rows than
 an earlier strict stage validates:
 
 ```text
-Rows.Range[100, 200].Head(5)
+Rows.Window[100..200].Head(5)
 ```
 
 The result contains positions 100 through 104, but successful evaluation still
-requires proof that position 200 existed in the input to `Range`.
+requires proof that position 200 existed in the input to `Window`.
 
 Conversely:
 
 ```text
-Rows.Head(5).Range[100, 200]
+Rows.Head(5).Window[100..200]
 ```
 
 deterministically fails after `Head` produces at most five rows. Acquisition
-must not fetch toward position 200 to rescue a range whose current stage input
+must not fetch toward position 200 to rescue a window whose current stage input
 cannot contain it.
 
 An incomplete provider page is not proof that a strict endpoint is absent.
 The source owner must obtain enough evidence, reject the unsupported
 optimization, or report an acquisition/completion failure distinct from a
-semantic range failure.
+semantic window failure.
 
 ## Markout boundary
 
@@ -501,7 +560,7 @@ The small
 [TLA+ interaction model](../models/SemanticRowSelection.tla) supplements this
 specification. It models one immutable plan applied to ordered named sequences,
 with sequence-major and stage-major traversal, stage-local row positions,
-strict `Range`, positional `Head`/`Tail`, ranked `Top`, resolver caching,
+strict `Window`, positional `Head`/`Tail`, ranked `Top`, resolver caching,
 callback failures, withheld publication, and final atomic success.
 
 The model deliberately abstracts row identity to distinct integers and ranking
@@ -516,15 +575,16 @@ lets later named sequences apply the same stage directly.
 
 [`SemanticRowSelection.cfg`](../models/SemanticRowSelection.cfg) checks all
 plans up to two stages over two named sequences containing up to three distinct
-values. It checks type safety, atomic publication, completion only after every
-sequence, at-most-once resolver invocation and consistent resolver metadata,
+values. It checks non-vacuous closed, prefix, suffix, and boundless window
+forms, type safety, atomic publication, completion only after every sequence,
+at-most-once resolver invocation and consistent resolver metadata,
 sequence/stage failure precedence through the exact successful-history prefix
-at every cursor, terminal failures against their current strict-range or
+at every cursor, terminal failures against their current strict-window or
 callback cause, resolver visibility no earlier than its traversal cursor,
 resolver completion before ranking or comparer failure, each stage's input
 against the preceding stage's output, live rows against completed history,
 every successful stage's exact semantics through checks independent of the
-transition helpers (including strict `Range`, stage-local reindexing, and ranked
+transition helpers (including strict `Window`, stage-local reindexing, and ranked
 `Top` output), callback admissibility and resolver coverage for every successful
 `Top`, complete history and final rows for every published named result, and
 eventual termination under weak fairness.
@@ -541,10 +601,13 @@ java -XX:+UseParallelGC \
   -config SemanticRowSelection.cfg SemanticRowSelection.tla
 ```
 
-TLC generated and checked 2,224,914 distinct states to depth 9 with no errors
+TLC generated and checked 2,715,108 distinct states to depth 9 with no errors
 or material counterexamples. Deadlock checking is disabled because success,
 strict failure, and callback failure are intentional terminal states; the
 model permits terminal stuttering and separately checks eventual termination.
+The named `WindowFormsAreModeled` assumption keeps closed, prefix, suffix, and
+boundless forms non-vacuous; restoring the former positive-start-only generator
+makes TLC reject that assumption before state exploration.
 
 This clean bounded result is evidence about the interaction model, not proof of
 the C# implementation; the named Release gates below remain required.
@@ -555,23 +618,23 @@ The implementation must add these named Release gates:
 
 | Gate | Contract |
 | --- | --- |
-| `SelectionStagesComposeInDeclaredOrder` | Reversing `Head`, `Tail`, `Range`, or `Top` stages changes results exactly as the reference examples require; every stage reads positions beginning at 1 from the preceding output. |
-| `SelectionCountsAreLenientAndRangesAreStrict` | Oversized `Head` and `Tail` return the complete current input in current order; oversized `Top` returns every current row in ranked order; closed and open ranges fail unless their required endpoint exists at that stage. |
-| `RowSelectionPlanRejectsInvalidStages` | Every public construction path rejects nonpositive counts, nonpositive range coordinates, and a closed end before its start rather than creating an empty or unlimited stage. |
+| `SelectionStagesComposeInDeclaredOrder` | Reversing `Head`, `Tail`, `Window`, or `Top` stages changes results exactly as the reference examples require; every stage reads positions beginning at 1 from the preceding output. |
+| `SelectionCountsAreLenientAndWindowsAreStrict` | Oversized `Head` and `Tail` return the complete current input in current order; oversized `Top` returns every current row in ranked order; closed, prefix, and suffix windows fail unless their required endpoint exists at that stage. |
+| `RowSelectionPlanRejectsInvalidStages` | Every public construction path rejects nonpositive counts, nonpositive present window coordinates, and a closed end before its start rather than creating an empty or unlimited stage. A boundless window is identity. |
 | `EmptyRowSelectionPlanIsIdentity` | An empty plan returns an immutable snapshot containing every original value in order and never invokes the comparer resolver. |
 | `TopRequiresResolvedComparer` | A reached resolver that returns no comparer identifies the `Top` stage and rejects as caller misuse before any selected result is returned. |
-| `SelectionCallbacksFollowStageOrder` | Both executor entry points validate resolver presence without eager invocation, resolve each reached `Top` stage exactly once, cache that stage's comparer across named sequences, and stop before later callbacks after an earlier strict failure or callback exception. Fixtures cover `Range` before and after `Top`, multiple named sequences, repeated equal order values, unkeyed and named empty value sequences, and a named call with no sequences. |
+| `SelectionCallbacksFollowStageOrder` | Both executor entry points validate resolver presence without eager invocation, resolve each reached `Top` stage exactly once, cache that stage's comparer across named sequences, and stop before later callbacks after an earlier strict failure or callback exception. Fixtures cover `Window` before and after `Top`, multiple named sequences, repeated equal order values, unkeyed and named empty value sequences, and a named call with no sequences. |
 | `SelectionCallbackExceptionsPropagateUnchanged` | Both executor entry points propagate the exact sentinel exception instance thrown by a reached comparer resolver or by an always-throwing comparer over at least two rows; no sorting path wraps, substitutes, or suppresses it. |
 | `RowSelectionRejectsNullBoundaryInputs` | Every required reference argument rejects null; a null resolver is accepted only without `Top`; nullable row values remain ordinary selected values. |
 | `StageAccessorsRejectWrongKind` | Each kind exposes only its documented values; every wrong-kind `Count`, `Start`, `End`, or `Order` access throws rather than returning a plausible default. |
-| `StrictRangesValidateNamedSequencesAtomically` | A strict-range miss in any one of several keyed sequences identifies the key and stage and returns no selected sequence collection. |
+| `StrictWindowsValidateNamedSequencesAtomically` | A strict-window miss in any one of several keyed sequences identifies the key and stage and returns no selected sequence collection. |
 | `SelectionFailuresAreDeterministic` | Multiple failing named sequences return the first failure by input sequence order and stage order; duplicate `RowSequenceKey.Value` values reject before execution. |
 | `RowSequenceKeyHasStableValueSemantics` | Negative values reject; separately created equal values compare equal and produce equal hash codes; distinct values compare unequal; L2's typed row-set identity never enters the component. |
-| `RowRangeFailureShapeIsExact` | Unkeyed failures contain exactly stage number, required position, and available count; named failures add only the opaque key. Closed ranges report their end and open ranges report their start against the post-predecessor count. |
+| `RowWindowFailureShapeIsExact` | Unkeyed failures contain exactly stage number, required position, and available count; named failures add only the opaque key. Closed and prefix windows report their end; suffix windows report their start against the post-predecessor count. |
 | `TopAlwaysRanksCurrentInput` | Every `Top` over at least two rows, including an oversized one, resolves and applies its comparer; `Top(oversized)` followed by a positional stage observes ranked rather than baseline order. |
 | `TopRetainsCurrentOrderForEqualRanks` | Equal comparer results preserve current sequence order, including after an earlier stage changed the current sequence. |
 | `SelectionReturnsOriginalValuesInOrder` | The executor preserves each original caller-owned `T` value or reference without cloning, relabeling, or deriving identity from stage positions. |
-| `SelectionResultsSnapshotMembership` | Source-list mutation after named-input creation or execution cannot change result membership or order; exposed collections cannot mutate the snapshot. Fixtures cover empty, oversized Head/Tail/Top, Range, mixed stages, and named success/failure paths. |
+| `SelectionResultsSnapshotMembership` | Source-list mutation after named-input creation or execution cannot change result membership or order; exposed collections cannot mutate the snapshot. Fixtures cover empty, oversized Head/Tail/Top, Window, mixed stages, and named success/failure paths. |
 | `RowSelectionPlanIsImmutableSnapshot` | Mutating a caller-owned stage collection after `Create` cannot change the plan; `Stages` exposes no mutable collection; `Append` leaves the prior plan unchanged; every stage remains immutable. |
 | `RowSelectionPublicSurfaceIsExact` | A generated expected set derived from the signature manifest in [Public surface and immutability](#public-surface-and-immutability) rejects any missing or extra type, constructor, member, mutator, host-shaped overload, asynchronous protocol, generic constraint, enum value, parameter name/order/type/nullability/optionality, or default value. |
 | `RowSelectionExternalConsumerExercisesSurface` | A non-friend fixture project constructs every stage, plan, and named input through the declared factories; invokes both executor methods with omitted and named optional arguments; and observes every accessor and success/failure branch. Removing any intended public wiring fails the gate. |
@@ -581,5 +644,5 @@ The implementation must add these named Release gates:
 
 The source-pushdown successor must add an equivalence gate comparing every
 optimized plan it supports with this complete-sequence reference executor,
-including strict ranges before and after lenient stages, reached-stage resolver
+including strict windows before and after lenient stages, reached-stage resolver
 cardinality, and callback/failure precedence.
