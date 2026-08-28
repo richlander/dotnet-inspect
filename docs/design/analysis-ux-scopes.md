@@ -5,7 +5,14 @@ member, type, and library views. The same underlying facts may be rendered at
 different scopes, but they should not acquire unrelated names or meanings just
 because the entry point changed.
 
-## Scope model
+[Analysis surfaces and universes](analysis-surfaces-and-universes.md) owns the
+host-neutral request distinction between report surface, analysis universe,
+targeted/census mode, capability introspection, and result projection. This
+document owns only the user-facing naming of semantic analysis content at
+different levels. Its use of *scope* is presentational; an offset is coordinate
+context within an analysis, not another aggregate report surface.
+
+## UX scope model
 
 | Scope | User question | Shape word |
 | --- | --- | --- |
