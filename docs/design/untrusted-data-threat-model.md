@@ -622,8 +622,19 @@ and
 Package identifiers and versions used as cache path components pass
 `NuGetCache.ValidatePathComponent`, which rejects empty or whitespace values,
 traversal (`..`), separators, volume qualifiers (`:`), null characters, and
-otherwise rooted values before any cache path is built. Store keys (PDB cache
-keys and package entry paths) resolve through the shared `StorePath.ResolveUnderRoot` guard: it splits
+otherwise rooted values before any cache path is built. Non-ASCII package IDs
+use a fixed-width digest in a leading `~` namespace that the package-ID grammar
+cannot produce. This prevents byte-length overflow, filesystem-normalization
+aliases, and collision with literal digest-shaped package IDs while preserving
+the typed ID in the commit marker. NuGet global-cache entries additionally admit
+only when their bounded, hardened nuspec declares the requested ID.
+`PackagePayloadAcquisitionTests.PackageCache_UnicodeIdsUseDistinctFixedWidthComponents`,
+`PackageCache_UnicodeCoordinatesCommitToDistinctSlots`, and
+`GlobalPackageIdentityMismatch_IsIgnored`,
+`GlobalPackageMalformedIdentity_IsIgnored`, and
+`GlobalPackageOversizeIdentity_IsIgnored` gate these properties.
+Store keys (PDB cache keys and package entry paths) resolve through the shared
+`StorePath.ResolveUnderRoot` guard: it splits
 on `/`, rejects any segment that is empty, `.`, `..`, separator-bearing,
 volume-qualified (`:`), null-character-bearing, or otherwise rooted, then
 verifies the composed absolute path stays under the store root with a final
@@ -1004,11 +1015,16 @@ JSON as "no data" now treat duplicate-bearing JSON the same way; that is fail-cl
 not by itself convert those callers to explicit failure reporting, which remains open work below.
 
 The coverage is not yet complete, and the gaps are on the feed path specifically:
-`PackageExtractor` uses `HardenedJson.Parse` at four call sites but plain
+`PackageExtractor` uses `HardenedJson.Parse` at two call sites but plain
 `System.Text.Json.JsonDocument.Parse` at two more when reading registration pages, and
-`NuGetFetch.NuGetApi` deserializes the service index, version index, and search responses through a
-source-generated context that does not reject duplicates. `runfaster` also still parses its trace
-inputs directly. Nothing gates the invariant, which is why the gaps persisted; see open work below.
+`runfaster` still parses its trace inputs directly. `NuGetFetch.NuGetApi`
+rejects duplicates in service-index, version-index, and search responses,
+gated by
+`PackageSourceClientTests.NuGetMetadataReadersRejectDuplicateProperties`.
+The separate v3 search-resource discovery reader rejects them too, gated by
+`PackageSourceClientTests.V3SearchDiscoveryRejectsDuplicateJsonProperties`.
+No set-equality gate yet prevents another direct parser from appearing, which
+is why the remaining gaps are open work below.
 
 ### NuGet metadata response bodies are bounded
 
@@ -1053,21 +1069,31 @@ This is gated by
 
 ### Malformed NuGet metadata fails visibly
 
-The `NuGetApi` readers propagate service-index, version-index, and search documents with invalid
-JSON or missing required data as `JsonException` rather than representing them as an absent
-resource, empty version list, or empty search. A top-level JSON `null` remains an explicit null
-document. The multi-source client isolates `JsonException` to the source that supplied the
-malformed document and continues to later sources, while metadata response limits and body
-timeouts remain fatal.
+The `NuGetApi` readers propagate service-index, version-index, and search
+documents with invalid JSON or missing operation-critical data as
+`JsonException` rather than representing them as an absent resource, empty
+version list, or empty search. Service-index version metadata is not consumed,
+so it may be absent. Malformed optional or unrelated service resources are
+skipped for compatibility, while malformed `PackageBaseAddress` declarations
+fail closed. Every service-resource type observation, including a non-string
+array entry, counts against the resource limit. A top-level JSON `null` remains
+an explicit null document. The multi-source client isolates `JsonException` to
+the source that supplied the malformed document and continues to later
+sources, while metadata response limits and body timeouts remain fatal.
 
 This is gated by `NuGetApiTests.GetServiceIndexAsync_MalformedJson_Throws`,
 `NuGetApiTests.GetServiceIndexAsync_InvalidRequiredData_Throws`,
+`NuGetApiTests.GetServiceIndexAsync_OptionalMalformedDataIsIgnored`,
+`NuGetApiTests.GetServiceIndexAsync_MalformedOptionalSiblingIsIgnored`,
 `NuGetApiTests.GetVersionIndexAsync_MalformedJson_Throws`,
 `NuGetApiTests.GetVersionIndexAsync_InvalidRequiredData_Throws`,
 `NuGetApiTests.GetSearchResponseAsync_MalformedJson_Throws`,
 `NuGetApiTests.GetSearchResponseAsync_InvalidRequiredData_Throws`,
 `NuGetApiTests.MetadataReaders_TopLevelNull_RemainsNull`, and
-`NuGetClientTests.LatestVersion_MalformedSourceContinuesToHealthySource`.
+`NuGetClientTests.LatestVersion_MalformedSourceContinuesToHealthySource`,
+plus
+`PackageSourceClientTests.V3NonStringResourceObservationsAreBounded` and
+`V3VersionRejectsMalformedCriticalServiceResource`.
 
 ### SourceLink provenance is read off the URL source is fetched from
 
@@ -2043,8 +2069,8 @@ only ordinary compiler output.
 
 1. Extend duplicate-property rejection to the readers that still bypass
    `HardenedJson`: the two `JsonDocument.Parse` call sites in
-   `PackageExtractor` registration-page reading, `NuGetFetch.NuGetApi`'s
-   source-generated feed contexts, and `runfaster` trace parsing. Add a gate
+   `PackageExtractor` registration-page reading and `runfaster` trace parsing.
+   Add a gate
    asserting no product JSON entry point parses outside the guard, so the set
    cannot silently regrow.
 2. Define product-wide package, symbol, source-download, and

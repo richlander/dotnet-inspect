@@ -150,9 +150,13 @@ acquisition policy that affects whether a result is legal, including
 payload-cache and network permission. Raw source options are insufficient:
 callers can name the same active feeds while package source mapping or
 candidate discovery authorizes different producers. Concurrent callers receive
-the same task only when those authorization inputs match, and every waiter
-revalidates the returned producer. The current ordered-source-list key must
-migrate with the broader source-policy work in
+the same task only when those authorization inputs match. HTTP acquisition also
+keys an opaque transport scope over the selected client and every ordered
+signed-alias endpoint and credential, so routes with different fallback
+transports cannot share an in-flight outcome. Every waiter revalidates the
+returned producer. `PackageAcquisitionIdentity_IncludesEverySignedAliasTransport`
+gates this route isolation. The current ordered-source-list key must migrate
+with the broader source-policy work in
 [#3752](https://github.com/richlander/dotnet-inspect/issues/3752).
 
 The value factory settles before the registry entry is removed, and the outer

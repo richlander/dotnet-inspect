@@ -404,6 +404,7 @@ public sealed class BrowserEngineBoundaryTests
 
         BrowserAssemblySurface selectedAssembly =
             Assert.Single(surface.Assemblies);
+        Assert.False(handler.ServiceIndexRequested);
         Assert.Equal(
             "aspnetcore.app",
             selectedAssembly.PlatformPack);
@@ -442,6 +443,151 @@ public sealed class BrowserEngineBoundaryTests
             target => Assert.Equal(
                 "aspnetcore.app",
                 target.PlatformPack));
+    }
+
+    [Fact]
+    public async Task PlatformWorkspace_CustomSourceAuthorizationFailsBeforeGalleryRequest()
+    {
+        var handler = new PlatformVersionHandler(
+            "microsoft.netcore.app.ref",
+            "11.0.0");
+        using var client = new HttpClient(handler);
+        var authorization = new UniformPackageSourceAuthorization(
+            [
+                new PackageSource(
+                    "Private",
+                    "https://private.example/v3/index.json"),
+            ]);
+
+        InvalidOperationException error =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => BrowserPlatformWorkspace.OpenRuntimeAsync(
+                    "net11.0-custom-source-guard",
+                    client,
+                    authorization,
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "does not match the configured package source client",
+            error.Message);
+        Assert.DoesNotContain("private.example", error.Message);
+        Assert.Equal(0, handler.Requests);
+    }
+
+    [Theory]
+    [InlineData("?sig=rotating", "query")]
+    [InlineData("#signed", "fragment")]
+    public async Task PlatformWorkspace_GalleryProducerAliasesUseGalleryClient(
+        string suffix,
+        string targetSuffix)
+    {
+        const string packageId =
+            "microsoft.netcore.app.runtime.linux-x64";
+        const string version = "11.0.90";
+        byte[] nupkg = PlatformPackage(
+            ("System.Private.CoreLib.dll",
+                File.ReadAllBytes(typeof(object).Assembly.Location)));
+        var handler = new PlatformVersionHandler(
+            packageId,
+            version,
+            nupkg);
+        using var client = new HttpClient(handler);
+        var authorization = new UniformPackageSourceAuthorization(
+            [
+                new PackageSource(
+                    "Signed Gallery",
+                    $"https://api.nuget.org/v3/index.json{suffix}"),
+            ]);
+
+        using BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                $"net11.0-gallery-alias-{targetSuffix}",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal("runtime", resolution.Coordinate.Family);
+        Assert.False(handler.ServiceIndexRequested);
+        Assert.True(handler.Requests > 0);
+    }
+
+    [Fact]
+    public async Task PlatformWorkspace_RetainedScopeRevalidatesCurrentAuthorization()
+    {
+        const string packageId =
+            "microsoft.netcore.app.runtime.linux-x64";
+        const string version = "11.0.91";
+        const string targetFramework =
+            "net11.0-retained-source-authorization";
+        byte[] nupkg = PlatformPackage(
+            ("System.Private.CoreLib.dll",
+                File.ReadAllBytes(typeof(object).Assembly.Location)));
+        var galleryHandler = new PlatformVersionHandler(
+            packageId,
+            version,
+            nupkg);
+        using var galleryClient = new HttpClient(galleryHandler);
+        using (BrowserPlatformScopeResolution initial =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                targetFramework,
+                galleryClient,
+                new UniformPackageSourceAuthorization(
+                    [PackageSource.NuGetOrg]),
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken))
+        {
+        }
+
+        var aliasHandler = new PlatformVersionHandler(
+            packageId,
+            version,
+            nupkg);
+        using var aliasClient = new HttpClient(aliasHandler);
+        using (BrowserPlatformScopeResolution alias =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                targetFramework,
+                aliasClient,
+                new UniformPackageSourceAuthorization(
+                    [
+                        new PackageSource(
+                            "Signed Gallery",
+                            "https://api.nuget.org/v3/index.json?sig=current"),
+                    ]),
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken))
+        {
+            Assert.Equal("runtime", alias.Coordinate.Family);
+        }
+        Assert.Equal(0, aliasHandler.Requests);
+
+        var privateHandler = new PlatformVersionHandler(
+            packageId,
+            version,
+            nupkg);
+        using var privateClient = new HttpClient(privateHandler);
+        var privateAuthorization = new UniformPackageSourceAuthorization(
+            [
+                new PackageSource(
+                    "Private",
+                    "https://private.example/v3/index.json"),
+            ]);
+
+        InvalidOperationException error =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => BrowserPlatformWorkspace.OpenRuntimeAsync(
+                    targetFramework,
+                    privateClient,
+                    privateAuthorization,
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "is not authorized by the current host",
+            error.Message);
+        Assert.DoesNotContain("private.example", error.Message);
+        Assert.Equal(0, privateHandler.Requests);
     }
 
     [Fact]
@@ -4981,6 +5127,7 @@ public sealed class BrowserEngineBoundaryTests
         byte[]? nupkg = null) : HttpMessageHandler
     {
         public int Requests { get; private set; }
+        public bool ServiceIndexRequested { get; private set; }
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -4989,16 +5136,19 @@ public sealed class BrowserEngineBoundaryTests
             cancellationToken.ThrowIfCancellationRequested();
             Requests++;
             string url = request.RequestUri!.AbsoluteUri;
+            ServiceIndexRequested |= url.Equals(
+                "https://api.nuget.org/v3/index.json",
+                StringComparison.OrdinalIgnoreCase);
             string package = packageId.ToLowerInvariant();
             if (url.Equals(
-                    $"https://api.nuget.org/v3-flatcontainer/{package}/index.json",
+                    $"https://globalcdn.nuget.org/v3-flatcontainer/{package}/index.json",
                     StringComparison.OrdinalIgnoreCase))
             {
                 return Json($$"""{"versions":["{{version}}"]}""");
             }
 
             if (url.Equals(
-                    $"https://api.nuget.org/v3/registration5-gz-semver2/{package}/index.json",
+                    $"https://globalcdn.nuget.org/v3/registration5-gz-semver2/{package}/index.json",
                     StringComparison.OrdinalIgnoreCase))
             {
                 return Json(
@@ -5009,7 +5159,7 @@ public sealed class BrowserEngineBoundaryTests
 
             if (nupkg is not null
                 && url.Equals(
-                    $"https://api.nuget.org/v3-flatcontainer/{package}/{version}/{package}.{version}.nupkg",
+                    $"https://globalcdn.nuget.org/packages/{package}.{version}.nupkg",
                     StringComparison.OrdinalIgnoreCase))
             {
                 return Task.FromResult(
@@ -5051,7 +5201,7 @@ public sealed class BrowserEngineBoundaryTests
             {
                 string package = packageId.ToLowerInvariant();
                 if (url.Equals(
-                        $"https://api.nuget.org/v3-flatcontainer/{package}/index.json",
+                        $"https://globalcdn.nuget.org/v3-flatcontainer/{package}/index.json",
                         StringComparison.OrdinalIgnoreCase))
                 {
                     return await Json(
@@ -5059,7 +5209,7 @@ public sealed class BrowserEngineBoundaryTests
                 }
 
                 if (url.Equals(
-                        $"https://api.nuget.org/v3/registration5-gz-semver2/{package}/index.json",
+                        $"https://globalcdn.nuget.org/v3/registration5-gz-semver2/{package}/index.json",
                         StringComparison.OrdinalIgnoreCase))
                 {
                     return await Json(
@@ -5070,7 +5220,7 @@ public sealed class BrowserEngineBoundaryTests
                 }
 
                 if (url.Equals(
-                        $"https://api.nuget.org/v3-flatcontainer/{package}/{version}/{package}.{version}.nupkg",
+                        $"https://globalcdn.nuget.org/packages/{package}.{version}.nupkg",
                         StringComparison.OrdinalIgnoreCase))
                 {
                     BeforeDownload?.Invoke(packageId);

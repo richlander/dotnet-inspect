@@ -56,7 +56,7 @@ public static class NuGetSourceResolver
         ArgumentNullException.ThrowIfNull(sourceUrls);
         return RestrictToSourceKeys(
             original,
-            [.. sourceUrls.Select(NuGetCache.GetSourceKey)]);
+            [.. sourceUrls.Select(PackageSourceClientProvider.ProducerKey)]);
     }
 
     /// <summary>
@@ -105,7 +105,8 @@ public static class NuGetSourceResolver
         return
         [
             .. activeSources.Where(source =>
-                authorizedKeySet.Contains(NuGetCache.GetSourceKey(source.Url))),
+                authorizedKeySet.Contains(
+                    PackageSourceClientProvider.ProducerKey(source))),
         ];
     }
 
@@ -142,6 +143,17 @@ public static class NuGetSourceResolver
         => SourceKeys(ResolveSourcesForPackage(options, packageId, workingDirectory));
 
     /// <summary>
+    /// Resolves the ordered candidate-metadata routes eligible to serve
+    /// <paramref name="packageId"/> and reduces each route to its durable cache identity.
+    /// </summary>
+    public static IReadOnlyList<string> ResolveCandidateCacheKeysForPackage(
+        NuGetSourceOptions? options,
+        string packageId,
+        string? workingDirectory = null)
+        => CandidateCacheKeys(
+            ResolveSourcesForPackage(options, packageId, workingDirectory));
+
+    /// <summary>
     /// Reduces already-resolved sources to their cache identities, preserving
     /// configured order.
     /// </summary>
@@ -160,12 +172,76 @@ public static class NuGetSourceResolver
         var keys = new List<string>();
         foreach (var source in sources)
         {
-            var key = NuGetCache.GetSourceKey(source.Url);
+            string key =
+                PackageSourceClientProvider.ProducerKey(source);
             if (seen.Add(key))
                 keys.Add(key);
         }
 
         return keys;
+    }
+
+    /// <summary>
+    /// Reduces one source to the stable producer identity used by payload
+    /// authorization and realized coordinates.
+    /// </summary>
+    public static string SourceKey(NuGetSource source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return PackageSourceClientProvider.ProducerKey(source);
+    }
+
+    /// <summary>
+    /// Reports whether one resolved source represents the canonical NuGet.org producer.
+    /// </summary>
+    public static bool IsNuGetOrgProducer(NuGetSource source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return PackageSourceClientProvider.ProducerIdentity(source.Url)
+            == PackageSourceIdentity.NuGetOrg;
+    }
+
+    /// <summary>
+    /// Reduces already-resolved sources to ordered candidate-metadata route identities.
+    /// </summary>
+    public static IReadOnlyList<string> CandidateCacheKeys(
+        IEnumerable<NuGetSource> sources)
+    {
+        ArgumentNullException.ThrowIfNull(sources);
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var keys = new List<string>();
+        foreach (NuGetSource source in sources)
+        {
+            string key = CandidateCacheKey(source);
+            if (seen.Add(key))
+                keys.Add(key);
+        }
+
+        return keys;
+    }
+
+    /// <summary>
+    /// Returns the candidate-metadata cache identity for one resolved route.
+    /// </summary>
+    public static string CandidateCacheKey(NuGetSource source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return NuGetCache.GetCandidateRouteKey(
+            source is RoutedPackageSource route
+                ? route.Transports.Select(transport => transport.Url)
+                : [source.Url]);
+    }
+
+    /// <summary>
+    /// Enumerates the transport aliases represented by one resolved source.
+    /// </summary>
+    public static IReadOnlyList<NuGetSource> Transports(NuGetSource source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return source is RoutedPackageSource route
+            ? route.Transports
+            : [source];
     }
 
     public static List<NuGetSource> ResolveSources(NuGetSourceOptions? options, string? workingDirectory = null)
@@ -453,7 +529,7 @@ public static class NuGetSourceResolver
     {
         List<NuGetSource> producers = [];
         foreach (IGrouping<string, NuGetSource> aliases in eligibleAliases.GroupBy(
-            source => NuGetCache.GetSourceKey(source.Url),
+            PackageSourceClientProvider.ProducerKey,
             StringComparer.Ordinal))
         {
             NuGetSource first = aliases.First();
@@ -465,7 +541,11 @@ public static class NuGetSourceResolver
                     + $"'{UrlRedaction.ForDiagnostics(first.Url)}', but those names use conflicting credentials.");
             }
 
-            producers.Add(first);
+            List<NuGetSource> transports = [.. aliases];
+            producers.Add(
+                transports.Count == 1
+                    ? first
+                    : new RoutedPackageSource(transports));
         }
 
         return producers;

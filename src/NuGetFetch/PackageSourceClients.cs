@@ -19,6 +19,9 @@ public enum PackageSourceKind
 
     /// <summary>A package source backed by a local directory.</summary>
     LocalFolder,
+
+    /// <summary>A package source whose transport is not supported.</summary>
+    Unsupported,
 }
 
 /// <summary>
@@ -338,12 +341,7 @@ public static class PackageSourceClientFactory
         NuGetFetchOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(source);
-        if (!Uri.TryCreate(source.Url, UriKind.Absolute, out Uri? endpoint)
-            || endpoint.IsFile)
-        {
-            throw new PackageSourceClientUnavailableException(
-                PackageSourceKind.LocalFolder);
-        }
+        Uri endpoint = GetRuntimeEndpoint(source);
 
         return new NuGetV3PackageSourceClient(
             PackageSourceIdentity.ForProducerEndpoint(endpoint),
@@ -351,6 +349,78 @@ public static class PackageSourceClientFactory
             CreateOwnedTransport(endpoint),
             options ?? new NuGetFetchOptions(),
             source.Credential);
+    }
+
+    /// <summary>
+    /// Adapts the existing desktop source model to a typed runtime client
+    /// using a caller-owned transport.
+    /// </summary>
+    /// <remarks>
+    /// The returned source client does not dispose <paramref name="client"/>.
+    /// The caller must keep it alive until every payload stream returned by
+    /// the source client has been disposed.
+    /// </remarks>
+    internal static IPackageSourceClient Create(
+        PackageSource source,
+        HttpClient client,
+        NuGetFetchOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(client);
+        Uri endpoint = GetRuntimeEndpoint(source);
+
+        HttpClient transport = OperatingSystem.IsBrowser()
+            ? client
+            : CreateBorrowedDesktopTransport(client);
+        return new NuGetV3PackageSourceClient(
+            PackageSourceIdentity.ForProducerEndpoint(endpoint),
+            endpoint,
+            transport,
+            options ?? new NuGetFetchOptions(),
+            source.Credential,
+            ownsClient: !OperatingSystem.IsBrowser());
+    }
+
+    internal static Uri NormalizeServiceIndexEndpoint(Uri endpoint)
+    {
+        string original = endpoint.OriginalString;
+        int query = original.IndexOf('?');
+        int fragment = original.IndexOf('#');
+        int suffixStart = query < 0
+            ? fragment
+            : fragment < 0
+                ? query
+                : Math.Min(query, fragment);
+        string path = suffixStart < 0
+            ? original
+            : original[..suffixStart];
+        string suffix = suffixStart < 0
+            ? ""
+            : original[suffixStart..];
+
+        string pathWithoutOptionalSlash =
+            path.EndsWith("/", StringComparison.Ordinal)
+                ? path[..^1]
+                : path;
+        if (path.Length != pathWithoutOptionalSlash.Length
+            && (pathWithoutOptionalSlash.EndsWith(
+                    "/index.json",
+                    StringComparison.OrdinalIgnoreCase)
+                || pathWithoutOptionalSlash.EndsWith(
+                    "/index.json/",
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            return new Uri(
+                $"{pathWithoutOptionalSlash}{suffix}",
+                UriKind.Absolute);
+        }
+
+        if (endpoint.AbsolutePath is not ("" or "/"))
+            return endpoint;
+
+        return new Uri(
+            $"{pathWithoutOptionalSlash}/v3/index.json{suffix}",
+            UriKind.Absolute);
     }
 
     /// <summary>
@@ -452,6 +522,23 @@ public static class PackageSourceClientFactory
             options ?? new NuGetFetchOptions());
     }
 
+    /// <summary>
+    /// Creates the built-in Gallery client over a caller-owned transport.
+    /// </summary>
+    /// <remarks>
+    /// The returned source client does not dispose <paramref name="client"/>.
+    /// </remarks>
+    public static IPackageSourceClient CreateGallery(
+        HttpClient client,
+        NuGetFetchOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        return new NuGetGalleryPackageSourceClient(
+            client,
+            options ?? new NuGetFetchOptions(),
+            ownsClient: false);
+    }
+
     internal static IPackageSourceClient Create(
         PackageSource source,
         HttpMessageHandler transport,
@@ -459,12 +546,7 @@ public static class PackageSourceClientFactory
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(transport);
-        if (!Uri.TryCreate(source.Url, UriKind.Absolute, out Uri? endpoint)
-            || endpoint.IsFile)
-        {
-            throw new PackageSourceClientUnavailableException(
-                PackageSourceKind.LocalFolder);
-        }
+        Uri endpoint = GetRuntimeEndpoint(source);
 
         return new NuGetV3PackageSourceClient(
             PackageSourceIdentity.ForProducerEndpoint(endpoint),
@@ -510,6 +592,32 @@ public static class PackageSourceClientFactory
             credential);
     }
 
+    private static Uri GetRuntimeEndpoint(PackageSource source)
+    {
+        if (!Uri.TryCreate(
+                source.Url,
+                UriKind.Absolute,
+                out Uri? endpoint)
+            || endpoint.IsFile)
+        {
+            throw new PackageSourceClientUnavailableException(
+                PackageSourceKind.LocalFolder);
+        }
+
+        if (!endpoint.Scheme.Equals(
+                Uri.UriSchemeHttp,
+                StringComparison.OrdinalIgnoreCase)
+            && !endpoint.Scheme.Equals(
+                Uri.UriSchemeHttps,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new PackageSourceClientUnavailableException(
+                PackageSourceKind.Unsupported);
+        }
+
+        return endpoint;
+    }
+
     private static HttpClient CreateOwnedTransport(
         Uri source,
         HttpMessageHandler? transport = null)
@@ -527,6 +635,16 @@ public static class PackageSourceClientFactory
             Timeout = Timeout.InfiniteTimeSpan,
         };
     }
+
+    private static HttpClient CreateBorrowedDesktopTransport(
+        HttpClient client) =>
+        new(
+            new NuGetCredentialRedirectHandler(
+                new BorrowedHttpClientHandler(client)),
+            disposeHandler: true)
+        {
+            Timeout = Timeout.InfiniteTimeSpan,
+        };
 
     private static HttpClient CreateGalleryTransport()
     {
@@ -591,18 +709,21 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
     private readonly NuGetV3PackageResourceClient _packageResources;
     private readonly NuGetFetchOptions _options;
     private readonly TimeSpan _clientTimeout;
+    private readonly bool _ownsClient;
 
     public NuGetV3PackageSourceClient(
         PackageSourceDescriptor descriptor,
         HttpClient client,
         NuGetFetchOptions options,
-        PackageSourceCredential? credential)
+        PackageSourceCredential? credential,
+        bool ownsClient = true)
         : this(
             descriptor.Identity,
             descriptor.Endpoint!,
             client,
             options,
-            credential)
+            credential,
+            ownsClient)
     {
     }
 
@@ -611,15 +732,18 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
         Uri endpoint,
         HttpClient client,
         NuGetFetchOptions options,
-        PackageSourceCredential? credential)
+        PackageSourceCredential? credential,
+        bool ownsClient = true)
     {
         _identity = identity;
-        _endpoint = endpoint;
+        _endpoint =
+            PackageSourceClientFactory.NormalizeServiceIndexEndpoint(endpoint);
         _credential = credential;
         _client = client;
         _options = NuGetFetchOptions.Validate(options);
         _clientTimeout = client.Timeout;
         _packageResources = new NuGetV3PackageResourceClient(client);
+        _ownsClient = ownsClient;
     }
 
     public PackageSourceIdentity Identity => _identity;
@@ -631,11 +755,37 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
         | PackageSourceCapabilities.Manifest
         | PackageSourceCapabilities.PackagePayload;
 
-    public async Task<PackageSourceOperationResult<PackageSearchResult>> SearchAsync(
+    public Task<PackageSourceOperationResult<PackageSearchResult>> SearchAsync(
         string query,
         int take = 20,
         bool prerelease = false,
         CancellationToken cancellationToken = default) =>
+        SearchCoreAsync(
+            query,
+            take,
+            prerelease,
+            byPrefix: false,
+            cancellationToken);
+
+    public Task<PackageSourceOperationResult<PackageSearchResult>> SearchByPrefixAsync(
+        string prefix,
+        int take = 100,
+        bool prerelease = false,
+        CancellationToken cancellationToken = default) =>
+        SearchCoreAsync(
+            prefix,
+            take,
+            prerelease,
+            byPrefix: true,
+            cancellationToken);
+
+    private async Task<PackageSourceOperationResult<PackageSearchResult>>
+        SearchCoreAsync(
+            string query,
+            int take,
+            bool prerelease,
+            bool byPrefix,
+            CancellationToken cancellationToken) =>
         await PackageSourceOperation.CaptureAsync(
             Identity,
             Kind,
@@ -661,6 +811,9 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                 }
 
                 Exception? lastFailure = null;
+                PrefixSearchResult? incompletePrefix = null;
+                string sourceUrl =
+                    NuGetSourceRequest.EndpointUrl(_endpoint);
                 foreach (string endpoint in endpoints)
                 {
                     try
@@ -670,6 +823,37 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                             endpoint,
                             _options,
                             retryTransientRequests: true);
+                        if (byPrefix)
+                        {
+                            PrefixSearchResult prefix =
+                                await search.SearchByPrefixWithStateAsync(
+                                    query,
+                                    take,
+                                    prerelease,
+                                    NuGetSourceRequest
+                                        .AuthenticationForEndpoint(
+                                            NuGetSourceRequest.EndpointUrl(
+                                                _endpoint),
+                                            endpoint,
+                                            _credential),
+                                    maximumSkip: null,
+                                    operation,
+                                    pluginAuthenticationSourceUrl:
+                                        sourceUrl)
+                                .ConfigureAwait(false);
+                            if (prefix.Completion is
+                                PrefixSearchCompletion.SourcePageLimitReached
+                                or PrefixSearchCompletion.ClientPageLimitReached)
+                            {
+                                incompletePrefix ??= prefix;
+                                continue;
+                            }
+
+                            return ProjectPrefixSearch(
+                                prefix,
+                                operation);
+                        }
+
                         IReadOnlyList<SearchResult> results =
                             await search.SearchAsync(
                                     query,
@@ -681,7 +865,9 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                                                 _endpoint),
                                             endpoint,
                                             _credential),
-                                    operation)
+                                    operation,
+                                    pluginAuthenticationSourceUrl:
+                                        sourceUrl)
                                 .ConfigureAwait(false);
                         return PackageSourceProjection.ProjectSearch(
                             results,
@@ -695,6 +881,13 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                         operation.ThrowIfExpired();
                         lastFailure = exception;
                     }
+                }
+
+                if (incompletePrefix is not null)
+                {
+                    return ProjectPrefixSearch(
+                        incompletePrefix,
+                        operation);
                 }
 
                 throw lastFailure switch
@@ -716,16 +909,25 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
             },
             cancellationToken).ConfigureAwait(false);
 
-    public Task<PackageSourceOperationResult<PackageSearchResult>> SearchByPrefixAsync(
-        string prefix,
-        int take = 100,
-        bool prerelease = false,
-        CancellationToken cancellationToken = default) =>
-        Task.FromResult(
-            PackageSourceOperation.Unsupported<PackageSearchResult>(
-                Identity,
-                Kind,
-                PackageSourceCapabilities.Search));
+    private PackageSearchResult ProjectPrefixSearch(
+        PrefixSearchResult prefix,
+        NuGetOperationDeadline operation) =>
+        PackageSourceProjection.ProjectSearch(
+            prefix.Matches,
+            Identity,
+            operation,
+            prefix.Completion switch
+            {
+                PrefixSearchCompletion.Complete =>
+                    PackageSearchTruncationReason.None,
+                PrefixSearchCompletion.TakeReached =>
+                    PackageSearchTruncationReason.RequestedLimit,
+                PrefixSearchCompletion.SourcePageLimitReached =>
+                    PackageSearchTruncationReason.SourcePageLimit,
+                PrefixSearchCompletion.ClientPageLimitReached =>
+                    PackageSearchTruncationReason.ClientPageLimit,
+                _ => throw new ArgumentOutOfRangeException(),
+            });
 
     public async Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(
         string packageId,
@@ -751,7 +953,8 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                         _credential,
                         _options,
                         operation,
-                        useNuGetOrgShortcut: false).ConfigureAwait(false);
+                        useNuGetOrgShortcut: false,
+                        retryTransientRequests: true).ConfigureAwait(false);
                 return PackageSourceProjection.ProjectVersions(
                     packageId,
                     versions,
@@ -791,7 +994,8 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                             _credential,
                             _options,
                             operation,
-                            useNuGetOrgShortcut: false).ConfigureAwait(false);
+                            useNuGetOrgShortcut: false,
+                            retryTransientRequests: true).ConfigureAwait(false);
                     return new PackageSourcePayload(
                         coordinate,
                         Identity,
@@ -838,7 +1042,8 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                         _credential,
                         _options,
                         operation,
-                        useNuGetOrgShortcut: false).ConfigureAwait(false));
+                        useNuGetOrgShortcut: false,
+                        retryTransientRequests: true).ConfigureAwait(false));
             },
             cancellationToken,
             coordinate).ConfigureAwait(false);
@@ -861,7 +1066,8 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
 
     public void Dispose()
     {
-        _client.Dispose();
+        if (_ownsClient)
+            _client.Dispose();
     }
 
     private static bool CanFailOverSearchEndpoint(Exception exception) =>
@@ -872,6 +1078,9 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                 or OperationCanceledException
                 or IOException
                 or TimeoutException)
+        && exception is not NuGetRequestTimeoutException
+        && exception is not NuGetMetadataBodyTimeoutException
+        && exception is not NuGetOperationTimeoutException
         && exception is not HttpRequestException
         {
             StatusCode:
@@ -883,7 +1092,8 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
 internal static partial class PackageCoordinateValidation
 {
     public static bool IsValidPackageId(string? packageId) =>
-        packageId is { Length: > 0 and <= 100 }
+        packageId is
+            { Length: > 0 and <= PackageSourceCoordinate.MaxPackageIdLength }
         && PackageIdPattern().IsMatch(packageId);
 
     public static bool IsValidPackageVersion(string? version) =>

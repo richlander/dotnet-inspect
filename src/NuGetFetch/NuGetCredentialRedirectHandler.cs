@@ -3,6 +3,57 @@ using System.Net.Http.Headers;
 
 namespace NuGetFetch;
 
+internal sealed class BorrowedHttpClientHandler(HttpClient client)
+    : HttpMessageHandler
+{
+    protected override async Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        if (request.Content is not null)
+        {
+            throw new InvalidOperationException(
+                "A borrowed NuGet transport only supports content-free requests.");
+        }
+
+        using HttpRequestMessage forwarded = Clone(request);
+        HttpResponseMessage response = await client.SendAsync(
+            forwarded,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken).ConfigureAwait(false);
+        response.RequestMessage = request;
+        return response;
+    }
+
+    private static HttpRequestMessage Clone(HttpRequestMessage request)
+    {
+        var clone = new HttpRequestMessage(
+            request.Method,
+            request.RequestUri)
+        {
+            Version = request.Version,
+            VersionPolicy = request.VersionPolicy,
+        };
+        foreach (KeyValuePair<string, IEnumerable<string>> header
+            in request.Headers)
+        {
+            clone.Headers.TryAddWithoutValidation(
+                header.Key,
+                header.Value);
+        }
+
+        foreach (KeyValuePair<string, object?> option
+            in request.Options)
+        {
+            clone.Options.Set(
+                new HttpRequestOptionsKey<object?>(option.Key),
+                option.Value);
+        }
+
+        return clone;
+    }
+}
+
 internal sealed class NuGetCredentialRedirectHandler(
     HttpMessageHandler innerHandler)
     : DelegatingHandler(innerHandler)
@@ -58,12 +109,20 @@ internal sealed class NuGetCredentialRedirectHandler(
                 }
 
                 redirectedRequest?.Dispose();
+                bool sameOrigin =
+                    SameOrigin(credentialOrigin, target);
                 redirectedRequest = CreateRedirectRequest(
                     request,
                     target,
-                    SameOrigin(credentialOrigin, target)
+                    sameOrigin
                         ? authorization
                         : null);
+                if (!sameOrigin)
+                {
+                    NuGetSourceRequest
+                        .SuppressPluginAuthenticationForRequest(
+                            redirectedRequest);
+                }
                 current = redirectedRequest;
             }
         }

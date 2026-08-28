@@ -68,6 +68,59 @@ public class PdbAcquisitionServiceTests
     }
 
     [Fact]
+    public async Task SignedNuGetOrgRoute_RemainsEligibleForSymbolPackage()
+    {
+        string assemblyPath =
+            typeof(PdbAcquisitionServiceTests).Assembly.Location;
+        string pdbPath =
+            Path.ChangeExtension(assemblyPath, ".pdb");
+        byte[] assemblyBytes = File.ReadAllBytes(assemblyPath);
+        AssemblyReferenceIdentity identity =
+            ReadIdentity(assemblyBytes);
+        var assembly =
+            ResolvedAssemblyReference.Create(
+                identity,
+                path: null,
+                () => new MemoryStream(assemblyBytes, writable: false),
+                AssemblyResolutionProvenance.Package(
+                    "Example.Symbols",
+                    "1.0.0",
+                    "net10.0",
+                    rid: null));
+        using var source = SourceLinkService.Open(assembly);
+        byte[] snupkg =
+            BuildSnupkg(
+                Path.GetFileName(pdbPath),
+                File.ReadAllBytes(pdbPath));
+        var handler = new SymbolPackageHandler(snupkg);
+        using var client = new HttpClient(handler);
+        NuGetFetch.PackageSource route = Assert.Single(
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions
+                {
+                    Sources =
+                    [
+                        "https://api.nuget.org/v3/index.json?token=signed",
+                        "https://api.nuget.org/v3/index.json",
+                    ],
+                },
+                "Example.Symbols"));
+
+        await PdbAcquisitionService.AcquireAsync(
+            source.Context,
+            assembly,
+            client,
+            new InMemoryPdbStore(),
+            new UniformPackageSourceAuthorization([route]),
+            log: null,
+            cancellationToken:
+                TestContext.Current.CancellationToken);
+
+        Assert.True(source.HasPdb);
+        Assert.Single(handler.RequestUris);
+    }
+
+    [Fact]
     public void DescriptorAcquisition_RequiresExplicitHostCapabilities()
     {
         var overload =

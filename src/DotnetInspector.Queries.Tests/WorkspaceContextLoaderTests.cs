@@ -3885,15 +3885,21 @@ public sealed class WorkspaceContextLoaderTests
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
-            => Task.FromResult(
-                request.RequestUri!.ToString().Equals(
+        {
+            string url = request.RequestUri!.ToString();
+            if (url.Equals(NuGetOrg.Url, StringComparison.Ordinal))
+                return NuGetOrgServiceIndexResponse();
+
+            return Task.FromResult(
+                url.Equals(
                     $"https://api.nuget.org/v3-flatcontainer/{packageId}/{version}/{packageId}.{version}.nupkg",
                     StringComparison.OrdinalIgnoreCase)
-                    ? new HttpResponseMessage(HttpStatusCode.OK)
-                    {
-                        Content = new ByteArrayContent(nupkg),
-                    }
-                    : new HttpResponseMessage(HttpStatusCode.NotFound));
+                ? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(nupkg),
+                }
+                : new HttpResponseMessage(HttpStatusCode.NotFound));
+        }
     }
 
     sealed class RecordingTransferPolicy : IPackagePayloadTransferPolicy
@@ -3926,6 +3932,9 @@ public sealed class WorkspaceContextLoaderTests
             CancellationToken cancellationToken)
         {
             string url = request.RequestUri!.ToString();
+            if (url.Equals(NuGetOrg.Url, StringComparison.Ordinal))
+                return NuGetOrgServiceIndexResponse();
+
             if (url.Equals(
                 $"https://api.nuget.org/v3-flatcontainer/{PackageId}/index.json",
                 StringComparison.OrdinalIgnoreCase))
@@ -3977,6 +3986,9 @@ public sealed class WorkspaceContextLoaderTests
             CancellationToken cancellationToken)
         {
             string url = request.RequestUri!.ToString();
+            if (url.Equals(NuGetOrg.Url, StringComparison.Ordinal))
+                return NuGetOrgServiceIndexResponse();
+
             string versionArray = string.Join(
                 ",",
                 versions.Select(version => $"\"{version}\""));
@@ -4021,6 +4033,9 @@ public sealed class WorkspaceContextLoaderTests
             CancellationToken cancellationToken)
         {
             string url = request.RequestUri!.ToString();
+            if (url.Equals(NuGetOrg.Url, StringComparison.Ordinal))
+                return NuGetOrgServiceIndexResponse();
+
             if (url.Equals(
                 $"https://api.nuget.org/v3-flatcontainer/{RuntimePackPackageId}/index.json",
                 StringComparison.OrdinalIgnoreCase))
@@ -4063,9 +4078,25 @@ public sealed class WorkspaceContextLoaderTests
     {
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(
+            CancellationToken cancellationToken)
+        {
+            Uri endpoint = request.RequestUri!;
+            if (endpoint.AbsolutePath.EndsWith(
+                    "/v3/index.json",
+                    StringComparison.Ordinal))
+            {
+                string flatContainer =
+                    endpoint.Host.Equals(
+                        "api.nuget.org",
+                        StringComparison.OrdinalIgnoreCase)
+                        ? "https://api.nuget.org/v3-flatcontainer/"
+                        : $"{endpoint.GetLeftPart(UriPartial.Authority)}/flat/";
+                return ServiceIndexResponse(flatContainer);
+            }
+
+            return Task.FromResult(
                 new HttpResponseMessage(HttpStatusCode.NotFound));
+        }
     }
 
     /// <summary>
@@ -4166,7 +4197,7 @@ public sealed class WorkspaceContextLoaderTests
                         {
                             Content = new StringContent(
                                 $$"""
-                                {"resources":[{{resources}}]}
+                                {"version":"3.0.0","resources":[{{resources}}]}
                                 """),
                         });
                 }
@@ -4203,6 +4234,28 @@ public sealed class WorkspaceContextLoaderTests
             string version) =>
             $"{FlatContainer(feed)}{packageId}/{version}/{packageId}.{version}.nupkg";
     }
+
+    static Task<HttpResponseMessage> NuGetOrgServiceIndexResponse() =>
+        ServiceIndexResponse("https://api.nuget.org/v3-flatcontainer/");
+
+    static Task<HttpResponseMessage> ServiceIndexResponse(
+        string flatContainer) =>
+        Task.FromResult(
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    $$"""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        {
+                          "@id": "{{flatContainer}}",
+                          "@type": "PackageBaseAddress/3.0.0"
+                        }
+                      ]
+                    }
+                    """),
+            });
 
     /// <summary>
     /// A host policy that authorizes a different producer set for each package

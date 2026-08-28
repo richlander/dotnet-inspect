@@ -338,6 +338,37 @@ public sealed class SourceScopedRoutingTests : IDisposable
             eligibleKeys));
     }
 
+    [Fact]
+    public void SignedSourceRestrictionAuthorizesStableProducerIdentity()
+    {
+        const string Signed =
+            "https://feed.example/v3/index.json?sig=one#opaque";
+        const string Refreshed =
+            "https://feed.example/v3/index.json?sig=two#different";
+        NuGetSourceOptions restricted =
+            Assert.IsType<NuGetSourceOptions>(
+                NuGetSourceResolver.RestrictToSources(
+                    null,
+                    [Signed]));
+        var active = new[]
+        {
+            new NuGetFetch.PackageSource("refreshed", Refreshed),
+            new NuGetFetch.PackageSource(
+                "other",
+                "https://other.example/v3/index.json"),
+        };
+
+        NuGetFetch.PackageSource authorized = Assert.Single(
+            NuGetSourceResolver.ResolveAuthorizedSources(
+                restricted,
+                active));
+
+        Assert.Equal(Refreshed, authorized.Url);
+        Assert.Equal(
+            NuGetSourceResolver.SourceKey(active[0]),
+            Assert.Single(restricted.AuthorizedSourceKeys!));
+    }
+
     [Theory]
     [InlineData(false, "4.5.6")]
     [InlineData(true, "4.5.6-preview.1")]
@@ -370,7 +401,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Fact]
-    public async Task BareVersion_PreviewDoesNotUseStableOnlyCandidateOffline()
+    public async Task BareVersion_PreviewWithoutCandidateReportsOffline()
     {
         string packageName = $"OfflineStableOnly{Guid.NewGuid():N}";
         SeedLatestCandidate(packageName, ExcludedSource, "4.5.6");
@@ -387,7 +418,10 @@ public sealed class SourceScopedRoutingTests : IDisposable
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("not found", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            "Network access is disabled",
+            error,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -511,6 +545,88 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Theory]
+    [InlineData(false, "2.0.0")]
+    [InlineData(true, "2.1.0-preview.1")]
+    public async Task WildcardSingleVersionListingHonorsPrereleasePolicy(
+        bool includePrerelease,
+        string expected)
+    {
+        string packageName = $"WildcardPreview{Guid.NewGuid():N}";
+        string[] prereleaseArgs =
+            includePrerelease ? ["--prerelease"] : [];
+
+        var (exit, output, error, _) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                ["2.0.0", "2.1.0-preview.1"],
+                [
+                    "package",
+                    $"{packageName}@2.*",
+                    "--versions",
+                    "1",
+                    .. prereleaseArgs,
+                    "--source",
+                    SecondSource,
+                ]);
+
+        Assert.Equal(0, exit);
+        Assert.Equal(expected, output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task WildcardPrereleaseSelectorImpliesPrereleasePolicy()
+    {
+        string packageName = $"WildcardPreview{Guid.NewGuid():N}";
+
+        var (exit, output, error, _) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                ["2.0.0", "2.1.0-preview.1"],
+                [
+                    "package",
+                    $"{packageName}@2.1.0-preview*",
+                    "--versions",
+                    "--source",
+                    SecondSource,
+                ]);
+
+        Assert.Equal(0, exit);
+        Assert.Equal("2.1.0-preview.1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData("--versions")]
+    [InlineData("--versions-with-feed")]
+    public async Task WildcardVersionListingsApplyRowWindowBeforeCount(
+        string listingOption)
+    {
+        string packageName = $"WildcardRows{Guid.NewGuid():N}";
+
+        var (exit, output, error, _) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                ["2.0.0", "2.1.0", "2.2.0"],
+                [
+                    "package",
+                    $"{packageName}@2.*",
+                    listingOption,
+                    "--rows",
+                    "1",
+                    "--count",
+                    "--columns",
+                    "Version",
+                    "--source",
+                    SecondSource,
+                ]);
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Theory]
     [InlineData("pinned")]
     [InlineData("latest")]
     [InlineData("all")]
@@ -553,7 +669,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task PackageVersionQuery_PreservesNotFoundForA404(
+    public async Task PackageVersionQuery_ServiceIndex404IsSourceFailure(
         bool range)
     {
         string packageName = $"MissingVersion{Guid.NewGuid():N}";
@@ -575,9 +691,9 @@ public sealed class SourceScopedRoutingTests : IDisposable
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("not found", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("source", error, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("requires credentials", error);
-        Assert.DoesNotContain("Could not retrieve versions", error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -894,13 +1010,28 @@ public sealed class SourceScopedRoutingTests : IDisposable
             return await CommandLineBuilder.InvokeAsync(parseResult);
         });
 
-    private static async Task<(
+    private static Task<(
         int Exit,
         string Output,
         string Error,
         ConcurrentQueue<string> Requests)> RunOnlineVersionFeedCommandAsync(
             string packageName,
             string version,
+            string[] args,
+            HttpStatusCode? refusedStatus = null) =>
+        RunOnlineVersionFeedCommandAsync(
+            packageName,
+            [version],
+            args,
+            refusedStatus);
+
+    private static async Task<(
+        int Exit,
+        string Output,
+        string Error,
+        ConcurrentQueue<string> Requests)> RunOnlineVersionFeedCommandAsync(
+            string packageName,
+            IReadOnlyList<string> versions,
             string[] args,
             HttpStatusCode? refusedStatus = null)
     {
@@ -909,7 +1040,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
             innerHandler => new VersionFeedHandler(
                 SecondSource,
                 packageName,
-                version,
+                versions,
                 refusedStatus,
                 requests,
                 innerHandler));
@@ -953,7 +1084,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
     private sealed class VersionFeedHandler(
         string sourceUrl,
         string packageName,
-        string version,
+        IReadOnlyList<string> versions,
         HttpStatusCode? refusedStatus,
         ConcurrentQueue<string> requests,
         HttpMessageHandler innerHandler)
@@ -991,9 +1122,8 @@ public sealed class SourceScopedRoutingTests : IDisposable
                     """,
                 _ when url.Equals(
                     $"{SecondFlatContainer}{packageName.ToLowerInvariant()}/index.json",
-                    StringComparison.OrdinalIgnoreCase) => $$"""
-                    {"versions":["{{version}}"]}
-                    """,
+                    StringComparison.OrdinalIgnoreCase) =>
+                    $$"""{"versions":[{{string.Join(",", versions.Select(version => $"\"{version}\""))}}]}""",
                 _ => null,
             };
 
@@ -1026,7 +1156,19 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 $"https://api.nuget.org/v3/registration5-gz-semver2/{packageName.ToLowerInvariant()}/index.json";
 
             HttpResponseMessage response;
-            if (url.Equals(flatContainer, StringComparison.OrdinalIgnoreCase))
+            if (url.Equals(
+                NuGetFetch.PackageSource.NuGetOrg.Url,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                response = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """
+                        {"version":"3.0.0","resources":[{"@id":"https://api.nuget.org/v3-flatcontainer/","@type":"PackageBaseAddress/3.0.0"}]}
+                        """),
+                };
+            }
+            else if (url.Equals(flatContainer, StringComparison.OrdinalIgnoreCase))
             {
                 string body = "{\"versions\":["
                     + string.Join(",", versions.Select(version => $"\"{version}\""))

@@ -28,6 +28,16 @@ public sealed record WorkspaceContextLoadOptions
     public required HttpClient HttpClient { get; init; }
 
     /// <summary>
+    /// Optional host-owned source-client selection for environments whose
+    /// package protocol differs from the desktop NuGet v3 transport.
+    /// </summary>
+    /// <remarks>
+    /// Returned clients are borrowed and are never disposed by the loader.
+    /// </remarks>
+    public Func<PackageSource, IPackageSourceClient>?
+        BorrowedSourceClientFactory { get; init; }
+
+    /// <summary>
     /// The host's decision about which producers may serve each package id.
     /// </summary>
     /// <remarks>
@@ -1273,7 +1283,7 @@ public static class WorkspaceContextLoader
         }
 
         PackageSourceAuthorization authorization =
-            options.SourceAuthorization.AuthorizeSourcesFor(packageId);
+            AuthorizePlatformSources(family, options.SourceAuthorization);
         if (authorization.Sources.Count == 0)
         {
             LogPlatformDetail(
@@ -1304,7 +1314,8 @@ public static class WorkspaceContextLoader
                     options.Log,
                     options.IncludePrerelease,
                     options.UseVersionCache,
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken,
+                    options.BorrowedSourceClientFactory).ConfigureAwait(false);
             if (listing is not PackageVersionListingResult.Available available)
             {
                 string? detail = listing switch
@@ -1360,7 +1371,8 @@ public static class WorkspaceContextLoader
                 options.IncludePrerelease,
                 options.UseVersionCache,
                 requireStableFloating: true,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                options.BorrowedSourceClientFactory).ConfigureAwait(false);
         if (resolution is not PackageCoordinateResolution.Resolved resolved)
         {
             string? detail = resolution switch
@@ -1386,7 +1398,8 @@ public static class WorkspaceContextLoader
                 options.Log,
                 options.PayloadLimits,
                 cancellationToken,
-                options.PackageTransferPolicy).ConfigureAwait(false);
+                options.PackageTransferPolicy,
+                options.BorrowedSourceClientFactory).ConfigureAwait(false);
         if (payload is PackagePayloadResult.Unavailable payloadFailure)
         {
             LogPlatformDetail(
@@ -1482,10 +1495,12 @@ public static class WorkspaceContextLoader
         RealizedMemberCoordinate.Platform pinned = members[0];
         string packageId = PlatformPackageId(pinned.Family);
         PackageSourceAuthorization authorization =
-            options.SourceAuthorization.AuthorizeSourcesFor(packageId);
+            AuthorizePlatformSources(
+                pinned.Family,
+                options.SourceAuthorization);
         PackageSource? producer = authorization.Sources.FirstOrDefault(
             source => string.Equals(
-                NuGetCache.GetSourceKey(source.Url),
+                NuGetSourceResolver.SourceKey(source),
                 pinned.Producer,
                 StringComparison.Ordinal));
         if (producer is null)
@@ -1513,7 +1528,8 @@ public static class WorkspaceContextLoader
                 options.IncludePrerelease,
                 options.UseVersionCache,
                 requireStableFloating: true,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                options.BorrowedSourceClientFactory).ConfigureAwait(false);
         if (resolution is not PackageCoordinateResolution.Resolved resolved)
         {
             string? detail = resolution switch
@@ -1541,7 +1557,8 @@ public static class WorkspaceContextLoader
                 options.Log,
                 options.PayloadLimits,
                 cancellationToken,
-                options.PackageTransferPolicy).ConfigureAwait(false);
+                options.PackageTransferPolicy,
+                options.BorrowedSourceClientFactory).ConfigureAwait(false);
         if (payload is PackagePayloadResult.Unavailable payloadFailure)
         {
             LogPlatformDetail(
@@ -1810,6 +1827,20 @@ public static class WorkspaceContextLoader
         package.Major == target.Major
         && package.Minor == target.Minor;
 
+    /// <summary>
+    /// Resolves the sources a host authorizes for one product-owned platform
+    /// family.
+    /// </summary>
+    public static PackageSourceAuthorization AuthorizePlatformSources(
+        string family,
+        IPackageSourceAuthorization sourceAuthorization)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(family);
+        ArgumentNullException.ThrowIfNull(sourceAuthorization);
+        return sourceAuthorization.AuthorizeSourcesFor(
+            PlatformPackageId(family));
+    }
+
     static string PlatformPackageId(string family) =>
         family.ToLowerInvariant() switch
         {
@@ -1858,7 +1889,8 @@ public static class WorkspaceContextLoader
                 // bind one, so a feed publishing no stable release has no
                 // answer for it. The CLI keeps the shared fallback.
                 requireStableFloating: true,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                options.BorrowedSourceClientFactory).ConfigureAwait(false);
         switch (resolution)
         {
             case PackageCoordinateResolution.Invalid invalid:
@@ -1885,7 +1917,8 @@ public static class WorkspaceContextLoader
                 options.Log,
                 options.PayloadLimits,
                 cancellationToken,
-                options.PackageTransferPolicy).ConfigureAwait(false);
+                options.PackageTransferPolicy,
+                options.BorrowedSourceClientFactory).ConfigureAwait(false);
         if (payload is PackagePayloadResult.Unavailable payloadFailure)
         {
             return new MemberRealization(
@@ -1925,7 +1958,7 @@ public static class WorkspaceContextLoader
         // realized from.
         PackageSource? producer = authorization.Sources.FirstOrDefault(
             source => string.Equals(
-                NuGetCache.GetSourceKey(source.Url),
+                NuGetSourceResolver.SourceKey(source),
                 pinned.Producer,
                 StringComparison.Ordinal));
         if (producer is null)
@@ -1951,7 +1984,8 @@ public static class WorkspaceContextLoader
                 options.IncludePrerelease,
                 options.UseVersionCache,
                 requireStableFloating: true,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                options.BorrowedSourceClientFactory).ConfigureAwait(false);
         switch (resolution)
         {
             case PackageCoordinateResolution.Invalid invalid:
@@ -1982,7 +2016,8 @@ public static class WorkspaceContextLoader
                 options.Log,
                 options.PayloadLimits,
                 cancellationToken,
-                options.PackageTransferPolicy).ConfigureAwait(false);
+                options.PackageTransferPolicy,
+                options.BorrowedSourceClientFactory).ConfigureAwait(false);
         if (payload is PackagePayloadResult.Unavailable payloadFailure)
         {
             return new MemberRealization(

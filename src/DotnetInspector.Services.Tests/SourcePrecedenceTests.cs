@@ -622,7 +622,24 @@ public class SourcePrecedenceTests : IDisposable
             string url = request.RequestUri!.ToString();
             string? body = null;
 
-            if (string.Equals(url, $"https://api.nuget.org/v3-flatcontainer/{packageId}/index.json", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(
+                url,
+                "https://api.nuget.org/v3/index.json",
+                StringComparison.OrdinalIgnoreCase))
+            {
+                body = """
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        {
+                          "@type": "PackageBaseAddress/3.0.0",
+                          "@id": "https://api.nuget.org/v3-flatcontainer/"
+                        }
+                      ]
+                    }
+                    """;
+            }
+            else if (string.Equals(url, $"https://api.nuget.org/v3-flatcontainer/{packageId}/index.json", StringComparison.OrdinalIgnoreCase))
             {
                 body = "{\"versions\":["
                     + string.Join(",", nugetOrgRegistry.Select(r => "\"" + r.Version + "\""))
@@ -637,7 +654,7 @@ public class SourcePrecedenceTests : IDisposable
             }
             else if (string.Equals(url, $"https://{FeedBIndex}", StringComparison.OrdinalIgnoreCase))
             {
-                body = "{\"resources\":[{\"@type\":\"PackageBaseAddress/3.0.0\","
+                body = "{\"version\":\"3.0.0\",\"resources\":[{\"@type\":\"PackageBaseAddress/3.0.0\","
                     + "\"@id\":\"https://feed-b.example.test/v3/flat2/\"}]}";
             }
             else if (string.Equals(url, $"https://feed-b.example.test/v3/flat2/{packageId}/index.json", StringComparison.OrdinalIgnoreCase))
@@ -708,7 +725,7 @@ public class SourcePrecedenceTests : IDisposable
     {
         handler.Add(
             indexUrl,
-            $$"""{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://{{contentHost}}/flat/"}]}""");
+            $$"""{"version":"3.0.0","resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://{{contentHost}}/flat/"}]}""");
 
         if (versions is not null)
         {

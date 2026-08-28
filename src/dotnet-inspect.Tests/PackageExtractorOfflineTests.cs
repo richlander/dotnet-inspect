@@ -63,6 +63,51 @@ public sealed class PackageExtractorOfflineTests : IDisposable
         Assert.DoesNotContain("not found", outcome.ErrorMessage, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData("bad package")]
+    [InlineData("bad+package")]
+    [InlineData("bad..package")]
+    [InlineData("bad.package-")]
+    public async Task ExtractPackageAsync_ExactInvalidPackageId_ReturnsTypedError(
+        string packageName)
+    {
+        PackageExtractionOutcome outcome =
+            await PackageExtractor.ExtractPackageAsync(
+                Core.HttpClientFactory.Shared,
+                packageName,
+                version: "1.0.0");
+
+        Assert.False(outcome.IsSuccess);
+        Assert.Contains(
+            "A package coordinate requires a package id",
+            outcome.ErrorMessage);
+        Assert.DoesNotContain(
+            packageName,
+            outcome.ErrorMessage,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("bad package")]
+    [InlineData("bad+package")]
+    public async Task ExtractPackageAsync_WildcardInvalidPackageId_ReturnsTypedError(
+        string packageName)
+    {
+        PackageExtractionOutcome outcome =
+            await PackageExtractor.ExtractPackageAsync(
+                Core.HttpClientFactory.Shared,
+                $"{packageName}@1.0.*");
+
+        Assert.False(outcome.IsSuccess);
+        Assert.Contains(
+            "A package coordinate requires a package id",
+            outcome.ErrorMessage);
+        Assert.DoesNotContain(
+            "ArgumentException",
+            outcome.ErrorMessage,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task PackageDependencyTree_OfflineUncachedVersion_ReportsCacheMiss()
     {
@@ -161,6 +206,53 @@ public sealed class PackageExtractorOfflineTests : IDisposable
 
         Assert.True(outcome.IsSuccess, outcome.ErrorMessage);
         Assert.Equal(sourceKey, outcome.Result!.ProducerKey);
+    }
+
+    [Fact]
+    public async Task ExtractPackageAsync_OfflineUnicodePin_ReopensRetainedArchive()
+    {
+        string packageName = $"日本語.Sample.{Guid.NewGuid():N}";
+        const string Version = "1.2.3";
+        const string SourceUrl = "https://private.invalid/v3/index.json";
+        string sourceKey = NuGetCache.GetSourceKey(SourceUrl);
+        CommitPackage(packageName, Version, sourceKey);
+
+        PackageExtractionOutcome outcome =
+            await PackageExtractor.ExtractPackageAsync(
+                Core.HttpClientFactory.Shared,
+                packageName,
+                sourceOptions: new NuGetSourceOptions
+                {
+                    Sources = [SourceUrl],
+                },
+                version: Version);
+
+        Assert.True(outcome.IsSuccess, outcome.ErrorMessage);
+        Assert.Equal(sourceKey, outcome.Result!.ProducerKey);
+    }
+
+    [Fact]
+    public async Task ExtractPackageAsync_OfflineNonCanonicalPin_UsesCanonicalCacheCoordinate()
+    {
+        string packageName = $"Offline.Canonical.{Guid.NewGuid():N}";
+        const string CachedVersion = "8.0.0";
+        const string SourceUrl = "https://private.invalid/v3/index.json";
+        string sourceKey = NuGetCache.GetSourceKey(SourceUrl);
+        CommitPackage(packageName, CachedVersion, sourceKey);
+
+        PackageExtractionOutcome outcome =
+            await PackageExtractor.ExtractPackageAsync(
+                Core.HttpClientFactory.Shared,
+                packageName,
+                sourceOptions: new NuGetSourceOptions
+                {
+                    Sources = [SourceUrl],
+                },
+                version: "8.0");
+
+        Assert.True(outcome.IsSuccess, outcome.ErrorMessage);
+        Assert.Equal(CachedVersion, outcome.Result!.Version);
+        Assert.Equal(sourceKey, outcome.Result.ProducerKey);
     }
 
     [Fact]

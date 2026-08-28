@@ -35,8 +35,8 @@ and cached permanently under that producer.
 
 This is the default and the most common case. Resolution follows this order:
 
-1. **Version cache** — check each eligible feed's version-resolution cache
-   (1-hour TTL) for a source-scoped candidate list.
+1. **Version cache** — check each eligible transport route's version-resolution
+   cache (1-hour TTL) for a route-scoped candidate list.
 2. **Network** — if the version cache misses, query NuGet for the latest stable
    version.
 3. **Package cache** — after resolving the version and retaining the feeds that
@@ -80,6 +80,84 @@ another authorized producer's cached payload to answer. Payload acquisition
 then uses the ordinary host-supplied package store, and the realized platform
 coordinate retains the serving producer for exact re-acquisition.
 
+HTTP keyword and prefix search, version enumeration, and exact package payload
+requests use `IPackageSourceClient`. The desktop adapter chooses the
+application-owned producer-scoped authentication transport for production over
+a credential-free connection pipeline shared by origin, and preserves an
+injected transport for tests. Concurrent first access uniquely publishes the
+process-wide production client, while compatibility consumers test that
+identity without creating it. Multi-source search aggregation and mapping,
+semantic-version selection, NuGet.org registration enrichment, cache authority,
+and source failover remain package-layer policy.
+Candidate metadata is keyed by the complete ordered transport route, distinct
+from producer-scoped payload authorization. The Browser workspace supplies its
+host-bound Gallery client through the same borrowed-client seam, so platform
+version and payload acquisition use the Gallery flat-container, registration,
+and package CDN routes without requesting the blocked NuGet.org service index.
+Every advertised `PackageBaseAddress` resource is validated before one is
+selected, including siblings named by an array-valued JSON-LD `@type`, so an
+unusable or credential-bearing sibling still makes the source incomplete.
+Configured pathless base sources are normalized to `/v3/index.json` while
+signed query bytes remain unchanged. Pathful service-index URLs remain exact,
+except that at most one optional trailing slash is removed from an otherwise
+canonical `/index.json` segment. The v3 client constructor is the single owner
+of that source normalization for search, version, manifest, and package
+operations, including for legacy factory overloads. Exact package pins are
+normalized once before cache lookup and payload acquisition.
+`ProductStack_UsesLegacyFeedApisOnlyFromApprovedOwners` scans the compiled
+product closure through `LibraryBodyIndex` and keeps direct legacy
+service-index API use confined to its owning compatibility helper and the
+approved metadata-enrichment path.
+Borrowed clients retain authoritative listing state for floating selection,
+exclude unlisted candidates, and reject partial answers. NuGet.org listing
+policy follows the stable producer identity rather than the first signed alias
+in a route.
+The `package --versions` exact-pin shortcut uses that same canonical
+coordinate, so semantically equivalent spellings share cache and listing
+identity and malformed pins fail before source discovery. A timeout while
+consuming a returned package stream remains a typed source timeout rather than
+being reported as payload-policy rejection. A successful payload returned by a
+transport after the route deadline is disposed before that timeout is
+projected. Cleanup failure while disposing that rejected payload cannot replace
+route-timeout or caller-cancellation classification. Hardening cleanup after an
+accepted payload crosses its deadline is tracked by #4715.
+Package-ID validation precedes wildcard and range discovery as well as exact
+acquisition, so every selector shape returns the same clean coordinate
+diagnostic without opening a source client.
+Service-index, version-index, and exact-package
+requests use the
+source-owned bounded transient retry policy within one operation deadline;
+absence and authentication failures are not retried. Keyword and prefix search
+also do not retry an exhausted request or metadata-body deadline.
+`PackageCoordinateResolverTests`,
+`PackagePayloadAcquisitionTests`,
+`PackageExtractorOfflineTests.ExtractPackageAsync_OfflineNonCanonicalPin_UsesCanonicalCacheCoordinate`,
+`PackageVersionTests.ExactPin_InvalidPackageId_ReturnsCleanDiagnostic`,
+`PackageVersionTests.Versions_NonCanonicalPinUsesCanonicalCoordinate`,
+`PackageVersionTests.Versions_WildcardSelectorUsesVersionListing`,
+`PackageVersionTests.Versions_WildcardSelectorFiltersBeforeLimit`,
+`SourceScopedRoutingTests.WildcardSingleVersionListingHonorsPrereleasePolicy`,
+`VersionCacheTests.ResolveVersionPattern_RespectsPrereleasePolicy`,
+`PackageVersionTests.Versions_InvalidPinReturnsCoordinateDiagnostic`,
+`PackageVersionTests.Versions_RangeInvalidPackageIdReturnsCleanDiagnostic`,
+`PackageVersionVectorTests.ResolveAsync_InvalidPackageIdFailsBeforeSourceRequest`,
+`CommandExecutionTests.RangeConsumers_InvalidPackageIdReturnCoordinateDiagnostic`,
+`PackageExtractorOfflineTests.ExtractPackageAsync_WildcardInvalidPackageId_ReturnsTypedError`,
+`PackageCoordinateResolverTests.BorrowedFloatingCoordinate_ExcludesUnlistedVersion`,
+`PackageCoordinateResolverTests.SignedFirstNuGetOrgRoute_ExcludesUnlistedVersion`,
+`PackageCoordinateResolverTests.BorrowedFloatingCoordinate_PartialListingFailsClosed`,
+`PackagePayloadAcquisitionTests.PackageStreamTimeoutRemainsATypedSourceFailure`,
+`PackagePayloadAcquisitionTests.SignedSourceAliasDeadlineDisposesLatePayload`,
+`PackagePayloadAcquisitionTests.SignedSourceAliasDeadlineCleanupFailurePreservesTimeout`,
+`PackagePayloadAcquisitionTests.SignedSourceAliasCallerCancellationOutranksCleanupFailure`,
+`PackageExtractorAdmissionTests.InvalidLegacyDownload_LetsTheNextSourceServe`,
+and
+`PackageSourceClientTests.V3SourceNormalizationRemovesAtMostOneTrailingSlash`,
+`PackageSourceClientTests.V3VersionRejectsAnyUnusablePackageBaseAddress`,
+`V3ServiceIndexVersionAndPackageRetryTransientResponses`, and
+`V3TransientRetriesAreBounded`
+gate this path.
+
 Package metadata (publish date, downloads, deprecation, vulnerabilities) is
 also cached with a 1-hour TTL.
 
@@ -109,10 +187,15 @@ standalone nuspec documents. A version-list failure is reported as unknown,
 not as evidence that the companion package is absent. Cached companion
 identities are reverified without repeating filesystem inspection. RID
 availability is not persisted because it depends on the current source policy.
+Standalone nuspec authentication is scoped only for HTTP transports; a
+local-folder source remains a non-HTTP miss and cannot prevent a later HTTP
+source from answering.
 The
 `VerifyAsync_VersionIndexFailureIsUnknown` and
 `InspectAsync_ReverifiesIndeterminateCachedRidAvailability` and
-`RidAvailability_IsNotPersisted` tests gate these properties.
+`RidAvailability_IsNotPersisted` and
+`HttpClientFactoryTests.StandaloneNuspecLookup_SharedClientSkipsLocalSource`
+tests gate these properties.
 
 This describes the current gate. The target
 [package source model](package-source-model.md#enrichment-is-a-separate-capability)
@@ -247,6 +330,14 @@ the nuget.org gallery:
   stable "latest" path already uses the listing-aware search API and is
   unaffected. This is nuget.org-only; other feeds have no listed concept and are
   returned unfiltered.
+- **Selectors do not become coordinates.** A concrete
+  `Name@Version --versions` may use its canonical exact-version shortcut, but
+  `Name@3.0.* --versions` remains a version-listing request constrained to
+  matching `3.0.*` candidates. With a limit of one it uses authoritative
+  wildcard resolution and returns the latest matching listed version admitted
+  by the request's prerelease policy; larger listings apply the same policy and
+  selector before their limit. The wildcard is not submitted to
+  exact-coordinate validation.
 - **Explicit access is preserved.** A pinned concrete `Name@Version` never
   enumerates, so a known unlisted version still resolves and loads — matching
   NuGet's own behavior of restoring a known unlisted version. `Name@latest`,
@@ -358,7 +449,7 @@ offline mode, and unsupported local feed URLs are not cached as misses.
 | SourceLink audit source checks | Successful HEAD checks are cached permanently; 404s are cached as misses for 1 day. |
 | Selected-member `PDB Source` downloads | Not cached by this command path. |
 | `SourceLink: Availability` URL checks | Not cached by this command path. |
-| Service-index discovery for custom NuGet feeds | Not cached. nuget.org flat-container paths avoid this lookup. |
+| Service-index `PackageBaseAddress` discovery | Cached only within one typed source-client operation. Desktop NuGet.org and custom-feed version/payload operations each discover their service index; the legacy `NuGetClient` compatibility path retains its canonical NuGet.org shortcut. |
 | GitHub advisory enrichment | Not separately cached; it is covered when the package metadata cache is hit. |
 
 ## Package and pack publication

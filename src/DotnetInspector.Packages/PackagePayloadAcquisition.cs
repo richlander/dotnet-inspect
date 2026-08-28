@@ -1,6 +1,4 @@
-using System.Net.Http.Headers;
 using DotnetInspector.Core;
-using InertText;
 using NuGetFetch;
 
 namespace DotnetInspector.Packages;
@@ -74,10 +72,21 @@ public abstract record PackageSourcePayloadResult
         : PackageSourcePayloadResult;
 
     public sealed record Unavailable(string Message)
-        : PackageSourcePayloadResult;
+        : PackageSourcePayloadResult
+    {
+        internal PackageSourcePayloadUnavailableKind Kind { get; init; }
+    }
 
     public sealed record Failed(PackageSourceFailure Failure)
         : PackageSourcePayloadResult;
+}
+
+internal enum PackageSourcePayloadUnavailableKind
+{
+    NotFound,
+    MismatchedPayload,
+    PolicyRejected,
+    UnauthorizedProducer,
 }
 
 /// <summary>
@@ -91,9 +100,9 @@ public abstract record PackageSourcePayloadResult
 /// <see cref="InMemoryPackageStore"/> and a desktop host supplies
 /// <see cref="FileSystemPackageStore"/>. Only the coordinate's own authorized
 /// sources are consulted, in order, and the producer that served the bytes is
-/// carried with them. Payload transport reuses the shared retry, credential
-/// scoping, and feed-failure conventions (<see cref="HttpRetryHelper"/>,
-/// <see cref="NuGetCredentialScope"/>) rather than issuing a bare request.
+/// carried with them. Payload transport crosses <see cref="IPackageSourceClient"/>;
+/// the source client owns retries and credential scoping, while the desktop
+/// adapter preserves host transport policy and feed-failure reporting.
 /// </para>
 /// <para>
 /// A payload is bounded and validated <em>before</em> it is published, never
@@ -109,10 +118,12 @@ public abstract record PackageSourcePayloadResult
 /// passes reaches <see cref="IPackageStore.CommitAsync"/>, so an unreadable,
 /// truncated, oversized, or bomb-shaped archive is a failure of that one source
 /// — the next authorized source is tried, and nothing enters the store.
-/// Validation happens here rather than behind the store interface because the
-/// store's contract is persistence: a store that had to re-derive what a valid
-/// payload is would be a second owner of that judgment, and the filesystem
-/// store would learn it only by expanding the archive it was asked to trust.
+/// Source clients own request policy, retries, credentials, and typed transport
+/// failures. Validation happens here rather than behind the store interface
+/// because the store's contract is persistence: a store that had to re-derive
+/// what a valid payload is would be a second owner of that judgment, and the
+/// filesystem store would learn it only by expanding the archive it was asked
+/// to trust.
 /// </para>
 /// <para>
 /// The single buffer is the cost of that ordering. The archive is held once
@@ -169,7 +180,7 @@ public static class PackagePayloadAcquisition
         limits = ValidateLimits(limits);
         cancellationToken.ThrowIfCancellationRequested();
 
-        string producerKey = NuGetCache.GetSourceKey(source.Identity.Value);
+        string producerKey = NuGetCache.GetSourceKey(source.Identity);
         foreach (IPackageContent cached in store.EnumerateCached(
                      coordinate.PackageId,
                      coordinate.Version,
@@ -193,50 +204,14 @@ public static class PackagePayloadAcquisition
             return Result(cached, PackagePayloadOrigin.Cache);
         }
 
-        PackageSourceOperationResult<PackageSourcePayload> operation =
-            await source.GetPackageAsync(
-                coordinate.PackageId,
-                coordinate.Version,
-                cancellationToken).ConfigureAwait(false);
-        if (operation
-            is PackageSourceOperationResult<PackageSourcePayload>.Failed failed)
-        {
-            return failed.Failure.Kind == PackageSourceFailureKind.NotFound
-                ? new PackageSourcePayloadResult.Unavailable(
-                    $"Package '{coordinate.PackageId}' version "
-                    + $"'{coordinate.Version}' was not supplied by the selected source.")
-                : new PackageSourcePayloadResult.Failed(failed.Failure);
-        }
-
-        PackageSourcePayload payload =
-            ((PackageSourceOperationResult<PackageSourcePayload>.Succeeded)operation)
-            .Value;
-        if (payload.Kind != PackageSourcePayloadKind.Package
-            || payload.Coordinate != coordinate
-            || payload.Producer != source.Identity)
-        {
-            await payload.Content.DisposeAsync().ConfigureAwait(false);
-            return new PackageSourcePayloadResult.Unavailable(
-                "The package source returned a payload that did not match the requested coordinate.");
-        }
-
-        IPackageContent? content = await TryAdmitAsync(
-            payload.Content,
-            payload.AdvertisedLength,
+        return await AcquireFromSourceAsync(
+            source,
             coordinate,
-            producerKey,
-            $"source '{source.Kind}'",
             store,
             log,
             limits,
             transferPolicy,
-            cancellationToken,
             cancellationToken).ConfigureAwait(false);
-        return content is null
-            ? new PackageSourcePayloadResult.Unavailable(
-                $"Package '{coordinate.PackageId}' version "
-                + $"'{coordinate.Version}' did not satisfy the payload policy.")
-            : Result(content, PackagePayloadOrigin.Download);
 
         PackageSourcePayloadResult Result(
             IPackageContent content,
@@ -250,7 +225,11 @@ public static class PackagePayloadAcquisition
                         origin))
                 : new PackageSourcePayloadResult.Unavailable(
                     $"Content for package '{coordinate.PackageId}' version "
-                    + $"'{coordinate.Version}' belongs to an unauthorized producer.");
+                    + $"'{coordinate.Version}' belongs to an unauthorized producer.")
+                {
+                    Kind = PackageSourcePayloadUnavailableKind
+                        .UnauthorizedProducer,
+                };
     }
 
     /// <summary>
@@ -265,7 +244,9 @@ public static class PackagePayloadAcquisition
         Action<string>? log = null,
         PackagePayloadLimits? limits = null,
         CancellationToken cancellationToken = default,
-        IPackagePayloadTransferPolicy? transferPolicy = null)
+        IPackagePayloadTransferPolicy? transferPolicy = null,
+        Func<PackageSource, IPackageSourceClient>?
+            borrowedSourceClientFactory = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(coordinate);
@@ -317,17 +298,65 @@ public static class PackagePayloadAcquisition
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            IPackageContent? content = await TryDownloadAsync(
-                client,
-                coordinate,
-                source,
-                store,
-                log,
-                limits,
-                transferPolicy,
-                cancellationToken).ConfigureAwait(false);
-            if (content is not null)
-                return Result(content, PackagePayloadOrigin.Download);
+            if (Uri.TryCreate(
+                    source.Url,
+                    UriKind.Absolute,
+                    out Uri? endpoint)
+                && endpoint.Scheme is "http" or "https")
+            {
+                IPackageSourceClient sourceClient =
+                    borrowedSourceClientFactory?.Invoke(source)
+                    ?? PackageSourceClientProvider.Create(source, client);
+                using var trafficScope =
+                    NetworkTelemetry.Scope(
+                        NetworkTrafficKind.PackageDownload);
+                PackageSourcePayloadResult sourceResult;
+                try
+                {
+                    sourceResult = await AcquireFromSourceAsync(
+                        sourceClient,
+                        PackageSourceCoordinate.Create(
+                            coordinate.PackageId,
+                            coordinate.Version),
+                        store,
+                        log,
+                        limits,
+                        transferPolicy,
+                        cancellationToken).ConfigureAwait(false);
+                }
+                catch (OfflineException)
+                {
+                    log?.Invoke(
+                        "Network access is disabled (--offline mode).");
+                    failedSources.Add(
+                        PackageSourceDisplay.ForDiagnostics(source).ToString());
+                    continue;
+                }
+                finally
+                {
+                    if (borrowedSourceClientFactory is null)
+                        sourceClient.Dispose();
+                }
+                if (sourceResult
+                    is PackageSourcePayloadResult.Acquired acquired)
+                {
+                    return Result(
+                        acquired.Payload.Content,
+                        acquired.Payload.Origin);
+                }
+
+                if (sourceResult
+                    is PackageSourcePayloadResult.Failed failed)
+                {
+                    PackageSourceClientProvider.RecordFailure(
+                        source,
+                        failed.Failure,
+                        NetworkTrafficKind.PackageDownload);
+                    log?.Invoke(
+                        $"Source {PackageSourceDisplay.ForDiagnostics(source)} did not deliver a package payload: "
+                        + failed.Failure.Message);
+                }
+            }
 
             failedSources.Add(PackageSourceDisplay.ForDiagnostics(source).ToString());
         }
@@ -362,119 +391,125 @@ public static class PackagePayloadAcquisition
         }
     }
 
-    static async Task<IPackageContent?> TryDownloadAsync(
-        HttpClient client,
-        ResolvedPackageCoordinate coordinate,
-        PackageSource source,
+    internal static async Task<PackageSourcePayloadResult> AcquireFromSourceAsync(
+        IPackageSourceClient source,
+        PackageSourceCoordinate coordinate,
         IPackageStore store,
         Action<string>? log,
         PackagePayloadLimits limits,
         IPackagePayloadTransferPolicy? transferPolicy,
         CancellationToken cancellationToken)
     {
-        string? nupkgUrl = await PackageExtractor.GetPackageDownloadUrlAsync(
-            client,
-            source,
+        PackageSourceOperationResult<PackageSourcePayload> operation =
+            await source.GetPackageAsync(
             coordinate.PackageId,
             coordinate.Version,
-            log,
             cancellationToken).ConfigureAwait(false);
-        if (nupkgUrl is null)
-            return null;
-
-        AuthenticationHeaderValue? auth =
-            NuGetCredentialScope.AuthFor(source, nupkgUrl, log);
-        log?.Invoke(
-            $"Downloading: {coordinate.PackageId} {coordinate.Version} from {PackageSourceDisplay.ForDiagnostics(source)}");
-
-        // The transport's own advertised-size cap is raised out of the way so
-        // an oversized payload stays a typed source failure here instead of
-        // becoming an exception that would abandon the remaining sources. The
-        // bound is not lost: the bytes are counted as they arrive.
-        using HttpResponseMessage? response =
-            await HttpRetryHelper.GetStreamedWithRetryAsync(
-                client,
-                nupkgUrl,
-                log: log,
-                cancellationToken: cancellationToken,
-                auth: auth,
-                trafficKind: NetworkTrafficKind.PackageDownload,
-                maxAdvertisedContentLength: long.MaxValue)
-                .ConfigureAwait(false);
-        if (response is null)
-            return null;
-
-        long? advertisedLength = response.Content.Headers.ContentLength;
-        if (advertisedLength > limits.MaxArchiveBytes)
+        if (operation
+            is PackageSourceOperationResult<PackageSourcePayload>.Failed failed)
         {
-            log?.Invoke(
-                $"Source {PackageSourceDisplay.ForDiagnostics(source)} advertised a package payload above the configured archive limit.");
-            return null;
+            if (failed.Failure.Kind != PackageSourceFailureKind.NotFound)
+                return new PackageSourcePayloadResult.Failed(failed.Failure);
+
+            return new PackageSourcePayloadResult.Unavailable(
+                $"Package '{coordinate.PackageId}' version "
+                + $"'{coordinate.Version}' was not supplied by the selected source.")
+            {
+                Kind = PackageSourcePayloadUnavailableKind.NotFound,
+            };
         }
 
+        PackageSourcePayload payload =
+            ((PackageSourceOperationResult<PackageSourcePayload>.Succeeded)
+            operation).Value;
+        if (payload.Kind != PackageSourcePayloadKind.Package
+            || payload.Coordinate != coordinate
+            || payload.Producer != source.Identity)
+        {
+            await payload.Content.DisposeAsync().ConfigureAwait(false);
+            return new PackageSourcePayloadResult.Unavailable(
+                "The package source returned a payload that did not match the requested coordinate.")
+            {
+                Kind = PackageSourcePayloadUnavailableKind
+                    .MismatchedPayload,
+            };
+        }
+
+        string producerKey =
+            NuGetCache.GetSourceKey(source.Identity);
+        PayloadAdmissionResult admission;
         try
         {
-            // ResponseHeadersRead leaves the body outside HttpClient.Timeout.
-            // Bound the body with the same baseline the header-first helpers use
-            // so a stalled source cannot pin acquisition past failover.
-            using var bodyTimeout = CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken);
-            TimeSpan requestTimeout =
-                client.Timeout == Timeout.InfiniteTimeSpan
-                || client.Timeout > HttpClientFactoryOptions.BaselineTimeout
-                    ? HttpClientFactoryOptions.BaselineTimeout
-                    : client.Timeout;
-            bodyTimeout.CancelAfter(requestTimeout);
-
-            Stream payload = await response.Content
-                .ReadAsStreamAsync(bodyTimeout.Token)
-                .ConfigureAwait(false);
-            return await TryAdmitAsync(
-                payload,
-                advertisedLength,
-                PackageSourceCoordinate.Create(
-                    coordinate.PackageId,
-                    coordinate.Version),
-                NuGetCache.GetSourceKey(source.Url),
-                $"source {PackageSourceDisplay.ForDiagnostics(source)}",
+            admission = await TryAdmitAsync(
+                payload.Content,
+                payload.AdvertisedLength,
+                coordinate,
+                producerKey,
+                $"source '{source.Kind}'",
                 store,
                 log,
                 limits,
                 transferPolicy,
-                bodyTimeout.Token,
+                cancellationToken,
                 cancellationToken).ConfigureAwait(false);
         }
-        catch (HttpRequestException ex)
+        catch (Exception exception) when (exception is
+            NuGetRequestTimeoutException
+            or NuGetOperationTimeoutException)
         {
-            // The transport's own message embeds the request URI, and that URI
-            // is feed-declared and may carry a signature or token, so the
-            // failure is described by its redacted URL and the exception's
-            // category instead.
-            log?.Invoke(
-                $"Source {PackageSourceDisplay.ForDiagnostics(source)} did not deliver a package payload: "
-                + UrlRedaction.DescribeRequestFailure(nupkgUrl, ex));
-            return null;
+            cancellationToken.ThrowIfCancellationRequested();
+            return new PackageSourcePayloadResult.Failed(
+                new PackageSourceFailure(
+                    source.Identity,
+                    source.Kind,
+                    PackageSourceCapabilities.PackagePayload,
+                    coordinate,
+                    PackageSourceFailureKind.Timeout,
+                    "The package source operation exceeded its configured deadline."));
         }
-        catch (Exception ex) when (
-            ex is IOException
-                or UnauthorizedAccessException
-                or InvalidDataException
-                or NotSupportedException
-                || (ex is OperationCanceledException
-                    && !cancellationToken.IsCancellationRequested))
+        if (admission.TransportFailed)
         {
-            // The payload stopped mid-body, timed out, is not a readable
-            // archive, uses a feature this runtime cannot decode, or could not
-            // be persisted (including permission-denied cache roots). That is
-            // this source failing to serve the coordinate, so the next
-            // authorized source is tried; the caller reports every source that
-            // failed if none succeeds. A cancellation the caller actually
-            // requested is not caught here. The exception text is not logged:
-            // an archive-derived name can reach it.
-            log?.Invoke(
-                $"Source {PackageSourceDisplay.ForDiagnostics(source)} did not deliver a usable package payload.");
-            return null;
+            cancellationToken.ThrowIfCancellationRequested();
+            return new PackageSourcePayloadResult.Failed(
+                new PackageSourceFailure(
+                    source.Identity,
+                    source.Kind,
+                    PackageSourceCapabilities.PackagePayload,
+                    coordinate,
+                    PackageSourceFailureKind.Transport,
+                    "The package source payload could not be read."));
         }
+
+        IPackageContent? content = admission.Content;
+        if (content is null)
+        {
+            return new PackageSourcePayloadResult.Unavailable(
+                $"Package '{coordinate.PackageId}' version "
+                + $"'{coordinate.Version}' did not satisfy the payload policy.")
+            {
+                Kind = PackageSourcePayloadUnavailableKind.PolicyRejected,
+            };
+        }
+
+        if (!content.ProducerKey.Equals(
+                producerKey,
+                StringComparison.Ordinal))
+        {
+            return new PackageSourcePayloadResult.Unavailable(
+                $"Content for package '{coordinate.PackageId}' version "
+                + $"'{coordinate.Version}' belongs to an unauthorized producer.")
+            {
+                Kind = PackageSourcePayloadUnavailableKind
+                    .UnauthorizedProducer,
+            };
+        }
+
+        return new PackageSourcePayloadResult.Acquired(
+            new AcquiredPackageSourcePayload(
+                coordinate,
+                content,
+                producerKey,
+                PackagePayloadOrigin.Download));
     }
 
     static PackagePayloadLimits ValidateLimits(PackagePayloadLimits? limits)
@@ -489,7 +524,7 @@ public static class PackagePayloadAcquisition
         return limits;
     }
 
-    static async Task<IPackageContent?> TryAdmitAsync(
+    static async Task<PayloadAdmissionResult> TryAdmitAsync(
         Stream payload,
         long? advertisedLength,
         PackageSourceCoordinate coordinate,
@@ -502,22 +537,140 @@ public static class PackagePayloadAcquisition
         CancellationToken bodyCancellationToken,
         CancellationToken operationCancellationToken)
     {
-        await using (payload.ConfigureAwait(false))
+        if (advertisedLength > limits.MaxArchiveBytes)
         {
-            if (advertisedLength > limits.MaxArchiveBytes)
+            try
+            {
+                await payload.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception exception) when (
+                exception is IOException or HttpRequestException)
             {
                 log?.Invoke(
-                    $"{sourceDescription} advertised a package payload above the configured archive limit.");
-                return null;
+                    $"{sourceDescription} did not complete its package payload.");
+                return new PayloadAdmissionResult(
+                    Content: null,
+                    TransportFailed: true);
             }
 
-            using IPackagePayloadReservation? reservation =
-                transferPolicy?.Reserve(
-                    new PackagePayloadTransfer(
-                        coordinate,
-                        producerKey,
-                        advertisedLength));
-            try
+            log?.Invoke(
+                $"{sourceDescription} advertised a package payload above the configured archive limit.");
+            return new PayloadAdmissionResult(
+                Content: null,
+                TransportFailed: false);
+        }
+
+        IPackagePayloadReservation? reservation;
+        try
+        {
+            reservation = transferPolicy?.Reserve(
+                new PackagePayloadTransfer(
+                    coordinate,
+                    producerKey,
+                    advertisedLength));
+        }
+        catch
+        {
+            await payload.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+
+        using (reservation)
+        try
+        {
+            PayloadReadResult read = await ReadPayloadAsync(
+                    payload,
+                    advertisedLength,
+                    limits.MaxArchiveBytes,
+                    bodyCancellationToken)
+                .ConfigureAwait(false);
+            if (read.Outcome == PayloadReadOutcome.TransportFailed)
+            {
+                log?.Invoke(
+                    $"{sourceDescription} did not complete its package payload.");
+                return new PayloadAdmissionResult(
+                    Content: null,
+                    TransportFailed: true);
+            }
+
+            byte[]? archive = read.Archive;
+            if (archive is null)
+            {
+                log?.Invoke(
+                    advertisedLength is null
+                        ? $"{sourceDescription} sent a package payload above the configured archive limit."
+                        : $"{sourceDescription} did not send the package payload length it advertised.");
+                return new PayloadAdmissionResult(
+                    Content: null,
+                    TransportFailed: false);
+            }
+
+            if (PackageArchiveValidator.Validate(
+                    archive,
+                    limits,
+                    operationCancellationToken)
+                is PackageArchiveValidation.Rejected rejection)
+            {
+                log?.Invoke(
+                    $"{sourceDescription} did not deliver a usable package payload: {rejection.Reason}");
+                return new PayloadAdmissionResult(
+                    Content: null,
+                    TransportFailed: false);
+            }
+
+            IPackageContent committed = await store.CommitAsync(
+                coordinate.PackageId,
+                coordinate.Version,
+                producerKey,
+                new MemoryStream(
+                    archive,
+                    index: 0,
+                    count: archive.Length,
+                    writable: false,
+                    publiclyVisible: true),
+                operationCancellationToken).ConfigureAwait(false);
+            if (!await PackageContentAdmission.IsAdmissibleAsync(
+                    committed,
+                    limits,
+                    operationCancellationToken).ConfigureAwait(false))
+            {
+                log?.Invoke(
+                    $"{sourceDescription} did not publish content satisfying the current payload limits.");
+                return new PayloadAdmissionResult(
+                    Content: null,
+                    TransportFailed: false);
+            }
+
+            reservation?.Complete();
+            return new PayloadAdmissionResult(
+                committed,
+                TransportFailed: false);
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or InvalidDataException
+                or NotSupportedException
+                || (ex is OperationCanceledException
+                    && !operationCancellationToken.IsCancellationRequested))
+        {
+            log?.Invoke(
+                $"{sourceDescription} did not deliver a usable package payload.");
+            return new PayloadAdmissionResult(
+                Content: null,
+                TransportFailed: false);
+        }
+    }
+
+    static async Task<PayloadReadResult> ReadPayloadAsync(
+        Stream payload,
+        long? advertisedLength,
+        long maxArchiveBytes,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using (payload.ConfigureAwait(false))
             {
                 byte[]? archive = advertisedLength is { } declared
                     && declared >= 0
@@ -525,71 +678,39 @@ public static class PackagePayloadAcquisition
                     ? await PackageContentAdmission.ReadExactAsync(
                             payload,
                             (int)declared,
-                            bodyCancellationToken)
+                            cancellationToken)
                         .ConfigureAwait(false)
                     : await PackageContentAdmission.ReadBoundedAsync(
                             payload,
-                            limits.MaxArchiveBytes,
-                            bodyCancellationToken)
+                            maxArchiveBytes,
+                            cancellationToken)
                         .ConfigureAwait(false);
-
-                if (archive is null)
-                {
-                    log?.Invoke(
-                        advertisedLength is null
-                            ? $"{sourceDescription} sent a package payload above the configured archive limit."
-                            : $"{sourceDescription} did not send the package payload length it advertised.");
-                    return null;
-                }
-
-                if (PackageArchiveValidator.Validate(
-                        archive,
-                        limits,
-                        operationCancellationToken)
-                    is PackageArchiveValidation.Rejected rejection)
-                {
-                    log?.Invoke(
-                        $"{sourceDescription} did not deliver a usable package payload: {rejection.Reason}");
-                    return null;
-                }
-
-                IPackageContent committed = await store.CommitAsync(
-                    coordinate.PackageId,
-                    coordinate.Version,
-                    producerKey,
-                    new MemoryStream(
-                        archive,
-                        index: 0,
-                        count: archive.Length,
-                        writable: false,
-                        publiclyVisible: true),
-                    operationCancellationToken).ConfigureAwait(false);
-                if (!await PackageContentAdmission.IsAdmissibleAsync(
-                        committed,
-                        limits,
-                        operationCancellationToken).ConfigureAwait(false))
-                {
-                    log?.Invoke(
-                        $"{sourceDescription} did not publish content satisfying the current payload limits.");
-                    return null;
-                }
-
-                reservation?.Complete();
-                return committed;
-            }
-            catch (Exception ex) when (
-                ex is IOException
-                    or UnauthorizedAccessException
-                    or InvalidDataException
-                    or NotSupportedException
-                    || (ex is OperationCanceledException
-                        && !operationCancellationToken.IsCancellationRequested))
-            {
-                log?.Invoke(
-                    $"{sourceDescription} did not deliver a usable package payload.");
-                return null;
+                return new PayloadReadResult(
+                    PayloadReadOutcome.Completed,
+                    archive);
             }
         }
+        catch (Exception exception) when (
+            exception is IOException or HttpRequestException)
+        {
+            return new PayloadReadResult(
+                PayloadReadOutcome.TransportFailed,
+                Archive: null);
+        }
     }
+
+    enum PayloadReadOutcome
+    {
+        Completed,
+        TransportFailed,
+    }
+
+    readonly record struct PayloadReadResult(
+        PayloadReadOutcome Outcome,
+        byte[]? Archive);
+
+    readonly record struct PayloadAdmissionResult(
+        IPackageContent? Content,
+        bool TransportFailed);
 
 }

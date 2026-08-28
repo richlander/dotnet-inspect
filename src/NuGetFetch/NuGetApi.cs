@@ -5,6 +5,8 @@ namespace NuGetFetch;
 
 public static class NuGetApi
 {
+    internal const int MaximumExpandedServiceResourceCount = 4096;
+
     private static readonly NuGetFetchOptions DefaultOptions = new();
 
     public static ValueTask<ServiceIndex?> GetServiceIndexAsync(
@@ -20,36 +22,170 @@ public static class NuGetApi
         Stream json,
         CancellationToken cancellationToken)
     {
-        ServiceIndex? index = await JsonSerializer.DeserializeAsync(
+        using JsonDocument document = await ParseDocumentAsync(
             json,
-            NuGetJsonContext.Default.ServiceIndex,
             cancellationToken).ConfigureAwait(false);
-
-        if (index is null)
-        {
+        JsonElement root = document.RootElement;
+        if (root.ValueKind == JsonValueKind.Null)
             return null;
-        }
-
-        if (index.Version is null)
+        if (root.ValueKind != JsonValueKind.Object)
         {
-            throw InvalidMetadata("service index", "version");
+            throw InvalidMetadata("service index", "resources");
         }
-
-        if (index.Resources is null)
+        if (!root.TryGetProperty("resources", out JsonElement resourcesElement)
+            || resourcesElement.ValueKind != JsonValueKind.Array)
         {
             throw InvalidMetadata("service index", "resources");
         }
 
-        foreach (ServiceResource resource in index.Resources)
+        string version =
+            root.TryGetProperty(
+                "version",
+                out JsonElement versionElement)
+            && versionElement.ValueKind == JsonValueKind.String
+                ? versionElement.GetString() ?? ""
+                : "";
+        List<ServiceResource> resources = [];
+        int observations = 0;
+        foreach (JsonElement resource in resourcesElement.EnumerateArray())
         {
-            if (resource is null || resource.Id is null || resource.Type is null)
+            cancellationToken.ThrowIfCancellationRequested();
+            if (resource.ValueKind != JsonValueKind.Object)
             {
-                throw InvalidMetadata("service index", "resources");
+                Observe();
+                continue;
+            }
+            if (!resource.TryGetProperty(
+                    "@type",
+                    out JsonElement typeElement))
+            {
+                Observe();
+                continue;
+            }
+
+            List<string> types = [];
+            bool malformedType = false;
+            if (typeElement.ValueKind == JsonValueKind.String)
+            {
+                Observe();
+                if (typeElement.GetString() is { } type
+                    && !string.IsNullOrWhiteSpace(type))
+                {
+                    types.Add(type);
+                }
+                else
+                {
+                    malformedType = true;
+                }
+            }
+            else if (typeElement.ValueKind == JsonValueKind.Array)
+            {
+                bool observedType = false;
+                foreach (JsonElement item in typeElement.EnumerateArray())
+                {
+                    Observe();
+                    observedType = true;
+                    if (item.ValueKind == JsonValueKind.String
+                        && item.GetString() is { } itemType
+                        && !string.IsNullOrWhiteSpace(itemType))
+                    {
+                        types.Add(itemType);
+                    }
+                    else
+                    {
+                        malformedType = true;
+                    }
+                }
+                if (!observedType)
+                {
+                    Observe();
+                    malformedType = true;
+                }
+            }
+            else
+            {
+                Observe();
+                malformedType = true;
+            }
+
+            bool hasCriticalType =
+                types.Any(IsPackageBaseAddressType);
+            if (malformedType)
+            {
+                if (hasCriticalType)
+                    throw InvalidMetadata("service index", "resources");
+                continue;
+            }
+
+            string? id =
+                resource.TryGetProperty(
+                    "@id",
+                    out JsonElement idElement)
+                && idElement.ValueKind == JsonValueKind.String
+                    ? idElement.GetString()
+                    : null;
+            if (string.IsNullOrWhiteSpace(id))
+            {
+                if (hasCriticalType)
+                    throw InvalidMetadata("service index", "resources");
+                continue;
+            }
+            string? comment = resource.TryGetProperty(
+                "comment",
+                out JsonElement commentElement)
+                && commentElement.ValueKind == JsonValueKind.String
+                    ? commentElement.GetString()
+                    : null;
+            foreach (string type in types)
+            {
+                resources.Add(new ServiceResource(id, type, comment));
             }
         }
 
-        return index;
+        return new ServiceIndex(version, resources);
+
+        void Observe()
+        {
+            if ((observations & 127) == 0)
+                cancellationToken.ThrowIfCancellationRequested();
+            if (observations
+                >= MaximumExpandedServiceResourceCount)
+            {
+                throw new NuGetMetadataResourceLimitExceededException(
+                    "The NuGet service index exceeded the expanded resource limit.");
+            }
+
+            observations++;
+        }
     }
+
+    private static async Task<JsonDocument> ParseDocumentAsync(
+        Stream json,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await JsonDocument.ParseAsync(
+                json,
+                new JsonDocumentOptions
+                {
+                    AllowDuplicateProperties = false,
+                },
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (JsonException exception)
+        {
+            throw new JsonException(exception.Message, exception);
+        }
+    }
+
+    internal static bool IsPackageBaseAddressType(string type) =>
+        type.Equals(
+            "PackageBaseAddress",
+            StringComparison.OrdinalIgnoreCase)
+        || type.StartsWith(
+            "PackageBaseAddress/",
+            StringComparison.OrdinalIgnoreCase);
 
     public static ValueTask<VersionIndex?> GetVersionIndexAsync(
         Stream json,
@@ -221,7 +357,8 @@ internal sealed class StringOrArrayJsonConverter
 // This only affects reading. Nothing serialises through this context.
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    NumberHandling = JsonNumberHandling.AllowReadingFromString)]
+    NumberHandling = JsonNumberHandling.AllowReadingFromString,
+    AllowDuplicateProperties = false)]
 [JsonSerializable(typeof(ServiceIndex))]
 [JsonSerializable(typeof(VersionIndex))]
 [JsonSerializable(typeof(SearchResponse))]

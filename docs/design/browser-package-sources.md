@@ -360,6 +360,10 @@ Each HTTP request receives the lesser of the request deadline and the remaining
 operation ceiling. No retry, authentication exchange, transport failover,
 redirect, or body reader resets the operation ceiling. Independent source and
 registration-page requests run concurrently when their contract permits it.
+Keyword and prefix search do not retry a request or metadata-body timeout that
+has consumed its complete deadline; completed transient responses and
+transport failures may retry within the operation ceiling. Other source
+operations retain their bounded deadline-retry policy.
 
 A source client links both library bounds with caller cancellation. It does not
 depend solely on `HttpClient.Timeout`, because hosts may supply an infinite or
@@ -383,7 +387,9 @@ must update the private-feed timeout guidance with that behavior change.
 Timeouts remain visible source failures. They are not converted into not-found,
 an empty version list, a partial successful search, or an automatic stale-cache
 answer. Cache fallback follows the explicit version-resolution policy and
-retains the timeout diagnostic.
+retains the timeout diagnostic. Typed source failures preserve whether the
+request, metadata body, or whole operation expired and the corresponding
+duration, so consumers do not reconstruct timeout policy from exception text.
 
 Required gates include stalled-header, stalled-metadata-body, stalled-payload,
 retry, authentication, multi-source, and redirect cases that terminate without
@@ -587,12 +593,11 @@ identity because signed credentials rotate; feeds that represent distinct
 immutable content domains require distinct endpoint paths.
 The Gallery descriptor creates a runtime client that uses the known search,
 flat-container, package, and symbol CDN routes without requesting the NuGet.org
-service index. The factory creates an isolated credential-free `HttpClient`
-owned by the Gallery client; it does not accept a shared mutable client whose
-defaults could carry authorization, cookies, or API keys to the fixed public
-hosts. The transport timeout is infinite so the finite NuGetFetch request and
-operation deadlines remain authoritative. Disposing the source client disposes
-that transport.
+service index. The default factory creates an isolated credential-free
+`HttpClient` owned by the Gallery client. A Browser host may instead supply a
+borrowed client whose request handler is the host's capability boundary; the
+Gallery client never disposes that transport. The transport timeout is infinite
+so the finite NuGetFetch request and operation deadlines remain authoritative.
 
 The v3 compatibility adapter also owns an isolated credential-free
 `HttpClient`; it does not accept a shared client or opaque caller handler that
@@ -623,7 +628,7 @@ credential's original origin and strips it from cross-origin hops. Exceeding
 the five-redirect ceiling is a typed `response-rejected` failure. Redirect
 targets with malformed raw text, unusable IDNA hosts, or embedded user
 information are typed invalid responses rather than normalized requests.
-`RuntimeFactoriesDoNotAcceptSharedHttpClient`,
+`OnlyBorrowedGalleryFactoryAcceptsSharedHttpClient`,
 `DefaultV3TransportHasNoAmbientCredentialMechanisms`, and
 `BrowserV3TransportAvoidsUnsupportedHandlerConfiguration` gate shared transport
 construction. `GalleryBrowserTransportAvoidsUnsupportedHandlerConfiguration`
@@ -638,7 +643,11 @@ private-origin exception and feed-directed destination rejection.
 configured origins.
 `DefaultV3TransportNormalizesPathlessServiceIndexRoot` gates the implicit root
 path on the desktop wire, while
-`V3SearchPathlessServiceIndexPreservesSignedQuery` gates root insertion before
+`V3SearchCanonicalIndexRemovesTrailingSlashBeforeSignedQuery` gates canonical
+index spelling without rewriting signed query bytes,
+`V3SourceNormalizationRemovesAtMostOneTrailingSlash` gates that the v3 client,
+including its legacy factory paths, applies this normalization exactly once,
+`V3SearchPathlessBaseSourcePreservesSignedQuery` gates root insertion before
 an existing query and `V3SearchNormalizesAdvertisedUnicodeEndpoint` gates
 resource normalization.
 `DefaultV3VersionAndPackagePreserveSignedServiceIndexBytes` gates the same
@@ -677,6 +686,22 @@ bound, but timeout or transport failure during its later consumption is an
 exception because the operation result has already been returned. Invalid
 caller coordinates and caller cancellation likewise remain exceptions rather
 than being misreported as source failures.
+When several signed transport aliases represent one producer, alias failover
+shares one operation ceiling rather than multiplying it by the alias count.
+The same ceiling remains attached to a returned payload stream. A payload that
+arrives after the shared deadline but before handoff is disposed by the route
+before the timeout result is returned. Failure during that cleanup remains
+secondary: caller cancellation keeps its token and retains cleanup evidence in
+the inner exception chain, while route expiry remains a typed timeout whose
+safe message records the cleanup failure.
+`PackagePayloadAcquisitionTests.SignedSourceAliasesShareOneOperationDeadline`
+and
+`SignedSourceAliasDeadlineLivesThroughPayloadConsumption` gate those
+properties, and `SignedSourceAliasDeadlineDisposesLatePayload` gates the late
+handoff race.
+`SignedSourceAliasDeadlineCleanupFailurePreservesTimeout` and
+`SignedSourceAliasCallerCancellationOutranksCleanupFailure` gate the failure
+precedence.
 
 Gallery version enumeration joins the complete flat-container list with the
 SemVer2 registration index. Inline pages are consumed in place. External page
@@ -712,6 +737,15 @@ become authoritative. Deadline expiry during traversal, coverage, or final
 authority projection also returns the partial result, while caller cancellation
 outranks a concurrent page failure.
 
+V3 service-index parsing similarly admits at most 4,096 resource-type
+observations. Every array element counts, even when it is not a string, and
+traversal checks cancellation. Missing service-index version metadata and
+malformed optional or unrelated resources remain compatible and are ignored;
+a malformed `PackageBaseAddress` declaration fails closed.
+`PackageSourceClientTests.V3NonStringResourceObservationsAreBounded`,
+`V3VersionIgnoresMalformedOptionalServiceResources`, and
+`V3VersionRejectsMalformedCriticalServiceResource` gate that boundary.
+
 Canonical NuGet.org and custom v3 enumeration still report `unknown`, because
 a raw flat-container list can include unlisted versions without carrying their
 state. `not-applicable` remains available for source kinds that genuinely have
@@ -729,8 +763,45 @@ unlisted versions and fails closed when listing authority is absent. The typed
 payload's advertised length flows through the shared
 `PackagePayloadAcquisition` admission and store pipeline, so Browser cache
 reservation, archive limits, producer authorization, and publication are not
-reimplemented in the host. Desktop package-resolution consumers remain on the
-compatibility path.
+reimplemented in the host.
+
+Desktop version discovery and exact package acquisition now cross the same
+typed source-client boundary. `PackageSourceClientProvider` adapts the desktop
+host transport: the process-wide shared client selects
+`HttpClientFactory.GetPackageSourceTransport` for each configured producer,
+retaining producer-scoped authentication plugins, offline behavior, telemetry,
+and the configured-origin destination policy. Credential-free connections
+remain reusable across producers on one origin, while an explicitly injected
+test client remains authoritative. Concurrent first access publishes one
+process-wide client and disposes losing construction candidates; transport
+selection tests that identity without lazily creating it. The typed client
+borrows that host transport and does not dispose it. Package-layer aggregation
+still owns source order,
+reporting feeds, NuGet.org listing enrichment, complete-source requirements,
+the cache-first authorized-producer pass, payload admission, and source
+failover. NuGet.org-specific listing and symbol decisions use the stable
+producer identity rather than the first transport alias, so signing or
+reordering aliases cannot disable Gallery listing semantics. Legacy standalone
+nuspec acquisition selects a source-scoped authentication client only when the
+caller supplied the process-wide shared client; injected clients remain
+authoritative. Feed-controlled metadata resource URLs and source displays are
+redacted before diagnostic projection.
+`SourcePrecedenceTests`, `VersionCacheTests`,
+`PackageCoordinateResolverTests`, `PackagePayloadAcquisitionTests`,
+`PackageExtractorAdmissionTests.InvalidLegacyDownload_LetsTheNextSourceServe`,
+`PackageSourceClientTests.V3BorrowedHttpClientIsNotDisposedWithClient`, and
+`PackageSourceClientTests.OnlyBorrowedGalleryFactoryAcceptsSharedHttpClient`,
+and
+`HttpClientFactoryTests.PackageSourceClientProvider_SelectsHostTransportOnlyForSharedClient`,
+`HttpClientFactoryTests.Shared_ConcurrentFirstAccessPublishesOneClient`,
+`HttpClientFactoryTests.PackageSourceClientProvider_InjectedTransportDoesNotInitializeSharedClient`,
+`PackageCoordinateResolverTests.SignedFirstNuGetOrgRoute_ExcludesUnlistedVersion`,
+`HttpClientFactoryTests.StandaloneNuspecLookup_IsolatesPluginCredentialsAcrossPathDistinctProducers`,
+`HttpClientFactoryTests.StandaloneNuspecLookup_SharedClientSkipsLocalSource`,
+and
+`PackageMetadataServiceTests.FetchAllMetadataAsync_UsesConfiguredServiceIndexResources`
+gate
+those boundaries.
 
 The v3 compatibility adapter exposes search, version, manifest, and
 package-payload operations. It validates package coordinates before any
@@ -738,13 +809,25 @@ service-index or payload request. Search discovers the highest supported
 `SearchQueryService` capability from the source's service index, preserves
 equivalent endpoint order for failover, scopes credentials to the service-index
 origin, stops endpoint failover on authentication rejection, and retains signed
-endpoint query bytes. `Capabilities` describes operations implemented by the
-runtime client; a particular v3 feed that does not advertise a search resource
-returns typed `Unsupported` from that operation. The adapter does not restore
+endpoint query bytes. An incomplete bounded prefix result continues to the next
+equivalent endpoint; if none completes, the first incomplete result retains its
+typed truncation state so consumers can fail closed. `Capabilities` describes
+operations implemented by the runtime client; a particular v3 feed that does
+not advertise a search resource returns typed `Unsupported` from that
+operation. The adapter does not restore
 the retired NuGet.org-only search shortcut.
 `NuGetV3PackageResourceClient` owns `PackageBaseAddress` discovery,
 normalization, version-index URL construction, and exact package URL
-construction for the v3 source client. The canonical NuGet.org v3 client
+construction for the v3 source client. Configured base URLs gain
+`/v3/index.json` without rewriting signed query bytes, and JSON-LD array-valued
+resource types are expanded before every `PackageBaseAddress` sibling is
+validated. Expansion admits at most 4,096 resource/type pairs and checks
+cancellation during array traversal; exceeding that bound is a typed
+response-rejection failure. This prevents one bounded response from amplifying
+into unbounded retained records or single-threaded Browser/Wasm work. It
+applies bounded retries to transient
+service-index, version-index, and exact-package responses under the shared
+operation deadline. The canonical NuGet.org v3 client
 discovers the advertised package base instead of substituting the legacy
 flat-container constant. Legacy `NuGetClient` delegates those operations to
 the same source-owned primitive while retaining its canonical shortcut until
@@ -757,6 +840,12 @@ The local-folder descriptor remains modeled without a runtime client.
 `HttpProducerIdentityFoldsIdnAndPercentEscapeSpelling`,
 `LegacyPackageSourceCreatesV3Client`,
 `V3SearchUsesHighestCompatibleResourcesAndFailsOver`,
+`V3PrefixSearchFailsOverAfterIncompleteEquivalentEndpoint`,
+`V3ServiceIndexVersionAndPackageRetryTransientResponses`,
+`V3ArrayValuedPackageBaseAddressIsDiscovered`,
+`V3ArrayValuedResourceExpansionIsBounded`,
+`V3BaseSourceIsNormalizedWithoutChangingSignedQuery`,
+`V3TransientRetriesAreBounded`,
 `CanonicalNuGetOrgV3DiscoversSearchWithoutShortcut`,
 `CanonicalV3VersionAndPackageDiscoverDeclaredBaseAddress`,
 `LegacyNuGetClientRetainsCanonicalFlatContainerShortcut`,
@@ -800,6 +889,7 @@ The local-folder descriptor remains modeled without a runtime client.
 `GalleryRequestsUseLibraryDeadlines`,
 `V3InvalidVersionMetadataIsTypedFailure`,
 `V3UnusablePackageBaseAddressIsInvalidResponse`,
+`V3VersionRejectsAnyUnusablePackageBaseAddress`,
 `V3SignedPackageBaseAddressPreservesQuery`,
 `V3VersionManifestAndPackageDoNotSendCredentialCrossOrigin`,
 `V3MissingPackageIsTypedAbsence`,
@@ -821,21 +911,27 @@ and
 `BrowserEngineBoundaryTests.VersionPickerRetainsFlatListWhenRegistrationTimesOut`
 gate the deadline margin that preserves partial version-picker enumeration when
 optional registration stalls.
+The current Browser platform host lends one NuGet Gallery client only when its
+producer identity matches the authorized source selected by the package layer.
+`BrowserEngineBoundaryTests.PlatformWorkspace_CustomSourceAuthorizationFailsBeforeGalleryRequest`
+gates rejection of a mismatch before any request is dispatched.
+`BrowserEngineBoundaryTests.PlatformWorkspace_GalleryProducerAliasesUseGalleryClient`
+gates signed query and fragment aliases of that producer, and
+`BrowserEngineBoundaryTests.PlatformWorkspace_RetainedScopeRevalidatesCurrentAuthorization`
+gates current producer authorization before retained-scope reuse.
 The existing `NuGetSearchSourcesTests` continue to gate the package-layer
 service-index search behavior and credential-scope canonicalization.
 
-The remaining structural problem is that existing package-resolution consumers
-still largely equate a source with a v3 service-index URL. The implementation
-should:
+The remaining structural work is to:
 
-1. Migrate package resolution from direct `PackageSource`/`NuGetClient` use to
-   the source-client boundary.
-2. Add environment-scoped availability observations without mutating durable
+1. Add environment-scoped availability observations without mutating durable
    candidate observations.
-3. Let desktop and browser hosts choose transport implementations without
+2. Let desktop and browser hosts choose transport implementations without
    changing producer identity above the acquisition layer.
-4. Replace the browser's singleton `default versus mirror` state with a source
+3. Replace the browser's singleton `default versus mirror` state with a source
    registry and selected source set.
+4. Migrate search, standalone nuspec, and symbol compatibility consumers that
+   still operate below the typed source-client boundary.
 
 The product libraries must own these contracts. A browser harness may present
 configuration and cancellation, but it must not reconstruct package resolution,

@@ -374,6 +374,48 @@ public class VersionCacheTests : IDisposable
         Assert.Equal("2.0.0", result);
     }
 
+    [Theory]
+    [InlineData(false, "2.0.0")]
+    [InlineData(true, "2.1.0-preview.1")]
+    public async Task ResolveVersionPattern_RespectsPrereleasePolicy(
+        bool includePrerelease,
+        string expected)
+    {
+        SetListings(
+            "PatternPackage",
+            NuGetOrgSource,
+            "2.0.0\n2.1.0-preview.1");
+
+        string? result = await PackageExtractor.ResolveVersionPatternAsync(
+            FailingClient,
+            "PatternPackage",
+            "2.*",
+            [NuGetOrgSource],
+            log: null,
+            includePrerelease);
+
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public async Task ResolveVersionPattern_PrereleaseSelectorAdmitsPrerelease()
+    {
+        SetListings(
+            "PreviewPatternPackage",
+            NuGetOrgSource,
+            "2.0.0\n2.1.0-preview.1");
+
+        string? result = await PackageExtractor.ResolveVersionPatternAsync(
+            FailingClient,
+            "PreviewPatternPackage",
+            "2.1.0-preview*",
+            [NuGetOrgSource],
+            log: null,
+            includePrerelease: false);
+
+        Assert.Equal("2.1.0-preview.1", result);
+    }
+
     [Fact]
     public async Task GetVersions_WithCachedVersionList_ReturnsCachedValues()
     {
@@ -620,7 +662,7 @@ public class VersionCacheTests : IDisposable
             if (string.Equals(url, serviceIndexUrl, StringComparison.OrdinalIgnoreCase))
             {
                 body = $$"""
-                {"resources":[{"@id":"{{flatContainerBase}}","@type":"PackageBaseAddress/3.0.0"}]}
+                {"version":"3.0.0","resources":[{"@id":"{{flatContainerBase}}","@type":"PackageBaseAddress/3.0.0"}]}
                 """;
             }
             else if (string.Equals(url, $"{flatContainerBase}{packageId}/index.json", StringComparison.OrdinalIgnoreCase))
@@ -656,7 +698,7 @@ public class VersionCacheTests : IDisposable
                 _ when url.Equals(
                     source.Url,
                     StringComparison.OrdinalIgnoreCase) => $$"""
-                    {"resources":[{"@id":"{{FlatContainerBase}}","@type":"PackageBaseAddress/3.0.0"}]}
+                    {"version":"3.0.0","resources":[{"@id":"{{FlatContainerBase}}","@type":"PackageBaseAddress/3.0.0"}]}
                     """,
                 _ when url.Equals(
                     $"{FlatContainerBase}{packageId}/index.json",

@@ -78,8 +78,18 @@ content domains separate. Credentials selected for a configured endpoint may
 be sent to package resources discovered on the same origin (scheme, host, and
 port), but never to a cross-origin resource advertised by the feed.
 Runtime v3 clients own isolated credential-free transports rather than
-accepting a shared client or opaque caller handler. Their default handler
-disables cookies, default credentials, and preauthentication on desktop.
+accepting a shared client or opaque caller handler. The desktop compatibility
+adapter may borrow a host-selected transport without transferring ownership.
+Desktop hosts share the credential-free connection pool by origin, but place
+each stateful plugin-authentication handler in a producer-scoped client above
+that pool. The process-wide client is uniquely published under concurrent
+first access; compatibility consumers identify it without creating it as a
+side effect, and dispose a losing construction candidate. Legacy standalone
+nuspec requests select a scoped client only for HTTP transports when the caller
+supplied that shared client; local-folder transports retain their non-HTTP
+handling, and an explicitly injected client remains authoritative. Their
+default handler disables cookies, default credentials, and preauthentication
+on desktop.
 Browser/Wasm applies `BrowserRequestCredentials.Omit` to each request instead
 of setting unsupported handler properties. Source credentials travel through
 the typed credential parameter so the library can enforce the origin boundary.
@@ -89,8 +99,17 @@ redirects is rejected as a source-response safety-bound failure. Malformed raw
 targets, unusable IDNA hosts, and embedded user information are rejected before
 another request is formed.
 This is gated by
-`RuntimeFactoriesDoNotAcceptSharedHttpClient` and
+`OnlyBorrowedGalleryFactoryAcceptsSharedHttpClient` and
 `DefaultV3TransportHasNoAmbientCredentialMechanisms`,
+`PackageSourceClientProvider_IsolatesCookiesAcrossPathDistinctProducers`,
+`PackageSourceClientProvider_IsolatesPluginCredentialsAcrossPathDistinctProducers`,
+`PackageSourceClientProvider_ReusesConnectionsAcrossPathDistinctProducers`,
+`Shared_ConcurrentFirstAccessPublishesOneClient`,
+`PackageSourceClientProvider_InjectedTransportDoesNotInitializeSharedClient`,
+`StandaloneNuspecLookup_IsolatesPluginCredentialsAcrossPathDistinctProducers`,
+`StandaloneNuspecLookup_SharedClientSkipsLocalSource`,
+`PackageSourceClientProvider_ReappliesCredentialAcrossSameOriginRedirect`,
+`PackageSourceClientProvider_StripsCredentialAcrossCrossOriginRedirect`,
 `BrowserV3TransportAvoidsUnsupportedHandlerConfiguration`,
 `BrowserNuGetRequestsOmitAmbientCredentials`,
 `DesktopRedirectsScopeAuthorizationToOriginalOrigin`,
@@ -101,11 +120,30 @@ This is gated by
 
 The typed source-client compatibility adapter therefore derives producer
 identity from a query-bearing legacy service index's origin and path while
-retaining its query and fragment only in runtime transport configuration. This
-does not change the stricter endpoint identity used for credential adoption or
-legacy caches. Portable descriptors reject queries and fragments. Two immutable
-content domains that need distinct producer identities require distinct
-endpoint paths rather than a query-only distinction.
+retaining its query and fragment only in runtime transport configuration.
+An already canonical producer identity is hashed directly; it is not passed
+through endpoint canonicalization a second time. This preserves the distinction
+between a single optional trailing slash and repeated trailing slashes. The
+`ProducerKey_DistinguishesRepeatedTrailingSlashes` gate enforces that boundary.
+Payload authorization, alias collapse, cache admission, and
+realized-coordinate reload all compare that producer identity;
+transport-scoped candidate metadata uses the complete ordered route identity.
+A single-transport route preserves its existing configured-endpoint cache key.
+A multi-transport route hashes every canonical endpoint identity in order,
+without credentials, so routes with a shared primary alias and different
+fallbacks cannot share version or listing observations. Portable descriptors
+reject queries and fragments. Two immutable content domains that need distinct
+producer identities require distinct endpoint paths rather than a query-only
+distinction.
+`PackagePayloadAcquisitionTests.SignedSourceAlias_CommitsUnderProducerIdentity`,
+`PackagePayloadAcquisitionTests.SignedGlobalPackageMetadata_AuthorizesStableProducerOffline`,
+and
+`SourceScopedRoutingTests.SignedSourceRestrictionAuthorizesStableProducerIdentity`
+gate payload admission, cache publication, and authorization at that producer
+boundary.
+`SignedSourceRoutes_UseCompleteCandidateCacheIdentity` and
+`SignedSourceCandidateCache_IsReadableByResolvedProbe` gate the distinct
+candidate-cache identity.
 
 Package-source identity is broader than a NuGet v3 service-index URL. A
 standard v3 feed, the built-in NuGet Gallery browser implementation, and a
@@ -126,7 +164,29 @@ Several transport profiles may implement one producer. Source resolution
 collapses them by producer identity before candidate queries. A transport
 failure falls through to another applicable profile and does not create a
 second candidate source or a partial aggregate; the producer fails only when
-all of its applicable transports fail.
+all of its applicable transports fail. Query-bearing configured aliases with
+one stable producer identity are retained as ordered transports within that
+producer route rather than discarding every alias after the first.
+All transports in that route share one operation deadline; trying another
+alias does not reset the ceiling, and a successful package stream retains the
+same route deadline until the caller disposes it. If a transport returns a
+successful payload after that deadline has expired, the route owns and
+disposes the unreturned stream before projecting the typed timeout. Cleanup
+failure does not replace caller-cancellation precedence or timeout
+classification: caller cancellation retains the failure in its inner
+exception chain, while the content-free typed timeout records that cleanup
+also failed.
+`PackagePayloadAcquisitionTests.SignedSourceAliases_FailOverWithinOneProducer`
+and
+`SignedSourceAliases_FailOverVersionEnumerationWithinOneProducer` gate
+failover.
+`SignedSourceAliasesShareOneOperationDeadline` and
+`SignedSourceAliasDeadlineLivesThroughPayloadConsumption` gate the route-wide
+deadline, and `SignedSourceAliasDeadlineDisposesLatePayload` gates disposal at
+the handoff race.
+`SignedSourceAliasDeadlineCleanupFailurePreservesTimeout` and
+`SignedSourceAliasCallerCancellationOutranksCleanupFailure` gate cleanup
+failure classification.
 
 ## Resolving active and eligible sources
 
@@ -235,9 +295,17 @@ for an authorized producer:
 
 A source-bound app-cache slot may answer only when its producer is in that set.
 A `global-packages` entry may answer only when `.nupkg.metadata.source` resolves
-to a source in that set. Missing, ambiguous, or mismatched provenance is a cache
-miss. The payload is then requested from an authorized producer and cached
-under that producer's identity.
+to a source in that set and its bounded, hardened nuspec declares the requested
+package ID. Missing, ambiguous, or mismatched provenance or package identity is
+a cache miss. The payload is then requested from an authorized producer and
+cached under that producer's identity. Product-owned cache paths retain readable
+ASCII package IDs; non-ASCII IDs use a fixed-width digest component under a
+leading `~` namespace that the package-ID grammar cannot produce. Valid Unicode
+coordinates therefore cannot exceed filesystem component limits, alias through
+filesystem normalization, or collide with a literal digest-shaped package ID.
+Retained archive filenames use the same component. These properties are gated
+by `PackageCache_UnicodeIdsUseDistinctFixedWidthComponents` and
+`PackageCache_UnicodeCoordinatesCommitToDistinctSlots`.
 
 When payload sources must be queried, configured local-folder feeds are
 considered before HTTP feeds, matching NuGet's documented source tiers. No
@@ -449,6 +517,13 @@ vulnerability services may be queried for a package id only when NuGet.org is
 eligible for that id. Merely listing NuGet.org somewhere in the active config
 is insufficient when package source mapping assigns the id elsewhere. This
 prevents a private package identity from being disclosed to NuGet.org.
+NuGet.org-specific listing and symbol policy uses the stable producer identity,
+not whichever signed transport alias appears first in a route. Feed-controlled
+resource URLs and source displays are redacted before entering diagnostics.
+`PackageCoordinateResolverTests.SignedFirstNuGetOrgRoute_ExcludesUnlistedVersion`
+gates route-invariant listing policy, while
+`PackageMetadataServiceTests.FetchAllMetadataAsync_UsesConfiguredServiceIndexResources`
+gates signed resource redaction.
 
 PDB acquisition has its own provenance:
 
@@ -487,18 +562,75 @@ carry normalized coordinates, producer identity, discovery contract, and
 `listed`, `unlisted`, `unknown`, or `not-applicable` state. Exact payload
 results retain their coordinate, producer, transport profile, payload kind,
 and caller-owned stream. Expected source failures retain the source transport
-and exact coordinate when applicable, and are classified without retaining
-source URLs or response text. A payload stream remains deadline-bound after it
+and exact coordinate when applicable, retain the final HTTP status when one
+exists, and are classified without retaining source URLs or response text. A
+payload stream remains deadline-bound after it
 is returned, but a later consumption failure remains an exception because the
-operation result has already completed. These transport results do not yet
-perform multi-source aggregation and are not environment availability
-observations.
+operation result has already completed. The package acquisition layer projects
+expected body-read transport exceptions into a new content-free failure so
+multi-producer aggregation can continue; archive validation and store failures
+remain payload-policy outcomes. These transport results do not yet perform
+multi-source aggregation and are not environment availability observations.
 The v3 source client owns service-index `PackageBaseAddress` discovery plus
 version-index, exact-manifest, and exact-package URL construction. The legacy
 `NuGetClient` delegates to that source-owned primitive and retains only its
 compatibility choice to bypass canonical NuGet.org service-index discovery.
 V3 symbol payload remains unsupported because the protocol has no
 package-base-relative symbol download contract.
+
+Desktop version discovery, floating resolution, workspace payload acquisition,
+and ordinary package extraction adapt each authorized HTTP source to that typed
+client. The package layer supplies a host-owned transport rather than allowing
+the protocol factory to accept an arbitrary shared `HttpClient`: production
+selects a producer-scoped authentication transport over a credential-free
+connection pipeline shared by origin, while tests may retain an explicitly
+injected transport. Typed failures are projected into the existing
+feed-failure diagnostics during this compatibility migration. The typed v3
+resource owner retries transient service-index, version-index, and
+exact-package requests within one bounded operation deadline; package-layer
+aggregation does not add another retry loop. The adapter derives the typed
+request deadline and four-request operation ceiling from the selected host
+transport, preserving the configured `--http-timeout` contract across ordinary
+and signed-alias sources.
+Configured HTTP base sources are normalized to `/v3/index.json` for typed
+service-index requests while retaining signed query bytes and removing at most
+one optional trailing slash; the v3 client constructor is the single owner of
+that normalization, including for legacy factory overloads. Producer identity
+continues to describe the configured endpoint path. Service-index `@type`
+accepts the JSON-LD string and array forms. Parsing counts every type
+observation, including malformed array entries, against the 4,096-observation
+limit and checks cancellation during traversal. Malformed optional or unrelated
+resources are ignored for compatibility, while any malformed
+`PackageBaseAddress` declaration fails the source closed. Every usable
+`PackageBaseAddress` sibling is validated before selection; unrelated types
+that merely share its text prefix are not package endpoints.
+Package IDs use NuGetFetch's Unicode-aware NuGet package-ID grammar; the
+package layer reuses that predicate rather than narrowing it to ASCII.
+NuGet.org registration enrichment remains a separate package-layer capability;
+raw v3 candidate results do not claim authoritative listing state. The first
+cache pass still receives the complete ordered producer set before any network
+request, and exact payload attempts retain typed producer identity through
+admission and commit.
+`PackageSourceClientTests.V3BorrowedHttpClientIsNotDisposedWithClient`,
+`PackageSourceClientTests.V3SourceNormalizationRemovesAtMostOneTrailingSlash`,
+`PackageSourceClientTests.V3VersionRejectsAnyUnusablePackageBaseAddress`,
+`PackageSourceClientTests.V3UnrelatedPackageBaseAddressPrefixIsIgnored`,
+`PackageSourceClientTests.V3ServiceIndexVersionAndPackageRetryTransientResponses`,
+`PackageSourceClientTests.V3TransientRetriesAreBounded`,
+`HttpClientFactoryTests.PackageSourceClientProvider_SelectsHostTransportOnlyForSharedClient`,
+`HttpClientFactoryTests.PackageSourceClientProvider_DerivesConfiguredDeadlines`,
+`PackagePayloadAcquisitionTests.GlobalPackageIdentityMismatch_IsIgnored`,
+`PackagePayloadAcquisitionTests.GlobalPackageMalformedIdentity_IsIgnored`,
+`PackagePayloadAcquisitionTests.GlobalPackageOversizeIdentity_IsIgnored`,
+`PackagePayloadAcquisitionTests.PackageCache_MaximumMultibyteIdCommitsAndReopensBoundedArchive`,
+`PackagePayloadAcquisitionTests.PackageCache_UnicodeCoordinatesCommitToDistinctSlots`,
+`PackagePayloadAcquisitionTests.PackageStreamTransportFailureIsTypedAndRedacted`,
+`PackagePayloadAcquisitionTests.PackageStreamTransportFailureLetsNextProducerServe`,
+`PackagePayloadAcquisitionTests.PackageStoreIOExceptionRemainsPolicyRejected`,
+`SourcePrecedenceTests`, `VersionCacheTests`,
+`PackageCoordinateResolverTests`, `PackagePayloadAcquisitionTests`, and
+`PackageExtractorAdmissionTests.InvalidLegacyDownload_LetsTheNextSourceServe`
+gate these statements.
 
 The current implementation source-scopes downloaded package content and
 candidate metadata, aggregates versions across sources while retaining the

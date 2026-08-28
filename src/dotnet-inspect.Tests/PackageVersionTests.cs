@@ -77,6 +77,129 @@ public class PackageVersionTests
         Assert.Equal(2, lines.Length);
     }
 
+    [Theory]
+    [InlineData("foo bar")]
+    [InlineData("foo+bar")]
+    [InlineData("foo--bar")]
+    [InlineData("foo.")]
+    public async Task Versions_InvalidPackageId_ReturnsCleanDiagnostic(
+        string packageId)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] args = ["package", packageId, "--versions"];
+
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
+
+        Assert.Equal(1, exit);
+        Assert.Contains("A package coordinate requires a package id", error);
+        Assert.DoesNotContain("ArgumentException", error);
+        Assert.DoesNotContain("Stack Trace", error);
+    }
+
+    [Fact]
+    public async Task Versions_UnicodePackageIdUsesNuGetGrammar()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] args =
+            ["package", "日本語サンプルデータ@not-a-version", "--versions"];
+
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
+
+        Assert.Equal(1, exit);
+        Assert.Contains("coordinate version", error);
+        Assert.DoesNotContain("requires a package id", error);
+    }
+
+    [Theory]
+    [InlineData("foo bar")]
+    [InlineData("foo+bar")]
+    [InlineData("foo--bar")]
+    [InlineData("foo.")]
+    public async Task ExactPin_InvalidPackageId_ReturnsCleanDiagnostic(
+        string packageId)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] args = ["package", $"{packageId}@1.0.0"];
+
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
+
+        Assert.Equal(1, exit);
+        Assert.Contains("A package coordinate requires a package id", error);
+        Assert.DoesNotContain("ArgumentException", error);
+        Assert.DoesNotContain("Stack Trace", error);
+    }
+
+    [Fact]
+    public async Task Versions_NonCanonicalPinUsesCanonicalCoordinate()
+    {
+        await EnsurePackageCached("System.Text.Json", "8.0.0");
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] args =
+            ["package", "System.Text.Json@8.0", "--versions", "1"];
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
+
+        Assert.Equal(0, exit);
+        Assert.Equal("8.0.0", output.Trim());
+        Assert.DoesNotContain("not found", error);
+    }
+
+    [Fact]
+    public async Task Versions_WildcardSelectorUsesVersionListing()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] args =
+            ["package", "System.Text.Json@8.*", "--versions", "1"];
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
+
+        Assert.Equal(0, exit);
+        Assert.Matches(@"^8\.", output.Trim());
+        Assert.DoesNotContain("exact version", error);
+    }
+
+    [Fact]
+    public async Task Versions_WildcardSelectorFiltersBeforeLimit()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] args =
+            ["package", "System.Text.Json@8.*", "--versions", "3"];
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
+
+        Assert.Equal(0, exit);
+        string[] versions = output.Trim()
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(3, versions.Length);
+        Assert.All(
+            versions,
+            version => Assert.StartsWith("8.", version));
+        Assert.DoesNotContain("exact version", error);
+    }
+
+    [Fact]
+    public async Task Versions_InvalidPinReturnsCoordinateDiagnostic()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] args =
+            ["package", "Example@not-a-version", "--versions", "1"];
+
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
+
+        Assert.Equal(1, exit);
+        Assert.Contains(
+            "A package coordinate version must be one exact normalized NuGet version",
+            error);
+        Assert.DoesNotContain("not found", error);
+    }
+
     [Fact]
     public async Task Versions_WithRange_ListsTheInclusiveAddressVector()
     {
@@ -90,6 +213,24 @@ public class PackageVersionTests
         Assert.Equal(
             ["8.0.0", "8.0.1", "8.0.2", "8.0.3", "8.0.4", "8.0.5"],
             output.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    [Fact]
+    public async Task Versions_RangeInvalidPackageIdReturnsCleanDiagnostic()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] args =
+            ["package", "bad package@1.0.0..2.0.0", "--versions"];
+
+        var (exit, _, error) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
+
+        Assert.Equal(1, exit);
+        Assert.Contains(
+            "A package coordinate requires a package id",
+            error);
+        Assert.DoesNotContain("ArgumentException", error);
+        Assert.DoesNotContain("Stack Trace", error);
     }
 
     [Fact]

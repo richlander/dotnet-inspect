@@ -1178,7 +1178,7 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         Directory.CreateDirectory(packageDirectory);
         File.WriteAllText(
             Path.Combine(packageDirectory, $"{packageName}.nuspec"),
-            "<package />");
+            $"<package><metadata><id>{packageName}</id></metadata></package>");
         File.WriteAllText(
             Path.Combine(packageDirectory, ".nupkg.metadata"),
             $$"""{"source":"{{PrivateFeed}}"}""");
@@ -1358,6 +1358,16 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         Assert.NotEqual(
             NuGetCache.GetSourceKey("https://pkgs.invalid/v3/index.json"),
             NuGetCache.GetSourceKey("https://pkgs.invalid/v3/index.json//"));
+    }
+
+    [Fact]
+    public void ProducerKey_DistinguishesRepeatedTrailingSlashes()
+    {
+        Assert.NotEqual(
+            PackageSourceClientProvider.ProducerKey(
+                "https://pkgs.invalid/v3/index.json"),
+            PackageSourceClientProvider.ProducerKey(
+                "https://pkgs.invalid/v3/index.json//"));
     }
 
     [Fact]
@@ -1551,6 +1561,156 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         Assert.NotEqual(staleRequest, validRequest);
         Assert.DoesNotContain("stale", staleRequest.ToString());
         Assert.DoesNotContain("valid", validRequest.ToString());
+    }
+
+    [Fact]
+    public void PackageAcquisitionIdentity_IncludesEverySignedAliasTransport()
+    {
+        const string Common =
+            "https://feed.invalid/v3/index.json?signature=common";
+        var routeA = Assert.IsType<RoutedPackageSource>(
+            Assert.Single(
+                NuGetSourceResolver.ResolveSourcesForPackage(
+                    new NuGetSourceOptions
+                    {
+                        Sources =
+                        [
+                            Common,
+                            "https://feed.invalid/v3/index.json?signature=fallback-a",
+                        ],
+                    },
+                    "example")));
+        var routeB = Assert.IsType<RoutedPackageSource>(
+            Assert.Single(
+                NuGetSourceResolver.ResolveSourcesForPackage(
+                    new NuGetSourceOptions
+                    {
+                        Sources =
+                        [
+                            Common,
+                            "https://feed.invalid/v3/index.json?signature=fallback-b",
+                        ],
+                    },
+                    "example")));
+        string producer =
+            PackageSourceClientProvider.ProducerKey(routeA);
+        using var client = new HttpClient();
+
+        var requestA = PackageExtractor.CreatePackageAcquisitionRequest(
+            "example",
+            "1.0.0",
+            [producer],
+            [routeA],
+            client);
+        var requestB = PackageExtractor.CreatePackageAcquisitionRequest(
+            "example",
+            "1.0.0",
+            [producer],
+            [routeB],
+            client);
+
+        Assert.NotEqual(requestA, requestB);
+        Assert.DoesNotContain(
+            "fallback-a",
+            requestA.ToString(),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "fallback-b",
+            requestB.ToString(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SignedSourceRoutes_UseCompleteCandidateCacheIdentity()
+    {
+        const string Common =
+            "https://feed.invalid/v3/index.json?signature=common";
+        NuGetFetch.PackageSource routeA = Assert.Single(
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions
+                {
+                    Sources =
+                    [
+                        Common,
+                        "https://feed.invalid/v3/index.json?signature=fallback-a",
+                    ],
+                },
+                "example"));
+        NuGetFetch.PackageSource routeB = Assert.Single(
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions
+                {
+                    Sources =
+                    [
+                        Common,
+                        "https://feed.invalid/v3/index.json?signature=fallback-b",
+                    ],
+                },
+                "example"));
+        NuGetFetch.PackageSource reversed = Assert.Single(
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions
+                {
+                    Sources =
+                    [
+                        "https://feed.invalid/v3/index.json?signature=fallback-a",
+                        Common,
+                    ],
+                },
+                "example"));
+
+        Assert.NotEqual(
+            PackageExtractor.GetLatestVersionCacheKey("example", routeA),
+            PackageExtractor.GetLatestVersionCacheKey("example", routeB));
+        Assert.NotEqual(
+            PackageExtractor.GetLatestVersionCacheKey("example", routeA),
+            PackageExtractor.GetLatestVersionCacheKey("example", reversed));
+        Assert.NotEqual(
+            PackageExtractor.GetListingsVersionCacheKey("example", routeA),
+            PackageExtractor.GetListingsVersionCacheKey("example", routeB));
+        Assert.Equal(
+            NuGetCache.GetSourceKey(Common),
+            NuGetCache.GetCandidateRouteKey([Common]));
+        Assert.Equal(
+            NuGetSourceResolver.CandidateCacheKey(
+                new NuGetFetch.PackageSource(
+                    "first",
+                    Common,
+                    new NuGetFetch.PackageSourceCredential("user", "first"))),
+            NuGetSourceResolver.CandidateCacheKey(
+                new NuGetFetch.PackageSource(
+                    "second",
+                    Common,
+                    new NuGetFetch.PackageSourceCredential("user", "second"))));
+    }
+
+    [Fact]
+    public void SignedSourceCandidateCache_IsReadableByResolvedProbe()
+    {
+        const string PackageId = "signed.route.candidate";
+        var options = new NuGetSourceOptions
+        {
+            Sources =
+            [
+                "https://feed.invalid/v3/index.json?signature=expired",
+                "https://feed.invalid/v3/index.json?signature=current",
+            ],
+        };
+        NuGetFetch.PackageSource route = Assert.Single(
+            NuGetSourceResolver.ResolveSourcesForPackage(options, PackageId));
+        Core.CoreCache.Set(
+            "versions-v5",
+            PackageExtractor.GetLatestVersionCacheKey(PackageId, route),
+            "2.0.0",
+            extension: "txt");
+
+        string? cached = PackageExtractor.TryGetLatestCachedCandidateVersion(
+            PackageId,
+            NuGetSourceResolver.ResolveCandidateCacheKeysForPackage(
+                options,
+                PackageId));
+
+        Assert.Equal("2.0.0", cached);
     }
 
     [Fact]
@@ -1924,7 +2084,13 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         Directory.CreateDirectory(path);
         File.WriteAllText(
             Path.Combine(path, $"{packageName.ToLowerInvariant()}.nuspec"),
-            "<package />");
+            $$"""
+            <package>
+              <metadata>
+                <id>{{packageName}}</id>
+              </metadata>
+            </package>
+            """);
         string payloadPath = Path.Combine(path, "payload");
         Directory.CreateDirectory(payloadPath);
         for (int i = 0; i < payloadCount; i++)
@@ -2257,6 +2423,13 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
+            if (request.RequestUri!.AbsoluteUri.Equals(
+                    NuGetFetch.PackageSource.NuGetOrg.Url,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return NuGetOrgServiceIndex();
+            }
+
             Interlocked.Increment(ref _requestCount);
             _requestStarted.TrySetResult(true);
             await _release.Task.WaitAsync(cancellationToken);
@@ -2279,6 +2452,13 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
+            if (request.RequestUri!.AbsoluteUri.Equals(
+                    NuGetFetch.PackageSource.NuGetOrg.Url,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult(NuGetOrgServiceIndex());
+            }
+
             Interlocked.Increment(ref _requestCount);
             return Task.FromResult(
                 new HttpResponseMessage(HttpStatusCode.OK)
@@ -2308,13 +2488,13 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             if (url == "https://feed-a.invalid/v3/index.json")
             {
                 return Json(
-                    """{"resources":[{"@id":"https://content-a.invalid/flat/","@type":"PackageBaseAddress/3.0.0"}]}""");
+                    """{"version":"3.0.0","resources":[{"@id":"https://content-a.invalid/flat/","@type":"PackageBaseAddress/3.0.0"}]}""");
             }
 
             if (url == "https://feed-b.invalid/v3/index.json")
             {
                 return Json(
-                    """{"resources":[{"@id":"https://content-b.invalid/flat/","@type":"PackageBaseAddress/3.0.0"}]}""");
+                    """{"version":"3.0.0","resources":[{"@id":"https://content-b.invalid/flat/","@type":"PackageBaseAddress/3.0.0"}]}""");
             }
 
             if (url == $"https://content-a.invalid/flat/{_normalizedName}/index.json")
@@ -2356,13 +2536,13 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             if (url == "https://feed-a.invalid/v3/index.json")
             {
                 return Json(
-                    """{"resources":[{"@id":"https://content-a.invalid/flat/","@type":"PackageBaseAddress/3.0.0"}]}""");
+                    """{"version":"3.0.0","resources":[{"@id":"https://content-a.invalid/flat/","@type":"PackageBaseAddress/3.0.0"}]}""");
             }
 
             if (url == "https://feed-b.invalid/v3/index.json")
             {
                 return Json(
-                    """{"resources":[{"@id":"https://content-b.invalid/flat/","@type":"PackageBaseAddress/3.0.0"}]}""");
+                    """{"version":"3.0.0","resources":[{"@id":"https://content-b.invalid/flat/","@type":"PackageBaseAddress/3.0.0"}]}""");
             }
 
             if (url == NupkgUrl("content-a", wrapperPackage))
@@ -2398,6 +2578,15 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             => throw new InvalidOperationException(
                 $"Unexpected network request: {request.RequestUri}");
     }
+
+    private static HttpResponseMessage NuGetOrgServiceIndex() =>
+        new(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                """
+                {"version":"3.0.0","resources":[{"@id":"https://api.nuget.org/v3-flatcontainer/","@type":"PackageBaseAddress/3.0.0"}]}
+                """),
+        };
 
     private sealed class NotFoundHandler : HttpMessageHandler
     {

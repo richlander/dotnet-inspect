@@ -145,7 +145,8 @@ public static class PackageCoordinateResolver
     /// The largest package id NuGet accepts. An id longer than this cannot name
     /// a real package, so it is rejected before any source is consulted.
     /// </summary>
-    public const int MaxPackageIdLength = 100;
+    public const int MaxPackageIdLength =
+        PackageSourceCoordinate.MaxPackageIdLength;
 
     /// <summary>
     /// Resolves a coordinate against an already-authorized source set. This
@@ -193,7 +194,9 @@ public static class PackageCoordinateResolver
         bool includePrerelease = false,
         bool useVersionCache = false,
         bool requireStableFloating = false,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<PackageSource, IPackageSourceClient>?
+            borrowedSourceClientFactory = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(coordinate);
@@ -237,7 +240,8 @@ public static class PackageCoordinateResolver
                 skipCache: !useVersionCache,
                 includePrerelease,
                 requireCompleteSources: requireStableFloating,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                borrowedSourceClientFactory).ConfigureAwait(false);
         if (resolution is null)
         {
             return new PackageCoordinateResolution.Unavailable(
@@ -291,7 +295,9 @@ public static class PackageCoordinateResolver
         Action<string>? log = null,
         bool includePrerelease = true,
         bool useVersionCache = false,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<PackageSource, IPackageSourceClient>?
+            borrowedSourceClientFactory = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(packageId);
@@ -318,7 +324,9 @@ public static class PackageCoordinateResolver
                 log,
                 useVersionCache,
                 requireCompleteSources: true,
-                cancellationToken: cancellationToken).ConfigureAwait(false);
+                cancellationToken: cancellationToken,
+                borrowedSourceClientFactory:
+                    borrowedSourceClientFactory).ConfigureAwait(false);
         if (hasIncompleteMetadata)
         {
             return new PackageVersionListingResult.Unavailable(
@@ -397,49 +405,18 @@ public static class PackageCoordinateResolver
     }
 
     /// <summary>
-    /// True when <paramref name="value"/> is a package id NuGet could publish:
-    /// at most <see cref="MaxPackageIdLength"/> characters of ASCII letters,
-    /// digits, and underscore, separated by single <c>.</c> or <c>-</c>
-    /// characters.
+    /// True when <paramref name="value"/> follows NuGet's package-ID grammar:
+    /// at most <see cref="MaxPackageIdLength"/> Unicode word characters,
+    /// separated by single <c>.</c> or <c>-</c> characters.
     /// </summary>
     /// <remarks>
-    /// This is the single owner of the id grammar. It is a bounded allow list
-    /// rather than a deny list of dangerous spellings, so URL syntax
-    /// (<c>?</c>, <c>#</c>, <c>%</c>, <c>@</c>, <c>:</c>), path separators,
-    /// traversal segments, non-ASCII text, and control characters are all
-    /// outside it by construction rather than by enumeration. An id is
-    /// substituted into feed URLs and cache paths, so a caller holding a
-    /// validated id knows those substitutions cannot change the shape of what
-    /// they build.
+    /// NuGetFetch owns the protocol grammar. Its bounded word-and-separator
+    /// allow list excludes URL syntax, path separators, traversal segments,
+    /// controls, and bidirectional formatting characters while preserving
+    /// valid international package IDs.
     /// </remarks>
     public static bool IsCanonicalPackageId(string? value)
-    {
-        if (value is not { Length: > 0 } id || id.Length > MaxPackageIdLength)
-            return false;
-
-        for (int index = 0; index < id.Length; index++)
-        {
-            char character = id[index];
-            if (IsIdWordCharacter(character))
-                continue;
-
-            // A separator is legal only between two word characters, so no id
-            // starts or ends with one and no two are adjacent.
-            if (character is not ('.' or '-')
-                || index == 0
-                || index == id.Length - 1
-                || !IsIdWordCharacter(id[index - 1])
-                || !IsIdWordCharacter(id[index + 1]))
-            {
-                return false;
-            }
-        }
-
-        return true;
-
-        static bool IsIdWordCharacter(char value) =>
-            char.IsAsciiLetterOrDigit(value) || value == '_';
-    }
+        => PackageSourceCoordinate.IsValidPackageId(value);
 
     /// <summary>
     /// The longest acquisition target text this product accepts. A framework or
@@ -641,7 +618,7 @@ public static class PackageCoordinateResolver
             // described rather than echoed.
             return new PackageCoordinateResolution.Invalid(
                 "A package coordinate requires a package id of at most "
-                + $"{MaxPackageIdLength} characters of ASCII letters, digits, and underscore, "
+                + $"{MaxPackageIdLength} NuGet word characters, "
                 + "separated by single '.' or '-' characters.");
         }
 

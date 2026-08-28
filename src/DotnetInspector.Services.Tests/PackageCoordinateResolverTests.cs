@@ -66,6 +66,80 @@ public sealed class PackageCoordinateResolverTests
     }
 
     [Fact]
+    public async Task SignedFirstNuGetOrgRoute_ExcludesUnlistedVersion()
+    {
+        using var client = new HttpClient(new NuGetOrgHandler());
+        List<PackageSource> sources =
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions
+                {
+                    Sources =
+                    [
+                        "https://api.nuget.org/v3/index.json?token=signed",
+                        "https://api.nuget.org/v3/index.json",
+                    ],
+                },
+                "UnlistedPkg");
+
+        PackageCoordinateResolution resolution =
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate("UnlistedPkg"),
+                sources,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        var resolved =
+            Assert.IsType<PackageCoordinateResolution.Resolved>(resolution);
+
+        Assert.Equal("1.5.0", resolved.Coordinate.Version);
+    }
+
+    [Fact]
+    public async Task BorrowedFloatingCoordinate_ExcludesUnlistedVersion()
+    {
+        var sourceClient = new VersionSourceClient(
+            authoritative: true,
+            ("1.0.0", PackageListingState.Listed),
+            ("2.0.0", PackageListingState.Unlisted));
+        using var client = new HttpClient(new FailingHandler());
+
+        PackageCoordinateResolution resolution =
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate("Example"),
+                [NuGetOrg],
+                requireStableFloating: true,
+                cancellationToken:
+                    TestContext.Current.CancellationToken,
+                borrowedSourceClientFactory: _ => sourceClient);
+        var resolved =
+            Assert.IsType<PackageCoordinateResolution.Resolved>(resolution);
+
+        Assert.Equal("1.0.0", resolved.Coordinate.Version);
+    }
+
+    [Fact]
+    public async Task BorrowedFloatingCoordinate_PartialListingFailsClosed()
+    {
+        var sourceClient = new VersionSourceClient(
+            authoritative: false,
+            ("2.0.0", PackageListingState.Unknown));
+        using var client = new HttpClient(new FailingHandler());
+
+        PackageCoordinateResolution resolution =
+            await PackageCoordinateResolver.ResolveAsync(
+                client,
+                new PackageCoordinate("Example"),
+                [NuGetOrg],
+                requireStableFloating: true,
+                cancellationToken:
+                    TestContext.Current.CancellationToken,
+                borrowedSourceClientFactory: _ => sourceClient);
+
+        Assert.IsType<PackageCoordinateResolution.Unavailable>(resolution);
+    }
+
+    [Fact]
     public async Task ExactCoordinate_PreservesUnlistedVersionWithoutDiscovery()
     {
         using var client = new HttpClient(new FailingHandler());
@@ -186,7 +260,7 @@ public sealed class PackageCoordinateResolverTests
     [InlineData("sample-")]
     [InlineData("sample..package")]
     [InlineData("sample.-package")]
-    [InlineData("sämple")]
+    [InlineData("sample\u202Epackage")]
     public async Task Coordinate_RejectsAPackageIdOutsideTheGrammar(
         string packageId)
     {
@@ -244,6 +318,9 @@ public sealed class PackageCoordinateResolverTests
     [InlineData("NETStandard.Library")]
     [InlineData("Foo_Bar")]
     [InlineData("a_.b-c")]
+    [InlineData("sämple")]
+    [InlineData("日本語サンプルデータ")]
+    [InlineData("пакет.пример")]
     public void Coordinate_AcceptsRealPackageIds(string packageId)
     {
         // The close negative for the grammar: it is a bound on shape, not a
@@ -802,6 +879,37 @@ public sealed class PackageCoordinateResolverTests
     }
 
     [Fact]
+    public async Task WildcardLatest_RequiresEveryAuthorizedSourceToAnswer()
+    {
+        const string VersionCacheCategory = "versions-v5";
+        CoreCache.Initialize("dotnet-inspect-test");
+        CoreCache.Clear(VersionCacheCategory);
+        using var client = new HttpClient(
+            new IncompleteVersionSourcesHandler(
+                malformedVersionIndex: false));
+
+        try
+        {
+            Assert.Null(
+                await DotnetInspector.Packages.PackageExtractor
+                    .ResolveVersionPatternWithSourcesAsync(
+                    client,
+                    IncompleteVersionSourcesHandler.PackageId,
+                    "1.*",
+                    [
+                        IncompleteVersionSourcesHandler.IncompleteSource,
+                        IncompleteVersionSourcesHandler.AvailableSource,
+                    ],
+                    log: null,
+                    includePrerelease: false));
+        }
+        finally
+        {
+            CoreCache.Clear(VersionCacheCategory);
+        }
+    }
+
+    [Fact]
     public async Task FloatingCoordinate_MixedMalformedCriticalResourceIsIncomplete()
     {
         using var client = new HttpClient(
@@ -924,12 +1032,13 @@ public sealed class PackageCoordinateResolverTests
     }
 
     /// <summary>
-    /// After an authoritative nuget.org flat-container 404, a later service-index
-    /// outage must not convert absence into Failure. Discovery must stop at the
-    /// clean 404 rather than consulting SI.
+    /// Typed source enumeration discovers nuget.org's advertised
+    /// PackageBaseAddress. A service-index outage therefore makes the source
+    /// incomplete even when the well-known flat-container URL would report
+    /// absence.
     /// </summary>
     [Fact]
-    public async Task FloatingCoordinate_IgnoresNuGetOrgServiceIndexOutageAfterFlatContainer404()
+    public async Task FloatingCoordinate_TreatsNuGetOrgServiceIndexOutageAsCompleteSourceFailure()
     {
         using var client = new HttpClient(
             new NuGetOrgAbsentPrivatePresentHandler(serviceIndexOutage: true));
@@ -947,12 +1056,12 @@ public sealed class PackageCoordinateResolverTests
                 cancellationToken:
                     TestContext.Current.CancellationToken);
 
-        var resolved =
-            Assert.IsType<PackageCoordinateResolution.Resolved>(resolution);
-        Assert.Equal("1.0.0", resolved.Coordinate.Version);
-        Assert.Equal(
-            NuGetOrgAbsentPrivatePresentHandler.PrivateSource,
-            Assert.Single(resolved.Coordinate.Sources));
+        var unavailable =
+            Assert.IsType<PackageCoordinateResolution.Unavailable>(resolution);
+        Assert.Contains(
+            "complete version set",
+            unavailable.Message,
+            StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1481,6 +1590,16 @@ public sealed class PackageCoordinateResolverTests
         {
             Interlocked.Increment(ref _requestCount);
             string url = request.RequestUri!.ToString();
+            if (url.StartsWith(
+                "https://api.nuget.org/v3/index.json",
+                StringComparison.OrdinalIgnoreCase))
+            {
+                return Json(
+                    """
+                    {"version":"3.0.0","resources":[{"@id":"https://api.nuget.org/v3-flatcontainer/","@type":"PackageBaseAddress/3.0.0"}]}
+                    """);
+            }
+
             if (url.Equals(
                 $"https://api.nuget.org/v3-flatcontainer/{PackageId}/index.json",
                 StringComparison.OrdinalIgnoreCase))
@@ -1552,7 +1671,7 @@ public sealed class PackageCoordinateResolverTests
             {
                 return Json(
                     $$"""
-                    {"resources":[{"@id":"https://feed.test/flat?sig={{_signature}}","@type":"PackageBaseAddress/3.0.0"}]}
+                    {"version":"3.0.0","resources":[{"@id":"https://feed.test/flat?sig={{_signature}}","@type":"PackageBaseAddress/3.0.0"}]}
                     """);
             }
 
@@ -1587,10 +1706,10 @@ public sealed class PackageCoordinateResolverTests
             {
                 "https://preview.test/v3/index.json" =>
                     Json(
-                        """{"resources":[{"@id":"https://preview.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
+                        """{"version":"3.0.0","resources":[{"@id":"https://preview.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
                 "https://stable.test/v3/index.json" =>
                     Json(
-                        """{"resources":[{"@id":"https://stable.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
+                        """{"version":"3.0.0","resources":[{"@id":"https://stable.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
                 $"https://preview.test/flat/{PackageId}/index.json" =>
                     Json("""{"versions":["2.0.0-beta"]}"""),
                 $"https://stable.test/flat/{PackageId}/index.json" =>
@@ -1640,11 +1759,11 @@ public sealed class PackageCoordinateResolverTests
                 "https://incomplete.test/v3/index.json"
                     when malformedPackageBaseAddress =>
                     Json(
-                        """{"resources":[{"@id":"not a url","@type":"PackageBaseAddress/3.0.0"}]}"""),
+                        """{"version":"3.0.0","resources":[{"@id":"not a url","@type":"PackageBaseAddress/3.0.0"}]}"""),
                 "https://incomplete.test/v3/index.json"
                     when mixedMalformedPackageBaseAddress =>
                     Json(
-                        """{"resources":[{"@id":"https://incomplete.test/flat","@type":"PackageBaseAddress/3.0.0"},{"@id":"not a url","@type":"PackageBaseAddress/3.0.0"}]}"""),
+                        """{"version":"3.0.0","resources":[{"@id":"https://incomplete.test/flat","@type":"PackageBaseAddress/3.0.0"},{"@id":"not a url","@type":"PackageBaseAddress/3.0.0"}]}"""),
                 "https://incomplete.test/v3/index.json"
                     when credentialBearingPackageBaseAddress =>
                     Json(CredentialResources(
@@ -1658,10 +1777,12 @@ public sealed class PackageCoordinateResolverTests
                             HttpStatusCode.ServiceUnavailable)),
                 "https://incomplete.test/v3/index.json" =>
                     Json(
-                        """{"resources":[{"@id":"https://incomplete.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
+                        """{"version":"3.0.0","resources":[{"@id":"https://incomplete.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
                 $"https://incomplete.test/flat/{PackageId}/index.json" =>
                     mixedMalformedPackageBaseAddress
-                        || credentialBearingPackageBaseAddress
+                        ? Json(
+                            """{"versions":["1.0.0","9.0.0"]}""")
+                    : credentialBearingPackageBaseAddress
                         ? Task.FromResult(
                             new HttpResponseMessage(
                                 HttpStatusCode.NotFound))
@@ -1672,7 +1793,7 @@ public sealed class PackageCoordinateResolverTests
                         : Json("""{"versions":"not-an-array"}"""),
                 "https://available.test/v3/index.json" =>
                     Json(
-                        """{"resources":[{"@id":"https://available.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
+                        """{"version":"3.0.0","resources":[{"@id":"https://available.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
                 $"https://available.test/flat/{PackageId}/index.json" =>
                     Json("""{"versions":["1.0.0"]}"""),
                 _ => Task.FromResult(
@@ -1697,8 +1818,8 @@ public sealed class PackageCoordinateResolverTests
                         ? """{"@id":"https://user:pass@incomplete.test/poison","@type":["SearchQueryService/3.5.0","PackageBaseAddress/3.0.0"]}"""
                         : """{"@id":"https://user:pass@incomplete.test/poison","@type":"PackageBaseAddress/3.0.0"}""";
                 return credentialFirst
-                    ? $$"""{"resources":[{{credential}},{{valid}}]}"""
-                    : $$"""{"resources":[{{valid}},{{credential}}]}""";
+                    ? $$"""{"version":"3.0.0","resources":[{{credential}},{{valid}}]}"""
+                    : $$"""{"version":"3.0.0","resources":[{{valid}},{{credential}}]}""";
             }
         }
     }
@@ -1741,7 +1862,7 @@ public sealed class PackageCoordinateResolverTests
                 new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = new StringContent(
-                        $$"""{"resources":[{{resource}}]}"""),
+                        $$"""{"version":"3.0.0","resources":[{{resource}}]}"""),
                 });
         }
     }
@@ -1763,12 +1884,12 @@ public sealed class PackageCoordinateResolverTests
             {
                 "https://healthy.test/v3/index.json" =>
                     Json(
-                        """{"resources":[{"@id":"https://healthy.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
+                        """{"version":"3.0.0","resources":[{"@id":"https://healthy.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
                 $"https://healthy.test/flat/{PackageId}/index.json" =>
                     Json("""{"versions":["1.0.0"]}"""),
                 "https://poison.test/v3/index.json" =>
                     Json(
-                        """{"resources":[{"@id":"https://poison.test/flat","@type":"PackageBaseAddress/3.0.0"},{"@id":"/relative/vuln","@type":"VulnerabilityInfo/6.7.0"},{"@id":"not-a-url","@type":"SearchQueryService/3.5.0"},{"@id":"not-a-registration","@type":"RegistrationsBaseUrl/3.6.0"}]}"""),
+                        """{"version":"3.0.0","resources":[{"@id":"https://poison.test/flat","@type":"PackageBaseAddress/3.0.0"},{"@id":"/relative/vuln","@type":"VulnerabilityInfo/6.7.0"},{"@id":"not-a-url","@type":"SearchQueryService/3.5.0"},{"@id":"not-a-registration","@type":"RegistrationsBaseUrl/3.6.0"}]}"""),
                 $"https://poison.test/flat/{PackageId}/index.json" =>
                     Task.FromResult(
                         new HttpResponseMessage(HttpStatusCode.NotFound)),
@@ -1816,7 +1937,7 @@ public sealed class PackageCoordinateResolverTests
                             new HttpResponseMessage(
                                 HttpStatusCode.ServiceUnavailable))
                         : Json(
-                            """{"resources":[{"@id":"https://api.nuget.org/v3-flatcontainer/","@type":"PackageBaseAddress/3.0.0"},{"@id":"https://azuresearch-usnc.nuget.org/query","@type":"SearchQueryService/3.5.0"}]}"""),
+                            """{"version":"3.0.0","resources":[{"@id":"https://api.nuget.org/v3-flatcontainer/","@type":"PackageBaseAddress/3.0.0"},{"@id":"https://azuresearch-usnc.nuget.org/query","@type":"SearchQueryService/3.5.0"}]}"""),
                 $"https://api.nuget.org/v3-flatcontainer/{PackageId}/index.json" =>
                     Task.FromResult(
                         new HttpResponseMessage(
@@ -1825,7 +1946,7 @@ public sealed class PackageCoordinateResolverTests
                                 : HttpStatusCode.NotFound)),
                 "https://private.test/v3/index.json" =>
                     Json(
-                        """{"resources":[{"@id":"https://private.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
+                        """{"version":"3.0.0","resources":[{"@id":"https://private.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
                 $"https://private.test/flat/{PackageId}/index.json" =>
                     Json("""{"versions":["1.0.0"]}"""),
                 _ => Task.FromResult(
@@ -1855,6 +1976,17 @@ public sealed class PackageCoordinateResolverTests
             string url = request.RequestUri!.ToString();
             string? body;
             if (url.Equals(
+                "https://api.nuget.org/v3/index.json",
+                StringComparison.OrdinalIgnoreCase))
+            {
+                body =
+                    """
+                    {"version":"3.0.0","resources":[
+                      {"@id":"https://api.nuget.org/v3-flatcontainer/","@type":"PackageBaseAddress/3.0.0"}
+                    ]}
+                    """;
+            }
+            else if (url.Equals(
                 "https://api.nuget.org/v3-flatcontainer/unlistedpkg/index.json",
                 StringComparison.OrdinalIgnoreCase))
             {
@@ -1903,5 +2035,81 @@ public sealed class PackageCoordinateResolverTests
             CancellationToken cancellationToken) =>
             throw new InvalidOperationException(
                 $"Exact package coordinate performed discovery: {request.RequestUri}");
+    }
+
+    sealed class VersionSourceClient(
+        bool authoritative,
+        params (string Version, PackageListingState ListingState)[] versions)
+        : IPackageSourceClient
+    {
+        public PackageSourceIdentity Identity =>
+            PackageSourceIdentity.NuGetOrg;
+
+        public PackageSourceKind Kind => PackageSourceKind.NuGetGallery;
+
+        public PackageSourceCapabilities Capabilities =>
+            PackageSourceCapabilities.VersionEnumeration;
+
+        public Task<PackageSourceOperationResult<PackageSearchResult>> SearchAsync(
+            string query,
+            int take = 20,
+            bool prerelease = false,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSearchResult>>
+            SearchByPrefixAsync(
+                string prefix,
+                int take = 100,
+                bool prerelease = false,
+                CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(
+            string packageId,
+            CancellationToken cancellationToken = default)
+        {
+            PackageCandidateObservation[] candidates =
+            [
+                .. versions.Select(version =>
+                    new PackageCandidateObservation(
+                        PackageSourceCoordinate.Create(
+                            packageId,
+                            version.Version),
+                        Identity,
+                        PackageDiscoveryContract.CompleteVersionEnumeration,
+                        version.ListingState)),
+            ];
+            return Task.FromResult<
+                PackageSourceOperationResult<PackageVersionResult>>(
+                new PackageSourceOperationResult<PackageVersionResult>
+                    .Succeeded(
+                        new PackageVersionResult(
+                            candidates,
+                            authoritative)));
+        }
+
+        public Task<PackageSourceOperationResult<PackageSourceManifest>>
+            GetManifestAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>> GetPackageAsync(
+            string packageId,
+            string version,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>> TryGetSymbolsAsync(
+            string packageId,
+            string version,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public void Dispose()
+        {
+        }
     }
 }

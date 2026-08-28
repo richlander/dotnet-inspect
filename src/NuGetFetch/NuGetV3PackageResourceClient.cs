@@ -14,6 +14,8 @@ namespace NuGetFetch;
 /// scope, and
 /// <c>DefaultV3TransportBlocksPrivateCrossOriginVersionAndPackageResources</c>
 /// gates the destination policy on both resource operations.
+/// <c>V3ServiceIndexVersionAndPackageRetryTransientResponses</c> and
+/// <c>V3TransientRetriesAreBounded</c> gate typed-client retry behavior.
 /// </remarks>
 internal sealed class NuGetV3PackageResourceClient(HttpClient client)
 {
@@ -31,14 +33,16 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
         PackageSourceCredential? credential,
         NuGetFetchOptions options,
         NuGetOperationDeadline operation,
-        bool useNuGetOrgShortcut)
+        bool useNuGetOrgShortcut,
+        bool retryTransientRequests)
     {
         string baseAddress = await ResolveBaseAddressAsync(
             serviceIndexUrl,
             credential,
             options,
             operation,
-            useNuGetOrgShortcut).ConfigureAwait(false);
+            useNuGetOrgShortcut,
+            retryTransientRequests).ConfigureAwait(false);
         string normalizedId = packageId.ToLowerInvariant();
         string url = AppendBaseAddressPath(
             baseAddress,
@@ -51,34 +55,46 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
 
         try
         {
-            return await operation.RunRequestAsync(
-                async requestToken =>
-                {
-                    using HttpRequestMessage request =
-                        NuGetHttpRequest.CreateGetPreservingPathAndQuery(url);
-                    NuGetSourceRequest.ApplyCredential(
+            async Task<IReadOnlyList<string>> SendAsync(
+                CancellationToken requestToken)
+            {
+                using HttpRequestMessage request =
+                    NuGetHttpRequest.CreateGetPreservingPathAndQuery(url);
+                NuGetSourceRequest.ApplyCredential(
+                    request,
+                    endpointCredential);
+                NuGetSourceRequest
+                    .SuppressPluginAuthenticationForCrossOrigin(
                         request,
-                        endpointCredential);
-                    using HttpResponseMessage response = await client.SendAsync(
-                        request,
-                        HttpCompletionOption.ResponseHeadersRead,
+                        serviceIndexUrl,
+                        url);
+                using HttpResponseMessage response = await client.SendAsync(
+                    request,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    requestToken).ConfigureAwait(false);
+
+                if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                    return [];
+
+                response.EnsureSuccessStatusCode();
+                VersionIndex? index =
+                    await NuGetMetadataReader.ReadResponseAsync(
+                        response,
+                        NuGetApi.DeserializeVersionIndexAsync,
+                        options,
+                        client.Timeout,
                         requestToken).ConfigureAwait(false);
+                return (IReadOnlyList<string>?)index?.Versions
+                    ?? throw new NuGetSourceResponseException(
+                        "The package version response was not a valid version document.");
+            }
 
-                    if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-                        return [];
-
-                    response.EnsureSuccessStatusCode();
-                    VersionIndex? index =
-                        await NuGetMetadataReader.ReadResponseAsync(
-                            response,
-                            NuGetApi.DeserializeVersionIndexAsync,
-                            options,
-                            client.Timeout,
-                            requestToken).ConfigureAwait(false);
-                    return (IReadOnlyList<string>?)index?.Versions
-                        ?? throw new NuGetSourceResponseException(
-                            "The package version response was not a valid version document.");
-                }).ConfigureAwait(false);
+            return retryTransientRequests
+                ? await NuGetHttpRetry.RunRequestAsync(
+                    operation,
+                    SendAsync).ConfigureAwait(false)
+                : await operation.RunRequestAsync(
+                    SendAsync).ConfigureAwait(false);
         }
         catch (HttpRequestException exception)
             when (exception.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -94,14 +110,16 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
         PackageSourceCredential? credential,
         NuGetFetchOptions options,
         NuGetOperationDeadline operation,
-        bool useNuGetOrgShortcut)
+        bool useNuGetOrgShortcut,
+        bool retryTransientRequests)
     {
         string baseAddress = await ResolveBaseAddressAsync(
             serviceIndexUrl,
             credential,
             options,
             operation,
-            useNuGetOrgShortcut).ConfigureAwait(false);
+            useNuGetOrgShortcut,
+            retryTransientRequests).ConfigureAwait(false);
         string id = packageId.ToLowerInvariant();
         string normalizedVersion = NormalizeVersion(version);
         string url = AppendBaseAddressPath(
@@ -114,35 +132,47 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
                 url,
                 credential);
 
-        return await operation.RunStreamingRequestAsync(
-            async requestToken =>
+        async Task<(Stream Stream, IDisposable Owner, long? Metadata)> SendAsync(
+            CancellationToken requestToken)
+        {
+            using HttpRequestMessage request =
+                NuGetHttpRequest.CreateGetPreservingPathAndQuery(url);
+            NuGetSourceRequest.ApplyCredential(
+                request,
+                endpointCredential);
+            NuGetSourceRequest
+                .SuppressPluginAuthenticationForCrossOrigin(
+                    request,
+                    serviceIndexUrl,
+                    url);
+            HttpResponseMessage response = await client.SendAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead,
+                requestToken).ConfigureAwait(false);
+            try
             {
-                using HttpRequestMessage request =
-                    NuGetHttpRequest.CreateGetPreservingPathAndQuery(url);
-                NuGetSourceRequest.ApplyCredential(
-                    request,
-                    endpointCredential);
-                HttpResponseMessage response = await client.SendAsync(
-                    request,
-                    HttpCompletionOption.ResponseHeadersRead,
-                    requestToken).ConfigureAwait(false);
-                try
-                {
-                    response.EnsureSuccessStatusCode();
-                    Stream content = await response.Content
-                        .ReadAsStreamAsync(requestToken)
-                        .ConfigureAwait(false);
-                    return (
-                        content,
-                        response,
-                        response.Content.Headers.ContentLength);
-                }
-                catch
-                {
-                    response.Dispose();
-                    throw;
-                }
-            }).ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
+                Stream content = await response.Content
+                    .ReadAsStreamAsync(requestToken)
+                    .ConfigureAwait(false);
+                return (
+                    content,
+                    response,
+                    response.Content.Headers.ContentLength);
+            }
+            catch
+            {
+                response.Dispose();
+                throw;
+            }
+        }
+
+        return retryTransientRequests
+            ? await NuGetHttpRetry.RunStreamingRequestAsync(
+                operation,
+                SendAsync).ConfigureAwait(false)
+            : await operation.RunStreamingRequestAsync(
+                SendAsync).ConfigureAwait(false);
     }
 
     internal async Task<ReadOnlyMemory<byte>> GetManifestAsync(
@@ -152,14 +182,16 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
         PackageSourceCredential? credential,
         NuGetFetchOptions options,
         NuGetOperationDeadline operation,
-        bool useNuGetOrgShortcut)
+        bool useNuGetOrgShortcut,
+        bool retryTransientRequests)
     {
         string baseAddress = await ResolveBaseAddressAsync(
             serviceIndexUrl,
             credential,
             options,
             operation,
-            useNuGetOrgShortcut).ConfigureAwait(false);
+            useNuGetOrgShortcut,
+            retryTransientRequests).ConfigureAwait(false);
         return await GetManifestFromBaseAddressAsync(
             packageId,
             version,
@@ -167,7 +199,8 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
             serviceIndexUrl,
             credential,
             options,
-            operation).ConfigureAwait(false);
+            operation,
+            retryTransientRequests).ConfigureAwait(false);
     }
 
     internal async Task<ReadOnlyMemory<byte>> GetManifestFromBaseAddressAsync(
@@ -175,7 +208,8 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
         string version,
         string baseAddress,
         NuGetFetchOptions options,
-        NuGetOperationDeadline operation) =>
+        NuGetOperationDeadline operation,
+        bool retryTransientRequests) =>
         await GetManifestFromBaseAddressAsync(
             packageId,
             version,
@@ -183,7 +217,8 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
             serviceIndexUrl: null,
             credential: null,
             options,
-            operation).ConfigureAwait(false);
+            operation,
+            retryTransientRequests).ConfigureAwait(false);
 
     private async Task<ReadOnlyMemory<byte>> GetManifestFromBaseAddressAsync(
         string packageId,
@@ -192,7 +227,8 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
         string? serviceIndexUrl,
         PackageSourceCredential? credential,
         NuGetFetchOptions options,
-        NuGetOperationDeadline operation)
+        NuGetOperationDeadline operation,
+        bool retryTransientRequests)
     {
         string id = packageId.ToLowerInvariant();
         string normalizedVersion = NormalizeVersion(version);
@@ -206,31 +242,42 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
                 url,
                 credential);
 
-        return await NuGetHttpRetry.RunRequestAsync(
+        async Task<ReadOnlyMemory<byte>> SendAsync(
+            CancellationToken requestToken)
+        {
+            using HttpRequestMessage request =
+                NuGetHttpRequest.CreateGetPreservingPathAndQuery(url);
+            NuGetSourceRequest.ApplyCredential(
+                request,
+                endpointCredential);
+            NuGetSourceRequest
+                .SuppressPluginAuthenticationForCrossOrigin(
+                    request,
+                    serviceIndexUrl,
+                    url);
+            using HttpResponseMessage response = await client.SendAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead,
+                requestToken).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+            return await NuGetMetadataReader.ReadResponseAsync(
+                response,
+                ReadManifestBytesAsync,
+                options with
+                {
+                    MaxMetadataResponseBytes =
+                        options.MaxManifestResponseBytes,
+                },
+                client.Timeout,
+                requestToken).ConfigureAwait(false);
+        }
+
+        return retryTransientRequests
+            ? await NuGetHttpRetry.RunRequestAsync(
             operation,
-            async requestToken =>
-            {
-                using HttpRequestMessage request =
-                    NuGetHttpRequest.CreateGetPreservingPathAndQuery(url);
-                NuGetSourceRequest.ApplyCredential(
-                    request,
-                    endpointCredential);
-                using HttpResponseMessage response = await client.SendAsync(
-                    request,
-                    HttpCompletionOption.ResponseHeadersRead,
-                    requestToken).ConfigureAwait(false);
-                response.EnsureSuccessStatusCode();
-                return await NuGetMetadataReader.ReadResponseAsync(
-                    response,
-                    ReadManifestBytesAsync,
-                    options with
-                    {
-                        MaxMetadataResponseBytes =
-                            options.MaxManifestResponseBytes,
-                    },
-                    client.Timeout,
-                    requestToken).ConfigureAwait(false);
-            }).ConfigureAwait(false);
+            SendAsync).ConfigureAwait(false)
+            : await operation.RunRequestAsync(
+            SendAsync).ConfigureAwait(false);
     }
 
     private static async ValueTask<ReadOnlyMemory<byte>> ReadManifestBytesAsync(
@@ -247,7 +294,8 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
         string serviceIndexUrl,
         PackageSourceCredential? credential,
         NuGetFetchOptions options,
-        NuGetOperationDeadline operation)
+        NuGetOperationDeadline operation,
+        bool retryTransientRequests)
     {
         if (!NuGetSourceRequest.TryEndpointUrl(
                 serviceIndexUrl,
@@ -260,29 +308,36 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
         ServiceIndex? index;
         try
         {
-            index = await operation.RunRequestAsync(
-                async requestToken =>
-                {
-                    using HttpRequestMessage request =
-                        NuGetHttpRequest
-                            .CreateGetPreservingPathAndQuery(
-                                normalizedServiceIndexUrl);
-                    NuGetSourceRequest.ApplyCredential(
-                        request,
-                        credential);
-                    using HttpResponseMessage response = await client.SendAsync(
-                        request,
-                        HttpCompletionOption.ResponseHeadersRead,
-                        requestToken).ConfigureAwait(false);
-                    response.EnsureSuccessStatusCode();
+            async Task<ServiceIndex?> SendAsync(
+                CancellationToken requestToken)
+            {
+                using HttpRequestMessage request =
+                    NuGetHttpRequest
+                        .CreateGetPreservingPathAndQuery(
+                            normalizedServiceIndexUrl);
+                NuGetSourceRequest.ApplyCredential(
+                    request,
+                    credential);
+                using HttpResponseMessage response = await client.SendAsync(
+                    request,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    requestToken).ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
 
-                    return await NuGetMetadataReader.ReadResponseAsync(
-                        response,
-                        NuGetApi.DeserializeServiceIndexAsync,
-                        options,
-                        client.Timeout,
-                        requestToken).ConfigureAwait(false);
-                }).ConfigureAwait(false);
+                return await NuGetMetadataReader.ReadResponseAsync(
+                    response,
+                    NuGetApi.DeserializeServiceIndexAsync,
+                    options,
+                    client.Timeout,
+                    requestToken).ConfigureAwait(false);
+            }
+
+            index = retryTransientRequests
+                ? await NuGetHttpRetry.RunRequestAsync(
+                    operation,
+                    SendAsync).ConfigureAwait(false)
+                : await operation.RunRequestAsync(
+                    SendAsync).ConfigureAwait(false);
         }
         catch (HttpRequestException exception)
             when (exception.StatusCode
@@ -293,16 +348,24 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
                 exception);
         }
 
-        string? baseAddress = index?.Resources
-            .Where(resource => resource.Type.StartsWith(
-                "PackageBaseAddress",
-                StringComparison.OrdinalIgnoreCase))
-            .Select(resource => resource.Id)
-            .FirstOrDefault();
+        IReadOnlyList<ServiceResource>? resources = index?.Resources;
+        if (resources is null)
+            return null;
 
-        return baseAddress is null
-            ? null
-            : NormalizeBaseAddress(baseAddress);
+        string? baseAddress = null;
+        foreach (ServiceResource resource in resources)
+        {
+            if (resource.Type is null
+                || !NuGetApi.IsPackageBaseAddressType(resource.Type))
+            {
+                continue;
+            }
+
+            string normalized = NormalizeBaseAddress(resource.Id);
+            baseAddress ??= normalized;
+        }
+
+        return baseAddress;
     }
 
     private async Task<string> ResolveBaseAddressAsync(
@@ -310,7 +373,8 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
         PackageSourceCredential? credential,
         NuGetFetchOptions options,
         NuGetOperationDeadline operation,
-        bool useNuGetOrgShortcut)
+        bool useNuGetOrgShortcut,
+        bool retryTransientRequests)
     {
         if (useNuGetOrgShortcut
             && PackageSource.IsNuGetOrgServiceIndex(serviceIndexUrl))
@@ -338,7 +402,8 @@ internal sealed class NuGetV3PackageResourceClient(HttpClient client)
             serviceIndexUrl,
             credential,
             options,
-            operation).ConfigureAwait(false)
+            operation,
+            retryTransientRequests).ConfigureAwait(false)
             ?? throw new NuGetSourceResponseException(
                 "The source service index did not advertise PackageBaseAddress.");
 

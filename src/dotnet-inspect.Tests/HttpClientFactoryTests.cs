@@ -44,6 +44,37 @@ public class HttpClientFactoryTests : IDisposable
     }
 
     [Fact]
+    public async Task Shared_ConcurrentFirstAccessPublishesOneClient()
+    {
+        using var probe = new SharedPublicationProbe();
+        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+            probe.Attach);
+        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        HttpClient[] clients = [];
+        try
+        {
+            clients = await Task.WhenAll(
+                Task.Run(() => HttpClientFactory.Shared),
+                Task.Run(() => HttpClientFactory.Shared));
+
+            Assert.Same(clients[0], clients[1]);
+            Assert.Equal(1, probe.DisposedHandlerCount);
+        }
+        finally
+        {
+            if (clients is [HttpClient first, HttpClient second]
+                && !ReferenceEquals(first, second))
+            {
+                first.Dispose();
+                second.Dispose();
+            }
+            DotnetInspector.Core.HttpClientFactory
+                .SetAuthenticationDecorator(null);
+            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        }
+    }
+
+    [Fact]
     public void Shared_IsNotNull()
     {
         var client = HttpClientFactory.Shared;
@@ -254,20 +285,628 @@ public class HttpClientFactoryTests : IDisposable
     }
 
     [Fact]
-    public void GetPackageSourceClient_ReusesOneClientPerOrigin()
+    public void GetPackageSourceClient_IsolatesAuthenticationPerEndpoint()
     {
         HttpClient first =
             DotnetInspector.Core.HttpClientFactory.GetPackageSourceClient(
                 "https://private.example/v3/index.json");
-        HttpClient sameOrigin =
+        HttpClient sameEndpoint =
+            DotnetInspector.Core.HttpClientFactory.GetPackageSourceClient(
+                "https://private.example/v3/index.json");
+        HttpClient differentEndpoint =
             DotnetInspector.Core.HttpClientFactory.GetPackageSourceClient(
                 "https://PRIVATE.example/query");
         HttpClient differentPort =
             DotnetInspector.Core.HttpClientFactory.GetPackageSourceClient(
                 "https://private.example:8443/v3/index.json");
 
-        Assert.Same(first, sameOrigin);
+        Assert.Same(first, sameEndpoint);
+        Assert.NotSame(first, differentEndpoint);
         Assert.NotSame(first, differentPort);
+    }
+
+    [Fact]
+    public void PackageSourceClientProvider_SelectsHostTransportOnlyForSharedClient()
+    {
+        var source = new NuGetFetch.PackageSource(
+            "private",
+            "https://private.example/v3/index.json");
+        using var injected = new HttpClient();
+
+        HttpClient selected =
+            PackageSourceClientProvider.SelectTransport(
+                source,
+                HttpClientFactory.Shared);
+        var signedAlias = new NuGetFetch.PackageSource(
+            "private-signed",
+            $"{source.Url}?signature=rotated");
+
+        Assert.Same(
+            PackageSourceClientProvider.SelectTransport(
+                source,
+                HttpClientFactory.Shared),
+            selected);
+        Assert.Same(
+            selected,
+            PackageSourceClientProvider.SelectTransport(
+                signedAlias,
+                HttpClientFactory.Shared));
+        Assert.Same(
+            injected,
+            PackageSourceClientProvider.SelectTransport(
+                source,
+                injected));
+    }
+
+    [Fact]
+    public async Task PackageSearch_LocalSourcesRemainTypedUnavailable()
+    {
+        string localPath = Path.Combine(_cacheDir, "local-feed");
+        Directory.CreateDirectory(localPath);
+
+        string[] localSources =
+        [
+            localPath,
+            new Uri(localPath).AbsoluteUri,
+        ];
+        foreach (string source in localSources)
+        {
+            InvalidOperationException error =
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => NuGetSearchService.SearchAsync(
+                        HttpClientFactory.Shared,
+                        "contoso",
+                        sourceOptions: new NuGetSourceOptions
+                        {
+                            Sources = [source],
+                        }));
+
+            Assert.Contains(
+                "no searchable endpoint",
+                error.Message,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "absolute HTTP or HTTPS URL",
+                error.Message,
+                StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void PackageSourceClientProvider_InjectedTransportDoesNotInitializeSharedClient()
+    {
+        var source = new NuGetFetch.PackageSource(
+            "private",
+            "https://private.example/v3/index.json");
+        using var injected = new HttpClient();
+        var sharedClientCreations = 0;
+        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+            inner =>
+            {
+                Interlocked.Increment(ref sharedClientCreations);
+                return inner;
+            });
+        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        try
+        {
+            Assert.Same(
+                injected,
+                PackageSourceClientProvider.SelectTransport(
+                    source,
+                    injected));
+            Assert.Equal(0, sharedClientCreations);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory
+                .SetAuthenticationDecorator(null);
+            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        }
+    }
+
+    [Fact]
+    public async Task PackageSourceClientProvider_IsolatesCookiesAcrossPathDistinctProducers()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var first = new NuGetFetch.PackageSource(
+            "first",
+            $"http://127.0.0.1:{port}/feed-a/v3/index.json");
+        var second = new NuGetFetch.PackageSource(
+            "second",
+            $"http://127.0.0.1:{port}/feed-b/v3/index.json");
+        string? secondRequest = null;
+        Task server = Task.Run(
+            async () =>
+            {
+                using (TcpClient connection =
+                    await listener.AcceptTcpClientAsync(
+                        TestContext.Current.CancellationToken))
+                {
+                    NetworkStream stream = connection.GetStream();
+                    _ = await ReadHttpRequestAsync(
+                        stream,
+                        TestContext.Current.CancellationToken);
+                    await WriteHttpResponseAsync(
+                        stream,
+                        "200 OK",
+                        "Set-Cookie: source-a=secret; Path=/\r\n",
+                        "{}",
+                        TestContext.Current.CancellationToken);
+                }
+
+                using TcpClient secondConnection =
+                    await listener.AcceptTcpClientAsync(
+                        TestContext.Current.CancellationToken);
+                NetworkStream secondStream = secondConnection.GetStream();
+                secondRequest = await ReadHttpRequestAsync(
+                    secondStream,
+                    TestContext.Current.CancellationToken);
+                await WriteHttpResponseAsync(
+                    secondStream,
+                    "200 OK",
+                    "",
+                    "{}",
+                    TestContext.Current.CancellationToken);
+            },
+            TestContext.Current.CancellationToken);
+
+        HttpClient firstClient =
+            PackageSourceClientProvider.SelectTransport(
+                first,
+                HttpClientFactory.Shared);
+        HttpClient secondClient =
+            PackageSourceClientProvider.SelectTransport(
+                second,
+                HttpClientFactory.Shared);
+        Assert.NotSame(firstClient, secondClient);
+        using HttpResponseMessage firstResponse =
+            await firstClient.GetAsync(
+                first.Url,
+                TestContext.Current.CancellationToken);
+        using HttpResponseMessage secondResponse =
+            await secondClient.GetAsync(
+                second.Url,
+                TestContext.Current.CancellationToken);
+        await server;
+
+        Assert.DoesNotContain(
+            "Cookie: source-a=secret",
+            secondRequest,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact(Timeout = 10_000)]
+    public async Task PackageSourceClientProvider_ReusesConnectionsAcrossPathDistinctProducers()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var first = new NuGetFetch.PackageSource(
+            "first",
+            $"http://127.0.0.1:{port}/feed-a/v3/index.json");
+        var second = new NuGetFetch.PackageSource(
+            "second",
+            $"http://127.0.0.1:{port}/feed-b/v3/index.json");
+        var requests = new List<string>();
+        Task server = Task.Run(
+            async () =>
+            {
+                using TcpClient connection =
+                    await listener.AcceptTcpClientAsync(
+                        TestContext.Current.CancellationToken);
+                NetworkStream stream = connection.GetStream();
+                for (int i = 0; i < 2; i++)
+                {
+                    requests.Add(
+                        await ReadHttpRequestAsync(
+                            stream,
+                            TestContext.Current.CancellationToken));
+                    await WriteHttpResponseAsync(
+                        stream,
+                        "200 OK",
+                        "",
+                        "{}",
+                        TestContext.Current.CancellationToken,
+                        closeConnection: i == 1);
+                }
+            },
+            TestContext.Current.CancellationToken);
+
+        HttpClient firstClient =
+            PackageSourceClientProvider.SelectTransport(
+                first,
+                HttpClientFactory.Shared);
+        HttpClient secondClient =
+            PackageSourceClientProvider.SelectTransport(
+                second,
+                HttpClientFactory.Shared);
+        Assert.NotSame(firstClient, secondClient);
+        using HttpResponseMessage firstResponse =
+            await firstClient.GetAsync(
+                first.Url,
+                TestContext.Current.CancellationToken);
+        using HttpResponseMessage secondResponse =
+            await secondClient.GetAsync(
+                second.Url,
+                TestContext.Current.CancellationToken);
+        await server;
+
+        Assert.Contains("/feed-a/", requests[0], StringComparison.Ordinal);
+        Assert.Contains("/feed-b/", requests[1], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PackageSourceClientProvider_IsolatesPluginCredentialsAcrossPathDistinctProducers()
+    {
+        var probe = new PluginCredentialLeakProbe();
+        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+            probe.Attach);
+        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        try
+        {
+            var first = new NuGetFetch.PackageSource(
+                "first",
+                "https://feed.example/feed-a/v3/index.json");
+            var second = new NuGetFetch.PackageSource(
+                "second",
+                "https://feed.example/feed-b/v3/index.json");
+            HttpClient firstClient =
+                PackageSourceClientProvider.SelectTransport(
+                    first,
+                    HttpClientFactory.Shared);
+            HttpClient secondClient =
+                PackageSourceClientProvider.SelectTransport(
+                    second,
+                    HttpClientFactory.Shared);
+
+            Assert.NotSame(firstClient, secondClient);
+            using HttpResponseMessage firstResponse =
+                await firstClient.GetAsync(
+                    first.Url,
+                    TestContext.Current.CancellationToken);
+            using HttpResponseMessage secondResponse =
+                await secondClient.GetAsync(
+                    second.Url,
+                    TestContext.Current.CancellationToken);
+
+            Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+            Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
+            Assert.Equal(3, probe.Requests.Count);
+            Assert.Null(probe.Requests[0].Authorization);
+            Assert.Equal(
+                "dXNlcjpwYXNzd29yZA==",
+                probe.Requests[1].Authorization);
+            Assert.Null(probe.Requests[2].Authorization);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory
+                .SetAuthenticationDecorator(null);
+            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        }
+    }
+
+    [Fact]
+    public async Task StandaloneNuspecLookup_IsolatesPluginCredentialsAcrossPathDistinctProducers()
+    {
+        var probe = new PluginCredentialLeakProbe();
+        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+            probe.Attach);
+        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        try
+        {
+            string? nuspec = await PackageExtractor.TryGetNuspecXmlAsync(
+                HttpClientFactory.Shared,
+                "Example",
+                "1.0.0",
+                sourceOptions: new NuGetSourceOptions
+                {
+                    Sources =
+                    [
+                        "https://feed.example/feed-a/v3/index.json",
+                        "https://feed.example/feed-b/v3/index.json",
+                    ],
+                });
+
+            Assert.Null(nuspec);
+            Assert.Equal(3, probe.Requests.Count);
+            Assert.Null(probe.Requests[0].Authorization);
+            Assert.Equal(
+                "dXNlcjpwYXNzd29yZA==",
+                probe.Requests[1].Authorization);
+            Assert.Null(probe.Requests[2].Authorization);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory
+                .SetAuthenticationDecorator(null);
+            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        }
+    }
+
+    [Fact]
+    public async Task StandaloneNuspecLookup_SharedClientSkipsLocalSource()
+    {
+        var probe = new NuspecRouteProbe();
+        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+            probe.Attach);
+        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        try
+        {
+            string localSource = Path.Combine(_cacheDir, "local-source");
+            Directory.CreateDirectory(localSource);
+            string? nuspec = await PackageExtractor.TryGetNuspecXmlAsync(
+                HttpClientFactory.Shared,
+                "Example",
+                "1.0.0",
+                sourceOptions: new NuGetSourceOptions
+                {
+                    Sources =
+                    [
+                        localSource,
+                        "https://feed.example/feed/v3/index.json",
+                    ],
+                });
+
+            Assert.Contains("<id>Example</id>", nuspec);
+            Assert.Equal(
+                [
+                    "/feed/v3/index.json",
+                    "/flat/example/1.0.0/example.nuspec",
+                ],
+                probe.RequestPaths);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory
+                .SetAuthenticationDecorator(null);
+            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        }
+    }
+
+    [Fact]
+    public async Task PackageSourceClientProvider_ReappliesCredentialAcrossSameOriginRedirect()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        string sourceUrl =
+            $"http://127.0.0.1:{port}/feed/v3/index.json";
+        string? firstRequest = null;
+        string? redirectedRequest = null;
+        Task server = Task.Run(
+            async () =>
+            {
+                using (TcpClient connection =
+                    await listener.AcceptTcpClientAsync(
+                        TestContext.Current.CancellationToken))
+                {
+                    NetworkStream stream = connection.GetStream();
+                    firstRequest = await ReadHttpRequestAsync(
+                        stream,
+                        TestContext.Current.CancellationToken);
+                    await WriteHttpResponseAsync(
+                        stream,
+                        "302 Found",
+                        $"Location: http://127.0.0.1:{port}/feed/v3/redirected.json\r\n",
+                        "",
+                        TestContext.Current.CancellationToken);
+                }
+
+                using TcpClient redirectedConnection =
+                    await listener.AcceptTcpClientAsync(
+                        TestContext.Current.CancellationToken);
+                NetworkStream redirectedStream =
+                    redirectedConnection.GetStream();
+                redirectedRequest = await ReadHttpRequestAsync(
+                    redirectedStream,
+                    TestContext.Current.CancellationToken);
+                await WriteHttpResponseAsync(
+                    redirectedStream,
+                    "200 OK",
+                    "Content-Type: application/json\r\n",
+                    """{"resources":[]}""",
+                    TestContext.Current.CancellationToken);
+            },
+            TestContext.Current.CancellationToken);
+
+        var source = new NuGetFetch.PackageSource(
+            "private",
+            sourceUrl,
+            new NuGetFetch.PackageSourceCredential(
+                "user",
+                "password"));
+        using NuGetFetch.IPackageSourceClient runtime =
+            PackageSourceClientProvider.Create(
+                source,
+                HttpClientFactory.Shared);
+        _ = await runtime.GetVersionsAsync(
+            "contoso",
+            TestContext.Current.CancellationToken);
+        await server;
+
+        const string Authorization =
+            "Authorization: Basic dXNlcjpwYXNzd29yZA==";
+        Assert.Contains(
+            Authorization,
+            firstRequest,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            Authorization,
+            redirectedRequest,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PackageSourceClientProvider_StripsCredentialAcrossCrossOriginRedirect()
+    {
+        var probe = new RedirectProbeHandler(
+            new Uri("https://cdn.example/redirected.json"));
+        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+            inner => probe.Attach(inner));
+        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        try
+        {
+            var source = new NuGetFetch.PackageSource(
+                "private",
+                "https://feed.example/v3/index.json",
+                new NuGetFetch.PackageSourceCredential(
+                    "user",
+                    "password"));
+            using NuGetFetch.IPackageSourceClient runtime =
+                PackageSourceClientProvider.Create(
+                    source,
+                    HttpClientFactory.Shared);
+
+            _ = await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken);
+
+            Assert.Equal(2, probe.Authorization.Count);
+            Assert.Equal(
+                "dXNlcjpwYXNzd29yZA==",
+                probe.Authorization[0]);
+            Assert.Null(probe.Authorization[1]);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory
+                .SetAuthenticationDecorator(null);
+            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        }
+    }
+
+    [Fact]
+    public async Task PackageSourceClientProvider_SuppressesPluginCredentialForCrossOriginSearch()
+    {
+        var probe = new CrossOriginPluginProbe(useRedirect: false);
+        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+            probe.Attach);
+        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        try
+        {
+            using NuGetFetch.IPackageSourceClient runtime =
+                PackageSourceClientProvider.Create(
+                    new NuGetFetch.PackageSource(
+                        "private",
+                        "https://feed.example/v3/index.json"),
+                    HttpClientFactory.Shared);
+
+            var failed = Assert.IsType<
+                NuGetFetch.PackageSourceOperationResult<
+                    NuGetFetch.PackageSearchResult>.Failed>(
+                        await runtime.SearchAsync(
+                            "contoso",
+                            cancellationToken:
+                                TestContext.Current.CancellationToken));
+
+            Assert.Equal(
+                NuGetFetch.PackageSourceFailureKind.AuthenticationRequired,
+                failed.Failure.Kind);
+            Assert.Empty(probe.CredentialRequests);
+            Assert.Equal([null], probe.CrossOriginAuthorization);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory
+                .SetAuthenticationDecorator(null);
+            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        }
+    }
+
+    [Fact]
+    public async Task PackageSourceClientProvider_SuppressesPluginCredentialForCrossOriginRedirect()
+    {
+        var probe = new CrossOriginPluginProbe(useRedirect: true);
+        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+            probe.Attach);
+        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        try
+        {
+            using NuGetFetch.IPackageSourceClient runtime =
+                PackageSourceClientProvider.Create(
+                    new NuGetFetch.PackageSource(
+                        "private",
+                        "https://feed.example/v3/index.json"),
+                    HttpClientFactory.Shared);
+
+            var failed = Assert.IsType<
+                NuGetFetch.PackageSourceOperationResult<
+                    NuGetFetch.PackageVersionResult>.Failed>(
+                        await runtime.GetVersionsAsync(
+                            "contoso",
+                            TestContext.Current.CancellationToken));
+
+            Assert.Equal(
+                NuGetFetch.PackageSourceFailureKind.AuthenticationRequired,
+                failed.Failure.Kind);
+            Assert.Empty(probe.CredentialRequests);
+            Assert.Equal([null], probe.CrossOriginAuthorization);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory
+                .SetAuthenticationDecorator(null);
+            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        }
+    }
+
+    [Theory]
+    [InlineData(7, 28)]
+    [InlineData(60, 240)]
+    public void PackageSourceClientProvider_DerivesConfiguredDeadlines(
+        int requestSeconds,
+        int operationSeconds)
+    {
+        using var client = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(requestSeconds),
+        };
+
+        NuGetFetch.NuGetFetchOptions options =
+            PackageSourceClientProvider.FetchOptionsFor(client);
+
+        Assert.Equal(
+            TimeSpan.FromSeconds(requestSeconds),
+            options.RequestTimeout);
+        Assert.Equal(
+            TimeSpan.FromSeconds(operationSeconds),
+            options.OperationTimeout);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    [InlineData(HttpStatusCode.InternalServerError)]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    public void PackageSourceClientProvider_ProjectsExactHttpStatus(
+        HttpStatusCode status)
+    {
+        var source = new NuGetFetch.PackageSource(
+                "private",
+                "https://private.example/v3/index.json");
+        var failure = new NuGetFetch.PackageSourceFailure(
+                NuGetFetch.PackageSourceIdentity.ForHttpEndpoint(
+                    new Uri(source.Url)),
+                NuGetFetch.PackageSourceKind.NuGetV3,
+                NuGetFetch.PackageSourceCapabilities.VersionEnumeration,
+                Coordinate: null,
+                NuGetFetch.PackageSourceFailureKind.Transport,
+                "The source operation failed.",
+                status);
+        using var scope = FeedFailureTelemetry.Scope();
+
+        PackageSourceClientProvider.RecordFailure(
+                source,
+                failure,
+                NetworkTrafficKind.PackageVersionList);
+
+        var described =
+                FeedFailureTelemetry.Current!.DescribeFailure("contoso");
+        Assert.NotNull(described);
+        Assert.Contains($"{(int)status}", described.Value.ToString());
     }
 
     [Fact]
@@ -489,6 +1128,361 @@ public class HttpClientFactoryTests : IDisposable
             + "Connection: close\r\n\r\n");
         await stream.WriteAsync(headers, cancellationToken);
         await stream.WriteAsync(content, cancellationToken);
+    }
+
+    private static async Task<string> ReadHttpRequestAsync(
+        NetworkStream stream,
+        CancellationToken cancellationToken)
+    {
+        var buffer = new byte[4096];
+        int length = 0;
+        while (length < buffer.Length)
+        {
+            int read = await stream.ReadAsync(
+                buffer.AsMemory(length),
+                cancellationToken);
+            if (read == 0)
+                break;
+
+            length += read;
+            string request = Encoding.ASCII.GetString(
+                buffer,
+                0,
+                length);
+            if (request.Contains(
+                    "\r\n\r\n",
+                    StringComparison.Ordinal))
+            {
+                return request;
+            }
+        }
+
+        return Encoding.ASCII.GetString(buffer, 0, length);
+    }
+
+    private static Task WriteHttpResponseAsync(
+        NetworkStream stream,
+        string status,
+        string headers,
+        string body,
+        CancellationToken cancellationToken,
+        bool closeConnection = true)
+    {
+        byte[] bytes = Encoding.ASCII.GetBytes(
+            $"HTTP/1.1 {status}\r\n"
+            + headers
+            + $"Content-Length: {Encoding.ASCII.GetByteCount(body)}\r\n"
+            + $"Connection: {(closeConnection ? "close" : "keep-alive")}\r\n\r\n"
+            + body);
+        return stream.WriteAsync(
+            bytes,
+            cancellationToken).AsTask();
+    }
+
+    private sealed class RedirectProbeHandler
+    {
+        private readonly Uri _redirectTarget;
+
+        internal RedirectProbeHandler(Uri redirectTarget)
+        {
+            _redirectTarget = redirectTarget;
+        }
+
+        internal List<string?> Authorization { get; } = [];
+
+        internal HttpMessageHandler Attach(HttpMessageHandler inner)
+        {
+            return new ProbeHandler(this, inner);
+        }
+
+        private sealed class ProbeHandler(
+            RedirectProbeHandler owner,
+            HttpMessageHandler inner) : DelegatingHandler(inner)
+        {
+            protected override Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                owner.Authorization.Add(
+                    request.Headers.Authorization?.Parameter);
+                return Task.FromResult(
+                    owner.Authorization.Count == 1
+                        ? new HttpResponseMessage(HttpStatusCode.Found)
+                        {
+                            RequestMessage = request,
+                            Headers =
+                            {
+                                Location = owner._redirectTarget,
+                            },
+                        }
+                        : new HttpResponseMessage(
+                            HttpStatusCode.Unauthorized)
+                        {
+                            RequestMessage = request,
+                        });
+            }
+        }
+    }
+
+    private sealed class PluginCredentialLeakProbe
+    {
+        internal List<(string Path, string? Authorization)> Requests { get; } = [];
+
+        internal HttpMessageHandler Attach(HttpMessageHandler inner) =>
+            new NuGetFetch.Plugins.PluginAuthenticationHandler(
+                new StaticCredentialSource(),
+                new ProbeHandler(this, inner));
+
+        private sealed class ProbeHandler(
+            PluginCredentialLeakProbe owner,
+            HttpMessageHandler inner) : DelegatingHandler(inner)
+        {
+            protected override Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                string? authorization =
+                    request.Headers.Authorization?.Parameter;
+                owner.Requests.Add(
+                    (request.RequestUri!.AbsolutePath, authorization));
+                bool challenge =
+                    request.RequestUri.AbsolutePath.StartsWith(
+                        "/feed-a/",
+                        StringComparison.Ordinal)
+                    && authorization is null;
+                return Task.FromResult(
+                    new HttpResponseMessage(
+                        challenge
+                            ? HttpStatusCode.Unauthorized
+                            : HttpStatusCode.OK)
+                    {
+                        RequestMessage = request,
+                        Content = challenge
+                            ? null
+                            : new StringContent(
+                                """{"version":"3.0.0","resources":[]}"""),
+                    });
+            }
+        }
+
+        private sealed class StaticCredentialSource :
+            NuGetFetch.Plugins.ICredentialSource
+        {
+            public bool HasCredentialSources => true;
+
+            public Task<NuGetFetch.PackageSourceCredential?> GetCredentialsAsync(
+                Uri uri,
+                bool isRetry,
+                CancellationToken cancellationToken) =>
+                Task.FromResult<NuGetFetch.PackageSourceCredential?>(
+                    new("user", "password"));
+        }
+    }
+
+    private sealed class CrossOriginPluginProbe(bool useRedirect)
+    {
+        private readonly bool _useRedirect = useRedirect;
+
+        internal List<Uri> CredentialRequests { get; } = [];
+
+        internal List<string?> CrossOriginAuthorization { get; } = [];
+
+        internal HttpMessageHandler Attach(HttpMessageHandler inner) =>
+            new NuGetFetch.Plugins.PluginAuthenticationHandler(
+                new CredentialSource(this),
+                new ProbeHandler(this, inner));
+
+        private sealed class CredentialSource(
+            CrossOriginPluginProbe owner) :
+            NuGetFetch.Plugins.ICredentialSource
+        {
+            public bool HasCredentialSources => true;
+
+            public Task<NuGetFetch.PackageSourceCredential?>
+                GetCredentialsAsync(
+                    Uri uri,
+                    bool isRetry,
+                    CancellationToken cancellationToken)
+            {
+                owner.CredentialRequests.Add(uri);
+                return Task.FromResult<
+                    NuGetFetch.PackageSourceCredential?>(
+                        new("user", "password"));
+            }
+        }
+
+        private sealed class ProbeHandler(
+            CrossOriginPluginProbe owner,
+            HttpMessageHandler inner) : DelegatingHandler(inner)
+        {
+            protected override Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                Uri uri = request.RequestUri!;
+                if (uri.Host == "feed.example"
+                    && uri.AbsolutePath == "/v3/index.json")
+                {
+                    string body = owner._useRedirect
+                        ? """
+                          {
+                            "resources": [
+                              {
+                                "@id": "https://feed.example/flat/",
+                                "@type": "PackageBaseAddress/3.0.0"
+                              }
+                            ]
+                          }
+                          """
+                        : """
+                          {
+                            "resources": [
+                              {
+                                "@id": "https://cross.example/query",
+                                "@type": "SearchQueryService/3.5.0"
+                              }
+                            ]
+                          }
+                          """;
+                    return Task.FromResult(Json(request, body));
+                }
+
+                if (owner._useRedirect
+                    && uri.Host == "feed.example"
+                    && uri.AbsolutePath
+                        == "/flat/contoso/index.json")
+                {
+                    return Task.FromResult(
+                        new HttpResponseMessage(HttpStatusCode.Found)
+                        {
+                            RequestMessage = request,
+                            Headers =
+                            {
+                                Location = new Uri(
+                                    "https://cross.example/versions"),
+                            },
+                        });
+                }
+
+                owner.CrossOriginAuthorization.Add(
+                    request.Headers.Authorization?.Parameter);
+                if (request.Headers.Authorization is null)
+                {
+                    return Task.FromResult(
+                        new HttpResponseMessage(
+                            HttpStatusCode.Unauthorized)
+                        {
+                            RequestMessage = request,
+                        });
+                }
+
+                string successfulBody = owner._useRedirect
+                    ? """{"versions":["1.0.0"]}"""
+                    : """{"data":[]}""";
+                return Task.FromResult(
+                    Json(request, successfulBody));
+            }
+
+            private static HttpResponseMessage Json(
+                HttpRequestMessage request,
+                string body) =>
+                new(HttpStatusCode.OK)
+                {
+                    RequestMessage = request,
+                    Content = new StringContent(
+                        body,
+                        Encoding.UTF8,
+                        "application/json"),
+                };
+        }
+    }
+
+    private sealed class NuspecRouteProbe
+    {
+        internal List<string> RequestPaths { get; } = [];
+
+        internal HttpMessageHandler Attach(HttpMessageHandler inner) =>
+            new ProbeHandler(this, inner);
+
+        private sealed class ProbeHandler(
+            NuspecRouteProbe owner,
+            HttpMessageHandler inner) : DelegatingHandler(inner)
+        {
+            protected override Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                string path = request.RequestUri!.AbsolutePath;
+                owner.RequestPaths.Add(path);
+                string content = path switch
+                {
+                    "/feed/v3/index.json" => """
+                        {
+                          "resources": [
+                            {
+                              "@type": "PackageBaseAddress/3.0.0",
+                              "@id": "https://feed.example/flat/"
+                            }
+                          ]
+                        }
+                        """,
+                    "/flat/example/1.0.0/example.nuspec" => """
+                        <?xml version="1.0"?>
+                        <package>
+                          <metadata>
+                            <id>Example</id>
+                            <version>1.0.0</version>
+                          </metadata>
+                        </package>
+                        """,
+                    _ => throw new InvalidOperationException(
+                        $"Unexpected nuspec request: {path}"),
+                };
+                return Task.FromResult(
+                    new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        RequestMessage = request,
+                        Content = new StringContent(content),
+                    });
+            }
+        }
+    }
+
+    private sealed class SharedPublicationProbe : IDisposable
+    {
+        private readonly Barrier _barrier = new(2);
+        private int _disposedHandlerCount;
+
+        internal int DisposedHandlerCount =>
+            Volatile.Read(ref _disposedHandlerCount);
+
+        internal HttpMessageHandler Attach(HttpMessageHandler inner)
+        {
+            if (!_barrier.SignalAndWait(TimeSpan.FromSeconds(30)))
+            {
+                throw new TimeoutException(
+                    "Concurrent shared-client construction did not overlap.");
+            }
+
+            return new DisposeTrackingHandler(this, inner);
+        }
+
+        public void Dispose() => _barrier.Dispose();
+
+        private sealed class DisposeTrackingHandler(
+            SharedPublicationProbe owner,
+            HttpMessageHandler inner) : DelegatingHandler(inner)
+        {
+            protected override void Dispose(bool disposing)
+            {
+                if (disposing)
+                {
+                    Interlocked.Increment(
+                        ref owner._disposedHandlerCount);
+                }
+                base.Dispose(disposing);
+            }
+        }
     }
 
     /// <summary>

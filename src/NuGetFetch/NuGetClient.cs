@@ -52,7 +52,8 @@ public class NuGetClient(HttpClient client)
             credential,
             _options,
             operation,
-            useNuGetOrgShortcut: true).ConfigureAwait(false);
+            useNuGetOrgShortcut: true,
+            retryTransientRequests: false).ConfigureAwait(false);
 
     /// <summary>
     /// Gets the latest version for a package. Uses the search API for nuget.org (faster).
@@ -144,7 +145,8 @@ public class NuGetClient(HttpClient client)
                     credential,
                     _options,
                     operation,
-                    useNuGetOrgShortcut: true).ConfigureAwait(false);
+                    useNuGetOrgShortcut: true,
+                    retryTransientRequests: false).ConfigureAwait(false);
             return content;
         }
         catch
@@ -169,14 +171,16 @@ public class NuGetClient(HttpClient client)
             credential,
             _options,
             operation,
-            useNuGetOrgShortcut: true).ConfigureAwait(false);
+            useNuGetOrgShortcut: true,
+            retryTransientRequests: false).ConfigureAwait(false);
     }
 
     internal async Task<ReadOnlyMemory<byte>> GetManifestFromBaseAddressAsync(
         string packageId,
         string version,
         string baseAddress,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool retryTransientRequests = false)
     {
         using var operation = CreateOperation(cancellationToken);
         return await _packageResources.GetManifestFromBaseAddressAsync(
@@ -184,7 +188,8 @@ public class NuGetClient(HttpClient client)
             version,
             baseAddress,
             _options,
-            operation).ConfigureAwait(false);
+            operation,
+            retryTransientRequests).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -207,7 +212,8 @@ public class NuGetClient(HttpClient client)
             serviceIndexUrl,
             credential: null,
             _options,
-            operation).ConfigureAwait(false);
+            operation,
+            retryTransientRequests: false).ConfigureAwait(false);
     }
 
     /// <summary>

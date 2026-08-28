@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
+using NuGetFetch;
 
 namespace InspectWeb.Engine;
 
@@ -131,6 +132,8 @@ internal sealed record BrowserPlatformAssemblyRequest(
 /// and
 /// <c>BrowserEngineBoundaryTests.PlatformWorkspace_FailedUnknownFamilyProbePreservesCumulativeState</c>
 /// gate cumulative state across probe suspension, scope pressure, and failure.
+/// <c>BrowserEngineBoundaryTests.PlatformWorkspace_RetainedScopeRevalidatesCurrentAuthorization</c>
+/// gates producer authorization before a retained scope is reused.
 /// </remarks>
 [SupportedOSPlatform("browser")]
 internal static class BrowserPlatformWorkspace
@@ -195,7 +198,7 @@ internal static class BrowserPlatformWorkspace
             platformVersion,
             RuntimeFamily,
             DefaultRuntimeAssembly,
-            new Host(client, sourceAuthorization),
+            Host.Create(client, sourceAuthorization),
             operationTimeout,
             cancellationToken);
 
@@ -266,7 +269,7 @@ internal static class BrowserPlatformWorkspace
                 targetFramework,
                 platformVersion,
                 AssemblySimpleName(assemblyFileName),
-                new Host(client, sourceAuthorization),
+                Host.Create(client, sourceAuthorization),
                 operationTimeout,
                 cancellationToken)
             : OpenAsync(
@@ -274,7 +277,7 @@ internal static class BrowserPlatformWorkspace
                 platformVersion,
                 Family(pack),
                 AssemblySimpleName(assemblyFileName),
-                new Host(client, sourceAuthorization),
+                Host.Create(client, sourceAuthorization),
                 operationTimeout,
                 cancellationToken);
 
@@ -301,7 +304,7 @@ internal static class BrowserPlatformWorkspace
             targetFramework,
             platformVersion: null,
             assemblies,
-            new Host(client, sourceAuthorization),
+            Host.Create(client, sourceAuthorization),
             operationTimeout,
             cancellationToken);
 
@@ -621,6 +624,35 @@ internal static class BrowserPlatformWorkspace
             ? BrowserPackageWorkspace.LeaseScope(retained)
             : null;
 
+    static void ValidateRetainedScopeAuthorization(
+        ImmutableArray<RealizedMemberCoordinate.Platform> coordinates,
+        Host host)
+    {
+        var families = new HashSet<string>(StringComparer.Ordinal);
+        foreach (RealizedMemberCoordinate.Platform coordinate in coordinates)
+        {
+            if (!families.Add(coordinate.Family))
+                continue;
+
+            PackageSourceAuthorization authorization =
+                WorkspaceContextLoader.AuthorizePlatformSources(
+                    coordinate.Family,
+                    host.SourceAuthorization);
+            PackageSource? producer = authorization.Sources.FirstOrDefault(
+                source => NuGetSourceResolver.SourceKey(source).Equals(
+                    coordinate.Producer,
+                    StringComparison.Ordinal));
+            if (producer is null)
+            {
+                throw new InvalidOperationException(
+                    "The retained Browser platform producer is not authorized "
+                    + "by the current host.");
+            }
+
+            host.SourceClientFor(producer);
+        }
+    }
+
     static async Task<BrowserPlatformScopeResolution> OpenCoreAsync(
         string targetKey,
         string targetFramework,
@@ -679,6 +711,7 @@ internal static class BrowserPlatformWorkspace
             && state.Scope is { } retained
             && BrowserPackageWorkspace.IsScopeRetained(retained))
         {
+            ValidateRetainedScopeAuthorization(state.Coordinates, host);
             BrowserPackageWorkspace.TouchScope(retained);
             WorkspaceContextMember retainedParticipant =
                 retained.Participant(
@@ -983,6 +1016,7 @@ internal static class BrowserPlatformWorkspace
         {
             HttpClient = host.Client,
             SourceAuthorization = host.SourceAuthorization,
+            BorrowedSourceClientFactory = host.SourceClientFor,
             PackageStore = store,
             PackageTransferPolicy =
                 new BrowserPackageWorkspace.BrowserPackageOperationTransferPolicy(
@@ -1344,11 +1378,40 @@ internal static class BrowserPlatformWorkspace
     static Host ProductionHost { get; } =
         new(
             BrowserPackageWorkspace.NetworkClient,
-            BrowserPackageWorkspace.PackageSourceAuthorization);
+            BrowserPackageWorkspace.PackageSourceAuthorization,
+            BrowserPackageWorkspace.Gallery);
 
     sealed record Host(
         HttpClient Client,
-        IPackageSourceAuthorization SourceAuthorization);
+        IPackageSourceAuthorization SourceAuthorization,
+        IPackageSourceClient SourceClient)
+    {
+        internal IPackageSourceClient SourceClientFor(PackageSource source)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+            string selectedProducer = NuGetSourceResolver.SourceKey(source);
+            string clientProducer =
+                NuGetCache.GetSourceKey(SourceClient.Identity);
+            if (!selectedProducer.Equals(
+                    clientProducer,
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "The selected Browser package source does not match "
+                    + "the configured package source client.");
+            }
+
+            return SourceClient;
+        }
+
+        internal static Host Create(
+            HttpClient client,
+            IPackageSourceAuthorization sourceAuthorization) =>
+            new(
+                client,
+                sourceAuthorization,
+                BrowserPackageWorkspace.CreateGalleryClient(client));
+    }
 
     readonly record struct PlatformSelection(
         string Family,

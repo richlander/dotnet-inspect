@@ -70,12 +70,12 @@ public static class SourceResolver
         Action<string>? reportPlatformLookupFailure = null)
         => TryProbeLocalQualifiedName(
             name,
-            candidate => ResolveSourceKeysForProbe(sourceOptions, candidate),
+            candidate => ResolveCandidateCacheKeysForProbe(sourceOptions, candidate),
             reportPlatformLookupFailure);
 
     private static LocalProbeResult? TryProbeLocalQualifiedName(
         string name,
-        Func<string, IReadOnlyList<string>> sourceKeysForPackage,
+        Func<string, IReadOnlyList<string>> candidateCacheKeysForPackage,
         Action<string>? reportPlatformLookupFailure)
     {
         // Require at least 2 dots (e.g., System.Text.Json.JsonSerializer).
@@ -119,7 +119,7 @@ public static class SourceResolver
             // name without letting package-content directories invent versions.
             if (PackageExtractor.HasCachedCandidateVersion(
                     candidate,
-                    sourceKeysForPackage(candidate)))
+                    candidateCacheKeysForPackage(candidate)))
             {
                 RequestTelemetry.Breadcrumb(
                     "qualified-type-split",
@@ -190,20 +190,20 @@ public static class SourceResolver
         Action<string>? reportPlatformLookupFailure = null)
         => TryResolveQualifiedTypeName(
             name,
-            candidate => ResolveSourceKeysForProbe(sourceOptions, candidate),
+            candidate => ResolveCandidateCacheKeysForProbe(sourceOptions, candidate),
             allowPlatformPrefixFallback,
             reportPlatformLookupFailure);
 
     private static LocalProbeResult? TryResolveQualifiedTypeName(
         string name,
-        Func<string, IReadOnlyList<string>> sourceKeysForPackage,
+        Func<string, IReadOnlyList<string>> candidateCacheKeysForPackage,
         bool allowPlatformPrefixFallback,
         Action<string>? reportPlatformLookupFailure)
     {
         bool platformLookupFailed = false;
         var probe = TryProbeLocalQualifiedName(
             name,
-            sourceKeysForPackage,
+            candidateCacheKeysForPackage,
             message =>
             {
                 platformLookupFailed = true;
@@ -332,18 +332,18 @@ public static class SourceResolver
             explicitPackage,
             explicitAssembly,
             explicitPlatform,
-            candidate => ResolveSourceKeysForProbe(sourceOptions, candidate),
+            candidate => ResolveCandidateCacheKeysForProbe(sourceOptions, candidate),
             sourceOptions,
             verbose,
             tryQualifiedTypeName).ConfigureAwait(false);
 
-    internal static IReadOnlyList<string> ResolveSourceKeysForProbe(
+    internal static IReadOnlyList<string> ResolveCandidateCacheKeysForProbe(
         NuGetSourceOptions? sourceOptions,
         string packageId)
     {
         try
         {
-            return NuGetSourceResolver.ResolveSourceKeysForPackage(
+            return NuGetSourceResolver.ResolveCandidateCacheKeysForPackage(
                 sourceOptions,
                 packageId);
         }
@@ -361,7 +361,7 @@ public static class SourceResolver
         string? explicitPackage,
         string? explicitAssembly,
         string? explicitPlatform,
-        Func<string, IReadOnlyList<string>> sourceKeysForPackage,
+        Func<string, IReadOnlyList<string>> candidateCacheKeysForPackage,
         NuGetSourceOptions? sourceOptions,
         bool verbose,
         bool tryQualifiedTypeName)
@@ -526,7 +526,7 @@ public static class SourceResolver
                     string? platformLookupFailure = null;
                     var probe = TryResolveQualifiedTypeName(
                         bareName,
-                        sourceKeysForPackage,
+                        candidateCacheKeysForPackage,
                         allowPlatformPrefixFallback: true,
                         message => platformLookupFailure = message);
                     if (platformLookupFailure is not null)

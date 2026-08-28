@@ -45,7 +45,8 @@ internal static class NuGetV3SearchResourceDiscovery
                     options,
                     client.Timeout,
                     requestToken).ConfigureAwait(false);
-            }).ConfigureAwait(false);
+            },
+            retryDeadlineExpirations: false).ConfigureAwait(false);
     }
 
     private static async ValueTask<IReadOnlyList<string>>
@@ -55,6 +56,10 @@ internal static class NuGetV3SearchResourceDiscovery
     {
         using JsonDocument document = await JsonDocument.ParseAsync(
             json,
+            new JsonDocumentOptions
+            {
+                AllowDuplicateProperties = false,
+            },
             cancellationToken: cancellationToken).ConfigureAwait(false);
         if (document.RootElement.ValueKind != JsonValueKind.Object
             || !document.RootElement.TryGetProperty(

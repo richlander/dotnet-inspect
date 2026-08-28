@@ -88,6 +88,16 @@ internal static class BrowserPackageWorkspace
                 RequestTimeout = GalleryOperationTimeout,
                 OperationTimeout = GalleryOperationTimeout,
             });
+
+    internal static IPackageSourceClient CreateGalleryClient(
+        HttpClient client) =>
+        PackageSourceClientFactory.CreateGallery(
+            client,
+            new NuGetFetchOptions
+            {
+                RequestTimeout = GalleryOperationTimeout,
+                OperationTimeout = GalleryOperationTimeout,
+            });
     static readonly BrowserSessionPackageStore Store = new();
     static readonly PackagePayloadLimits PayloadLimits = new()
     {
@@ -192,7 +202,7 @@ internal static class BrowserPackageWorkspace
 
         string key = PackageKey(coordinate.PackageId, coordinate.Version);
         string pendingKey =
-            $"{key}@{NuGetCache.GetSourceKey(source.Identity.Value)}";
+            $"{key}@{NuGetCache.GetSourceKey(source.Identity)}";
         if (!PendingAcquisitions.TryGetValue(
                 pendingKey,
                 out Task<AcquiredPackageSourcePayload>? pending))

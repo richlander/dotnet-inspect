@@ -983,6 +983,7 @@ public class DependencyGraphServiceTests : IDisposable
                 return Task.FromResult(Response(
                     $$"""
                     {
+                      "version": "3.0.0",
                       "resources": [
                         {
                           "@type": "PackageBaseAddress/3.0.0",
@@ -1038,6 +1039,7 @@ public class DependencyGraphServiceTests : IDisposable
                 return Task.FromResult(Response(
                     $$"""
                     {
+                      "version": "3.0.0",
                       "resources": [
                         {
                           "@type": "PackageBaseAddress/3.0.0",
@@ -1173,6 +1175,15 @@ public class DependencyGraphServiceTests : IDisposable
             string normalizedPackageId = packageId.ToLowerInvariant();
             string url = request.RequestUri!.AbsoluteUri;
             if (url.Equals(
+                NuGetFetch.PackageSource.NuGetOrg.Url,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult(Response(
+                    """
+                    {"version":"3.0.0","resources":[{"@id":"https://api.nuget.org/v3-flatcontainer/","@type":"PackageBaseAddress/3.0.0"}]}
+                    """));
+            }
+            if (url.Equals(
                 $"https://api.nuget.org/v3-flatcontainer/{normalizedPackageId}/index.json",
                 StringComparison.OrdinalIgnoreCase))
             {
@@ -1301,6 +1312,7 @@ public class DependencyGraphServiceTests : IDisposable
         private static string ServiceIndex(string flatContainer) =>
             $$"""
             {
+              "version": "3.0.0",
               "resources": [
                 {
                   "@type": "PackageBaseAddress/3.0.0",

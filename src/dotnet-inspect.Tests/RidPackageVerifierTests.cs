@@ -24,7 +24,7 @@ public class RidPackageVerifierTests
         var handler = new StubHandler();
         handler.Add(
             "feed.example.test/v3/index.json",
-            """{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""");
+            """{"version":"3.0.0","resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""");
         handler.Add(
             "content.example.test/flat/testpackage.linux-x64/1.0.0/testpackage.linux-x64.nuspec",
             """<?xml version="1.0"?><package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd"><metadata><id>TestPackage.linux-x64</id><version>1.0.0</version></metadata></package>""");
@@ -70,7 +70,7 @@ public class RidPackageVerifierTests
         var handler = new StubHandler();
         handler.Add(
             "feed.example.test/v3/index.json",
-            """{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""");
+            """{"version":"3.0.0","resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""");
         handler.Add(
             $"content.example.test/flat/{normalizedPackageId}/index.json",
             """{"versions":["1.0.0"]}""");
@@ -118,7 +118,7 @@ public class RidPackageVerifierTests
         var handler = new StubHandler();
         handler.Add(
             "feed.example.test/v3/index.json",
-            """{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""");
+            """{"version":"3.0.0","resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""");
         using var client = new HttpClient(handler);
         var result = new InspectionResult
         {
@@ -202,7 +202,7 @@ public class RidPackageVerifierTests
         var handler = new StubHandler();
         handler.Add(
             "feed.example.test/v3/index.json",
-            """{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""");
+            """{"version":"3.0.0","resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""");
         handler.Add(
             $"content.example.test/flat/{normalizedPackageId}/index.json",
             """{"notVersions":[]}""");
@@ -243,7 +243,7 @@ public class RidPackageVerifierTests
         var handler = new StubHandler();
         handler.Add(
             "feed.example.test/v3/index.json",
-            """{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""");
+            """{"version":"3.0.0","resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""");
         using var client = new HttpClient(handler);
         var result = new InspectionResult
         {

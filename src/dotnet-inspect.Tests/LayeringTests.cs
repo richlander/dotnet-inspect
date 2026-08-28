@@ -414,6 +414,71 @@ public sealed class LayeringTests
             referencedTypes);
     }
 
+    [Fact]
+    public void ProductStack_UsesLegacyFeedApisOnlyFromApprovedOwners()
+    {
+        string root = CommandErrorOwnershipTests.RepositoryRoot();
+        string project = Path.Combine(
+            root,
+            "src",
+            "dotnet-inspect",
+            "dotnet-inspect.csproj");
+        string[] assemblyPaths =
+        [
+            .. CommandErrorOwnershipTests.EvaluatedProjectClosure(project)
+                .Select(Path.GetFileNameWithoutExtension)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(name => Path.Combine(
+                    AppContext.BaseDirectory,
+                    $"{name}.dll")),
+        ];
+        Assert.All(
+            assemblyPaths,
+            path => Assert.True(
+                File.Exists(path),
+                $"Product assembly not found: {path}"));
+
+        string[] legacyApis =
+        [
+            "GetSearchQueryServiceAsync",
+            "GetSearchQueryServicesAsync",
+            "GetServiceIndexResourcesAsync",
+        ];
+        string[] uses =
+        [
+            .. assemblyPaths
+                .SelectMany(path =>
+                    LibraryBodyIndex.Open(
+                            path,
+                            LibraryBodyAnalysisFeatures.MethodEvidence)
+                        .DirectCalls)
+                .Where(call =>
+                    call.Callee.DeclaringType.Assembly
+                        == "DotnetInspector.Packages"
+                    && call.Callee.DeclaringType.Namespace
+                        == "DotnetInspector.Packages"
+                    && call.Callee.DeclaringType.Name
+                        == "PackageExtractor"
+                    && legacyApis.Contains(
+                        call.Callee.Name,
+                        StringComparer.Ordinal))
+                .Select(call =>
+                    $"{call.Caller.AssemblyName}:"
+                    + $"{call.Caller.DeclaringType.Namespace}."
+                    + $"{call.Caller.DeclaringType.Name}."
+                    + $"{call.Caller.Name}->{call.Callee.Name}")
+                .Order(StringComparer.Ordinal),
+        ];
+
+        Assert.Equal(
+            [
+                "DotnetInspector.Packages:DotnetInspector.Packages.PackageExtractor.GetSearchQueryServiceAsync->GetSearchQueryServicesAsync",
+                "DotnetInspector.Packages:DotnetInspector.Packages.PackageExtractor.GetSearchQueryServicesAsync->GetServiceIndexResourcesAsync",
+                "DotnetInspector.Services:DotnetInspector.Services.PackageMetadataService.FetchAllMetadataFromSourceAsync->GetServiceIndexResourcesAsync",
+            ],
+            uses);
+    }
+
     [Theory]
     [InlineData("DiffCommand.cs")]
     [InlineData("TimelineCommand.cs")]

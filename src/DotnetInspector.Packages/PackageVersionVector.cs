@@ -147,6 +147,12 @@ public sealed class PackageVersionVector
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(range);
+        if (PackageCoordinateResolver.Validate(
+                new PackageCoordinate(range.PackageId))
+            is { } invalidRange)
+        {
+            throw new InvalidOperationException(invalidRange.Message);
+        }
 
         var (candidates, hasIncompleteMetadata) =
             await PackageExtractor.GetVersionCandidatesAsync(

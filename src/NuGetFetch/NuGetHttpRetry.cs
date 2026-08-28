@@ -8,7 +8,8 @@ internal static class NuGetHttpRetry
 
     public static async Task<T> RunRequestAsync<T>(
         NuGetOperationDeadline operation,
-        Func<CancellationToken, Task<T>> request)
+        Func<CancellationToken, Task<T>> request,
+        bool retryDeadlineExpirations = true)
     {
         for (int retry = 0; ; retry++)
         {
@@ -19,7 +20,9 @@ internal static class NuGetHttpRetry
             }
             catch (Exception exception)
                 when (retry < MaximumRetries
-                    && IsTransient(exception))
+                    && IsTransient(
+                        exception,
+                        retryDeadlineExpirations))
             {
                 await DelayAsync(operation, retry).ConfigureAwait(false);
             }
@@ -43,7 +46,9 @@ internal static class NuGetHttpRetry
             }
             catch (Exception exception)
                 when (retry < MaximumRetries
-                    && IsTransient(exception))
+                    && IsTransient(
+                        exception,
+                        retryDeadlineExpirations: true))
             {
                 await DelayAsync(operation, retry).ConfigureAwait(false);
             }
@@ -56,13 +61,18 @@ internal static class NuGetHttpRetry
         operation.DelayAsync(
             TimeSpan.FromMilliseconds(100 * (1 << retry)));
 
-    private static bool IsTransient(Exception exception) =>
-        exception is NuGetRequestTimeoutException
-            or NuGetMetadataBodyTimeoutException
+    private static bool IsTransient(
+        Exception exception,
+        bool retryDeadlineExpirations) =>
+        retryDeadlineExpirations
+            && exception is
+                (NuGetRequestTimeoutException
+                or NuGetMetadataBodyTimeoutException)
         || exception is IOException
             and not NuGetMetadataResponseTooLargeException
             and not NuGetRedirectLimitExceededException
             and not NuGetRegistrationResourceLimitExceededException
+            and not NuGetMetadataResourceLimitExceededException
         || exception is HttpRequestException request
             && (request.StatusCode is null
                 || request.StatusCode is

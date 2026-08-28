@@ -626,7 +626,7 @@ public static class RouterCommandDefinition
         {
             if (PackageExtractor.HasCachedCandidateVersion(
                     packageName,
-                    SourceResolver.ResolveSourceKeysForProbe(
+                    SourceResolver.ResolveCandidateCacheKeysForProbe(
                         sourceOptions,
                         packageName)))
             {

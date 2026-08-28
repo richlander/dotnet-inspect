@@ -19,14 +19,17 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
     private readonly NuGetFetchOptions _options;
     private readonly NuGetClient _nuget;
     private readonly SearchService _search;
+    private readonly bool _ownsClient;
 
     public NuGetGalleryPackageSourceClient(
         HttpClient client,
-        NuGetFetchOptions options)
+        NuGetFetchOptions options,
+        bool ownsClient = true)
     {
         _client = client;
         _options = NuGetFetchOptions.Validate(options);
         _nuget = new NuGetClient(client, _options);
+        _ownsClient = ownsClient;
         _search = new SearchService(
             client,
             SearchEndpoint,
@@ -687,7 +690,8 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                     coordinate.PackageId,
                     coordinate.Version,
                     FlatContainer,
-                    cancellationToken).ConfigureAwait(false)),
+                    cancellationToken,
+                    retryTransientRequests: true).ConfigureAwait(false)),
             cancellationToken,
             coordinate).ConfigureAwait(false);
     }
@@ -781,5 +785,9 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
     private static string EscapeSegment(string value) =>
         Uri.EscapeDataString(value);
 
-    public void Dispose() => _client.Dispose();
+    public void Dispose()
+    {
+        if (_ownsClient)
+            _client.Dispose();
+    }
 }
