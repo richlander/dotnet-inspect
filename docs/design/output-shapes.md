@@ -94,9 +94,10 @@ occurrence counts numeric and absent values null; JSON edges carry projected
 evidence rather than exposing
 document-local occurrence ids without the occurrence collection that owns
 them. `ProductionShapedEndpoints_RetainPackageOwnership`,
-`AcquiredEndpoints_RetainAssemblyWithinOnePackage`,
-and `AcquiredFailureTargets_RetainAssemblyWithinOnePackage` gate these
-contracts.
+`AcquiredEndpoints_RetainAssemblyWithinOnePackage`, and
+`AcquiredFailureTargets_RetainAssemblyWithinOnePackage` gate endpoint
+ownership. `OutputModes_UseTheSameWindowedLogicalEdges` gates numeric and null
+JSONL values and omission of the document-local `edge_id`.
 
 ## Flag families
 
@@ -308,13 +309,20 @@ makes those names Markdown.
 `Package_DeclaredReadme_KeepsItsRoleWhenTheConventionalNameAlsoExists`, and
 `Package_DeclaredNonMarkdownReadme_IsStillNotMarkdown` gate those rules.
 
-The current `--print` and `--content` paths resolve row selection before
-Markdown-scope validation and payload acquisition. If any selected document is
-not Markdown, the request rejects and names the first such document rather than
-silently returning the whole document or dropping that row.
-`Package_NuspecPrint_RefusesMarkdownScopes` gates the refusal for a selected
-non-Markdown document. Mixed-selection atomicity and the pre-acquisition
-ordering are implemented but currently unverified.
+The released paths do not share one preflight order. `--print` validates
+Markdown scope over its full declared file family before resolving `--row`,
+then reads only the chosen payload. Non-unary `--content` reads every
+path-matched payload before applying `--rows` and validating the visible rows.
+Unary `--content --bare` and `--content --out` apply `--rows` and resolve one
+visible row before reading that payload. These ordering details are current
+implementation behavior but unverified.
+
+When Markdown-scope validation reaches a non-Markdown document, the current
+request rejects and names it rather than silently returning the whole document
+or dropping that row. `Package_NuspecPrint_RefusesMarkdownScopes` gates the
+single-row `--print` refusal. Mixed-selection atomicity remains unverified. The
+focused payload design owns a coherent future preflight contract; it must not
+infer that contract from these differing released paths.
 
 A projection may consume only capabilities and payloads declared on already
 selected rows. It does not reinterpret an address as an artifact, evaluate an
