@@ -173,6 +173,11 @@ plans once and may reuse them across assembly contexts.
 layers: generation-scoped identity and registration, adapter-owned typed
 provenance and diagnostics, acquisition outcomes, and owner-issued guarded
 admission/query access. It references no project.
+Despite its historical `DotnetInspector.*` project-name prefix, this contract
+floor is not tool-tier composition: `ILInspector.Metadata` may reference this
+project, and no other `DotnetInspector.*` project. The
+`EngineProjectsReferenceOnlyTheSourceNeutralArtifactFloor` architecture gate
+enforces that exception and rejects every wider engine-to-tool edge.
 `DotnetInspector.Artifacts.Workspaces` composes bounded immutable contributions
 into a sealed `ArtifactSetSession`, and `DotnetInspector.Artifacts.Local`
 snapshots explicit files before registration. The package-free host fixture
