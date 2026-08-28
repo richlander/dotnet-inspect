@@ -446,13 +446,14 @@ The acquisition path, selected-universe membership, resolved peer registration,
 and parent package reached during binding cannot split or merge candidates.
 
 `IntegrationCandidateSourceIdentity` is distinct from graph occurrence
-identity. For package- or platform-owned source evidence, its portable form
-retains the acquisition owner's realized source coordinate, semantic assembly
-identity, and structured member or Type identity. For a source with no portable
-coordinate, its workspace form retains the acquisition registration plus the
-same structured source identity and is stable only inside that workspace
-generation. The producer never correlates two local artifacts from assembly
-spelling alone.
+identity. When the acquisition owner supplies any portable
+`RealizedMemberCoordinate`, its portable form retains that coordinate, semantic
+assembly identity, and structured member or Type identity. This includes
+package, platform, and digest-bearing embedded coordinates. For a source with
+no portable coordinate, its workspace form retains the acquisition
+registration plus the same structured source identity and is stable only inside
+that workspace generation. The producer never correlates two local artifacts
+from assembly spelling alone.
 
 Current graph occurrence identity remains registration-scoped and continues to
 own deduplication inside one graph document. A Census candidate retains explicit
@@ -619,10 +620,12 @@ never reconstructed from the projection's surviving edges or filtered
 ### Peer lookup and parent provenance
 
 `IntegrationPeerLookup` is the candidate's handoff currency. It retains the
-exact `MetadataTypeDefinitionName`, the structured assembly-reference scope
-that named it, and any authoritative acquisition provenance already known. It
-also projects the Type full-name grammar accepted as a `find` pattern without
-parsing a display label.
+exact `MetadataTypeDefinitionName`, the complete structured
+`MetadataTypeReferenceScope` that named it, and any authoritative acquisition
+provenance already known. Current-assembly, intrinsic-core-library,
+assembly-reference, and module-reference scope arms remain typed and distinct.
+The lookup also projects the Type full-name grammar accepted as a `find`
+pattern without parsing a display label.
 
 When acquisition provenance identifies the parent package or platform
 coordinate, the row includes that coordinate directly. A consumer should not
@@ -689,6 +692,7 @@ Integration graph behavior until its replacement path has parity gates.
 | Source participant rejected or malformed | Incomplete attempt beside healthy rows |
 | Parent package provenance known | Authoritative coordinate rendered directly |
 | Parent provenance unknown | Typed lookup retained; no assembly-name guess |
+| Embedded source reacquired with the same digest-bearing coordinate | Same portable source identity |
 | Same candidate under wider universe | Same identity; disposition may change |
 | Sole source evidence removed | Candidate disappears |
 | Multiple candidates collapse to one edge | Distinct candidate rows share edge correspondence |
@@ -709,8 +713,13 @@ The target implementation is unverified until these named gates land:
 - `IntegrationCensus_IncompleteParticipantCannotManufactureZeroOrOut`
 - `IntegrationCensus_FailedCandidateCannotManufactureZeroOrOut`
 - `IntegrationCandidate_IdentityDoesNotContainDispositionOrGraphLocalIds`
+- `IntegrationCandidate_EqualityUsesEveryDeclaredIdentityComponent`
+- `IntegrationCandidate_EquivalentAssemblyReferenceScopesShareIdentity`
+- `IntegrationCandidate_DifferentRelationshipConceptSourceTypeOrScopeSplitIdentity`
+- `IntegrationCandidate_ModuleScopeNamesCompareOrdinally`
 - `IntegrationCandidate_SourceIdentityIsIndependentOfGraphOccurrenceIdentity`
 - `IntegrationCandidate_PortableSourceIdentitySurvivesWorkspaceReacquisition`
+- `IntegrationCandidate_EmbeddedCoordinateRetainsPortableSourceIdentity`
 - `IntegrationCandidate_WorkspaceIdentityDoesNotCrossRegistrationGeneration`
 - `IntegrationCandidate_RawExtensionWithoutConceptIsNotCandidate`
 - `IntegrationCandidate_FulfilledOpportunityIsAccountedAndSuppressed`
@@ -721,6 +730,7 @@ The target implementation is unverified until these named gates land:
 - `IntegrationCandidate_RemovingPeerPreservesIdentityAndMovesInToOut`
 - `IntegrationCandidate_RemovingSoleSourceRemovesCandidate`
 - `IntegrationInventory_RowsRetainTypedSourcePeerAndProvenance`
+- `IntegrationInventory_PeerLookupRetainsEveryTypeReferenceScopeArm`
 - `IntegrationInventory_KnownParentUsesAuthoritativeCoordinate`
 - `IntegrationInventory_UnknownParentNeverGuessesFromAssemblyName`
 - `IntegrationInventory_FindPatternUsesTypeLookupGrammarUnchanged`
@@ -731,15 +741,18 @@ The target implementation is unverified until these named gates land:
 - `IntegrationGraph_OnlyInCandidatesContributeOccurrences`
 - `IntegrationGraph_OutCandidatesAreNeitherEdgesNorFailures`
 - `IntegrationGraph_CandidateInventoryPrecedesInducedSetProjection`
+- `IntegrationGraph_RetainsCandidateOccurrenceAndEdgeCorrespondence`
+- `IntegrationGraph_MultipleCandidatesMayCorrespondToOneLogicalEdge`
 - `IntegrationProjection_EachResponseRetainsItsExactValidatedRequest`
 - `IntegrationProjection_ReuseRequiresCompatibleCensusSnapshot`
 - `IntegrationProjection_RowsMatrixAndGraphShareOneAnalysisAndSnapshot`
 - `IntegrationWasmDemo_RendersSharedProjectionWithoutDetectionPolicy`
 
-The configured concept set and close-negative disposition set should derive
-from their declarations so missing and stale entries fail together. The
-add/remove demo is the non-vacuity gate for candidate identity: removing
-candidate identity or deriving it after admission must make the gate fail.
+The configured concept set, candidate-identity component set, peer-scope arm
+set, and close-negative disposition set should derive from their declarations
+so missing and stale entries fail together. The add/remove demo is the
+non-vacuity gate for candidate identity: removing candidate identity or deriving
+it after admission must make the gate fail.
 
 ### Workspace Census non-claims
 
