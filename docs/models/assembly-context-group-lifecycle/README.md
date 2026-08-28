@@ -106,8 +106,10 @@ longer exercises the intended guard.
 
 ## TLC evidence
 
-Checked on Linux with OpenJDK `21.0.12` and the repository-pinned TLA+ `v1.8.0`
-prerelease (`TLC2 2026.08.21.155922`, rev `9787e65`):
+Checked on Linux with Eclipse Temurin/OpenJDK `25.0.4.1` and the
+repository-pinned TLA+ `v1.8.0` prerelease (`TLC2 2026.08.21.155922`, rev
+`9787e65`). The checked `tla2tools.jar` has SHA-256
+`eabd140a70f49eb9305a3bd3f3df944eddf87e5a90d329789085f8953a80533a`.
 
 | Configuration | Result | Generated states | Distinct states | Maximum depth |
 | --- | --- | ---: | ---: | ---: |
