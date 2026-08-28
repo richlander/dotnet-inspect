@@ -340,17 +340,34 @@ FailuresRespectTraversal ==
 ExpectedRangeEndpoint(rowRange) ==
     IF rowRange.upper = 0 THEN rowRange.start ELSE rowRange.upper
 
-RangeFailureMatchesCurrentStage ==
-    status = "RangeFailure" =>
+FailuresMatchCurrentCause ==
+    status \in FailureKinds =>
         /\ stagePosition <= Len(plan)
-        /\ plan[stagePosition].kind = "Range"
-        /\ failure.kind = "RangeFailure"
+        /\ failure.kind = status
         /\ failure.key = keyPosition
         /\ failure.stage = stagePosition
-        /\ failure.required =
-            ExpectedRangeEndpoint(plan[stagePosition])
         /\ failure.available = Len(currentRows)
-        /\ ExpectedRangeEndpoint(plan[stagePosition]) > Len(currentRows)
+        /\ CASE plan[stagePosition].kind = "Range" ->
+                    /\ status = "RangeFailure"
+                    /\ failure.required =
+                        ExpectedRangeEndpoint(plan[stagePosition])
+                    /\ ExpectedRangeEndpoint(plan[stagePosition]) >
+                        Len(currentRows)
+             [] plan[stagePosition].kind = "Top" ->
+                    /\ failure.required = 0
+                    /\ CASE
+                        plan[stagePosition].callback =
+                            "ResolverFailure" ->
+                            /\ status = "ResolverFailure"
+                            /\ resolverCalls[stagePosition] = 1
+                            /\ resolverFirstKey[stagePosition] = keyPosition
+                         []
+                        plan[stagePosition].callback =
+                            "ComparerFailure" ->
+                            /\ status = "ComparerFailure"
+                            /\ Len(currentRows) >= 2
+                         [] OTHER -> FALSE
+             [] OTHER -> FALSE
 
 StageInputsFollowDeclaredOrder ==
     \A index \in 1..Len(history):
@@ -431,6 +448,32 @@ StageOutputsMatchSemantics ==
                         stage.count,
                         stage.order)
              [] OTHER -> FALSE
+
+CurrentRowsMatchCompletedStages ==
+    IF stagePosition = 1
+    THEN currentRows = input[keyPosition]
+    ELSE /\ Len(history) > 0
+         /\ history[Len(history)].key = keyPosition
+         /\ history[Len(history)].stage = stagePosition - 1
+         /\ currentRows = history[Len(history)].rows
+
+CompletedTopStagesRespectCallbacks ==
+    \A index \in 1..Len(history):
+        history[index].kind = "Top" =>
+            /\ plan[history[index].stage].callback # "ResolverFailure"
+            /\ (plan[history[index].stage].callback # "ComparerFailure"
+                \/ Len(history[index].inputRows) < 2)
+
+SuccessPublishesFinalRows ==
+    status = "Success" =>
+        /\ Len(history) = MaxSequences * Len(plan)
+        /\ \A key \in Keys:
+            IF Len(plan) = 0
+            THEN results[key] = input[key]
+            ELSE \E index \in 1..Len(history):
+                /\ history[index].key = key
+                /\ history[index].stage = Len(plan)
+                /\ results[key] = history[index].rows
 
 TopResolutionCoversEveryOutput ==
     \A index \in 1..Len(history):

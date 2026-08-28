@@ -511,11 +511,13 @@ component.
 plans up to two stages over two named sequences containing up to three distinct
 values. It checks type safety, atomic publication, completion only after every
 sequence, at-most-once resolver invocation and consistent resolver metadata,
-sequence/stage failure precedence, strict-range failure evidence anchored to
-the failing stage input, each stage's input against the preceding stage's
-output, every successful stage's exact semantics through checks independent of
-the transition helpers (including strict `Range`, stage-local reindexing, and
-ranked `Top` output), resolver coverage for every successful `Top`, and eventual
+sequence/stage failure precedence, terminal failures against their current
+strict-range or callback cause, each stage's input against the preceding
+stage's output, live rows against completed history, every successful stage's
+exact semantics through checks independent of the transition helpers (including
+strict `Range`, stage-local reindexing, and ranked `Top` output), callback
+admissibility and resolver coverage for every successful `Top`, complete
+history and final rows for every published named result, and eventual
 termination under weak fairness.
 
 The model was checked with the pinned TLA+ Tools v1.8.0 prerelease
