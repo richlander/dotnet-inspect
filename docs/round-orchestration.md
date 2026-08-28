@@ -287,8 +287,11 @@ include more detail when the findings or fixes warrant it.
 
 [Clean reviews are not spent by main
 moving](../AGENTS.md#clean-reviews-are-not-spent-by-main-moving) states when
-this path applies and how each landed-range classification resolves. This is
-the procedure once it does.
+this path applies and how each landed-range classification resolves. It applies
+both to a review-clean head and to a head with a pending or approved
+trivial-interaction waiver. A base tip beyond the one recorded for a waiver
+expires that waiver before classification. This is the procedure once the path
+applies.
 
 1. **Detect movement without API spend.** Fetch the effective base
    non-mutating, resolve its remote-tracking ref to an exact SHA, and compare
@@ -306,10 +309,14 @@ the procedure once it does.
    interaction, or conflict requiring semantic resolution.
 4. **Act on the classification.**
    - *No interaction:* keep `review-clean`, integrate the exact analyzed tip by
-     SHA (not a moving branch ref), and update the recorded head SHA. Skip
-     re-running validation, CI, and review. Merging itself still needs a live
-     readiness check and explicit user authorization; base movement alone does
-     not grant either.
+     SHA (not a moving branch ref), and update the recorded head SHA when
+     entering from a review-clean head; only that path skips re-running
+     validation, CI, and review. When entering from a pending or approved
+     waiver head, leave `review-clean` absent, integrate the exact tip, and
+     follow the waiver procedure below for the new head and base, including its
+     current-head gates, before dispatching review. Merging itself still needs
+     a live readiness check and explicit user authorization; base movement
+     alone does not grant either.
    - *Trivial interaction:* remove `review-clean`, integrate the exact analyzed
      tip, resolve every overlap mechanically as classified, run affected
      focused gates, and push. Follow the waiver procedure below before
@@ -347,10 +354,12 @@ the user has not already approved the adjustment, open a separate prompt only
 after the evidence appears in normal session output. Ask whether to skip
 re-review for the exact integration head; keep the prompt itself concise.
 
-On approval, record the exact-head waiver and its evidentiary consequence on
-the PR. Keep `review-clean` absent because the new head was not reviewed, and
-continue to current-head CI, live mergeability, and merge authorization.
+On approval, record the exact-head, exact-base waiver and its evidentiary
+consequence on the PR. Keep `review-clean` absent because the new head was not
+reviewed, and continue to current-head CI, live mergeability, and merge
+authorization.
 Without approval, do not waive review; resume the ordinary replacement
 workflow when work continues. A resolution that no longer satisfies the
-criteria requires ordinary re-review. A later head movement invalidates the
-waiver and requires fresh classification.
+criteria requires ordinary re-review. Any later head or base movement
+invalidates a pending or approved waiver and requires fresh carry-forward
+classification.

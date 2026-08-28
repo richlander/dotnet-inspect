@@ -189,29 +189,32 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
   findings carry forward.
 - **Auto-merge on the final push:** once every required review is review-clean,
   the user may authorize auto-merge for the intended final head; the agent may
-  ask. If the head moves after arming, disarm, review the new head, and ask
-  again.
+  ask. If the head moves after arming, disarm and ask again before arming the
+  new exact head. Review that head first unless the user approves its
+  exact-head trivial-interaction waiver.
 - **"CI is ready":** the user's statement that CI has no failures and the PR is
   mergeable. Trust it without re-checking and move to the next task, such as
   dispatching the next round's reviewers.
 - **Authorizing the next round before CI completes:** the agent does not need
   to check CI status first; proceed with the authorized round.
 - **Skip re-review after a trivial base interaction:** requires the user's
-  approval for one exact integration head. Offer this adjustment only for a
-  `main`-targeting PR or bottom open stack slice that changes from a
-  review-clean head solely to integrate a moved base. Every overlap must be
-  mechanically resolved by taking the analyzed base side verbatim or dropping
-  the PR's change to that file, the resulting PR diff must be a subset of the
-  reviewed diff, and no surviving reviewed claim, contract, or behavior may
-  change. Dropping an entire conflicting-file change may narrow the PR;
-  explain why that removal does not weaken its remaining claims. Present that
-  evidence before asking. Run the affected focused gates and retain all
-  current-head CI and mergeability requirements. The prior reviews remain
-  evidence only for their reviewed head: remove `review-clean`, do not
-  describe the integration head as reviewed or review-clean, and record the
-  exact-head waiver publicly. Any semantic conflict resolution, new authored
-  change, or interaction with surviving reviewed behavior requires ordinary
-  re-review.
+  approval for one exact integration head against one exact analyzed base tip.
+  Offer this adjustment only for a `main`-targeting PR or bottom open stack
+  slice that changes from a review-clean head solely to integrate a moved
+  base. Every overlap must be mechanically resolved by taking the analyzed
+  base side verbatim or dropping the PR's change to that file, the resulting
+  PR diff must be a subset of the reviewed diff, and no surviving reviewed
+  claim, contract, or behavior may change. Dropping an entire conflicting-file
+  change may narrow the PR; explain why that removal does not weaken its
+  remaining claims. Present that evidence before asking. Run the affected
+  focused gates and retain all current-head CI and mergeability requirements.
+  The prior reviews remain evidence only for their reviewed head: remove
+  `review-clean`, do not describe the integration head as reviewed or
+  review-clean, and record the exact-head and exact-base waiver publicly. Any
+  later movement of either the head or base expires a pending or approved
+  waiver and re-enters carry-forward analysis. Any semantic conflict
+  resolution, new authored change, or interaction with surviving reviewed
+  behavior requires ordinary re-review.
 
 ## Before changing files
 
@@ -896,22 +899,28 @@ below.
 
 ### Clean reviews are not spent by main moving
 
-When a `main`-targeting PR has a review-clean current head and `origin/main`
-moves, assess the landed range before doing anything else; do not integrate
-blindly and do not start another round by default. This also applies to the
-bottom open stack slice. An upper slice follows its parent, so parent movement
-is a restack and requires review at the new head.
+When a `main`-targeting PR has a review-clean current head or a current head
+with a pending or approved trivial-interaction waiver and `origin/main` moves,
+assess the landed range before doing anything else; do not integrate blindly
+and do not start another round by default. Any movement beyond a waiver's
+recorded base expires that waiver before classification. This also applies to
+the bottom open stack slice. An upper slice follows its parent, so parent
+movement is a restack and requires review at the new head.
 
 After a non-mutating fetch, classify the exact landed range into exactly one
 outcome and act on it directly:
 
 - **No interaction.** The range does not touch files, contracts, or behavior
-  this change touches. Keep `review-clean`, integrate the exact analyzed tip by
-  SHA, and update the recorded head SHA — skip re-running validation, CI, and
-  review. This is the common case on a fast-moving `main` and is what ends the
-  poll-and-rerun loop: repeated non-interacting movement never demands another
-  gate. Merging itself still needs a live readiness check and explicit user
-  authorization (invariants 5 and 8 under [Adversarial
+  this change touches. From a review-clean head, keep `review-clean`, integrate
+  the exact analyzed tip by SHA, update the recorded head SHA, and skip
+  re-running validation, CI, and review. This is the common case on a
+  fast-moving `main` and is what ends the poll-and-rerun loop: repeated
+  non-interacting movement from a reviewed head never demands another gate.
+  From a pending or approved waiver head, integrate the exact tip but do not
+  transfer the old exact-head waiver: present the new head and base and ask for
+  a fresh waiver before dispatching review, retaining the waiver path's
+  current-head gate requirements. Merging itself still needs a live readiness
+  check and explicit user authorization (invariants 5 and 8 under [Adversarial
   review](#adversarial-review)); base movement alone does not grant it.
 - **Trivial interaction.** The range overlaps files, but integration can
   resolve every overlap mechanically by taking the analyzed base side verbatim
