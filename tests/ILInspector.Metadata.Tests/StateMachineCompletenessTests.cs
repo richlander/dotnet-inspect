@@ -97,6 +97,7 @@ public sealed class StateMachineCompletenessTests
         var totals = new CompletenessReport();
         var offenders = new List<string>();
         var undecodable = new List<string>();
+        var unclassifiable = new List<string>();
         var inaccessible = new List<string>();
         int assemblies = 0;
         int notManaged = 0;
@@ -123,8 +124,16 @@ public sealed class StateMachineCompletenessTests
 
                 // A managed assembly whose metadata would not decode. This is a
                 // real failure: a candidate existed and could not be evaluated.
-                default:
+                case CorpusOutcome.DecodeFailed:
                     undecodable.Add($"{Path.GetFileName(path)}: {detail}");
+                    continue;
+
+                // A PE that could not be classified at all. Kept separate from
+                // the decode failures above because it makes a weaker claim --
+                // this file might never have been managed -- and separate from
+                // NotManaged because nothing established that it wasn't.
+                default:
+                    unclassifiable.Add($"{Path.GetFileName(path)}: {detail}");
                     continue;
             }
 
@@ -141,7 +150,8 @@ public sealed class StateMachineCompletenessTests
 
         string surveyed =
             $"{assemblies} managed assemblies measured, {notManaged} "
-                + $"non-managed skipped, {inaccessible.Count} unreadable.";
+                + $"non-managed skipped, {unclassifiable.Count} unclassifiable, "
+                + $"{inaccessible.Count} unreadable.";
 
         // Every problem is collected before anything is asserted. Asserting them
         // one at a time lets the first failure hide the rest, so a corpus with
@@ -173,6 +183,21 @@ public sealed class StateMachineCompletenessTests
                 it is a decode failure rather than a reason to skip it.
 
                 {Truncated(undecodable)}
+                """);
+        }
+
+        if (unclassifiable.Count != 0)
+        {
+            problems.Add(
+                $"""
+                {unclassifiable.Count} PE file{(unclassifiable.Count == 1 ? "" : "s")} could not be classified, so
+                the sweep cannot say whether {(unclassifiable.Count == 1 ? "it was" : "they were")} managed. Damaged
+                or truncated headers stop the question being decidable before SRM
+                is even reached. Reporting {(unclassifiable.Count == 1 ? "it" : "them")} as non-managed would assert
+                something nothing measured, which is how a completeness gate goes
+                green over files it never covered.
+
+                {Truncated(unclassifiable)}
                 """);
         }
 
@@ -597,6 +622,90 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
+    /// A truncated PE reaches <c>Unclassifiable</c>, never <c>NotManaged</c>.
+    ///
+    /// This is the fourth instance of one defect class, and the third at this
+    /// seam. Rounds 2 through 5 each found a different way for the sweep to
+    /// report success over files it never covered, and rounds 4 and 5 both found
+    /// it here: first the CLI directory's size, then its RVA. Both were fixed by
+    /// widening what counts as a managed claim, which treated the specimens
+    /// rather than the property.
+    ///
+    /// The property is that an inability to classify must never present as a
+    /// classification. <c>ReadManagedClaim</c> used to answer <c>No</c> for
+    /// every shape it could not parse, so a managed assembly truncated anywhere
+    /// before its CLI directory was reported non-managed and skipped in silence.
+    /// Measured before the fix: of seven truncations of this very assembly, five
+    /// were skipped silently, and a corpus holding all five beside one valid
+    /// assembly swept green.
+    ///
+    /// The theory truncates at each structure the header read walks, so a future
+    /// change that reintroduces a silent skip at any one of them fails here
+    /// rather than in a corpus nobody runs.
+    /// </summary>
+    [Theory]
+    [InlineData(2)]
+    [InlineData(40)]
+    [InlineData(64)]
+    [InlineData(200)]
+    [InlineData(300)]
+    public void TryMeasure_TruncatedPortableExecutable_IsUnclassifiable(int length)
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(StateMachineCompletenessTests).Assembly.Location);
+
+        Assert.Equal((byte)'M', image[0]);
+        Assert.Equal((byte)'Z', image[1]);
+
+        string truncated = Path.Combine(
+            Path.GetTempPath(),
+            $"sm-trunc-{Guid.NewGuid():N}.dll");
+
+        try
+        {
+            File.WriteAllBytes(truncated, image.AsSpan(0, length).ToArray());
+
+            Assert.Equal(
+                CorpusOutcome.Unclassifiable,
+                TryMeasure(truncated, out _, out _));
+        }
+        finally
+        {
+            File.Delete(truncated);
+        }
+    }
+
+    /// <summary>
+    /// A file that does not begin "MZ" is positively not a PE, so it stays
+    /// <c>NotManaged</c> and is skipped in silence.
+    ///
+    /// This is the negative control for the theory above. Without it, routing
+    /// every unparseable shape to <c>Unclassifiable</c> would be indistinguishable
+    /// from routing everything there, and a corpus containing ordinary non-PE
+    /// files named <c>.dll</c> would fail for no reason.
+    /// </summary>
+    [Fact]
+    public void TryMeasure_NotAPortableExecutable_StaysNotManaged()
+    {
+        string plain = Path.Combine(
+            Path.GetTempPath(),
+            $"sm-plain-{Guid.NewGuid():N}.dll");
+
+        try
+        {
+            File.WriteAllBytes(plain, "not a PE at all"u8.ToArray());
+
+            Assert.Equal(
+                CorpusOutcome.NotManaged,
+                TryMeasure(plain, out _, out _));
+        }
+        finally
+        {
+            File.Delete(plain);
+        }
+    }
+
+    /// <summary>
     /// A file whose <c>NumberOfRvaAndSizes</c> does not reach the CLI directory
     /// still reaches <c>DecodeFailed</c>, because SRM reads that directory
     /// regardless of the declared count.
@@ -785,6 +894,14 @@ public sealed class StateMachineCompletenessTests
 
         /// <summary>A managed assembly whose metadata would not decode.</summary>
         DecodeFailed,
+
+        /// <summary>
+        /// A PE that could be opened but not classified: its headers are
+        /// damaged before the point where "managed" is decidable, and SRM will
+        /// not decode it either. Whether it was a managed assembly is unknown,
+        /// so it is a hole in coverage rather than a file to skip.
+        /// </summary>
+        Unclassifiable,
     }
 
     /// <summary>
@@ -838,10 +955,16 @@ public sealed class StateMachineCompletenessTests
             }
 
             // A file that claims to be managed and will not decode is a decode
-            // failure at every seam below, and must fail the sweep.
-            CorpusOutcome undecodable = claim == ManagedClaim.Yes
-                ? CorpusOutcome.DecodeFailed
-                : CorpusOutcome.NotManaged;
+            // failure at every seam below, and must fail the sweep. A file whose
+            // headers could not be classified and then will not decode is not a
+            // skip either: nothing established that it was unmanaged, so calling
+            // it NotManaged would assert something no one measured.
+            CorpusOutcome undecodable = claim switch
+            {
+                ManagedClaim.Yes => CorpusOutcome.DecodeFailed,
+                ManagedClaim.Indeterminate => CorpusOutcome.Unclassifiable,
+                _ => CorpusOutcome.NotManaged,
+            };
 
             stream.Position = 0;
 
@@ -908,11 +1031,20 @@ public sealed class StateMachineCompletenessTests
     /// <summary>Whether a file's PE headers claim it carries a CLI image.</summary>
     enum ManagedClaim
     {
-        /// <summary>No CLI data directory: a native PE, or not a PE at all.</summary>
+        /// <summary>
+        /// Positively not managed: not a PE at all, or a PE whose headers were
+        /// read successfully and carry an empty CLI directory.
+        /// </summary>
         No,
 
         /// <summary>A non-empty CLI data directory: the file claims to be managed.</summary>
         Yes,
+
+        /// <summary>
+        /// A PE whose headers could not be read far enough to answer the
+        /// question -- truncated, or malformed before the CLI directory.
+        /// </summary>
+        Indeterminate,
 
         /// <summary>The headers could not be read for environmental reasons.</summary>
         Unreadable,
@@ -946,17 +1078,29 @@ public sealed class StateMachineCompletenessTests
             stream.Position = 0;
 
             Span<byte> dos = stackalloc byte[64];
-            if (stream.ReadAtLeast(dos, dos.Length, throwOnEndOfStream: false) < dos.Length
-                || dos[0] != (byte)'M'
-                || dos[1] != (byte)'Z')
+            int read = stream.ReadAtLeast(dos, dos.Length, throwOnEndOfStream: false);
+
+            // Two different answers hide in a short read, and collapsing them is
+            // the defect this whole enum exists to prevent. A file that does not
+            // begin "MZ" is positively not a PE and is safe to skip in silence.
+            // A file that does begin "MZ" but ends before its DOS header does is
+            // a truncated PE: it may well have been a managed assembly, and
+            // nothing here can tell. That is a coverage hole, not a
+            // classification.
+            if (read < 2 || dos[0] != (byte)'M' || dos[1] != (byte)'Z')
             {
                 return ManagedClaim.No;
+            }
+
+            if (read < dos.Length)
+            {
+                return ManagedClaim.Indeterminate;
             }
 
             int peOffset = BinaryPrimitives.ReadInt32LittleEndian(dos[0x3C..]);
             if (peOffset < 0 || peOffset > stream.Length - 24)
             {
-                return ManagedClaim.No;
+                return ManagedClaim.Indeterminate;
             }
 
             stream.Position = peOffset;
@@ -969,7 +1113,7 @@ public sealed class StateMachineCompletenessTests
                 || coff[2] != 0
                 || coff[3] != 0)
             {
-                return ManagedClaim.No;
+                return ManagedClaim.Indeterminate;
             }
 
             // A real optional header is at most a few hundred bytes. A wild value
@@ -977,13 +1121,13 @@ public sealed class StateMachineCompletenessTests
             int optionalSize = BinaryPrimitives.ReadUInt16LittleEndian(coff[^4..]);
             if (optionalSize is < 2 or > 1024)
             {
-                return ManagedClaim.No;
+                return ManagedClaim.Indeterminate;
             }
 
             byte[] optional = new byte[optionalSize];
             if (stream.ReadAtLeast(optional, optionalSize, throwOnEndOfStream: false) < optionalSize)
             {
-                return ManagedClaim.No;
+                return ManagedClaim.Indeterminate;
             }
 
             // The CLI directory is the fifteenth of the optional header's data
@@ -999,13 +1143,13 @@ public sealed class StateMachineCompletenessTests
 
             if (directories < 0)
             {
-                return ManagedClaim.No;
+                return ManagedClaim.Indeterminate;
             }
 
             int cli = directories + (CliDirectoryIndex * 8);
             if (optionalSize < cli + 8)
             {
-                return ManagedClaim.No;
+                return ManagedClaim.Indeterminate;
             }
 
             // NumberOfRvaAndSizes is deliberately not consulted. The PE spec
