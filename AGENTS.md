@@ -134,16 +134,19 @@ Always target `"${TMUX_PANE:?}"`. The state must include
 is `continue`, `wait`, `merge`, `split`, `approve`, or `stop`. Clear both
 options when the window no longer owns the work.
 
-Add `schedule=<id>` and `goal=advance|merge` whenever a delayed status run is
-armed. `advance` means status gates round completion or reviewer dispatch;
-`merge` means it gates a readiness statement or merge attempt. Remove
-`schedule` when it is cancelled or fires; it is valid only for the recorded
-`head`, `waiting`, `goal`, and `attempt` when present. Add `attempt=<n>` for
-each automated successor while that state remains unresolved by pending or
-missing CI, null mergeability, rate limiting, or a transient GitHub failure.
-Reset it when `head`, `waiting`, or `goal` changes; remove it when the predicate
-resolves or automated retry stops. At most three successors may run for one
-state. Follow
+Publish `goal=advance|merge` whenever status gates the next action, whether the
+status run is immediate or delayed. `advance` means status gates round
+completion or reviewer dispatch; `merge` means it gates a readiness statement
+or merge attempt. Add `schedule=<id>` when a delayed run is armed, and remove it
+when the schedule is cancelled or fires. A schedule is valid only for the
+recorded `head`, `waiting`, `goal`, `attempt`, and `attempt-for` values.
+
+Add `attempt=<n>` and `attempt-for=<predicate>` for each automated successor
+while that status component remains unresolved by pending or missing CI, null
+mergeability, rate limiting, or a transient GitHub failure. Reset them when
+`head` or `goal` changes, or when that component clears or is replaced; changing
+an unrelated member of a composite `waiting` value does not reset its budget.
+At most three successors may run for one component. Follow
 [Status discovery](docs/round-orchestration.md#status-discovery) for the
 one-shot scheduling protocol.
 
@@ -160,12 +163,16 @@ act on them**:
   and nothing is openable — a check that has not reported yet is not a defect
   and does not deserve an issue.
 
-`waiting=merge` is valid only after current-head `ci-required` is confirmed
-green. It retains that fixed-head evidence while mergeability remains
-unresolved, so a scheduled successor initially reads only PR lifecycle and
-mergeability. Once mergeability becomes definite, re-read `ci-required` before
-advancing, claiming readiness, or merging because a same-head rerun can change
-check state. A head change invalidates the evidence.
+A standalone `waiting=merge` is valid only after current-head `ci-required` is
+confirmed green. The `merge` member may coexist with `check:ci-required` in a
+composite wait before CI is green. Status runs evaluate membership, not exact
+string equality, and remove only predicates they resolve.
+
+A standalone merge wait retains fixed-head green-CI evidence while mergeability
+remains unresolved, so a scheduled successor initially reads only PR lifecycle
+and mergeability. Once mergeability becomes definite, re-read `ci-required`
+before advancing, claiming readiness, or merging because a same-head rerun can
+change check state. A head change invalidates the evidence.
 
 `rec=wait` is coherent when either is populated. `blocked=ci` is the specific
 error this split exists to remove: it names nothing a person can open and

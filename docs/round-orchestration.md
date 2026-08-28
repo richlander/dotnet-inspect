@@ -43,20 +43,26 @@ instead of the routine reset header.
 For a transport failure or GitHub 5xx response, schedule successors after 10
 minutes plus jitter, then 30 minutes, then one hour. Every remaining non-success
 HTTP response or malformed response is terminal, including 401,
-non-rate-limit 403, 404, and 422: clear `waiting`, `schedule`, and `attempt`,
-publish an explicit error with `rec=stop`, surface the concrete response, and
-end. Do not leave a wait that no scheduled run can satisfy or schedule a
-success-shaped retry.
+non-rate-limit 403, 404, and 422: remove every status predicate from `waiting`,
+clear `schedule`, `attempt`, and `attempt-for`, preserve unrelated wait
+members, publish an explicit error with `rec=stop`, surface the concrete
+response, and end. Do not leave a wait that no scheduled run can satisfy or
+schedule a success-shaped retry.
 
-Every retryable result participates in the same bound. Set `attempt=1` when
-arming the first automated successor for one `head`, `waiting`, and `goal`;
-increment it for each successor while that state remains unresolved. If the
-run with `attempt=3` is still rate-limited, transient, pending, missing, or
-reports null mergeability, clear `waiting`, `schedule`, and `attempt`, publish
-`blocked=<pr-number> rec=wait` with a `HELP` reason describing the unresolved
-status, and stop without a successor. Reset the counter when `head`, `waiting`,
-or `goal` changes. A finite retry budget is mandatory; one-shot mechanics must
-not recreate an unbounded polling loop.
+Every retryable result participates in the same bound. Set `attempt=1` and
+`attempt-for=<predicate>` when arming the first automated successor for an
+unresolved status component. Prefer the CI component while CI and mergeability
+are both unresolved; use `merge` once CI is green. Increment `attempt` while
+that component, head, and goal remain unchanged. If the run with `attempt=3`
+is still rate-limited, transient, pending, missing, or reports null
+mergeability, remove every status predicate from `waiting`, clear `schedule`,
+`attempt`, and `attempt-for`, publish `blocked=<pr-number> rec=wait` with a
+`HELP` reason describing the unresolved status, and stop without a successor.
+
+Reset the counter when `head` or `goal` changes, or when `attempt-for` clears or
+is replaced. Do not reset it merely because an unrelated member of a composite
+`waiting` value clears. A finite retry budget is mandatory; one-shot mechanics
+must not recreate an unbounded polling loop.
 
 Use GraphQL only when the task genuinely requires graph-shaped data that the
 REST pair cannot provide economically, such as review threads with their
@@ -77,10 +83,10 @@ gh api "repos/{owner}/{repo}/pulls/$pr_number" \
 
 If that tool call fails, apply the rate-limit, transient, or terminal rule
 above before doing anything else. If it succeeds, apply the lifecycle, head,
-and `mergeable: false` transitions below. Only when those permit the second
-request and the retained predicate is `waiting=checks`, copy the validated
-40-character head SHA into this separate tool call. A `waiting=merge` run skips
-the second request while mergeability remains null, but uses it once
+and `mergeable: false` transitions below. Treat `waiting` as a set. When it
+contains `checks` or `check:ci-required`, copy the validated 40-character head
+SHA into this separate tool call. A run whose only status predicate is `merge`
+skips the second request while mergeability remains null, but uses it once
 mergeability becomes definite and the resulting transition depends on green
 CI:
 
@@ -92,17 +98,18 @@ gh api "repos/{owner}/{repo}/commits/$head_sha/check-runs?per_page=100" \
 ```
 
 Apply the same failure rules if the second tool call fails. Because the PR
-request succeeded but check state remains unknown, publish `waiting=checks`
-before arming any transient or rate-limit successor; retain the existing
+request succeeded but check state remains unknown, ensure
+`check:ci-required` remains in `waiting` before arming any transient or
+rate-limit successor; preserve other unresolved members and retain the existing
 `goal`.
 
-`waiting=merge` records that `ci-required` was already confirmed green for the
-expected head, whether by the preceding snapshot or a trusted user statement.
-After the PR request validates that same head, retain that evidence and do not
-repeat the check-runs request while mergeability remains null. Once
-mergeability becomes definite, re-read `ci-required` before round progress,
-readiness, or merge because a workflow rerun can change check state without
-changing the head. A returned-head mismatch invalidates the evidence.
+A standalone `waiting=merge` records that `ci-required` was already confirmed
+green for the expected head, whether by the preceding snapshot or a trusted
+user statement. After the PR request validates that same head, retain that
+evidence and do not repeat the check-runs request while mergeability remains
+null. Once mergeability becomes definite, re-read `ci-required` before round
+progress, readiness, or merge because a workflow rerun can change check state
+without changing the head. A returned-head mismatch invalidates the evidence.
 
 `--include` exposes the HTTP status and the `Retry-After`,
 `x-ratelimit-remaining`, and `x-ratelimit-reset` headers without another API
@@ -119,16 +126,16 @@ endpoint also triggers mergeability computation, which is why it resolves
 ### The GraphQL query
 
 One request can provide one consistent, graph-shaped snapshot. Reserve it for
-work that needs that shape — the live base tip that carry-forward reads, review
-threads, or the whole PR at a single instant — never as the routine status path
-or a substitute when REST is rate-limited.
+work that needs that shape — review threads or the whole PR at a single
+instant — never as the routine status path, a live-base lookup that `git fetch`
+already provides, or a substitute when REST is rate-limited.
 
-Return `headRefOid`, `baseRefOid`, `baseRef { target { oid } }`, `isDraft`,
-`mergeable`, `mergeStateStatus`, `statusCheckRollup` state and contexts with
-`pageInfo`, and the query's own `rateLimit` cost, remaining quota, and reset
-time. Request enough contexts for the normal check matrix; if
-`pageInfo.hasNextPage` is true and `ci-required` is absent, page before
-concluding that it is missing.
+Return `state`, `merged`, `headRefOid`, `baseRefOid`,
+`baseRef { target { oid } }`, `isDraft`, `mergeable`, `mergeStateStatus`,
+`statusCheckRollup` state and contexts with `pageInfo`, and the query's own
+`rateLimit` cost, remaining quota, and reset time. Request enough contexts for
+the normal check matrix; if `pageInfo.hasNextPage` is true and `ci-required` is
+absent, page before concluding that it is missing.
 
 ### Reading either result
 
@@ -143,18 +150,20 @@ confirmed.
 
 The PR request comes first. Handle lifecycle before mergeability or checks:
 
-- **Merged:** clear the window's wait, schedule, and attempt state, relinquish
-  ownership of the PR, and end without another API call.
-- **Closed but not merged:** clear `waiting`, `schedule`, and `attempt`, publish
-  the closed state with `rec=stop`, and end without another API call.
-- **Draft:** clear automated wait, schedule, and attempt state. Publish
-  `blocked=<pr-number> rec=wait` when human action is required, and end without
-  another API call; do not monitor a draft on a cadence.
+- **Merged:** clear the window's wait, schedule, `attempt`, and `attempt-for`
+  state, relinquish ownership of the PR, and end without another API call.
+- **Closed but not merged:** clear `waiting`, `schedule`, `attempt`, and
+  `attempt-for`, publish the closed state with `rec=stop`, and end without
+  another API call.
+- **Draft:** clear automated wait, schedule, `attempt`, and `attempt-for` state.
+  Publish `blocked=<pr-number> rec=wait` when human action is required, and end
+  without another API call; do not monitor a draft on a cadence.
 
 For an open, non-draft PR, compare its returned head with the expected head. If
 they differ, do not make the check-runs request. Clear the old wait and route
 the returned head through candidate formation or the applicable recovery
-transition; it never inherits the old head's schedule or attempt.
+transition; it never inherits the old head's schedule, attempt, or
+`attempt-for`.
 
 After the head matches, short-circuit `mergeable: false` into conflict recovery
 without making the check-runs request. CI cannot change that transition, so the
@@ -194,46 +203,58 @@ CI or mergeability while automated resolution remains available.
 
 Status discovery must conserve the shared GitHub API budget. Do not arm a check
 while independent work can continue. Once CI or mergeability actually gates the
-next action, publish `waiting=checks` or `waiting=merge`, `rec=wait`, and
-`goal=advance` for round progress or `goal=merge` for a readiness statement or
-merge attempt. Then schedule exactly one status run for the next useful time:
-10 minutes after the push for documentation-only changes, 35 minutes after the
-push otherwise, or five minutes later when CI is already green and mergeability
-alone is unresolved. Run immediately if that target time has already passed.
-The future turn is intentional; do not reject scheduling because it consumes
-one, and do not wait for the user to volunteer status. Publish `waiting=merge`
+next action, publish the unresolved status members in `waiting`: use
+`check:ci-required`, `merge`, or both. Preserve unrelated members such as
+`review`. Publish `rec=wait` and `goal=advance` for round progress or
+`goal=merge` for a readiness statement or merge attempt, even when the status
+run will be immediate.
+
+When a delay is useful, schedule exactly one status run: 10 minutes after the
+push for documentation-only changes, 35 minutes after the push otherwise, or
+five minutes later when CI is already green and mergeability alone is
+unresolved. Run immediately if that target time has already passed. The future
+turn is intentional; do not reject scheduling because it consumes one, and do
+not wait for the user to volunteer status. Publish standalone `waiting=merge`
 only when current-head CI is already green; its successor spends only the PR
 request while mergeability remains null, then revalidates CI once before a
 green-dependent exit.
 
-Retain the active schedule ID beside its expected head, waiting predicate, goal,
-and attempt when present. Cancel it immediately when the predicate clears, the
-head is superseded, the goal changes, or the workflow otherwise leaves that
-wait — including when the user supplies a trusted "CI is ready" result. A
-replacement head never inherits the old schedule. Reset `attempt` whenever the
-retained `head`, `waiting`, or `goal` changes.
+Retain the active schedule ID beside its expected head, waiting set, goal,
+attempt, and `attempt-for` when present. Cancel it immediately when its keyed
+state changes or the workflow otherwise leaves that wait — including when the
+user supplies a trusted "CI is ready" result. A replacement head never inherits
+the old schedule.
 
 The run must be one-shot. If the scheduler only creates recurring schedules,
-its prompt first compares its own ID, expected head, waiting predicate, goal,
-and attempt when present with the retained state. A stale run stops its
-schedule and exits without an API call. A current run stops its schedule and
-clears the retained ID before its first API call. It then performs one REST
-snapshot, acts on a terminal result, or publishes the resulting predicate and
-creates exactly one replacement schedule at the next cadence below. Never
-leave a fixed-rate schedule active, hold a synchronous shell or agent turn open
-with `sleep`, or make extra status calls in the same run.
+its prompt first compares its own ID, expected head, waiting set, goal, attempt,
+and `attempt-for` when present with the retained state. A stale run stops its
+schedule and exits without an API call. If its ID still equals the retained
+`schedule` value, it also removes that dead pointer; if a different schedule ID
+is retained, it leaves the current schedule untouched. A current run stops its
+schedule and clears the retained ID before its first API call. It then performs
+one REST snapshot, acts on a terminal result, or publishes the resulting
+predicate set and creates exactly one replacement schedule at the next cadence
+below. Never leave a fixed-rate schedule active, hold a synchronous shell or
+agent turn open with `sleep`, or make extra status calls in the same run.
+
+Each status run evaluates membership in `waiting`, not exact string equality.
+`checks` and `check:ci-required` both select the CI component; normalize new
+routine status state to `check:ci-required`. Remove only components the result
+resolves, and preserve unrelated members. In the table, **status members**
+means `checks`, every `check:<name>`, and `merge`. The CI component determines
+cadence while both CI and mergeability are unresolved.
 
 | Status run says | Do this |
 | --- | --- |
-| `mergeable: false` | Clear `attempt` and apply the conflict transition in [Canonical round flow](../AGENTS.md#canonical-round-flow). After pushing the resolution head, use the standard initial 10- or 35-minute cadence when status gates progress again. |
-| `ci-required` completed with a conclusion other than `success` | Clear the wait and attempt state, classify the result, and apply the applicable [recovery transition](../AGENTS.md#recovery-transitions). A terminal non-green result is an answer, not something to wait out. |
-| `mergeable: true`, `ci-required` green, REST `mergeable_state: "behind"`, `goal=merge` | Clear automated wait, schedule, and attempt state, then apply [carry-forward after clean reviews](#carry-forward-after-clean-reviews). Do not report readiness or merge from this snapshot. |
-| `mergeable: true`, `ci-required` green, REST `mergeable_state: "blocked"` | For `goal=advance`, clear the wait and attempt state, then continue round completion or reviewer dispatch; zero conflicts and green CI satisfy that gate. For `goal=merge`, clear automated wait, schedule, and attempt state, publish `blocked=<pr-number> rec=wait`, and end without a successor. |
-| `mergeable: true`, `ci-required` green at this head | **Done.** Clear the waiting and attempt state, then proceed to whatever waited on the answer. |
-| `mergeable: null`, CI green | Publish `waiting=merge`, retain `goal`, reset `attempt` if the predicate changed, and use the 5-, 15-, then 30-minute mergeability sequence within the successor bound; see [resolving unknown mergeability](#resolving-unknown-mergeability). |
-| `mergeable: null`, CI pending or missing | Publish `waiting=checks`, retain `goal`, and use the pending-CI sequence within the successor bound. |
-| `mergeable: true`, documentation-only | Treat it as the expected CI completion check. If CI is pending or missing, publish `waiting=checks`, retain `goal`, and use the documentation pending-CI sequence within the successor bound. |
-| `mergeable: true`, not documentation-only | Publish `waiting=checks`, retain `goal`, and use the non-documentation pending-CI sequence within the successor bound. |
+| `mergeable: false` | Remove all status members from `waiting`, clear `schedule`, `attempt`, and `attempt-for`, and apply the conflict transition in [Canonical round flow](../AGENTS.md#canonical-round-flow). Preserve unrelated wait members. After pushing the resolution head, use the standard initial 10- or 35-minute cadence when status gates progress again. |
+| `ci-required` completed with a conclusion other than `success` | Remove all status members from `waiting`, clear `schedule`, `attempt`, and `attempt-for`, classify the result, and apply the applicable [recovery transition](../AGENTS.md#recovery-transitions). Preserve unrelated wait members. A terminal non-green result is an answer, not something to wait out. |
+| `mergeable: true`, `ci-required` green, REST `mergeable_state: "behind"`, `goal=merge` | Remove the status members from `waiting`, clear `schedule`, `attempt`, and `attempt-for`, then apply [carry-forward after clean reviews](#carry-forward-after-clean-reviews). Preserve unrelated wait members. Do not report readiness or merge from this snapshot. |
+| `mergeable: true`, `ci-required` green, REST `mergeable_state: "blocked"` | For `goal=advance`, remove the status members from `waiting`, clear `attempt` and `attempt-for`, then continue round completion or reviewer dispatch when no other predicate remains. For `goal=merge`, remove the status members, clear `schedule`, `attempt`, and `attempt-for`, publish `blocked=<pr-number> rec=wait`, and end without a successor. Preserve unrelated wait members. |
+| `mergeable: true`, `ci-required` green at this head | **Done.** Remove the status members from `waiting`, clear `attempt` and `attempt-for`, then proceed when no other predicate remains. |
+| `mergeable: null`, CI green | Remove the CI member, ensure `merge` remains in `waiting`, retain `goal`, set `attempt-for=merge`, and use the 5-, 15-, then 30-minute mergeability sequence within that component's successor bound; see [resolving unknown mergeability](#resolving-unknown-mergeability). |
+| `mergeable: null`, CI pending or missing | Ensure `check:ci-required,merge` are in `waiting`, retain `goal`, set `attempt-for=check:ci-required`, and use the pending-CI sequence within that component's successor bound. |
+| `mergeable: true`, documentation-only | Remove `merge` from `waiting`. If CI is pending or missing, ensure `check:ci-required` remains, retain `goal`, set `attempt-for=check:ci-required`, and use the documentation pending-CI sequence within that component's successor bound. |
+| `mergeable: true`, not documentation-only | Remove `merge` from `waiting`. If CI is pending or missing, ensure `check:ci-required` remains, retain `goal`, set `attempt-for=check:ci-required`, and use the non-documentation pending-CI sequence within that component's successor bound. |
 
 Read the table top-down: the first matching row wins. Conflict recovery has
 first priority, including when CI is also terminal non-green. A terminal
@@ -425,11 +446,14 @@ moving](../AGENTS.md#clean-reviews-are-not-spent-by-main-moving) states when
 this path applies and how each landed-range classification resolves. This is
 the procedure once it does.
 
-1. **Detect movement.** Compare the candidate's recorded base tip with the live
-   tip in `baseRef.target.oid`. `baseRefOid` is the base commit recorded for the
-   PR, not the live branch tip.
-2. **Inspect without integrating.** A non-mutating fetch is permitted solely to
-   read the exact landed range.
+1. **Detect movement without API spend.** Fetch the effective base
+   non-mutating, resolve its remote-tracking ref to an exact SHA, and compare
+   that SHA with the candidate's recorded base tip. Do not spend GraphQL solely
+   to read the live base tip. If a graph-shaped query is already justified,
+   `baseRef.target.oid` provides the same live value; `baseRefOid` is only the
+   base commit recorded for the PR.
+2. **Inspect without integrating.** Read the exact landed range between the
+   recorded and fetched tips.
 3. **Classify and report.** As normal session output, report which commits
    touch files this change touches, which relied-on behavior they alter, and
    any conflict a textual merge would resolve silently but wrongly. State the
