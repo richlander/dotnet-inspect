@@ -3,13 +3,16 @@
 ## Status
 
 This document defines the architectural owner and implementation target for the
-inspect-web TypeScript semantic-facts adapter. The adapter does not exist yet.
-Its snapshot, identity, and failure properties are **unverified** until the
-`inspect-web-typescript-semantic-facts` gate described below is implemented.
+inspect-web TypeScript semantic-facts adapter. The adapter is implemented in
+`prototypes/inspect-web/scripts/typescript-semantic-facts.ts`; its snapshot,
+identity, failure, import-isolation, and artifact-isolation properties are
+enforced by the `inspect-web-typescript-semantic-facts` gate described below.
+Actual child-process exit after the upstream close call remains **unverified**
+because the pinned API exposes no exit-completion signal.
 
 This is the focused successor selected from
 [PR #4825](https://github.com/richlander/dotnet-inspect/pull/4825) and is tracked
-by [issue #4910](https://github.com/richlander/dotnet-inspect/issues/4910).
+by [issue #4936](https://github.com/richlander/dotnet-inspect/issues/4936).
 
 ## Decision
 
@@ -505,6 +508,11 @@ cd prototypes/inspect-web
 npx --yes node@24 --run inspect-web-typescript-semantic-facts
 npx --yes node@24 --run build
 ```
+
+The focused gate is implemented by
+`prototypes/inspect-web/test/typescript-semantic-facts.test.ts`. It opens the
+real inspect-web project and compiled fixtures, exercises the public facade and
+failure seams, scans unstable-package imports, and audits the real Vite graph.
 
 This gate proves the adapter contract only. It does not prove a semantic
 consumer's rules, coverage, or behavior.
