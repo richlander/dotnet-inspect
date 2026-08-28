@@ -20,6 +20,24 @@ public static class AsyncFixtures
         public int Value;
     }
 
+    public sealed class Box
+    {
+        public int Value;
+    }
+
+    public sealed record Snapshot(int Value);
+
+    public struct Counter
+    {
+        public int Value;
+
+        public static Counter operator ++(Counter value)
+        {
+            value.Value++;
+            return value;
+        }
+    }
+
     public static int Observed;
     public static int Observed2;
     public static int? ObservedNullable;
@@ -182,6 +200,43 @@ public static class AsyncFixtures
         captured ??= alpha;
         int beta = await b;
         GC.KeepAlive((alpha, beta, captured));
+    }
+
+    public static async Task SequentialWithEmbeddedIncrement(
+        Task<int> a,
+        Task<int> b,
+        Counter captured)
+    {
+        int alpha = await a;
+        int beta = await b + (captured++).Value;
+        GC.KeepAlive((alpha, beta, captured));
+    }
+
+    public static async Task SequentialWithRealizedInitializer(
+        Task<int> a,
+        Task<int> b)
+    {
+        int alpha = await a;
+        int beta = await b;
+        GC.KeepAlive(new Box { Value = alpha + beta });
+    }
+
+    public static async Task SequentialWithRealizedWithExpression(
+        Task<int> a,
+        Task<int> b)
+    {
+        int alpha = await a;
+        int beta = await b;
+        GC.KeepAlive(new Snapshot(alpha) with { Value = beta });
+    }
+
+    public static async Task SequentialWithImplicitConversion(
+        Task<int> a,
+        Task<int> b)
+    {
+        int alpha = await a;
+        long beta = await b;
+        GC.KeepAlive((alpha, beta));
     }
 
     public static async ValueTask<int> AwaitValueTask(ValueTask<int> a) => await a;

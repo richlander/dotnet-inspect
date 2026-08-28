@@ -30,25 +30,19 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             [],
             HasThis: true);
         var moveNextPasses = IrPasses.ForReconstruction<ClassicAsyncReconstructionPass>();
-        if (!context.TryEnterCrossMethodPipeline(moveNextMethod, out var scope))
-            return;
-        IrFunction? moveNext;
-        bool importedBodyHasUnconsumedStore;
-        using (scope)
+        if (!context.TryImportAndRunMethodBody(
+                moveNextMethod,
+                moveNextPasses,
+                out var moveNext)
+            || moveNext is null)
         {
-            moveNext = scope.Import();
-            if (moveNext is null)
-                return;
-            importedBodyHasUnconsumedStore =
-                HasUnconsumedExecutionStore(moveNext);
-            scope.Run(moveNext, moveNextPasses);
+            return;
         }
 
         var reconstruction = TryReconstruct(
             moveNext,
             function,
             kickoff,
-            importedBodyHasUnconsumedStore,
             out var body,
             out var locals,
             out var localNames);
@@ -190,7 +184,6 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         IrFunction moveNext,
         IrFunction kickoff,
         Kickoff kickoffShape,
-        bool importedBodyHasUnconsumedStore,
         out BlockContainer body,
         out ImmutableArray<TypeRef> locals,
         out ImmutableArray<string?> localNames)
@@ -210,7 +203,6 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             return ReconstructionResult.NotRecognized;
         }
         if (recipeHasUnconsumedStore
-            || importedBodyHasUnconsumedStore
             || HasUnconsumedExecutionStore(moveNext))
         {
             return ReconstructionResult.UnconsumedExecutionRegion;
@@ -559,6 +551,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             return false;
         if (HasUnexpectedExpressionStatement(moveNext, keepAlive))
             return false;
+        if (!IsRealizedAwaitResult(firstResultStore, getResults[0])
+            || !IsRealizedAwaitResult(secondStore, getResults[1]))
+        {
+            hasUnconsumedStore = true;
+            return true;
+        }
         if (HasUnexpectedStore(
                 moveNext,
                 firstResultStore,
@@ -581,6 +579,22 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         statements.Add(new Return(null));
         return true;
     }
+
+    static bool IsRealizedAwaitResult(
+        StoreLocal store,
+        Call getResult)
+        => ReferenceEquals(store.Value, getResult)
+            || store.Value is Convert
+            {
+                IsChecked: false,
+                Target: var target,
+                Operand: var operand,
+            }
+            && ReferenceEquals(operand, getResult)
+            && target.Equals(store.Type)
+            && CSharpConversionRules.IsImplicitNumericAssignment(
+                getResult.Callee.ReturnType,
+                target);
 
     static bool TryBuildConditional(
         IrFunction moveNext,

@@ -23,6 +23,7 @@ public class ClassicAsyncReconstructionHonestyTests
     [InlineData("SequentialWithStructParameterReset")]
     [InlineData("SequentialWithDeconstructionWrite")]
     [InlineData("SequentialWithCapturedNullCoalescingWrite")]
+    [InlineData("SequentialWithEmbeddedIncrement")]
     [InlineData("LoopWithFieldStore")]
     [InlineData("LoopWithAccumulatorWrite")]
     [InlineData("LoopWithClamp")]
@@ -100,6 +101,15 @@ public class ClassicAsyncReconstructionHonestyTests
         "AwaitOrdinarySetMethod",
         "return await set_GetTask(task);")]
     [InlineData("AwaitInTryFinally", "finally")]
+    [InlineData(
+        "SequentialWithRealizedInitializer",
+        "Value = alpha + beta")]
+    [InlineData(
+        "SequentialWithRealizedWithExpression",
+        "with")]
+    [InlineData(
+        "SequentialWithImplicitConversion",
+        "long beta = await b;")]
     public void FaithfulLegacyRecipeRemainsFullyReconstructed(
         string methodName,
         string expectedOutput)
