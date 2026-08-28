@@ -9,8 +9,11 @@ using NuGetFetch;
 namespace DotnetInspector.Sections;
 
 public sealed record PackageProfileSectionCatalog(
-    SectionPipeline<PackageProfileView> Pipeline,
-    InspectionQueryRegistry<PackageProfileQueryContext> QueryRegistry);
+    SectionCatalog<PackageProfileView> Sections,
+    InspectionQueryCatalog<PackageProfileQueryContext> QueryCatalog)
+{
+    public SectionPipeline<PackageProfileView> Pipeline => Sections.Pipeline;
+}
 
 /// <summary>
 /// Sections and row projection for a package-prefix profile.
@@ -19,24 +22,29 @@ public static class PackageProfileSections
 {
     public const string Packages = "Packages";
 
-    public static PackageProfileSectionCatalog CreateCatalog()
-    {
-        InspectionQueryRegistry<PackageProfileQueryContext> queryRegistry =
-            CreateQueryRegistry();
-        return new PackageProfileSectionCatalog(
-            CreatePipeline(queryRegistry.CostOf),
-            queryRegistry);
-    }
+    /// <summary>The reusable fixed-domain catalog for package-profile queries.</summary>
+    public static InspectionQueryCatalog<PackageProfileQueryContext>
+        QueryCatalog { get; } = BuildQueryCatalog();
 
-    public static SectionPipeline<PackageProfileView> CreatePipeline()
-    {
-        InspectionQueryRegistry<PackageProfileQueryContext> queryRegistry =
-            CreateQueryRegistry();
-        return CreatePipeline(queryRegistry.CostOf);
-    }
+    /// <summary>The reusable fixed-domain catalog for package-profile sections.</summary>
+    public static SectionCatalog<PackageProfileView> SectionCatalog { get; } =
+        CreatePipeline().Compile();
 
-    private static InspectionQueryRegistry<PackageProfileQueryContext>
+    /// <summary>The complete reusable package-profile section and query catalog.</summary>
+    public static PackageProfileSectionCatalog Catalog { get; } =
+        new(SectionCatalog, QueryCatalog);
+
+    public static PackageProfileSectionCatalog CreateCatalog() => Catalog;
+
+    public static SectionPipeline<PackageProfileView> CreatePipeline() =>
+        CreatePipeline(QueryCatalog.CostOf);
+
+    public static InspectionQueryRegistry<PackageProfileQueryContext>
         CreateQueryRegistry() =>
+        QueryCatalog.ToBuilder();
+
+    private static InspectionQueryCatalog<PackageProfileQueryContext>
+        BuildQueryCatalog() =>
         new InspectionQueryRegistry<PackageProfileQueryContext>()
             .AddAsync(
                 PackageProfileQuery.Definition,
@@ -44,7 +52,8 @@ public static class PackageProfileSections
                     PackageProfileQuery.ExecuteToArrayAsync(
                     context.Source,
                     context.Request,
-                    cancellationToken));
+                    cancellationToken))
+            .Compile();
 
     private static SectionPipeline<PackageProfileView> CreatePipeline(
         Func<InspectionQueryDefinition, InspectionCost> queryCost) =>
