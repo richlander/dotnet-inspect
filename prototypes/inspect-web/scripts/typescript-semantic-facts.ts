@@ -36,6 +36,7 @@ import {
   isClassDeclaration,
   isElementAccessExpression,
   isEnumMember,
+  isEnumDeclaration,
   isExportDeclaration,
   isExportSpecifier,
   isExpression,
@@ -88,6 +89,7 @@ export const NodeKind = Object.freeze({
   ExportSpecifier: "ExportSpecifier",
   ShorthandPropertyAssignment: "ShorthandPropertyAssignment",
   EnumMember: "EnumMember",
+  EnumDeclaration: "EnumDeclaration",
   PropertyAccessExpression: "PropertyAccessExpression",
   ElementAccessExpression: "ElementAccessExpression",
   CallExpression: "CallExpression",
@@ -810,17 +812,17 @@ export interface SemanticFactsTestFaults {
   readonly projectSelection?: "NoProject" | "MultipleProjects" | "RequestedProjectMismatch";
   readonly unsupportedResponseShapeAfterSnapshot?: string;
   readonly snapshotReleaseFailure?: string;
+  readonly allowRejectedDiagnostics?: boolean;
   readonly queryFailure?: {
     readonly operation: string;
     readonly reason: InfrastructureFailureReason;
     readonly detail: string;
   };
-  readonly unknownAliasedSymbol?: boolean;
-  readonly errorType?: boolean;
-  readonly unsupportedNodeKind?: boolean;
-  readonly unsupportedSymbolFlags?: boolean;
-  readonly unsupportedTypeValue?: boolean;
-  readonly unsupportedSignatureValue?: boolean;
+  readonly checkerFailure?: {
+    readonly operation: string;
+    readonly reason: InfrastructureFailureReason;
+    readonly detail: string;
+  };
   readonly missingApiFactOperation?: string;
   readonly unsupportedResponseShapeOperation?: string;
 }
@@ -835,6 +837,10 @@ export interface SemanticFactsTestObservation {
 export interface SemanticFactsTestHarness {
   open(tsconfigPath: string): OpenTypeScriptSemanticFactsResult;
   observation(): SemanticFactsTestObservation;
+  characterizeUnsupportedNodeKind(): QueryResult<never>;
+  characterizeUnsupportedSymbolFlags(): QueryResult<never>;
+  characterizeUnsupportedTypeFlags(): QueryResult<never>;
+  characterizeUnsupportedDiagnosticCategory(): QueryResult<never>;
 }
 
 interface MutableTestObservation {
@@ -871,9 +877,39 @@ export const semanticFactsTestSeam = Object.freeze({
       observation() {
         return Object.freeze({ ...context.observation });
       },
+      characterizeUnsupportedNodeKind() {
+        return captureCompatibilityFailure(() => rawSyntaxName(SyntaxKind.Count));
+      },
+      characterizeUnsupportedSymbolFlags() {
+        return captureCompatibilityFailure(() =>
+          symbolCategories({ flags: 0x80000000 }));
+      },
+      characterizeUnsupportedTypeFlags() {
+        return captureCompatibilityFailure(() =>
+          typeCategory({
+            flags: 0,
+            isErrorType: () => false,
+          }));
+      },
+      characterizeUnsupportedDiagnosticCategory() {
+        return captureCompatibilityFailure(() =>
+          diagnosticCategory(-1));
+      },
     });
   },
 });
+
+function captureCompatibilityFailure(read: () => unknown): QueryResult<never> {
+  try {
+    read();
+  } catch (error) {
+    if (error instanceof CompatibilityFailure) {
+      return unavailable(error.reason, error.message);
+    }
+    throw error;
+  }
+  throw new Error("expected compatibility translation to reject its input");
+}
 
 class OpenFailure extends Error {
   readonly failure:
@@ -910,6 +946,15 @@ class CompatibilityFailure extends Error {
     reason: "UnsupportedApiValue" | "UnsupportedResponseShape",
     detail: string,
   ) {
+    super(detail);
+    this.reason = reason;
+  }
+}
+
+class InjectedInfrastructureFailure extends Error {
+  readonly reason: InfrastructureFailureReason;
+
+  constructor(reason: InfrastructureFailureReason, detail: string) {
     super(detail);
     this.reason = reason;
   }
@@ -999,15 +1044,19 @@ function readPinnedTypeScriptVersion(): string {
   return parsed.version;
 }
 
-function diagnosticCategory(category: DiagnosticCategory): DiagnosticCategoryName {
+function diagnosticCategory(category: number): DiagnosticCategoryName {
+  const warning: number = DiagnosticCategory.Warning;
+  const error: number = DiagnosticCategory.Error;
+  const suggestion: number = DiagnosticCategory.Suggestion;
+  const message: number = DiagnosticCategory.Message;
   switch (category) {
-    case DiagnosticCategory.Warning:
+    case warning:
       return DiagnosticCategoryName.Warning;
-    case DiagnosticCategory.Error:
+    case error:
       return DiagnosticCategoryName.Error;
-    case DiagnosticCategory.Suggestion:
+    case suggestion:
       return DiagnosticCategoryName.Suggestion;
-    case DiagnosticCategory.Message:
+    case message:
       return DiagnosticCategoryName.Message;
     default:
       throw new CompatibilityFailure(
@@ -1188,7 +1237,9 @@ function openTypeScriptSemanticFactsCore(
       );
     }
 
-    validateDiagnostics(project);
+    if (!context.faults.allowRejectedDiagnostics) {
+      validateDiagnostics(project);
+    }
     validateRoots(project);
     const session = new SemanticFactsSession(api, snapshot, project, context);
     api = undefined;
@@ -1370,6 +1421,8 @@ function nodeKind(node: TypeScriptNode): NodeKind {
       return NodeKind.ShorthandPropertyAssignment;
     case SyntaxKind.EnumMember:
       return NodeKind.EnumMember;
+    case SyntaxKind.EnumDeclaration:
+      return NodeKind.EnumDeclaration;
     case SyntaxKind.PropertyAccessExpression:
       return NodeKind.PropertyAccessExpression;
     case SyntaxKind.ElementAccessExpression:
@@ -1412,6 +1465,7 @@ function isDeclarationNode(node: TypeScriptNode): boolean {
     || isImportSpecifier(node)
     || isExportSpecifier(node)
     || isShorthandPropertyAssignment(node)
+    || isEnumDeclaration(node)
     || isEnumMember(node)
     || node.kind === SyntaxKind.PropertyDeclaration
     || node.kind === SyntaxKind.PropertySignature
@@ -1425,7 +1479,9 @@ function isDeclarationNode(node: TypeScriptNode): boolean {
     || node.kind === SyntaxKind.FunctionExpression;
 }
 
-function typeCategory(type: TypeScriptType): TypeCategory {
+function typeCategory(
+  type: { readonly flags: number; isErrorType(): boolean },
+): TypeCategory {
   if (type.isErrorType()) {
     return TypeCategory.Error;
   }
@@ -1471,7 +1527,9 @@ function typeCategory(type: TypeScriptType): TypeCategory {
   );
 }
 
-function symbolCategories(symbol: TypeScriptSymbol): readonly SymbolCategory[] {
+function symbolCategories(
+  symbol: { readonly flags: number },
+): readonly SymbolCategory[] {
   const unknownFlags = symbol.flags & ~knownSymbolFlags;
   if (unknownFlags !== 0) {
     throw new CompatibilityFailure(
@@ -1565,11 +1623,7 @@ class SemanticFactsSession implements TypeScriptSemanticFactsSession {
   #disposeResult: DisposeResult | undefined;
   #poisoned: Extract<QueryResult<never>, { readonly kind: "SessionFailure" }> | undefined;
   #queryFaultRaised = false;
-  #errorTypeFaultRaised = false;
-  #unsupportedNodeFaultRaised = false;
-  #unsupportedSymbolFaultRaised = false;
-  #unsupportedTypeFaultRaised = false;
-  #unsupportedSignatureFaultRaised = false;
+  #checkerFaultRaised = false;
 
   constructor(api: API, snapshot: Snapshot, project: Project, context: OpenContext) {
     this.configFileName = normalizedPath(project.configFileName);
@@ -1867,6 +1921,14 @@ class SemanticFactsSession implements TypeScriptSemanticFactsSession {
       if (error instanceof CompatibilityFailure) {
         return unavailable(error.reason, error.message);
       }
+      if (error instanceof InjectedInfrastructureFailure) {
+        this.#poisoned = Object.freeze({
+          kind: "SessionFailure",
+          reason: error.reason,
+          detail: error.message,
+        });
+        return this.#poisoned;
+      }
       this.#poisoned = Object.freeze({
         kind: "SessionFailure",
         reason: classifyInfrastructureFailure(error),
@@ -1874,6 +1936,15 @@ class SemanticFactsSession implements TypeScriptSemanticFactsSession {
       });
       return this.#poisoned;
     }
+  }
+
+  #checkerCall<T>(operation: string, read: () => T): T {
+    const fault = this.#context.faults.checkerFailure;
+    if (!this.#checkerFaultRaised && fault?.operation === operation) {
+      this.#checkerFaultRaised = true;
+      throw new InjectedInfrastructureFailure(fault.reason, fault.detail);
+    }
+    return read();
   }
 
   #createSourceFact(
@@ -1952,13 +2023,6 @@ class SemanticFactsSession implements TypeScriptSemanticFactsSession {
     const existing = this.#nodeFacts.get(handle);
     if (existing !== undefined) {
       return existing;
-    }
-    if (this.#context.faults.unsupportedNodeKind && !this.#unsupportedNodeFaultRaised) {
-      this.#unsupportedNodeFaultRaised = true;
-      throw new CompatibilityFailure(
-        "UnsupportedApiValue",
-        "injected unsupported syntax kind",
-      );
     }
     const kind = nodeKind(node);
     const source = node.getSourceFile();
@@ -2081,13 +2145,6 @@ class SemanticFactsSession implements TypeScriptSemanticFactsSession {
     if (existing !== undefined) {
       return existing;
     }
-    if (this.#context.faults.unsupportedSymbolFlags && !this.#unsupportedSymbolFaultRaised) {
-      this.#unsupportedSymbolFaultRaised = true;
-      throw new CompatibilityFailure(
-        "UnsupportedApiValue",
-        "injected unsupported symbol flags",
-      );
-    }
     const parent = this.#checkedSymbol(symbol.getParent());
     const exportSymbol = this.#checkedSymbol(symbol.getExportSymbol());
     const fact = Object.freeze({
@@ -2112,16 +2169,7 @@ class SemanticFactsSession implements TypeScriptSemanticFactsSession {
     if (existing !== undefined) {
       return existing;
     }
-    if (this.#context.faults.unsupportedTypeValue && !this.#unsupportedTypeFaultRaised) {
-      this.#unsupportedTypeFaultRaised = true;
-      throw new CompatibilityFailure(
-        "UnsupportedApiValue",
-        "injected unsupported type value",
-      );
-    }
-    const category = this.#context.faults.errorType && !this.#errorTypeFaultRaised
-      ? (this.#errorTypeFaultRaised = true, TypeCategory.Error)
-      : typeCategory(type);
+    const category = typeCategory(type);
     const symbol = this.#checkedSymbol(type.getSymbol());
     const aliasSymbol = this.#checkedSymbol(type.getAliasSymbol());
     const identitySymbol = aliasSymbol ?? symbol;
@@ -2172,14 +2220,6 @@ class SemanticFactsSession implements TypeScriptSemanticFactsSession {
     const existing = this.#signatureFacts.get(handle);
     if (existing !== undefined) {
       return existing;
-    }
-    if (this.#context.faults.unsupportedSignatureValue
-      && !this.#unsupportedSignatureFaultRaised) {
-      this.#unsupportedSignatureFaultRaised = true;
-      throw new CompatibilityFailure(
-        "UnsupportedApiValue",
-        "injected unsupported signature value",
-      );
     }
     const returnType = this.#checker.getReturnTypeOfSignature(signature);
     if (returnType === undefined) {
@@ -2379,9 +2419,6 @@ class SemanticFactsSession implements TypeScriptSemanticFactsSession {
           symbolCategories(current).join("|") || "UnflaggedSymbol",
         );
       }
-      if (this.#context.faults.unknownAliasedSymbol) {
-        return unavailable("UnknownSymbol", "injected TypeScript unknown alias target");
-      }
       const steps: AliasStepFact[] = [];
       const seen = new Set<TypeScriptSymbol>();
       while ((current.flags & SymbolFlags.Alias) !== 0) {
@@ -2392,18 +2429,13 @@ class SemanticFactsSession implements TypeScriptSemanticFactsSession {
           );
         }
         seen.add(current);
-        let next: TypeScriptSymbol | undefined;
-        try {
-          next = this.#checker.getImmediateAliasedSymbol(current);
-          if (next === undefined) {
-            next = this.#checker.getAliasedSymbol(current);
+        const next = this.#checkerCall("getAliasChain", () => {
+          const immediate = this.#checker.getImmediateAliasedSymbol(current);
+          if (immediate !== undefined) {
+            return immediate;
           }
-        } catch (error) {
-          return unavailable(
-            "MissingApiFact",
-            `TypeScript could not provide an alias target: ${normalizedDetail(error)}`,
-          );
-        }
+          return this.#checker.getAliasedSymbol(current);
+        });
         if (this.#checker.isUnknownSymbol(next)) {
           return unavailable("UnknownSymbol", "TypeScript returned its unknown alias target");
         }
@@ -2450,15 +2482,10 @@ class SemanticFactsSession implements TypeScriptSemanticFactsSession {
   getDeclaredType(symbol: SemanticHandle): QueryResult<TypeFact> {
     return this.#run("getDeclaredType", () => {
       const rawSymbol = this.#requireSymbol(symbol);
-      let type: TypeScriptType;
-      try {
-        type = this.#checker.getDeclaredTypeOfSymbol(rawSymbol);
-      } catch (error) {
-        return unavailable(
-          "MissingApiFact",
-          `TypeScript could not provide a declared type: ${normalizedDetail(error)}`,
-        );
-      }
+      const type = this.#checkerCall(
+        "getDeclaredType",
+        () => this.#checker.getDeclaredTypeOfSymbol(rawSymbol),
+      );
       return resolved(this.#typeFact(type));
     });
   }
@@ -2483,15 +2510,10 @@ class SemanticFactsSession implements TypeScriptSemanticFactsSession {
     return this.#run("getSymbolTypeAtLocation", () => {
       const rawSymbol = this.#requireSymbol(symbol);
       const rawLocation = this.#requireNode(location);
-      let type: TypeScriptType;
-      try {
-        type = this.#checker.getTypeOfSymbolAtLocation(rawSymbol, rawLocation);
-      } catch (error) {
-        return unavailable(
-          "MissingApiFact",
-          `TypeScript could not provide a narrowed symbol type: ${normalizedDetail(error)}`,
-        );
-      }
+      const type = this.#checkerCall(
+        "getSymbolTypeAtLocation",
+        () => this.#checker.getTypeOfSymbolAtLocation(rawSymbol, rawLocation),
+      );
       return resolved(this.#typeFact(type));
     });
   }
@@ -2714,23 +2736,24 @@ class SemanticFactsSession implements TypeScriptSemanticFactsSession {
   }
 
   #staticModuleSpecifier(node: TypeScriptNode): TypeScriptNode | undefined {
-    if (isStringLiteralLikeNode(node)) {
+    if (!isStringLiteralLikeNode(node)) {
+      return undefined;
+    }
+    const parent = node.parent;
+    if (
+      (isImportDeclaration(parent) && parent.moduleSpecifier === node)
+      || (isExportDeclaration(parent) && parent.moduleSpecifier === node)
+      || (isExternalModuleReference(parent) && parent.expression === node)
+    ) {
       return node;
     }
-    if (isImportDeclaration(node)) {
-      return node.moduleSpecifier;
-    }
-    if (isExportDeclaration(node)) {
-      return node.moduleSpecifier;
-    }
-    if (isExternalModuleReference(node)) {
-      return node.expression;
-    }
-    if (isImportTypeNode(node)
-      && isLiteralTypeNode(node.argument)) {
-      return node.argument.literal;
-    }
-    return undefined;
+    const literal = parent;
+    const importType = literal.parent;
+    return isLiteralTypeNode(literal)
+      && isImportTypeNode(importType)
+      && importType.argument === literal
+      ? node
+      : undefined;
   }
 
   getModuleSymbol(node: SemanticHandle): QueryResult<SymbolFact> {

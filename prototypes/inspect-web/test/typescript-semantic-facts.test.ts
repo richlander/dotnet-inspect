@@ -3,13 +3,13 @@ import { execFileSync } from "node:child_process";
 import {
   existsSync,
   mkdtempSync,
-  mkdirSync,
   readFileSync,
   readdirSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import {
   dirname,
   join,
@@ -69,9 +69,7 @@ import { auditedBuild } from "./vite-audit.ts";
 
 const inspectWebRoot = fileURLToPath(new URL("../", import.meta.url));
 const realTsconfig = join(inspectWebRoot, "tsconfig.json");
-const fixtureRoot = mkdtempSync(
-  join(inspectWebRoot, "test", ".typescript-semantic-facts-fixtures-"),
-);
+const fixtureRoot = mkdtempSync(join(tmpdir(), "dotnet-inspect-semantic-facts-"));
 const fixtureTsconfig = join(fixtureRoot, "tsconfig.json");
 const badTsconfig = join(fixtureRoot, "bad.tsconfig.json");
 
@@ -159,6 +157,9 @@ export interface Ambient {
 const scriptOnly = 1;
 void scriptOnly;
 `,
+  "dynamic.ts": `
+export const dynamicValue = 1;
+`,
   "entry.ts": `
 import {
   Choice,
@@ -234,17 +235,22 @@ export async function loadDynamically(name: string): Promise<unknown> {
   return import(name);
 }
 
+export async function loadStaticDynamically(): Promise<unknown> {
+  return import("./dynamic.js");
+}
+
 void readShadow;
 `,
   "coordinates.ts": coordinateSource,
   "bad.ts": `
 const badValue: string = 1;
+export const unresolvedValue = doesNotExist;
+export { missingExport } from "./missing.js";
 export { badValue };
 `,
 });
 
 function writeFixture(): void {
-  mkdirSync(fixtureRoot, { recursive: true });
   for (const [name, content] of Object.entries(fixtureFiles)) {
     writeFileSync(join(fixtureRoot, name), content, "utf8");
   }
@@ -255,9 +261,13 @@ function writeFixture(): void {
       moduleDetection: "legacy",
       moduleResolution: "NodeNext",
       outDir: "./out",
+      paths: {
+        vite: [join(inspectWebRoot, "node_modules", "vite", "dist", "node", "index.d.ts")],
+      },
       skipLibCheck: true,
       strict: true,
       target: "ES2022",
+      typeRoots: [join(inspectWebRoot, "node_modules", "@types")],
       types: ["node"],
     },
     files: ["entry.ts", "coordinates.ts"],
@@ -276,7 +286,7 @@ function writeFixture(): void {
   const tsc = join(inspectWebRoot, "node_modules", "typescript", "bin", "tsc");
   execFileSync(process.execPath, [tsc, "--project", fixtureTsconfig], {
     cwd: inspectWebRoot,
-    stdio: "pipe",
+    stdio: "inherit",
   });
   assert.ok(existsSync(join(fixtureRoot, "out", "entry.js")));
 }
@@ -502,7 +512,8 @@ test("rejects invalid opening inputs, ambiguous selection, and strict diagnostic
   assert.equal(diagnostics.kind, "DiagnosticsRejected");
   if (diagnostics.kind === "DiagnosticsRejected") {
     assert.equal(diagnostics.phase, "Semantic");
-    assert.ok(diagnostics.diagnostics.some(diagnostic => diagnostic.code === 2322));
+    assert.ok(diagnostics.diagnostics.some(diagnostic =>
+      diagnostic.code === 2322 && diagnostic.category === "Error"));
   }
   assert.deepEqual(diagnosticsHarness.observation(), {
     apiCreated: 1,
@@ -549,10 +560,11 @@ test("each session owns one immutable snapshot and a new session observes source
   try {
     const firstSource = sourceByPath(first, "coordinates.ts");
     const firstNodes = expectResolved(first.getNodes(firstSource.handle));
-    assert.deepEqual(
-      expectResolved(first.getNodes(firstSource.handle)).map(node => node.handle),
-      firstNodes.map(node => node.handle),
-    );
+    const repeatedNodes = expectResolved(first.getNodes(firstSource.handle));
+    assert.equal(repeatedNodes.length, firstNodes.length);
+    for (const [index, node] of repeatedNodes.entries()) {
+      assert.strictEqual(node.handle, firstNodes[index]?.handle);
+    }
 
     writeFileSync(coordinatePath, `${coordinateSource}// changed after snapshot\r\n`, "utf8");
     second = expectOpened(openTypeScriptSemanticFacts(fixtureTsconfig));
@@ -1062,7 +1074,9 @@ test("normalizes structural type queries and exported category guards", () => {
     const dateNode = identifierNodes(nodes, "Date")[0];
     assert.ok(dateNode !== undefined);
     const dateType = valueType(session, symbolAt(session, dateNode));
-    assert.ok(expectResolved(session.getConstructSignatures(dateType.handle)).length > 0);
+    const constructors = expectResolved(session.getConstructSignatures(dateType.handle));
+    assert.ok(constructors.length > 0);
+    assert.ok(constructors.every(signature => signature.category === "Construct"));
   } finally {
     session.dispose();
   }
@@ -1190,7 +1204,23 @@ test("resolves module symbols, exports, source symbols, and exact constant outco
       '"./script.js"',
     );
     assert.equal(session.getModuleSymbol(sideEffectSpecifier.handle).kind, "Absent");
-    assert.equal(session.getModuleSymbol(sideEffect.handle).kind, "Absent");
+    assert.deepEqual(session.getModuleSymbol(sideEffect.handle), {
+      kind: "NotApplicable",
+      expectedSubject: queryApplicability.getModuleSymbol,
+      actualSubject: NodeKind.ImportDeclaration,
+    });
+
+    const dynamicSpecifier = oneNode(
+      nodes,
+      text,
+      NodeKind.StringLiteral,
+      '"./dynamic.js"',
+    );
+    assert.deepEqual(session.getModuleSymbol(dynamicSpecifier.handle), {
+      kind: "NotApplicable",
+      expectedSubject: queryApplicability.getModuleSymbol,
+      actualSubject: NodeKind.StringLiteral,
+    });
 
     const dynamic = oneNode(
       nodes,
@@ -1214,6 +1244,18 @@ test("resolves module symbols, exports, source symbols, and exact constant outco
       kind: "Resolved",
       value: 2,
     });
+    const enumMemberName = identifierNodes(baseNodes, "Two")[0];
+    assert.ok(enumMemberName !== undefined);
+    const enumMemberSymbol = symbolAt(session, enumMemberName);
+    const enumMemberDeclaration = expectResolved(session.getDeclaration(
+      enumMemberSymbol.declarations[0]
+        ?? assert.fail("enum member symbol had no declaration"),
+    ));
+    const enumContainer = expectResolved(session.getDeclaration(
+      enumMemberDeclaration.containingDeclarations[0]
+        ?? assert.fail("enum member declaration had no containing declaration"),
+    ));
+    assert.equal(enumContainer.kind, NodeKind.EnumDeclaration);
     const importedEnumAccess = oneNode(
       nodes,
       text,
@@ -1300,64 +1342,37 @@ test("query applicability coverage is derived from the facade declaration table"
 });
 
 test("unknown symbols, error types, unsupported values, and poisoned sessions stay distinct", () => {
-  const unknownHarness = semanticFactsTestSeam.createHarness({
-    unknownAliasedSymbol: true,
+  const rejectedHarness = semanticFactsTestSeam.createHarness({
+    allowRejectedDiagnostics: true,
   });
-  const unknownSession = expectOpened(unknownHarness.open(fixtureTsconfig));
-  const entry = sourceByPath(unknownSession, "entry.ts");
-  const aliasNode = identifierNodes(nodesFor(unknownSession, entry), "genericIdentity")[0];
+  const rejectedSession = expectOpened(rejectedHarness.open(badTsconfig));
+  const rejectedSource = sourceByPath(rejectedSession, "bad.ts");
+  const rejectedNodes = nodesFor(rejectedSession, rejectedSource);
+  const aliasNode = identifierNodes(rejectedNodes, "missingExport")[0];
   assert.ok(aliasNode !== undefined);
-  const aliasSymbol = symbolAt(unknownSession, aliasNode);
-  assert.deepEqual(unknownSession.getAliasChain(aliasSymbol.handle), {
-    kind: "Unavailable",
-    reason: "UnknownSymbol",
-    detail: "injected TypeScript unknown alias target",
-  });
-  unknownSession.dispose();
-
-  const errorHarness = semanticFactsTestSeam.createHarness({ errorType: true });
-  const errorSession = expectOpened(errorHarness.open(fixtureTsconfig));
-  const errorEntry = sourceByPath(errorSession, "entry.ts");
-  const errorNode = identifierNodes(nodesFor(errorSession, errorEntry), "cycle")[0];
+  const aliasSymbol = symbolAt(rejectedSession, aliasNode);
+  const unknownAlias = rejectedSession.getAliasChain(aliasSymbol.handle);
+  assert.equal(unknownAlias.kind, "Unavailable");
+  if (unknownAlias.kind === "Unavailable") {
+    assert.equal(unknownAlias.reason, "UnknownSymbol");
+  }
+  const errorNode = identifierNodes(rejectedNodes, "doesNotExist")[0];
   assert.ok(errorNode !== undefined);
-  const errorType = expectResolved(errorSession.getTypeAtNode(errorNode.handle));
+  const errorType = expectResolved(rejectedSession.getTypeAtNode(errorNode.handle));
   assert.ok(isErrorTypeFact(errorType));
-  errorSession.dispose();
+  rejectedSession.dispose();
 
-  for (const faults of [
-    { unsupportedNodeKind: true },
-    { unsupportedSymbolFlags: true },
-    { unsupportedTypeValue: true },
-    { unsupportedSignatureValue: true },
+  const characterization = semanticFactsTestSeam.createHarness({});
+  for (const result of [
+    characterization.characterizeUnsupportedNodeKind(),
+    characterization.characterizeUnsupportedSymbolFlags(),
+    characterization.characterizeUnsupportedTypeFlags(),
+    characterization.characterizeUnsupportedDiagnosticCategory(),
   ]) {
-    const harness = semanticFactsTestSeam.createHarness(faults);
-    const session = expectOpened(harness.open(fixtureTsconfig));
-    const fixtureEntry = sourceByPath(session, "entry.ts");
-    let result: QueryResult<unknown>;
-    if (faults.unsupportedNodeKind) {
-      result = session.getNodes(fixtureEntry.handle);
-    } else {
-      const fixtureNodes = nodesFor(session, fixtureEntry);
-      if (faults.unsupportedSymbolFlags) {
-        const node = identifierNodes(fixtureNodes, "cycle")[0];
-        assert.ok(node !== undefined);
-        result = session.getSymbolAtNode(node.handle);
-      } else if (faults.unsupportedTypeValue) {
-        const node = identifierNodes(fixtureNodes, "cycle")[0];
-        assert.ok(node !== undefined);
-        result = session.getTypeAtNode(node.handle);
-      } else {
-        const callNode = fixtureNodes.find(node =>
-          node.kind === NodeKind.CallExpression);
-        assert.ok(callNode !== undefined);
-        result = session.getResolvedSignature(callNode.handle);
-      }
-    }
     assert.equal(result.kind, "Unavailable");
     if (result.kind === "Unavailable") {
       assert.equal(result.reason, "UnsupportedApiValue");
     }
-    session.dispose();
   }
 
   for (const [faults, reason] of [
@@ -1373,6 +1388,30 @@ test("unknown symbols, error types, unsupported values, and poisoned sessions st
     }
     session.dispose();
   }
+
+  const checkerHarness = semanticFactsTestSeam.createHarness({
+    checkerFailure: {
+      operation: "getDeclaredType",
+      reason: "ProcessFailure",
+      detail: "injected checker child-process failure",
+    },
+  });
+  const checkerSession = expectOpened(checkerHarness.open(fixtureTsconfig));
+  const checkerEntry = sourceByPath(checkerSession, "entry.ts");
+  const checkerNode = identifierNodes(nodesFor(checkerSession, checkerEntry), "cycle")[0];
+  assert.ok(checkerNode !== undefined);
+  const checkerSymbol = symbolAt(checkerSession, checkerNode);
+  assert.deepEqual(checkerSession.getDeclaredType(checkerSymbol.handle), {
+    kind: "SessionFailure",
+    reason: "ProcessFailure",
+    detail: "injected checker child-process failure",
+  });
+  assert.deepEqual(checkerSession.getSourceFiles(), {
+    kind: "SessionFailure",
+    reason: "ProcessFailure",
+    detail: "injected checker child-process failure",
+  });
+  checkerSession.dispose();
 
   const protocolHarness = semanticFactsTestSeam.createHarness({
     queryFailure: {
@@ -1451,7 +1490,7 @@ function unstableImports(
   files: Readonly<Record<string, string>>,
 ): readonly string[] {
   const unstablePattern
-    = /(?:from\s+|import\s*\()\s*["']typescript\/unstable\/(?:sync|ast)["']/gu;
+    = /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?)["']typescript\/unstable\/(?:sync|ast)["']/u;
   return Object.entries(files)
     .filter(([, content]) => unstablePattern.test(content))
     .map(([path]) => path)
@@ -1459,12 +1498,20 @@ function unstableImports(
 }
 
 test("only the adapter imports unstable TypeScript packages and the scan is non-vacuous", () => {
+  const unstablePackage = "typescript/unstable/";
+  const unstableSync = `"${unstablePackage}sync"`;
   assert.deepEqual(unstableImports({
     "ordinary.ts": 'import { value } from "./value.js";',
-    "forbidden.ts": "import { API } from "
-      + '"typescript/unstable/'
-      + 'sync";',
-  }), ["forbidden.ts"]);
+    "first-forbidden.ts": `import { API } from ${unstableSync};`,
+    "second-forbidden.ts": `import{API}from${unstableSync};`,
+    "side-effect-forbidden.ts": `import ${unstableSync};`,
+    "dynamic-forbidden.ts": `void import(${unstableSync});`,
+  }), [
+    "dynamic-forbidden.ts",
+    "first-forbidden.ts",
+    "second-forbidden.ts",
+    "side-effect-forbidden.ts",
+  ]);
 
   const files = Object.fromEntries(projectFiles(inspectWebRoot).map(path => [
     relative(inspectWebRoot, path).split(sep).join("/"),
