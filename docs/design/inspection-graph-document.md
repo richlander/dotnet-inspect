@@ -813,9 +813,12 @@ Projection assigns new dense document-local ids while retaining semantic
 subjects, relationship descriptors, occurrence evidence and occurrence
 identity. Failures from requested relationship producers and their required
 composition prerequisites remain visible even when their target is outside
-healthy reached topology. A typed `queries.neighborhood-depth-bound` limit
-records the requested bound, including depth zero. An admissible owner-issued
-seed remains bound even when selected producers emit no relationship evidence.
+healthy reached topology, subject to producer-specific admission policies.
+Explicit Integration induced sets apply the out-of-context `BindingMissing`
+policy owned by [Integrations](integrations.md) before failure-target retention.
+A typed `queries.neighborhood-depth-bound` limit records the requested bound,
+including depth zero. An admissible owner-issued seed remains bound even when
+selected producers emit no relationship evidence.
 For peer requests, the same bound is targeted at every equal seed so no peer's
 completeness is inferred from another's topology.
 `Execute_BoundsMixedRelationshipNeighborhoodByDepth`,
