@@ -133,41 +133,5 @@ java -jar /path/to/tla2tools.jar -help   # aliases to tlc2.TLC
 See `USE.md` in the TLA+ repository for the full command list (`tla2sany.SANY`,
 `tlc2.TLC`, `tlc2.REPL`, `pcal.trans`, `tla2tex.TLA`).
 
-## Curated TLA+ examples
-
-TLA+ is used per
-[`AGENTS.md`](../../AGENTS.md#keep-specifications-readable-model-interactions)
-to check stateful or concurrent interactions that are hard to reason about in
-prose alone.
-
-Keep each model in its own directory, normally under `docs/models/` or the
-owning design's `models/` directory. Keep its `.tla` module and any companion
-`.cfg` configurations, model `README.md`, or local exclusions for generated
-TLC artifacts together; do not place standalone model files in the parent
-models directory or combine unrelated models in one directory.
-
-The following table is a user-curated set of at most six merged examples, not
-an inventory of repository models. It is intentionally incomplete.
-Contributors and agents must not add a new model to this list as part of normal
-model work; only the user may add, remove, or replace a curated example.
-
-| Example | What it demonstrates |
-| --- | --- |
-| [`TsJsExportLifecycle.tla`](../design/models/ts-jsexport-lifecycle/TsJsExportLifecycle.tla) (plus scenario and mutation configurations and a model [`README.md`](../design/models/ts-jsexport-lifecycle/README.md)) | Models two generated `ts-jsexport` facades, multiple callers, one shared SDK runtime, shared-in-flight and serialized coordination, local failure isolation, terminal state, and bounded realm restart. Demonstrates separate success/failure scenarios and targeted counterexample mutations without claiming implementation or browser conformance. |
-| [`ArtifactSessionAdmission.tla`](../models/artifact-session-admission/ArtifactSessionAdmission.tla) ([`.cfg`](../models/artifact-session-admission/ArtifactSessionAdmission.cfg)) | Models `ArtifactSetSession` admission for [Artifact acquisition and workspace composition](../design/artifact-acquisition-and-workspaces.md#artifactsetsession). Demonstrates single-flight admission, incompatible-generation exclusion, voluntary and disposal-forced draining, late-result suppression, guard witnesses, and weak-fairness progress. |
-| [`AssemblyContextGroupLifecycle.tla`](../models/assembly-context-group-lifecycle/AssemblyContextGroupLifecycle.tla) (plus safety, liveness, and mutation configurations and a model [`README.md`](../models/assembly-context-group-lifecycle/README.md)) | Models the existing `AssemblyContextGroup` callback, image-budget, result-publication, finalization, disposal, and quiescent-release lifecycle for [Inspection space](../inspection-space.md). Demonstrates same-participant contention, ordinary versus one-shot release, exceptional retry, resource ordering, and independent counterexample mutations. |
-
-## Check in models as you go
-
-A TLA+ model that exists only as uncommitted files in a local worktree is not
-a checked-in asset — it is not backed up, not reviewable, and invisible to
-every other contributor and agent until it is committed and pushed. This
-guidance exists because real, apparently-finished model sets have previously
-sat only on one machine.
-
-Commit a model to its branch and push that branch as soon as it reaches a
-checkable state (parses, and TLC runs against its `.cfg` without unexpected
-errors), the same way any other source file is checked in during ordinary
-work — do not wait for the owning design PR to be otherwise complete. Treat an
-uncommitted `.tla`/`.cfg`/model-`README.md` set sitting in a worktree as a bug
-to fix, not a stable resting state.
+See [TLA+ methodology](../tla-plus-methodology.md) for model-layout and
+check-in conventions and representative models.

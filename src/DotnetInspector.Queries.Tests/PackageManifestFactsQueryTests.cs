@@ -301,6 +301,74 @@ public sealed class PackageManifestFactsQueryTests
     }
 
     [Fact]
+    public void Execute_AcceptsManifestAtExactByteLimit()
+    {
+        byte[] manifestBytes = Encoding.UTF8.GetBytes(
+            PadToManifestByteCount(
+                MinimalManifest(),
+                PackageManifestFactsQuery.MaxManifestBytes));
+
+        PackageManifestFacts facts = Available(
+            PackageManifestFactsQuery.Execute(
+                manifestBytes,
+                PackageSourceCoordinate.Create(
+                    "Example.Package",
+                    "1.0.0")));
+
+        Assert.Equal(
+            PackageManifestFactsQuery.MaxManifestBytes,
+            manifestBytes.Length);
+        Assert.Equal(
+            PackageSourceCoordinate.Create(
+                "Example.Package",
+                "1.0.0"),
+            facts.Coordinate);
+    }
+
+    [Fact]
+    public void Execute_AcceptsManifestAtExactDecodedCharacterLimit()
+    {
+        string manifest = PadToCharacterCount(
+            MinimalManifest(),
+            PackageManifestFactsQuery.MaxManifestCharacters);
+
+        PackageManifestFacts facts = Available(
+            PackageManifestFactsQuery.Execute(
+                Encoding.UTF8.GetBytes(manifest),
+                PackageSourceCoordinate.Create(
+                    "Example.Package",
+                    "1.0.0")));
+
+        Assert.Equal(
+            PackageManifestFactsQuery.MaxManifestCharacters,
+            manifest.Length);
+        Assert.Equal(
+            PackageSourceCoordinate.Create(
+                "Example.Package",
+                "1.0.0"),
+            facts.Coordinate);
+    }
+
+    [Fact]
+    public void Execute_RejectsManifestBeyondDecodedCharacterLimit()
+    {
+        string manifest = PadToCharacterCount(
+            MinimalManifest(),
+            PackageManifestFactsQuery.MaxManifestCharacters + 1);
+        PackageManifestFactsResult.Failed failure = Assert.IsType<
+            PackageManifestFactsResult.Failed>(
+                PackageManifestFactsQuery.Execute(
+                    Encoding.UTF8.GetBytes(manifest),
+                    PackageSourceCoordinate.Create(
+                        "Example.Package",
+                        "1.0.0")));
+
+        Assert.Equal(
+            PackageManifestFailureReason.MalformedXml,
+            failure.Failure.Reason);
+    }
+
+    [Fact]
     public void Execute_RejectsOversizedScalarFact()
     {
         string authors = new(
@@ -538,4 +606,46 @@ public sealed class PackageManifestFactsQueryTests
     private static PackageManifestFacts Available(
         PackageManifestFactsResult result) =>
         Assert.IsType<PackageManifestFactsResult.Available>(result).Value;
+
+    private static string MinimalManifest() =>
+        """
+        <package>
+          <metadata>
+            <id>Example.Package</id>
+            <version>1.0.0</version>
+          </metadata>
+        </package>
+        """;
+
+    private static string PadToManifestByteCount(
+        string manifest,
+        int byteCount)
+    {
+        int remaining = byteCount - Encoding.UTF8.GetByteCount(manifest);
+        Assert.True(remaining >= 7);
+        int multibyteCharacters = (remaining - 7) / 3;
+        int singleBytePadding =
+            remaining - 7 - (multibyteCharacters * 3);
+        string padded = manifest
+            + "<!--"
+            + new string('漢', multibyteCharacters)
+            + new string(' ', singleBytePadding)
+            + "-->";
+        Assert.Equal(
+            byteCount,
+            Encoding.UTF8.GetByteCount(padded));
+        return padded;
+    }
+
+    private static string PadToCharacterCount(
+        string manifest,
+        int characterCount)
+    {
+        int remaining = characterCount - manifest.Length;
+        Assert.True(remaining >= 7);
+        string padded =
+            manifest + "<!--" + new string('a', remaining - 7) + "-->";
+        Assert.Equal(characterCount, padded.Length);
+        return padded;
+    }
 }
