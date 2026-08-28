@@ -305,24 +305,28 @@ redefines another owner's selector or execution contract. A section is not
 intrinsically member-scoped: its owning execution descriptor may operate at
 package, library, type, or member scope.
 
-Lens and section values are **registry identities, not display labels or CLI
-spellings**: canonical IDs from the product-owned
+Fields that a canonical schema version designates as view facets use
+**registry identities, not display labels or CLI spellings**: canonical IDs
+from the product-owned
 [View Facet Registry](view-facet-registry.md). The registry owns stable
 human-writable spelling, title, summary, structural applicability, and order;
 consumers render descriptors and submit exact IDs. CLI commands and browser
 lenses are projections that abstract these IDs and may rename their own
-surfaces freely.
+surfaces freely. Whether `lens` and `section` both survive as view-facet fields
+is the portable-composition decision owned by #4787.
 
 This is load-bearing because definitions persist: a bundled demo must resolve
 years after a flag or chip label changed. Every view-facet ID is therefore a
 compatibility surface like the anchor digest below, with an unknown ID a typed
-outcome through the view-facet gate. Current example values such as `api` and
-`call-graph` are legacy presentation tokens, not canonical IDs. New definitions
-use registry values such as `type.api` and `member.call-graph`; a schema-owned
-version transform is the single source that may map an old scoped token
-explicitly. It lowers legacy records to canonical IDs before registry
-resolution; canonical schema versions reject legacy tokens. Resolution never
-slugs a label or accepts a CLI alias. Qualified spellings such as the packet's
+outcome through the view-facet gate. Current example values such as `api` and `call-graph` are legacy presentation
+tokens, not canonical IDs. Definition schema version 1 and packet format 1
+remain legacy; they are not reinterpreted in place. The first versions that
+designate view-facet fields use values such as `type.api` and
+`member.call-graph` and must be greater than 1. A schema-owned version transform
+is the single source that may map an old scoped token explicitly. It lowers
+legacy records to canonical IDs before registry resolution, and each version
+accepts exactly one identity vocabulary. Resolution never slugs a label or
+accepts a CLI alias. Qualified spellings such as the packet's
 `pkg:dependencies` belong to flat projections, where no structure does that
 job. Qualification-in-names is the projection's tool, never the schema's.
 
@@ -430,10 +434,12 @@ that payload.
 `ResolveHomeScenario` fails when a home demo omits `View.Section` or names a
 section outside that allow list (`ProductHomeDemos_AllBindKnownProductSections`,
 `ProductDemoSections_AreProductSectionNames`). Methods demos reject standalone
-mermaid rather than falling through to the type shape tree. Full minted
-view-facet ids remain open ([Open questions](#open-questions) — view-facet
-registry binding). Platform workspaces remain product capability; they are not
-a home-demo entry (home catalog is package- and graph-shaped scenarios).
+mermaid rather than falling through to the type shape tree. The
+[View Facet Registry](view-facet-registry.md) settles minted facet identity;
+versioned migration and complete view composition remain open under
+[Portable view-facet composition](#open-questions). Platform workspaces remain
+product capability; they are not a home-demo entry (home catalog is package-
+and graph-shaped scenarios).
 **CLI run** lowers the resolved plan to `TypeCommand` / `MemberCommand` options
 (`DemoScenarioRunner`) so `dotnet-inspect demo <id>` returns ordinary section
 output from the existing pipelines; multi-package workspaces encode extra
@@ -474,8 +480,8 @@ reconstructing package/query inputs.
 Browser package scopes now adapt product-selected, product-realized package
 participants into Browser coordinate/asset provenance; Browser still owns Wasm
 transport, cache/deadline/lifetime policy, and its resource-limit values.
-Residual: (1) minted facet ids replacing display-name allow list; (2) realize
-definitions via `WorkspaceContextLoader` instead of CLI package/
+Residual: (1) implement versioned facet IDs to replace the display-name allow
+list; (2) realize definitions via `WorkspaceContextLoader` instead of CLI package/
 `--caller-package` encoding; (3) canonical frontend activation of every home
 demo, including share-location projection and deletion of browser-owned packet
 construction; (4) Call Graph / Callers structured JSON projection remains the
@@ -995,10 +1001,11 @@ Implementation must add, at minimum:
 - a no-resolver-policy gate asserting every binding-target kind receives a
   non-success typed selection and that the shared policy has no filesystem or
   network resolution path;
-- a preset-input gate derived from the registered query and view-facet
-  descriptors, with positive cases for sufficient selectors and close
-  negative cases proving missing, ambiguous, and incompatible inputs fail
-  closed;
+- a preset-input gate derived from the registered query descriptors, with
+  positive cases for sufficient selectors and close negative cases proving
+  missing, ambiguous, and incompatible inputs fail closed; #4787 extends this
+  gate with complete query, subject, and retained view-facet combination
+  validation;
 - a navigation gate proving ordered tabs and record-local focus round-trip,
   duplicate ids or normalized sources fail, target-distinct group sources
   remain distinct, group and coordinate sources resolve in at least one
@@ -1008,12 +1015,14 @@ Implementation must add, at minimum:
   degraded-decode prefix behind `MemberAnchor.ComputeFingerprint`, so a
   formatting change that would invalidate issued links and bundled demos
   fails a test instead of shipping silently;
-- a view-facet registry gate: unknown lens or section ids are typed
-  outcomes validated against the product-owned registry, and shipped
-  registry ids are additive — never reused or renamed. A `library` name is
-  not a facet: it resolves against the loaded context's assemblies, with
-  an unknown name a typed outcome there. The gate's concrete form tracks
-  the registry-binding open question; and
+- a view-facet registry gate: unknown values in fields that a newer schema
+  version designates as view facets are typed outcomes validated against the
+  product-owned registry, and shipped registry IDs retain identity, structural
+  kind, and purpose. Definition schema version 1 and packet format 1 remain
+  legacy inputs lowered before this gate. A `library` name is not a facet: it
+  resolves against the loaded context's assemblies, with an unknown name a
+  typed outcome there. The gate's concrete field set follows #4787's portable
+  composition decision; and
 - a demo-parity gate showing the previously imperative call-graph demo loads
   from a definition and lands on the anchor-digest-selected overload —
   `InspectionDefinitionTests.ProductHomeDemos_ResolveCallGraphByMemberAnchor`
@@ -1037,8 +1046,8 @@ Implementation must add, at minimum:
   `ProductHomeDemos_AllBindKnownProductSections`,
   `ProductDemoSections_AreProductSectionNames`, and
   `DemoCommandTests.ExecuteScenario_*_Returns*Section` (CLI encoding). Residual
-  gates for minted facet ids and `WorkspaceContextLoader` group run remain
-  open with the view-facet registry question.
+  gates for versioned facet-ID migration, complete portable composition, and
+  `WorkspaceContextLoader` group run remain open with #4787.
 
 The shell-safety elimination above is the one asserted property no
 repository gate can reach — it is a claim about external tools, verified

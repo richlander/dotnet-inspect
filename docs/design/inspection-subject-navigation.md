@@ -268,7 +268,7 @@ The initial semantic recommendations are:
 | Type | API |
 | Library | References |
 | Package Root | Package Overview |
-| Other Root | Root owner's recommendation |
+| Other Root | Root owner's registry role, initially Root Overview |
 
 The exact identities and membership come from the View Facet Registry. If the
 preferred descriptor is unavailable or failed, navigation selects the first
@@ -304,14 +304,15 @@ Subject and lens activation return one of these semantic outcomes:
 | Superseded | Produces no visible effect because a newer explicit intent owns the session |
 
 After a lens request passes Navigation's command-currency and generation
-checks, View Facet Registry `Available`, `Unavailable`, and `Failed` results
-retain their corresponding descriptor evidence and map to `Applied`,
-`Unavailable`, and `Failed` respectively. Registry `Inapplicable` and `Unknown`
-results map to `Rejected` while retaining the exact registry result in
-diagnostic evidence. Navigation does not collapse those two results or turn a
-registry failure into unavailability. Stale, foreign, or superseded commands
-retain the Navigation outcomes defined here without evaluating a registry
-result into state.
+checks, a View Facet Registry `Available` result supplies the exact activation
+target. Successful Navigation preparation maps it to `Applied`; a later
+Navigation evaluation failure remains `Failed`. Registry `Unavailable` and
+`Failed` retain their corresponding descriptor evidence and map to
+`Unavailable` and `Failed`. Registry `Inapplicable` and `Unknown` map to
+`Rejected` while retaining the exact registry result in diagnostic evidence.
+Navigation does not collapse those two results or turn a registry failure into
+unavailability. Stale, foreign, or superseded commands retain the Navigation
+outcomes defined here without evaluating a registry result into state.
 
 An unavailable request never silently activates a sibling, ancestor, or
 recommended Type. If the already committed subject became invalid

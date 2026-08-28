@@ -522,8 +522,8 @@ The selected subject controls every Library lens:
 - `All libraries` requests a coordinate-wide result over the complete library
   set.
 - An individual library requests the same lens for only that assembly.
-- The selected subject persists when switching among References, Integrations,
-  Opportunities, Analysis, and Metadata.
+- The selected subject persists when switching among every owner-issued
+  Library lens.
 - Changing package version or TFM submits the prior Library identity with the
   coordinate transition and renders the owner-issued result.
 

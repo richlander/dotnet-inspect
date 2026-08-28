@@ -151,7 +151,9 @@ surfaces:
   known.
 
 If an implementation is retired, its descriptor remains resolvable and reports
-an owner-issued unavailable reason. A future retirement policy that removes
+an owner-issued `Retired` unavailable reason through an explicit tombstone
+registration. The tombstone replaces the active execution binding; it does not
+leave a descriptor unregistered. A future retirement policy that removes
 facets from ordinary discovery requires a separate design; absence must not
 silently turn a formerly known persisted value into unknown.
 
@@ -161,9 +163,14 @@ than identity changes: they require focused regression evidence because they
 can change navigation fallback or presentation, but they do not migrate
 persisted IDs.
 
-`ViewFacetRegistryCompatibilityTests.ShippedIds_AreAdditiveAndCanonical` must
-derive the issued identity set from the registry and a checked-in compatibility
-baseline so both a missing old ID and a reused spelling fail.
+One checked-in append-only compatibility manifest records each issued ID,
+structural subject kind, and stable purpose statement. A registration carries
+the same non-presentation purpose separately from its rewordable title and
+summary. `ViewFacetRegistryCompatibilityTests.ShippedFacets_RetainIdentityKindAndPurpose`
+must derive current entries from the registry and compare them with that
+manifest so a missing ID, moved kind, or accidental repurposing fails. The gate
+does not claim to prove semantic equivalence; changing an existing manifest row
+is an explicit compatibility-contract edit requiring focused review.
 
 ## Descriptor contract
 
@@ -189,17 +196,22 @@ subject kind. Registration order, enum ordinal, ID, and localized title are
 not tie-breakers; a duplicate order makes the catalog invalid. Sparse values
 allow an additive facet to be inserted without renumbering every later entry.
 
+The complete-catalog order is structural kind in Navigation hierarchy order
+(`Root`, `Library`, `Type`, `Member`), then ascending `Order` within that kind.
+Kind-scoped discovery uses only ascending `Order`.
+
 `RecommendationRole` is an optional typed semantic marker used by Inspection
 Subject Navigation to find the exact facet that satisfies one of its preferred
 roles. The registry owns which descriptor carries a role. Navigation owns
 whether and when the role is preferred. A role is not persisted identity, and
 a consumer does not infer one from `Title` or `Id`.
 
-The initial role vocabulary is `PackageOverview`, `LibraryReferences`, and
-`TypeApi`. Each role is carried by exactly one descriptor and agrees with that
-descriptor's subject contract. Adding a role extends this typed handoff;
-changing a role assignment is a coordinated Registry and Navigation contract
-change with focused evidence, not a consumer-side edit.
+The initial role vocabulary is `PackageOverview`, `RootOverview`,
+`LibraryReferences`, and `TypeApi`. Each role is carried by exactly one
+descriptor and agrees with that descriptor's subject contract. Adding a role
+extends this typed handoff; changing a role assignment is a coordinated
+Registry and Navigation contract change with focused evidence, not a
+consumer-side edit.
 
 The descriptor does not expose:
 
@@ -212,12 +224,14 @@ The descriptor does not expose:
 
 `ViewFacetRegistryTests.Catalog_IsCompleteUniqueAndDeterministicallyOrdered`
 must gate valid IDs, ID uniqueness, prefix/kind agreement, nonempty
-presentation, unique per-kind order, returned ascending order, and exact
-role-to-descriptor coverage.
-`ViewFacetRegistryTests.RegistrationsAndImplementations_Agree` must use set
-equality so an implementation without a descriptor and a descriptor without
-an implementation both fail. The latter is the required non-vacuity gate for
-registry wiring.
+presentation, unique per-kind order, Root-to-Member kind order, ascending order
+within each kind, and exact role-to-descriptor coverage.
+`ViewFacetRegistryTests.RegistrationsAndBindingsAgree` must use set equality so
+every descriptor has exactly one active or tombstone registration, every active
+registration has an execution binding, no binding exists without a
+registration, and every tombstone has no execution binding plus a fixed
+`Retired` availability evaluator. Removing the registration input must fail
+this test; that is the required non-vacuity gate for registry wiring.
 
 ## Discovery and availability
 
@@ -230,8 +244,8 @@ structural subject kind, without opening an artifact, executing a query,
 probing a cache, reading the filesystem, or using the network. It answers
 "what may the product offer?" rather than "can this target render it now?"
 
-The returned collection is immutable and already ordered. A consumer must not
-sort it again.
+The returned collection is immutable and already ordered by kind then `Order`,
+or by `Order` for kind-scoped discovery. A consumer must not sort it again.
 
 `ViewFacetRegistryTests.StaticDiscovery_DoesNotExecuteOrAcquire` must provide
 facet bindings that fail if invoked and prove descriptor discovery still
@@ -249,7 +263,7 @@ exactly one status:
 | Status | Meaning |
 | ------ | ------- |
 | Available | The facet can execute for this subject with the supplied capabilities. |
-| Unavailable | The subject kind matches, but a required target capability is absent. |
+| Unavailable | The subject contract matches, but a required target capability or active implementation is absent; the typed reason distinguishes `CapabilityAbsent` from `Retired`. |
 | Failed | The owner could not determine or prepare availability; diagnostic evidence is retained. |
 
 Unavailable and failed facets remain discoverable. Each carries owner-issued
@@ -268,7 +282,9 @@ or unavailable result.
 cover available, validly empty, unavailable, and failed facets together and
 prove one failed facet neither disappears nor suppresses successful peers. It
 must also prove a structurally inapplicable facet is omitted without invoking
-its availability evaluator.
+its availability evaluator. Throwing execution, acquisition, filesystem, and
+network sentinels must prove applicable availability is classified only from
+the supplied facts and does not execute or acquire the payload.
 
 ## Exact resolution
 
@@ -278,7 +294,7 @@ outcome:
 | Outcome | Descriptor | Meaning |
 | ------- | ---------- | ------- |
 | Available | Present | The exact known facet is available for the subject. |
-| Unavailable | Present | The exact known facet has an owner-issued missing-capability reason. |
+| Unavailable | Present | The exact known facet has an owner-issued `CapabilityAbsent` or `Retired` reason. |
 | Failed | Present | Availability or preparation failed with retained diagnostic evidence. |
 | Inapplicable | Present | The ID is known, but its structural subject contract does not match the requested subject. |
 | Unknown | Absent | No issued registry ID exactly matches the request. |
@@ -294,7 +310,9 @@ evidence.
 
 `ViewFacetRegistryTests.Lookup_DistinguishesEveryOutcome` must derive known IDs
 from the catalog and cover an exact available hit, unavailable hit, failed hit,
-wrong-subject hit, and syntactically valid and invalid unknown values.
+wrong-subject hit, and syntactically valid and invalid unknown values. Throwing
+alias, dynamic-provider, filesystem, network, and execution sentinels must prove
+unknown lookup returns without consulting any fallback or facet binding.
 
 ### Navigation handoff
 
@@ -304,7 +322,7 @@ valid command:
 
 | Registry result | Navigation use |
 | --------------- | -------------- |
-| Available | May become an available lens descriptor and exact activation target; successful activation returns Navigation's `Applied` outcome. |
+| Available | May become an available lens descriptor and exact activation target; successful Navigation preparation may return `Applied`, while a later Navigation failure remains `Failed`. |
 | Unavailable | Remains an unavailable descriptor; an exact request returns Navigation's `Unavailable` outcome. |
 | Failed | Remains a failed descriptor; an exact request returns Navigation's `Failed` outcome. |
 | Inapplicable | Is absent from ordinary discovery; an exact request returns Navigation's `Rejected` outcome with the registry result retained as diagnostic evidence. |
@@ -324,6 +342,7 @@ Orders are sparse and local to one structural subject kind.
 | -- | ----- | ------- | ---- | ----: | ------------------- |
 | `root.package-overview` | Overview | Package identity, selected target, assets, and summary facts. | Root | 100 | Package overview |
 | `root.package-dependencies` | Dependencies | Declared package dependencies for the selected target framework. | Root | 200 | — |
+| `root.overview` | Overview | Coordinate identity, selected target, and available structural subjects. | Root | 300 | Root overview |
 | `library.references` | References | Direct assembly references for the active Library. | Library | 100 | Library references |
 | `library.integrations` | Integrations | Framework and ecosystem integrations found in the active Library. | Library | 200 | — |
 | `library.opportunities` | Opportunities | Framework and ecosystem integrations the active Library could adopt. | Library | 300 | — |
@@ -338,10 +357,14 @@ Orders are sparse and local to one structural subject kind.
 | `member.source` | Source | Source or decompiled code for the active Member. | Member | 400 | — |
 | `member.annotated-source` | Annotated source | Source for the active Member with product analysis annotations. | Member | 500 | — |
 
-The Root entries are structurally Root facets whose producers require a
-package-capable root. They are omitted from ordinary target-aware discovery for
-a non-package Root, and exact lookup there returns `Inapplicable`. The registry
-does not infer root capability from an ID prefix or coordinate spelling.
+The two `root.package-*` entries are structurally Root facets whose producers
+require a package-capable root. They are omitted from ordinary target-aware
+discovery for a non-package Root, and exact lookup there returns
+`Inapplicable`.
+`root.overview` applies to supported non-package Roots and supplies their
+current root-owner recommendation; it is inapplicable to a package-capable
+Root. The registry does not infer root capability from an ID prefix or
+coordinate spelling.
 
 Library Metadata and Type Metadata deliberately share a title but not an ID.
 The same is true for Root and Member Overview and for Type and Member Source.
@@ -351,6 +374,11 @@ this first issued set, titles, summaries, kinds, orders, and recommendation
 roles. After the first release, the additive compatibility gate becomes the
 authority for identity retention; the inventory gate continues to guard
 accidental semantic movement.
+
+For the initial compatibility manifest, each row's stable purpose is the answer
+stated by its Summary in the table above. The manifest copies that purpose at
+first implementation; later presentation rewording changes the descriptor
+Summary without changing the manifest.
 
 ## Facets and execution
 
@@ -384,19 +412,22 @@ legacy surface token to one canonical ID. That mapping belongs to the adapter
 whose compatibility it preserves. It must not derive an ID by slugging a label
 or section name, and it must reject an ambiguous mapping.
 
-New workspace definitions use canonical IDs. Existing product definitions may
-be migrated by a schema-owned version transform in the Workspace Definitions
-owner. That transform is the single source of persisted-definition
-legacy-to-canonical mapping: legacy schema versions lower to canonical IDs
-before registry resolution, and the canonical schema rejects legacy tokens.
-`ProductDemoSections` remains the temporary allow list until that work lands;
-the registry does not accept its display names as identity.
+Existing Workspace Definitions schema version 1 and canonical packet format 1
+use legacy presentation tokens. They do not acquire canonical-ID semantics in
+place. The first schema and packet versions that opt into registry IDs must be
+greater than 1. Their schema-owned version transforms are the single sources of
+persisted-definition and packet legacy-to-canonical mapping: the version-1
+values lower to canonical IDs before registry resolution, and each newer
+canonical version rejects legacy tokens. `ProductDemoSections` remains the
+temporary allow list until that work lands; the registry does not accept its
+display names as identity.
 
 The registry does not decide whether a portable packet carries one facet field
 or separate lens and section fields, or which combinations are valid. That is
 the portable projection and Workspace Definitions boundary owned by #4787.
-Every field that binds a view facet resolves through this one canonical ID
-space.
+Every field a newer owning schema version designates as a view-facet field
+resolves through this one canonical ID space; an undecided `section` field does
+not become registry-owned merely because it exists in version 1.
 
 ## Host and platform contract
 
