@@ -163,8 +163,9 @@ generic workflow.
 ## Logical operation contract
 
 One feature owner creates one operation session for each independently
-replaceable view. The main-thread worker owner holds one epoch-wide allocator;
-every feature session requests its next opaque operation ID from that owner.
+replaceable view. One main-thread operation owner holds a page-lifetime
+allocator; every feature session requests its next opaque operation ID from
+that owner.
 IDs are never allocated independently by feature sessions or reconstructed
 from request text, package identity, or display state.
 
@@ -199,12 +200,18 @@ interface OperationHandle<TValue, TError> {
 }
 ```
 
-`OperationId` is a branded, worker-owner-issued value. A feature caller cannot
-manufacture one from a string or number. Its wire representation combines the
-main-thread-assigned worker epoch with an epoch-wide monotonic sequence. The
-pair is serialized as opaque text for managed interop. Concurrent feature
-sessions therefore cannot collide, and a message from a terminated worker
-realm cannot acquire authority in its replacement.
+`OperationId` is a branded, operation-owner-issued value. A feature caller
+cannot manufacture one from a string or number. Its wire representation is
+opaque text derived from a page-wide monotonic sequence that never resets
+during that page lifetime. Concurrent feature sessions therefore cannot
+collide.
+
+Logical operation identity is independent of worker identity. A worker-backed
+dispatch separately carries the current `workerEpoch`; main-thread work such as
+browser `fetch` has an operation ID but no worker assignment. Worker restart
+fails and quiesces only operations assigned to that epoch. The epoch check,
+rather than an operation-ID encoding convention, prevents a message from a
+terminated worker realm from acquiring authority in its replacement.
 
 ### Start and authority
 
@@ -213,7 +220,7 @@ Starting an operation:
 1. synchronously installs its loading state and ID;
 2. logically cancels and revokes any active predecessor;
 3. publishes the new ID as the sole authority for that feature session; and
-4. posts a start message to the worker.
+4. starts the owned producer, posting a start message when it is worker-backed.
 
 The feature's producer cannot mutate UI state directly. Success, failure,
 progress, and cleanup reach the feature only through authority-checking
@@ -223,10 +230,11 @@ session observers. This removes the repeated, fallible requirement that every
 ### Logical completion and producer quiescence
 
 Each handle has exactly one logical outcome. User cancellation, supersession,
-disposal, or worker restart may complete that outcome before physical work
-settles. The separate `quiesced` promise resolves after the worker reports
-producer settlement and operation-scoped resource release, or after the owning
-epoch closes and its realm is destroyed, whichever occurs first.
+disposal, or restart of an assigned worker may complete that outcome before
+physical work settles. The separate `quiesced` promise resolves after the
+producer adapter reports settlement and operation-scoped resource release. For
+worker-backed work, closing the assigned epoch and destroying its realm also
+resolves quiescence when no `Quiesced` message can arrive.
 
 A late producer success or ordinary cancellation after logical cancellation
 is consumed without publication. A late unexpected failure cannot mutate the
@@ -236,16 +244,20 @@ suppression must not become silent error suppression.
 ### Cancellation
 
 `cancel()` is idempotent. The first call records the typed reason, completes
-the logical outcome, revokes publication authority, aborts main-thread work,
-and sends one worker cancellation request. Later calls change nothing.
+the logical outcome, revokes publication authority, aborts owned main-thread
+work, and sends one cancellation request when the operation is worker-backed.
+Later calls change nothing.
 
 The worker acknowledges whether it observed the operation as queued, running,
 or not active. An acknowledgment is not proof that managed work stopped. C#
-owns the terminal physical result and reports quiescence in `finally`.
+classifies the terminal physical result for an invoked export, and its
+`finally` releases managed operation resources before the worker reports
+quiescence.
 
 If cancellation is observed before managed invocation begins, the worker does
-not call the export. Once managed code is running, responsiveness and
-cancellation diverge:
+not call the export. It acknowledges `queued`, releases queued-operation
+resources, and emits canceled terminal and quiescence messages itself. Once
+managed code is running, responsiveness and cancellation diverge:
 
 - the UI remains responsive because C# is on another event loop;
 - I/O-bound C# can observe its token at incomplete awaits;
@@ -305,7 +317,10 @@ Worker to main:
   Accepted(operationId)
   CancelAcknowledged(operationId, queued | running | not-active)
   Progress(operationId, payload)
-  Terminal(operationId, success | failure | canceled)
+  Terminal(operationId,
+    Succeeded(result)
+    | Failed(error, diagnostic)
+    | Canceled(reason))
   Quiesced(operationId)
   WorkerFailure(workerEpoch, diagnostic)
 ```
@@ -315,22 +330,37 @@ payloads, and repeated terminal messages are explicit protocol failures. A
 `Cancel` race is the sole operation-ID exception: `not-active` says that no
 queued or running producer received the request. The main thread accepts that
 acknowledgment only when it has observed, or subsequently observes, the
-operation's terminal/quiesced messages or closes the epoch. Otherwise the
-missing operation becomes a visible protocol failure. It is never interpreted
-as successful physical cancellation.
+operation's terminal and quiesced messages. It is never interpreted as
+successful physical cancellation.
+
+The main-thread owner records whether it sent `Cancel` and retains the protocol
+record until it has received both `Terminal` and `Quiesced` plus the one
+expected cancellation acknowledgment. An early `not-active` remains pending
+until terminal and quiescence validate the completion race. A missing
+acknowledgment, terminal result, or quiescence message is bounded by the
+operation's worker-response deadline. Expiry reports a visible protocol
+failure, terminates the worker, and closes the epoch; it does not guess a
+physical outcome. Epoch closure is the only path that releases such an
+unsettled main-thread record without all expected messages.
 
 The worker retains active records only while an operation is queued or running.
-After posting `Terminal` and `Quiesced`, it removes the operation record; no
-terminal tombstone is retained. Main-thread feature disposal uses the ordinary
-idempotent `Cancel` path and detaches feature observers, while the worker owner
-continues consuming terminal and quiescence messages until it can remove its
-internal record. There is no separate worker-side dispose message.
+For queued cancellation, the worker posts `CancelAcknowledged(queued)`, releases
+the queued payload and callback references, posts `Terminal(Canceled(reason))`
+and `Quiesced`, and then removes the record without invoking C#. For an invoked
+export, it posts the payload-bearing terminal result, posts `Quiesced` only
+after managed `finally` released operation resources, and then removes the
+record. No worker-side terminal tombstone is retained. Main-thread feature
+disposal uses the ordinary idempotent `Cancel` path and detaches feature
+observers, while the operation owner continues consuming protocol messages
+until its stricter removal condition is satisfied. There is no separate
+worker-side dispose message.
 
 The worker validates and narrows `MessageEvent.data` from `unknown` before
 dispatch. Payloads use structured-clone-compatible immutable data. Existing
-JSON result envelopes may remain strings while their authenticated wire owner
-continues to require that representation; the worker protocol does not infer
-JSON meaning.
+authenticated JSON result and error envelopes may remain strings while their
+wire owner requires that representation; the worker protocol does not infer
+JSON meaning. `Succeeded`, `Failed`, and `Canceled` are distinct closed
+variants, not a discriminator detached from its required payload.
 
 ### Runtime lifetime
 
@@ -340,16 +370,18 @@ or the operation session do not dispose the shared runtime.
 
 A worker startup failure is terminal for that worker epoch. The main thread
 fails every operation assigned to it, revokes the epoch, and may create a new
-worker under explicit retry policy. A worker crash or hard termination loses
-runtime-owned caches and in-flight physical work; messages from the old epoch
-remain stale even if an operation counter repeats.
+worker under explicit retry policy. Main-thread-native operations remain owned
+by their producers and are not failed merely because the worker changed. A
+worker crash or hard termination loses runtime-owned caches and in-flight
+physical work; messages from the old epoch remain stale.
 
-Closing an epoch also resolves every outstanding `quiesced` promise for that
-epoch. Realm destruction is the physical release boundary for its managed
+Closing an epoch also resolves every outstanding `quiesced` promise assigned to
+that epoch. Realm destruction is the physical release boundary for its managed
 registry and JavaScript callbacks, even when no `Quiesced` message can arrive.
 A startup failure first terminates its partial worker realm, then closes the
-epoch. A worker that merely stops responding is not presumed quiescent; timeout
-policy must terminate it before disposal can finish.
+epoch. A worker that merely stops responding is not presumed quiescent; the
+worker-response deadline must terminate it before disposal or protocol
+settlement can finish.
 
 The implementation should start from the official .NET 11 Web Worker template
 and client protocol introduced by
@@ -371,6 +403,17 @@ that control returned to either event loop.
 The generated `ts-jsexport` facade runs inside the worker. Main-thread code does
 not hold its runtime, managed exports, JS proxies, or callbacks.
 
+Long-running managed exports return a typed wire result that classifies
+`Succeeded(result)`, `Failed(error, diagnostic)`, or `Canceled(reason)` before
+Task-to-Promise projection. Expected domain failures and cancellation therefore
+fulfill the Promise with distinct variants. The envelope is closed, versioned,
+and authenticated like other `ts-jsexport` JSON wire results. A Promise
+rejection represents an interop, runtime, or malformed-contract failure; the
+worker normalizes the unknown rejection into a boundary-error variant and a
+diagnostic, reports a failed terminal result, and never infers cancellation
+from JavaScript error text. The worker maps a fulfilled managed result to the
+corresponding payload-bearing `Terminal` message.
+
 ### Operation identity and cancellation
 
 There is no general `AbortSignal`/`CancellationToken` interop mapping.
@@ -383,11 +426,12 @@ contract.
 
 Registration occurs synchronously before the exported method reaches its first
 incomplete await. Removal occurs in `finally`, before the worker posts
-`Quiesced`. Duplicate active IDs fail. The worker maps cancellation of queued
-work to `CancelAcknowledged(queued)`, a managed cancellation request to
-`CancelAcknowledged(running)`, and a completion race or absent managed entry to
-`CancelAcknowledged(not-active)`. None of these acknowledgments claims that a
-running producer has stopped.
+`Quiesced`. Duplicate active IDs fail. The worker owns pre-invocation
+cancellation and its synthetic terminal/quiescence path. For invoked work, the
+managed cancellation export reports whether it requested cancellation from the
+registry entry. The worker maps that result to `CancelAcknowledged(running)` or,
+when completion already removed the entry, `CancelAcknowledged(not-active)`.
+None of these acknowledgments claims that a running producer has stopped.
 
 ### C#-to-JavaScript progress
 
@@ -396,6 +440,15 @@ marshalled as JavaScript functions. A long-running export may accept an
 operation-scoped synchronous progress delegate. The worker creates that
 function; its only work is to validate primitive progress fields and call
 `postMessage`.
+
+This runtime capability is not yet accepted by the authenticated generated
+facade: `ILInspector.JsExportSurface` deliberately rejects delegate parameters
+that its compatibility table cannot prove, and `ts-jsexport` cannot publish
+them on weaker evidence. Delegate-backed progress therefore depends on a
+separately reviewed prerequisite that authenticates synchronous delegate
+parameters, represents their TypeScript function type, and proves the generated
+facade against a compiled browser canary. Until that prerequisite lands,
+progress is not transported through the generated facade.
 
 The delegate:
 
@@ -488,18 +541,20 @@ Future is polled.
 Adoption is incremental:
 
 1. Land the main-thread operation-session owner and its model-backed unit gate.
-   Adapt one latest-request-wins coordinator without changing execution
-   placement.
+   Its page-lifetime allocator must not depend on a worker. Adapt one
+   latest-request-wins coordinator without changing execution placement.
 2. Build a dedicated-worker canary from the official .NET 11 template. Exercise
    one cached CPU-heavy query and one network acquisition through typed
-   messages.
+   messages, including the managed terminal-result envelope.
 3. Move generated facade initialization and engine invocation into one
    long-lived worker. Keep package/workspace caches worker-local.
 4. Replace feature generation and request-ID checks with the shared authority
    owner, preserving feature rendering, errors, retry, and queueing.
-5. Replace singleton source cancellation with operation IDs and the managed
-   registry.
-6. Add coarse source progress as the first delegate-backed progress canary.
+5. Replace singleton source cancellation with operation IDs, the managed
+   registry, and explicit queued and invoked cancellation settlement.
+6. Land separately owned `ILInspector.JsExportSurface` and `ts-jsexport`
+   support for authenticated synchronous delegate parameters, then add coarse
+   source progress as its first real-consumer canary.
 7. Add progress or cancellation checkpoints to other operations only with
    measured user value and focused gates.
 
@@ -545,12 +600,15 @@ These gates are design requirements and do not yet exist:
   authority, outcomes, cancellation, supersession, disposal, diagnostics, and
   quiescence;
 - `inspect-web-async-worker-protocol`: closed-message parsing, epoch isolation,
-  concurrent feature-session ID uniqueness, duplicate/unknown IDs,
-  cancellation acknowledgment races, record release, crash, restart, and
-  stale-message tests;
-- `inspect-web-async-interop`: compiled and browser-executed Task/Promise,
-  synchronous delegate, delegate-release, cancellation-registry, and
-  `Func<Task>` negative characterizations;
+  concurrent feature-session ID uniqueness, worker-independent logical IDs,
+  duplicate/unknown IDs, payload-bearing terminal variants, queued
+  cancellation settlement, outstanding-acknowledgment races, record release,
+  crash, restart, main-thread-operation isolation, and stale-message tests;
+- `inspect-web-async-interop`: compiled and browser-executed typed managed
+  result classification before Task/Promise projection, Promise-rejection
+  failure handling, authenticated synchronous delegates, delegate release,
+  cancellation-registry behavior, and `Func<Task>` negative
+  characterizations;
 - `inspect-web-async-browser`: a real browser heartbeat and paint canary while
   a pinned managed CPU operation runs, plus progress, cancellation,
   supersession, and worker-restart scenarios; and
