@@ -818,6 +818,15 @@ unusually large client timeout. A shorter caller-supplied client timeout is
 treated as caller cancellation and remains a visible failure; it cannot remove
 the library's finite upper bounds.
 
+After a payload stream transfers to its caller, the request deadline and
+operation ceiling remain active through stream consumption. The
+[`DeadlineStreamLifecycle`](models/nuget-deadline-stream/README.md) TLA+ model
+checks the interaction of one read with caller and per-read cancellation,
+monotonic deadline observation, delayed cancellation callbacks, EOF, abort
+cleanup, and synchronous or asynchronous disposal. The model is evidence about
+the interaction design, not implementation conformance; the named deadline
+tests remain the implementation gates.
+
 The existing one-second freshness lookup used when usable local versions exist
 is an explicit library-owned shorter request and operation bound. It remains a
 visible failure with exact-pin guidance and does not reset or escape the
