@@ -53,7 +53,7 @@ obligation to finish.
 | `ResultShapeIsConsistent` | A completed read has exactly one typed result, and only deadline results retain abort-cleanup failure |
 | `ReadResultIsWrittenAtMostOnce` | The read receives at most one terminal classification |
 | `ReadCancellationPrecedesDeadlineTranslation` | A distinct per-read cancellation observed before timeout translation begins retains its own classification |
-| `TransportFailureIsNotReclassified` | A deadline-eligible transport abort that occurs before any outer deadline remains a transport failure even if the per-read token is also canceled |
+| `TransportFailureIsNotReclassified` | A deadline-eligible transport abort classified while no outer deadline has elapsed remains a transport failure even if the per-read token is also canceled |
 | `ClassificationFollowsPrecedence` | Deadline attribution follows caller cancellation, operation expiry, then request expiry |
 | `NoLateSuccess` | Data or EOF is admitted only when no applicable outer deadline has elapsed at the post-read check |
 | `EofDisarmsDeadlineTranslation` | Once EOF wins the post-read check, later expiry cannot reinterpret that result as timeout |
@@ -66,6 +66,10 @@ obligation to finish.
 | `ImmediateReadEventuallyCompletes` | A started non-stalling read reaches one result |
 | `UnblockedStalledReadEventuallyCompletes` | Deadline expiry or caller disposal eventually releases and classifies a stalled read |
 | `EofEventuallyCompletesDeadline` | EOF eventually unregisters and disposes the deadline state |
+
+The transport-failure rule evaluates deadline state when the completed inner
+result is classified. It does not preserve classification according to when
+the inner operation first faulted; that occurrence time is not represented.
 
 The liveness properties use weak fairness for internal read, abort, disposal,
 and deadline-state progress. Caller cancellation, deadline expiry, read
@@ -84,7 +88,7 @@ behaviors:
 | --- | --- |
 | Delayed callbacks cannot admit late data | `NuGetDeadlineRaceTests.StreamConsumption_UsesElapsedTimeWhenTimerCallbackIsDelayed` |
 | A distinct per-read cancellation wins before timeout translation starts | `NuGetDeadlineTests.PreCancelledPerReadToken_PrecedesExpiredRequestDeadline` |
-| A pre-deadline I/O failure remains an I/O failure | `NuGetDeadlineTests.IoFailureBeforeDeadline_RemainsAnIoFailure` |
+| An I/O failure classified while no deadline has elapsed remains an I/O failure | `NuGetDeadlineTests.IoFailureBeforeDeadline_RemainsAnIoFailure` |
 | EOF disarms later deadline translation | `NuGetDeadlineTests.CompletedPackageStream_RemainsAtEofAfterDeadline` |
 | Caller cancellation remains caller cancellation | `NuGetDeadlineTests.PackageCallerCancellation_IsNotReportedAsADeadline` |
 | Async cleanup does not deadlock with abort | `NuGetDeadlineTests.DisposeAsync_DoesNotBlockOnAbortCleanup` and `InlineAsyncCompletion_DoesNotDeadlockAbortCleanup` |
@@ -154,7 +158,7 @@ claim.
 | DS13 | Remove weak fairness from immediate-read progress | `ImmediateReadEventuallyCompletes` | Violated |
 | DS14 | Remove weak fairness from unblocked stalled-read progress | `UnblockedStalledReadEventuallyCompletes` | Violated |
 | DS15 | Remove weak fairness from deadline-state progress | `EofEventuallyCompletesDeadline` | Violated |
-| DS16 | Reclassify a pre-deadline transport failure as read cancellation | `TransportFailureIsNotReclassified` | Violated |
+| DS16 | Route a transport failure to read cancellation while no outer deadline has elapsed at classification | `TransportFailureIsNotReclassified` | Violated |
 
 The shipped model produced no material counterexample. The mutation
 counterexamples establish that its behavioral claims are sensitive to the
