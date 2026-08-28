@@ -205,7 +205,8 @@ public sealed record CSharpIdentityResolutionFailure(
     int SubjectToken,
     MetadataTypeNameFailureMechanism Mechanism,
     string Kind,
-    string Detail);
+    string Detail,
+    string? StableAssemblyKey = null);
 
 internal sealed record CSharpSemanticOperation(
     CSharpDiffOperationKind Kind,
@@ -651,7 +652,13 @@ public static partial class CSharpBodyDiff
             }
             catch (MetadataIdentityResolutionException ex)
             {
-                AddIdentityFailure(failures, side, path, typeHandle, ex.Failure);
+                AddIdentityFailure(
+                    failures,
+                    side,
+                    path,
+                    stableAssemblyKey,
+                    typeHandle,
+                    ex.Failure);
                 continue;
             }
 
@@ -665,7 +672,13 @@ public static partial class CSharpBodyDiff
             }
             catch (MetadataIdentityResolutionException ex)
             {
-                AddIdentityFailure(failures, side, path, typeHandle, ex.Failure);
+                AddIdentityFailure(
+                    failures,
+                    side,
+                    path,
+                    stableAssemblyKey,
+                    typeHandle,
+                    ex.Failure);
                 continue;
             }
 
@@ -725,6 +738,7 @@ public static partial class CSharpBodyDiff
                 failures,
                 side,
                 source.Path,
+                stableAssemblyKey,
                 methodHandle,
                 ex.Failure);
             return null;
@@ -741,6 +755,7 @@ public static partial class CSharpBodyDiff
                 failures,
                 side,
                 source.Path,
+                stableAssemblyKey,
                 methodHandle,
                 ex.Failure);
             return entry;
@@ -2455,6 +2470,7 @@ public static partial class CSharpBodyDiff
         ImmutableArray<CSharpIdentityResolutionFailure>.Builder failures,
         string side,
         string path,
+        string stableAssemblyKey,
         EntityHandle subject,
         MetadataTypeNameFailure failure)
         => failures.Add(new CSharpIdentityResolutionFailure(
@@ -2463,7 +2479,8 @@ public static partial class CSharpBodyDiff
             failure.SubjectToken ?? MetadataTokens.GetToken(subject),
             failure.Mechanism,
             failure.Kind,
-            failure.Detail));
+            failure.Detail,
+            stableAssemblyKey));
 
     internal sealed record CSharpMethodIndex(
         Dictionary<string, CSharpMethodEntry> Methods,

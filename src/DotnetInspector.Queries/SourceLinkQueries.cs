@@ -146,6 +146,14 @@ public static class SourceLinkDocumentsQuery
                 sourceOptions: context.SourceOptions,
                 cancellationToken: cancellationToken).ConfigureAwait(false);
 
+            if (context.Source.Context.NeedsPdb
+                && !context.Source.Context.WindowsPdbDetected)
+            {
+                return FailedDocuments(
+                    context.Subject,
+                    "A matching portable PDB remains unresolved after acquisition.");
+            }
+
             if (!context.Source.HasPdb)
             {
                 string detail = context.Source.Context.WindowsPdbDetected

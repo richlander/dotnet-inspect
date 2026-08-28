@@ -144,8 +144,7 @@ public static partial class MetadataFindings
             return SurfaceUnavailable<ApiAttributeHandle>(subject, AttributeDescriptor);
 
         var type = FindType(surface, typeFullName);
-        if (type is null
-            && FindTypeIdentityFailure(surface, typeFullName) is { } failure)
+        if (FindTypeIdentityFailure(surface, typeFullName) is { } failure)
         {
             return SurfaceIncomplete<ApiAttributeHandle>(
                 subject,

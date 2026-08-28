@@ -1,12 +1,15 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Net;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Core;
 
 using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using ILInspector.SourceLink;
 
 namespace DotnetInspector.Services.Tests;
 
@@ -23,6 +26,47 @@ public class PdbSourceAcquisitionTests
             }
         }
         """;
+
+    [Fact]
+    public async Task UnresolvedPortablePdbFailsMemberAndTypeInspections()
+    {
+        using SourceLinkService source = OpenSourceNeedingPdb();
+        using var client = new HttpClient(new QueueHandler());
+        var fetcher = new SourceFetcher(
+            client,
+            new InMemorySourceContentStore());
+        var type = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                "DotnetInspector.Services.Tests",
+                [nameof(PdbSourceAcquisitionTests)]));
+
+        PdbMemberSourceInspection member =
+            await PdbSourceAcquisition.AcquireMemberAsync(
+                source,
+                0x06000001,
+                "M",
+                Subject,
+                fetcher,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        PdbTypeSourceInspection typeInspection =
+            await PdbSourceAcquisition.AcquireTypeAsync(
+                source,
+                type.Name,
+                Subject,
+                fetcher,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Contains(
+            "remains unresolved",
+            Assert.IsType<FindingInspection<string>.Failed>(
+                member.Lines.Value).Error.Reason);
+        Assert.Contains(
+            "remains unresolved",
+            Assert.IsType<FindingInspection<string>.Failed>(
+                typeInspection.Lines.Value).Error.Reason);
+    }
 
     [Fact]
     public void FromContent_VerifiedSourceProducesCompleteLineCensus()
@@ -504,6 +548,33 @@ public class PdbSourceAcquisitionTests
             ResolvedUrl: "https://example.test/Sample.cs",
             ChecksumAlgorithm: "SHA256",
             Checksum: Convert.ToHexString(SHA256.HashData(content)));
+
+    static SourceLinkService OpenSourceNeedingPdb()
+    {
+        byte[] assemblyBytes = File.ReadAllBytes(
+            typeof(PdbSourceAcquisitionTests).Assembly.Location);
+        AssemblyReferenceIdentity identity;
+        using (var stream = new MemoryStream(
+                   assemblyBytes,
+                   writable: false))
+        using (var reader = new PEReader(stream))
+        {
+            identity = AssemblyReferenceIdentity.FromAssemblyDefinition(
+                reader.GetMetadataReader());
+        }
+
+        var assembly = ResolvedAssemblyReference.Create(
+            identity,
+            path: null,
+            () => new MemoryStream(
+                assemblyBytes,
+                writable: false),
+            AssemblyResolutionProvenance.Local(
+                "unresolved portable PDB test"));
+        SourceLinkService source = SourceLinkService.Open(assembly);
+        Assert.True(source.Context.NeedsPdb);
+        return source;
+    }
 
     sealed class QueueHandler(params byte[][] responses) : HttpMessageHandler
     {

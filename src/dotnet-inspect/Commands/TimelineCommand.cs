@@ -640,6 +640,15 @@ public static class TimelineCommand
             assemblyPath,
             descriptor,
             token);
+        if (session.BodyIndex.Diagnostics.FirstOrDefault() is { } analysisDiagnostic)
+        {
+            return new FindingInspection<T>.Failed(
+                new InspectionError(
+                    subject,
+                    descriptor,
+                    $"Method-body analysis failed for member '{memberName}': "
+                    + analysisDiagnostic.Message));
+        }
         return inspect(session.BodyIndex, token, subject);
     }
 

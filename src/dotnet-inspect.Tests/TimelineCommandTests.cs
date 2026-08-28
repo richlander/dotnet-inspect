@@ -1,4 +1,8 @@
 using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
@@ -575,6 +579,56 @@ public sealed class TimelineCommandTests
     }
 
     [Fact]
+    public void AnalysisTimeline_PartialSelectedBodyFailsWithoutPublishingPartialCensus()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"timeline-malformed-body-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(path, BuildMalformedBodyImage());
+
+            const int MethodToken = 0x06000001;
+            LibraryBodyIndex index = LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyScope: ImmutableHashSet.Create(MethodToken));
+            Assert.Single(index.Diagnostics);
+            Assert.Single(index.DirectCalls);
+            var subject = new FindingSubject(
+                "Sample.Broken::Run",
+                "Sample.Broken.Run");
+            var inspection =
+                TimelineCommand.InspectAnalysisAssemblies<DirectCall>(
+                [(path, AssemblyReader.ExtractApiSurface(path, includeAll: false))],
+                "Sample.Broken",
+                "Run",
+                AnalysisFindings.CallSiteDescriptor,
+                subject,
+                static (bodyIndex, token, findingSubject) =>
+                {
+                    bodyIndex.GetDirectCallsByEvidenceMethod()
+                        .TryGetValue(token, out var calls);
+                    return new FindingInspection<DirectCall>.Complete(
+                        AnalysisFindings.InspectCallSites(
+                            calls.IsDefault ? [] : calls,
+                            findingSubject));
+                });
+
+            var failed =
+                Assert.IsType<FindingInspection<DirectCall>.Failed>(
+                    inspection.Value);
+            Assert.Contains(
+                "Method-body analysis failed",
+                failed.Error.Reason);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void AttributeTimeline_ReportsExactAppliedOccurrenceTransitions()
     {
         var vector = Vector("1.0.0", "1.0.1");
@@ -787,6 +841,101 @@ public sealed class TimelineCommandTests
             TimelineCommand.EvaluationsSection,
             TimelineCommand.TransitionsSection,
         };
+
+    static byte[] BuildMalformedBodyImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("TimelineMalformedBody.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("TimelineMalformedBody"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Sample"),
+            metadata.GetOrAddString("Broken"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                parameterCount: 1,
+                returnType => returnType.Void(),
+                parameters =>
+                    parameters.AddParameter()
+                        .Type()
+                        .Pointer()
+                        .Int32());
+        var helperSignature = new BlobBuilder();
+        new BlobEncoder(helperSignature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                parameterCount: 0,
+                returnType => returnType.Void(),
+                _ => { });
+        var malformedIl = new BlobBuilder();
+        malformedIl.WriteByte((byte)ILOpCode.Call);
+        malformedIl.WriteInt32(0x06000002);
+        malformedIl.WriteByte(0xFE);
+        malformedIl.WriteByte(0x06);
+        malformedIl.WriteInt32(0x0AFFFFFF);
+        malformedIl.WriteByte((byte)ILOpCode.Pop);
+        malformedIl.WriteByte((byte)ILOpCode.Ret);
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        int bodyOffset = bodyEncoder.AddMethodBody(
+                new InstructionEncoder(malformedIl),
+                maxStack: 1);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Run"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+        var helperIl = new BlobBuilder();
+        var helperInstructions = new InstructionEncoder(helperIl);
+        helperInstructions.OpCode(ILOpCode.Ret);
+        int helperBodyOffset = bodyEncoder.AddMethodBody(
+            helperInstructions,
+            maxStack: 0);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Helper"),
+            metadata.GetOrAddBlob(helperSignature),
+            helperBodyOffset,
+            MetadataTokens.ParameterHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
 
     static ApiSurface Surface(params ApiType[] types)
         => new() { Types = [.. types] };

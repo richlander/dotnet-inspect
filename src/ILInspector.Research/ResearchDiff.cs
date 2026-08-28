@@ -1049,18 +1049,20 @@ public static class ResearchDiff
                 else
                 {
                     var oldInspection = oldMethod is null
-                        ? new FindingInspection<CanonicalIlOperation>.Absent(
-                            FindingInspectionAbsenceKind.SubjectAbsent,
-                            "Member is absent.")
+                        ? MissingIlInspection(
+                            pair.Old,
+                            findingSubject,
+                            "old")
                         : IlFindings.Inspect(
                             oldBodies!.PeReader,
                             oldBodies.MetadataReader,
                             MethodHandle(oldMethod.MetadataToken),
                             findingSubject);
                     var newInspection = newMethod is null
-                        ? new FindingInspection<CanonicalIlOperation>.Absent(
-                            FindingInspectionAbsenceKind.SubjectAbsent,
-                            "Member is absent.")
+                        ? MissingIlInspection(
+                            pair.New,
+                            findingSubject,
+                            "new")
                         : IlFindings.Inspect(
                             newBodies!.PeReader,
                             newBodies.MetadataReader,
@@ -1091,6 +1093,43 @@ public static class ResearchDiff
         }
 
         return retained;
+    }
+
+    static FindingInspection<CanonicalIlOperation> MissingIlInspection(
+        BodyIndexEntry? entry,
+        FindingSubject subject,
+        string side)
+    {
+        if (entry is null)
+        {
+            return new FindingInspection<CanonicalIlOperation>.Absent(
+                FindingInspectionAbsenceKind.SubjectAbsent,
+                "Member is absent.");
+        }
+
+        var declaredTokens = entry.Index.DeclaredMethods
+            .Select(static method => method.MetadataToken)
+            .ToHashSet();
+        var failures = entry.Index.Diagnostics
+            .Where(diagnostic => !declaredTokens.Contains(
+                diagnostic.MethodToken))
+            .ToArray();
+        if (failures.Length == 0)
+        {
+            return new FindingInspection<CanonicalIlOperation>.Absent(
+                FindingInspectionAbsenceKind.SubjectAbsent,
+                "Member is absent.");
+        }
+
+        return new FindingInspection<CanonicalIlOperation>.Failed(
+            new InspectionError(
+                subject,
+                IlFindings.OperationDescriptor,
+                $"IL member indexing failed for the {side} endpoint: "
+                + string.Join(
+                    "; ",
+                    failures.Select(static failure =>
+                        $"{failure.Method}: {failure.Message}"))));
     }
 
     static Dictionary<string, IlRetentionMethod> IlRetentionMethodLookup(

@@ -96,6 +96,14 @@ public static class PdbSourceAcquisition
         ArgumentNullException.ThrowIfNull(subject);
         ArgumentNullException.ThrowIfNull(fetcher);
 
+        if (source.Context.NeedsPdb
+            && !source.Context.WindowsPdbDetected)
+        {
+            return TypeFailed(
+                subject,
+                "A matching portable PDB remains unresolved after acquisition.");
+        }
+
         SourceLinkResolver.TypeSourceInfo? mapping;
         try
         {
@@ -241,6 +249,14 @@ public static class PdbSourceAcquisition
         ArgumentException.ThrowIfNullOrWhiteSpace(methodName);
         ArgumentNullException.ThrowIfNull(subject);
         ArgumentNullException.ThrowIfNull(fetcher);
+
+        if (source.Context.NeedsPdb
+            && !source.Context.WindowsPdbDetected)
+        {
+            return Failed(
+                subject,
+                "A matching portable PDB remains unresolved after acquisition.");
+        }
 
         var memberInspection = SourceLinkFindings.InspectMemberSources(
             source,

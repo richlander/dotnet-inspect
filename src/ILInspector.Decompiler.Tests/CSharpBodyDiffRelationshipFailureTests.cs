@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using ILInspector.Decompiler;
+using ILInspector.Findings;
 using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
@@ -103,7 +104,45 @@ public class CSharpBodyDiffRelationshipFailureTests
         }
     }
 
-    static byte[] BuildImage(int value)
+    [Fact]
+    public void CompareAssemblies_AsymmetricIdentityFailureDoesNotBecomeAddedFinding()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-csharp-asymmetric-relationship-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string oldPath = Path.Combine(directory, "old.dll");
+        string newPath = Path.Combine(directory, "new.dll");
+
+        try
+        {
+            File.WriteAllBytes(oldPath, BuildImage(1, cyclicRejectedType: true));
+            File.WriteAllBytes(newPath, BuildImage(1, cyclicRejectedType: false));
+
+            CSharpAssemblyFindingComparisonResult findings =
+                CSharpFindings.CompareAssemblies(
+                    [oldPath],
+                    [newPath],
+                    includeNonPublic: true);
+
+            Assert.Single(findings.IdentityFailures);
+            CSharpMemberFindingComparison rejected = Assert.Single(
+                findings.Comparisons,
+                comparison => comparison.Member.Contains(
+                    "RejectedMethod",
+                    StringComparison.Ordinal));
+            Assert.IsType<FindingComparison<CSharpCanonicalLine>.Failed>(
+                rejected.Comparison.Value);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    static byte[] BuildImage(
+        int value,
+        bool cyclicRejectedType = true)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -127,13 +166,16 @@ public class CSharpBodyDiffRelationshipFailureTests
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));
         var rejected = metadata.AddTypeDefinition(
-            TypeAttributes.NestedPublic,
+            cyclicRejectedType
+                ? TypeAttributes.NestedPublic
+                : TypeAttributes.Public,
             default,
             metadata.GetOrAddString("Rejected"),
             baseType: default,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));
-        metadata.AddNestedType(rejected, rejected);
+        if (cyclicRejectedType)
+            metadata.AddNestedType(rejected, rejected);
         metadata.AddTypeDefinition(
             TypeAttributes.Public,
             default,
