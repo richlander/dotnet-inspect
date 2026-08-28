@@ -23,7 +23,7 @@ the behavior assigned to a focused owner below.
 
 | Responsibility | Architectural owner | Focused design |
 | --- | --- | --- |
-| Ordered Head, Tail, Range, and Top stages over complete sequences | Shared `DotnetInspector.RowSelection` leaf component | [Semantic row selection](semantic-row-selection.md) |
+| Ordered Head, Tail, Window, and Top stages over complete sequences | Shared `DotnetInspector.RowSelection` leaf component | [Semantic row selection](semantic-row-selection.md) |
 | Row predicates, schema-defined ordering, and ranking metadata | L2 `DotnetInspector.Sections` | [Row query and ordering](row-query-order.md) |
 | Declared-row-set binding, atomic preflight, and common format handoff | L2 `DotnetInspector.Sections` | Pending focused integration design |
 | CLI aliases, argv-order lowering, conflicts, and diagnostics | L3 `dotnet-inspect` | Pending focused design |
@@ -55,6 +55,11 @@ CLI tokens
 -> format-specific presentation and optional line selection
 ```
 
+This is also the string-to-structure boundary. Raw CLI spellings exist only
+before L3/L2 lowering. The semantic executor receives the typed plan, row-set
+keys, and resolved ordering identity; it does not recover meaning from option
+strings, field names, or rendered text.
+
 Every format receives the same selected typed rows. A renderer may add headings,
 table headers, graph context, framing, or other non-row presentation, but it
 does not choose which logical rows survive.
@@ -82,6 +87,8 @@ table-row selection.
 5. Define payload printing and rendered-line behavior.
 6. Implement the focused contracts together where an intermediate
    implementation would expose incoherent user behavior.
+7. As the final implementation step, update shipped skills, help, examples,
+   completion, and compatibility tests to teach the settled model.
 
 The focused documents may land separately as design work. Implementation must
 not ship a partial grammar whose meaning depends on a later slice.

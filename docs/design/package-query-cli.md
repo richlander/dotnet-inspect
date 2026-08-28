@@ -174,7 +174,7 @@ rendered-line `-n`, count-form `--rows`, ranked `--top`, and command-owned
 superseded umbrella design proposed:
 
 - `-n`/bare `-N` is the universal first/last item count;
-- `--rows` carries only absolute row ranges;
+- `--rows` carries only absolute row windows;
 - explicit `--lines` owns rendered-line limits;
 - command-specific result counts and short `-t`/`-m` selectors retire; and
 - `--top N --order-by <field>` remains the ranked form.

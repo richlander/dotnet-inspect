@@ -21,7 +21,7 @@ dotnet-inspect vocabulary -S @Decompiler --count
 - `-D` discovers sections, categories, and fields.
 - `-S` selects the values to materialize.
 - `--columns` and `--fields` project values. Released `--rows` accepts a count
-  or an absolute range. The pending L3 design in
+  or an absolute row window. The pending L3 design in
   [Item and line selection composition](item-and-line-limits.md) will define
   its replacement grammar. `--count` collapses each row set to its cardinality.
 - Markdown, plain text, table, TSV, JSONL, and JSON use the same section and row identities.

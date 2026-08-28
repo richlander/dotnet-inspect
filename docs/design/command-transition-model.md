@@ -234,7 +234,7 @@ output-shape rules apply:
 | `--urls` | Project URL-bearing rows to a URL Vector. | None. Valid only if the version-row schema exposes a URL. |
 | Future Head gesture (spelling pending) | Apply a lenient Head stage to the current version sequence. | The source-pushdown design must prove the same prefix as the shared reference executor. |
 | Future Tail gesture (spelling pending) | Apply a lenient Tail stage to the current version sequence. | The source-pushdown design must prove the same suffix as the shared reference executor. |
-| Future range gesture (spelling pending) | Apply a strict Range stage to the current version sequence. | The source-pushdown design must prove the same result or strict failure as the shared reference executor. |
+| Future window gesture (spelling pending) | Apply a strict Window stage to the current version sequence. | The source-pushdown design must prove the same result or strict failure as the shared reference executor. |
 | `--print` | Reject: the version row set declares no printable capability. | None. Reject during preflight without evaluating or acquiring a package payload. |
 | Future line gesture (spelling pending) | Select rendered report lines without changing version rows. | None. The pending payload/line design owns exact behavior. |
 
