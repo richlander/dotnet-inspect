@@ -88,6 +88,33 @@ public class CommandLineLimitSlice4677Tests
             ["library", "Foo.dll", "--version", "-5"],
             CommandLineBuilder.PreprocessArgs(["Foo.dll", "--version", "-5"]));
 
+        // Round 14 (Gemini Pro): two more deterministic implicit-router shapes reach `package`
+        // without matching the R13 heuristic above. A redundant, self-referential
+        // "--package <same target>" (RewriteAsync's IsExplicitSourceIdentity check) routes to
+        // `package` even though --package is present, so the R13 "no more-specific selector"
+        // guard must not block it.
+        Assert.Equal(
+            ["router", "System.Text.Json", "--package", "System.Text.Json", "--version", "-n", "2"],
+            CommandLineBuilder.PreprocessArgs(
+                ["System.Text.Json", "--package", "System.Text.Json", "--version", "-2"]));
+
+        // ...and an implicit `.nupkg` target routes straight to `package` (only `.dll` routes
+        // to `library`), so it must not be excluded by the same file-path guard that correctly
+        // excludes `.dll` targets.
+        Assert.Equal(
+            ["package", "Foo.nupkg", "--library", "-n", "2"],
+            CommandLineBuilder.PreprocessArgs(["Foo.nupkg", "--library", "-2"]));
+
+        // Round 14 (Sol): the implicit target need not be the very first token -- a leading
+        // global option (e.g. --tips) can precede it, and the router still resolves the same
+        // way once the option's own value is skipped. The R13 heuristic wrongly required the
+        // resolved command token to sit at index 0; it must key off the resolved token itself
+        // (as platformIsValueless/isPackageCommand's explicit-command check already do), not
+        // its position.
+        Assert.Equal(
+            ["router", "System.Text.Json", "--tips", "q", "--version", "-n", "2"],
+            CommandLineBuilder.PreprocessArgs(["--tips", "q", "System.Text.Json", "--version", "-2"]));
+
         // ...and an implicit form combined with a more specific source selector (--package,
         // --platform, --project, or a type/member selector) is conservatively left alone (the
         // -5 stays unexpanded) too, since the full router decision for those shapes is not

@@ -178,11 +178,24 @@ public static class ArgumentPreprocessor
         // specific selector keeps the conservative (required-value) classification, since
         // the full router decision (generic notation, library-file resolution, etc.) is not
         // safely predictable from this synchronous preprocessing step.
+        //
+        // Two exceptions to "conservative" that are still fully deterministic from the raw
+        // tokens: an `.nupkg` target routes straight to `package` (only `.dll` routes to
+        // `library`), and a redundant, self-referential `--package <same target>` also routes
+        // to `package` (RewriteAsync's `IsExplicitSourceIdentity` check). The target token
+        // need not sit at index 0 -- a leading global option (e.g. `--tips`) can precede it --
+        // so this keys off the resolved `commandToken` itself, matching how
+        // `platformIsValueless`/the explicit-`package`-command check above already work.
+        bool isDllTarget = commandToken != null
+            && CommandLineHelpers.TryClassifyAsFilePath(commandToken, out var routedDllPath, out _)
+            && routedDllPath != null;
+        bool hasSelfReferentialPackageOption = commandToken != null
+            && HasOptionValueEqualTo(args, "--package", commandToken);
         if (!isPackageCommand && commandToken != null
-            && commandTokenIndex == 0
             && !KnownCommands.Contains(commandToken)
-            && !CommandLineHelpers.TryClassifyAsFilePath(commandToken, out _, out _)
-            && !ContainsAnyOption(args, "--package", "--platform", "--project", "-t", "--type", "-m", "--member")
+            && !isDllTarget
+            && (hasSelfReferentialPackageOption
+                || !ContainsAnyOption(args, "--package", "--platform", "--project", "-t", "--type", "-m", "--member"))
             && ContainsAnyOption(args, "--library", "--version", "--versions", "--versions-with-feed", "--latest-version"))
         {
             isPackageCommand = true;
@@ -315,6 +328,33 @@ public static class ArgumentPreprocessor
             {
                 if (string.Equals(optionName, candidate, StringComparison.OrdinalIgnoreCase))
                     return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Mirrors <c>RouterCommandDefinition.IsExplicitSourceIdentity</c>: true when <paramref
+    /// name="optionName"/> appears with a value equal to <paramref name="value"/> (the
+    /// redundant, self-referential "--package X" spelling of a bare target "X").
+    /// </summary>
+    private static bool HasOptionValueEqualTo(string[] args, string optionName, string value)
+    {
+        for (int i = 0; i < args.Length - 1; i++)
+        {
+            if (string.Equals(args[i], optionName, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(args[i + 1], value, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            var inline = args[i].Split('=', 2);
+            if (inline.Length == 2
+                && string.Equals(inline[0], optionName, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(inline[1], value, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
             }
         }
 
