@@ -494,3 +494,8 @@ $RECYCLE.BIN/
 
 # Vendored ILAssembler worktree (restore with eng/restore-ilassembler.sh)
 external/
+
+# TLC model-checker runtime output (not source; regenerate by running TLC)
+**/models/**/states/
+*_TTrace_*.tla
+*_TTrace_*.bin

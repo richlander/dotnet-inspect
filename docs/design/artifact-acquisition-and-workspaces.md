@@ -14,7 +14,9 @@ are identified explicitly under [Current mismatches](#current-mismatches).
 See [inspection-space.md](../inspection-space.md) for workspace and query
 planning, [inspection-layers.md](inspection-layers.md) for consumer layers, and
 [assembly-inspection-query.md](assembly-inspection-query.md) for the
-`ResolvedAssemblyReference` and `AssemblyInspectionSession` seam.
+`ResolvedAssemblyReference` and `AssemblyInspectionSession` seam, and
+[assembly-image-lifetime.md](assembly-image-lifetime.md) for the focused
+single-image and MVID correctness contract.
 [workspace-definitions.md](workspace-definitions.md) owns static context
 coordinates, while
 [inspection-graph-document.md](inspection-graph-document.md) owns graph
@@ -107,7 +109,7 @@ package dependency closure.
 | Workspace | Logical inspection composition | artifact sessions, contexts, roles, query plans, aggregate admission budgets | feed or archive mechanics |
 | Assembly context group | One binding-consistent universe | participants, binding policy, retained assembly snapshots | package acquisition |
 | Resolved assembly reference | Neutral handle for one selected managed assembly | assembly identity and guarded repeatable content access | package coordinate parsing or storage implementation |
-| Assembly inspection session | One opened PE inspection lifetime | reader/image lifetime and session-scoped operations | artifact acquisition |
+| Assembly inspection session | One opened PE inspection lifetime | [reader/image lifetime and session-scoped operations](assembly-image-lifetime.md) | artifact acquisition |
 | Inspection producer | Computes one family of facts | metadata, IL, source, or comparison evidence | source discovery |
 
 An artifact is broader than an assembly. An artifact set may contain assemblies,
@@ -295,6 +297,36 @@ reports quiescence. Synchronous disposal may initiate this deferred release; it
 must not invalidate content under an active callback. Cleanup failures compose
 with, and never replace, the active operation failure.
 
+### Interaction model
+
+[`docs/models/artifact-session-admission/ArtifactSessionAdmission.tla`](../models/artifact-session-admission/ArtifactSessionAdmission.tla)
+model-checks the admission lifecycle described above: single-flight admission
+across concurrent demands, an incompatible-generation demand's inability to
+join or start duplicate work while a prior admission is active, voluntary
+cancellation draining, disposal-forced draining, the rule that a late adapter
+result must never publish a session or group, and that a published group's
+artifact leases release only as part of the disposal cleanup path once the
+group is quiescent. It abstracts away budget arithmetic, adapter identity,
+content digests, and query-lease authorization, and it bounds the state space
+to one outstanding published group's lease lifecycle at a time (a fresh
+admission cannot publish while the previous group awaits lease release); this
+is a scope-bounding simplification of the model, not a claim about real
+concurrent groups. A demand's requested generation is also fixed once it
+arrives; the model does not represent a caller re-deriving a different
+generation when it replans after an incompatible admission terminates.
+
+TLC 2026.08.21.155922 (rev `9787e65`, from the pinned `tla2tools.jar` v1.8.0 —
+see [`docs/runbooks/tla-plus-setup.md`](../runbooks/tla-plus-setup.md))
+checked the model with 3 demands and 2 admission generations: 16,790 states
+generated, 8,292 distinct states, no invariant violations, and no
+counterexamples for the checked liveness properties. The invariants include
+the headline `DisposalPreventsPublication` (`disposed => admission #
+"InFlight"`, since only `"InFlight"` can transition to a published outcome)
+and independent guard-witness invariants that re-derive, at the point of
+action, the exact condition each of `DisposalPreventsPublication`, the
+lease-release ordering, and outcome authorization (only a demand attached to
+the admission immediately beforehand may receive its outcome) depends on.
+
 Retaining content does not retain authority. The artifact owner issues two
 different source-neutral access leases:
 
@@ -327,6 +359,13 @@ opening that path grants no designation or core-library trust; those remain
 separate workspace admission roles. This is a target change from the current
 parameterless
 `ResolvedAssemblyReference.OpenRead` and public readable `Path`.
+
+`ArtifactContentReference` is the query-time input to a downstream content
+consumer. The artifact owner issues it for one identity in a sealed generation
+and binds that artifact's descriptor and acquisition registration. Role
+and registration observations and retained-content opens revalidate the query
+lease supplied when the reference was issued. The type makes no claim that the
+content is a managed assembly; Metadata owns that decode and identity.
 
 It does not:
 
@@ -454,6 +493,21 @@ acquisition registration. Package-aware graph and dependency queries move to an
 optional companion and consume that proof. The shared graph document may retain
 its serialized `package` subject kind as a full-host contract; core assembly
 queries do not construct package subjects or parse package provenance.
+
+`DotnetInspector.PackageQueries` is that optional package-aware query companion.
+Its `PackageWorkspaceIntegrationsQuery` consumes the current package-role
+realization proof and the package-neutral `AssemblyContextIntegrationsQuery`.
+It scans implementation assets in their product role order, then scans only
+surface assets without an implementation correspondence. Results retain
+immutable package and asset identity beside each typed participant outcome
+without exposing package content or merging the role groups.
+`PackageAssemblyContextRealizationTests.PackageWorkspaceIntegrationsQuery_UsesImplementationRoleAndReferenceFallback`
+gates role selection, package/asset provenance, ordering, and reference-only
+fallback.
+`PackageAssemblyContextRealizationTests.PackageWorkspaceIntegrationsQuery_SharedRoleDoesNotDuplicateLibraries`
+gates the shared-role case. Moving the existing package realization itself out
+of core Queries remains part of the broader workspace-realization migration,
+not this query-adapter slice.
 
 ### Project adapter
 
@@ -843,6 +897,7 @@ The target is complete only when tests equivalent to these exist:
 - `DefinitionLoadAndScenarioResolution_PerformNoAcquisition`
 - `ArtifactDescriptor_ExposesNoUnguardedContentRoute`
 - `ArtifactOpen_RejectsContentSubstitutionAfterAdmission`
+- `ArtifactContentReference_BindsIdentityRegistrationRoleAndContent`
 - `LocalArtifactSnapshot_MutationCannotChangeInspectionBytes`
 - `ArtifactAcquisition_CancellationRemainsCancellation`
 - `RequiredMember_EmptyOrNonProjectableAcquisitionFailsContext`
@@ -889,13 +944,15 @@ immutability, bounded owner-private materialization, read-only retained streams,
 visible required-acquisition and cleanup failures, acquisition-lease disposal,
 owner-held state release, late-outcome lease disposal, seal exclusion during
 acquisition and disposal, shared termination completion, query revocation,
-non-masking disposal, and role assignment separate from provenance.
+non-masking disposal, role assignment separate from provenance, and
+owner-bound content references that cannot mix descriptor, registration, role,
+or bytes across artifacts or generations.
 `LocalArtifactSourceTests` enforce pre-registration local snapshots, typed
 missing/limit diagnostics, mutation and deletion resistance, and cancellation
 remaining cancellation. `LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`
-deletes its temporary source after publication, then passes the guarded
-published snapshot to Metadata, so a source-path fallback cannot satisfy the
-gate.
+deletes its temporary source after publication, then passes an
+`ArtifactContentReference`'s guarded published snapshot opener to Metadata, so
+a source-path fallback cannot satisfy the gate.
 
 Workspace-wide admission budgets, single-flight/reentrancy, directory
 acquisition, content digests, dependent-group quiescence, and Metadata
