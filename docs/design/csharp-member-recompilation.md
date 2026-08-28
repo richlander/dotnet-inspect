@@ -905,6 +905,40 @@ become authoritative. `Provisional` describes in-flight planning state only; it
 is not a closed result arm and never appears in persisted output. Only the
 converged attempt can contribute durable receipts or fidelity outcomes.
 
+#### Admission interaction model
+
+[`CompileBackAdmission.tla`](../models/CompileBackAdmission.tla), checked with
+[`CompileBackAdmission.cfg`](../models/CompileBackAdmission.cfg), models the
+tools-owned planning, product-attempt, legacy-attempt, supersession, receipt,
+and verdict interaction. It deliberately abstracts reference/closure internals
+as nondeterministic transition choices; their typed meanings remain in this
+document.
+
+The model assumes one sequential planner, a finite product iteration budget,
+one product policy and one independently attempted legacy policy, and no process
+crash between a transition and its durable result. The checked configuration
+uses `MaxIterations = 2`; increasing the bound adds equivalent expansion states
+without changing the transition shape.
+
+TLC checks:
+
+- every fair execution terminates;
+- `Exact` has the current product-attempt receipt or an independently admitted
+  legacy receipt;
+- product `Failed` never transitions through legacy evidence;
+- a supplied-body comparison never reports `Exact`;
+- supersession clears the earlier product receipt; and
+- receipts exist only for the matching admitted policy.
+
+The model result is evidence about this interaction contract, not the
+implementation. The named Release gates below remain the implementation proof.
+
+TLC 2.19 checked the configuration with no errors: 64 states generated, 38
+distinct states, and a maximum depth of 8. The first model pass exposed that the
+terminal `Done` state needed an explicit stutter action for TLC's deadlock check;
+adding that action made the intended terminal behavior explicit. No safety or
+liveness counterexample was found.
+
 ### Rebuilt binding receipt
 
 Compilation success proves that Roslyn found a compilable binding, not that it
