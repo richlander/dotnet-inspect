@@ -28,9 +28,13 @@ public class DiffCommand
     public static async Task<int> ExecuteAsync(DiffOptions options)
     {
         DiffSectionCatalog catalog = DiffSections.CreateCatalog();
+        SectionCatalog<DiffDiscoveryModel> sectionCatalog = catalog.Sections;
         var pipeline = catalog.Pipeline;
         var selectResult = SelectResolver.ResolveSelectAsSections(
-            options.Select, pipeline.SelectableSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap(),
+            options.Select,
+            sectionCatalog.SelectableSectionNames,
+            sectionCatalog.InfoSectionNames,
+            sectionCatalog.SelectionCategoryMap,
             selectDefault: options.SelectDefault);
         if (SelectOutput.WriteUnresolved(selectResult))
             return 1;
@@ -153,6 +157,8 @@ public class DiffCommand
             }
         }
 
+        InspectionQueryPlan<DiffQueryContext> queryPlan =
+            GetRequestedQueryPlan(catalog, options);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
 
@@ -193,10 +199,7 @@ public class DiffCommand
 
             try
             {
-                HashSet<InspectionQueryDefinition> requestedQueries =
-                    GetRequestedQueries(pipeline, options);
-                InspectionQueryResults queryResults = catalog.QueryRegistry.Run(
-                    requestedQueries,
+                InspectionQueryResults queryResults = queryPlan.Run(
                     new DiffQueryContext(
                         inputs.FromSurface,
                         inputs.ToSurface,
@@ -809,8 +812,8 @@ public class DiffCommand
     private static bool SelectsDetailedChanges(DiffOptions options)
         => options.IncludeSections?.Contains(DiffSections.Changes.Name) == true;
 
-    internal static HashSet<InspectionQueryDefinition> GetRequestedQueries(
-        SectionPipeline<DiffDiscoveryModel> pipeline,
+    internal static InspectionQueryPlan<DiffQueryContext> GetRequestedQueryPlan(
+        DiffSectionCatalog catalog,
         DiffOptions options)
     {
         bool writesDocument =
@@ -830,7 +833,8 @@ public class DiffCommand
         }
         else if (SelectsFindingTransitions(options))
         {
-            return [];
+            return catalog.QueryCatalog.Plan(
+                Array.Empty<InspectionQueryDefinition>());
         }
         else if (SelectsImplementationDiff(options)
             && !SelectsAnalysisDiff(options))
@@ -849,7 +853,18 @@ public class DiffCommand
             };
         }
 
-        return pipeline.GetRequiredQueries(Verbosity.Minimal, querySections);
+        SectionQueryPlan sectionPlan = catalog.Sections.PlanQueries(
+            Verbosity.Minimal,
+            querySections);
+        // The IEnumerable overload boxes ImmutableArray; use the direct common-plan overloads
+        // and reserve general compilation for uncommon multi-query demand.
+        return sectionPlan.Queries.Length switch
+        {
+            0 => catalog.QueryCatalog.Plan(
+                Array.Empty<InspectionQueryDefinition>()),
+            1 => catalog.QueryCatalog.Plan(sectionPlan.Queries[0]),
+            _ => catalog.QueryCatalog.Plan(sectionPlan.Queries),
+        };
     }
 
     private static async Task<bool> WriteSelectedDocumentAsync(

@@ -133,52 +133,5 @@ java -jar /path/to/tla2tools.jar -help   # aliases to tlc2.TLC
 See `USE.md` in the TLA+ repository for the full command list (`tla2sany.SANY`,
 `tlc2.TLC`, `tlc2.REPL`, `pcal.trans`, `tla2tex.TLA`).
 
-## Inventory: TLA+ usage in this repository
-
-TLA+ is used per
-[`AGENTS.md`](../../AGENTS.md#keep-specifications-readable-model-interactions)
-to check stateful/concurrent interaction designs that are hard to reason about
-in prose alone. All current models are on open, unmerged design PRs (not yet
-on `main`); links point at the PR branch.
-
-| Model(s) | PR | Description |
-| --- | --- | --- |
-| [`CompileBackAdmission.tla`](https://github.com/richlander/dotnet-inspect/blob/docs/4810-compileback-closure-provenance/docs/models/CompileBackAdmission.tla) ([`.cfg`](https://github.com/richlander/dotnet-inspect/blob/docs/4810-compileback-closure-provenance/docs/models/CompileBackAdmission.cfg)) | [#4838](https://github.com/richlander/dotnet-inspect/pull/4838) | Models the compile-back tool's planning → product-attempt → legacy-attempt → supersession → receipt/verdict transitions for [C# member recompilation](../design/csharp-member-recompilation.md). Checks termination, that `Exact` verdicts always trace to an admitted receipt, that a failed product attempt never crosses into legacy evidence, and that supersession clears the prior receipt. |
-| [`NavigationSession.tla`](https://github.com/richlander/dotnet-inspect/blob/design/inspection-subject-navigation/docs/design/models/inspection-subject-navigation/NavigationSession.tla), [`AtomicRestoration.tla`](https://github.com/richlander/dotnet-inspect/blob/design/inspection-subject-navigation/docs/design/models/inspection-subject-navigation/AtomicRestoration.tla), [`SnapshotAuthority.tla`](https://github.com/richlander/dotnet-inspect/blob/design/inspection-subject-navigation/docs/design/models/inspection-subject-navigation/SnapshotAuthority.tla) (plus matching `.cfg` files and a model [`README.md`](https://github.com/richlander/dotnet-inspect/blob/design/inspection-subject-navigation/docs/design/models/inspection-subject-navigation/README.md)) | [#4830](https://github.com/richlander/dotnet-inspect/pull/4830) | Three independent models backing [Inspection subject navigation](../design/inspection-subject-navigation.md): retained-session intent/supersession/maintenance ordering and effect authority (`NavigationSession`), one-transaction canonical subject+lens restoration (`AtomicRestoration`), and retained-versus-stateless execution and which prior state each may read (`SnapshotAuthority`). Each is scoped to one mechanism; none models identity ranking, availability semantics, UI accessibility, or implementation conformance. |
-| [`SemanticRowSelection.tla`](https://github.com/richlander/dotnet-inspect/blob/docs/4677-selection-planning/docs/models/SemanticRowSelection.tla) ([`.cfg`](https://github.com/richlander/dotnet-inspect/blob/docs/4677-selection-planning/docs/models/SemanticRowSelection.cfg)) | [#4815](https://github.com/richlander/dotnet-inspect/pull/4815) | Models one immutable row-selection plan applied to ordered named sequences for [Semantic row selection](../design/semantic-row-selection.md): sequence-major/stage-major traversal, strict `Range`, positional `Head`/`Tail`, ranked `Top`, resolver caching, callback failure, withheld publication, and atomic success. Checks type safety, atomic publication, at-most-once resolver invocation, sequence/stage failure precedence, and termination under weak fairness. |
-| [`TsJsExportLifecycle.tla`](https://github.com/richlander/dotnet-inspect/blob/design/jsexport-lifecycle-tla/docs/design/models/ts-jsexport-lifecycle/TsJsExportLifecycle.tla) (plus scenario and mutation configurations and a model [`README.md`](https://github.com/richlander/dotnet-inspect/blob/design/jsexport-lifecycle-tla/docs/design/models/ts-jsexport-lifecycle/README.md)) | [#4918](https://github.com/richlander/dotnet-inspect/pull/4918) | Models two generated `ts-jsexport` facades, two callers per facade, one shared SDK runtime, shared-in-flight and serialized coordination, local failure isolation, terminal state, and bounded realm restart. Checks four success/failure scenarios and twelve targeted counterexample mutations without claiming implementation or browser conformance. |
-
-Each PR records its own TLC run (states generated, distinct states, max
-depth) inline next to its model description. [#4815](https://github.com/richlander/dotnet-inspect/pull/4815)
-records a run against the pinned `v1.8.0` prerelease `tla2tools.jar` exactly
-(TLC `2026.08.21.155922`, rev `9787e65`); the other two PRs' recorded TLC
-versions predate that pin and were not re-verified against it as part of
-writing this runbook.
-
-### Known in-progress work, not yet checked in
-
-As of this writing, one additional model exists only as uncommitted files in a
-contributor's local worktree and is not linked above because it has no pushed
-branch or PR to point at:
-
-- `PackageCachePublication.tla` (plus `Safety`/`Liveness`/`BrokenAtomic`/
-  `BrokenEviction` configs and a README), for
-  [`cache-concurrency.md`](../design/cache-concurrency.md).
-
-Update this table once it is committed and pushed.
-
-## Check in models as you go
-
-A TLA+ model that exists only as uncommitted files in a local worktree is not
-a checked-in asset — it is not backed up, not reviewable, and invisible to
-every other contributor and agent until it is committed and pushed. The two
-models originally listed above were exactly this risk: real,
-apparently-finished work (model + configs + README) sitting only on one
-machine's disk.
-
-Commit a model to its branch and push that branch as soon as it reaches a
-checkable state (parses, and TLC runs against its `.cfg` without unexpected
-errors), the same way any other source file is checked in during ordinary
-work — do not wait for the owning design PR to be otherwise complete. Treat an
-uncommitted `.tla`/`.cfg`/model-`README.md` set sitting in a worktree as a bug
-to fix, not a stable resting state.
+See [TLA+ methodology](../tla-plus-methodology.md) for model-layout and
+check-in conventions and representative models.
