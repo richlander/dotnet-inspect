@@ -20,6 +20,8 @@ Related designs:
   effective order, ranking metadata, and schema validation.
 - [Output shapes](output-shapes.md) owns declared row units and the
   Document-to-Scalar shape ladder.
+- [Semantic row-selection interaction model](../models/SemanticRowSelection.tla)
+  checks bounded stage, failure, publication, and resolver interactions.
 
 ## Authority and scope
 
@@ -489,6 +491,49 @@ evidence into a renderer that does not own them.
 
 No Markout behavior or package release is required to implement this
 component.
+
+## Interaction model
+
+The small
+[TLA+ interaction model](../models/SemanticRowSelection.tla) supplements this
+specification. It models one immutable plan applied to ordered named sequences,
+with sequence-major and stage-major traversal, stage-local row positions,
+strict `Range`, positional `Head`/`Tail`, ranked `Top`, resolver caching,
+callback failures, withheld publication, and final atomic success.
+
+The model deliberately abstracts row identity to distinct integers and ranking
+to ascending or descending order. It assumes positive normalized coordinates,
+a deterministic total-order comparer, complete input sequences, and no source,
+CLI, rendering, or concurrency behavior. Those owners remain outside this
+component.
+
+[`SemanticRowSelection.cfg`](../models/SemanticRowSelection.cfg) checks all
+plans up to two stages over two named sequences containing up to three distinct
+values. It checks type safety, atomic publication, completion only after every
+sequence, at-most-once resolver invocation and consistent resolver metadata,
+sequence/stage failure precedence, strict-range evidence, ranked `Top` output,
+resolver coverage for every successful `Top`, and eventual termination under
+weak fairness.
+
+The model was checked with the pinned TLA+ Tools v1.8.0 prerelease
+`tla2tools.jar` (published SHA-1
+`0e4cfdb976f04522d218ec62c6046bbee5098377`), reporting TLC2
+`2026.08.21.155922` revision `9787e65`. From `docs/models`:
+
+```bash
+java -XX:+UseParallelGC \
+  -cp /path/to/tla2tools-1.8.0.jar \
+  tlc2.TLC -cleanup -deadlock -workers auto \
+  -config SemanticRowSelection.cfg SemanticRowSelection.tla
+```
+
+TLC generated and checked 1,935,634 distinct states to depth 7 with no errors
+or material counterexamples. Deadlock checking is disabled because success,
+strict failure, and callback failure are intentional terminal states; the
+model permits terminal stuttering and separately checks eventual termination.
+
+This clean bounded result is evidence about the interaction model, not proof of
+the C# implementation; the named Release gates below remain required.
 
 ## Required gates
 
