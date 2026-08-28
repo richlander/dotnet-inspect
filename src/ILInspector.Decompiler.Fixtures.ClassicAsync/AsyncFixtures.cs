@@ -25,6 +25,10 @@ public static class AsyncFixtures
     public static int? ObservedNullable;
     public static int ObservedProperty { get; set; }
     public static Observation ObservedStruct;
+    public static event Action<int> ObservedEvent = delegate { };
+
+    public static void RaiseObservedEvent(int value)
+        => ObservedEvent(value);
 
     public static async Task<int> AwaitValue(Task<int> a, int b) => await a + b;
 
@@ -101,6 +105,49 @@ public static class AsyncFixtures
 
     public static Task<int> set_GetTask(Task<int> task) => task;
 
+    public static async Task SequentialWithEventSubscription(
+        Task<int> a,
+        Task<int> b,
+        Action<int> handler)
+    {
+        int alpha = await a;
+        ObservedEvent += handler;
+        int beta = await b;
+        GC.KeepAlive((alpha, beta));
+    }
+
+    public static async Task SequentialWithParameterWrite(
+        Task<int> a,
+        Task<int> b,
+        int captured)
+    {
+        int alpha = await a;
+        captured = alpha;
+        int beta = await b;
+        GC.KeepAlive((alpha, beta, captured));
+    }
+
+    public static async Task SequentialWithHoistedLocalWrite(
+        Task<int> a,
+        Task<int> b)
+    {
+        int alpha = await a;
+        alpha = 42;
+        int beta = await b;
+        GC.KeepAlive((alpha, beta));
+    }
+
+    public static async Task SequentialWithStructParameterReset(
+        Task<int> a,
+        Task<int> b,
+        Observation captured)
+    {
+        int alpha = await a;
+        captured = default;
+        int beta = await b;
+        GC.KeepAlive((alpha, beta, captured));
+    }
+
     public static async ValueTask<int> AwaitValueTask(ValueTask<int> a) => await a;
 
     public static async Task<int> AwaitInLoop(Task<int>[] tasks)
@@ -121,6 +168,18 @@ public static class AsyncFixtures
         {
             sum += await task;
             Observed = sum;
+        }
+        return sum;
+    }
+
+    public static async Task<int> LoopWithAccumulatorWrite(
+        Task<int>[] tasks)
+    {
+        int sum = 0;
+        foreach (var task in tasks)
+        {
+            sum += await task;
+            sum *= 2;
         }
         return sum;
     }
