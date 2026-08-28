@@ -90,11 +90,36 @@ One adapter session owns one TypeScript `API`, one `Snapshot`, and one selected
 - the project has one program and checker in the snapshot;
 - configuration, program, syntactic, binding, global, and semantic diagnostics
   required for the strict product graph are empty; and
-- every product root file belongs to that selected project.
+- every path TypeScript reports in `Project.rootFiles` resolves to a source file
+  in that selected program.
 
 The failure retains normalized diagnostics and project candidates. It never
 falls back to an inferred project, a neighboring configuration, a partial file
 set, or a second TypeScript installation.
+
+This validates fidelity to TypeScript's configured roots. It does not prove that
+the `tsconfig.json` names every file the product should contain; product
+inventory is outside this owner.
+
+Opening is transactional. If input, project selection, source resolution,
+diagnostic validation, or fact initialization fails after the TypeScript API or
+snapshot is created, the adapter disposes the partial snapshot and closes the
+API before returning failure. The caller never owns resources from a failed
+open.
+
+Opening returns one of:
+
+```text
+Opened(session)
+InvalidInput(RelativePath | DirectoryPath | FileUrl | MissingPath)
+ProjectSelectionFailed(NoProject | MultipleProjects |
+                       RequestedProjectMismatch, candidates)
+DiagnosticsRejected(Configuration | Program | Syntactic |
+                    Binding | Global | Semantic, diagnostics)
+UnsupportedApi(UnsupportedVersion | UnsupportedApiValue |
+               UnsupportedResponseShape, detail)
+InfrastructureFailed(ProcessFailure | ProtocolFailure, detail)
+```
 
 ### Lifetime
 
@@ -151,6 +176,19 @@ Each fact that has source syntax carries a normalized source location:
 SourceLocation(file, start, length, line, column)
 ```
 
+`start` and `length` count UTF-16 code units in the exact source text held by
+the snapshot. `start` is TypeScript's trivia-excluding `Node.getStart()` and
+the half-open end is `Node.end`; `length` is their difference. `line` and
+`column` are zero-based and identify that canonical start. CRLF counts as two
+UTF-16 code units before line mapping, and a non-BMP scalar counts as its UTF-16
+surrogate pair.
+
+A parser that reports byte offsets must convert them against the same source
+text before requesting coordinate correlation. The adapter does not guess the
+caller's coordinate encoding. Coordinate lookup requires the canonical start,
+length, and expected repository node kind; multiple matches return
+`Ambiguous`.
+
 Locations and handles are identity, not display text. Pretty-printed type and
 signature text may accompany a fact for diagnostics, but consumers must not
 recover identity from that text.
@@ -162,21 +200,28 @@ Unknown values from a newer TypeScript version produce an explicit
 
 ### Query results
 
-Queries return one of:
+Queries return one of these closed variants:
 
 ```text
 Resolved<T>
 Absent(reason)
 Ambiguous(candidates, reason)
-Unavailable(reason, detail)
-StaleHandle
-SessionDisposed
+Unavailable(MissingApiFact | UnknownSymbol |
+            UnsupportedApiValue | UnsupportedResponseShape, detail)
+InvalidHandle(StaleSession | WrongKind)
+SessionFailure(SessionDisposed | ProcessFailure | ProtocolFailure, detail)
 ```
 
 `Absent` means the operation is defined and no fact exists, such as a symbol
 without a value declaration. `Unavailable` means TypeScript could not provide a
 fact required by that query. The adapter does not collapse either outcome into
 an empty collection, unknown symbol, error type, or successful `undefined`.
+
+TypeScript error types remain resolved `TypeFact` values with an explicit
+`Error` category. The TypeScript unknown-symbol sentinel is not an ordinary
+symbol fact; it returns `Unavailable(UnknownSymbol)`. Process and protocol
+failures poison the session and every later query returns the same
+`SessionFailure` kind.
 
 Collections preserve TypeScript order when that order is semantic, such as
 parameters and type arguments. Otherwise source-backed facts are sorted by
@@ -247,8 +292,8 @@ facts. An error type is not a valid substitute for a missing type result.
 
 ### Signatures and overloads
 
-A signature fact includes its kind, declaration handle when present, type
-parameters, `this` parameter, ordered parameters, minimum argument count,
+A signature fact includes its kind, declaration handle when present, optional
+target signature handle, type parameters, `this` parameter, ordered parameters,
 rest information, return type, and type predicate.
 
 For a call-like node, the adapter returns the exact resolved signature selected
@@ -258,7 +303,9 @@ all call or construct signatures of a queried type.
 These are different facts. A property such as `querySelector` may have one
 symbol with several declaration and signature candidates, while one call site
 selects one instantiated signature. The adapter preserves candidate and
-selected identities; it does not invent an overload selector or policy anchor.
+selected identities. An instantiated signature's optional target handle links
+it to the original generic signature exposed by TypeScript. The adapter does
+not invent an overload selector, minimum arity, or policy anchor.
 
 ### Context, modules, and constants
 
@@ -326,8 +373,9 @@ script. Its gate contains:
    selects exactly that project, enumerates its real program files, and rejects
    relative, directory, file-URL, ambiguous, and missing paths.
 2. **Snapshot lifetime:** proves same-session handles resolve, cross-session and
-   disposed handles fail, disposal is idempotent, and a new session observes a
-   new immutable snapshot.
+   disposed handles fail, disposal is idempotent, every failed-open path cleans
+   up a partial API and snapshot, and a new session observes a new immutable
+   snapshot.
 3. **Fact characterization:** maps every repository node, symbol, type,
    signature, diagnostic, and source-file category used by the facade against
    TypeScript 7.0.2. Removing a mapping or adding an unknown API value fails.
@@ -339,14 +387,18 @@ script. Its gate contains:
    cyclic shared type graph without flattening identity.
 6. **Signature and overload queries:** proves that the real DOM
    `querySelector` symbol has multiple candidates while representative calls
-   return their exact selected and instantiated signatures, including `this`,
-   rest, generic, and predicate cases.
+   return their exact selected and instantiated signatures, including target
+   signature identity, `this`, rest, generic, and predicate cases. No minimum
+   argument count is inferred.
 7. **Context, module, and constant queries:** distinguishes direct and
    contextual types, resolves static module/export identities and checker
    constants, and returns explicit absence for computed or unresolved cases.
+   Coordinate correlation covers leading trivia, CRLF, non-BMP text, byte-to-
+   UTF-16 conversion by a caller, exact matches, and ambiguous spans.
 8. **Failure results:** mutation-tests unavailable, ambiguous, unknown-symbol,
-   error-type, stale-handle, disposed-session, protocol, and process failures so
-   none become successful empty facts.
+   error-type, invalid-handle, disposed-session, protocol, and process outcomes
+   against their exact closed variants so none become successful empty facts or
+   an undifferentiated unavailable result.
 9. **Import isolation:** a named non-vacuity test fails if any tooling or test
    module other than the one adapter imports either unstable TypeScript API.
 10. **Artifact isolation:** runs the production build and proves the adapter,
