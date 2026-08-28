@@ -261,9 +261,11 @@ plan all replacements into one typed artifact and compile one donor.
 
 The reusable capability is a round-trip compile engine plus result composition
 over the product artifact pipeline. The shell producer, printer, and typed
-member-body increment already exist; #4882 adds only the missing generated-
-fragment dependency and destination evidence. ReturnToSender is one consumer,
-not the general abstraction.
+member-body increment already exist. #4881, #4882, #4930, and #4931 add the
+missing participant manifest, generated-fragment evidence, product-body
+occurrence manifest, and owner-provenanced replacement artifact described under
+[Focused owner and boundary](#focused-owner-and-boundary). ReturnToSender is one
+consumer, not the general abstraction.
 
 ## Ownership boundaries
 
@@ -275,8 +277,9 @@ not the general abstraction.
 - **Decompiler** owns `MemberBodyProducer` for selected-member C# body production
   and fidelity grade. Its existing handle-addressed `ProduceBody` API returns
   `MemberBodyProductionResult` with a typed `CSharpBlockBody` and materialized
-  projection. Issue #4882 adds generated-fragment dependency and destination
-  evidence; it does not replace that body seam.
+  projection. Issue #4930 adds the complete binding-occurrence manifest for that
+  product body without replacing the body seam; #4882 separately adds
+  generated-fragment dependency and destination evidence.
 - **ILDiff** owns `IlBodyDiff`, its normalization mechanics, and its total
   exact/different/unavailable outcome.
 - **Research** owns `ImplementationDiff`, joining product C# and IL evidence.
@@ -1510,13 +1513,16 @@ Issue #4810 adds these named gates:
     artifact, fixtures covering non-target siblings, async/unsafe modifiers,
     finalizer spelling, and a constructor initializer prove the template digest,
     typed range, preserved policy, non-target byte equality, and distinct result
-    digest. The control also binds the exact compiler/parse-policy digest and
-    frozen reference-set digest, including reference content, aliases, and
-    embed-interop roles. It has no closure, coverage, admission, or
+    digest. The comparison key binds the base request's `ArtifactIdentity`,
+    `ModuleIdentity`, canonical target set, scope, body policy, exact
+    compiler/parse-policy digest, and frozen reference-set digest, including
+    reference content, aliases, and embed-interop roles; only the authored
+    replacement payload differs. It has no closure, coverage, admission, or
     compile-context receipt. Supplying ordinary text, independently re-rendering
-    the control, changing any non-target byte or preserved policy, changing an
-    option, reference, alias, or embed-interop role, reusing the template digest,
-    or copying any receipt fails the gate.
+    the control, changing any non-target byte or preserved policy, changing the
+    artifact generation, module MVID, target set, scope, body policy, option,
+    reference, alias, or embed-interop role, reusing the template digest, or
+    copying any receipt fails the gate.
 32. `ProductBodyClosureRequiresOwnerOccurrenceManifest` uses a product-generated
     real body containing a binding-relevant source occurrence that is erased
     from original and rebuilt IL. Until #4930 lands, the missing complete
