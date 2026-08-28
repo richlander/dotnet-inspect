@@ -38,6 +38,62 @@ before transport. It does not probe the host filesystem.
 `PlatformCallGraph_ResolvesDefinitionsBehindFacadesWithoutHostProbing` gates
 this consumer boundary.
 
+Custom-attribute enum width can consume the same frozen generation through
+`TypeResolutionEnumWidth`: planned serialized names become structured
+requests, `Resolve` locates an already-retained defining image, and
+the resolved definition's authenticated kind plus
+`TypeResolutionContext.TryGetEnumUnderlyingType` establish a sealed
+core-library-derived `System.Enum` definition and read its single valid
+`value__` field without exposing a reader. Reflection-name escapes are projected
+back to exact metadata namespace and type segments, and the pre-decode guard
+applies SRM's own serialized-name projection before consulting the width table,
+so a name that only parses once its assembly suffix is removed cannot give the
+guard and the decoder different widths. Unplanned, unbound,
+malformed, or callback-ambiguous names stay `Int32`. Explicit assembly
+qualifiers stay constraints rather than widening to wildcards: an explicit
+`Culture=neutral` is spelled so it cannot match a culture-specific candidate,
+and an explicit `PublicKeyToken=null` names an unsigned assembly. Because an
+empty token reads as a wildcard during binding, the adapter records it on the
+request and then drops a resolved candidate that turned out to be signed,
+keeping the qualifier a constraint without changing the identity contract that
+`AssemblyDependencyResolver` and `MetadataSource` also consume. The qualifier
+constrains the assembly the reference bound to, so when forwarding hops were
+followed the narrowing inspects the first hop's source rather than the terminal
+definition. A definition
+that is not a CLI-valid enum -- unsealed, not directly derived from
+`System.Enum`, generic, carrying a non-public, non-special, or literal
+`value__`, or
+carrying a non-literal static field -- supplies no width.
+
+A type name's lookup depends on where the name came from. A handle-derived
+name is an exact metadata spelling that reaches the provider verbatim, and
+metadata names may contain characters a reflection type name treats as escapes,
+so it is matched by its exact spelling before its reflection-normalized one;
+normalizing first would miss a local TypeDef that the guard resolves straight
+from its handle, leaving the guard skipping one width while the decode consumed
+another. A blob-authored name is reflection syntax whose escapes are meaningful
+-- `E\+Kind` names the metadata type `E+Kind`, not one spelled with a backslash
+-- so it is normalized first and never matched verbatim. Both sides of the
+guard/decode pair classify a name the same way, so the two remain aligned
+either way. That classification belongs to a single pending lookup, not to a
+spelling: the provider records only that the name it produced most recently
+came from the blob, and clears that mark when it produces a handle-derived
+name. Remembering spellings instead would let a blob-authored occurrence
+change how a later handle-derived occurrence of the same spelling resolves,
+making a consumed width depend on argument order. The guard also resolves a repeated enum name
+once rather than once per array element, because the element count is
+attacker-chosen and per-element parsing is the amplification the guard exists to
+prevent.
+
+Product extract does
+not
+yet collect CA enum names into a generation; that remains residual on
+[#4741](https://github.com/richlander/dotnet-inspect/issues/4741).
+`TypeResolutionEnumWidthTests` gates the adapter, and
+`CustomAttributeValueGuardTests` gates guard/decoder width alignment through
+`EscapedTypeDefEnumName_GuardSkipMatchesDecodeWidth` and
+`EnumArrayElements_ResolveTheWidthOncePerName`.
+
 ## The problem
 
 Type forwarding is one metadata relationship:

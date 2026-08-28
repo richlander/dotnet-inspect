@@ -138,6 +138,51 @@ public class AllocationFanoutTests
     }
 
     [Fact]
+    public void Analyze_TreatsExcludedTargetsAsOpaque()
+    {
+        var root = Method(1, "Root");
+        var leaf = Method(2, "Leaf");
+
+        AllocationFanoutSummary rootSummary = Assert.Single(
+            AllocationFanout.Analyze(
+                [root, leaf],
+                [
+                    Call(
+                        root,
+                        leaf,
+                        4,
+                        AllocationMultiplicity.Once),
+                ],
+                new Dictionary<
+                    int,
+                    ImmutableArray<AllocationOccurrence>>
+                {
+                    [root.MetadataToken] =
+                    [
+                        Allocation(
+                            root,
+                            AllocationMultiplicity.Once),
+                    ],
+                    [leaf.MetadataToken] =
+                    [
+                        Allocation(
+                            leaf,
+                            AllocationMultiplicity.Once),
+                    ],
+                },
+                new HashSet<int>
+                {
+                    leaf.MetadataToken,
+                }),
+            summary => summary.Method.MetadataToken
+                == root.MetadataToken);
+
+        Assert.Equal(1, rootSummary.DirectSites);
+        Assert.Equal(1, rootSummary.OncePaths);
+        Assert.Equal(1, rootSummary.OpaquePaths);
+    }
+
+    [Fact]
     public void Analyze_TerminatesRecursiveComponentsWithoutInventingCounts()
     {
         var first = Method(1, "First");

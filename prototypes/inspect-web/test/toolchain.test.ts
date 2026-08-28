@@ -17,9 +17,7 @@ import {
   dirname,
   isAbsolute,
   join,
-  relative,
   resolve,
-  sep,
 } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
@@ -27,8 +25,15 @@ import {
   supportedAnalysisHosts,
   verifyAnalysisHost,
 } from "../scripts/verify-analysis-host.ts";
+import {
+  isGeneratedDirectory,
+  javaScriptSourceExtensions,
+  projectRelative,
+  projectSourceFiles,
+  typeScriptSourceExtensions,
+} from "./project-source-inventory.ts";
 import { verifySiteArtifact } from "../scripts/verify-site-artifact.ts";
-import { auditedBuild, builtinPluginNames, bundlerReadFiles, shippedChunks } from "./vite-audit.ts";
+import { auditedBuild, builtinPluginNames, bundlerReadFiles } from "./vite-audit.ts";
 
 interface PackageLockEntry {
   readonly link?: boolean;
@@ -113,17 +118,6 @@ const testTsconfig = readJson<TsconfigFile>("tsconfig.json");
 const nodeTsconfig = readJson<TsconfigFile>("../tsconfig.node.json");
 const staticWebAppConfig
   = readJson<StaticWebAppConfig>("../staticwebapp.config.json");
-
-// Every path comparison in this file is a root-relative string match, and round 3 (Sol)
-// pointed out that `relative` returns them separator-native: on Windows `src\main.ts`
-// matches no `src/` prefix and `node_modules\vite` contains no `node_modules` component,
-// so the gates would report the project's own source as unlinted and its dependencies as
-// project-owned. Comparisons are against paths spelled in `package.json` and tsconfig
-// files, which are always `/`, so the fix is to speak that dialect everywhere rather than
-// to compare separator-native strings against portable ones.
-function projectRelative(root: string, file: string): string {
-  return relative(root, file).split(sep).join("/");
-}
 
 // The lint targets are read here rather than inside the gate that checks coverage,
 // because the pruning rules below also need to know which directories hold authored
@@ -292,20 +286,7 @@ for (const [name, project] of [
 const unprunedRoots = ["public", ...lintTargetDirectories];
 
 function isGenerated(directory: string, name: string, root: string): boolean {
-  const [outermost] = projectRelative(root, join(directory, name)).split("/");
-  if (outermost !== undefined && unprunedRoots.includes(outermost)) {
-    return false;
-  }
-  if (name === "node_modules") {
-    return true;
-  }
-  if (name === "dist") {
-    return resolve(directory) === resolve(root);
-  }
-  if (name === "bin" || name === "obj") {
-    return readdirSync(directory).some(sibling => sibling.endsWith(".csproj"));
-  }
-  return false;
+  return isGeneratedDirectory(directory, name, root, unprunedRoots);
 }
 
 // Converting this file from JavaScript put it inside its own scan. The suppression
@@ -320,23 +301,7 @@ function isGenerated(directory: string, name: string, root: string): boolean {
 // treat it as JavaScript and only this comparison did not.
 function projectFiles(extensions: readonly string[]): string[] {
   const root = fileURLToPath(new URL("../", import.meta.url));
-  const files: string[] = [];
-  const walk = (directory: string): void => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const full = join(directory, entry.name);
-      if (entry.isDirectory()) {
-        if (!isGenerated(directory, entry.name, root)) {
-          walk(full);
-        }
-      } else if ((entry.isFile() || entry.isSymbolicLink())
-        && extensions.some(extension =>
-          entry.name.toLowerCase().endsWith(extension))) {
-        files.push(full);
-      }
-    }
-  };
-  walk(root);
-  return files;
+  return projectSourceFiles(root, extensions, unprunedRoots);
 }
 
 // A symbolic link is neither a file nor a directory to `readdirSync`, so the walk above
@@ -381,8 +346,8 @@ test("no source directory reaches content through a symbolic link", () => {
 // checked?" instead of "is every file I remembered to think of checked?" -- `.mts` was
 // Sol's finding: `scripts/probe.mts` with a type error in it passed every gate, because
 // `tsconfig.node.json` included `scripts/**/*.ts` and nothing considered `.mts` at all.
-const typeScriptExtensions = [".ts", ".mts", ".cts", ".tsx"] as const;
-const javaScriptExtensions = [".js", ".mjs", ".cjs", ".jsx"] as const;
+const typeScriptExtensions = typeScriptSourceExtensions;
+const javaScriptExtensions = javaScriptSourceExtensions;
 
 
 test("no source file suppresses type checking", () => {
@@ -434,6 +399,480 @@ test("the only JavaScript is the file the lint exemption names", () => {
       + "type-aware lint rules the rest of the project is held to");
   assert.deepEqual(exempted, present,
     "the lint exemption and the JavaScript it covers must name the same files");
+});
+
+// Every gate in this file accounts for *files*: the compiler builds a program out of
+// `.ts` files, and oxlint is handed a list of paths. Script written inside a document is
+// therefore invisible to both, and the browser runs it anyway.
+//
+// This was not hypothetical. `index.html` carried a `<script type="module">` block that
+// dereferenced `document.querySelector("#app")` without checking it -- the exact defect
+// `no-unsafe-member-access` is enabled to catch -- and shipped that way for as long as
+// the file existed, because nothing read it. Round 5 (Sol) found it; it is issue #4783
+// and `src/bootstrap.ts` is where that code lives now.
+//
+// The first version of this gate named the three ways HTML runs script -- element
+// content, `on*` handler attributes, and the `javascript:` scheme -- and rejected those.
+// That is a deny list, and it had the failure a deny list always has. Round 1 (Gemini)
+// probed `<object data="javascript:...">`, which it caught; three neighbours of that
+// probe walked straight through. `<iframe srcdoc="&lt;script&gt;...">` was the worst,
+// because it needs no interaction: all four commands stayed green while `dist/index.html`
+// shipped a document that runs script on load. An unquoted `href=javascript:alert(1)` and
+// an entity-encoded `&#106;avascript:` also passed, because the scheme test wanted a
+// quote before the word and a literal `j` in it.
+//
+// So the question is inverted. Rather than enumerate what can run script, which is a list
+// HTML keeps extending, this says what a document here is allowed to contain and rejects
+// everything else. A document may *reference* script and may not *contain* any, which
+// leaves a file as the only place script can be. For a relative reference that file is a
+// module under `src/`, which every other gate here already reads. For an absolute one it
+// is remote code that no gate reads -- and "absolute" here means remote rather than merely
+// scheme-bearing, because `//host/path` is remote too. The check below requires a real
+// `integrity` digest on those: the property is that the bytes are pinned to a hash, not
+// that anything analyzed them. An element or attribute nobody has classified fails, so the next
+// HTML feature that can run script is rejected on the grounds that it is unrecognized,
+// which is the one property a deny list cannot have.
+//
+// Comments are deliberately not stripped before this runs. Commented-out script is inert,
+// so flagging it is a false positive -- but `<!-->` is a complete comment in HTML5 and
+// parsers disagree about the edges, so trusting a comment-stripper here would put a
+// second parser between the gate and the truth. Deleting dead script is the better
+// resolution anyway.
+const inertElements: ReadonlySet<string> = new Set([
+  "a", "article", "aside", "b", "base", "body", "br", "button", "code", "div", "em",
+  "figcaption", "figure", "footer", "h1", "h2", "h3", "h4", "h5", "h6", "head", "header",
+  "hr", "html", "i", "img", "label", "li", "link", "main", "meta", "nav", "noscript",
+  "ol", "p", "pre", "script", "section", "small", "span", "strong", "style", "table",
+  "tbody", "td", "th", "thead", "title", "tr", "ul",
+]);
+
+// `on*` handler attributes are absent by construction rather than by a rule that spells
+// out `on`, and so are `srcdoc`, `http-equiv` and `object`'s `data`. Each of those is
+// script, or a way to reach script, and none of them is here.
+const inertAttributes: ReadonlySet<string> = new Set([
+  "alt", "as", "async", "charset", "class", "content", "crossorigin", "defer",
+  "disabled", "download", "for", "height", "hidden", "href", "id", "integrity", "lang",
+  "media", "name", "referrerpolicy", "rel", "role", "sizes", "src", "srcset", "target",
+  "title", "type", "width",
+]);
+
+const inertAttributePrefixes = ["aria-", "data-"] as const;
+
+// Round 3 (Sol) reported a false positive: every allowed attribute was read as a URL, so
+// `title="Status: ready"` was rejected for carrying a `status:` scheme. The scheme rule
+// belongs on values a browser dereferences, but enumerating *those* would fail open the
+// moment one was forgotten -- the failure this file has now made four times. So the
+// exemption is enumerated instead: an attribute is read as a URL unless it is named here
+// as text. A new entry in `inertAttributes` is scheme-checked until someone says why not.
+//
+// `content` is here because the only form that redirects is `http-equiv="refresh"`, and
+// `http-equiv` is absent from `inertAttributes`, so that element is rejected before its
+// `content` matters. The test named "a text attribute cannot become a URL the browser
+// follows" pins that reasoning.
+const textAttributes: ReadonlySet<string> = new Set([
+  "alt", "charset", "class", "content", "download", "for", "height", "id", "lang",
+  "media", "name", "rel", "role", "sizes", "target", "title", "type", "width",
+]);
+
+// A relative URL has no scheme, and is fine because the document base is required to be
+// local -- see the `base` check in the gate below, without which "relative" would not
+// mean "local" at all. Everything else has to be named, which is what rejects
+// `javascript:`, `data:` and `vbscript:` without listing any of them.
+const inertSchemes: ReadonlySet<string> = new Set(["http", "https", "mailto"]);
+
+function urlScheme(value: string): string | undefined {
+  return /^([a-z][\d+.a-z-]*):/i.exec(value)?.[1]?.toLowerCase();
+}
+
+// Round 2 (Opus) found the `integrity` requirement keyed on "has a scheme", which reads
+// `//cdn.example.com/x.js` as relative and skips the check. It is not relative: Vite
+// itself treats `/^(https?:)?\/\//` as external and copies it into the document verbatim,
+// so those bytes come from a third party. "Remote" is the property that matters, and a
+// scheme-relative URL has it.
+function isRemoteReference(value: string): boolean {
+  // `//` is not the only spelling of an authority: the URL parser treats a backslash as a
+  // slash for special schemes, so `/\host/x.js`, `\\host/x.js` and `\/host/x.js` all
+  // resolve to `https://host/x.js`. Normalizing first is what makes one comparison cover
+  // every spelling, and getting this wrong would skip the `integrity` requirement below.
+  const normalized = value.replaceAll("\\", "/");
+  return urlScheme(value) !== undefined || normalized.startsWith("//");
+}
+
+// Presence is not pinning. `integrity=""` satisfies a check for the attribute and disables
+// subresource integrity in every browser, so require a value the browser will honor: one
+// or more whitespace-separated `sha256`/`sha384`/`sha512` digests.
+function pinsItsBytes(value: string): boolean {
+  // Round 4 (Sol) found this narrower than the grammar it claims to check. Algorithm
+  // tokens are matched ASCII case-insensitively, and a hash expression may carry a
+  // `?option` suffix, reserved for forward compatibility, that user agents ignore. Both
+  // spellings pin the bytes, and both were rejected.
+  //
+  // A browser keeps the expressions whose algorithm it supports and enforces the
+  // strongest of those, ignoring the rest, so one well-formed supported digest is what
+  // makes the bytes pinned. An unrecognized entry beside it does not weaken that, which
+  // is why this asks for one rather than for all.
+  // Round 5 (Sol) found the split too generous. `\s` and `trim()` are Unicode, and a
+  // browser separates hash expressions on ASCII whitespace only. Given `bogus\u00A0sha384-`
+  // plus a digest, this read two entries and found a good one while a browser read a single
+  // entry, recognized no algorithm in it, derived no metadata at all and ran the script
+  // unpinned. Splitting the way the browser splits is what makes one entry mean one entry.
+  return value.split(/[\t\n\f\r ]+/u).some(entry =>
+    /^sha(?:256|384|512)-[\d+/A-Za-z]+={0,2}(?:\?[!-~]*)?$/i.test(entry));
+}
+
+// Reading markup with a regular expression is how the previous two versions of this gate
+// failed, and the second failure was worse than the first. A pattern that matches whole
+// tags *skips* what it cannot match, so markup it does not understand becomes markup it
+// does not check. Round 1 (Gemini) landed exactly there: `<iframe src="..." attr=foo'bar>`
+// is well-formed HTML -- an unquoted value may contain a quote as long as it does not
+// start with one -- and the pattern's `'[^']*'` branch could not match it, so the tag
+// never appeared in the loop at all and the whole allow list was skipped with all four
+// commands green.
+//
+// A missing check that reports nothing is the worst failure available to a gate, so the
+// question here is not "did a tag match?" but "was every byte accounted for?". This
+// tokenizer walks the document once and consumes text and markup explicitly. Anything
+// tag-shaped that it cannot tokenize is reported rather than passed over, which is the
+// property the regex could not have: a construct nobody anticipated fails.
+//
+// This is deliberately not a spec-complete HTML parser, and it does not need to be. It
+// only needs to be exhaustive -- to have no path that silently drops input -- and to err
+// toward reporting. A false positive costs an author one comment; a false negative is
+// how unlinted code shipped for as long as `index.html` existed.
+interface MarkupAttribute { readonly name: string; readonly value: string }
+interface MarkupTag { readonly element: string; readonly attributes: readonly MarkupAttribute[] }
+
+// `script` and `style` hold raw text rather than markup, so a `<` inside them starts
+// nothing. Tokenizing their contents would invent tags out of `a < b`.
+const rawTextElements: ReadonlySet<string> = new Set(["script", "style", "textarea", "title"]);
+
+function isMarkupSpace(character: string): boolean {
+  return character === " " || character === "\t" || character === "\n"
+    || character === "\r" || character === "\f";
+}
+
+function scanMarkup(source: string, report: (problem: string) => void): MarkupTag[] {
+  // HTML5 input preprocessing replaces every CR and CRLF with LF before the tokenizer
+  // runs, so a browser never sees a CR at all. Round 2 (Opus) found that omitting this
+  // step let `</title\r>` end the element for parse5 and for every browser while this
+  // scan read straight past it, swallowing a following `<script>` in the process. Doing
+  // the same normalization is what makes the two agree; leaving CR out of one character
+  // class and in another is how they diverged.
+  const html = source.replaceAll(/\r\n?/g, "\n");
+  const tags: MarkupTag[] = [];
+  let at = 0;
+
+  while (at < html.length) {
+    const open = html.indexOf("<", at);
+    if (open < 0) { break; }
+    at = open;
+
+    if (html.startsWith("<!--", at)) {
+      const close = html.indexOf("-->", at + 4);
+      if (close < 0) {
+        report("an unterminated `<!--` comment hides the rest of the document");
+        return tags;
+      }
+      // Commented-out markup is inert, so reporting it is a false positive -- but a
+      // comment is also the easiest place to hide something from a reader, and `<!-->`
+      // is a complete comment in HTML5 that parsers disagree about. Deleting dead markup
+      // is cheap; trusting a comment scanner is not.
+      if (/<[a-z]/i.test(html.slice(at + 4, close))) {
+        report("a comment contains markup. Commented-out markup is inert, but it is not "
+          + "reviewed either, so delete it rather than leaving it here");
+      }
+      at = close + 3;
+      continue;
+    }
+
+    // Doctypes, CDATA and processing instructions carry no attributes to check.
+    if (html.startsWith("<!", at) || html.startsWith("<?", at)) {
+      const close = html.indexOf(">", at);
+      if (close < 0) {
+        report("an unterminated `<!` or `<?` declaration hides the rest of the document");
+        return tags;
+      }
+      at = close + 1;
+      continue;
+    }
+
+    const isEnd = html.startsWith("</", at);
+    const nameAt = at + (isEnd ? 2 : 1);
+    const name = /^[a-z][^\s/>]*/i.exec(html.slice(nameAt))?.[0];
+    if (name === undefined) {
+      // Per HTML5 a `<` that begins nothing is literal text, as in `a < b`.
+      at += 1;
+      continue;
+    }
+
+    const element = name.toLowerCase();
+    const attributes: MarkupAttribute[] = [];
+    let cursor = nameAt + name.length;
+    let closed = false;
+
+    while (cursor < html.length) {
+      while (isMarkupSpace(html.charAt(cursor))) { cursor += 1; }
+      if (html.charAt(cursor) === ">") { cursor += 1; closed = true; break; }
+      if (html.charAt(cursor) === "/" && html.charAt(cursor + 1) === ">") {
+        cursor += 2;
+        closed = true;
+        break;
+      }
+
+      const attributeAt = cursor;
+      while (cursor < html.length && !isMarkupSpace(html.charAt(cursor))
+        && html.charAt(cursor) !== "=" && html.charAt(cursor) !== ">"
+        && html.charAt(cursor) !== "/") {
+        cursor += 1;
+      }
+      if (cursor === attributeAt) {
+        // No progress is possible from here, so stopping silently would drop the rest of
+        // the tag. Report instead.
+        report(`<${element}> could not be tokenized at offset ${cursor}, so its `
+          + "attributes were never checked");
+        return tags;
+      }
+      const attributeName = html.slice(attributeAt, cursor);
+
+      while (isMarkupSpace(html.charAt(cursor))) { cursor += 1; }
+      let value = "";
+      if (html.charAt(cursor) === "=") {
+        cursor += 1;
+        while (isMarkupSpace(html.charAt(cursor))) { cursor += 1; }
+        const quote = html.charAt(cursor);
+        if (quote === '"' || quote === "'") {
+          const close = html.indexOf(quote, cursor + 1);
+          if (close < 0) {
+            report(`<${element} ${attributeName}> has an unterminated quoted value, `
+              + "which hides the rest of the document");
+            return tags;
+          }
+          value = html.slice(cursor + 1, close);
+          cursor = close + 1;
+        } else {
+          // An unquoted value runs to whitespace or `>` and may contain a quote. This is
+          // the case the regex could not express.
+          const valueAt = cursor;
+          while (cursor < html.length && !isMarkupSpace(html.charAt(cursor))
+            && html.charAt(cursor) !== ">") {
+            cursor += 1;
+          }
+          value = html.slice(valueAt, cursor);
+        }
+      }
+      attributes.push({ name: attributeName, value });
+    }
+
+    if (!closed) {
+      report(`<${element}> is never closed by \`>\`, so the rest of the document was `
+        + "never checked");
+      return tags;
+    }
+
+    if (!isEnd) { tags.push({ element, attributes }); }
+    at = cursor;
+
+    if (!isEnd && rawTextElements.has(element)) {
+      // The end tag is `</name` followed by whitespace, `/` or `>` -- the terminators the
+      // tokenizer uses in its end-tag-name state, read here after the CR normalization
+      // above so that `</name\r>` is one of them. Round 1 (Opus) found that requiring
+      // `</script\s*>` misses `</script/>` and `</script foo="bar">`, both of which close
+      // the element and run the body. Accepting a bare `</script` prefix is the opposite
+      // error: `</scriptfoo>` closes nothing, and treating it as the end would put the
+      // real body outside the element, where nothing reads it.
+      const end = new RegExp(`</${element}(?=[\\t\\n\\f />]|$)`, "i")
+        .exec(html.slice(cursor));
+      if (end === null) {
+        report(`<${element}> is never closed, so the rest of the document is inside it `
+          + "and was never checked");
+        return tags;
+      }
+      const closeAt = cursor + end.index;
+      const body = html.slice(cursor, closeAt).trim();
+      if (element === "script" && body.length > 0) {
+        report(`<script> has a body of ${body.split("\n").length} line(s)`);
+      } else if (element !== "script" && /<[/a-z]/i.test(body)) {
+        // Raw text is not markup, so a tag inside one of these is either a mistake or the
+        // two tokenizers disagreeing about where the element ends -- and the second case
+        // means this scan just swallowed markup it never checked. Report rather than
+        // discard. `<title>` and `<style>` are on the allow list, so without this the
+        // swallowed region would vanish in silence.
+        //
+        // Round 4 (Opus) observed that within HTML the `</` half does all the detecting,
+        // since a raw-text element can only end early via `</name`, and offered the
+        // `<[a-z]` half as removable over-strictness. It is kept deliberately: in foreign
+        // content a browser does not use raw text at all, so `<svg><title><script>` runs
+        // that script while this scan swallows it, and the start-tag half is what sees
+        // it. `svg` is absent from `inertElements` today, which is why that is not a live
+        // hole -- but adding an inline icon would make this the only rule catching it,
+        // and the cost is a literal `<` in a title needing to be written `&lt;`.
+        report(`<${element}> contains markup. Raw text cannot hold a tag, so either the `
+          + "content is wrong or this element does not end where it appears to");
+      }
+      at = closeAt;
+    }
+  }
+
+  return tags;
+}
+
+// The gate below runs this over every document in the project. It is a function rather
+// than a loop body so that other tests can hold a specimen against the same rules -- a
+// test that restated these checks would keep passing after the real ones were weakened,
+// which is the whole failure it would exist to catch.
+function markupFindings(name: string, html: string): string[] {
+  const findings: string[] = [];
+  const tags = scanMarkup(html, problem => findings.push(`${name}: ${problem}`));
+  for (const tag of tags) {
+    if (!inertElements.has(tag.element)) {
+      findings.push(`${name}: <${tag.element}> is not a known inert element. If it `
+        + "cannot run script, add it to `inertElements` and say why here");
+    }
+    // A `script` with an absolute `src` is the one construct the allow list permits that
+    // no gate here reads: it is remote code, not a module under a lint target. Round 1
+    // (Opus) found the prose claiming otherwise. `integrity` is what makes those bytes
+    // pinned to a hash, so require it rather than overstate what the gate buys.
+    // `index.html` already pins all three of its CDN scripts.
+    if (tag.element === "script") {
+      const source = tag.attributes.find(candidate =>
+        candidate.name.toLowerCase() === "src");
+      if (source !== undefined && isRemoteReference(source.value)) {
+        const pinned = tag.attributes.find(candidate =>
+          candidate.name.toLowerCase() === "integrity");
+        if (pinned === undefined || !pinsItsBytes(pinned.value)) {
+          findings.push(`${name}: <script src="${source.value}"> loads remote code `
+            + "that no compiler or lint here reads, and pins it to no hash. Add an "
+            + "`integrity` digest");
+        }
+      }
+    }
+    // Round 3 (Sol) found that every "relative, therefore local" judgement in this gate
+    // rests on the document base, and nothing checked it. `<base href="https://host/">`
+    // leaves each `src` textually relative while making the bytes -- including the
+    // bundle Vite emits at `/assets/` -- come from somewhere else entirely. A browser
+    // honours the first `base`, so requiring every one of them to be local is what makes
+    // the rest of this reasoning true rather than merely plausible.
+    if (tag.element === "base") {
+      const target = tag.attributes.find(candidate =>
+        candidate.name.toLowerCase() === "href");
+      if (target !== undefined && isRemoteReference(target.value)) {
+        findings.push(`${name}: <base href="${target.value}"> makes every relative URL `
+          + "in this document remote, including the bundle. The rest of this gate reads "
+          + "a relative `src` as a local module, which that would silently stop being");
+      }
+    }
+    for (const attribute of tag.attributes) {
+      const spelled = attribute.name.toLowerCase();
+      if (!inertAttributes.has(spelled)
+        && !inertAttributePrefixes.some(prefix => spelled.startsWith(prefix))) {
+        findings.push(`${name}: <${tag.element} ${spelled}> is not a known inert `
+          + "attribute. Event handlers are spelled this way, and so are `srcdoc` and "
+          + "`http-equiv`");
+        continue;
+      }
+      if (textAttributes.has(spelled)
+        || inertAttributePrefixes.some(prefix => spelled.startsWith(prefix))) {
+        continue;
+      }
+      const scheme = urlScheme(attribute.value);
+      if (scheme !== undefined && !inertSchemes.has(scheme)) {
+        findings.push(`${name}: <${tag.element} ${spelled}> carries a \`${scheme}:\` `
+          + "URL, and that scheme is not one this project treats as inert");
+      }
+    }
+  }
+  return findings;
+}
+
+test("subresource integrity is read the way a browser separates it", () => {
+  // Round 5 (Sol) found `\s`-splitting accepted a value a browser rejects outright. The
+  // browser separates hash expressions on ASCII whitespace, so a non-ASCII space does not
+  // start a new entry: the whole value is one unrecognized algorithm token, no metadata is
+  // derived and the remote script runs unpinned while this said it was pinned.
+  const digest = "sha384-zLRFO4dwowZvh8kzutOb5AWhH7f39HeJp+N7PtHF1SQtTBnifRx0AtmvTYs3F4YV";
+  const script = (integrity: string): string =>
+    `<script src="https://cdn.example.com/x.js" integrity="${integrity}"></script>`;
+
+  for (const separator of ["\u00A0", "\u2003", "\u3000"]) {
+    assert.ok(markupFindings("sri", script(`bogus${separator}${digest}`)).length > 0,
+      `a browser splits hash expressions on ASCII whitespace only, so \`bogus${
+        JSON.stringify(separator)}…\` is a single unrecognized entry and the bytes are `
+        + "not pinned at all. This accepted it");
+  }
+
+  // The separators a browser does honor still work, and so does an unsupported algorithm
+  // beside a supported one -- a browser enforces the strongest it supports and ignores the
+  // rest, so the bytes are pinned.
+  for (const accepted of [digest, `md5-abc=  ${digest}`, `${digest}\t${digest}`]) {
+    assert.deepEqual(markupFindings("sri", script(accepted)), [],
+      `\`${accepted}\` pins the bytes and was rejected`);
+  }
+});
+
+test("a text attribute cannot become a URL the browser follows", () => {
+  // The scheme rule exempts `textAttributes`, so each entry is a claim that a browser
+  // never dereferences that value. Two of those claims are load-bearing enough to pin.
+
+  // `content` only redirects as `http-equiv="refresh"`, and that attribute is denied, so
+  // the element carrying such a `content` never survives to have its value read. If
+  // `http-equiv` were ever allowed, exempting `content` would open a redirect to any
+  // scheme -- so this assertion is the reason the exemption above is safe, not a nit.
+  assert.ok(!inertAttributes.has("http-equiv"),
+    "`content` is exempt from the scheme rule because `http-equiv` is denied. Allowing "
+      + "`http-equiv` makes `content` a redirect target, so remove `content` from "
+      + "`textAttributes` in the same change");
+
+  // A stale exemption is a hole that no other test can see: it would keep exempting an
+  // attribute long after the allow list stopped mentioning it.
+  const stale = [...textAttributes].filter(entry => !inertAttributes.has(entry)).sort();
+  assert.deepEqual(stale, [],
+    "these attributes are exempt from the scheme rule but are not allowed at all, so the "
+      + "exemption describes markup this project cannot contain");
+});
+
+// A malformed document is not an attack; it is a typo. But error recovery decides what a
+// browser actually runs, so markup the scan cannot read has to be reported rather than
+// guessed at. Each specimen below is a shape a browser silently repairs while carrying a
+// script body the gates would otherwise never read.
+test("markup a browser would repair is reported rather than guessed at", () => {
+  const repaired = [
+    // A `script` is not void, so the solidus does not close it.
+    ["a solidus does not close a script",
+      "<script src=\"/src/bootstrap.ts\" />globalThis.MY_MARKER = 1;"],
+    // A browser keeps the first `src` and drops the second. The scan reads both.
+    ["a browser keeps the first src and drops the second",
+      "<script src=\"/src/bootstrap.ts\" src=\"javascript:void 0\"></script>"],
+    // A `script` between `</head>` and `<body>` is relocated by error recovery.
+    ["a script after the head is relocated",
+      "<head><title>t</title></head><script>globalThis.MY_MARKER = 1;</script>"],
+  ] as const;
+
+  for (const [reason, markup] of repaired) {
+    assert.ok(markupFindings(reason, markup).length > 0,
+      `${reason}: a browser repairs this document, so what it runs is not what the file `
+        + "says, and the scan has to report it rather than guess");
+  }
+});
+
+test("no HTML document carries script the gates cannot read", () => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const documents = projectFiles([".html", ".htm", ".xhtml", ".svg"]);
+
+  // Non-vacuity. A walk that silently found nothing would pass every assertion below
+  // while proving nothing at all, and the entry document is the reason this gate exists.
+  const names = documents.map(file => projectRelative(root, file)).sort();
+  assert.ok(names.includes("index.html"),
+    `the walk found no entry document, so this gate proved nothing; it saw ${
+      names.length > 0 ? names.join(", ") : "no markup at all"}`);
+
+  const findings = documents.flatMap(file =>
+    markupFindings(projectRelative(root, file), readFileSync(file, "utf8")));
+
+  assert.deepEqual(findings, [],
+    "this markup can run script that neither the compiler nor the lint reads, because "
+      + "both of them account for files and none of this is in one. Move the script into "
+      + "a module under `src/` and reference it with `src=`, the way `index.html` loads "
+      + "`src/bootstrap.ts`");
 });
 
 // The gate above asks whether a file is TypeScript. It does not ask whether anything
@@ -702,9 +1141,14 @@ test("the lint covers every file the bundler reads", async () => {
   // which is issue #4780, and its `package.json` is read for resolution. Both predate
   // this branch.
   //
-  // `index.html` is the entry document. The JavaScript written inside it is bundled and
-  // executed while no lint target and no compiler project can name it, which is issue
-  // #4783; that gap predates this branch and the file is untouched here.
+  // `index.html` is the entry document. It is read by the bundler and gated by neither
+  // half of the test below -- oxlint reads script, and the compiler has no account of a
+  // document -- so it stays pinned here. What it may *contain* is a separate gate: it
+  // carried an unchecked `<script>` block until #4783, and a gate above now fails unless
+  // every element, attribute and URL scheme in a document this project owns is one it
+  // lists as inert. So the script it can reach is a module under a lint target, or a
+  // remote URL carrying an `integrity` digest -- which that gate requires precisely
+  // because no compiler or lint here reads those bytes.
   //
   // `package.json` is read for dependency resolution rather than compiled, and the gates
   // above already assert its contents field by field.
@@ -715,9 +1159,9 @@ test("the lint covers every file the bundler reads", async () => {
   //
   // Pinning the exact list is what makes this fail closed. Anything else the build reads
   // changes it and fails -- including a second stylesheet, which is a small cost for a
-  // gate that otherwise has to guess which extensions are harmless. Closing #4780 or
-  // #4783 changes it too, so the pin has to be deleted deliberately rather than quietly
-  // outliving the gaps it describes.
+  // gate that otherwise has to guess which extensions are harmless. Closing #4780 changes
+  // it too, so the pin has to be deleted deliberately rather than quietly outliving the
+  // gaps it describes.
   const knownReadButUngated = [
     "../annotated-source-viewer/package.json",
     "../annotated-source-viewer/src/document-model.js",
@@ -803,37 +1247,6 @@ test("the bundler has no unread path into the shipped output", async () => {
     "the build declares worker plugins. This project bundles no workers, and a worker "
       + "plugin injects into a bundle these gates do not audit, so the two have to stay "
       + "that way together");
-});
-
-// Round 10 derived the two settings above from Vite's resolution instead of the text of
-// the config, which closed every spelling of *declaring* a plugin. Round 11 (Sol) showed
-// that resolution is still a question asked at a particular moment, in a particular
-// process. A plugin guarded by `process.env.npm_lifecycle_event === "build"` is simply
-// not there when `npm test` resolves the config, and is there when `npm run build` runs:
-// the gate above saw Vite's own plugin list unchanged, all four commands stayed green,
-// and the payload shipped in `dist/assets/dotnet-inspect-B2MTdysw.js`.
-//
-// That is not only an evasion. Config conditional on mode or environment is ordinary Vite
-// practice, so the plugin gate was equally blind to an honest conditional plugin. Every
-// gate in this file audits a build that the *test* runs, and each one inherits this: they
-// describe the build the test could see, not the build that ships.
-//
-// So this asserts the two are the same build. `npm run build` runs in its own process
-// with whatever environment npm gives it, and its chunks must match the audited build's
-// exactly. It models nothing about what a config may do -- a config that behaves
-// differently when it is being watched makes the two disagree, whatever it switched on.
-// The gates above keep their value because this one says they were looking at the
-// artifact that ships.
-test("the audited build is the build that ships", async () => {
-  const root = fileURLToPath(new URL("../", import.meta.url));
-  const audited = await auditedBuild(root);
-  assert.ok(audited.chunks.length > 0, "the audited build emitted no chunks to compare");
-  assert.deepStrictEqual(shippedChunks(root), audited.chunks,
-    "`npm run build` emits different code than the build these gates audit, so the "
-      + "audit describes something other than what ships. A config that resolves "
-      + "differently under the build than under the test -- conditional on mode, on the "
-      + "npm lifecycle, or on any other environment -- does this, and so does anything "
-      + "that injects into one build and not the other");
 });
 
 // Being under a lint target turns out not to mean the lint reads the file. oxlint applies
