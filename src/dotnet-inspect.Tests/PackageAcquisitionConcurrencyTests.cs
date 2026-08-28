@@ -959,6 +959,59 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
+    public async Task ExtractPackageAsync_ConcurrentFailedAttemptSettlesWaitersAndCanRetry()
+    {
+        string packageName = $"sharedretry.test.{Guid.NewGuid():N}";
+        const string Version = "4.1.0";
+        var handler = new GatedFirstPackageHandler(
+            "not a zip"u8.ToArray(),
+            CreatePackageArchive(packageName, Version));
+        using var client = new HttpClient(handler);
+        string tempPrefix = $"package-shared-retry-{Guid.NewGuid():N}-";
+
+        Task<PackageExtractionOutcome>[] requests = Enumerable.Range(0, 32)
+            .Select(_ => PackageExtractor.ExtractPackageAsync(
+                client,
+                packageName,
+                tempDirPrefix: tempPrefix,
+                sourceOptions: s_nugetOrgSource,
+                version: Version))
+            .ToArray();
+
+        try
+        {
+            await handler.FirstRequestStarted.WaitAsync(
+                TestContext.Current.CancellationToken);
+            Assert.Equal(1, handler.RequestCount);
+        }
+        finally
+        {
+            handler.ReleaseFirst();
+        }
+
+        PackageExtractionOutcome[] failed = await Task.WhenAll(requests);
+
+        Assert.All(failed, outcome => Assert.False(outcome.IsSuccess));
+        Assert.All(
+            failed,
+            outcome => Assert.Equal(failed[0].ErrorMessage, outcome.ErrorMessage));
+        Assert.Equal(1, handler.RequestCount);
+
+        PackageExtractionOutcome retried =
+            await PackageExtractor.ExtractPackageAsync(
+                client,
+                packageName,
+                tempDirPrefix: tempPrefix,
+                sourceOptions: s_nugetOrgSource,
+                version: Version);
+
+        Assert.True(retried.IsSuccess, retried.ErrorMessage);
+        Assert.Equal(2, handler.RequestCount);
+        AssertNoStagingDirectories(packageName);
+        AssertNoTemporaryDirectories(tempPrefix);
+    }
+
+    [Fact]
     public void TryGetCachedPackage_PrefersTheHigherPrecedenceSourcesCopy()
     {
         // When two configured feeds both have the coordinate cached, the read
@@ -2260,6 +2313,49 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             Interlocked.Increment(ref _requestCount);
             _requestStarted.TrySetResult(true);
             await _release.Task.WaitAsync(cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(response),
+            };
+        }
+    }
+
+    private sealed class GatedFirstPackageHandler(
+        byte[] firstResponse,
+        byte[] secondResponse)
+        : HttpMessageHandler
+    {
+        private readonly TaskCompletionSource<bool> _firstRequestStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _releaseFirst =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _requestCount;
+
+        public Task FirstRequestStarted => _firstRequestStarted.Task;
+
+        public int RequestCount => Volatile.Read(ref _requestCount);
+
+        public void ReleaseFirst() => _releaseFirst.TrySetResult(true);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            int requestNumber = Interlocked.Increment(ref _requestCount);
+            byte[] response = requestNumber switch
+            {
+                1 => firstResponse,
+                2 => secondResponse,
+                _ => throw new InvalidOperationException(
+                    $"Unexpected package request #{requestNumber}."),
+            };
+
+            if (requestNumber == 1)
+            {
+                _firstRequestStarted.TrySetResult(true);
+                await _releaseFirst.Task.WaitAsync(cancellationToken);
+            }
+
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new ByteArrayContent(response),
