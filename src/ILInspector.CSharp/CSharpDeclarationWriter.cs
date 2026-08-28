@@ -1078,7 +1078,9 @@ internal static class CSharpDeclarationWriter
                     + "whose signature attributes cannot be suppressed safely.");
             }
             signature = member.Signature is { } compatibilitySignature
-                ? ContainCompatibilitySignature(compatibilitySignature)
+                ? PreserveStructuredOrContainModelFreeSignature(
+                    member,
+                    compatibilitySignature)
                 : member.ReturnType is { } returnType
                     ? EscapeTypeKeywords(returnType)
                     : "";
@@ -1856,6 +1858,13 @@ internal static class CSharpDeclarationWriter
         return builder.ToString();
     }
 
+    static string PreserveStructuredOrContainModelFreeSignature(
+        ApiMember member,
+        string signature)
+        => member.SignatureModel is not null
+            ? signature
+            : ContainCompatibilitySignature(signature);
+
     static (int Start, int End) FindCompatibilityParameterList(
         string signature)
     {
@@ -1910,7 +1919,9 @@ internal static class CSharpDeclarationWriter
         {
             renderedFromModel = false;
             return member.Signature is { } compatibilitySignature
-                ? ContainCompatibilitySignature(compatibilitySignature)
+                ? PreserveStructuredOrContainModelFreeSignature(
+                    member,
+                    compatibilitySignature)
                 : member.ReturnType is { } returnType
                     ? EscapeTypeKeywords(returnType)
                     : "";

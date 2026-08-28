@@ -1,6 +1,9 @@
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
+using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Views;
@@ -286,6 +289,138 @@ public class UntrustedMemberSignatureTests
         {
             Directory.Delete(dir, recursive: true);
         }
+    }
+
+    [Fact]
+    public void StructuredMetadataDefaultFallback_PreservesContainedSignatureAndStatus()
+    {
+        string path = EmitStructuredMetadataDefault();
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            ApiSurface surface = ApiSurfaceExtractor.Extract(
+                peReader,
+                includeAll: true);
+            ApiType type = Assert.Single(
+                surface.Types,
+                candidate => candidate.Name == "Probe");
+            ApiMember member = Assert.Single(
+                type.Members,
+                candidate => candidate.Name == "M");
+            const string Expected =
+                @"void M([System.Runtime.InteropServices.Optional, "
+                + @"System.Runtime.CompilerServices.DateTimeConstant(42L)] "
+                + @"System.DateTime when\\marker)";
+
+            Assert.Equal(Expected, member.Signature);
+            Assert.EndsWith(
+                Expected,
+                Formatter.FormatMember(type, member),
+                StringComparison.Ordinal);
+
+            TypeShapeView shape = ApiOutputFormatter.BuildShapeView(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                memberFilter: []);
+            Assert.Equal(
+                Expected,
+                Assert.Single(
+                    Assert.Single(
+                        shape.Members,
+                        node => node.Text.StartsWith(
+                            "Methods",
+                            StringComparison.Ordinal))
+                        .Children!)
+                    .Text);
+
+            ApiArtifactJson.Prepare(type);
+            using JsonDocument artifact = JsonDocument.Parse(
+                JsonSerializer.Serialize(
+                    type,
+                    ApiArtifactJson.CompactType));
+            JsonElement artifactMember = artifact.RootElement
+                .GetProperty("members")[0];
+            Assert.Equal(
+                Expected,
+                artifactMember.GetProperty("signature").GetString());
+            Assert.False(
+                artifactMember.TryGetProperty(
+                    "signature_decode_status",
+                    out _));
+
+            MetadataReader reader = peReader.GetMetadataReader();
+            TypeDefinitionHandle typeHandle =
+                reader.TypeDefinitions.Single(
+                    handle => reader.GetString(
+                        reader.GetTypeDefinition(handle).Name) == "Probe");
+            ApiType queriedType = MetadataDeclarationQuery.GetTypeSurface(
+                reader,
+                typeHandle,
+                includeNonPublicMembers: true);
+            ApiMember queriedMember = Assert.Single(
+                queriedType.Members,
+                candidate => candidate.Name == "M");
+            string queriedCompatibility =
+                Formatter.FormatCompatibilityMemberSignature(
+                    queriedType,
+                    queriedMember,
+                    out bool renderedFromModel);
+
+            Assert.False(renderedFromModel);
+            Assert.Equal(Expected, queriedMember.Signature);
+            Assert.Equal(Expected, queriedCompatibility);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    static string EmitStructuredMetadataDefault()
+    {
+        var assemblyName = new AssemblyName("StructuredMetadataDefault");
+        var assembly = new PersistedAssemblyBuilder(
+            assemblyName,
+            typeof(object).Assembly);
+        ModuleBuilder module =
+            assembly.DefineDynamicModule(assemblyName.Name!);
+        TypeBuilder type = module.DefineType(
+            "Probe",
+            TypeAttributes.Public | TypeAttributes.Class);
+        MethodBuilder method = type.DefineMethod(
+            "M",
+            MethodAttributes.Public,
+            typeof(void),
+            [typeof(DateTime)]);
+        ParameterBuilder parameter = method.DefineParameter(
+            1,
+            ParameterAttributes.Optional,
+            "when\\marker");
+        // ECMA-335 custom-attribute blobs: prolog, fixed arguments, then
+        // the named-argument count.
+        parameter.SetCustomAttribute(
+            typeof(System.Runtime.InteropServices.OptionalAttribute)
+                .GetConstructor(Type.EmptyTypes)!,
+            [0x01, 0x00, 0x00, 0x00]);
+        parameter.SetCustomAttribute(
+            typeof(System.Runtime.CompilerServices.DateTimeConstantAttribute)
+                .GetConstructor([typeof(long)])!,
+            [
+                0x01, 0x00,
+                0x2A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00,
+            ]);
+        method.GetILGenerator().Emit(OpCodes.Ret);
+        type.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"StructuredMetadataDefault-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
     }
 
     /// <summary>

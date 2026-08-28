@@ -125,7 +125,9 @@ or accessor attributes. Ordinary persistence retains the `ApiSignature` and its
 structured constraint-kind/type-kind provenance, while artifact JSON excludes
 those implementation fields and preserves its established schema. The
 in-memory compatibility `Signature` contains every raw type and identifier slot
-before direct rendering.
+before direct rendering. When a structured model cannot reproduce metadata-only
+default syntax, renderers preserve that producer-contained signature rather
+than re-containing it; only model-free fallback is imported as opaque text.
 
 Legacy or degraded model-free text uses conservative compatibility containment.
 Only a quote after `=` inside the terminal parameter list opens a rendered C#
@@ -155,6 +157,7 @@ rather than re-importing its visible spelling as clean text.
 `CSharpDeclarationWriterTests.CompatibilitySignatures_DoNotIntroduceSignatureAttributes`,
 `UntrustedMemberSignatureTests.FieldPropertyAndEventSignatures_ContainHostileNames`,
 `UntrustedMemberSignatureTests.FieldAndEnumDeclarations_ContainNamesBeforeComposition`,
+`UntrustedMemberSignatureTests.StructuredMetadataDefaultFallback_PreservesContainedSignatureAndStatus`,
 `MetadataDeclarationQueryTests.TypeSurface_ContainsRawTypeSlotsInCompatibilitySignatures`,
 `DefaultValueRenderingTests.HostileEnumDefaults_ContainRawTypeAndMemberSlots`,
 `UntrustedLibraryViewContainmentTests.TypeJson_WithLiteralEscapeMetadataName_PreservesIdentity`,

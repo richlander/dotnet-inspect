@@ -64,15 +64,12 @@ internal static class ApiArtifactJson
             var formatter = new CSharpFormatter();
             string signature = formatter.FormatCompatibilityMemberSignature(
                 type,
-                member,
-                out bool renderedFromModel);
+                member);
             PreparedMembers.Add(
                 member,
                 new PreparedMember(
                     signature,
-                    renderedFromModel
-                        ? member.SignatureDecodeStatus
-                        : SignatureDecodeStatus.Degraded));
+                    member.SignatureDecodeStatus));
         }
     }
 
