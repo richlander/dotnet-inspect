@@ -53,6 +53,7 @@ This owner references rather than restates adjacent contracts.
 | [Inspection layers](inspection-layers.md) | Query-owned profile binding, population sealing, and typed producer handoffs accepted in PR #4713. |
 | [Finding nomenclature](finding-nomenclature.md) | Inspection and exact-correlation topology accepted in PR #4800. |
 | [Implementation Diff](implementation-diff.md) | Request/attempt accounting and positive absence-proof discipline accepted in PR #4775. |
+| [Progressive disclosure](progressive-disclosure.md) | User-gesture provenance, host preflight, capability authorization, and cost enforcement. |
 | [Section model](section-model.md) | Section selection, effectiveness, cost, and rendering. |
 | [Output shapes](output-shapes.md) | Section payload and row-unit semantics. |
 | [Inspection graph modes](inspection-graph-modes.md) | Graph-specific seed, peer-seed, and induced-set semantics. |
@@ -86,7 +87,8 @@ identifiers.
 A validated plan retains the exact request fields plus the descriptor-issued
 requirements used to validate them. Validation does not rewrite a target,
 widen a universe, choose a fallback projection, or infer identity from display
-text.
+text. Requirements that need host authorization or cost enforcement remain in
+the plan for owner-issued preflight after request compatibility succeeds.
 
 ### Analysis
 
@@ -143,6 +145,10 @@ description. Its provider declares:
 This request owner does not construct or enumerate those values. It validates
 only whether the supplied description satisfies the selected analysis
 descriptor's declared requirements.
+
+The universe description must state a finite bound. A missing or unbounded
+description is rejected before acquisition or producer execution in either
+question mode.
 
 Universe breadth cannot mutate the report surface. Universe failure or
 incompleteness cannot be repaired by silently removing a requested member,
@@ -224,12 +230,20 @@ descriptor before producer execution. It checks:
 - report-surface kind and typed target roles;
 - Targeted or Census mode invariants;
 - universe subject and evidence requirements;
-- prerequisites, authorization, and cost constraints; and
+- structurally registered producer and query prerequisites; and
 - requested projection support.
 
 Rejection is a typed planning outcome with guidance. It is not a producer
 inspection, a successful empty result, or a Finding state. Validation must not
 execute the producer merely to decide whether the producer is supported.
+
+The request owner declares a closed set of rejection reasons covering invalid
+mode, unsupported surface, unsatisfied or unbounded universe, missing
+structural prerequisite, and unsupported projection. Every rejection is
+decided before producer execution. User-gesture provenance, capability
+authorization, and cost enforcement remain host-preflight responsibilities
+under
+[Progressive disclosure](progressive-disclosure.md).
 
 ### Capability is not observation
 
@@ -320,6 +334,8 @@ This owner does not define:
   reconciliation;
 - universe selection, construction, enumeration, acquisition, binding,
   provenance, lifetime, failure, or completeness semantics;
+- user-gesture provenance, host preflight, capability authorization, or cost
+  enforcement;
 - producer algorithms, applicability, execution, observations, identities,
   correspondence, or result outcomes;
 - Finding inspection or correlation states;
@@ -345,17 +361,20 @@ The target implementation is unverified until these named gates land:
 - `AnalysisRequest_UniverseBreadthCannotWidenReportSurface`
 - `AnalysisRequest_TargetedRequiresAcceptedAnchor`
 - `AnalysisRequest_CensusRejectsPrivilegedContainedAnchor`
-- `AnalysisCapability_StructuralDiscoveryDoesNotExecuteProducers`
+- `AnalysisRequest_RejectsMissingOrUnboundedUniverseBeforeProducerExecution`
+- `AnalysisCapability_StructuralDiscoveryDoesNotResolveContentOrProbeEffectiveness`
 - `AnalysisCapability_ListsConfiguredUnobservedIntegrationDescriptors`
 - `AnalysisCapability_RejectsUnsupportedSurfaceBeforeProducerExecution`
 - `AnalysisCapability_RejectsUnsatisfiedUniverseBeforeProducerExecution`
 - `AnalysisCapability_RejectsUnsupportedProjectionBeforeProducerExecution`
+- `AnalysisCapability_AllDeclaredRejectionsPrecedeProducerExecution`
 - `AnalysisCapability_RejectionDoesNotUseFindingInspectionState`
 - `AnalysisPlan_RetainsUniverseCompletenessAndFailureInputs`
 - `AnalysisProjection_RowsAndGraphRetainOneAnalysisIdentity`
 - `AnalysisUniverseProviderKindDoesNotChangeRequestFieldSemantics`
 
-The expected request fields, report-surface kinds, and question modes should be
-derived from their declarations so missing and stale entries fail together.
-Integration, package-search, and project-graph implementations should add their
-own consumer gates when they adopt this request topology.
+The expected request fields, report-surface kinds, question modes, and
+rejection reasons should be derived from their declarations so missing and
+stale entries fail together. Integration, package-search, and project-graph
+implementations should add their own consumer gates when they adopt this
+request topology.
