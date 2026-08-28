@@ -92,6 +92,7 @@ function recordingActions(calls: string[]): MetadataExplorerBindingActions {
       calls.push(`open-table:${assemblyFileName}:${index}`),
     onPage: (index, startRowId) =>
       calls.push(`page:${index}:${startRowId}`),
+    onRetryPackageMetadata: () => calls.push("retry-metadata"),
     onRowFocus: (index, rowId) => calls.push(`row:${index}:${rowId}`),
     onShowOverview: () => calls.push("overview"),
     onTableFocus: (index, rowId) =>
@@ -185,6 +186,20 @@ test("overview bindings dispatch explorer navigation from the wall controls", ()
   assert.equal(
     root.queriedSelectors.has(".mde-focus .mde-row[data-mde-row]"),
     false);
+});
+
+test("metadata failure retry binds without an open explorer", () => {
+  const root = new FakeRoot();
+  const retry = root.add("[data-package-metadata-retry]", new FakeElement());
+  const calls: string[] = [];
+
+  bindMetadataExplorer(
+    fakeDom.parentNode(root),
+    null,
+    recordingActions(calls));
+  retry.dispatch("click");
+
+  assert.deepEqual(calls, ["retry-metadata"]);
 });
 
 test("focus bindings dispatch lightbox controls and keep inner clicks contained", () => {
@@ -363,6 +378,7 @@ function assembly(overrides = {}) {
     isAssembly: true,
     metadataSize: 4096,
     metadataVersion: "v4.0.30319",
+    metadataVersionTruncated: false,
     projectedTableTotal: 2,
     heaps: [
       { name: "String", sizeInBytes: 1024, maxAddress: 900, addressing: "Offset" },
@@ -443,6 +459,7 @@ test("the metadata lens reports loading and failure only for the current scope",
   const failed = renderPackageMetadata(lensOptions({ error: "boom & <bang>", metadata: null }));
   assert.match(failed, /Metadata read failed/);
   assert.match(failed, /boom &amp; &lt;bang&gt;/);
+  assert.match(failed, /data-package-metadata-retry/);
 
   // A stale key means the loaded image belongs to a different scope, so neither the error nor
   // the result may be shown as this scope's answer.
@@ -460,9 +477,37 @@ test("the metadata lens surfaces a partial-read warning alongside the image", ()
   assert.match(html, /1 assembly · net10\.0/);
 });
 
+test("the metadata lens distinguishes a truncated metadata version", () => {
+  const truncated = renderPackageMetadata(lensOptions({
+    metadata: {
+      assemblies: [assembly({
+        metadataVersion: "v4.0.30319",
+        metadataVersionTruncated: true,
+      })],
+    },
+  }));
+  const complete = renderPackageMetadata(lensOptions());
+
+  assert.match(truncated, /v4\.0\.30319…/);
+  assert.doesNotMatch(complete, /v4\.0\.30319…/);
+});
+
 test("the metadata lens reports an image with no ECMA-335 metadata", () => {
   const html = renderPackageMetadata(lensOptions({ metadata: { assemblies: [] } }));
   assert.match(html, /No metadata images/);
+});
+
+test("the metadata lens does not render all-failed inspection as valid emptiness", () => {
+  const html = renderPackageMetadata(lensOptions({
+    metadata: {
+      assemblies: [],
+      inspectionError: "Assembly unavailable: InvalidImage.",
+    },
+  }));
+  assert.match(html, /Metadata read failed/);
+  assert.match(html, /Assembly unavailable: InvalidImage\./);
+  assert.doesNotMatch(html, /No metadata images/);
+  assert.doesNotMatch(html, /native or resource-only/);
 });
 
 test("an assembly block lists non-empty heaps and tables sorted by row count", () => {
@@ -619,6 +664,38 @@ test("a loaded table card pages within its row count", () => {
   assert.doesNotMatch(html, /data-mde-page="2:3" disabled/);
 });
 
+test("a partial final page returns to the preceding requested window", () => {
+  const data = {
+    index: 2,
+    name: "TypeDef",
+    rowCount: 101,
+    startRowId: 101,
+    columns: [{ name: "Name", kind: "String" }],
+    rows: [
+      {
+        rowId: 101,
+        token: 0x02000065,
+        cells: [{ kind: "scalar", display: "Final" }],
+      },
+    ],
+  };
+  const html = renderMetadataExplorer(context({
+    windows: {
+      2: {
+        loading: false,
+        error: "",
+        data,
+        startRowId: 101,
+        maxRows: 50,
+      },
+    },
+  }));
+
+  assert.match(html, /rows 101–101 of 101/);
+  assert.match(html, /data-mde-page="2:51"/);
+  assert.doesNotMatch(html, /data-mde-page="2:100"/);
+});
+
 test("a table window error is shown rather than an empty grid", () => {
   const html = renderMetadataExplorer(context({
     windows: { 2: { loading: false, error: "table read failed", data: null } },
@@ -657,9 +734,11 @@ test("handle and range cells render as ref->def jumps naming the target table", 
   assert.match(handle, /TypeDef #7/);
 
   const range = renderExplorerCell(
-    { kind: "range", targetTable: 2, startRowId: 3, endRowId: 5, count: 3 }, null, ctx);
+    { kind: "range", targetTable: 2, startRowId: 3, endRowId: 5, count: 2 }, null, ctx);
   assert.match(range, /data-mde-jump="2:3"/);
-  assert.match(range, /TypeDef #3‥5/);
+  assert.match(range, /title="→ TypeDef rows 3‥4"/);
+  assert.match(range, /TypeDef #3‥4/);
+  assert.doesNotMatch(range, /3‥5/);
 });
 
 test("empty handle and range cells are nil rather than dead jumps", () => {
