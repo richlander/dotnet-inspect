@@ -1,5 +1,6 @@
 using DotnetInspector.Commands;
 using DotnetInspector.Core;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.CommandLine;
 
@@ -182,18 +183,37 @@ public static class ArgumentPreprocessor
         // Two exceptions to "conservative" that are still fully deterministic from the raw
         // tokens: an `.nupkg` target routes straight to `package` (only `.dll` routes to
         // `library`), and a redundant, self-referential `--package <same target>` also routes
-        // to `package` (RewriteAsync's `IsExplicitSourceIdentity` check). The target token
-        // need not sit at index 0 -- a leading global option (e.g. `--tips`) can precede it --
-        // so this keys off the resolved `commandToken` itself, matching how
+        // to `package` (RewriteAsync's `IsExplicitSourceIdentity` check) -- but only when no
+        // `--type`/`--member` selector AND no second positional token is also present, since
+        // `TryRouteExplicitSourceTarget` checks those before falling back to the self-
+        // referential-identity branch and routes to `type`/`member` instead (a second
+        // positional is itself the deferred type/member target once the redundant `--package
+        // <target>` pair is set aside -- see `TryFindPositionalIndex`). The target token need
+        // not sit at index 0 -- a leading global option (e.g. `--tips`) can precede it -- so
+        // this keys off the resolved `commandToken` itself, matching how
         // `platformIsValueless`/the explicit-`package`-command check above already work.
+        //
+        // A target with explicit generic notation (e.g. `List<T>`) never routes to `package`
+        // from this fallback shape -- RewriteAsync's `hasExplicitApiSource` branch (driven by
+        // any `--library <value>` reaching it unexpanded) takes it to `type`/`member` before the
+        // final `ContainsOption(tokens, "--library") => package` catch-all is reached. Expanding
+        // its `--library`'s value here would misroute it the same way the self-referential-
+        // package/type-selector case above does.
         bool isDllTarget = commandToken != null
             && CommandLineHelpers.TryClassifyAsFilePath(commandToken, out var routedDllPath, out _)
             && routedDllPath != null;
+        bool hasTypeOrMemberSelector = commandToken != null
+            && ContainsAnyOption(args, "-t", "--type", "-m", "--member");
+        bool hasExplicitGenericTarget = commandToken != null
+            && TypeMatcher.HasExplicitGenericNotation(commandToken);
         bool hasSelfReferentialPackageOption = commandToken != null
+            && !hasTypeOrMemberSelector
+            && !HasSecondPositionalToken(args, commandTokenIndex)
             && HasOptionValueEqualTo(args, "--package", commandToken);
         if (!isPackageCommand && commandToken != null
             && !KnownCommands.Contains(commandToken)
             && !isDllTarget
+            && !hasExplicitGenericTarget
             && (hasSelfReferentialPackageOption
                 || !ContainsAnyOption(args, "--package", "--platform", "--project", "-t", "--type", "-m", "--member"))
             && ContainsAnyOption(args, "--library", "--version", "--versions", "--versions-with-feed", "--latest-version"))
@@ -224,32 +244,34 @@ public static class ArgumentPreprocessor
         }
 
         bool lineModeRequested = args.Take(endOfOptions)
-            .Any(static a => a is "--lines" or "--tail-lines");
+            .Any(static a => IsLineModeFlagSet(a, "--lines") || IsLineModeFlagSet(a, "--tail-lines"));
         if (lineModeRequested)
         {
             int? count = null;
             for (int i = 0; i < endOfOptions; i++)
             {
-                if (args[i].StartsWith("-n=", StringComparison.Ordinal)
-                    && int.TryParse(args[i].AsSpan(3), out var inline)
-                    && inline > 0)
+                var (name, attachedValue) = SplitAttachedOptionValue(args[i]);
+                if (!string.Equals(name, "-n", StringComparison.Ordinal))
+                    continue;
+
+                if (attachedValue != null)
                 {
-                    count = inline;
+                    if (int.TryParse(attachedValue, out var inline) && inline > 0)
+                        count = inline;
                     break;
                 }
 
-                if (args[i] == "-n"
-                    && i + 1 < endOfOptions
+                if (i + 1 < endOfOptions
                     && int.TryParse(args[i + 1], out var separate)
                     && separate > 0)
                 {
                     count = separate;
-                    break;
                 }
+                break;
             }
 
             bool tailLinesRequested = args.Take(endOfOptions)
-                .Any(static a => a is "--tail" or "--tail-lines");
+                .Any(static a => IsLineModeFlagSet(a, "--tail") || IsLineModeFlagSet(a, "--tail-lines"));
             if (tailLinesRequested)
             {
                 TailLines = count;
@@ -465,6 +487,63 @@ public static class ArgumentPreprocessor
         }
 
         return -1;
+    }
+
+    /// <summary>
+    /// True when a second positional (non-option) token exists after <paramref
+    /// name="firstIndex"/>, mirroring how <c>TryFindPositionalIndex</c> detects a deferred
+    /// type/member target once a redundant "--package &lt;target&gt;" pair is set aside.
+    /// </summary>
+    private static bool HasSecondPositionalToken(string[] args, int firstIndex)
+    {
+        for (var i = firstIndex + 1; i < args.Length; i++)
+        {
+            var token = args[i];
+            if (!token.StartsWith("-", StringComparison.Ordinal))
+                return true;
+
+            var optionName = token.Split('=', 2)[0];
+            if (OptionsWithFollowingValue.Contains(optionName)
+                && !token.Contains('=', StringComparison.Ordinal)
+                && i + 1 < args.Length
+                && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
+            {
+                i++;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Splits a token like <c>--lines=true</c> or <c>-n:5</c> into its option name and
+    /// attached value, recognizing both the <c>=</c> and <c>:</c> separators System.CommandLine
+    /// accepts (this file's other helpers only recognize <c>=</c>, which is what caused
+    /// <c>--lines=true</c>/<c>--tail-lines=true</c>/<c>-n:5</c> to silently miss line-mode
+    /// detection -- see Round 15).
+    /// </summary>
+    private static (string Name, string? Value) SplitAttachedOptionValue(string token)
+    {
+        var separatorIndex = token.IndexOfAny(['=', ':']);
+        return separatorIndex < 0
+            ? (token, null)
+            : (token[..separatorIndex], token[(separatorIndex + 1)..]);
+    }
+
+    /// <summary>
+    /// True when <paramref name="token"/> sets boolean flag <paramref name="flagName"/> to a
+    /// truthy value: bare presence (no attached value) or an explicit <c>=true</c>/<c>:true</c>
+    /// value. An explicit <c>=false</c>/<c>:false</c> value is not truthy.
+    /// </summary>
+    private static bool IsLineModeFlagSet(string token, string flagName)
+    {
+        var (name, value) = SplitAttachedOptionValue(token);
+        if (!string.Equals(name, flagName, StringComparison.Ordinal))
+            return false;
+
+        return value is null
+            || !bool.TryParse(value, out var parsed)
+            || parsed;
     }
 
     private static bool ShouldTreatPlatformFollowerAsLibrary(string[] args, int commandIndex, int platformIndex)

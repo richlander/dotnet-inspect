@@ -122,6 +122,64 @@ public class CommandLineLimitSlice4677Tests
         Assert.Equal(
             ["router", "System.Text.Json", "--platform", "--version", "-5"],
             CommandLineBuilder.PreprocessArgs(["System.Text.Json", "--platform", "--version", "-5"]));
+
+        // Round 15 (Sol): a target with explicit generic notation (e.g. "List<T>") never
+        // routes to `package` from this fallback shape -- RewriteAsync's hasExplicitApiSource
+        // branch takes any --library <value> reaching it unexpanded to type/member before the
+        // final "ContainsOption(tokens, --library) => package" catch-all is reached. A bare -N
+        // there must stay attached to --library as its required value, not expand.
+        Assert.Equal(
+            ["router", "System.Collections.Generic.List<T>", "--library", "-2"],
+            CommandLineBuilder.PreprocessArgs(["System.Collections.Generic.List<T>", "--library", "-2"]));
+
+        // Round 15 (Sol): the self-referential "--package <same target>" exception from Round
+        // 14 must not override a --type/--member selector also present -- RewriteAsync's
+        // TryRouteExplicitSourceTarget checks --type/--member before the self-referential-
+        // identity fallback and routes to `type`/`member` instead, where --library is
+        // required-value, not the package primary-library selector.
+        Assert.Equal(
+            ["router", "System.Text.Json", "--package", "System.Text.Json", "--type", "JsonSerializer", "--library", "-2"],
+            CommandLineBuilder.PreprocessArgs(
+                ["System.Text.Json", "--package", "System.Text.Json", "--type", "JsonSerializer", "--library", "-2"]));
+
+        // Round 15 (Opus): the self-referential exception must also decline when a second,
+        // unattached positional token is present (not just an explicit --type/--member
+        // selector) -- RewriteAsync's TryFindPositionalIndex treats that second positional as
+        // the deferred type/member target once the redundant "--package <target>" pair is set
+        // aside, routing to `type`/`member`, not `package`.
+        Assert.Equal(
+            ["router", "System.Text.Json", "--package", "System.Text.Json", "JsonSerializer", "--library", "-2"],
+            CommandLineBuilder.PreprocessArgs(
+                ["System.Text.Json", "--package", "System.Text.Json", "JsonSerializer", "--library", "-2"]));
+    }
+
+    [Fact]
+    public void LineModeDetectionRecognizesAttachedOptionValueForms()
+    {
+        // Round 15 (Opus): --lines/--tail-lines/--tail line-mode detection compared raw tokens
+        // for exact equality, missing the "=" and ":" attached-value forms System.CommandLine
+        // accepts for boolean flags and -n's value -- silently dropping the requested line
+        // window with no error, rather than reporting one of these unrecognized.
+        CommandLineBuilder.PreprocessArgs(["package", "System.Text.Json", "-n", "5", "--lines"]);
+        Assert.Equal(5, CommandLineBuilder.HeadLines);
+
+        CommandLineBuilder.PreprocessArgs(["package", "System.Text.Json", "-n", "5", "--lines=true"]);
+        Assert.Equal(5, CommandLineBuilder.HeadLines);
+
+        CommandLineBuilder.PreprocessArgs(["package", "System.Text.Json", "-n", "5", "--lines:true"]);
+        Assert.Equal(5, CommandLineBuilder.HeadLines);
+
+        CommandLineBuilder.PreprocessArgs(["package", "System.Text.Json", "-n:5", "--lines"]);
+        Assert.Equal(5, CommandLineBuilder.HeadLines);
+
+        CommandLineBuilder.PreprocessArgs(["package", "System.Text.Json", "-n", "5", "--tail-lines=true"]);
+        Assert.Equal(5, CommandLineBuilder.TailLines);
+        Assert.Null(CommandLineBuilder.HeadLines);
+
+        // An explicit "=false"/":false" must not enable line mode.
+        CommandLineBuilder.PreprocessArgs(["package", "System.Text.Json", "-n", "5", "--lines=false"]);
+        Assert.Null(CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
     }
 
     [Fact]
