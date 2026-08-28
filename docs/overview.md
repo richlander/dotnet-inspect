@@ -123,6 +123,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   non-cryptographic role of MVID-scoped metadata addresses.
 - [Architecture](architecture.md): command and metadata architecture.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
+- [Analysis surfaces and universes](design/analysis-surfaces-and-universes.md):
+  host-neutral request topology separating report surface, finite evidence
+  universe, targeted/census mode, capability introspection, and result
+  projection without owning producer semantics or presentation.
 - [`ts-jsexport` TypeScript facade generation](design/ts-jsexport.md): ownership,
   type views, compiler handoff, related generator categories, and migration from
   direct JavaScript plus declaration emission.
