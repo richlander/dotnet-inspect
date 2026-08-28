@@ -41,10 +41,12 @@ public static class AssemblyOnlyInspector
             artifacts.IssueLease(authorization);
         ArtifactDescriptor descriptor =
             AssertSingle(artifacts.GetCatalog(lease));
-        if (!artifacts.HasRole(
+        ArtifactContentReference content =
+            artifacts.GetContentReference(
                 descriptor.Identity,
-                ArtifactWorkspaceRole.CallerDesignated,
-                lease))
+                lease);
+        if (!content.HasRole(
+                ArtifactWorkspaceRole.CallerDesignated))
         {
             throw new UnauthorizedAccessException(
                 "The local artifact lacks caller-designation authority.");
@@ -52,9 +54,7 @@ public static class AssemblyOnlyInspector
 
         ResolvedAssemblyReference assembly =
             ResolvedAssemblyReference.CreateFromStreamIfManaged(
-                () => artifacts.OpenRead(
-                    descriptor.Identity,
-                    lease),
+                content.OpenRead,
                 AssemblyResolutionProvenance.Local(
                     "artifact-session"))
             ?? throw new BadImageFormatException(

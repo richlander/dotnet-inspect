@@ -287,8 +287,16 @@ public static class TypeCommand
 
                     // Explicit --shape cannot honor a section/projection query; warn rather than
                     // silently dropping the selection.
-                    if (effectiveOptions is { ShapeOutput: true, HasSectionQuery: true, Count: false })
+                    bool shapeProjectionWillReject =
+                        LensProjection.IsRequested(effectiveOptions)
+                        || effectiveOptions.JsonOutput
+                            && (effectiveOptions.Fields is { Length: > 0 }
+                                || effectiveOptions.Columns is { Length: > 0 });
+                    if (effectiveOptions is { ShapeOutput: true, HasSectionQuery: true, Count: false }
+                        && !shapeProjectionWillReject)
+                    {
                         CommandError.WriteWarning("--shape does not support -S/--columns/--fields or --where Kind=...; selection was ignored.");
+                    }
 
                     // Enrich with local XML docs only (source info is in the source command)
                     {
@@ -428,7 +436,8 @@ public static class TypeCommand
                         tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
                         verbosity: (int)options.Verbosity,
                         sectionCostAnnotations: typePipeline.GetCostAnnotations(),
-                        sectionCategories: typePipeline.GetCategoryMap());
+                        sectionCategories: typePipeline.GetCategoryMap(),
+                        projection: options);
                 }
                 else if (TryWritePrefixBrowse(
                     api,
