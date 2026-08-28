@@ -45,8 +45,6 @@ public class ImplementsCommand
                         format,
                         tree: options.Tree,
                         tableExplicitlySet: options.TabularExplicitlySet,
-                        formatExplicitlySet: options.FormatExplicitlySet,
-                        plainText: options.PlainText,
                         noHeader: options.NoHeader));
             }
 

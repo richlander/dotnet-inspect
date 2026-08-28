@@ -49,8 +49,7 @@ public class FindCommand
                                 options.PlainText),
                             tree: options.Tree,
                             tableExplicitlySet: options.TabularExplicitlySet,
-                            noHeader: options.NoHeader,
-                            formatExplicitlySet: options.FormatExplicitlySet),
+                            noHeader: options.NoHeader),
                         sectionCostAnnotations:
                             pipeline.GetCostAnnotations(),
                         sectionCategories:
@@ -76,8 +75,7 @@ public class FindCommand
                             options.PlainText),
                         tree: options.Tree,
                         tableExplicitlySet: options.TabularExplicitlySet,
-                        noHeader: options.NoHeader,
-                        formatExplicitlySet: options.FormatExplicitlySet));
+                        noHeader: options.NoHeader));
             }
 
             if (options.IsPackageProfile)

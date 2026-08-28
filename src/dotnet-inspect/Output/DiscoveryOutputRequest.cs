@@ -22,12 +22,6 @@ public sealed record DiscoveryOutputRequest : IProjectionOptions
     /// </summary>
     public bool TableExplicitlySet { get; init; }
 
-    /// <summary>Whether the caller explicitly selected the output format.</summary>
-    public bool FormatExplicitlySet { get; init; }
-
-    /// <summary>Whether plain-text rendering was requested.</summary>
-    public bool PlainText { get; init; }
-
     /// <summary>Header behavior for tabular output.</summary>
     public DiscoveryHeaderPolicy HeaderPolicy { get; init; } = DiscoveryHeaderPolicy.Default;
 
@@ -48,9 +42,17 @@ public sealed record DiscoveryOutputRequest : IProjectionOptions
     public bool HasColumnProjection =>
         Fields is { Length: > 0 } || Columns is { Length: > 0 };
 
-    /// <summary>True when this request must not be promoted to a tree automatically.</summary>
-    public bool SuppressesTreePromotion =>
-        TreeMode == DiscoveryTreeMode.SuppressPromotion;
+    /// <summary>True when discovery may replace the flat listing with its automatic tree.</summary>
+    public bool AllowsAutomaticTreePromotion =>
+        TreeMode == DiscoveryTreeMode.Automatic
+        && !TableExplicitlySet
+        && Format is not (
+            OutputFormat.Tsv
+            or OutputFormat.Jsonl
+            or OutputFormat.Json
+            or OutputFormat.PlainText)
+        && !HasColumnProjection
+        && Rows is null;
 
     /// <summary>
     /// Resolves a command's effective format when a low-level caller supplied the legacy output
@@ -78,32 +80,18 @@ public sealed record DiscoveryOutputRequest : IProjectionOptions
         OutputFormat format,
         bool tree = false,
         bool tableExplicitlySet = false,
-        bool? plainText = null,
-        bool noHeader = false,
-        bool formatExplicitlySet = false)
+        bool noHeader = false)
     {
-        bool hasProjection = projection?.Fields is { Length: > 0 }
-            || projection?.Columns is { Length: > 0 };
-        bool suppressPromotion =
-            tableExplicitlySet
-            || format is OutputFormat.Tsv or OutputFormat.Jsonl or OutputFormat.Json or OutputFormat.PlainText
-            || hasProjection
-            || projection?.Rows is not null;
-
         return new DiscoveryOutputRequest
         {
             Format = format,
             TableExplicitlySet = tableExplicitlySet,
-            FormatExplicitlySet = formatExplicitlySet,
-            PlainText = plainText ?? format == OutputFormat.PlainText,
             HeaderPolicy = noHeader
                 ? DiscoveryHeaderPolicy.Suppress
                 : DiscoveryHeaderPolicy.Default,
             TreeMode = tree
                 ? DiscoveryTreeMode.Force
-                : suppressPromotion
-                    ? DiscoveryTreeMode.SuppressPromotion
-                    : DiscoveryTreeMode.Automatic,
+                : DiscoveryTreeMode.Automatic,
             Count = projection?.Count ?? false,
             Print = projection?.Print ?? false,
             Value = projection?.Value ?? false,
@@ -142,9 +130,7 @@ public sealed record DiscoveryOutputRequest : IProjectionOptions
             format,
             tree,
             tableExplicitlySet,
-            plainText,
-            noHeader: showHeader == false,
-            formatExplicitlySet: tableExplicitlySet || format != OutputFormat.Table)
+            noHeader: showHeader == false)
             with
             {
                 HeaderPolicy = showHeader is true

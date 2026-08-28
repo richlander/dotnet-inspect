@@ -28,7 +28,7 @@ public static class DiscoverOutput
         sectionCategories = FilterCategories(sectionCategories, schema.SectionNames);
         try
         {
-            if (!ValidateRequest(request, discover, schema, sectionCategories))
+            if (!ValidateRequest(request))
                 return 1;
         }
         catch (Exception ex)
@@ -46,17 +46,11 @@ public static class DiscoverOutput
             var projectedRows = GetDiscoveryRows(discover, schema, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
             if (projectedRows == null)
                 return 1;
-            projectedRows = ApplyFieldRowProjection(
-                request,
-                projectedRows,
-                discover,
-                schema,
-                sectionCategories);
             var visibleRows = RowWindow.Apply(request.Rows, projectedRows);
             try
             {
                 return LensProjection.TryProject(
-                        request,
+                        request with { Fields = null },
                         "-D/--discover",
                         visibleRows.Count,
                         out var projectionExitCode,
@@ -74,7 +68,7 @@ public static class DiscoverOutput
         // Auto-promote to tree when discovering items from multiple sections
         bool tree = request.TreeMode == DiscoveryTreeMode.Force;
         if (!tree
-            && request.TreeMode == DiscoveryTreeMode.Automatic
+            && request.AllowsAutomaticTreePromotion
             && discover is { Length: > 0 }
             && !discover.Any(value => SelectResolver.TryResolveCategory(
                 value, sectionCategories, schema.SectionNames, out _, out _))
@@ -83,7 +77,7 @@ public static class DiscoverOutput
 
         // Auto-promote bare -D to tree at Detailed verbosity (sections → items)
         if (!tree
-            && request.TreeMode == DiscoveryTreeMode.Automatic
+            && request.AllowsAutomaticTreePromotion
             && (discover is null or { Length: 0 })
             && verbosity >= 3)
             tree = true;
@@ -123,12 +117,6 @@ public static class DiscoverOutput
         var discoveryRows = GetDiscoveryRows(discover, schema, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
         if (discoveryRows == null)
             return 1;
-        discoveryRows = ApplyFieldRowProjection(
-            request,
-            discoveryRows,
-            discover,
-            schema,
-            sectionCategories);
         discoveryRows = [.. RowWindow.Apply(request.Rows, discoveryRows)];
 
         try
@@ -266,7 +254,7 @@ public static class DiscoverOutput
         sectionCategories = FilterCategories(sectionCategories, schema.SectionNames);
         try
         {
-            if (!ValidateRequest(request, discover, schema, sectionCategories))
+            if (!ValidateRequest(request))
                 return 1;
         }
         catch (Exception ex)
@@ -291,7 +279,7 @@ public static class DiscoverOutput
                     try
                     {
                         return LensProjection.TryProject(
-                                request,
+                                request with { Fields = null },
                                 "-D/--discover",
                                 0,
                                 out var emptyProjectionExitCode,
@@ -378,11 +366,7 @@ public static class DiscoverOutput
     private static readonly DocumentSchema DiscoverySchema = new DocumentSchema()
         .Add("Discovery", "column", "Name", "Kind");
 
-    private static bool ValidateRequest(
-        DiscoveryOutputRequest request,
-        string[]? discover,
-        DocumentSchema schema,
-        IReadOnlyDictionary<string, string[]>? sectionCategories)
+    private static bool ValidateRequest(DiscoveryOutputRequest request)
     {
         if (request.Format == OutputFormat.Mermaid)
         {
@@ -409,80 +393,17 @@ public static class DiscoverOutput
             return false;
         }
 
+        bool fieldsValid = ProjectionDiagnostics.ValidateProjection(
+            DiscoverySchema,
+            "Discovery",
+            request.Fields,
+            columns: null);
         bool columnsValid = ProjectionDiagnostics.ValidateProjection(
             DiscoverySchema,
             "Discovery",
             fields: null,
             request.Columns);
-        if (!columnsValid)
-            return false;
-
-        if (request.Fields is not { Length: > 0 })
-            return true;
-
-        return ProjectionDiagnostics.ValidateProjection(
-            CreateFieldProjectionSchema(discover, schema, sectionCategories),
-            "Discovery",
-            request.Fields,
-            columns: null);
-    }
-
-    private static DocumentSchema CreateFieldProjectionSchema(
-        string[]? discover,
-        DocumentSchema schema,
-        IReadOnlyDictionary<string, string[]>? sectionCategories)
-    {
-        var names = new HashSet<string>(["Name", "Kind"], StringComparer.OrdinalIgnoreCase);
-        foreach (var sectionName in DiscoverProjectionSections(
-            discover,
-            schema,
-            sectionCategories))
-        {
-            var section = schema.GetSection(sectionName);
-            if (section is null)
-                continue;
-
-            foreach (var item in section.Items)
-                names.Add(item.Name);
-        }
-
-        return new DocumentSchema()
-            .Add("Discovery", "column", [.. names]);
-    }
-
-    private static IEnumerable<string> DiscoverProjectionSections(
-        string[]? discover,
-        DocumentSchema schema,
-        IReadOnlyDictionary<string, string[]>? sectionCategories)
-    {
-        if (discover is null or { Length: 0 })
-            return schema.SectionNames;
-
-        var sections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var name in discover)
-        {
-            if (SelectResolver.TryResolveCategory(
-                    name,
-                    sectionCategories,
-                    schema.SectionNames,
-                    out _,
-                    out var categorySections))
-            {
-                sections.UnionWith(categorySections);
-                continue;
-            }
-
-            if (name.StartsWith("@", StringComparison.Ordinal))
-                continue;
-
-            sections.UnionWith(
-                SelectResolver.ResolveSingle(
-                    name,
-                    schema.SectionNames,
-                    singleGlob: true).Matches);
-        }
-
-        return sections;
+        return fieldsValid && columnsValid;
     }
 
     private static string FormatName(OutputFormat format) => format switch
@@ -515,38 +436,6 @@ public static class DiscoverOutput
             }
         }
         return resolved.Count > 0 ? resolved.ToArray() : null;
-    }
-
-    private static List<DiscoveryRow> ApplyFieldRowProjection(
-        DiscoveryOutputRequest request,
-        IReadOnlyList<DiscoveryRow> rows,
-        string[]? discover,
-        DocumentSchema schema,
-        IReadOnlyDictionary<string, string[]>? sectionCategories)
-    {
-        if (request.Fields is not { Length: > 0 })
-            return [.. rows];
-
-        var itemNames = DiscoverProjectionSections(discover, schema, sectionCategories)
-            .SelectMany(sectionName => schema.GetSection(sectionName)?.Items ?? [])
-            .Select(item => item.Name)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-        if (itemNames.Length == 0)
-            return [.. rows];
-
-        var requestedItems = request.Fields
-            .Where(name =>
-                !SelectResolver.ResolveSingle(
-                    name,
-                    ["Name", "Kind"]).Matches.Any())
-            .SelectMany(name => SelectResolver.ResolveSingle(name, itemNames).Matches)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (requestedItems.Count == 0)
-            return [.. rows];
-
-        return [.. rows.Where(row => requestedItems.Contains(row.Name))];
     }
 
     private static List<ProjectedDiscoveryRow> ProjectJsonRows(

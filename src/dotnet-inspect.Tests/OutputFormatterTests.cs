@@ -2115,6 +2115,27 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public async Task DiscoverOutput_CountUsesResolvedDiscoveryProjection()
+    {
+        var schema = new DocumentSchema()
+            .Add("Results", "column", "Pattern", "Type");
+        var request = DiscoveryOutputRequest.From(
+            projection: new TestProjectionOptions
+            {
+                Count = true,
+                Fields = ["Kind"],
+            },
+            format: OutputFormat.Table);
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(DiscoverOutput.Execute(["Results"], schema, request)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal("2", result.Output.Trim());
+    }
+
+    [Fact]
     public async Task DiscoverOutput_RowWindowHonorsOutputDestination()
     {
         var directory = Directory.CreateDirectory(

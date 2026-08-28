@@ -72,8 +72,7 @@ public class DiffCommand
                     format,
                     tree: options.Tree,
                     tableExplicitlySet: options.TabularExplicitlySet,
-                    noHeader: options.NoHeader,
-                    formatExplicitlySet: options.FormatExplicitlySet),
+                    noHeader: options.NoHeader),
                 sectionCostAnnotations: pipeline.GetCostAnnotations(),
                 sectionCategories: pipeline.GetCategoryMap());
         }

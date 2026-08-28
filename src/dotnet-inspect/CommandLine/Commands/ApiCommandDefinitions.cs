@@ -130,9 +130,7 @@ public static class ApiCommandDefinitions
                             typeFormat,
                             tree: d.Tree,
                             tableExplicitlySet: opts.IsTableExplicitlySet(parseResult),
-                            plainText: typeFormat == OutputFormat.PlainText,
-                            noHeader: parseResult.GetValue(opts.NoHeaders),
-                            formatExplicitlySet: opts.IsFormatExplicitlySet(parseResult)),
+                            noHeader: parseResult.GetValue(opts.NoHeaders)),
                         verbosity: (int)opts.ParseVerbosity(parseResult),
                         sectionCategories: typePipeline.GetCategoryMap(),
                         listedCategoryDoors: null);
@@ -296,9 +294,7 @@ public static class ApiCommandDefinitions
                             memberFormat,
                             tree: d.Tree,
                             tableExplicitlySet: opts.IsTableExplicitlySet(parseResult),
-                            plainText: memberFormat == OutputFormat.PlainText,
-                            noHeader: parseResult.GetValue(opts.NoHeaders),
-                            formatExplicitlySet: opts.IsFormatExplicitlySet(parseResult)),
+                            noHeader: parseResult.GetValue(opts.NoHeaders)),
                         verbosity: (int)opts.ParseVerbosity(parseResult),
                         sectionCategories: memberPipeline.GetCategoryMap(),
                         listedCategoryDoors: null);

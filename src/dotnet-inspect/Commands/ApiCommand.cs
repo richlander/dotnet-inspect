@@ -426,9 +426,7 @@ public class ApiCommand
                         options.PlainText),
                     tree: options.Tree,
                     tableExplicitlySet: options.TabularExplicitlySet,
-                    plainText: options.PlainText,
-                    noHeader: options.NoHeader,
-                    formatExplicitlySet: options.FormatExplicitlySet),
+                    noHeader: options.NoHeader),
                 sectionCostAnnotations: singleTypeMode ? memberPipeline.GetCostAnnotations() : null,
                 sectionCategories: singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap()));
         }
@@ -3164,9 +3162,7 @@ public class ApiCommand
                     options.PlainText),
                 tree: options.Tree,
                 tableExplicitlySet: options.TabularExplicitlySet,
-                plainText: options.PlainText,
-                noHeader: options.NoHeader,
-                formatExplicitlySet: options.FormatExplicitlySet),
+                noHeader: options.NoHeader),
             verbosity: (int)options.Verbosity, fullSchema: fullSchema,
             sectionCostAnnotations: displayAnnotations,
             sectionCategories: memberPipeline.GetCategoryMap());

@@ -42,8 +42,6 @@ public static class VocabularyCommand
                         options.PlainText),
                     tree: options.Tree,
                     tableExplicitlySet: options.TabularExplicitlySet,
-                    formatExplicitlySet: options.FormatExplicitlySet,
-                    plainText: options.PlainText,
                     noHeader: options.NoHeader),
                 sectionCategories: categoryMap,
                 listedCategoryDoors: null);
