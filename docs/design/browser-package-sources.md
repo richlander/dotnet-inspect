@@ -387,14 +387,21 @@ operation result contains exactly one of value or failure. Its success and
 failed variants have the same closed constructor, copy, and init-setter rules
 as their payloads.
 
-For collection results, the bound factory first snapshots the supplied
-observations into private storage, then validates the snapshot against its
-identity and issuer, then publishes a read-only view that does not expose the
-backing array. Mutating the original list or array cannot alter the result after
-construction. Projection helpers similarly take the bound factory rather than
-independent producer, association, transport, or issuer arguments. Mixed
-identity or foreign-factory provenance is a construction error, and empty
-success and failure remain equally attributable.
+For caller-supplied aggregate data, the bound factory first snapshots the
+supplied data into owner-controlled immutable storage, then validates the
+snapshot against its identity and issuer, then publishes an immutable view.
+Search and version observations use private copied storage without an exposed
+backing array. Manifest content is copied into `ImmutableArray<byte>` rather
+than retaining an array-backed `ReadOnlyMemory<byte>`, whose backing array can
+still be recovered and mutated. Mutating any original list or buffer cannot
+alter a result after construction.
+
+The caller-owned payload stream remains the explicit exception: its content is
+consumed after the result returns and is not snapshotted into memory. Its
+deadline and failure boundary remains #4770. Projection helpers take the bound
+factory rather than independent producer, association, transport, or issuer
+arguments. Mixed identity or foreign-factory provenance is a construction
+error, and empty success and failure remain equally attributable.
 
 Multi-source aggregation remains above NuGetFetch. It retains producer identity
 as provenance but does not use producer equality alone to collapse configured
@@ -444,6 +451,11 @@ by their existing request URL or package coordinate. They do not consume
 producer identity for authorization or alias collapse. This identity is
 retained provenance; changing cache semantics belongs to a separate cache
 owner.
+
+The stronger end-to-end property that same-producer, different-authority
+package and browser entries never share cache authority is unverified pending
+issues #4797 and #4805. This source-result identity contract supplies the
+negative precondition but does not claim that those owner gates already exist.
 
 ### Migration order
 
@@ -518,6 +530,9 @@ Implementation is not complete until Release gates establish:
   normal DNS source, IDN A-label, IPv4 source, scoped IPv6 source,
   percent-escaped path, root, repeated-root path, and the pinned
   recognized credential-slot owner output;
+- `HttpProducerDisplayHasStableCanonicalVectors` pins exact inert displays for
+  DNS, IDN A-label, IPv4, scoped IPv6 zone case, omitted/default/non-default
+  ports, root, repeated-root, percent-escaped, and trailing-slash inputs;
 - `ProducerIdentityConsumesNormalizedEndpointProjection` is the non-vacuity
   wiring gate: its exact factory signature accepts only the one owner-issued
   projection containing scheme, host kind, address or A-label, ordinal zone,
@@ -559,13 +574,18 @@ Implementation is not complete until Release gates establish:
 - `SourceResultFactoryBindsIssuingIdentity` proves built-in clients construct
   every result through their bound factory; two factories with value-equal
   public source identities reject each other's candidates by issuer reference;
+- `SourceResultIssuerCoversEveryConstructibleShape` derives the expected shape
+  set from the owner-controlled result types and proves issuer presence plus
+  same-public-identity cross-factory rejection for candidate, empty and
+  non-empty search/version, manifest, payload, every failure kind, and success
+  and failed outcomes;
 - `SourceOperationOutcomesBindIssuingIdentity` proves success rejects a value
   from another factory, including one with equal public source identity, and
   failed outcomes can contain only the bound factory's owner-constructed
   failure, with exactly one value or failure per outcome;
-- `SourceResultCollectionsAreImmutableSnapshots` proves mutation of the
-  supplied list or array after construction cannot alter the result and no
-  mutable backing collection is exposed;
+- `SourceResultCollectionsAndBuffersAreImmutableSnapshots` proves mutation of
+  supplied observation lists, arrays, and manifest buffers after construction
+  cannot alter the result and no mutable backing storage is exposed;
 - `IdentityBearingResultShapesAreClosed` uses public-surface reflection to
   prove result, operation-outcome, and failure types have no public constructor,
   clone, copy constructor, or init setter that can replace identity or summary
@@ -583,8 +603,13 @@ Implementation is not complete until Release gates establish:
   formatting, equality, or factory consumer;
 - `LegacyPackageSourceIdentityBehaviorRemainsStable` pins exact vectors for
   legacy factories, `NuGetOrg`, `Value`, endpoint-shaped formatting, equality,
-  and equal-value hash consistency throughout the compatibility window without
-  requiring a cross-process numeric hash value; and
+  and equal-value hash consistency, plus Gallery and NuGetV3
+  `PackageSourceDescriptor` construction, validation, `Identity`, and
+  formatting throughout the compatibility window without requiring a
+  cross-process numeric hash value;
+- `NuGetFetchCachesDoNotConsumeProducerIdentity` locks the response-cache and
+  package-cache key API shapes and their existing request-URL or coordinate
+  behavior while proving `PackageProducerIdentity` is not a cache input; and
 - the NuGetFetch `browser-wasm` build remains the platform compilation gate.
 
 The credential-path gate is relational consumer evidence, not a duplicate
@@ -1398,7 +1423,9 @@ Implementation is not complete until gates prove:
   fail;
 - a mirror lag does not redirect a Gallery-only candidate to that mirror;
 - source-scoped candidate and payload caches cannot cross configured
-  authorities, including two authorities with the same producer label;
+  authorities, including two authorities with the same producer label; this
+  end-to-end property remains unverified pending owner gates from #4797 and
+  #4805;
 - a keyword-search/latest cache entry cannot answer complete listing-aware
   enumeration, and incomplete listing metadata cannot populate that cache;
 - source-relative listing states cover `listed`, `unlisted`, `unknown`, and
