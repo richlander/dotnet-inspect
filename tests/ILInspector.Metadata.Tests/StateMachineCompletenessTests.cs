@@ -543,15 +543,25 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
-    /// Damage to the CLI header's directory *size* alone must reach
-    /// <c>DecodeFailed</c>. This is a different seam from the metadata-signature
-    /// case below: SRM rejects the PE headers outright, so
-    /// <c>HasMetadata</c> throws exactly as it does for a file that is not a PE,
-    /// and the file was classified <c>NotManaged</c> and skipped. A corpus
-    /// holding this specimen beside one valid assembly swept green.
+    /// Zeroing either field of the CLI data directory must reach
+    /// <c>DecodeFailed</c>, not <c>NotManaged</c>.
+    ///
+    /// This is a different seam from the metadata-signature case below: SRM
+    /// rejects the PE headers outright, so <c>HasMetadata</c> throws exactly as
+    /// it does for a file that is not a PE. SRM therefore cannot tell the two
+    /// apart, which is why the harness reads the directory itself.
+    ///
+    /// Round 4 fixed the zeroed-size case and round 5 found the zeroed-RVA case
+    /// still open, because the claim was read from the RVA alone. They are one
+    /// defect wearing two hats, so they are one theory: a file that still
+    /// carries either half of a CLI directory is claiming to be managed, and
+    /// failing to decode it is a finding rather than a reason to skip it. A
+    /// corpus holding either specimen beside one valid assembly swept green.
     /// </summary>
-    [Fact]
-    public void TryMeasure_DamagedCliDirectory_ReportsDecodeFailed()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(4)]
+    public void TryMeasure_DamagedCliDirectory_ReportsDecodeFailed(int fieldOffset)
     {
         byte[] image = File.ReadAllBytes(
             typeof(StateMachineCompletenessTests).Assembly.Location);
@@ -562,10 +572,10 @@ public sealed class StateMachineCompletenessTests
             BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(optional)) == 0x20B
                 ? 112
                 : 96;
-        int cliSize = optional + directories + (14 * 8) + 4;
+        int field = optional + directories + (14 * 8) + fieldOffset;
 
-        Assert.NotEqual(0u, BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(cliSize)));
-        BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(cliSize), 0);
+        Assert.NotEqual(0u, BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(field)));
+        BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(field), 0);
 
         string damaged = Path.Combine(
             Path.GetTempPath(),
@@ -583,6 +593,89 @@ public sealed class StateMachineCompletenessTests
         finally
         {
             File.Delete(damaged);
+        }
+    }
+
+    /// <summary>
+    /// A file whose <c>NumberOfRvaAndSizes</c> does not reach the CLI directory
+    /// still reaches <c>DecodeFailed</c>, because SRM reads that directory
+    /// regardless of the declared count.
+    ///
+    /// A round-5 reviewer proposed the opposite: honour the count, and report
+    /// this specimen <c>NotManaged</c>. Measuring SRM directly settled it the
+    /// other way. On this exact file SRM reports
+    /// <c>NumberOfRvaAndSizes = 14</c>, returns the stale directory anyway,
+    /// answers <c>HasMetadata = true</c>, and only then fails with
+    /// <c>Invalid COR20 header signature</c>. SRM calls the file managed, so a
+    /// decode failure is the honest outcome and skipping it would be the
+    /// laundering this gate exists to prevent.
+    ///
+    /// This test exists to keep that decision from being quietly reversed by
+    /// the next reader who notices the missing count check and assumes it is an
+    /// oversight. If SRM ever starts honouring the count, this test fails and
+    /// the oracle should be changed to match it.
+    /// </summary>
+    [Fact]
+    public void TryMeasure_ShortDirectoryCount_StillDecodeFailed()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(StateMachineCompletenessTests).Assembly.Location);
+
+        int peOffset = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(0x3C));
+        int optional = peOffset + 4 + 20;
+        int directories =
+            BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(optional)) == 0x20B
+                ? 112
+                : 96;
+
+        int metadata;
+        using (var original = new PEReader(
+            File.OpenRead(typeof(StateMachineCompletenessTests).Assembly.Location)))
+        {
+            metadata = original.PEHeaders.MetadataStartOffset;
+        }
+
+        // Shorten the count so directory 14 is undeclared, but leave its bytes.
+        int count = optional + directories - 4;
+        Assert.True(BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(count)) > 14);
+        BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(count), 14);
+        Assert.NotEqual(
+            0u,
+            BinaryPrimitives.ReadUInt32LittleEndian(
+                image.AsSpan(optional + directories + (14 * 8))));
+
+        // Damage the metadata so the file cannot decode, which is what makes the
+        // classification observable at all.
+        new Random(7).NextBytes(image.AsSpan(metadata, 512));
+
+        string stale = Path.Combine(
+            Path.GetTempPath(),
+            $"sm-nodir-{Guid.NewGuid():N}.dll");
+
+        try
+        {
+            File.WriteAllBytes(stale, image);
+
+            using (var reader = new PEReader(File.OpenRead(stale)))
+            {
+                Assert.Equal(14, reader.PEHeaders.PEHeader!.NumberOfRvaAndSizes);
+                Assert.NotEqual(
+                    0,
+                    reader.PEHeaders.PEHeader.CorHeaderTableDirectory
+                        .RelativeVirtualAddress);
+                Assert.True(
+                    reader.HasMetadata,
+                    "SRM ignores NumberOfRvaAndSizes; if this fails, the oracle "
+                        + "should start honouring the count.");
+            }
+
+            Assert.Equal(
+                CorpusOutcome.DecodeFailed,
+                TryMeasure(stale, out _, out _));
+        }
+        finally
+        {
+            File.Delete(stale);
         }
     }
 
@@ -834,8 +927,17 @@ public sealed class StateMachineCompletenessTests
     /// product owns: it exists precisely because SRM cannot answer this question
     /// once it has rejected a file's headers, and because using SRM to classify
     /// SRM's own failures would make the classification circular. It reads
-    /// nothing beyond the directory's RVA, and answers <see cref="ManagedClaim.No"/>
-    /// for every malformed or truncated shape rather than guessing.
+    /// nothing beyond the directory count and the CLI directory's two fields,
+    /// and answers <see cref="ManagedClaim.No"/> for every malformed or
+    /// truncated shape rather than guessing.
+    ///
+    /// The two directions of error are not symmetric, and the code is written
+    /// for that asymmetry. A false <see cref="ManagedClaim.No"/> sends a damaged
+    /// managed assembly to the skip bucket, which is a silent hole in a
+    /// completeness gate. A false <see cref="ManagedClaim.Yes"/> only turns an
+    /// undecodable non-assembly into a visible failure. So the claim is read
+    /// generously — either CLI field non-zero — and the structural
+    /// preconditions around it are read strictly.
     /// </summary>
     static ManagedClaim ReadManagedClaim(Stream stream, ref string? detail)
     {
@@ -906,7 +1008,28 @@ public sealed class StateMachineCompletenessTests
                 return ManagedClaim.No;
             }
 
-            return BinaryPrimitives.ReadUInt32LittleEndian(optional.AsSpan(cli)) != 0
+            // NumberOfRvaAndSizes is deliberately not consulted. The PE spec
+            // says a count below fifteen leaves directory 14 undeclared, so
+            // honouring it looks like the more correct read -- but SRM does not
+            // honour it. Measured on a specimen with the count shortened to 14
+            // and the directory bytes retained: SRM reports
+            // NumberOfRvaAndSizes = 14, then returns that directory anyway and
+            // answers HasMetadata = true. This oracle exists to classify SRM's
+            // failures, so it has to agree with SRM about what SRM will try to
+            // read. A count check here would answer No for a file SRM calls
+            // managed, which is the laundering direction, reintroduced through
+            // the front door. TryMeasure_ShortDirectoryCount_StillDecodeFailed
+            // pins that behaviour.
+            //
+            // Either field being non-zero is a claim. Reading only the RVA would
+            // miss a file whose RVA is zeroed but whose size survives, which is
+            // the same hole that reading only the size would leave in the other
+            // direction. A file that is genuinely not managed has both fields
+            // zero, so requiring both before skipping is the direction that
+            // cannot hide damage.
+            ReadOnlySpan<byte> entry = optional.AsSpan(cli, 8);
+            return BinaryPrimitives.ReadUInt32LittleEndian(entry) != 0
+                || BinaryPrimitives.ReadUInt32LittleEndian(entry[4..]) != 0
                 ? ManagedClaim.Yes
                 : ManagedClaim.No;
         }
