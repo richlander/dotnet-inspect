@@ -146,6 +146,7 @@ on `main`); links point at the PR branch.
 | [`CompileBackAdmission.tla`](https://github.com/richlander/dotnet-inspect/blob/docs/4810-compileback-closure-provenance/docs/models/CompileBackAdmission.tla) ([`.cfg`](https://github.com/richlander/dotnet-inspect/blob/docs/4810-compileback-closure-provenance/docs/models/CompileBackAdmission.cfg)) | [#4838](https://github.com/richlander/dotnet-inspect/pull/4838) | Models the compile-back tool's planning → product-attempt → legacy-attempt → supersession → receipt/verdict transitions for [C# member recompilation](../design/csharp-member-recompilation.md). Checks termination, that `Exact` verdicts always trace to an admitted receipt, that a failed product attempt never crosses into legacy evidence, and that supersession clears the prior receipt. |
 | [`NavigationSession.tla`](https://github.com/richlander/dotnet-inspect/blob/design/inspection-subject-navigation/docs/design/models/inspection-subject-navigation/NavigationSession.tla), [`AtomicRestoration.tla`](https://github.com/richlander/dotnet-inspect/blob/design/inspection-subject-navigation/docs/design/models/inspection-subject-navigation/AtomicRestoration.tla), [`SnapshotAuthority.tla`](https://github.com/richlander/dotnet-inspect/blob/design/inspection-subject-navigation/docs/design/models/inspection-subject-navigation/SnapshotAuthority.tla) (plus matching `.cfg` files and a model [`README.md`](https://github.com/richlander/dotnet-inspect/blob/design/inspection-subject-navigation/docs/design/models/inspection-subject-navigation/README.md)) | [#4830](https://github.com/richlander/dotnet-inspect/pull/4830) | Three independent models backing [Inspection subject navigation](../design/inspection-subject-navigation.md): retained-session intent/supersession/maintenance ordering and effect authority (`NavigationSession`), one-transaction canonical subject+lens restoration (`AtomicRestoration`), and retained-versus-stateless execution and which prior state each may read (`SnapshotAuthority`). Each is scoped to one mechanism; none models identity ranking, availability semantics, UI accessibility, or implementation conformance. |
 | [`SemanticRowSelection.tla`](https://github.com/richlander/dotnet-inspect/blob/docs/4677-selection-planning/docs/models/SemanticRowSelection.tla) ([`.cfg`](https://github.com/richlander/dotnet-inspect/blob/docs/4677-selection-planning/docs/models/SemanticRowSelection.cfg)) | [#4815](https://github.com/richlander/dotnet-inspect/pull/4815) | Models one immutable row-selection plan applied to ordered named sequences for [Semantic row selection](../design/semantic-row-selection.md): sequence-major/stage-major traversal, strict `Range`, positional `Head`/`Tail`, ranked `Top`, resolver caching, callback failure, withheld publication, and atomic success. Checks type safety, atomic publication, at-most-once resolver invocation, sequence/stage failure precedence, and termination under weak fairness. |
+| [`TsJsExportLifecycle.tla`](https://github.com/richlander/dotnet-inspect/blob/design/jsexport-lifecycle-tla/docs/design/models/ts-jsexport-lifecycle/TsJsExportLifecycle.tla) (plus scenario and mutation configurations and a model [`README.md`](https://github.com/richlander/dotnet-inspect/blob/design/jsexport-lifecycle-tla/docs/design/models/ts-jsexport-lifecycle/README.md)) | [#4918](https://github.com/richlander/dotnet-inspect/pull/4918) | Models two generated `ts-jsexport` facades, two callers per facade, one shared SDK runtime, shared-in-flight and serialized coordination, local failure isolation, terminal state, and bounded realm restart. Checks four success/failure scenarios and twelve targeted counterexample mutations without claiming implementation or browser conformance. |
 
 Each PR records its own TLC run (states generated, distinct states, max
 depth) inline next to its model description. [#4815](https://github.com/richlander/dotnet-inspect/pull/4815)
@@ -156,25 +157,24 @@ writing this runbook.
 
 ### Known in-progress work, not yet checked in
 
-As of this writing, two additional models exist only as uncommitted files in
-a contributor's local worktrees and are not linked above because they have no
-pushed branch or PR to point at:
+As of this writing, one additional model exists only as uncommitted files in a
+contributor's local worktree and is not linked above because it has no pushed
+branch or PR to point at:
 
 - `PackageCachePublication.tla` (plus `Safety`/`Liveness`/`BrokenAtomic`/
   `BrokenEviction` configs and a README), for
   [`cache-concurrency.md`](../design/cache-concurrency.md).
-- `TsJsExportLifecycle.tla` (plus several lifecycle-scenario configs and a
-  README), for [`ts-jsexport.md`](../design/ts-jsexport.md).
 
-Update this table once either is committed and pushed.
+Update this table once it is committed and pushed.
 
 ## Check in models as you go
 
 A TLA+ model that exists only as uncommitted files in a local worktree is not
 a checked-in asset — it is not backed up, not reviewable, and invisible to
 every other contributor and agent until it is committed and pushed. The two
-models above are exactly this risk: real, apparently-finished work (model +
-configs + README) sitting only on one machine's disk.
+models originally listed above were exactly this risk: real,
+apparently-finished work (model + configs + README) sitting only on one
+machine's disk.
 
 Commit a model to its branch and push that branch as soon as it reaches a
 checkable state (parses, and TLC runs against its `.cfg` without unexpected

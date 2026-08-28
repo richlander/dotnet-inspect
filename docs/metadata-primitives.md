@@ -84,9 +84,8 @@ which differences are intentional policy.
 ## Current boundary
 
 `ILInspector.MetadataPrimitives` is currently an SRM-only leaf with no project
-references. That property is **not gated**; the first implementation slice must
-add `LayeringTests.MetadataPrimitives_RemainsLeaf` in
-`src/dotnet-inspect.Tests` before citing it as enforced.
+references. `LayeringTests.MetadataPrimitives_RemainsLeaf` in
+`src/dotnet-inspect.Tests` gates that property.
 
 ```text
                      ILInspector.MetadataPrimitives
@@ -197,6 +196,13 @@ table/row/reference/heap operation, and the defensive
 projection](design/member-inspection-planning-and-metadata-projection.md) gates
 the inventory, reader independence, bounded root work, typed failure, and
 no-work-before-reject properties.
+
+The classifier's primitive-local contract is implemented and gated by
+`MetadataImageFormatClassifierTests` and
+`LayeringTests.MetadataPrimitives_MetadataRootClassifierIsIsolated`. Product
+session and projection adoption remains unverified until the focused Metadata
+successor tracked by #4877 lands; callers must not infer that the classifier's
+existence alone closes the repository-wide `MDP017` entry-point inventory.
 
 ### Lossless `MethodSemantics` row boundary
 
