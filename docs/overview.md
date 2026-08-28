@@ -75,7 +75,9 @@ substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.Services/` contains shared services such as assembly-set
   and PDB acquisition, platform/package resolution, dependency resolution,
   signatures, SourceLink availability/integrity operations, source fetching,
-  and nuspec parsing.
+  and nuspec parsing. It owns the accepted package/metadata XML structure
+  defined by [nuspec structural compatibility](design/nuspec-structural-compatibility.md);
+  Queries owns manifest identity, dependency validation, and resource policy.
 - `src/DotnetInspector.Core/` is the reference-free tool runtime kernel beneath
   Packages, Services, and the CLI: cache roots and eviction (`CoreCache`,
   `AsyncCache`), the single `HttpClientFactory` seam with offline and
@@ -91,6 +93,12 @@ substrates, and inspection producers that will extend that space.
   and interaction language while individual components retain rendering,
   binding, and state-transition responsibilities.
 - `tools/DecompilerHarness/` owns ReturnToSender closure discovery and type-cluster planning. RTS specifies the required Metadata/CSharp request shape; `ILInspector.CSharp` owns rendering it.
+- [`docs/design/ts-jsexport.md`](design/ts-jsexport.md) owns the `ts-jsexport`
+  TypeScript facade projected at build time from an
+  `ILInspector.JsExportSurface`. The host-side tool consumes that evidence
+  without entering the inspected application's browser dependency closure,
+  emits one opinionated TypeScript module, and leaves compilation and
+  publication to the consumer.
 
 ## Engineering guidance
 
@@ -106,6 +114,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   workspace lifetimes, packages, and assembly inspection.
 - [Architecture](architecture.md): command and metadata architecture.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
+- [`ts-jsexport` TypeScript facade generation](design/ts-jsexport.md): ownership,
+  type views, compiler handoff, related generator categories, and migration from
+  direct JavaScript plus declaration emission.
 - [Member inspection planning and metadata projection](design/member-inspection-planning-and-metadata-projection.md):
   proposed separation of type/member intent, section resolution, producer
   authorization, shared declaration validation, and C# representability.
