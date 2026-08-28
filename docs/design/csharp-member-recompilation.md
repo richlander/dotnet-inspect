@@ -774,14 +774,16 @@ participant, including:
 
 Each Decompiler-produced fragment consumes the owner-issued typed dependency and
 complete lowering-destination set from
-[#4882](https://github.com/richlander/dotnet-inspect/issues/4882), tied to the
-owner-issued artifact occurrence from
-[#4881](https://github.com/richlander/dotnet-inspect/issues/4881). Source text
-alone is not dependency evidence, and tools do not parse or repair the fragment
-to reconstruct it. Current `CSharpFieldInitializer` and constructor-initializer
-strings therefore make the census `Incomplete`; the initial implementation may
-omit that fragment through its existing typed artifact policy or decline the
-artifact, but cannot admit it with an empty requirement set.
+[#4882](https://github.com/richlander/dotnet-inspect/issues/4882). The dependency
+evidence is tied to the policy-specific owner occurrence: #4881's CSharp
+participant manifest for a product artifact, or the participant-bearing
+fragment emission from `LegacyArtifactEmitter` for a legacy artifact. Source
+text alone is not dependency or occurrence evidence, and tools do not parse or
+repair the fragment to reconstruct either. Current `CSharpFieldInitializer` and
+constructor-initializer strings therefore make the census `Incomplete`; the
+initial implementation may omit that fragment through its existing typed
+artifact policy or decline the artifact, but cannot admit it with an empty
+requirement set.
 
 Any fragment introduced by another product owner likewise needs that owner's
 typed dependency and receiving-member result. Until one exists, the fragment is
@@ -1186,12 +1188,18 @@ No layer converts failure or unavailability into an empty successful result.
   the Metadata signature-spellability aggregate designed by #4809 and PR #4821.
 - [#4916](https://github.com/richlander/dotnet-inspect/issues/4916) implements
   owner-mediated retained-content digests.
+- [#4930](https://github.com/richlander/dotnet-inspect/issues/4930) defines
+  complete Decompiler-issued binding occurrences for receipt-bearing product
+  bodies.
+- [#4931](https://github.com/richlander/dotnet-inspect/issues/4931) defines an
+  owner-issued CSharp replacement artifact with template/result provenance.
 
 Milestone 1 may add explicit `Declined`/unavailable arms before these issues
 land. Its positive artifact-coverage, generated-fragment, and
 compiler-synthesized receipts and differentiated signature outcomes remain
-blocked on their respective owner results. All digest-bound positive paths are
-also blocked on #4916.
+blocked on their respective owner results. Every receipt-bearing real-body
+positive path is blocked on #4930. All digest-bound positive paths are blocked
+on #4916, and causal authored-control attribution is blocked on #4931.
 
 ### Milestone 1: extract round-trip compilation
 
@@ -1502,10 +1510,13 @@ Issue #4810 adds these named gates:
     artifact, fixtures covering non-target siblings, async/unsafe modifiers,
     finalizer spelling, and a constructor initializer prove the template digest,
     typed range, preserved policy, non-target byte equality, and distinct result
-    digest. The control has no closure, coverage, admission, or compile-context
-    receipt. Supplying ordinary text, independently re-rendering the control,
-    changing any non-target byte or preserved policy, reusing the template
-    digest, or copying any receipt fails the gate.
+    digest. The control also binds the exact compiler/parse-policy digest and
+    frozen reference-set digest, including reference content, aliases, and
+    embed-interop roles. It has no closure, coverage, admission, or
+    compile-context receipt. Supplying ordinary text, independently re-rendering
+    the control, changing any non-target byte or preserved policy, changing an
+    option, reference, alias, or embed-interop role, reusing the template digest,
+    or copying any receipt fails the gate.
 32. `ProductBodyClosureRequiresOwnerOccurrenceManifest` uses a product-generated
     real body containing a binding-relevant source occurrence that is erased
     from original and rebuilt IL. Until #4930 lands, the missing complete
