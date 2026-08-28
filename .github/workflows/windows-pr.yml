@@ -1,0 +1,105 @@
+name: Windows PR Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: 'Focused test suite to run'
+        required: true
+        default: queries
+        type: choice
+        options:
+          - queries
+          - cli
+          - services
+          - analysis
+          - decompiler
+          - metadata
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_INSPECT_TIPS: q
+
+concurrency:
+  group: windows-pr-${{ github.ref }}-${{ inputs.suite }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Windows ${{ inputs.suite }}
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Build
+        run: dotnet build dotnet-inspect.slnx -c Release
+
+      - name: Install ilasm/ildasm/mdv
+        id: iltools
+        if: >-
+          inputs.suite == 'cli' ||
+          inputs.suite == 'decompiler' ||
+          inputs.suite == 'metadata'
+        continue-on-error: true
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          printf 'ILTOOLS_BASH=%s\n' "$(cygpath -w "$(command -v bash)")" >> "$GITHUB_ENV"
+          eng/restore-iltools.sh --rid win-x64 --mdv --native-paths >> "$GITHUB_PATH"
+
+      - name: Run query tests
+        if: inputs.suite == 'queries'
+        run: dotnet run --project src/DotnetInspector.Queries.Tests -c Release
+
+      - name: Run CLI tests
+        if: inputs.suite == 'cli'
+        run: dotnet run --project src/dotnet-inspect.Tests -c Release -- -trait- "Speed=Slow"
+
+      - name: Run services tests
+        if: inputs.suite == 'services'
+        run: dotnet run --project src/DotnetInspector.Services.Tests -c Release
+
+      - name: Run analysis tests
+        if: inputs.suite == 'analysis'
+        run: dotnet run --project src/ILInspector.Analysis.Tests -c Release -- -trait- "Speed=Slow"
+
+      - name: Run decompiler tests
+        if: inputs.suite == 'decompiler'
+        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
+
+      - name: Run metadata tests
+        if: inputs.suite == 'metadata'
+        run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release
+
+      - name: Check ilasm/ildasm/mdv result
+        if: >-
+          !cancelled() &&
+          steps.iltools.outcome != 'success' &&
+          (
+            inputs.suite == 'cli' ||
+            inputs.suite == 'decompiler' ||
+            inputs.suite == 'metadata'
+          )
+        shell: bash
+        run: |
+          echo "::error::Restoring ilasm/ildasm/mdv failed, so oracle-backed tests skipped." >&2
+          exit 1

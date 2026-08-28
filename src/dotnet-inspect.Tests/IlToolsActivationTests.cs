@@ -725,7 +725,7 @@ public class IlToolsActivationTests
     }
 
     [Fact]
-    public void PlatformWorkflow_RestoresOraclesAndSupportsWindowsOnlyDispatch()
+    public void PlatformWorkflow_RestoresOraclesAndExposesGitBashBeforeCliTests()
     {
         string workflow = File.ReadAllText(
             Path.Combine(RepoRoot, ".github", "workflows", "deep-inspect.yml"));
@@ -744,26 +744,12 @@ public class IlToolsActivationTests
             StringComparison.Ordinal);
         Assert.True(stepsStart >= 0);
         string jobHeader = job[..stepsStart];
-        Assert.Contains("- platform-windows", workflow);
-        Assert.Contains(
-            "github.event_name == 'schedule' && " +
-            "github.event.schedule == '0 6 * * *'",
-            jobHeader);
         Assert.Contains("inputs.lane == 'test'", jobHeader);
         Assert.Contains("inputs.lane == 'platform-test'", jobHeader);
-        Assert.Equal(
-            2,
-            jobHeader.Split(
-                "inputs.lane == 'platform-windows'",
-                StringSplitOptions.None).Length - 1);
         Assert.Contains("inputs.lane == 'all'", jobHeader);
-        Assert.Contains(
-            """
-            inputs.lane == 'platform-windows' &&
-                        '{"include":[{"os":"windows-latest","rid":"win-x64"}]}' ||
-                        '{"include":[{"os":"windows-latest","rid":"win-x64"},{"os":"macos-latest","rid":"osx-arm64"},{"os":"ubuntu-26.04","rid":"linux-x64"}]}'
-            """,
-            jobHeader);
+        Assert.Contains("- os: windows-latest\n            rid: win-x64", jobHeader);
+        Assert.Contains("- os: macos-latest\n            rid: osx-arm64", jobHeader);
+        Assert.Contains("- os: ubuntu-26.04\n            rid: linux-x64", jobHeader);
         Assert.Contains("timeout-minutes: 90", jobHeader);
 
         int install = job.IndexOf(
@@ -802,6 +788,91 @@ public class IlToolsActivationTests
         Assert.Contains("exit 1", checkStep);
         Assert.DoesNotContain("continue-on-error:", checkStep);
         Assert.DoesNotContain("\n      - ", checkStep);
+    }
+
+    [Fact]
+    public void WindowsPrWorkflow_MapsEachSelectorToOneFocusedSuite()
+    {
+        string workflow = File.ReadAllText(
+            Path.Combine(RepoRoot, ".github", "workflows", "windows-pr.yml"))
+            .ReplaceLineEndings("\n");
+
+        Assert.Contains("name: Windows PR Validation", workflow);
+        Assert.Contains("default: queries", workflow);
+        Assert.Contains("runs-on: windows-latest", workflow);
+        Assert.Contains(
+            "group: windows-pr-${{ github.ref }}-${{ inputs.suite }}",
+            workflow);
+        Assert.DoesNotContain("\n  schedule:", workflow);
+        Assert.DoesNotContain("platform-test", workflow);
+        Assert.Contains(
+            "run: dotnet build dotnet-inspect.slnx -c Release",
+            workflow);
+
+        (string Suite, string Command)[] suites =
+        [
+            (
+                "queries",
+                "dotnet run --project " +
+                "src/DotnetInspector.Queries.Tests -c Release"),
+            (
+                "cli",
+                "dotnet run --project src/dotnet-inspect.Tests -c Release -- " +
+                "-trait- \"Speed=Slow\""),
+            (
+                "services",
+                "dotnet run --project " +
+                "src/DotnetInspector.Services.Tests -c Release"),
+            (
+                "analysis",
+                "dotnet run --project src/ILInspector.Analysis.Tests " +
+                "-c Release -- -trait- \"Speed=Slow\""),
+            (
+                "decompiler",
+                "dotnet run --project src/ILInspector.Decompiler.Tests " +
+                "-c Release -- -trait- \"Speed=Slow\""),
+            (
+                "metadata",
+                "dotnet run --project tests/ILInspector.Metadata.Tests " +
+                "-c Release"),
+        ];
+
+        foreach ((string suite, string command) in suites)
+        {
+            Assert.Contains($"          - {suite}", workflow);
+            Assert.Contains(
+                $"if: inputs.suite == '{suite}'\n        run: {command}",
+                workflow);
+        }
+
+        foreach (string suite in new[]
+        {
+            "cli",
+            "decompiler",
+            "metadata",
+        })
+        {
+            Assert.Equal(
+                3,
+                workflow.Split(
+                    $"inputs.suite == '{suite}'",
+                    StringSplitOptions.None).Length - 1);
+        }
+
+        foreach (string suite in new[] { "queries", "services", "analysis" })
+        {
+            Assert.Equal(
+                1,
+                workflow.Split(
+                    $"inputs.suite == '{suite}'",
+                    StringSplitOptions.None).Length - 1);
+        }
+
+        Assert.Contains("ILTOOLS_BASH=", workflow);
+        Assert.Contains(
+            "restore-iltools.sh --rid win-x64 --mdv --native-paths",
+            workflow);
+        Assert.Contains("steps.iltools.outcome != 'success'", workflow);
     }
 
     [Fact]
