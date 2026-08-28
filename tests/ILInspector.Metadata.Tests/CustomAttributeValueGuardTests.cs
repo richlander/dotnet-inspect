@@ -233,22 +233,29 @@ public sealed class CustomAttributeValueGuardTests
     }
 
     [Fact]
-    public void DuplicateTypeDefEnumName_SeesFollowingArrayCount()
+    public void DuplicateTypeDefEnumName_ResolvesTheDeclaredDefinition()
     {
+        // Two definitions share the name Samples.E; the argument is declared as
+        // the second, whose underlying type is Int64. Resolving by name would
+        // take the first definition indexed and read four bytes, turning the
+        // trailing half of the value into a 100M array count. Resolving from
+        // the declared definition reads all eight, so the 100M is payload and
+        // the following count is genuinely zero. The supplied name resolver
+        // must not override a definition the signature already named.
         using var image = Open(
             BuildDuplicateTypeDefEnumImage(elementCount: 100_000_000));
         CustomAttribute attribute = FirstAttribute(image.Reader);
         int charged = 0;
-        Assert.False(
+        Assert.True(
             CustomAttributeValueGuard.IsSafeToDecode(
                 image.Reader,
                 attribute,
                 count => charged = checked(charged + count),
                 name => FirstWinsEnumWidth(image.Reader, name)));
         Assert.True(
-            charged >= 100_000_000 * CustomAttributeValueGuard.DeclaredSlotCharge,
-            $"Expected the 100M array count to be charged, charged {charged}.");
-        Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
+            charged < 1_000,
+            $"Expected the 100M to be enum payload, charged {charged}.");
+        Assert.NotNull(AttributeDecoder.TryDecode(image.Reader, attribute));
     }
 
     [Fact]
@@ -2250,6 +2257,37 @@ public sealed class CustomAttributeValueGuardTests
     }
 
     [Fact]
+    public void NestedTypeNameCollision_GuardSkipMatchesDecodeWidth()
+    {
+        // A nested type joins its declaring type with '.', the same separator
+        // used between a namespace and a type name, so a nested Kind inside
+        // Samples.E and a top-level Kind in namespace Samples.E render to one
+        // string. The decoder resolves the width by that string and takes the
+        // first definition indexed, while the guard resolves the argument from
+        // its own handle. When the decoy is indexed first the decoder reads
+        // four bytes where the guard skipped eight, and the trailing four bytes
+        // of the value become an attacker-chosen array count the guard already
+        // approved.
+        using var image = Open(BuildNestedNameCollisionDesyncImage());
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        Assert.True(
+            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
+
+        int maxCharge = 0;
+        var decoded = AttributeDecoder.TryDecode(
+            image.Reader,
+            attribute,
+            count => maxCharge = Math.Max(maxCharge, count),
+            (Func<string, PrimitiveTypeCode>?)null);
+
+        Assert.NotNull(decoded);
+        Assert.True(
+            maxCharge < 1_000,
+            $"Guard approved the blob but decoding charged {maxCharge}; "
+                + "the guard skip and the decode width disagree.");
+    }
+
+    [Fact]
     public void EnumArrayElements_ResolveTheWidthOncePerName()
     {
         // Every element of a typed enum array carries the same enum name. The
@@ -2425,8 +2463,142 @@ public sealed class CustomAttributeValueGuardTests
         return Serialize(metadata);
     }
 
+    [Fact]
+    public void CollidingTypeDefNames_EachResolveTheirOwnWidth()
+    {
+        // Guards the premise of the desync gate above: the two definitions
+        // really do render to one string, so a name-keyed index cannot tell
+        // them apart and the width must come from the definition instead.
+        using var image = Open(BuildNestedNameCollisionDesyncImage());
+        var provider = new AttributeDecoder.ArgTypeProvider(
+            image.Reader,
+            preserveSerializedTypeNames: false,
+            beforeMaterialize: null,
+            enumUnderlyingType: null);
+        var decoy = MetadataTokens.TypeDefinitionHandle(2);
+        var nested = MetadataTokens.TypeDefinitionHandle(4);
 
+        string decoyName = provider.GetTypeFromDefinition(image.Reader, decoy, 0);
+        PrimitiveTypeCode decoyWidth = provider.GetUnderlyingEnumType(decoyName);
+        string nestedName = provider.GetTypeFromDefinition(image.Reader, nested, 0);
+        PrimitiveTypeCode nestedWidth = provider.GetUnderlyingEnumType(nestedName);
 
+        Assert.Equal(nestedName, decoyName);
+        Assert.Equal(
+            EnumUnderlyingPrimitive.FromDefinition(image.Reader, decoy),
+            decoyWidth);
+        Assert.Equal(
+            EnumUnderlyingPrimitive.FromDefinition(image.Reader, nested),
+            nestedWidth);
+        Assert.NotEqual(decoyWidth, nestedWidth);
+    }
+
+    static byte[] BuildNestedNameCollisionDesyncImage()
+    {
+        var metadata = CreateMetadata("NestedCollision");
+        AssemblyReferenceHandle other = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle systemEnum = metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Enum"));
+        TypeReferenceHandle attributeType = metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("SampleAttribute"));
+
+        // Row 4 is the nested Kind, the type the argument is actually declared
+        // as. Row 2 is the top-level decoy that renders to the same string and
+        // is indexed first.
+        TypeDefinitionHandle nestedEnum = MetadataTokens.TypeDefinitionHandle(4);
+        var constructorSignature = new BlobBuilder();
+        new BlobEncoder(constructorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                2,
+                returnType => returnType.Void(),
+                parameters =>
+                {
+                    parameters.AddParameter().Type().Type(nestedEnum, isValueType: true);
+                    parameters.AddParameter().Type().SZArray().Int32();
+                });
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            attributeType,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+
+        var int32Field = new BlobBuilder();
+        new BlobEncoder(int32Field).FieldSignature().Int32();
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName,
+            metadata.GetOrAddString("value__"),
+            metadata.GetOrAddBlob(int32Field));
+        var int64Field = new BlobBuilder();
+        new BlobEncoder(int64Field).FieldSignature().Int64();
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName,
+            metadata.GetOrAddString("value__"),
+            metadata.GetOrAddBlob(int64Field));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Samples.E"),
+            metadata.GetOrAddString("Kind"),
+            systemEnum,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle declaring = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("E"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(2),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle nested = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic | TypeAttributes.Sealed,
+            default,
+            metadata.GetOrAddString("Kind"),
+            systemEnum,
+            MetadataTokens.FieldDefinitionHandle(2),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle attributed = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Attributed"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(3),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddNestedType(nested, declaring);
+
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        // 8-byte enum slot. A decoder that reads only 4 takes the trailing four
+        // bytes as the following array's declared count.
+        value.WriteInt32(0);
+        value.WriteInt32(100_000_000);
+        // The count the guard sees after skipping the full 8 bytes.
+        value.WriteInt32(1);
+        value.WriteInt32(42);
+        value.WriteUInt16(0);
+        metadata.AddCustomAttribute(
+            attributed,
+            constructor,
+            metadata.GetOrAddBlob(value));
+        return Serialize(metadata);
+    }
 
     static byte[] BuildDuplicateTypeDefEnumImage(int elementCount)
     {

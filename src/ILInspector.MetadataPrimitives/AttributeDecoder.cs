@@ -367,6 +367,8 @@ public static class AttributeDecoder
     {
         Dictionary<string, TypeDefinitionHandle>? _typeDefinitionsByName;
         bool _lastNameFromBlob;
+        TypeDefinitionHandle _pendingDefinition;
+        MetadataReader? _pendingReader;
         readonly MaterializationContext? _materializationContext =
             beforeMaterialize?.Target as MaterializationContext;
 
@@ -394,12 +396,22 @@ public static class AttributeDecoder
         public string GetTypeFromDefinition(MetadataReader r, TypeDefinitionHandle handle, byte rawTypeKind)
         {
             _lastNameFromBlob = false;
+            // Remember the definition itself, not just its rendered name, and
+            // the reader it belongs to. The pre-decode guard resolves a
+            // definition-typed enum straight from this handle, so resolving the
+            // width from the same handle here is what keeps the two sides on
+            // one width; a rendered name cannot carry that identity, because
+            // distinct definitions can render to the same string.
+            _pendingDefinition = handle;
+            _pendingReader = r;
             return TypeResolver.GetTypeNameFromDefinition(r, handle, ObserveBeforeMaterialize);
         }
 
         public string GetTypeFromReference(MetadataReader r, TypeReferenceHandle handle, byte rawTypeKind)
         {
             _lastNameFromBlob = false;
+            _pendingDefinition = default;
+            _pendingReader = null;
             return TypeResolver.GetTypeName(
                 r,
                 handle,
@@ -416,6 +428,8 @@ public static class AttributeDecoder
             // accumulate, and a spelling that is legitimately handle-derived
             // later in the same blob would then be resolved as blob syntax.
             _lastNameFromBlob = true;
+            _pendingDefinition = default;
+            _pendingReader = null;
             return preserveSerializedTypeNames
                 ? name
                 : EnumUnderlyingPrimitive.WithoutAssemblyQualification(name);
@@ -423,14 +437,28 @@ public static class AttributeDecoder
 
         public PrimitiveTypeCode GetUnderlyingEnumType(string type)
         {
-            // A handle-derived name is an exact metadata spelling and may
-            // legally contain characters reflection treats as escapes, so it is
-            // matched verbatim; the pre-decode guard resolves the same type
-            // straight from its handle, and normalizing here would make the two
-            // sides skip different widths. A blob-authored name is reflection
-            // syntax, so it is normalized first and never matched verbatim.
+            // A definition-typed argument is resolved from the definition the
+            // signature named, never from its rendered name. Nested types join
+            // their declaring type with '.', the same separator used between a
+            // namespace and a type name, so distinct definitions can render to
+            // one string and a name index must drop one of them. The guard
+            // resolves the same argument from the same handle, so taking the
+            // handle here keeps both sides on one width by construction.
+            //
+            // A blob-authored name is reflection syntax and is normalized
+            // first; a handle-derived name that has no pending definition is an
+            // exact metadata spelling and is matched verbatim before being
+            // normalized.
             bool fromBlob = _lastNameFromBlob;
+            TypeDefinitionHandle pending = _pendingDefinition;
+            MetadataReader? pendingReader = _pendingReader;
             _lastNameFromBlob = false;
+            _pendingDefinition = default;
+            _pendingReader = null;
+
+            if (pendingReader is not null && !pending.IsNil)
+                return EnumUnderlyingPrimitive.FromDefinition(pendingReader, pending);
+
             if (!fromBlob && TypeDefinitionsByName.TryGetValue(type, out var exact))
                 return EnumUnderlyingPrimitive.FromDefinition(reader, exact);
 

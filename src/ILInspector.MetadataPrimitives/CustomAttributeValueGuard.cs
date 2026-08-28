@@ -706,45 +706,33 @@ public static class CustomAttributeValueGuard
         Action<int>? beforeMaterialize,
         Func<string, PrimitiveTypeCode>? enumUnderlyingType)
     {
+        // A definition-typed enum is resolved from its own definition, never
+        // from its rendered name, and the decoder does the same from the same
+        // handle. Distinct definitions can render to one string -- a nested
+        // type joins its declaring type with '.', exactly as a namespace joins
+        // a type name -- so any name-keyed index must drop one of them. Routing
+        // this side through a name would let the two sides select different
+        // definitions and skip different widths.
+        if (handle.Kind == HandleKind.TypeDefinition)
+            return EnumUnderlyingPrimitive.FromDefinition(
+                reader,
+                (TypeDefinitionHandle)handle);
+
         if (enumUnderlyingType is not null)
         {
-            string? name = handle.Kind == HandleKind.TypeDefinition
-                ? TryGetDefinitionName(
-                    reader,
-                    (TypeDefinitionHandle)handle,
-                    beforeMaterialize)
-                : TypeResolver.GetTypeName(
-                    reader,
-                    handle,
-                    context: null,
-                    beforeMaterialize);
+            string? name = TypeResolver.GetTypeName(
+                reader,
+                handle,
+                context: null,
+                beforeMaterialize);
             return name is null
                 ? PrimitiveTypeCode.Int32
                 : EnumUnderlyingPrimitive.Normalize(
                     enumUnderlyingType(name));
         }
 
-        if (handle.Kind == HandleKind.TypeDefinition)
-            return EnumUnderlyingPrimitive.FromDefinition(
-                reader,
-                (TypeDefinitionHandle)handle);
-
         return EnumUnderlyingPrimitive.FromHandle(reader, handle);
     }
-
-    static string? TryGetDefinitionName(
-        MetadataReader reader,
-        TypeDefinitionHandle handle,
-        Action<int>? beforeMaterialize)
-        => TypeResolver.TryGetTypeNameFromDefinition(
-                reader,
-                handle,
-                beforeMaterialize,
-                out string? name,
-                out _,
-                enforceCharacterBudget: false)
-            ? name
-            : null;
 
     static PrimitiveTypeCode ResolveEnumName(
         MetadataReader reader,

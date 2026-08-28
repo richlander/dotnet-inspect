@@ -65,13 +65,26 @@ that is not a CLI-valid enum -- unsealed, not directly derived from
 `value__`, or
 carrying a non-literal static field -- supplies no width.
 
-A type name's lookup depends on where the name came from. A handle-derived
+An argument whose signature names a TypeDef is resolved from that definition
+on both sides, never from its rendered name. Distinct definitions can render
+to one string: a nested type joins its declaring type with `.`, exactly as a
+namespace joins a type name, so a nested `Kind` declared in `Samples.E` and a
+top-level `Kind` in namespace `Samples.E` both render `Samples.E.Kind`. Any
+name-keyed index must therefore drop one of them, and routing either side
+through a name would let the guard and the decode select different definitions
+and skip different widths. The provider records the pending definition and the
+reader it was given, and takes the width from that handle;
+`NestedTypeNameCollision_GuardSkipMatchesDecodeWidth` and
+`CollidingTypeDefNames_EachResolveTheirOwnWidth` gate that. A supplied name
+resolver never overrides a definition the signature already named.
+
+A name that has no pending definition -- a TypeRef, or a name the blob
+authored -- is looked up by spelling, and that lookup depends on where the name
+came from. A handle-derived
 name is an exact metadata spelling that reaches the provider verbatim, and
 metadata names may contain characters a reflection type name treats as escapes,
-so it is matched by its exact spelling before its reflection-normalized one;
-normalizing first would miss a local TypeDef that the guard resolves straight
-from its handle, leaving the guard skipping one width while the decode consumed
-another. A blob-authored name is reflection syntax whose escapes are meaningful
+so it is matched by its exact spelling before its reflection-normalized one.
+A blob-authored name is reflection syntax whose escapes are meaningful
 -- `E\+Kind` names the metadata type `E+Kind`, not one spelled with a backslash
 -- so it is normalized first and never matched verbatim. Both sides of the
 guard/decode pair classify a name the same way, so the two remain aligned
