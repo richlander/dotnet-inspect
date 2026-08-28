@@ -73,12 +73,16 @@ The owner consumes:
 - bounded Type and Member inventories in producer-issued navigation order;
 - product accessibility descriptors;
 - exact type-definition identities and member anchors;
-- product view-facet registry descriptors and availability facts;
+- product View Facet Registry target-aware options and exact-resolution
+  results;
 - typed identity-resolution and correspondence outcomes; and
 - either a retained-session operation or an explicit stateless evaluation.
 
 A retained operation reads prior state only from its navigation session.
 Stateless evaluation may receive an explicit prior snapshot as data.
+Navigation may orchestrate View Facet Registry evaluation by passing
+owner-issued capability facts opaquely to that owner, but only the Registry's
+typed options and resolution results drive Navigation policy.
 
 ### Outputs
 

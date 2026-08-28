@@ -88,7 +88,9 @@ The registry returns:
 [Inspection Subject Navigation](inspection-subject-navigation.md) owns subject
 hierarchy, subject binding, initial recommendation, activation commands,
 reconciliation, and retained-session behavior. It consumes registry descriptors
-and availability results. A navigation lens identity is the active structural
+and target-aware options or exact-resolution results. Navigation may orchestrate
+a registry call by passing producer facts opaquely, but it does not inspect or
+reclassify those facts. A navigation lens identity is the active structural
 subject plus one registry ID; the registry ID identifies the facet definition,
 not one exact subject instance.
 
@@ -282,9 +284,10 @@ or unavailable result.
 cover available, validly empty, unavailable, and failed facets together and
 prove one failed facet neither disappears nor suppresses successful peers. It
 must also prove a structurally inapplicable facet is omitted without invoking
-its availability evaluator. Throwing execution, acquisition, filesystem, and
-network sentinels must prove applicable availability is classified only from
-the supplied facts and does not execute or acquire the payload.
+its availability evaluator. Throwing execution, acquisition, alias,
+dynamic-provider, filesystem, and network sentinels must prove applicable
+availability is classified only from the supplied facts and does not execute,
+acquire, or consult a fallback for the payload.
 
 ## Exact resolution
 
@@ -311,8 +314,9 @@ evidence.
 `ViewFacetRegistryTests.Lookup_DistinguishesEveryOutcome` must derive known IDs
 from the catalog and cover an exact available hit, unavailable hit, failed hit,
 wrong-subject hit, and syntactically valid and invalid unknown values. Throwing
-alias, dynamic-provider, filesystem, network, and execution sentinels must prove
-unknown lookup returns without consulting any fallback or facet binding.
+execution, acquisition, alias, dynamic-provider, filesystem, and network
+sentinels must prove unknown lookup returns without consulting any fallback or
+facet binding.
 
 ### Navigation handoff
 
@@ -374,6 +378,15 @@ this first issued set, titles, summaries, kinds, orders, and recommendation
 roles. After the first release, the additive compatibility gate becomes the
 authority for identity retention; the inventory gate continues to guard
 accidental semantic movement.
+
+`ViewFacetRegistryTests.RootApplicability_PartitionsPackageAndNonPackageFacets`
+is the non-vacuity gate for the initial Root contract. A package-capable Root
+must discover exactly Package Overview and Package Dependencies in order,
+resolve `root.overview` as `Inapplicable`, and expose `PackageOverview` on the
+package descriptor. A supported non-package Root must discover exactly Root
+Overview, resolve both `root.package-*` IDs as `Inapplicable`, and expose
+`RootOverview`. Removing or inverting any applicability classifier must fail
+the gate.
 
 For the initial compatibility manifest, each row's stable purpose is the answer
 stated by its Summary in the table above. The manifest copies that purpose at
