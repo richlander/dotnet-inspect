@@ -61,6 +61,9 @@ public class ExtensionsCommand
             }
             else if (options.JsonOutput)
             {
+                if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                    return 1;
+
                 WriteJsonOutput(results, options.Rows, options.CompactJson);
             }
             else if (options.Tabular || options.Tsv || options.Jsonl || options.NoHeader)

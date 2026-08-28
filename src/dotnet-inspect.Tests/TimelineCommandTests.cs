@@ -144,6 +144,36 @@ public sealed class TimelineCommandTests
     }
 
     [Fact]
+    public async Task ProjectedJsonRoutingAudit_UnadoptedTypedDocumentFailsClosed()
+    {
+        var view = new TimelineDocumentView
+        {
+            Title = "Timeline",
+            Evaluations =
+            [
+                new("Sample@1.0.0", "1.0.0", "Present", 1, null)
+            ]
+        };
+
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            TimelineCommand.Write(
+                view,
+                new TimelineOptions
+                {
+                    JsonOutput = true,
+                    Columns = ["Version"],
+                },
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    "Evaluations"
+                })));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("requires lowered JSON", result.Error);
+    }
+
+    [Fact]
     public void ZeroEvaluationVector_RemainsUnevaluatedAndRecommendsProbe()
     {
         var vector = Vector("1.0.0", "1.0.1", "1.0.2");

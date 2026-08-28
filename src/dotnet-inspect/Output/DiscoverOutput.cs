@@ -1,3 +1,5 @@
+using System.Buffers;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Options;
@@ -47,6 +49,26 @@ public static class DiscoverOutput
                     ["Name", "Kind"])
                 ? projectionExitCode
                 : 0;
+        }
+
+        bool projectedJson = IsProjectedJson(json, projection);
+        if (projectedJson)
+        {
+            if (!TryResolveProjectedJsonColumns(
+                    tree,
+                    projection!,
+                    out var projectedColumns))
+                return 1;
+
+            return WriteProjectedJson(
+                discover,
+                schema,
+                sectionCostAnnotations,
+                sectionCategories,
+                catalogHiddenSections,
+                listedCategoryDoors,
+                projection!,
+                projectedColumns);
         }
 
         // Auto-promote to tree when discovering items from multiple sections
@@ -111,6 +133,87 @@ public static class DiscoverOutput
         return 0;
     }
 
+    private static bool IsProjectedJson(
+        bool json,
+        IProjectionOptions? projection)
+        => !LensProjection.IsRequested(projection)
+            && json
+            && projection is not null
+            && (projection.Fields is { Length: > 0 }
+                || projection.Columns is { Length: > 0 });
+
+    private static bool TryResolveProjectedJsonColumns(
+        bool tree,
+        IProjectionOptions projection,
+        out string[] projectedColumns)
+    {
+        projectedColumns = [];
+        if (tree)
+        {
+            CommandError.Write(
+                "--fields/--columns cannot be combined with --tree for discovery.");
+            return false;
+        }
+
+        return LensProjection.TryResolveColumns(
+            projection,
+            "-D/--discover",
+            ["Name", "Kind"],
+            out projectedColumns);
+    }
+
+    private static int WriteProjectedJson(
+        string[]? discover,
+        DocumentSchema schema,
+        IReadOnlyDictionary<string, string>? sectionCostAnnotations,
+        IReadOnlyDictionary<string, string[]>? sectionCategories,
+        IReadOnlySet<string>? catalogHiddenSections,
+        IReadOnlySet<string>? listedCategoryDoors,
+        IProjectionOptions projection,
+        IReadOnlyList<string> columns)
+    {
+        var rows = GetDiscoveryRows(
+            discover,
+            schema,
+            sectionCostAnnotations,
+            sectionCategories,
+            catalogHiddenSections,
+            listedCategoryDoors);
+        if (rows == null)
+            return 1;
+
+        WriteProjectedJson(
+            [.. RowWindow.Apply(projection.Rows, rows)],
+            columns);
+        return 0;
+    }
+
+    private static void WriteProjectedJson(
+        IReadOnlyList<DiscoveryRow> rows,
+        IReadOnlyList<string> columns)
+    {
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartArray();
+            foreach (var row in rows)
+            {
+                writer.WriteStartObject();
+                foreach (var column in columns)
+                {
+                    if (column.Equals("Name", StringComparison.OrdinalIgnoreCase))
+                        writer.WriteString("name", row.Name);
+                    else
+                        writer.WriteString("kind", row.Kind);
+                }
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+        }
+
+        Console.WriteLine(Encoding.UTF8.GetString(buffer.WrittenSpan));
+    }
+
     /// <summary>
     /// Runs discovery with effective filtering (only sections with data).
     /// </summary>
@@ -132,6 +235,19 @@ public static class DiscoverOutput
                 filtered.Add(name, section.ItemKind, section.Items.Select(i => i.Name).ToArray());
             else
                 filtered.AddSection(name);
+        }
+        var effectiveSectionCategories = FilterCategories(
+            sectionCategories,
+            filtered.SectionNames);
+
+        string[]? projectedColumns = null;
+        if (IsProjectedJson(json, projection)
+            && !TryResolveProjectedJsonColumns(
+                tree,
+                projection!,
+                out projectedColumns))
+        {
+            return 1;
         }
 
         // For a specific section query, distinguish a valid section that simply has no data for
@@ -156,12 +272,30 @@ public static class DiscoverOutput
                         ? emptyProjectionExitCode
                         : 0;
                 }
+                if (projectedColumns is not null)
+                {
+                    WriteProjectedJson([], projectedColumns);
+                    return 0;
+                }
                 return 0;
             }
             discover = remaining;
         }
 
-        return Execute(discover, filtered, tree, markdown, json, tsv, jsonl, verbosity, rootLabel, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors, projection);
+        if (projectedColumns is not null)
+        {
+            return WriteProjectedJson(
+                discover,
+                filtered,
+                sectionCostAnnotations,
+                effectiveSectionCategories,
+                catalogHiddenSections,
+                listedCategoryDoors,
+                projection!,
+                projectedColumns);
+        }
+
+        return Execute(discover, filtered, tree, markdown, json, tsv, jsonl, verbosity, rootLabel, sectionCostAnnotations, effectiveSectionCategories, catalogHiddenSections, listedCategoryDoors, projection);
     }
 
     /// <summary>

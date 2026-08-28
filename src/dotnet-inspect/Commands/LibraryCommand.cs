@@ -474,6 +474,7 @@ public class LibraryCommand
                     : null;
         if ((options.Fields is { Length: > 0 }
                 || options.Columns is { Length: > 0 })
+            && options.Discover == null
             && projectionSections is { Count: > 0 }
             && !ProjectionDiagnostics.ValidateProjection(
                 schemaMap,
@@ -701,6 +702,9 @@ public class LibraryCommand
                     return 1;
                 WarnEmptySections(inspection, options, pipeline);
                 ExtractResourcesIfRequested(resolvedPath!, options);
+                if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                    return 1;
+
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 return Math.Max(
                     IntegrityExitCode(inspection),
@@ -861,6 +865,9 @@ public class LibraryCommand
                 if (assemblyPaths.Count > 0)
                     ExtractResourcesIfRequested(assemblyPaths[0], options);
 
+                if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                    return 1;
+
                 if (inspections.Count == 1 && !IsAllTfmPackageSelection(options))
                     OutputFormatter.WriteLibraryResult(inspections[0], options, pipeline);
                 else
@@ -972,6 +979,9 @@ public class LibraryCommand
                     return 1;
                 WarnEmptySections(inspection, options, pipeline);
                 ExtractResourcesIfRequested(assemblyPath!, options);
+                if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                    return 1;
+
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 return Math.Max(
                     IntegrityExitCode(inspection),
@@ -1170,6 +1180,9 @@ public class LibraryCommand
                 out var projectionExitCode,
                 ["Coordinate", "Label", "Member", "IL Offset", "Meaning", "Evidence"]))
             return projectionExitCode != 0 ? projectionExitCode : batchExitCode;
+
+        if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+            return 1;
 
         WriteILCoordinateBatchRows(
             [.. visibleRows],

@@ -251,6 +251,17 @@ public class SharedOptions
         command.Options.Add(Head);
         command.Options.Add(Tail);
 
+        AddRowWindowValidators(command, supportsRowWindows);
+    }
+
+    /// <summary>
+    /// Adds the validators for shared row-window options already available to a command,
+    /// including options inherited from an ancestor command.
+    /// </summary>
+    public void AddRowWindowValidators(
+        Command command,
+        bool supportsRowWindows = true)
+    {
         command.Validators.Add(result =>
         {
             if (result.GetResult(Limit) is { Tokens.Count: > 1 })
