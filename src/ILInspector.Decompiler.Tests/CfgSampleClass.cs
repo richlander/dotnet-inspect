@@ -5398,12 +5398,6 @@ public sealed class JoinImpl : IJoinShape
     public string Shape() => "impl";
 }
 
-public sealed class SlotReuseSection
-{
-    public string Status { get; set; } = "";
-    public int Missing { get; set; }
-}
-
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }
 
 public interface CfgDimFace
