@@ -71,7 +71,7 @@ internal interface ILibraryMethodAnalysisInfrastructure
         MethodDefinition methodDefinition,
         bool typeSourceGenerated);
 
-    MethodIdentity? ResolveAsyncStateMachineSource(
+    AsyncBodyAttribution? ResolveAsyncBody(
         MethodIdentity method,
         MethodDefinition methodDefinition,
         bool typeSourceGenerated);
@@ -677,7 +677,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                         .IsAuthenticatedAsyncStateMachineExecutionMethod(
                             methodHandle,
                             methodDefinition));
-            MethodIdentity? asyncStateMachineSource = null;
+            AsyncBodyAttribution? asyncBody = null;
             bool opportunityOwnershipResolved = true;
             DeclaredOwnerResolution ownerResolution =
                 DeclaredOwnerResolution.None;
@@ -697,8 +697,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                         requestedMethodScope,
                         directlySelectedBody);
                 result.DeclaredMethod = declaredMethod;
-                asyncStateMachineSource =
-                    _infrastructure.ResolveAsyncStateMachineSource(
+                asyncBody =
+                    _infrastructure.ResolveAsyncBody(
                         caller,
                         methodDefinition,
                         typeSourceGenerated);
@@ -942,15 +942,14 @@ internal sealed class LibraryMethodAnalysisRunner(
                     SourceDeclaringType:
                         result.DeclaredSource?.DeclaringType);
             }
-            if (asyncStateMachineSource is not null
+            if (asyncBody is not null
                 && resultSinks is not null)
             {
                 for (int index = 0; index < resultSinks.Count; index++)
                 {
                     resultSinks[index] = resultSinks[index] with
                     {
-                        AsyncStateMachineSource =
-                            asyncStateMachineSource,
+                        AsyncBody = asyncBody,
                     };
                 }
             }

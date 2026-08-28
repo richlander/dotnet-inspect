@@ -240,8 +240,11 @@ public static class JsonWireContractResolver
         => sink.Caller.MetadataToken == exportMetadataToken
             && sink.Caller != sink.EvidenceMethod
             && sink.EvidenceMethod.Name == "MoveNext"
-            && sink.AsyncStateMachineSource?.MetadataToken
-                == exportMetadataToken
+            && sink.AsyncBody is
+            {
+                Lowering: AsyncLoweringKind.StateMachine,
+            } asyncBody
+            && asyncBody.SourceMethod == sink.Caller
             && bodyIndex.ResolveDeclaredMethod(
                 sink.EvidenceMethod)
                 == sink.Caller;
