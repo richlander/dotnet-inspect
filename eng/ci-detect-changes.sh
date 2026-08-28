@@ -301,6 +301,7 @@ while IFS= read -r -d '' file; do
     eng/prepare-decompiler-corpus.sh) CODE=true ;;
     eng/prepare-decompiler-opt-in-corpus.sh) CODE=true ;;
     eng/prepare-decompiler-pr-corpus.sh) CODE=true ;;
+    eng/prepare-authored-source-oracles.sh) CODE=true ;;
     eng/report-decompiler-opt-in-corpus-drift.sh) CODE=true ;;
     # The package sweep builds the EVIL pool the decompiler corpus is
     # run over, and EvilPoolSweepGateTests runs it as a subprocess.
