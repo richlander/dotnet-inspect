@@ -940,22 +940,21 @@ public class IlToolsActivationTests
             install + 1,
             StringComparison.Ordinal);
         string installStep = workflow[install..nextStep];
-        string[] installLines =
-        [
-            .. installStep.Split('\n').Select(line => line.Trim()),
-        ];
-        Assert.Contains(
+        Assert.Equal(
+            "- name: Install ilasm/ildasm/mdv\n" +
+            "        id: iltools\n" +
             "        if: >-\n" +
             "          inputs.suite == 'cli' ||\n" +
             "          inputs.suite == 'metadata'\n" +
-            "        continue-on-error: true",
+            "        continue-on-error: true\n" +
+            "        timeout-minutes: 5\n" +
+            "        shell: bash\n" +
+            "        run: |\n" +
+            "          printf 'ILTOOLS_BASH=%s\\n' " +
+            "\"$(cygpath -w \"$(command -v bash)\")\" >> \"$GITHUB_ENV\"\n" +
+            "          eng/restore-iltools.sh --rid win-x64 --mdv " +
+            "--native-paths >> \"$GITHUB_PATH\"\n",
             installStep);
-        Assert.Contains(
-            """printf 'ILTOOLS_BASH=%s\n' "$(cygpath -w "$(command -v bash)")" >> "$GITHUB_ENV"""",
-            installLines);
-        Assert.Contains(
-            """eng/restore-iltools.sh --rid win-x64 --mdv --native-paths >> "$GITHUB_PATH"""",
-            installLines);
         Assert.Equal(
             1,
             workflow.Split(
@@ -967,16 +966,23 @@ public class IlToolsActivationTests
                 "continue-on-error:",
                 StringSplitOptions.None).Length - 1);
 
-        string checkStep = workflow[terminalCheck..];
-        Assert.Contains("steps.build.outcome == 'success' &&", checkStep);
-        Assert.Contains("steps.iltools.outcome != 'success' &&", checkStep);
-        Assert.Contains(
-            "inputs.suite == 'cli' ||\n" +
-            "            inputs.suite == 'metadata'",
+        string checkStep = workflow[terminalCheck..].TrimEnd();
+        Assert.Equal(
+            "- name: Check ilasm/ildasm/mdv result\n" +
+            "        if: >-\n" +
+            "          !cancelled() &&\n" +
+            "          steps.build.outcome == 'success' &&\n" +
+            "          steps.iltools.outcome != 'success' &&\n" +
+            "          (\n" +
+            "            inputs.suite == 'cli' ||\n" +
+            "            inputs.suite == 'metadata'\n" +
+            "          )\n" +
+            "        shell: bash\n" +
+            "        run: |\n" +
+            "          echo \"::error::Restoring ilasm/ildasm/mdv failed, " +
+            "so oracle-backed tests skipped.\" >&2\n" +
+            "          exit 1",
             checkStep);
-        Assert.Contains("exit 1", checkStep.Split('\n').Select(line => line.Trim()));
-        Assert.DoesNotContain("continue-on-error:", checkStep);
-        Assert.DoesNotContain("\n      - ", checkStep);
     }
 
     [Fact]
