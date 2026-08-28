@@ -128,7 +128,9 @@ instance form. Keep the explicit static target when the receiver's binding
 hierarchy contains a same-named member: C# member lookup can bind the reduced
 form to that member, or reject the invocation without considering the extension.
 The decompiler does not speculate about full overload resolution; a known name
-conflict conservatively preserves the IL target. This exception is enforced by
+conflict conservatively preserves the IL target. A cross-type fallback globally
+qualifies the extension host so another type with the same simple name cannot
+capture or make the static spelling ambiguous. This exception is enforced by
 `ExtensionMethodCallTests.ShadowingInstanceMethod_KeepsStaticExtensionSpelling`
 and its method, property, array, managed-reference, interface, generic, and
 platform-hierarchy neighbors. A generic-parameter receiver stays static because

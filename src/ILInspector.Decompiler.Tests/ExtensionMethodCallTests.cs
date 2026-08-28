@@ -97,7 +97,7 @@ public class ExtensionMethodCallTests
                     .CallsPlatformShadowedExtension));
 
         Assert.Contains(
-            "CustomAttributeExtensions.GetCustomAttributes(typeInfo, typeof(Attribute), true)",
+            "global::System.Reflection.CustomAttributeExtensions.GetCustomAttributes(typeInfo, typeof(Attribute), true)",
             output);
         Assert.DoesNotContain(
             "typeInfo.GetCustomAttributes",
@@ -114,7 +114,7 @@ public class ExtensionMethodCallTests
                     .CallsShadowedGenericExtension));
 
         Assert.Equal(
-            "return Enumerable.Contains<int>(values, value);",
+            "return global::System.Linq.Enumerable.Contains<int>(values, value);",
             output);
     }
 

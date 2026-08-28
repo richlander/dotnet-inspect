@@ -783,9 +783,18 @@ public sealed partial class CSharpPrinter
                     arguments,
                     call.Callee.ParameterTypes,
                     call.Callee.ParameterRefKinds);
-            return IsEnclosingTypeAtOwnInstantiation(call.Callee.DeclaringType) && !IsStaticCallNameShadowed(sourceName)
-                ? $"{staticName}({staticArgs})"
-                : $"{TypeQualifierText(call.Callee.DeclaringType)}.{staticName}({staticArgs})";
+            if (IsEnclosingTypeAtOwnInstantiation(call.Callee.DeclaringType)
+                && !IsStaticCallNameShadowed(sourceName))
+            {
+                return $"{staticName}({staticArgs})";
+            }
+
+            string qualifier =
+                call.Callee.IsExtension == MetadataFactState.Yes
+                && call.ExtensionSyntaxConflict == MetadataFactState.Yes
+                    ? FullyQualifiedTypeText(call.Callee.DeclaringType)
+                    : TypeQualifierText(call.Callee.DeclaringType);
+            return $"{qualifier}.{staticName}({staticArgs})";
         }
         var receiver = arguments[0];
         string rest = Arguments(arguments.Skip(1), call.Callee.ParameterTypes, call.Callee.ParameterRefKinds);
