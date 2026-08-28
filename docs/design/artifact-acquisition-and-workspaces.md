@@ -316,7 +316,7 @@ arrives; the model does not represent a caller re-deriving a different
 generation when it replans after an incompatible admission terminates.
 
 TLC 2026.08.21.155922 (rev `9787e65`, from the pinned `tla2tools.jar` v1.8.0 —
-see [`docs/runbooks/tla-plus-setup.md`](../../runbooks/tla-plus-setup.md))
+see [`docs/runbooks/tla-plus-setup.md`](../runbooks/tla-plus-setup.md))
 checked the model with 3 demands and 2 admission generations: 16,790 states
 generated, 8,292 distinct states, no invariant violations, and no
 counterexamples for the checked liveness properties. The invariants include
