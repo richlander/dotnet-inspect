@@ -228,6 +228,76 @@ does not rebuild dependency state per assembly. The mutable
 and focused extensions; its `Compile` method snapshots it into a catalog
 without allowing later registrations to mutate that snapshot.
 
+## Compiled inspection domain composition
+
+**Compiled Inspection Domain Composition** owns the L1/L2 binding between one
+immutable typed-query domain and one or more immutable section lenses. It is a
+focused composition owner: Queries continues to own producer registration,
+dependency closure, cost, planning, and execution, while the Section Pipeline
+continues to own section candidates and direct producer demand.
+
+The composition contract is:
+
+```text
+InspectionQueryCatalog<TContext>
+  -> CompiledInspectionDomain<TContext>
+       -> CompiledInspectionLens<TContext, TView>
+            -> selected section demand + attributed host demand
+                 -> CompiledInspectionPlan<TContext>
+                      -> InspectionQueryPlan<TContext>
+```
+
+The domain creates each lens pipeline and installs its prerequisite-aware
+`CostOf` callback before the lens registers a section. A lens therefore cannot
+forget cost binding or silently understate an expensive producer. Compilation
+also rejects any section query that is not registered in the domain. Multiple
+lenses may retain different section models and selection policies while
+sharing the same immutable producer declarations.
+
+Planning retains three different values:
+
+- section-to-query demand, owned by the section lens;
+- optional reason-to-query host demand, supplied by the caller; and
+- the dependency-ordered query plan, issued by the L1 query catalog.
+
+Demand attribution is neutral data. A CLI host may project it into
+`InspectionTrace`, but the composition owner does not depend on that sink.
+The owner lowers empty, single-query, and multi-query demand through the query
+catalog's existing planning APIs; it does not rebuild prerequisite closure or
+execution order.
+
+`CompiledInspectionPlan<TContext>` is immutable and reusable. Each execution
+creates the query owner's fresh `InspectionQueryResults`, accepts a
+caller-supplied request or workspace context, and forwards synchronous timing
+or asynchronous cancellation callbacks. The plan stores no context, owns no
+acquisition or disposal, catches no producer failure, and does not transform
+typed payloads.
+
+The Diff catalog is the first production canary. Its request-owned
+`DiffQueryContext`, multiple independently selectable producers, explicit empty
+plan, and pre-existing allocation gates exercise the seam without introducing
+assembly or workspace lifetime. API, Type, and Member migration remains
+follow-up work.
+
+The executable
+[compiled inspection domain model](models/compiled-inspection-domain/README.md)
+checks foreign-lens rejection, independent request planning, cancellation
+winning over success, and caller-context release and non-disposal across
+interleaved requests. TLC evidence establishes properties of that bounded
+design model, not implementation conformance.
+
+This owner does not:
+
+- define query registration, prerequisite, cost, capability, execution, or
+  failure semantics;
+- own acquisition, workspace admission, assembly groups, contexts, or resource
+  budgets;
+- merge Library's per-assembly and assembly-group catalogs into one
+  multi-context executor;
+- define row selection, output shapes, Markout rendering, or format selection;
+- construct or sanitize `InertString`; typed values cross opaquely; or
+- define the view-facet registry, subject navigation, or host UI behavior.
+
 ## Resource declarations
 
 Whole-assembly body analysis is acquired through

@@ -117,6 +117,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   non-cryptographic role of MVID-scoped metadata addresses.
 - [Architecture](architecture.md): command and metadata architecture.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
+- [Compiled inspection domain composition](design/section-pipeline.md#compiled-inspection-domain-composition):
+  L1/L2 binding from one immutable typed-query domain to reusable compiled
+  section lenses and caller-owned execution contexts.
 - [Analysis surfaces and universes](design/analysis-surfaces-and-universes.md):
   host-neutral request topology separating report surface, finite evidence
   universe, targeted/census mode, capability introspection, and result
