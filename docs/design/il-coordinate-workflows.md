@@ -13,9 +13,14 @@ When a descriptor is present, Research snapshots its guarded content through
 Metadata, requests Analysis evidence over those immutable bytes, and keys
 Research's derived-index reuse by the descriptor's
 `AssemblyAcquisitionRegistration`. It does not reopen the descriptor's path.
+Before composing results, Research requires the SourceLink context and
+descriptor snapshot to carry the same module version identifier; a mismatch is
+a visible projection failure.
 A request without a descriptor retains the existing path compatibility route.
 `ProjectILOffset_DescriptorSemanticEvidenceDoesNotReopenPath` is the
-non-vacuity gate for this handoff; the existing
+non-vacuity gate for this handoff, and
+`ProjectILOffset_RejectsMismatchedSourceAndAnalysisGenerations` gates the
+cross-generation rejection. The existing
 `ProjectILOffset_CostContextUsesPhysicalAsyncBody` test gates descriptor-less
 compatibility.
 

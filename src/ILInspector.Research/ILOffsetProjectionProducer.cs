@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection.Metadata;
 using ILInspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
@@ -144,6 +145,7 @@ public static class ILOffsetProjectionProducer
             // projection over the same Analysis evidence.
             if (!TryOpenAnalysisIndex(
                     request.Assembly,
+                    context,
                     assemblyDisplayName,
                     out var index,
                     out var indexError))
@@ -287,15 +289,32 @@ public static class ILOffsetProjectionProducer
     /// </summary>
     static bool TryOpenAnalysisIndex(
         ResolvedAssemblyReference? assembly,
+        PdbContext sourceContext,
         string assemblyPath,
         [NotNullWhen(true)] out Analysis.LibraryBodyIndex? index,
         out string error)
     {
         try
         {
-            index = assembly is null
-                ? AnalysisIndexCache.ForPath(assemblyPath)
-                : AnalysisIndexCache.ForAssembly(assembly);
+            if (assembly is null)
+            {
+                index = AnalysisIndexCache.ForPath(assemblyPath);
+            }
+            else
+            {
+                index = AnalysisIndexCache.ForAssembly(
+                    assembly,
+                    out Guid analysisModuleVersionId);
+                Guid sourceModuleVersionId =
+                    ReadModuleVersionId(sourceContext);
+                if (sourceModuleVersionId
+                    != analysisModuleVersionId)
+                {
+                    throw new InvalidOperationException(
+                        "The SourceLink context and Analysis descriptor "
+                        + "represent different module generations.");
+                }
+            }
             error = "";
             return true;
         }
@@ -310,6 +329,16 @@ public static class ILOffsetProjectionProducer
             return false;
         }
     }
+
+    static Guid ReadModuleVersionId(PdbContext context) =>
+        context.InspectImage(
+            static image =>
+            {
+                MetadataReader metadata =
+                    image.GetMetadataReader();
+                return metadata.GetGuid(
+                    metadata.GetModuleDefinition().Mvid);
+            });
 
     static List<ILOffsetAllocationContext> BuildAllocationContext(
         Analysis.LibraryBodyIndex index,

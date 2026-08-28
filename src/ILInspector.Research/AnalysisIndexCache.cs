@@ -7,8 +7,8 @@ static class AnalysisIndexCache
 {
     const int MaxCachedIndexes = 8;
     static readonly object s_indexLock = new();
-    static readonly List<CachedIndex> s_pathIndexes = [];
-    static readonly List<CachedIndex> s_assemblyIndexes = [];
+    static readonly List<PathCachedIndex> s_pathIndexes = [];
+    static readonly List<AssemblyCachedIndex> s_assemblyIndexes = [];
 
     public static LibraryBodyIndex ForPath(string path)
         => ForPath(
@@ -25,7 +25,7 @@ static class AnalysisIndexCache
         var fullPath = Path.GetFullPath(path);
         lock (s_indexLock)
         {
-            CachedIndex? cached =
+            PathCachedIndex? cached =
                 s_pathIndexes.FirstOrDefault(candidate =>
                     StringComparer.Ordinal.Equals(
                         candidate.Path,
@@ -55,9 +55,8 @@ static class AnalysisIndexCache
                 requirements.Features,
                 bodyScope: bodyScope);
             s_pathIndexes.Add(
-                new CachedIndex(
+                new PathCachedIndex(
                     fullPath,
-                    Registration: null,
                     scopedToken,
                     index));
             return index;
@@ -70,17 +69,39 @@ static class AnalysisIndexCache
             assembly,
             ResearchFactRequirements.ForAssembly(
                 LibraryBodyAnalysisFeatures.Default),
-            methodToken: 0);
+            methodToken: 0,
+            out _);
+
+    public static LibraryBodyIndex ForAssembly(
+        ResolvedAssemblyReference assembly,
+        out Guid moduleVersionId)
+        => ForAssembly(
+            assembly,
+            ResearchFactRequirements.ForAssembly(
+                LibraryBodyAnalysisFeatures.Default),
+            methodToken: 0,
+            out moduleVersionId);
 
     public static LibraryBodyIndex ForAssembly(
         ResolvedAssemblyReference assembly,
         ResearchFactRequirements requirements,
         int methodToken)
+        => ForAssembly(
+            assembly,
+            requirements,
+            methodToken,
+            out _);
+
+    static LibraryBodyIndex ForAssembly(
+        ResolvedAssemblyReference assembly,
+        ResearchFactRequirements requirements,
+        int methodToken,
+        out Guid moduleVersionId)
     {
         ArgumentNullException.ThrowIfNull(assembly);
         lock (s_indexLock)
         {
-            CachedIndex? cached =
+            AssemblyCachedIndex? cached =
                 s_assemblyIndexes.FirstOrDefault(candidate =>
                     ReferenceEquals(
                         candidate.Registration,
@@ -92,7 +113,10 @@ static class AnalysisIndexCache
                                 == ResearchAnalysisScope.Member
                             && candidate.MethodToken == methodToken)));
             if (cached is not null)
+            {
+                moduleVersionId = cached.ModuleVersionId;
                 return cached.Index;
+            }
 
             if (s_assemblyIndexes.Count >= MaxCachedIndexes)
                 s_assemblyIndexes.Clear();
@@ -121,6 +145,7 @@ static class AnalysisIndexCache
                 _ => throw new InvalidOperationException(
                     "Unknown assembly snapshot result."),
             };
+            moduleVersionId = snapshot.ModuleVersionId;
             LibraryBodyIndex index =
                 LibraryBodyIndex.OpenFromPrefetchedImage(
                     assembly.Path ?? assembly.Identity.Name,
@@ -128,9 +153,9 @@ static class AnalysisIndexCache
                     requirements.Features,
                     bodyScope: bodyScope);
             s_assemblyIndexes.Add(
-                new CachedIndex(
-                    Path: null,
+                new AssemblyCachedIndex(
                     assembly.Registration,
+                    snapshot.ModuleVersionId,
                     scopedToken,
                     index));
             return index;
@@ -149,9 +174,14 @@ static class AnalysisIndexCache
             _ => new InvalidOperationException(failure.Detail),
         };
 
-    sealed record CachedIndex(
-        string? Path,
-        AssemblyAcquisitionRegistration? Registration,
+    sealed record PathCachedIndex(
+        string Path,
+        int? MethodToken,
+        LibraryBodyIndex Index);
+
+    sealed record AssemblyCachedIndex(
+        AssemblyAcquisitionRegistration Registration,
+        Guid ModuleVersionId,
         int? MethodToken,
         LibraryBodyIndex Index);
 }

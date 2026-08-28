@@ -136,6 +136,47 @@ public class ILOffsetProjectionProducerTests
         }
     }
 
+    [Fact]
+    public void
+        ProjectILOffset_RejectsMismatchedSourceAndAnalysisGenerations()
+    {
+        MethodInfo sourceMethod =
+            typeof(ILOffsetProjectionProducerTests).GetMethod(
+                nameof(CallVirtualAsync),
+                BindingFlags.Static
+                    | BindingFlags.NonPublic)!;
+        ResolvedAssemblyReference sourceAssembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                typeof(ILOffsetProjectionProducerTests)
+                    .Assembly.Location,
+                AssemblyResolutionProvenance.Local(
+                    "IL-offset source-generation test"));
+        ResolvedAssemblyReference analysisAssembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                typeof(LibraryBodyIndex).Assembly.Location,
+                AssemblyResolutionProvenance.Local(
+                    "IL-offset analysis-generation test"));
+        using var source = SourceLinkService.Open(sourceAssembly);
+
+        ILOffsetProjectionOutcome outcome =
+            ResearchViews.ProjectILOffset(
+                new ILOffsetProjectionRequest(
+                    source,
+                    sourceMethod.MetadataToken,
+                    ILOffset: 0,
+                    ILOffsetProjectionCapabilities.CostContext,
+                    Assembly: analysisAssembly));
+
+        Assert.False(outcome.Succeeded);
+        Assert.Equal(
+            ILOffsetProjectionFailureKind.CostAnalysisUnavailable,
+            outcome.Failure!.Kind);
+        Assert.Contains(
+            "different module generations",
+            outcome.Failure.Message,
+            StringComparison.Ordinal);
+    }
+
     static async Task<int> CallVirtualAsync(
         OffsetVirtualTarget target)
     {
