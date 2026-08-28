@@ -3,8 +3,8 @@
 (* Models the TARGET DESIGN for admission into                             *)
 (* `InspectionWorkspace.RealizePackageAssemblyContextRoles`, keyed by a     *)
 (* package coordinate that is stable and decidable today (package id,      *)
-(* version, target framework, and resolved producer -- see                 *)
-(* `RealizedMemberCoordinate.Package` in                                    *)
+(* version, target framework, runtime identifier, and resolved producer -- *)
+(* see `RealizedMemberCoordinate.Package` in                               *)
 (* src/DotnetInspector.Queries/WorkspaceAcquisitionCoordinates.cs, whose    *)
 (* own remarks explain why `Producer` is part of the identity: id, version, *)
 (* framework, and runtime identifier alone do not determine bytes across   *)
@@ -237,11 +237,11 @@ CacheStateConsistent ==
 (* LIVENESS                                                                *)
 (***************************************************************************)
 
-(* Every demand eventually leaves "Pending": it is admitted and reused     *)
-(* (Ready) or it observes the leader's failure (Failed) -- no demand waits *)
-(* forever.                                                                *)
+(* Every demand eventually reaches a terminal outcome: it is admitted and     *)
+(* reused (Ready) or it observes the leader's failure (Failed) -- no demand   *)
+(* waits forever in Pending, Admitting, or Joined.                            *)
 EveryDemandEventuallyResolves ==
-    \A d \in Demands : (demandState[d] = "Pending") ~> (demandState[d] # "Pending")
+    \A d \in Demands : (demandState[d] = "Pending") ~> (demandState[d] \in {"Ready", "Failed"})
 
 (***************************************************************************)
 (* REACHABILITY PROBES (not part of the correctness gate)                 *)

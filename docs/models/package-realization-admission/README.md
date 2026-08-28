@@ -7,7 +7,7 @@ claim this is the shipped behavior (see the header comment in
 [`PackageRealizationAdmission.tla`](PackageRealizationAdmission.tla) for the
 gap it targets, tracked by issue #4960), and it does not cover assembly/PE
 content identity, which is not independently decidable the way a package
-coordinate (id, version, framework, producer) is.
+coordinate (id, version, framework, runtime identifier, producer) is.
 
 Owning design:
 [`docs/design/inspection-layers.md`](../../design/inspection-layers.md)'s

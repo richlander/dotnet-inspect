@@ -928,16 +928,18 @@ everything that happens once that operation runs.
 
 `RealizePackageAssemblyContextRoles` has no cache or admission logic today.
 Two calls with an identical realized package coordinate (package id, version,
-target framework, and resolved producer -- see `RealizedMemberCoordinate.Package`
-in `src/DotnetInspector.Queries/WorkspaceAcquisitionCoordinates.cs`) each
+target framework, runtime identifier, and resolved producer -- see
+`RealizedMemberCoordinate.Package` in
+`src/DotnetInspector.Queries/WorkspaceAcquisitionCoordinates.cs`) each
 independently reopen content and mint an unrelated `AssemblyContextGroup`
 and participant set. `PackageAssemblyContextRealizationConcurrentDemandTests`
 demonstrates this; issue #4960 tracks it.
 
 ### Why the coordinate, not the assembly content
 
-A package coordinate is stable and decidable: id, version, framework, and
-producer determine one selectable package occurrence, and `Producer`
+A package coordinate is stable and decidable: id, version, framework, runtime
+identifier, and producer determine one selectable package occurrence, and
+`Producer`
 specifically resolves the case where two feeds could otherwise serve the same
 id and version with different bytes. Individual assembly/PE content has no
 equivalent independent identity -- `Foo.dll` can duplicate within one package
@@ -965,6 +967,28 @@ callback/quiescence/disposal lifecycle (already modeled by
 [`AssemblyContextGroupLifecycle.tla`](../models/assembly-context-group-lifecycle/AssemblyContextGroupLifecycle.tla)),
 or the internal plan/open/cleanup shape of one admitting operation (owned by
 the boundary above). It also does not claim current product behavior.
+
+Two compositions with the existing API surface remain open and are not solved
+by this design:
+
+- **Request granularity.** `RealizePackageAssemblyContextRoles` admits an
+  entire caller-supplied package set plus its options (budget, per-role
+  limits) in one call, not one coordinate. This admission layer models the
+  per-coordinate primitive; decomposing a multi-package request into
+  independent per-coordinate admissions (and correctly composing partial
+  cache hits with fresh admissions inside one caller request) is future work
+  for whichever adapter or migration slice adopts this cache, not something
+  this model or section resolves.
+- **Shared-realization lifetime.** "Reuses the retained realization directly"
+  implies more than one demand can hold the same realized groups
+  concurrently. The existing [Package-role planning and cleanup
+  boundary](#package-role-planning-and-cleanup-boundary) gives one session
+  exclusive ownership of its transferred groups and releases them on that
+  session's close. Multiple independent callers sharing one cached
+  realization therefore need reference-counted or lease-scoped release
+  semantics that neither this section nor that boundary defines yet;
+  attaching a cache to that boundary without resolving that composition would
+  let one caller's close release groups another caller is still using.
 
 [`PackageRealizationAdmission.tla`](../models/package-realization-admission/PackageRealizationAdmission.tla)
 checks this target design's own internal soundness: single-flight admission
