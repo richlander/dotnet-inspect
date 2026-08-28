@@ -828,6 +828,15 @@ A caller that needs both runs a separate product/decompiler request so the
 supplied source cannot make an otherwise provable member's artifact receipt
 unavailable.
 
+An authored-source control may use the product-issued `CSharpSourceArtifact`
+from the corresponding decompiler-produced rendering as its immutable source
+template and invoke that owner's typed `ReplaceBody` operation. The resulting
+source is materialized under the comparison-only request as a distinct artifact
+with its own digest. It does not inherit the template artifact's closure,
+participant coverage, admission, or receipt evidence. A missing replacement
+range, changed non-target byte, policy mismatch, or reused receipt makes the
+control unavailable rather than comparable.
+
 No caller-provided completeness flag or occurrence list can upgrade that result.
 Source parsing, name lookup, and emitted-IL absence cannot repair the missing
 evidence; a source-only dependency such as a compile-time name expression may
@@ -1451,9 +1460,24 @@ Issue #4810 adds these named gates:
     `CompileClosureOutcome`, `CompileContextReceipt`, or `CompileBackVerdict`;
     tools cannot format product C# or substitute a tools-observed participant
     set for an owner manifest. Moving one planner surface into a product
-    component, adding a product API that chooses compile-back roots or closure,
-    or adding a tools-side product renderer is mutation-verified to fail the
-    architecture arm.
+    component, adding product-side compiler-reference selection, adding a
+    product API that chooses compile-back roots or closure, or adding tools-side
+    accessibility flattening, declaration synthesis, or product rendering is
+    mutation-verified to fail the architecture arm. Product-side candidate
+    acquisition, package dependency resolution, identity and binding, typed
+    evidence, and rendering remain permitted.
+31. `AuthoredBodyControlPreservesProductRenderedShell` uses product-issued
+    `CSharpSourceArtifact` fixtures covering non-target siblings, async/unsafe
+    modifiers, finalizer spelling, and a constructor initializer. Each authored
+    control uses the typed `ReplaceBody` operation and proves every byte outside
+    the replacement range is unchanged, then materializes a distinct
+    comparison-only artifact digest with no closure, coverage, admission, or
+    compile-context receipt. Independently re-rendering the control, changing
+    any non-target byte or preserved request policy, reusing the template
+    artifact digest, or copying any receipt fails the gate. The product
+    primitive remains independently gated by
+    `SourceArtifactReplacesTheSelectedNestedMethodBlockOnly` and
+    `SourceArtifactReplacementPreservesConstructorInitializer`.
 
 Documentation-only changes validate Markdown. Implementation milestones add the
 smallest focused product and harness checks that prove their claims.

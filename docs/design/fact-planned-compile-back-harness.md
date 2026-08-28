@@ -36,9 +36,11 @@ PDB. It is not the A→IL verdict. Determinism, compilation options, references,
 compiler version, generators, and project context are reported separately as
 build-context evidence. `--authored-rebuild-fidelity` places the acquired
 authored body in a separate comparison-only request under the same artifact and
-reference policies, invokes product IL diff, and prints both oracle results plus
-checksum, determinism, and context status. That supplied-body request cannot
-produce an `Exact` receipt under the current contract.
+reference policies, uses the product-owned typed replacement over the frozen
+decompiled source template, invokes product IL diff, and prints both oracle
+results plus checksum, determinism, and context status. The resulting artifact
+has a distinct digest and cannot produce an `Exact` receipt under the current
+contract.
 
 The existing `CB_CLUSTER=1` path already has a strong generic answer for closure
 membership: compile, read the compiler's missing-symbol diagnostics, add the
@@ -761,19 +763,21 @@ precondition is **unverified** until its planned Release gates run.
 
 SourceLink or fixture source coverage is a sidecar oracle, not a replacement RTS
 verdict. When a product artifact fails to recompile and an authored source body
-is available for the same requested target, RTS may place only that authored
-body in a separate comparison-only request under the same artifact and
-reference policies and retry compilation. It cannot issue a compile-context
-receipt. If the authored body compiles, the `RecompileFail` is isolated to a
-product/decompiler body defect. If the authored body also fails, the failure is
-isolated to the RTS shell, closure, reference, or standalone
-source-consumption context. The original status remains `RecompileFail`; the
-sidecar reason may refine reporting as `body-defect` or
-`shell-or-closure-defect`, composed with the original compiler diagnostic
-bucket. On closure root or iteration budget exits, `body-defect` means the
-authored body fit inside the final RTS shell while the decompiled body did not;
-it may still point at a harness closure budget limit rather than a semantic
-product-body bug.
+is available for the same requested target, RTS uses the product-issued frozen
+`CSharpSourceArtifact` as a source template, invokes its typed `ReplaceBody`
+operation, and materializes the result as a distinct comparison-only artifact
+under the same artifact and reference policies. It cannot inherit artifact
+evidence or issue a compile-context receipt.
+
+If every non-target byte and preserved policy matches, an authored body that
+compiles may refine the original `RecompileFail` to `body-defect`; an authored
+body that also fails records `authored-control-failed` without assigning a
+shell, closure, or body cause. Otherwise the control is unavailable and makes no
+causal refinement. This target classification is **unverified** until
+`AuthoredBodyControlPreservesProductRenderedShell` runs. On closure root or
+iteration budget exits, `body-defect` means only that the authored body fit
+inside the byte-fixed shell while the decompiled body did not; it may still
+point at a harness closure budget limit rather than a semantic product-body bug.
 
 The same sidecar lane also produces a source-correspondence census for
 fixture-source coverage. The census projects source-probe rows into
@@ -908,7 +912,7 @@ Tests should name the oracle they exercise:
 | fact agreement | Do independently produced facts agree on the same IL/member/type evidence? |
 | product diff parity | Do product API/IL/C# diffs match for the requested artifact scope? |
 | source artifact validity | Does the product artifact compile without RTS-side C# construction? |
-| authored-source isolation | Does the authored body compile in the same RTS shell after a product artifact `RecompileFail`? |
+| authored-source isolation | Does typed replacement compile the authored body while preserving every non-target product-rendered byte? |
 | API/platform resolution | Did package/framework/shared-service resolution select the intended asset? |
 | performance-signal precision | Does a signal identify useful targets without noisy over-reporting? |
 

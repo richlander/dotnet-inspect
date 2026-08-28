@@ -48,17 +48,27 @@ layout, and artifact replacement remain product responsibilities.
 
 ReturnToSender authored-body controls therefore create a separate
 comparison-only `RoundTripRequest` with the independently acquired body as its
-typed replacement. The control preserves the source artifact and module
-identity, target set, scope and body policy, compiler policy, and frozen
-reference selection from the decompiled-body request, but it does not reuse that
-request's generated artifact, closure, participant coverage, or receipt
-evidence. The product renderer produces the control artifact independently, and
-the control cannot issue a compile-context receipt or `Exact`.
+typed replacement. It uses the product-issued frozen `CSharpSourceArtifact`
+from the decompiled-body rendering as a source template and invokes the
+product-owned `ReplaceBody` operation, which preserves every byte outside the
+typed body range. The resulting source is materialized as a distinct control
+artifact and cannot inherit the template artifact's closure, participant
+coverage, admission, or receipt evidence. The control preserves the artifact
+and module identity, target set, scope and body policy, compiler policy, and
+frozen reference selection, but it cannot issue a compile-context receipt or
+`Exact`.
 
 The harness must not rediscover the target by member name, overload count,
 syntax-tree search, or textual heuristics, and it must not recompose the shell
 from mutable planning state. A mismatch in the preserved request identity or
-policy makes the control unavailable rather than comparable.
+policy, any changed non-target byte, or any reused artifact receipt makes the
+control unavailable rather than comparable. This target wiring is **unverified**
+until
+`AuthoredBodyControlPreservesProductRenderedShell` runs in the Release harness
+suite; the existing
+`SourceArtifactReplacesTheSelectedNestedMethodBlockOnly` and
+`SourceArtifactReplacementPreservesConstructorInitializer` tests gate the
+product replacement primitive.
 
 ReturnToSender's earlier source-corpus lookup is a different, non-authoritative
 operation. It may use `CSharpText.MemberSignatureShape` to discriminate
