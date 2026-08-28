@@ -571,6 +571,108 @@ public sealed class ArtifactSetSessionTests
     }
 
     [Fact]
+    public async Task ArtifactContentReference_BindsIdentityRegistrationRoleAndContent()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        var firstProvenance = new Provenance("first");
+        var secondProvenance = new Provenance("second");
+        await using var firstSession = new ArtifactSetSession();
+        await firstSession.AddRequiredAcquisitionAsync(
+            (scope, _) => Acquired(
+                scope,
+                firstProvenance,
+                [1],
+                ArtifactAcquisitionLeases.None),
+            [ArtifactWorkspaceRole.CallerDesignated],
+            cancellationToken);
+        await firstSession.AddRequiredAcquisitionAsync(
+            (scope, _) => Acquired(
+                scope,
+                secondProvenance,
+                [2],
+                ArtifactAcquisitionLeases.None),
+            cancellationToken: cancellationToken);
+        Assert.IsType<ArtifactSetPublicationOutcome.Published>(
+            await firstSession.SealAsync(cancellationToken));
+
+        ArtifactQueryAuthorization authorization =
+            firstSession.CreateQueryAuthorization();
+        using var lease = firstSession.IssueLease(authorization);
+        IReadOnlyList<ArtifactDescriptor> catalog =
+            firstSession.GetCatalog(lease);
+        ArtifactContentReference first =
+            firstSession.GetContentReference(
+                catalog[0].Identity,
+                lease);
+        ArtifactContentReference second =
+            firstSession.GetContentReference(
+                catalog[1].Identity,
+                lease);
+
+        Assert.Same(catalog[0], first.Descriptor);
+        Assert.Same(
+            first.Descriptor.Identity,
+            first.Registration.Artifact);
+        Assert.Same(firstProvenance, first.Registration.Provenance);
+        Assert.True(first.HasRole(
+            ArtifactWorkspaceRole.CallerDesignated));
+        using Stream firstContent = first.OpenRead();
+        Assert.Equal([1], ReadAll(firstContent));
+
+        Assert.Same(catalog[1], second.Descriptor);
+        Assert.Same(
+            second.Descriptor.Identity,
+            second.Registration.Artifact);
+        Assert.Same(secondProvenance, second.Registration.Provenance);
+        Assert.False(second.HasRole(
+            ArtifactWorkspaceRole.CallerDesignated));
+        using Stream secondContent = second.OpenRead();
+        Assert.Equal([2], ReadAll(secondContent));
+
+        await using var secondSession = new ArtifactSetSession();
+        await secondSession.AddRequiredAcquisitionAsync(
+            (scope, _) => Acquired(
+                scope,
+                new Provenance("foreign"),
+                [3],
+                ArtifactAcquisitionLeases.None),
+            cancellationToken: cancellationToken);
+        Assert.IsType<ArtifactSetPublicationOutcome.Published>(
+            await secondSession.SealAsync(cancellationToken));
+        ArtifactQueryAuthorization secondAuthorization =
+            secondSession.CreateQueryAuthorization();
+        using ArtifactQueryLease secondLease =
+            secondSession.IssueLease(secondAuthorization);
+        ArtifactDescriptor foreign =
+            Assert.Single(secondSession.GetCatalog(secondLease));
+        Assert.Throws<KeyNotFoundException>(
+            () => firstSession.GetContentReference(
+                foreign.Identity,
+                lease));
+
+        firstSession.Revoke(authorization);
+        Assert.Throws<UnauthorizedAccessException>(
+            () => _ = first.Registration);
+        Assert.Throws<UnauthorizedAccessException>(
+            () => first.HasRole(
+                ArtifactWorkspaceRole.CallerDesignated));
+        Assert.Throws<UnauthorizedAccessException>(
+            () => first.OpenRead());
+
+        lease.Dispose();
+        Assert.Throws<ObjectDisposedException>(
+            () => _ = first.Registration);
+        Assert.Throws<ObjectDisposedException>(
+            () => first.HasRole(
+                ArtifactWorkspaceRole.CallerDesignated));
+        Assert.Throws<ObjectDisposedException>(
+            () => first.OpenRead());
+        Assert.Empty(
+            typeof(ArtifactContentReference).GetConstructors());
+    }
+
+    [Fact]
     public async Task SessionAccess_RejectsReplacedQueryAuthorization()
     {
         CancellationToken cancellationToken =
