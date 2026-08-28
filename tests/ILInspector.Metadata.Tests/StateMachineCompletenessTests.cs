@@ -1033,21 +1033,234 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
+    /// Every way a file can leave the population silently, measured rather than
+    /// asserted.
+    ///
+    /// A <see cref="ManagedClaim.No"/> answer becomes NotManaged and is skipped
+    /// without the sweep reporting anything, so the set of sites that can
+    /// produce it is the set of blind spots. An earlier revision of the test
+    /// below described the zeroed CLI directory as "the one way" that happens.
+    /// That was wrong -- round 8 pointed out that corrupting either signature
+    /// byte does it too -- and it was wrong in the way this PR keeps finding:
+    /// a claim about coverage made by inspection instead of by measurement.
+    ///
+    /// So the set is collected from the enumerations instead of described. If a
+    /// future change adds a fourth way to answer No, this fails and names it,
+    /// and whoever adds it has to decide whether it is a defect or a limit
+    /// worth pinning. Equality is asserted in both directions, so a site that
+    /// stops being reachable fails here too rather than quietly leaving the set.
+    /// </summary>
+    [Fact]
+    public void ReadManagedClaim_SilentSkipSites_AreExactlyTheKnownSet()
+    {
+        ClaimExitSite[] expected =
+        [
+            ClaimExitSite.SignatureFirstByteWrong,
+            ClaimExitSite.SignatureSecondByteWrong,
+            ClaimExitSite.CliDirectoryAbsent,
+        ];
+
+        byte[] image = File.ReadAllBytes(
+            typeof(StateMachineCompletenessTests).Assembly.Location);
+
+        int peOffset = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(0x3C));
+        int bound = Math.Min(image.Length - 1, peOffset + 512);
+
+        HashSet<ClaimExitSite> skipping = [];
+        string? detail = null;
+
+        for (int length = 0; length <= bound; length++)
+        {
+            using MemoryStream prefix = new(image.AsSpan(0, length).ToArray());
+            if (ReadManagedClaim(prefix, ref detail, out ClaimExitSite site)
+                == ManagedClaim.No)
+            {
+                skipping.Add(site);
+            }
+        }
+
+        byte[] copy = (byte[])image.Clone();
+
+        foreach (byte value in (byte[])[0x00, 0xFF, 0x7F])
+        {
+            for (int offset = 0; offset <= bound; offset++)
+            {
+                byte original = copy[offset];
+                copy[offset] = value;
+
+                using (MemoryStream corrupted = new(copy))
+                {
+                    if (ReadManagedClaim(corrupted, ref detail, out ClaimExitSite site)
+                        == ManagedClaim.No)
+                    {
+                        skipping.Add(site);
+                    }
+                }
+
+                copy[offset] = original;
+            }
+        }
+
+        foreach ((bool _, bool _, byte[] zeroed) in CliDirectoryZeroings(image))
+        {
+            using MemoryStream stream = new(zeroed, writable: false);
+            if (ReadManagedClaim(stream, ref detail, out ClaimExitSite site)
+                == ManagedClaim.No)
+            {
+                skipping.Add(site);
+            }
+        }
+
+        foreach (int optionalSize in (int[])[2, 96, 176, 215])
+        {
+            using MemoryStream stream =
+                new(ShortOptionalHeaderImage(optionalSize), writable: false);
+            if (ReadManagedClaim(stream, ref detail, out ClaimExitSite site)
+                == ManagedClaim.No)
+            {
+                skipping.Add(site);
+            }
+        }
+
+        ClaimExitSite[] unexpected = [.. skipping.Except(expected)];
+        ClaimExitSite[] missing = [.. expected.Except(skipping)];
+
+        Assert.True(
+            unexpected.Length == 0,
+            $"{string.Join(", ", unexpected)} answered No, so a file can now "
+                + "leave the sweep's population silently through a path that is "
+                + "not pinned as a known blind spot.");
+
+        Assert.True(
+            missing.Length == 0,
+            $"{string.Join(", ", missing)} is declared a silent-skip path but "
+                + "no enumerated input reached it that way, so the declared set "
+                + "no longer describes the reader.");
+    }
+
+    /// <summary>
+    /// A minimal PE whose optional header is declared too short to contain data
+    /// directory 14, built deliberately rather than hoped for.
+    ///
+    /// Round 8 observed that <see cref="ClaimExitSite.CliDirectoryBeyondOptionalHeader"/>
+    /// was reached only because this repository's own test assembly happens to
+    /// declare a 224-byte optional header, so corrupting its low byte to 0x7F
+    /// yields 127, which is short enough. That is coverage by accident: an
+    /// assembly with a different size could leave the site unreached while the
+    /// coverage test still passed. Constructing the shape directly makes the
+    /// reach structural.
+    /// </summary>
+    static byte[] ShortOptionalHeaderImage(int optionalSize)
+    {
+        byte[] image = new byte[1024];
+        image[0] = (byte)'M';
+        image[1] = (byte)'Z';
+        BinaryPrimitives.WriteInt32LittleEndian(image.AsSpan(0x3C), 128);
+        image[128] = (byte)'P';
+        image[129] = (byte)'E';
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            image.AsSpan(128 + 20), (ushort)optionalSize);
+        BinaryPrimitives.WriteUInt16LittleEndian(image.AsSpan(128 + 24), 0x10B);
+        return image;
+    }
+
+    /// <summary>
+    /// A PE that declares fewer than fifteen data directories is Unclassifiable,
+    /// and that is deliberate.
+    ///
+    /// The PE specification allows it -- 96 standard bytes plus eight per
+    /// directory, so ten directories give a 176-byte optional header, and
+    /// directory 14 does not exist. Round 8 raised this as a false alarm on
+    /// legitimate native content and proposed answering NotManaged instead.
+    ///
+    /// The observation is right and the prescription is not, for two measured
+    /// reasons. First, incidence: across 90,960 real PE files in this machine's
+    /// package and SDK trees, every one declares 224 or 240, and none is too
+    /// short. The shape is legal but does not occur. Second, direction:
+    /// NotManaged is the laundering answer, the one that removes a file from
+    /// the population while the sweep still reports success, and it is where
+    /// every finding in rounds 2 through 8 has lived. Answering it here would
+    /// assert "this file is not a managed assembly" on the strength of a header
+    /// this reader could not read to the end.
+    ///
+    /// So the conservative direction is kept and pinned instead of being left
+    /// to chance. A visible false alarm on a shape with zero measured incidence
+    /// costs an operator one look; a silent skip costs the gate its meaning.
+    /// </summary>
+    [Fact]
+    public void TryMeasure_OptionalHeaderTooShortForCliDirectory_IsUnclassifiable()
+    {
+        byte[] image = ShortOptionalHeaderImage(176);
+
+        using (MemoryStream stream = new(image, writable: false))
+        {
+            string? probeDetail = null;
+            ManagedClaim claim =
+                ReadManagedClaim(stream, ref probeDetail, out ClaimExitSite site);
+
+            Assert.Equal(ManagedClaim.Indeterminate, claim);
+            Assert.Equal(ClaimExitSite.CliDirectoryBeyondOptionalHeader, site);
+        }
+
+        string path = Path.Combine(
+            Path.GetTempPath(), $"sm-shortopt-{Guid.NewGuid():N}.dll");
+
+        try
+        {
+            File.WriteAllBytes(path, image);
+
+            Assert.Equal(
+                CorpusOutcome.Unclassifiable,
+                TryMeasure(path, out _, out _));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// A path that cannot be opened reaches Inaccessible.
+    ///
+    /// Round 8 pointed out that nothing exercised this outcome through
+    /// <c>TryMeasure</c> itself: the I/O exit in <c>ReadManagedClaim</c> was
+    /// covered by a throwing stream, but no test handed <c>TryMeasure</c> a path
+    /// it could not open. A corpus sweep can genuinely meet one, because a file
+    /// can be removed between enumeration and open.
+    /// </summary>
+    [Fact]
+    public void TryMeasure_UnopenableFile_ReportsInaccessible()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(), $"sm-missing-{Guid.NewGuid():N}.dll");
+
+        Assert.False(File.Exists(missing));
+
+        Assert.Equal(
+            CorpusOutcome.Inaccessible,
+            TryMeasure(missing, out _, out string? detail));
+
+        Assert.NotNull(detail);
+    }
+
+    /// <summary>
     /// The boundary of what this oracle can see, pinned deliberately.
     ///
     /// A managed assembly whose CLI directory has been zeroed in both fields is
-    /// skipped as NotManaged. That is the one way a file that really was a
+    /// skipped as NotManaged. It is one of three ways a file that really was a
     /// managed assembly can leave the population without the sweep reporting
-    /// anything, so it should be a stated limitation rather than a behaviour
-    /// nobody wrote down.
+    /// anything; corrupting either signature byte does the same, and
+    /// ReadManagedClaim_SilentSkipSites_AreExactlyTheKnownSet measures that the
+    /// three are all of them.
     ///
-    /// It is not fixable here. Once both fields are zero the file is
-    /// byte-for-byte indistinguishable from a native image at every layer this
-    /// oracle reads, and SRM cannot tell "not managed" from "managed but
-    /// damaged" once it has rejected the headers either. Answering
-    /// Unclassifiable instead would make every native DLL in every corpus
-    /// unclassifiable, which would retire the gate. Reporting the gap belongs
-    /// to the product's failure contract, not to a wider guess here.
+    /// None of them is fixable here, and they are all the same limitation seen
+    /// at different fields: once the bytes that say "managed assembly" are gone,
+    /// the file is indistinguishable from something that never was one. SRM
+    /// cannot tell "not managed" from "managed but damaged" once it has
+    /// rejected the headers either. Answering Unclassifiable instead would make
+    /// every native DLL in every corpus unclassifiable, which would retire the
+    /// gate. Reporting the gap belongs to the product's failure contract, not
+    /// to a wider guess here.
     ///
     /// Round 7 is why this exists: the "absent" answer was unreachable by both
     /// enumerations and shared an exit site with "present", so nothing measured
@@ -1412,6 +1625,19 @@ public sealed class StateMachineCompletenessTests
         foreach ((bool _, bool _, byte[] zeroed) in CliDirectoryZeroings(image))
         {
             using MemoryStream stream = new(zeroed, writable: false);
+            ReadManagedClaim(stream, ref detail, out ClaimExitSite site);
+            reached.Add(site);
+        }
+
+        // Constructed rather than hoped for. Round 8 found that
+        // CliDirectoryBeyondOptionalHeader was reached only because this
+        // assembly declares a 224-byte optional header, so a corruption to 0x7F
+        // happened to land short of directory 14. An assembly with a different
+        // size would have left the site unreached with this test still passing.
+        foreach (int optionalSize in (int[])[2, 96, 176, 215])
+        {
+            using MemoryStream stream =
+                new(ShortOptionalHeaderImage(optionalSize), writable: false);
             ReadManagedClaim(stream, ref detail, out ClaimExitSite site);
             reached.Add(site);
         }
