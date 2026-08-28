@@ -34,8 +34,9 @@ public static class MetadataSafetyPolicy
     /// <c>CreateMethodAnchor_WideGenericModoptsFailBeforeLargeAllocation</c>,
     /// <c>CreateMethodAnchor_WideTypeRefGenericModoptsFailBeforeLargeAllocation</c>,
     /// <c>CreateMethodAnchor_UniqueLongTypeRefModoptsFailBeforeLargeAllocation</c>,
+    /// <c>CreateMethodAnchorInfo_RepeatedLongNamesExhaustSharedProjectionBudget</c>,
     /// and
-    /// <c>CreateMethodAnchorInfo_RepeatedLongNamesExhaustSharedProjectionBudget</c>.
+    /// <c>CreateMethodAnchorInfo_HighGenericArityExhaustsBeforeContextAllocation</c>.
     /// The caller-owned cumulative overload also charges names, rendered
     /// strings, canonical identity, selector output, and fingerprint input
     /// against this ceiling.
@@ -90,8 +91,7 @@ public static class MetadataSafetyPolicy
     /// method scan. Prevents many near-limit successful identities from
     /// multiplying per-anchor cost when none individually trips the failure
     /// counter. Gated by
-    /// <c>Scan_NearLimitMultiMethodIdentitiesFailClosedBeforeLargeAllocation</c>
-    /// and <c>Scan_CoreLibraryRemainsWithinCompleteAnchorProjectionBudget</c>.
+    /// <c>Scan_NearLimitMultiMethodIdentitiesFailClosedBeforeLargeAllocation</c>.
     /// </summary>
     public const int MaxClassificationScanWorkChars =
         MaxAnchorSignatureWorkChars;

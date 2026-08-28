@@ -140,6 +140,44 @@ public class ApiMemberIdentityTests
     }
 
     [Fact]
+    public void CreateMethodAnchorInfo_HighGenericArityExhaustsBeforeContextAllocation()
+    {
+        byte[] image = BuildRepeatedLongMethodNameImage(
+            methodCount: 1,
+            methodNameLength: 1,
+            typeGenericParameterCount: 16_384);
+        using var peReader = new PEReader(new MemoryStream(image));
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle typeHandle =
+            reader.TypeDefinitions.Last();
+        MethodDefinition method =
+            reader.GetMethodDefinition(
+                reader.GetTypeDefinition(typeHandle).GetMethods().Single());
+        int workRemaining = 512 * 1024;
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        BadImageFormatException ex =
+            Assert.Throws<BadImageFormatException>(
+                () => ApiMemberIdentity.CreateMethodAnchorInfo(
+                    reader,
+                    typeHandle,
+                    method,
+                    ref workRemaining));
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Contains(
+            "cumulative work budget",
+            ex.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(0, workRemaining);
+        Assert.True(
+            allocated < 1024 * 1024,
+            $"High-arity projection allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void GetMemberAnchor_DisambiguatesConversionOperatorsByReturnType()
     {
         using var stream = File.OpenRead(typeof(ApiMemberIdentityTests).Assembly.Location);
@@ -589,7 +627,8 @@ public class ApiMemberIdentityTests
 
     static byte[] BuildRepeatedLongMethodNameImage(
         int methodCount,
-        int methodNameLength)
+        int methodNameLength,
+        int typeGenericParameterCount = 0)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -612,7 +651,7 @@ public class ApiMemberIdentityTests
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
-        metadata.AddTypeDefinition(
+        TypeDefinitionHandle type = metadata.AddTypeDefinition(
             TypeAttributes.Public,
             metadata.GetOrAddString("N"),
             metadata.GetOrAddString("C"),
@@ -637,6 +676,14 @@ public class ApiMemberIdentityTests
                 signatureHandle,
                 bodyOffset: -1,
                 MetadataTokens.ParameterHandle(1));
+        }
+        for (int i = 0; i < typeGenericParameterCount; i++)
+        {
+            metadata.AddGenericParameter(
+                type,
+                GenericParameterAttributes.None,
+                default,
+                i);
         }
 
         var pe = new ManagedPEBuilder(

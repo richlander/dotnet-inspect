@@ -351,6 +351,7 @@ public static class ApiMemberIdentity
     /// </summary>
     sealed class AnchorSignatureWorkBudget
     {
+        const int MinimumProjectionNodeWork = 64;
         int _remaining;
         bool _exhausted;
         readonly bool _chargeProjectionWork;
@@ -372,6 +373,9 @@ public static class ApiMemberIdentity
 
         internal void ChargeProjection(int work)
             => ChargeProjection((long)work);
+
+        internal void ChargeProjectionNodes(long count)
+            => ChargeProjection(count * MinimumProjectionNodeWork);
 
         internal void ChargeProjection(long work)
         {
@@ -1129,6 +1133,9 @@ public static class ApiMemberIdentity
             reader,
             method.Name,
             workBudget);
+        workBudget?.ChargeProjectionNodes(
+            type.GetGenericParameters().Count
+                + (long)method.GetGenericParameters().Count);
         Action<int>? beforeGenericNameMaterialize =
             workBudget is null
                 ? null

@@ -64,9 +64,11 @@ declaring-type names together with signature trees, rendered signatures,
 canonical identity, selector output, and fingerprint input. Exhaustion is a
 visible `BadImageFormatException` and consumes the shared counter; the ordinary
 single-anchor overload keeps the same identity without adopting an
-operation-wide policy. `CreateMethodAnchorInfo_RepeatedLongNamesExhaustSharedProjectionBudget`
-and `CreateMethodAnchorInfo_BoundedProjectionPreservesIdentity` gate the bound
-and identity parity.
+operation-wide policy.
+`CreateMethodAnchorInfo_RepeatedLongNamesExhaustSharedProjectionBudget`,
+`CreateMethodAnchorInfo_HighGenericArityExhaustsBeforeContextAllocation`, and
+`CreateMethodAnchorInfo_BoundedProjectionPreservesIdentity` gate the bound and
+identity parity.
 
 The target [assembly image lifetime](assembly-image-lifetime.md) contract adds
 owner-authorized image binding before current MVID and row validation. That

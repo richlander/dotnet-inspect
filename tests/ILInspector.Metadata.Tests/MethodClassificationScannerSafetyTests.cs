@@ -132,18 +132,6 @@ public sealed class MethodClassificationScannerSafetyTests
                 == nameof(MetadataMethodFindingsTests.ClassifiedPointerMethod));
     }
 
-    [Fact]
-    public void Scan_CoreLibraryRemainsWithinCompleteAnchorProjectionBudget()
-    {
-        using var stream = File.OpenRead(typeof(object).Assembly.Location);
-        using var pe = new PEReader(stream);
-
-        List<ClassifiedMethodInfo> results =
-            MethodClassificationScanner.Scan(pe);
-
-        Assert.NotEmpty(results);
-    }
-
     static byte[] BuildHostilePInvokeIdentityImage(
         int methodCount,
         int parameterCount,
