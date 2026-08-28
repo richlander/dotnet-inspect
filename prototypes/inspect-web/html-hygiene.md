@@ -20,9 +20,10 @@ Two rules, in order of importance:
 1. **Script belongs in a module under `src/`.** A document may *reference* script and
    should not *contain* any. `index.html` loads `src/bootstrap.ts` with `src=`, and that
    file is compiled and linted like any other source file.
-2. **Maintained linters check the documents themselves.** They own subresource integrity,
-   external-reference policy, inline event handlers, `javascript:` URLs, and general HTML
-   validity.
+2. **Maintained linters check the documents themselves.** They own general HTML validity,
+   subresource integrity, and inline event handlers outright. They own external-reference
+   and `javascript:` URL policy only for the specific attributes named in
+   [What the tools own](#what-the-tools-own); every other route is review's.
 
 ### Why linters rather than a bespoke gate
 
@@ -50,7 +51,7 @@ Both linters run in `npm run lint`, which CI invokes through `npm run analyze`.
 
 | Tool | Configuration | What it covers |
 | --- | --- | --- |
-| [html-validate][hv] | `.htmlvalidate.json`, `html-elements.json` | HTML validity and the `recommended` preset; `attr-pattern` rejecting every `on*` event handler attribute; `require-sri` for cross-origin `<script>` and `<link>`; the SRI digest grammar, declared as element metadata; `allowed-links` restricting external references to an allow list |
+| [html-validate][hv] | `.htmlvalidate.json`, `html-elements.json` | HTML validity and the `recommended` preset; `attr-pattern` rejecting every `on*` event handler attribute; `require-sri` for cross-origin `<script>` and `<link>`; the SRI digest grammar, declared as element metadata; `allowed-links` restricting external references to an allow list, on `<a href>`, `<img src>`, `<link href>` and `<script src>` only |
 | [htmlhint][hh] | `.htmlhintrc` | `inline-script-disabled` -- `javascript:` URLs in link and source attributes |
 
 Inline event handlers are owned by html-validate's `attr-pattern`, configured with a
@@ -61,9 +62,24 @@ enumerates event names and its list predates the modern ones -- `onpointerdown`,
 extended every time the platform grows an event is the same losing position this project
 just left, so the pattern does that work and htmlhint is kept only for `javascript:` URLs.
 
-Read that second column narrowly. `inline-script-disabled` inspects `href` and `src`; a
-`javascript:` URL reached through any other executable attribute is not covered, and
-[review owns it](#javascript-urls-outside-href-and-src).
+The pattern is `^(?!on[a-z]).+$` -- purely a negative prefix, with no allow list of
+permitted attribute-name characters after it. That matters: an earlier draft spelled the
+tail as `[a-zA-Z0-9:_.-]+`, which rejected template and framework attribute syntax such as
+`[class.active]`, `#panel` and `*ngIf`, and so quietly recreated the enumeration this PR
+exists to delete. The remaining cost is that `on[a-z]*` is reserved wholesale, so an inert
+attribute that happens to start that way -- `once` is the realistic example -- is rejected
+too. That is the intended trade: the false positive is visible at author time and takes a
+scoped disable directive to clear, whereas a missed handler is silent.
+
+Read that third column narrowly; both tools are more specific than a summary suggests.
+`inline-script-disabled` inspects `href` and `src`, so a `javascript:` URL reached through
+any other executable attribute is [review's](#javascript-urls-outside-href-and-src). It
+also matches the literal scheme text, so an entity-encoded spelling such as
+`java&#x73;cript:` passes it; that is left alone deliberately, because obfuscation of that
+kind is not an honest mistake, and the trust boundary here is the bytes a CDN serves, not
+the contributors writing these files. `allowed-links` is narrower still: it inspects
+exactly four element/attribute pairs, and everything else that loads or navigates is
+[review's](#external-loads-allowed-links-does-not-see).
 
 ### Suppressions
 
@@ -105,12 +121,18 @@ file.
 **In review, reject:** any `<script>` with content. Move it to a module under `src/` and
 reference it with `src=`.
 
-### `iframe srcdoc`
+### `iframe srcdoc` and `data:` documents
 
 `<iframe srcdoc="&lt;script&gt;...">` runs script on load and needs no interaction.
-Neither linter flags it. There are no `<iframe>` elements in this project today.
+Neither linter flags it. The same is true of the other route to an inline active document,
+`<iframe src="data:text/html,...">`: the markup is a *value*, so `attr-pattern` sees only
+an ordinary `src` attribute and the handler inside it is invisible to every gate here --
+and to TypeScript and oxlint, which is exactly the outcome this document exists to
+prevent. `allowed-links` does not reach it either, because it does not inspect `<iframe>`
+at all. There are no `<iframe>` elements in this project today.
 
-**In review, reject:** `srcdoc` outright.
+**In review, reject:** `srcdoc` outright, and any `data:` URL bearing an HTML or
+script media type in an attribute that loads a document.
 
 ### A remote document base
 
@@ -160,13 +182,48 @@ The tools enforce the mechanics, so what is left for review is the judgement:
 pattern -- is a deliberate decision about whose bytes we run, not a lint fix. Bumping a
 pinned dependency means a new version *and* a new digest, together.
 
+### External loads `allowed-links` does not see
+
+`allowed-links` maps exactly four element/attribute pairs -- `<a href>`, `<img src>`,
+`<link href>` and `<script src>`. Nothing else it might plausibly cover is covered, so
+these all pass both linters as configured:
+
+```html
+<meta http-equiv="refresh" content="0;url=https://elsewhere.example/app" />
+<iframe title="x" src="https://elsewhere.example/app"></iframe>
+<object data="https://elsewhere.example/x.swf"></object>
+<embed title="x" src="https://elsewhere.example/x" />
+<form action="https://elsewhere.example/collect"><button type="submit">go</button></form>
+```
+
+Those specimens carry a `title` and a submit button because otherwise html-validate rejects
+them for missing one -- an accessibility rule, not a URL policy. Satisfy that and the
+external destination itself draws no complaint from either tool.
+
+The meta refresh is the sharpest of these: it navigates the whole application to another
+origin with no interaction at all, and the CDN allow list never sees it. There are no
+`<iframe>`, `<object>`, `<embed>` or `<form>` elements in this project today, and no
+`<meta http-equiv>` of any kind.
+
+**In review, reject:** any absolute external URL in an attribute other than those four
+pairs, unless it is a deliberate, named decision the way the CDN allow list is.
+
 ### Link relations that `require-sri` does not recognise
 
 `require-sri` matches the whole `rel` attribute against a small set of values instead of
 tokenizing it. `rel="stylesheet"` is checked; `rel="alternate stylesheet"`,
 `rel="stylesheet license"`, and `rel="STYLESHEET"` are not, and load without `integrity`.
-The allow list still applies, so such a link can only reach the pinned CDN -- but it
-reaches it unpinned.
+This is an upstream matching bug and cannot be closed from configuration: `require-sri`'s
+`target: "all"` setting still keys off the same `rel` match, and requiring `integrity` on
+every `<link>` outright would break the local stylesheet and the preload anchor.
+
+Do not read the allow list as neutralising this. jsDelivr is a *public* CDN that serves
+any package published to npm, so "it can only reach the allow-listed host" bounds far less
+than it sounds like it does. What the version-exact pattern buys is narrower and worth
+stating precisely: it rejects the `/gh/<user>/<repo>` route outright, so such a link must
+name a real npm package at an exact version rather than arbitrary repository content. The
+residual is a real npm package, at a pinned version, loaded without a digest -- smaller
+than it was, and still not nothing.
 
 **In review, reject:** any `<link>` with a multi-token or unusually cased `rel` that
 carries no `integrity`.

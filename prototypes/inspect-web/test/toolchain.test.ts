@@ -416,7 +416,7 @@ test("the only JavaScript is the file the lint exemption names", () => {
 // html-validate covers subresource integrity on `<link>` as well as `<script>`, which the
 // bespoke gate never did.
 //
-// So what remains here is the wiring, not the analysis. `docs/html-hygiene.md` records
+// So what remains here is the wiring, not the analysis. `html-hygiene.md` records
 // which hazards the linters own and which are a review responsibility. This gate hands
 // each linter the documents this project actually owns and requires a clean report, then
 // requires the same configuration to reject a specimen. A linter that stops running,
@@ -496,9 +496,15 @@ const markupLinters: readonly MarkupLinter[] = [
     command: "htmlhint",
     config: ".htmlhintrc",
     specimens: [
+      // htmlhint is retained for exactly one property: a `javascript:` URL in `href` or
+      // `src`. html-validate covers neither form -- `allowed-links` inspects only the
+      // destination of links it considers external, and a `javascript:` URL is not one.
+      // So this specimen, not an inline handler, is what holds htmlhint in the
+      // toolchain: inline handlers are `attr-pattern`'s property now, and testing them
+      // here would leave htmlhint's only reason to exist unproven.
       {
         markup: '<!DOCTYPE html><html lang="en"><head><title>t</title></head>'
-          + '<body><div onclick="doThing()"></div></body></html>',
+          + '<body><a href="javascript:doThing()">x</a></body></html>',
         rule: "inline-script-disabled",
       },
     ],

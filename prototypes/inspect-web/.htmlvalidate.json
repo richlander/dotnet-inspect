@@ -5,7 +5,7 @@
     "doctype-style": "off",
     "void-style": "off",
     "long-title": "off",
-    "attr-pattern": ["error", { "pattern": "^(?!on[a-z])[a-zA-Z0-9:_.-]+$" }],
+    "attr-pattern": ["error", { "pattern": "^(?!on[a-z]).+$" }],
     "require-sri": ["error", { "target": "crossorigin" }],
     "allowed-links": ["error", {
       "allowExternal": {
