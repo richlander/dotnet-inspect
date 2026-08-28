@@ -48,6 +48,9 @@ public sealed class BrowserEngineLayeringTests
             "T:ILInspector.Metadata.TypeResolutionContext",
             banned);
         Assert.Contains(
+            "T:ILInspector.Metadata.TypeResolutionEnumWidth",
+            banned);
+        Assert.Contains(
             "T:ILInspector.Metadata.SignatureSpellability",
             banned);
         Assert.Contains("T:ILInspector.Metadata.AssemblyReader", banned);
@@ -445,6 +448,7 @@ public sealed class BrowserEngineLayeringTests
             "ILInspector.Metadata.ApiSurface",
             "ILInspector.Metadata.ResolvedAssemblyReference",
             "ILInspector.SourceLink.SourceLinkResolver",
+            "InertText.UrlRedaction",
             "NuGetFetch.NuGetClient",
             "NuGetFetch.PackageCache",
             "NuGetFetch.PackageExtractor",

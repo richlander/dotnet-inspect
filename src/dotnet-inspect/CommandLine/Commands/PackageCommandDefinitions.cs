@@ -1,5 +1,6 @@
 using DotnetInspector.Output;
 using System.CommandLine;
+using System.Globalization;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
@@ -104,7 +105,12 @@ public static class PackageCommandDefinitions
         opts.AddNuGetOptionsTo(packageCommand);
 
         // Search subcommand
-        var searchCommand = CreatePackageSearchCommand(opts);
+        var searchCommand = CreatePackageSearchCommand(
+            opts,
+            packageCommand,
+            packageNameArg,
+            prereleaseOption,
+            outOption);
         packageCommand.Subcommands.Add(searchCommand);
 
         var commandArgs = new PackageOptionsParser.PackageCommandArgs(
@@ -156,7 +162,12 @@ public static class PackageCommandDefinitions
     /// <summary>
     /// Creates the package search subcommand for searching NuGet packages.
     /// </summary>
-    public static Command CreatePackageSearchCommand(SharedOptions opts)
+    public static Command CreatePackageSearchCommand(
+        SharedOptions opts,
+        Command packageCommand,
+        Argument<string[]> inheritedPackageArgument,
+        Option<bool> inheritedPrereleaseOption,
+        Option<string?> inheritedOutOption)
     {
         var searchCommand = new Command(PackageSearchCommand.Name, "Search NuGet for packages by keyword");
 
@@ -183,10 +194,110 @@ public static class PackageCommandDefinitions
         searchCommand.Options.Add(opts.Verbose);
         searchCommand.Options.Add(opts.Limit);
         searchCommand.Options.Add(opts.Count);
+        searchCommand.Options.Add(opts.Fields);
+        searchCommand.Options.Add(opts.Columns);
         opts.AddNuGetOptionsTo(searchCommand);
+        opts.AddRowWindowValidators(searchCommand);
+        searchCommand.Validators.Add(result =>
+        {
+            int? resultLimit = null;
+            var limitResult = result.GetResult(opts.Limit);
+            if (limitResult is { Implicit: false }
+                && limitResult.Tokens.Count > 0)
+            {
+                if (!int.TryParse(
+                    limitResult.Tokens[^1].Value,
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out int parsedLimit))
+                {
+                    return;
+                }
+
+                resultLimit = parsedLimit;
+            }
+
+            if (resultLimit is <= 0)
+            {
+                result.AddError(
+                    "-n requires a positive package search result limit greater than zero.");
+            }
+
+            bool hasDirection =
+                result.GetValue(opts.Head) || result.GetValue(opts.Tail);
+            bool hasRows =
+                result.GetResult(opts.Rows) is { Implicit: false };
+            if (hasDirection && !hasRows && resultLimit is null)
+            {
+                result.AddError(
+                    "--head/--tail requires a carrier: use -n for result rows "
+                    + "or --rows for data rows.");
+            }
+
+            if (resultLimit is null)
+                return;
+
+            if (result.GetValue(opts.Count))
+                result.AddError("--count cannot be combined with -n.");
+
+            if (result.GetValue(opts.Tail))
+            {
+                result.AddError(
+                    "--tail cannot be combined with -n for package search "
+                    + "because bounded remote pages do not establish a suffix.");
+            }
+
+            if (result.GetResult(takeOption) is { Implicit: false }
+                && resultLimit > 0)
+            {
+                result.AddError(
+                    "--take and -n both limit package search results; choose one.");
+            }
+        });
 
         searchCommand.SetAction(async (parseResult, ct) =>
         {
+            var acceptedParentOptions = new HashSet<Option>
+            {
+                opts.Json,
+                opts.Markdown,
+                opts.Verbose,
+                opts.Info,
+                opts.Limit,
+                opts.Count,
+                opts.Source,
+                opts.AddSource,
+                opts.NuGetConfig,
+                opts.Print,
+                opts.Value,
+                opts.Urls,
+                opts.Paths,
+                opts.Rows,
+                opts.Head,
+                opts.Tail,
+                opts.Fields,
+                opts.Columns,
+                inheritedPrereleaseOption,
+                inheritedOutOption,
+            };
+            var unsupportedParentOption = packageCommand.Options.FirstOrDefault(
+                option => !acceptedParentOptions.Contains(option)
+                    && parseResult.GetResult(option) is { Implicit: false });
+            if (unsupportedParentOption is not null)
+            {
+                CommandError.Write(
+                    $"{unsupportedParentOption.Name} is not available with package search.");
+                return 1;
+            }
+
+            if (parseResult.GetValue(inheritedPackageArgument) is { Length: > 0 })
+            {
+                CommandError.Write(
+                    "A package target is not available with package search; "
+                    + "place 'search' immediately after 'package'.");
+                return 1;
+            }
+
             var query = parseResult.GetValue(queryArg);
 
             if (string.IsNullOrEmpty(query))
@@ -201,15 +312,27 @@ public static class PackageCommandDefinitions
                 return 0;
             }
 
+            var projection = ProjectionAudit.Requested(parseResult, opts);
             var options = new PackageSearchOptions
             {
                 Query = query,
-                Take = parseResult.GetValue(takeOption),
-                Prerelease = parseResult.GetValue(prereleaseOption),
+                Take = parseResult.GetValue(opts.Limit)
+                    ?? parseResult.GetValue(takeOption),
+                Prerelease =
+                    parseResult.GetValue(inheritedPrereleaseOption)
+                    || parseResult.GetValue(prereleaseOption),
                 JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                 CompactJson = parseResult.GetValue(compactOption),
                 Verbose = parseResult.GetValue(opts.Verbose),
-                Count = parseResult.GetValue(opts.Count),
+                Count = projection.Count,
+                Print = projection.Print,
+                Value = projection.Value,
+                Urls = projection.Urls,
+                Paths = projection.Paths,
+                OutputPath = parseResult.GetValue(inheritedOutOption),
+                Rows = projection.Rows,
+                Fields = projection.Fields,
+                Columns = projection.Columns,
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };
 

@@ -222,7 +222,8 @@ export async function queryPackageDependencies(packageId, version, targetFramewo
 
 export async function queryPackageHeapEntries(packageId, version, targetFramework, assemblyFileName, heap) {
   if (!queryPackageHeapEntriesExport) throw new Error("The browser inspection engine is not initialized.");
-  return await queryPackageHeapEntriesExport(packageId, version, targetFramework, assemblyFileName, heap);
+  const result = await queryPackageHeapEntriesExport(packageId, version, targetFramework, assemblyFileName, heap);
+  return JSON.parse(result);
 }
 
 export async function queryPackageIntegrations(packageId, version, targetFramework) {
@@ -233,12 +234,14 @@ export async function queryPackageIntegrations(packageId, version, targetFramewo
 
 export async function queryPackageMetadata(packageId, version, targetFramework) {
   if (!queryPackageMetadataExport) throw new Error("The browser inspection engine is not initialized.");
-  return await queryPackageMetadataExport(packageId, version, targetFramework);
+  const result = await queryPackageMetadataExport(packageId, version, targetFramework);
+  return JSON.parse(result);
 }
 
 export async function queryPackageMetadataTable(packageId, version, targetFramework, assemblyFileName, tableIndex, startRowId, maxRows) {
   if (!queryPackageMetadataTableExport) throw new Error("The browser inspection engine is not initialized.");
-  return await queryPackageMetadataTableExport(packageId, version, targetFramework, assemblyFileName, tableIndex, startRowId, maxRows);
+  const result = await queryPackageMetadataTableExport(packageId, version, targetFramework, assemblyFileName, tableIndex, startRowId, maxRows);
+  return JSON.parse(result);
 }
 
 export async function queryPackageOpportunities(packageId, version, targetFramework) {
@@ -261,7 +264,8 @@ export async function queryPackageVersions(packageId) {
 
 export async function queryPlatformHeapEntries(targetFramework, platformVersion, assemblyFileName, pack, heap) {
   if (!queryPlatformHeapEntriesExport) throw new Error("The browser inspection engine is not initialized.");
-  return await queryPlatformHeapEntriesExport(targetFramework, platformVersion, assemblyFileName, pack, heap);
+  const result = await queryPlatformHeapEntriesExport(targetFramework, platformVersion, assemblyFileName, pack, heap);
+  return JSON.parse(result);
 }
 
 export async function queryPlatformIntegrations(targetFramework, platformVersion, assemblyFileName, pack) {
@@ -272,12 +276,14 @@ export async function queryPlatformIntegrations(targetFramework, platformVersion
 
 export async function queryPlatformMetadata(targetFramework, platformVersion, assemblyFileName, pack) {
   if (!queryPlatformMetadataExport) throw new Error("The browser inspection engine is not initialized.");
-  return await queryPlatformMetadataExport(targetFramework, platformVersion, assemblyFileName, pack);
+  const result = await queryPlatformMetadataExport(targetFramework, platformVersion, assemblyFileName, pack);
+  return JSON.parse(result);
 }
 
 export async function queryPlatformMetadataTable(targetFramework, platformVersion, assemblyFileName, pack, tableIndex, startRowId, maxRows) {
   if (!queryPlatformMetadataTableExport) throw new Error("The browser inspection engine is not initialized.");
-  return await queryPlatformMetadataTableExport(targetFramework, platformVersion, assemblyFileName, pack, tableIndex, startRowId, maxRows);
+  const result = await queryPlatformMetadataTableExport(targetFramework, platformVersion, assemblyFileName, pack, tableIndex, startRowId, maxRows);
+  return JSON.parse(result);
 }
 
 export async function queryPlatformOpportunities(targetFramework, platformVersion, assemblyFileName, pack) {

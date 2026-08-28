@@ -1257,6 +1257,9 @@ public static class TimelineCommand
 
         if (options.JsonOutput)
         {
+            if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                return 1;
+
             Console.WriteLine(JsonSerializer.Serialize(
                 view,
                 TimelineJsonContext.Default.TimelineDocumentView));
@@ -1327,7 +1330,7 @@ public static class TimelineCommand
         where T : notnull;
 }
 
-public sealed record TimelineOptions
+public sealed record TimelineOptions : IProjectionOptions
 {
     public string PackageVersionRange { get; init; } = "";
     public string TypeName { get; init; } = "";

@@ -179,6 +179,44 @@ public class PackageCommand
                 return 1;
             }
 
+            string? packageLens = options.ListVersions
+                ? options.ForceLatest
+                    ? "--latest-version"
+                    : options.ListVersionsWithFeed
+                        ? "--versions-with-feed"
+                        : "--versions"
+                : options.ListLayout
+                    ? "--layout"
+                    : options.ListTfms
+                        ? "--tfms"
+                        : options.ShowContent
+                            ? "--content"
+                            : null;
+
+            // Opaque lens payload projections are target-independent failures. Reject them
+            // before version lookup, package resolution, or extraction; --count needs the rows.
+            if (packageLens is not null
+                && !options.Count
+                && LensProjection.TryProject(
+                    options,
+                    packageLens,
+                    rowCount: 0,
+                    out var lensProjectionExit))
+            {
+                return lensProjectionExit;
+            }
+
+            if (packageLens is not null
+                && !options.Count
+                && (options.Fields is { Length: > 0 }
+                    || options.Columns is { Length: > 0 }))
+            {
+                CommandError.Write(
+                    $"--fields/--columns are not available with {packageLens}, which "
+                    + "renders its own payload. Omit the projection to keep the lens output.");
+                return 1;
+            }
+
             if (!ValidateDependencyTreeProjection(options))
                 return 1;
 
@@ -1070,6 +1108,9 @@ public class PackageCommand
             }
             else
             {
+                if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                    return 1;
+
                 var output = OutputFormatter.FormatResult(result, options, pipeline);
                 if (hasProjection)
                     ProjectionDiagnostics.DiagnoseRendered(
@@ -1220,6 +1261,9 @@ public class PackageCommand
 
         if (options.JsonOutput)
         {
+            if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                return 1;
+
             Console.WriteLine(JsonSerializer.Serialize(
                 results.Select(PackageInspectionJson.Create).ToArray(),
                 PackageInspectionJsonContext.Default.PackageInspectionJsonArray));
@@ -1589,6 +1633,8 @@ public class PackageCommand
         {
             return true;
         }
+        if (options.Discover != null)
+            return true;
 
         DocumentSchema schema = PackageDiscoverySchema();
         if (packageCount > 1
@@ -1944,6 +1990,9 @@ public class PackageCommand
         if (options.ListLayout) conflicts.Add("--layout");
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.Print) conflicts.Add("--print");
+        if (options.Value) conflicts.Add("--value");
+        if (options.Urls) conflicts.Add("--urls");
+        if (options.Paths) conflicts.Add("--paths");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         else if (options.Tree && options.Discover == null && !options.Count) conflicts.Add("--tree");
         if (options.PackageLibrary != null) conflicts.Add("--library");

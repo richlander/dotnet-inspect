@@ -895,13 +895,33 @@ Research overlay bridge, and the application layer:
   claimant cannot poison a valid sibling claim. A runtime-async execution
   method cannot authenticate as a state-machine body. Generated kickoff
   intermediates compose through authenticated lifted owners when their
-  evidence bodies are acquired; an unresolved intermediate retains its
-  physical caller rather than becoming logical attribution. Lifted-owner
-  groups authenticate state-machine claims across the complete owner
-  candidate set in every scope without acquiring unselected owner bodies.
+  evidence bodies are acquired. In unscoped indexes, an unresolved ultimate
+  owner retains the authenticated immediate source in `DeclaredSources`;
+  direct calls retain their physical caller rather than becoming logical
+  attribution. Async execution sources and owner chains reject malformed
+  generated-like lifted names while preserving ordinary compiler-generated
+  owners, including async owners, that already own valid generated bodies.
+  Rejected execution sources and owners cannot expand a scoped acquisition to
+  descendant physical bodies; async scope expansion validates the complete
+  lifted-owner chain before admitting a state-machine body. Scoped indexes
+  retain neither fallback.
+  Lifted-owner groups authenticate state-machine claims across the complete
+  owner candidate set in every scope without acquiring unselected owner bodies.
+  Authenticated lifted-owner evidence carries the owner identity together with
+  method- and enclosing-type compiler-generated provenance; attribution,
+  scope admission, and recommendation projection preserve that evidence
+  through ultimate-owner traversal rather than re-reading a narrower attribute
+  subset or projecting identity alone.
   Ownership-derived recommendations require an authenticated ultimate owner
   in full, method, and type scopes; unresolved ownership retains physical
   evidence and body-intrinsic opportunities but fails closed for attribution.
+  Canonical generated bodies with no authenticated claimant are unresolved,
+  while malformed ownership metadata on an authored body cannot suppress that
+  body's intrinsic evidence. Allocation fanout turns calls into excluded
+  bodies into opaque paths before composing caller summaries.
+  Generated-owner suppression applies to ownership-derived recommendations,
+  not body-intrinsic opportunities, and authenticated top-level entry points
+  retain their established exception.
   A recoverable ownership failure cannot abort final publication or discard
   physical calls collected before opportunity projection.
   `DirectCalls_AsyncLiftedMoveNextComposesToDeclaredOwner` gates full,
@@ -928,18 +948,65 @@ Research overlay bridge, and the application layer:
   publication, feature-stable physical calls, and scope-stable group
   authentication.
   `OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes`
-  gates fail-closed ownership-derived recommendations while preserving
+  gates the unscoped immediate-source fallback and fail-closed scoped
+  ownership-derived recommendations and allocation fanout while preserving
   full-scope body-intrinsic opportunities.
+  `OptimizationOpportunities_UnresolvedAsyncOwnerDoesNotProjectGenericBoxingAcrossScopes`
+  gates generic-box suppression for unresolved async ownership in full,
+  method, and type scopes.
+  `OptimizationOpportunities_OrphanGeneratedBodyFailsClosedAcrossScopes` and
+  `OptimizationOpportunities_AuthoredIntrinsicRowsSurviveMalformedOwnershipAcrossScopes`
+  distinguish owner-required generated bodies from authored intrinsic
+  evidence, while
+  `AllocationFanoutTests.Analyze_TreatsExcludedTargetsAsOpaque` gates
+  pre-composition fanout exclusion.
+  `OptimizationOpportunities_UnresolvedLiftedOwnerDoesNotProjectGeneratedBoxing`
+  gates generated generic-box projection on an authenticated ultimate owner in
+  full, method, and type scopes.
+  `DirectCalls_UnresolvedNestedLiftedSourceRetainsPhysicalCaller` and
+  `DirectCalls_RecoverableUltimateOwnerFailureRetainsPhysicalCaller` gate
+  multi-hop caller projection for unresolved and recoverable-failure paths;
+  `ResolveDeclaredMethod_MalformedLiftedSourceNameFailsClosed` and
+  `ResolveDeclaredMethod_MalformedNestedLiftedOwnerDoesNotBecomeUltimateOwner`
+  gate malformed immediate and intermediate names.
+  `ResolveDeclaredMethod_CompilerGeneratedOwnersRetainAttribution`,
+  `DirectCalls_CompilerGeneratedAsyncOwnerRetainsAttributionAcrossScopes`,
+  `ResolveDeclaredMethod_TypeGeneratedMalformedAsyncSourceFailsClosedAcrossScopes`,
+  `ResolveDeclaredMethod_TypeGeneratedMalformedOwnerFailsClosedAcrossScopes`,
+  `Scopes_MalformedGeneratedOwnersDoNotAdmitStateMachineBodies`, and
+  `ResolveDeclaredMethod_TerminalMalformedOwnerFailsClosed` gate compiled owner
+  compatibility, method- and type-level generated provenance, async scope
+  admission, and terminal-hop authentication.
+  `OptimizationOpportunities_CompilerGeneratedAsyncOwnerIsScopeInvariant`,
+  `OptimizationOpportunities_TypeGeneratedAsyncOwnerSuppressesSiblingAcrossScopes`,
+  and
+  `ResolveUltimateDeclaredMethod_AuthenticatesTopLevelEntryPoint` gate
+  body-intrinsic scope parity, ordinary async-source suppression, and the
+  top-level exception.
+  `ScopedAsyncAdmission_DoesNotIndexUnselectedTopLevelEntryPoint` gates the
+  metadata-only scope-admission boundary before top-level body authentication.
+  `OptimizationOpportunities_ResolvedNestedLiftedOwnerProjectsUltimateOwnerAcrossScopes`
+  gates ultimate-owner recommendation attribution with a resolvable two-hop
+  compiled relationship in full, method, and type scopes.
+  `OptimizationOpportunities_GeneratedUltimateSuppressesNestedBoxAcrossScopes`
+  and
+  `OptimizationOpportunities_GeneratedUltimateSuppressesNestedAsyncAcrossScopes`
+  gate generated ultimate-owner suppression for generic-box and async-sibling
+  recommendations across those same scopes.
   `ScopeDiagnosticAggregation_FinalPublicationRetainsMetadataOrder` gates
   ordered aggregation of recoverable final-publication failures.
   `LiftedOwners_RejectUnauthenticatedIteratorExecution` gates explicit
   synchronous-iterator implementations with named decoys, duplicate iterator
   source claims, and async-iterator claims over classic-only state machines,
   including the declared-source fallback for their rejected `MoveNext`.
+  `LibraryBodyDeclaredSourceResolver` composes the async and lifted resolvers
+  into ultimate declared owners, owns the async/lifted/async scoped-evidence
+  expansion sequence, and publishes declared-source mappings plus recoverable
+  diagnostics. It owns no metadata image or parallel scheduling lifetime.
   `AsyncSource_MethodImplRequiresValidSourceMethodShape` gates the kickoff and
-  state-machine body requirements. The resolver reuses primary metadata
-  identity and generated-code judgments plus the builder's shared local
-  type-definition index.
+  state-machine body requirements. The async source resolver reuses primary
+  metadata identity and generated-code judgments plus the builder's shared
+  local type-definition index.
   `OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`,
   `AsyncStateMachineAttribute_RequiresFrameworkOrigin`,
   `ScopedStateMachineExpansion_RequiresTrustedClassicSource`, and
@@ -955,7 +1022,8 @@ Research overlay bridge, and the application layer:
   gates partial-result accumulation.
   The assembly builder retains the metadata-ordered work list, parallel
   scheduling, shared local type-definition infrastructure, and service
-  lifetime composition.
+  lifetime composition; declared-source policy is delegated to
+  `LibraryBodyDeclaredSourceResolver`.
   Cross-assembly type-definition binding,
   referenced-image metadata lifetime, and the registration-keyed cache belong
   to `LibraryBodyReferenceMetadataResolver`, which composes

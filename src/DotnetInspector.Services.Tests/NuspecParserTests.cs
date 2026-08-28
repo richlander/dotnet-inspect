@@ -419,9 +419,148 @@ public class NuspecParserTests : IDisposable
 
     [Theory]
     [InlineData(
+        "<package><metadata><id>Example.Package</id><version>1.0.0</version></metadata></package>",
+        "nuspec")]
+    [InlineData(
+        "<package xmlns=\"http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd\"><metadata><id>Example.Package</id><version>1.0.0</version></metadata></package>",
+        "2013/05")]
+    [InlineData(
+        "<package><metadata xmlns=\"http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd\"><id>Example.Package</id><version>1.0.0</version></metadata></package>",
+        "2010/07")]
+    public void ParseContent_SupportedPackageAndMetadataNamespaceFormsAreAccepted(
+        string xml,
+        string manifestVersion)
+    {
+        NuspecData result = NuspecParser.ParseContent(xml);
+
+        Assert.Equal("Example.Package", result.PackageName);
+        Assert.Equal("1.0.0", result.Version);
+        Assert.Equal(manifestVersion, result.ManifestVersion);
+    }
+
+    [Theory]
+    [InlineData(
+        "<package xmlns=\"http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd\"><metadata xmlns=\"\"><id>Example.Package</id><version>1.0.0</version></metadata></package>")]
+    [InlineData(
+        "<package xmlns=\"http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd\"><metadata xmlns=\"http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd\"><id>Example.Package</id><version>1.0.0</version></metadata></package>")]
+    public void ParseContent_IncompatibleNuspecMetadataNamespaceIsRejected(
+        string xml)
+    {
+        InvalidDataException exception =
+            Assert.Throws<InvalidDataException>(
+                () => NuspecParser.ParseContent(xml));
+
+        Assert.Contains(
+            "metadata namespace",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Example.Package",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ParseContent_DuplicateCompatibleMetadataIsRejected()
+    {
+        const string xml = """
+            <package>
+              <metadata>
+                <id>First.Package</id>
+                <version>1.0.0</version>
+              </metadata>
+              <metadata xmlns="http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd">
+                <id>Second.Package</id>
+                <version>2.0.0</version>
+              </metadata>
+            </package>
+            """;
+
+        InvalidDataException exception =
+            Assert.Throws<InvalidDataException>(
+                () => NuspecParser.ParseContent(xml));
+
+        Assert.Contains(
+            "multiple metadata elements",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "First.Package",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Second.Package",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("https://example.test/extension")]
+    [InlineData(" ")]
+    public void ParseContent_ForeignDirectMetadataIsNotPackageMetadata(
+        string metadataNamespace)
+    {
+        NuspecData result = NuspecParser.ParseContent(
+            $$"""
+            <package>
+              <metadata xmlns="{{metadataNamespace}}">
+                <id>Foreign.Package</id>
+                <version>1.0.0</version>
+              </metadata>
+            </package>
+            """);
+
+        Assert.Null(result.PackageName);
+        Assert.Null(result.Version);
+    }
+
+    [Fact]
+    public void ParseContent_NestedMetadataIsNotPackageMetadata()
+    {
+        NuspecData result = NuspecParser.ParseContent(
+            """
+            <package>
+              <extension>
+                <metadata>
+                  <id>Nested.Package</id>
+                  <version>1.0.0</version>
+                </metadata>
+              </extension>
+            </package>
+            """);
+
+        Assert.Null(result.PackageName);
+        Assert.Null(result.Version);
+    }
+
+    [Fact]
+    public void ParseContent_ForeignMetadataSiblingDoesNotShadowPackageMetadata()
+    {
+        NuspecData result = NuspecParser.ParseContent(
+            """
+            <package>
+              <metadata xmlns="https://example.test/extension">
+                <id>Foreign.Package</id>
+                <version>1.0.0</version>
+              </metadata>
+              <metadata>
+                <id>Example.Package</id>
+                <version>2.0.0</version>
+              </metadata>
+            </package>
+            """);
+
+        Assert.Equal("Example.Package", result.PackageName);
+        Assert.Equal("2.0.0", result.Version);
+    }
+
+    [Theory]
+    [InlineData(
         "<notpackage><metadata><id>Example.Package</id><version>1.0.0</version></metadata></notpackage>")]
     [InlineData(
         "<package xmlns=\"https://example.test/not-nuspec\"><metadata><id>Example.Package</id><version>1.0.0</version></metadata></package>")]
+    [InlineData(
+        "<package xmlns=\" \"><metadata><id>Example.Package</id><version>1.0.0</version></metadata></package>")]
     public void ParseContent_InvalidDocumentRootIsRejected(string xml)
     {
         InvalidDataException exception =

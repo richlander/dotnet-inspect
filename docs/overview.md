@@ -65,13 +65,19 @@ substrates, and inspection producers that will extend that space.
 - `src/ILInspector.Instructions/` is the shared IL decode + EH-aware basic-block substrate (one decoder the analyzer and decompiler converge onto); see [instruction substrate](design/instruction-substrate.md).
 - `src/ILInspector.Text/` provides the reusable `TextFindings` API for exact, ordered line inspection and generic text comparison on the shared Finding spine.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction, package/source caches, feeds, symbol package acquisition, and version resolution.
+- `src/DotnetInspector.PackageQueries/` is the optional package-aware query
+  companion. It consumes package realization proofs and package-neutral core
+  queries without adding package identity or acquisition policy to those core
+  query results.
 - `src/DotnetInspector.Artifacts/` is the package- and Metadata-free contract
   floor for generation-scoped artifact identity, typed provenance and
   diagnostics, acquisition outcomes, and owner-issued guarded access.
 - `src/DotnetInspector.Services/` contains shared services such as assembly-set
   and PDB acquisition, platform/package resolution, dependency resolution,
   signatures, SourceLink availability/integrity operations, source fetching,
-  and nuspec parsing.
+  and nuspec parsing. It owns the accepted package/metadata XML structure
+  defined by [nuspec structural compatibility](design/nuspec-structural-compatibility.md);
+  Queries owns manifest identity, dependency validation, and resource policy.
 - `src/DotnetInspector.Core/` is the reference-free tool runtime kernel beneath
   Packages, Services, and the CLI: cache roots and eviction (`CoreCache`,
   `AsyncCache`), the single `HttpClientFactory` seam with offline and
@@ -87,6 +93,12 @@ substrates, and inspection producers that will extend that space.
   and interaction language while individual components retain rendering,
   binding, and state-transition responsibilities.
 - `tools/DecompilerHarness/` owns ReturnToSender closure discovery and type-cluster planning. RTS specifies the required Metadata/CSharp request shape; `ILInspector.CSharp` owns rendering it.
+- [`docs/design/ts-jsexport.md`](design/ts-jsexport.md) owns the `ts-jsexport`
+  TypeScript facade projected at build time from an
+  `ILInspector.JsExportSurface`. The host-side tool consumes that evidence
+  without entering the inspected application's browser dependency closure,
+  emits one opinionated TypeScript module, and leaves compilation and
+  publication to the consumer.
 
 ## Engineering guidance
 
@@ -100,8 +112,14 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Artifact acquisition and workspace composition](design/artifact-acquisition-and-workspaces.md):
   the target separation between storage, source adapters, multi-source
   workspace lifetimes, packages, and assembly inspection.
+- [Assembly image lifetime and MVID correctness](design/assembly-image-lifetime.md):
+  the single-image inspection lifetime, source-specific cache scope, and
+  non-cryptographic role of MVID-scoped metadata addresses.
 - [Architecture](architecture.md): command and metadata architecture.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
+- [`ts-jsexport` TypeScript facade generation](design/ts-jsexport.md): ownership,
+  type views, compiler handoff, related generator categories, and migration from
+  direct JavaScript plus declaration emission.
 - [Member inspection planning and metadata projection](design/member-inspection-planning-and-metadata-projection.md):
   proposed separation of type/member intent, section resolution, producer
   authorization, shared declaration validation, and C# representability.
@@ -122,6 +140,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Signals](assembly-audit.md): package/library signal semantics and network scope.
 - [PDB acquisition](pdb-acquisition.md): symbols and SourceLink acquisition.
 - [Untrusted data threat model](design/untrusted-data-threat-model.md): trust boundaries and security rules for inspected artifacts, network input, caches, output paths, and rendering.
+- [Inspect-web TypeScript semantic facts](design/inspect-web-typescript-semantic-facts.md):
+  one pinned TypeScript project snapshot exposed through repository-owned
+  semantic handles, queries, and explicit failure results.
 - [Bounded metadata traversal](design/bounded-metadata-traversal.md): cycle, depth, count, text-budget, failure, and verification rules for artifact-derived metadata graphs.
 - [Rendering model](design/rendering-model.md): output mode and verbosity design.
 - [Progressive disclosure](design/progressive-disclosure.md): base/domain scope,
@@ -132,6 +153,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Command transitions](design/command-transition-model.md): when source, focus, operation arity, lens, traversal, or rendering changes should switch commands versus stay within one command.
 - [Row query and ordering](design/row-query-order.md): proposed field-scoped row predicates, ordering, `--top`, and schema-discoverable defaults.
 - [Product vocabulary](design/vocabulary.md): sectioned, host-neutral legal query values shared by CLI and browser/WASM.
+- [Inspection subject navigation](design/inspection-subject-navigation.md):
+  host-neutral root, Library, Type, and Member descriptors, availability,
+  initial recommendations, transitions, reconciliation, and model-checked
+  retained-session authority.
 - [Inspect Web UI](design/inspect-web-ui.md): shared website control states,
   interaction grammar, and visual composition rules.
 - [Analysis UX scopes](design/analysis-ux-scopes.md): shared analysis vocabulary across offset, member, type, and library scopes.

@@ -6,6 +6,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.Versioning;
+using System.Text;
 using System.Xml;
 using System.Text.Json;
 using DotnetInspector.Packages;
@@ -25,6 +26,39 @@ namespace InspectWeb.Engine.Tests;
 public sealed class BrowserEngineBoundaryTests
 {
     const int MiB = 1024 * 1024;
+
+    [Fact]
+    public void PackageManifestFacts_FromInMemoryBytesRemainBrowserCompatible()
+    {
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(
+                "Example.Package",
+                "1.0.0");
+        byte[] manifestBytes = Encoding.UTF8.GetBytes(
+            """
+            <package>
+              <metadata>
+                <id>Example.Package</id>
+                <version>1.0.0</version>
+                <dependencies>
+                  <dependency id="Example.Dependency" version="[2.0.0]" />
+                </dependencies>
+              </metadata>
+            </package>
+            """);
+
+        PackageManifestFacts facts = Assert.IsType<
+            PackageManifestFactsResult.Available>(
+                PackageManifestFactsQuery.Execute(
+                    manifestBytes,
+                    coordinate)).Value;
+
+        Assert.Equal(coordinate, facts.Coordinate);
+        Assert.Equal(
+            "Example.Dependency",
+            Assert.Single(
+                Assert.Single(facts.DependencyGroups).Dependencies).Id);
+    }
 
     public static object PerformanceBoxingProbe(int value) => value;
 

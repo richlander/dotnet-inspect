@@ -198,6 +198,29 @@ once per request and reuses that execution plan across every selected package
 and every library inspected inside it. `CreatePipeline()` and
 `CreateQueryRegistry()` remain fresh mutable compatibility builders.
 
+`DiffSections` likewise retains one process-wide query catalog and compiled
+section catalog for its fixed comparison domain. Diff command execution
+composes one immutable query plan from the selected section plan and executes
+that plan against request-owned comparison inputs.
+`DiffSectionCatalog_QueryPlansMatchMutablePipeline` gates section-demand
+equivalence, and
+`DiffCatalog_RepeatedAcquisitionAndCommonPlanningAllocateNothing` gates
+allocation-free repeated catalog acquisition and common plan lookup.
+`CreatePipeline()` and `CreateQueryRegistry()` remain fresh mutable
+compatibility builders.
+
+`PackageProfileSections` completes the same migration for the fixed
+package-prefix profile domain. Discovery, query execution, and rendering share
+one process-wide query catalog and compiled section catalog; execution selects
+the section plan once and runs its precomputed single-query plan against the
+request-owned package source.
+`PackageProfileSectionCatalog_QueryPlansMatchMutablePipeline` gates
+section-demand equivalence, and
+`PackageProfileCatalog_RepeatedAcquisitionAndCommonPlanningAllocateNothing`
+gates allocation-free repeated catalog acquisition and common plan lookup.
+`CreatePipeline()` and `CreateQueryRegistry()` remain fresh mutable
+compatibility builders.
+
 Commands compile arbitrary multi-query demand once and reuse the resulting
 immutable query plan for every assembly in that request, so package inspection
 does not rebuild dependency state per assembly. The mutable

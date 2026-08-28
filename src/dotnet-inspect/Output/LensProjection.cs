@@ -66,8 +66,7 @@ public static class LensProjection
 
         if (options!.Count)
         {
-            if ((options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 })
-                && !ValidateColumns(options, lens, columns))
+            if (!TryResolveColumns(options, lens, columns, out _))
             {
                 exitCode = 1;
                 return true;
@@ -89,11 +88,21 @@ public static class LensProjection
         return true;
     }
 
-    private static bool ValidateColumns(
+    /// <summary>
+    /// Resolves field and column aliases against the columns declared by a lens.
+    /// </summary>
+    public static bool TryResolveColumns(
         IProjectionOptions options,
         string lens,
-        IReadOnlyCollection<string>? columns)
+        IReadOnlyCollection<string>? columns,
+        out string[] resolved)
     {
+        resolved = [];
+        bool requested = options.Fields is { Length: > 0 }
+            || options.Columns is { Length: > 0 };
+        if (!requested)
+            return true;
+
         if (columns is not { Count: > 0 })
         {
             CommandError.Write(
@@ -102,22 +111,37 @@ public static class LensProjection
         }
 
         var valid = true;
+        var availableColumns = columns.ToArray();
+        var matched = new List<string>();
         if (options.Fields is { Length: > 0 } fields)
-            valid &= ValidateNames(lens, columns, fields, "field");
+            valid &= ValidateNames(lens, availableColumns, fields, "field", matched);
         if (options.Columns is { Length: > 0 } projectedColumns)
-            valid &= ValidateNames(lens, columns, projectedColumns, "column");
+            valid &= ValidateNames(lens, availableColumns, projectedColumns, "column", matched);
+        resolved = [.. matched.Distinct(StringComparer.OrdinalIgnoreCase)];
         return valid;
     }
 
     private static bool ValidateNames(
         string lens,
-        IReadOnlyCollection<string> available,
+        string[] available,
         string[] names,
-        string kind)
+        string kind,
+        List<string> resolved)
     {
         const string LensSection = "Payload";
-        var schema = new DocumentSchema().Add(LensSection, "column", [.. available]);
+        var schema = new DocumentSchema().Add(LensSection, "column", available);
         var validation = schema.ValidateProjection(LensSection, names);
+
+        // ProjectionValidation preserves matched request spellings (including globs).
+        // ColumnMap carries the declared column identities needed by the writer.
+        if (MarkoutProjection.WithColumns(names).TryResolveColumns(
+                available,
+                out var resolution))
+        {
+            foreach (var index in resolution.ColumnMap)
+                resolved.Add(available[index]);
+        }
+
         if (validation.IsValid)
             return true;
 

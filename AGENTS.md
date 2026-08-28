@@ -131,8 +131,8 @@ to whichever window is *current*, which is somebody else's.
 Always target `"${TMUX_PANE:?}"`. The state must include
 `head` and either `pr` or, before a PR exists, `issue`; add `round`, `reviews`,
 `blocked`, `waiting`, and `rec` when applicable. Values contain no spaces. `rec`
-is `continue`, `wait`, `merge`, `approve`, or `stop`. Clear both options when the
-window no longer owns the work.
+is `continue`, `wait`, `merge`, `split`, `approve`, or `stop`. Clear both
+options when the window no longer owns the work.
 
 `blocked` and `waiting` are both things you are waiting on, split by **who can
 act on them**:
@@ -141,10 +141,21 @@ act on them**:
   prioritise, and that the next agent hitting the same wall can find instead of
   re-investigating it. If a flake blocks you and no issue exists, file one and
   cite it.
-- **`waiting`** takes a predicate a tool can evaluate against your `head`:
-  `check:<name>`, `checks`, `merge`, or `review`. Use it when nothing is wrong
+- **`waiting`** takes one or more comma-separated predicates a tool can evaluate
+  against your `head`: `check:<name>`, `checks`, `merge`, or `review`. The wait
+  ends only when every listed predicate clears. Use it when nothing is wrong
   and nothing is openable — a check that has not reported yet is not a defect
   and does not deserve an issue.
+
+When GitHub status is being acquired, publish `goal=advance|merge` and the
+unresolved status predicates in `waiting`. During a bounded wait, also publish
+`status-deadline=<UTC>` and at most one active `schedule=<id>`. Key that
+schedule to the recorded `head`, `waiting`, `goal`, and deadline; cancel stale
+runs and clear the ID before querying GitHub. Follow
+[GitHub status queries](docs/github-status-queries.md) for the request and
+response contract and
+[Status discovery](docs/round-orchestration.md#status-discovery) for round
+transitions and the 60-minute budget.
 
 `rec=wait` is coherent when either is populated. `blocked=ci` is the specific
 error this split exists to remove: it names nothing a person can open and
@@ -240,14 +251,17 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
 | Inspection-graph modes | `docs/design/inspection-graph-modes.md` |
 | Call-graph projection | `docs/design/call-graph-projection.md` |
 | Shared IL/control-flow substrate | `docs/design/instruction-substrate.md`, plus the consuming subsystem's docs |
+| TypeScript facade generation for `[JSExport]` | `docs/design/ts-jsexport.md` |
 | IL round-trip tests | `tests/DotnetInspector.ILRoundtrip.Tests/README.md` |
 | Decompiler raising, structuring, typing, or printer behavior | `docs/decompiler-correctness-pipeline.md`, then `docs/decompiler-raise-discipline.md` |
 | Classic async state-machine reconstruction | `docs/design/classic-async-reconstruction.md` |
 | Decompiler harness-only behavior | `docs/decompiler-correctness-pipeline.md`, then the owning harness README |
 | Skills | `taste/skill-guidance.md` |
 | Stacked PRs and restacking | `docs/stacked-prs.md` |
-| Running a review round, or checking PR status | `docs/round-orchestration.md` |
+| Running a review round | `docs/round-orchestration.md` |
+| Querying GitHub PR and CI status | `docs/github-status-queries.md` |
 | Hosting a network-accessible inspect-web demo | `docs/runbooks/inspect-web-demo-hosting.md` |
+| Installing and pinning TLA+ and Java, or curated TLA+ examples | `docs/runbooks/tla-plus-setup.md` |
 | Release and publishing | `docs/release-workflow.md` |
 | Changes spanning Markout and this repo | `docs/markout-co-development.md` |
 
@@ -343,8 +357,8 @@ reference owner contracts rather than restating participating components'
 internal inventories or policies. When another component needs prerequisite
 work, file or record that residual and handle it as an independently reviewable
 effort or stack slice. Do not expand the current design merely to make the whole
-end-to-end system appear closed. The preference for fewer coherent PRs does not
-justify combining independently owned component designs.
+end-to-end system appear closed. PR coherence does not justify combining
+independently owned component designs.
 
 A **broad design** sweeps an end-to-end lifecycle such as acquisition,
 analysis, publication, and presentation or, outside the bounded one-donor
@@ -355,6 +369,26 @@ general request to redesign a subsystem, or reviewer suggestion is not
 approval. Before requesting approval, present the component map, explain why
 focused designs cannot close independently, and name the intended claims and
 non-claims.
+
+### Keep specifications readable; model interactions
+
+Design specifications own detailed requirements, component boundaries, and
+policies. Keep them readable as prose and typed contracts; do not turn them
+into unconventional EBNF-like descriptions of operational behavior. When a
+feature's correctness depends on significant stateful, concurrent, distributed,
+or scheduling interactions, use a small TLA+ model that states the relevant
+safety and liveness properties, and model-check it before implementation.
+(See [`docs/runbooks/tla-plus-setup.md`](docs/runbooks/tla-plus-setup.md) for
+installing and pinning the TLA+ tools and Java, and curated model examples.)
+Use the model to evaluate whether the interaction or algorithm is effective,
+and keep the design specification focused on what the system must guarantee.
+Link the model from the owning design and record its assumptions, checking
+bounds, checked properties, and any material counterexamples. These results
+establish evidence about the model, not the implementation.
+Implementation-level safety, soundness, or faithfulness claims must still
+follow
+[Asserted properties name their gate](#asserted-properties-name-their-gate).
+The model supplements rather than replaces the readable specification.
 
 ### Reviewing focused designs
 
@@ -416,6 +450,41 @@ decision, do not dispatch another review or describe the design as ready.
 - Treat identifiers, provenance, local evidence, correspondence, and
   presentation as separate concerns. Do not infer one from display text when a
   typed identity exists.
+
+### Security work follows the actual trust boundary
+
+Do not model our own code, another contributor or agent, or a user who can act
+on the machine as a hostile actor that product code must contain. A party that
+can edit the codebase, run code in the process, create local symlinks, or place
+credentials in the repository can already bypass product invariants and has
+more direct targets. Treat those scenarios as code review, testing, repository
+hygiene, or host-security concerns, not as reasons to add product hardening.
+
+Before accepting a security concern, identify how an actor outside the user's
+machine can affect the user through data that the tool reads. The primary
+boundary is untrusted internet-origin data such as packages from NuGet feeds,
+symbols, SourceLink data, and source content. A locally supplied assembly does
+not independently establish an attacker boundary; it may receive the same
+containment as an internet-origin assembly when both use a shared path, but
+that benefit is incidental and does not justify extra complexity.
+
+When a credible external-input threat exists, define it in the focused owning
+design before implementing the defense. Name the actor, input path, affected
+boundary, containment invariant, and enforcement gate. Prefer structural
+containment: a constrained type whose construction establishes the invariant,
+then thread that type through the object model so compiler checking, review,
+and tests preserve it. `HardenedJson` is a good example at a parsing boundary:
+one named entry point centralizes fail-closed policy instead of asking every
+caller to configure parsing correctly. `InertText.InertString` carries the same
+lesson further for values: its fail-closed construction contains untrusted text
+once, and the type carries that property through composition. Prefer these
+shapes over string conventions, scattered checks, sanitizers, or defenses
+against hypothetical hostile callers.
+
+Robustness against accidental internal mistakes still matters. Achieve it with
+simple, auditable code, structured types instead of strings, narrow APIs,
+compiler-enforced invariants, and focused tests -- not by pretending trusted
+code is an attacker.
 
 ### Platform compatibility
 
@@ -626,7 +695,8 @@ rather than duplicating their evolving commands and gates here.
 
 ### Markdown
 
-All changed Markdown must pass `markdownlint`. Run the fixer first when needed:
+All changed Markdown must pass `markdownlint` before commit. Run the fixer first
+when needed:
 
 ```bash
 npx markdownlint-cli --fix <file>
@@ -656,11 +726,13 @@ driving the loop is
 5. **Never claim merge readiness from label state alone.** Confirm current-head
    CI and GitHub's live mergeability immediately before every merge attempt,
    even when `review-clean` is present.
-6. **A round closes only when reconciled and green.** Both: the feedback is
-   publicly reconciled, and every required current-head check and post-push gate
-   has succeeded. Until then the round number does not advance — a check that
-   goes red first makes the next push a failed-gate restart at the *same*
-   number, not the next round.
+6. **A round closes only when reconciled and its applicable gates are green.**
+   Feedback must be publicly reconciled and every focused or post-push local
+   gate must succeed. A known-red current-head `ci-required` still blocks; an
+   unavailable or pending status follows
+   [Status acquisition cadence](#status-acquisition-cadence). For a
+   documentation-only PR, pre-commit `markdownlint` is the per-round local
+   gate. A failure requiring an author change restarts the *same* round.
 7. **Six rounds, then stop** and ask for another block.
 8. **Never merge without explicit user authorization** for that specific PR.
    Auto-merge armed at the user's direction is that authorization; see
@@ -685,24 +757,57 @@ recovery transition supersedes it.
 7. Satisfy the applicable eligibility row below.
 8. Dispatch every required reviewer at the exact candidate head.
 9. Reconcile all feedback publicly.
-10. Close only when reconciliation and every current-head gate are green. The
-    lock ends, the round number is spent, and the visible
+10. Close only when reconciliation, the applicable local gates, and the status
+    acquisition cadence are satisfied. The lock ends, the round number is
+    spent, and the visible
     [round report](docs/round-orchestration.md#the-round-report) is required.
 
 Both integrations happen before the push. Base movement after the push does not
 reopen the locked candidate.
 
+#### Status acquisition cadence
+
+*This cadence is repository policy; GitHub has no concept of review rounds or
+approval blocks.*
+
+- **Every round:** attempt one current-head snapshot of `ci-required`, failed
+  leaf checks, and mergeability. The round transition justifies the read; it is
+  not a time-triggered poll.
+- **Ordinary rounds:** if status remains pending or a rate limit or transient
+  GitHub failure prevents an accurate snapshot, record the observation and
+  continue to the next round. Unavailable status is not green, red, or evidence
+  of anything; a known conflict or non-green `ci-required` still takes its
+  recovery transition.
+- **Every third round:** spend up to 60 minutes acquiring status before the
+  round may advance. If the budget expires without a definitive result, publish
+  the
+  [status budget report](docs/round-orchestration.md#status-budget-report), set
+  `rec=stop`, and end the turn without starting the next round. A later user or
+  workflow turn re-enters status discovery. Rounds divisible by six also
+  follow the stronger boundary rule below.
+- **Every sixth round:** fresh green current-head `ci-required` and definite
+  positive mergeability are prerequisites before requesting approval for
+  another block. The 60-minute budget applies, but expiry produces a status
+  report, not an approval prompt. This rule supersedes the ordinary-round
+  continue behavior and the documentation-only CI allowance.
+
 | Attempt | Required before reviewer dispatch | May remain pending |
 | --- | --- | --- |
 | First attempt at round 1 | Pushed settled head, recorded effective base, focused gate | CI and mergeability |
-| Ordinary subsequent round | First-attempt requirements, zero conflicts, green current-head `ci-required` | Nothing required |
+| Ordinary subsequent round | First-attempt requirements, one status attempt, and no observed conflict or non-green `ci-required` | Pending or unavailable CI and mergeability, subject to the cadence above |
 | Conflict-recovery attempt | Resolution head pushed, round number authorized | Post-push local gates, CI, mergeability |
-| Failed-gate restart | Required fix pushed, zero conflicts, green current-head `ci-required` | Nothing required |
+| Failed-gate restart | Required fix pushed, one status attempt, and no observed conflict or non-green `ci-required` | Pending or unavailable CI and mergeability, subject to the cadence above |
+| Six-round boundary approval | Fresh green current-head `ci-required` and definite positive mergeability | Nothing |
 
-Markdown lint is the focused gate for documentation-only changes. A
-documentation conflict-recovery attempt may review before lint finishes, but
-cannot reconcile or close without it. The user may authorize review in parallel
-with CI.
+Documentation-only candidates do not wait for CI before review. Read the
+applicable attempt row with only two substitutions: `markdownlint` must pass
+before commit and replaces any requirement for green current-head
+`ci-required`, and `ci-required` may remain pending at a non-boundary round.
+Every other requirement still applies, including the settled push, recorded
+effective base, status cadence, and round authorization. A documentation-only
+round may close after reconciliation and the local lint gate; `ci-required`
+remains mandatory at every six-round boundary and for final merge readiness.
+The user may authorize review in parallel with CI for other changes.
 
 #### Review-clean, and what it gates
 
@@ -734,6 +839,13 @@ least one reviewer returned a finding.
   unchanged head. Repeat only with concrete transient evidence; otherwise treat
   it as requiring an author change.
 
+If final-gate `ci-required` reports any conclusion other than success after a
+documentation-only round closes, it does not reopen or renumber that completed
+round. Retry at the unchanged head only with concrete evidence that the result
+is transient and requires no author change. Otherwise remove `review-clean`,
+make the required fix, and form a candidate at the next round number,
+respecting the next six-round authorization boundary.
+
 Never close with a required check red. A superseded attempt spends no round and
 gets no completion report. Let its reviewers finish or have cancellation
 acknowledged, carry every returned finding forward, and reconcile each one
@@ -751,9 +863,11 @@ a resume and for the carry-forward analysis below.
 
 Before merge, re-read GitHub state and confirm the expected head, non-draft
 status, positive mergeability, and successful current-head `ci-required`.
-`BLOCKED`, `DRAFT`, `UNKNOWN`, a missing check, or a check from another head is
-not ready. Follow
-[status discovery](docs/round-orchestration.md#status-discovery).
+A true draft flag, REST `mergeable: null` or GraphQL `mergeable: UNKNOWN`, a
+missing gate, or a gate from another head is not ready. A merge or readiness
+goal uses a GraphQL snapshot so documented `mergeStateStatus: BLOCKED` can also
+block the action; do not infer that enum from the undocumented values of REST
+`mergeable_state`. Follow [GitHub status queries](docs/github-status-queries.md).
 
 For stacks, every open layer must meet its applicable eligibility row. A
 known-red or conflicted parent blocks upper slices; a pending parent does not
@@ -862,7 +976,14 @@ candidate cycle; do not ask for approval, set `HELP`, or wait for user input.
 Approval is required only before rounds 7, 13, 19, and so on. Each approval
 allows at most six more rounds; stop sooner when review converges. At a block
 boundary, conflict recovery may resolve and push immediately, but reviewers
-still wait for approval.
+still wait for approval, unless an immutable split decision hold is active. A
+boundary push resets the status prerequisite; checks from the previous head do
+not satisfy it.
+
+Before offering `approve next rounds`, acquire fresh green current-head
+`ci-required` and definite positive mergeability under the 60-minute status
+budget. If the budget expires, publish the status budget report and stop
+observation without opening an approval prompt.
 
 Before requesting another block, answer:
 
@@ -880,6 +1001,28 @@ Before requesting another block, answer:
    decision is not standing authorization; identify the new evidence that makes
    implementation rounds the better investment.
 
+When a PR reaches round 12, split the remaining work into focused successors
+unless the checkpoint establishes a strong reason to keep the PR intact and
+the user explicitly approves that exception. The strong reason must explain
+why the remaining claims cannot become independently reviewable successors,
+why the reviews are still converging, and why continuing the same PR is safer
+than splitting it. Reviewer familiarity, sunk cost, or the inconvenience of
+restacking are not strong reasons. Sprawling changes accumulated across review
+comments are themselves a sign that the remaining work should be split into
+focused successors. The same presumption and burden apply at every 6-round
+boundary after round 12.
+
+After round 12 or a later six-round boundary closes, the split recommendation
+puts the completed head in an immutable decision hold while the user decides.
+This is not a round lock; do not mutate the head or dispatch another round
+during the hold, including for conflict recovery. If approved, publicly assign
+every current change, claim, and finding — including resolved or dismissed
+findings and their resulting changes or rationale — to a focused successor, or
+explicitly record why an item is being dropped. Close the current PR as
+superseded without merging it, and open the successors from their effective
+base. Each successor starts at round 1; reviews, round counts, and authorization
+blocks do not carry forward.
+
 At round 12 and every 6-round boundary after (18, 24, and so on), also answer:
 
 1. **Would a design doc better define the design space?** Foundational APIs
@@ -888,11 +1031,11 @@ At round 12 and every 6-round boundary after (18, 24, and so on), also answer:
    hardening to followup work would unlock this PR's value for other agent
    work sooner.
 
-State the proposed remedy and end with one recommendation: approve the next
-implementation block, switch to a docs-only design PR, or stop. If consecutive
-rounds only strengthen the harness while the product goes unchallenged, report
-that count and recommend a final round or a stop waiver rather than continuing
-by reflex.
+State the proposed remedy and end with one recommendation: split into focused
+successors, approve the next implementation block under the strong-reason
+exception, switch to a docs-only design PR, or stop. If consecutive rounds only
+strengthen the harness while the product goes unchallenged, report that count
+and recommend splitting or stopping rather than continuing by reflex.
 
 Publish the complete checkpoint as normal session output before opening the
 approval prompt. The prompt asks only which recommended action to authorize; it
@@ -919,8 +1062,6 @@ Put it under `## Demo` above validation in the PR body.
 
 ## PR and CI discipline
 
-- Prefer fewer coherent PRs over mechanical splits; use a stack for genuinely
-  independent slices.
 - Keep concurrent agents modest and avoid unnecessary churn in central files.
 - Label a documentation-only PR (no product code, test, or build changes)
   `documentation` when opening it.
@@ -930,17 +1071,31 @@ Put it under `## Demo` above validation in the PR body.
   flag distinction, not platform-specific. Verify with
   `gh pr view <n> --json body -q .body` after creating or editing a PR body
   this way.
+- Avoid high-level `gh` commands when they fail by querying deprecated GraphQL
+  fields. In particular, `gh pr edit` may hit the removed Projects (classic)
+  fields even when changing unrelated metadata. Do not retry it; use the
+  operation-specific REST endpoint through `gh api` instead. Use
+  `PATCH repos/{owner}/{repo}/pulls/<number>` for PR title, body, or base
+  changes; the issue labels POST and per-label DELETE endpoints for label
+  additions and removals; the issue assignees POST and DELETE endpoints for
+  assignee additions and removals; and
+  `PATCH repos/{owner}/{repo}/issues/<number>` for milestone changes. Do not
+  replace complete label or assignee arrays to perform an add or remove.
+  Verify the resulting metadata after the REST update.
 - Treat CI as confirmation: run the focused local gate, then push promptly.
   Run eligible local suites, CI, and review concurrently.
-- Use [status discovery](docs/round-orchestration.md#status-discovery): REST by
-  default, GraphQL only when breadth is worth its shared quota, and scheduled
-  checks rather than polling.
+- Treat GitHub API capacity as shared and scarce repository capacity. Follow
+  [GitHub status queries](docs/github-status-queries.md): query only when the
+  round cadence or next action requires it, use response headers instead of
+  quota probes, and obey the bounded waiting rules instead of polling.
 - A settled candidate should spend wall-clock time in parallel. If an hour
   passes without an authored change while an independent gate has not started,
   fix the sequencing or record the blocker.
-- `ci-required` is the only merge-gating check. It passes when all jobs that ran
-  succeeded or skipped; a missing aggregate is not green. Never require a
-  path-gated job directly, and do not broaden CI without measured need.
+- `ci-required` is this repository's aggregate merge gate, defined in
+  `.github/workflows/ci.yml`. It passes when all jobs that ran succeeded or
+  skipped; repository policy requires the aggregate itself to conclude
+  `success`, and a missing aggregate is not green. Never require a path-gated
+  job directly, and do not broaden CI without measured need.
 - Keep PR summaries conclusion-first: claim, evidence, compatibility or
   non-action boundary, and exact validation.
 - `review-clean` records clean reviews as of a head SHA; it is advisory, not a
