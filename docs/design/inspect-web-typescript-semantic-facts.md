@@ -332,6 +332,14 @@ fact includes its handle, repository node kind, source location, optional
 parent, and ordered child handles. Identifier and literal spelling may be
 returned as source evidence, never as semantic identity.
 
+TypeScript's `forEachChild` omits JSDoc attached through a node's `jsDoc`
+property, so the adapter explicitly includes those attachments. A pinned
+TypeScript 7.0.2 default-library JSDoc tree also contains descendants whose
+reported canonical start exceeds their end. Attached JSDoc roots are therefore
+repository `JsDoc` facts but opaque leaves; the adapter neither drops the
+attachment nor repairs invalid descendant spans. The focused real-project and
+default-library gates enforce this boundary.
+
 The facade accepts a node handle for symbol, type, contextual-type, constant,
 and resolved-signature queries. It also resolves a source coordinate plus
 expected repository node kind to one exact node or an explicit absent or
@@ -389,7 +397,12 @@ type handles preserve cycles and sharing by identity.
 TypeScript error, any, unknown, and never types remain distinct facts. An
 unresolved reference returned as a type is a resolved `Error` type fact, as
 reported by TypeScript; it is not a separate type category. An error type is
-not a valid substitute for a missing type result.
+not a valid substitute for a missing type result. Overlapping flags are
+resolved with `Boolean` before `Union` and `Union` before `EnumLiteral`:
+TypeScript represents `boolean` as the union of its literal values and marks a
+whole enum as both union and enum-literal, while an enum member remains an
+`EnumLiteral`. The focused type-characterization gate enforces all three
+outcomes.
 
 ### Signatures and overloads
 
@@ -493,8 +506,8 @@ script. Its gate contains:
 3. **Fact characterization:** maps every repository node, symbol, type,
    signature, diagnostic, and source-file category used by the facade against
    TypeScript 7.0.2. It covers the complete pinned declaration-kind set and the
-   overlapping whole-enum and enum-member type flags. Removing a mapping or
-   adding an unknown API value fails.
+   overlapping boolean, whole-enum, and enum-member type flags. Removing a
+   mapping or adding an unknown API value fails.
 4. **Alias and declaration identity:** distinguishes lexical shadows and
    same-named declarations, preserves immediate alias chains, and resolves an
    imported alias to its original declaration. Anonymous type, function-type,
@@ -526,12 +539,14 @@ script. Its gate contains:
    Ordered scalar/batch equivalence covers resolved identity, wrong-kind and
    stale-session handles, the toxic type-only import clause, and outer-session
    poisoning from a batched checker failure. A project-wide batched sweep over
-   every project root provides non-vacuous real-source coverage.
+   every project root provides non-vacuous real-source and attached-JSDoc
+   coverage. A default-library canary keeps attached JSDoc enumerable while its
+   invalid pinned descendants remain opaque.
 9. **Import isolation:** a named non-vacuity test uses the toolchain gate's
    shared, case-insensitive TypeScript and JavaScript source inventory and fails
    if any module other than the one adapter references either unstable
-   TypeScript API, including quoted and no-substitution-template imports,
-   dynamic imports, `require`, and `createRequire`.
+   TypeScript API subpath, including quoted and no-substitution-template
+   imports, dynamic imports, `require`, and `createRequire`.
 10. **Artifact isolation:** audits the Vite graph, runs the production build,
     requires its shipped chunks to equal the audited chunks, and proves the
     adapter, TypeScript API packages, and semantic fact code are absent.

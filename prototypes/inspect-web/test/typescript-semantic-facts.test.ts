@@ -110,6 +110,7 @@ export type IntersectionAlias = { left: string } & { right: number };
 export type LiteralAlias = "literal";
 export type NumberLiteralAlias = 42;
 export type BigIntLiteralAlias = 42n;
+export type BooleanAlias = boolean;
 export type BooleanLiteralAlias = true;
 export type TupleAlias = [string, number];
 export type Constrained<T extends Base> = T;
@@ -445,7 +446,9 @@ test("batched semantic queries safely cover every real project-root node", () =>
     );
     const nodes = nodesFor(session, source);
     let swept = 0;
-    const roots = expectResolved(session.getSourceFiles()).filter(candidate =>
+    let jsDocNodes = 0;
+    const sources = expectResolved(session.getSourceFiles());
+    const roots = sources.filter(candidate =>
       candidate.classification === SourceFileClassification.ProjectRoot);
     for (const root of roots) {
       const rootNodes = nodesFor(session, root);
@@ -457,8 +460,17 @@ test("batched semantic queries safely cover every real project-root node", () =>
       assert.ok(symbols.every(result => result.kind !== "SessionFailure"));
       assert.ok(types.every(result => result.kind !== "SessionFailure"));
       swept += handles.length;
+      jsDocNodes += rootNodes.filter(node => node.kind === NodeKind.JsDoc).length;
     }
     assert.ok(swept > 100_000, `expected a project-wide sweep, observed ${swept} nodes`);
+    assert.ok(jsDocNodes > 0, "the project-wide sweep included no attached JSDoc nodes");
+    const domLibrary = sources.find(candidate =>
+      candidate.path.path.endsWith("/lib.dom.d.ts"));
+    assert.ok(domLibrary !== undefined);
+    assert.ok(
+      nodesFor(session, domLibrary).some(node => node.kind === NodeKind.JsDoc),
+      "the default-library tree included no attached JSDoc nodes",
+    );
 
     const lineStart = text.indexOf(".map(line =>")
       + ".map(".length;
@@ -1166,6 +1178,7 @@ test("normalizes structural type queries and exported category guards", () => {
     const mappedValue = valueType(session, byName("mappedValue"));
     const numberLiteral = declared("NumberLiteralAlias");
     const bigintLiteral = declared("BigIntLiteralAlias");
+    const boolean = declared("BooleanAlias");
     const booleanLiteral = declared("BooleanLiteralAlias");
     const typeParameterNode = identifierNodes(baseNodes, "T").find(node =>
       node.location.start === baseText.indexOf("T extends Base"));
@@ -1194,6 +1207,7 @@ test("normalizes structural type queries and exported category guards", () => {
       mappedValue,
       numberLiteral,
       bigintLiteral,
+      boolean,
       booleanLiteral,
       typeParameter,
     ];
@@ -1213,7 +1227,12 @@ test("normalizes structural type queries and exported category guards", () => {
     )).some(isIntrinsicTypeFact));
     assert.ok(facts.some(isNumberLiteralTypeFact));
     assert.ok(facts.some(isBigIntLiteralTypeFact));
+    assert.equal(boolean.category, TypeCategory.Boolean);
     assert.ok(facts.some(isBooleanLiteralTypeFact));
+    assert.equal(
+      expectResolved(session.getLiteralBaseType(booleanLiteral.handle)).category,
+      TypeCategory.Boolean,
+    );
     assert.ok(mapped.objectCategories.includes(ObjectTypeCategory.Mapped));
     assert.ok(mappedValue.aliasSymbol instanceof SymbolHandle);
     assert.equal(mappedValue.aliasTypeArguments.length, 1);
@@ -1647,7 +1666,7 @@ function unstableImports(
   files: Readonly<Record<string, string>>,
 ): readonly string[] {
   const unstablePattern
-    = /(["'`])typescript\/unstable\/(?:sync|ast)\1/u;
+    = /(["'`])typescript\/unstable\/[A-Za-z0-9._/-]+\1/u;
   return Object.entries(files)
     .filter(([, content]) => unstablePattern.test(content))
     .map(([path]) => path)
@@ -1671,7 +1690,13 @@ test("only the adapter imports unstable TypeScript packages and the scan is non-
       `require(\`${unstablePackagePrefix}ast\`);`,
     "create-require-template-forbidden.mts":
       `createRequire(import.meta.url)(\`${unstablePackagePrefix}sync\`);`,
+    "async-subpath-forbidden.ts":
+      `import { API } from "${unstablePackagePrefix}async";`,
+    "ast-is-subpath-forbidden.ts":
+      `import { isImportClause } from "${unstablePackagePrefix}ast/is";`,
   }), [
+    "ast-is-subpath-forbidden.ts",
+    "async-subpath-forbidden.ts",
     "create-require-forbidden.mts",
     "create-require-template-forbidden.mts",
     "dynamic-forbidden.ts",

@@ -1528,6 +1528,7 @@ function typeCategory(
     return TypeCategory.Error;
   }
   const categories = [
+    [TypeFlags.Boolean, TypeCategory.Boolean],
     [TypeFlags.Union, TypeCategory.Union],
     [TypeFlags.Intersection, TypeCategory.Intersection],
     [TypeFlags.Any, TypeCategory.Any],
@@ -1538,7 +1539,6 @@ function typeCategory(
     [TypeFlags.String, TypeCategory.String],
     [TypeFlags.Number, TypeCategory.Number],
     [TypeFlags.BigInt, TypeCategory.BigInt],
-    [TypeFlags.Boolean, TypeCategory.Boolean],
     [TypeFlags.UniqueESSymbol, TypeCategory.UniqueESSymbol],
     [TypeFlags.EnumLiteral, TypeCategory.EnumLiteral],
     [TypeFlags.StringLiteral, TypeCategory.StringLiteral],
@@ -2052,9 +2052,20 @@ class SemanticFactsSession implements TypeScriptSemanticFactsSession {
   }
 
   #children(node: TypeScriptNode): readonly TypeScriptNode[] {
+    // TypeScript 7.0.2 can emit invalid spans below JSDoc roots; keep the attachment opaque.
+    if (node.kind === SyntaxKind.JSDoc) {
+      return [];
+    }
     const children: TypeScriptNode[] = [];
+    const seen = new Set<TypeScriptNode>();
+    for (const jsDoc of node.jsDoc ?? []) {
+      children.push(jsDoc);
+      seen.add(jsDoc);
+    }
     node.forEachChild(child => {
-      children.push(child);
+      if (!seen.has(child)) {
+        children.push(child);
+      }
       return undefined;
     });
     return children;
@@ -2093,10 +2104,7 @@ class SemanticFactsSession implements TypeScriptSemanticFactsSession {
     const nodes: TypeScriptNode[] = [];
     const visit = (node: TypeScriptNode): void => {
       nodes.push(node);
-      node.forEachChild(child => {
-        visit(child);
-        return undefined;
-      });
+      this.#children(node).forEach(visit);
     };
     visit(source);
     return nodes;
