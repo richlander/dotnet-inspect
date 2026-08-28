@@ -9,6 +9,27 @@ namespace ILInspector.Metadata.Tests;
 
 public sealed class MetadataImageFormatClassifierTests
 {
+    static readonly Action<PEReader>[] s_directMetadataEntryPoints =
+    [
+        reader => _ = MetadataImageInspector.Describe(reader),
+        reader => _ = MetadataTableProjector.Project(reader),
+        reader => _ = MetadataTableProjector.ProjectRow(
+            reader,
+            TableIndex.TypeDef,
+            rowId: 1),
+        reader => _ = MetadataTableProjector.FindReferences(
+            reader,
+            TableIndex.TypeDef,
+            targetRowId: 1),
+        reader => _ = MetadataTableProjector.ReadHeapValue(
+            reader,
+            HeapKind.String,
+            address: 0),
+        reader => _ = MetadataTableProjector.ReadHeapEntries(
+            reader,
+            HeapKind.String),
+    ];
+
     [Fact]
     public void ClassifyRejectsNullReader()
         => Assert.Throws<ArgumentNullException>(
@@ -48,6 +69,132 @@ public sealed class MetadataImageFormatClassifierTests
             () => peReader.GetMetadataReader());
         Assert.IsType<MetadataImageFormatResult.UnsupportedWindowsMetadata>(
             MetadataImageFormatClassifier.Classify(peReader));
+    }
+
+    [Fact]
+    public void Mdp017_DirectMetadataEntryPointsRejectUnsupportedRoot()
+    {
+        byte[] image = BuildImage(
+            "WindowsRuntime 1.4;CLR v4.0.30319");
+        TruncateMetadataAfterVersionField(image);
+
+        foreach (Action<PEReader> inspect in s_directMetadataEntryPoints)
+        {
+            using var peReader = Open(image);
+            var error = Assert.Throws<
+                UnsupportedMetadataFormatException>(
+                    () => inspect(peReader));
+            Assert.DoesNotContain(
+                "WindowsRuntime",
+                error.Message,
+                StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void Mdp017_DirectMetadataEntryPointsRejectMalformedRoot()
+    {
+        byte[] image = BuildImage("v4.0.30319");
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            image.AsSpan(MetadataStart(image), sizeof(uint)),
+            0xDEADBEEF);
+
+        foreach (Action<PEReader> inspect in s_directMetadataEntryPoints)
+        {
+            using var peReader = Open(image);
+            MalformedMetadataRootException error =
+                Assert.Throws<MalformedMetadataRootException>(
+                    () => inspect(peReader));
+            Assert.DoesNotContain(
+                "DEADBEEF",
+                error.Message,
+                StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public void Mdp017_NoMetadataPreservesDirectEntryPointBoundaries()
+    {
+        byte[] image = BuildImage("v4.0.30319");
+        RemoveMetadataDirectory(image);
+        using var peReader = Open(image);
+
+        Assert.Null(MetadataImageInspector.Describe(peReader));
+        Assert.Empty(MetadataTableProjector.Project(peReader).Tables);
+        Assert.Null(
+            MetadataTableProjector.ProjectRow(
+                peReader,
+                TableIndex.TypeDef,
+                rowId: 1));
+        Assert.False(
+            MetadataTableProjector.FindReferences(
+                    peReader,
+                    TableIndex.TypeDef,
+                    targetRowId: 1)
+                .TargetExists);
+        Assert.Null(
+            MetadataTableProjector.ReadHeapValue(
+                peReader,
+                HeapKind.String,
+                address: 0));
+        Assert.Null(
+            MetadataTableProjector.ReadHeapEntries(
+                peReader,
+                HeapKind.String));
+    }
+
+    [Fact]
+    public void Mdp017_SessionAndPdbOwnersRejectBeforeOpening()
+    {
+        byte[] image = BuildImage(
+            "WindowsRuntime 1.4;CLR v4.0.30319");
+        TruncateMetadataAfterVersionField(image);
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"unsupported-metadata-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, image);
+        try
+        {
+            Assert.Throws<UnsupportedMetadataFormatException>(
+                () => AssemblyInspectionSession.Open(path));
+            Assert.Throws<UnsupportedMetadataFormatException>(
+                () => PdbContext.OpenMetadataOnly(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Mdp017_SnapshotPreservesTypedUnsupportedRejection()
+    {
+        byte[] image = BuildImage(
+            "WindowsRuntime 1.4;CLR v4.0.30319");
+        TruncateMetadataAfterVersionField(image);
+        var descriptor = ResolvedAssemblyReference.Create(
+            new AssemblyReferenceIdentity(
+                "Probe",
+                new Version(1, 0, 0, 0),
+                Culture: null,
+                PublicKeyToken: null),
+            path: null,
+            () => new MemoryStream(image, writable: false),
+            AssemblyResolutionProvenance.Local("format admission test"));
+
+        var rejected = Assert.IsType<
+            AssemblyImageSnapshotResult.Rejected>(
+                AssemblyImageSnapshot.FromRetainedContent(
+                    descriptor,
+                    ImmutableArray.Create(image)));
+
+        Assert.Equal(
+            CandidateOpenFailureKind.UnsupportedMetadataFormat,
+            rejected.Failure.Kind);
+        Assert.DoesNotContain(
+            "WindowsRuntime",
+            rejected.Failure.Detail,
+            StringComparison.Ordinal);
     }
 
     [Theory]
@@ -357,6 +504,16 @@ public sealed class MetadataImageFormatClassifierTests
         BinaryPrimitives.WriteInt32LittleEndian(
             image.AsSpan(CorHeaderStart(image) + 12, sizeof(int)),
             size);
+    }
+
+    static void RemoveMetadataDirectory(byte[] image)
+    {
+        using var peReader = Open(image);
+        PEHeader peHeader = peReader.PEHeaders.PEHeader!;
+        int directoryBase =
+            peReader.PEHeaders.PEHeaderStartOffset
+            + (peHeader.Magic == PEMagic.PE32Plus ? 112 : 96);
+        image.AsSpan(directoryBase + (14 * 8), 8).Clear();
     }
 
     static void TruncateMetadataAfterVersionField(byte[] image)

@@ -36,7 +36,7 @@ public static class AssemblyIdentityScanner
 
     public static AssemblyIdentityNames Scan(PEReader peReader)
     {
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         string name = reader.IsAssembly
             ? reader.GetString(reader.GetAssemblyDefinition().Name)
             : string.Empty;

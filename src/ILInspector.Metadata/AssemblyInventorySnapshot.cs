@@ -37,6 +37,7 @@ public enum CandidateOpenFailureKind
     Unreadable,
     InvalidImage,
     ResourceBudget,
+    UnsupportedMetadataFormat,
 }
 
 public sealed record CandidateOpenFailure(

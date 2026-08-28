@@ -73,7 +73,7 @@ public static class AssemblyTypeDeclarationInventoryReader
                     "The selected image has no managed metadata.");
             }
 
-            MetadataReader reader = peReader.GetMetadataReader();
+            MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
             AssemblyReferenceIdentity actual =
                 AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
             if (actual != assembly.Identity)
@@ -158,6 +158,12 @@ public static class AssemblyTypeDeclarationInventoryReader
                     forwarders.ToImmutable(),
                     meaningfulPublicTypeCount));
         }
+        catch (UnsupportedMetadataFormatException)
+        {
+            return Rejected(
+                CandidateOpenFailureKind.UnsupportedMetadataFormat,
+                "The selected image uses an unsupported metadata format.");
+        }
         catch (Exception ex) when (
             ex is IOException or UnauthorizedAccessException)
         {
@@ -241,6 +247,13 @@ public static class AssemblySurfaceClassifier
                 new CandidateOpenFailure(
                     CandidateOpenFailureKind.Unreadable,
                     "The selected assembly could not be read."));
+        }
+        catch (UnsupportedMetadataFormatException)
+        {
+            return new AssemblySurfaceClassificationOutcome.Rejected(
+                new CandidateOpenFailure(
+                    CandidateOpenFailureKind.UnsupportedMetadataFormat,
+                    "The selected assembly uses an unsupported metadata format."));
         }
         catch (BadImageFormatException)
         {

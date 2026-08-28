@@ -364,7 +364,7 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
             using var peReader =
                 new PEReader(snapshot.Content);
 
-            MetadataReader reader = peReader.GetMetadataReader();
+            MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
 
             var references =
                 ImmutableArray.CreateBuilder<AssemblyReferenceIdentity>();

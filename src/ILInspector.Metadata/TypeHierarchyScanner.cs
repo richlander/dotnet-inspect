@@ -52,7 +52,7 @@ public static class TypeHierarchyScanner
         if (!peReader.HasMetadata)
             yield break;
 
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         var normalizedTarget = FqnParser.NormalizeTypeName(targetType);
 
         foreach (var typeDefHandle in reader.TypeDefinitions)

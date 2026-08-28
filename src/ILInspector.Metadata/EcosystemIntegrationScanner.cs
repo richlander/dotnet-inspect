@@ -112,7 +112,7 @@ public static class EcosystemIntegrationScanner
         if (!peReader.HasMetadata)
             return [];
 
-        return EcosystemIntegrationProjection.Scan(peReader.GetMetadataReader());
+        return EcosystemIntegrationProjection.Scan(MetadataFormatAdmission.GetMetadataReader(peReader));
     }
 
     public static EcosystemIntegrationPresence ScanPresence(MetadataReader reader)

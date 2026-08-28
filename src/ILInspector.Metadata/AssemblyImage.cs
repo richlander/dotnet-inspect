@@ -27,6 +27,17 @@ public sealed class AssemblyImage : IDisposable
         bool ownsReader,
         Action? ensureLenderAlive = null)
     {
+        try
+        {
+            _ = MetadataFormatAdmission.AdmitImage(peReader);
+        }
+        catch (Exception ex)
+        {
+            if (ownsReader)
+                OwnedResourceCleanup.DisposeAfterFailure(peReader, ex);
+            throw;
+        }
+
         _stream = stream;
         PEReader = peReader;
         _ownsReader = ownsReader;
@@ -119,7 +130,8 @@ public sealed class AssemblyImage : IDisposable
         }
     }
 
-    internal MetadataReader GetMetadataReader() => PEReader.GetMetadataReader();
+    internal MetadataReader GetMetadataReader() =>
+        MetadataFormatAdmission.GetMetadataReader(PEReader);
 
     internal void EnsureAlive()
     {

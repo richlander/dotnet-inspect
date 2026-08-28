@@ -37,7 +37,7 @@ public static class ResourceScanner
         if (!peReader.HasMetadata)
             return results;
 
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         var resourcesDir = peReader.PEHeaders.CorHeader!.ResourcesDirectory;
 
         foreach (var handle in reader.ManifestResources)

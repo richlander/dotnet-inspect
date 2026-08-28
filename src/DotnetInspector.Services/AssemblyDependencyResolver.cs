@@ -620,6 +620,8 @@ public sealed partial class AssemblyDependencyResolver :
         Exception exception) =>
         exception switch
         {
+            UnsupportedMetadataFormatException =>
+                CandidateOpenFailureKind.UnsupportedMetadataFormat,
             BadImageFormatException
                 or ArgumentOutOfRangeException
                 or OverflowException =>

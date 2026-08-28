@@ -59,7 +59,7 @@ public static class TypeDependencyScanner
                     if (!peReader.HasMetadata)
                         continue;
 
-                    var mdReader = peReader.GetMetadataReader();
+                    var mdReader = MetadataFormatAdmission.GetMetadataReader(peReader);
                     foreach (var typeDefHandle in mdReader.TypeDefinitions)
                     {
                         var typeDef = mdReader.GetTypeDefinition(typeDefHandle);

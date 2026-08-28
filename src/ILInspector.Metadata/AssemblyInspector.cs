@@ -69,7 +69,7 @@ public static class AssemblyInspector
 
         if (peReader.HasMetadata)
         {
-            var metadataReader = peReader.GetMetadataReader();
+            var metadataReader = MetadataFormatAdmission.GetMetadataReader(peReader);
             info.RuntimeVersion = metadataReader.MetadataVersion;
 
             if (metadataReader.IsAssembly)
@@ -119,7 +119,7 @@ public static class AssemblyInspector
 
         if (peReader.HasMetadata)
         {
-            var metadataReader = peReader.GetMetadataReader();
+            var metadataReader = MetadataFormatAdmission.GetMetadataReader(peReader);
             info.MetadataVersion = metadataReader.GetTableRowCount(TableIndex.Module);
             info.HasUnsafeCode = CheckForUnsafeCode(metadataReader);
         }
@@ -140,7 +140,7 @@ public static class AssemblyInspector
         if (!peReader.HasMetadata)
             return [];
 
-        return ExtractReferenceIdentities(peReader.GetMetadataReader());
+        return ExtractReferenceIdentities(MetadataFormatAdmission.GetMetadataReader(peReader));
     }
 
     /// <summary>
@@ -318,7 +318,7 @@ public static class AssemblyInspector
         if (!peReader.HasMetadata)
             return ([], null);
 
-        var metadataReader = peReader.GetMetadataReader();
+        var metadataReader = MetadataFormatAdmission.GetMetadataReader(peReader);
         var refs = ExtractReferenceIdentities(metadataReader);
         var company = ExtractCompanyAttribute(metadataReader);
         return (refs, company);

@@ -1436,6 +1436,8 @@ public sealed class LibraryBodyIndex
         CandidateOpenFailure failure) =>
         failure.Kind switch
         {
+            CandidateOpenFailureKind.UnsupportedMetadataFormat =>
+                new UnsupportedMetadataFormatException(),
             CandidateOpenFailureKind.InvalidImage =>
                 new BadImageFormatException(
                     $"{failure.Detail} Path: {path}"),

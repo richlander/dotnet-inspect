@@ -145,7 +145,7 @@ public sealed class AssemblyImageSnapshot
                         "The selected image has no managed metadata.");
                 }
 
-                MetadataReader reader = peReader.GetMetadataReader();
+                MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
                 AssemblyReferenceIdentity identity =
                     AssemblyReferenceIdentity.FromAssemblyDefinition(
                         reader);
@@ -187,6 +187,12 @@ public sealed class AssemblyImageSnapshot
                 snapshot);
             reservedBytes = 0;
             return result;
+        }
+        catch (UnsupportedMetadataFormatException)
+        {
+            return Reject(
+                CandidateOpenFailureKind.UnsupportedMetadataFormat,
+                "The selected image uses an unsupported metadata format.");
         }
         catch (Exception ex) when (
             ex is IOException
@@ -239,7 +245,7 @@ public sealed class AssemblyImageSnapshot
                     "The selected image has no managed metadata.");
             }
 
-            MetadataReader reader = peReader.GetMetadataReader();
+            MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
             AssemblyReferenceIdentity identity =
                 AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
             if (!IdentityMatches(assembly.Identity, identity))
@@ -256,6 +262,12 @@ public sealed class AssemblyImageSnapshot
                     reader.GetGuid(reader.GetModuleDefinition().Mvid),
                     assembly.Registration,
                     lastWriteTimeUtc ?? assembly.LastWriteTimeUtc));
+        }
+        catch (UnsupportedMetadataFormatException)
+        {
+            return Reject(
+                CandidateOpenFailureKind.UnsupportedMetadataFormat,
+                "The retained image uses an unsupported metadata format.");
         }
         catch (Exception ex) when (
             ex is BadImageFormatException

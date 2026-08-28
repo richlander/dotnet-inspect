@@ -23,7 +23,7 @@ public static class UnionTypeScanner
         if (!peReader.HasMetadata)
             return [];
 
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         List<UnionTypeInfo> results = [];
 
         foreach (var typeHandle in reader.TypeDefinitions)

@@ -265,7 +265,7 @@ public sealed class ResolvedAssemblyReference
         {
             AssemblyReferenceIdentity identity =
                 AssemblyReferenceIdentity.FromAssemblyDefinition(
-                    peReader.GetMetadataReader());
+                    MetadataFormatAdmission.GetMetadataReader(peReader));
             if (string.IsNullOrWhiteSpace(identity.Name))
                 return null;
 
@@ -330,7 +330,7 @@ public sealed class ResolvedAssemblyReference
         {
             AssemblyReferenceIdentity identity =
                 AssemblyReferenceIdentity.FromAssemblyDefinition(
-                    peReader.GetMetadataReader());
+                    MetadataFormatAdmission.GetMetadataReader(peReader));
             if (string.IsNullOrWhiteSpace(identity.Name))
                 return null;
 
@@ -384,7 +384,7 @@ public sealed class ResolvedAssemblyReference
                     new System.Reflection.PortableExecutable.PEReader(stream);
                 if (peReader.HasMetadata)
                 {
-                    MetadataReader metadata = peReader.GetMetadataReader();
+                    MetadataReader metadata = MetadataFormatAdmission.GetMetadataReader(peReader);
                     if (metadata.IsAssembly)
                     {
                         AssemblyReferenceIdentity candidate =
@@ -395,7 +395,9 @@ public sealed class ResolvedAssemblyReference
                     }
                 }
             }
-            catch (BadImageFormatException)
+            catch (Exception ex) when (
+                ex is BadImageFormatException
+                    or UnsupportedMetadataFormatException)
             {
                 // The descriptor retains the selected image as a rejection carrier.
             }

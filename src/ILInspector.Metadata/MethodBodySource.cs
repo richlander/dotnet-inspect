@@ -48,7 +48,7 @@ public sealed class MethodBodySource : IOperandNameResolver
     internal MethodBodySource(PEReader peReader, Action ensureAlive)
     {
         _peReader = peReader;
-        _reader = peReader.GetMetadataReader();
+        _reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         _resolver = new MetadataOperandNameResolver(_reader);
         _ensureAlive = ensureAlive;
     }

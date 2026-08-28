@@ -91,7 +91,7 @@ public static class MethodClassificationScanner
         if (!peReader.HasMetadata)
             return results;
 
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         int identityDecodeFailures = 0;
         int scanWorkRemaining =
             MetadataSafetyPolicy.MaxClassificationScanWorkChars;

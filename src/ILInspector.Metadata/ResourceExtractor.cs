@@ -26,7 +26,7 @@ static class ResourceExtractor
             return [];
         ArgumentException.ThrowIfNullOrWhiteSpace(outputDirectory);
 
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         var resourcesDirectory = peReader.PEHeaders.CorHeader!.ResourcesDirectory;
         if (resourcesDirectory.Size == 0)
             return [];

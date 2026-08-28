@@ -176,11 +176,11 @@ work and allocation are fixed by the root prefix and 256-byte ceiling and do
 not scale with stream, heap, table, or row content.
 Acquisition or direct projection APIs whose established return shape has no
 failure arm throw `UnsupportedMetadataFormatException` carrying no artifact
-text for unsupported Windows Metadata and `BadImageFormatException` with the
-same text constraint for a malformed-root result. Typed query owners catch and
-preserve those distinct mechanisms as unsupported-input and malformed-input
-results. They must not translate either to `null`, an empty projection, or
-partial rows.
+text for unsupported Windows Metadata and
+`MalformedMetadataRootException : BadImageFormatException` with the same text
+constraint for a malformed-root result. Typed query owners catch and preserve
+those distinct mechanisms as unsupported-input and malformed-input results.
+They must not translate either to `null`, an empty projection, or partial rows.
 
 `NoMetadata` preserves the acquisition or query owner's established typed
 no-metadata boundary. Neither it nor a malformed-root result is translated to
@@ -197,12 +197,16 @@ projection](design/member-inspection-planning-and-metadata-projection.md) gates
 the inventory, reader independence, bounded root work, typed failure, and
 no-work-before-reject properties.
 
-The classifier's primitive-local contract is implemented and gated by
+The classifier's primitive-local contract is gated by
 `MetadataImageFormatClassifierTests` and
-`LayeringTests.MetadataPrimitives_MetadataRootClassifierIsIsolated`. Product
-session and projection adoption remains unverified until the focused Metadata
-successor tracked by #4877 lands; callers must not infer that the classifier's
-existence alone closes the repository-wide `MDP017` entry-point inventory.
+`LayeringTests.MetadataPrimitives_MetadataRootClassifierIsIsolated`.
+Metadata-owned session and projection adoption is separately gated by
+`LayeringTests.Metadata_MetadataReadersRequireFormatAdmission` and the
+admission cases in `MetadataImageFormatClassifierTests`; Browser projection
+preservation is gated by
+`BrowserMetadataOperationsTests.MetadataProjection_PreservesFormatRejection`.
+These focused gates do not close `MDP017`'s separately planned cache,
+PDB-retention, or cross-owner adoption.
 
 ### Lossless `MethodSemantics` row boundary
 

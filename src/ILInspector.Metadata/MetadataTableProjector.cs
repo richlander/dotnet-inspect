@@ -65,7 +65,7 @@ public static class MetadataTableProjector
         // MetadataReaderOptions.None keeps the projection raw: the default enables
         // Windows-Runtime projection, which would replace real table/heap values
         // with synthesized aliases and defeat structural losslessness.
-        var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader, MetadataReaderOptions.None);
 
         return MetadataTableProjectionEngine.Project(reader, options);
     }
@@ -105,7 +105,7 @@ public static class MetadataTableProjector
             || !MetadataTableProjectionEngine.TryGetTableSpec(table, out var spec))
             return null;
 
-        var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader, MetadataReaderOptions.None);
         return MetadataTableProjectionEngine.ProjectRow(reader, spec, rowId, options);
     }
 
@@ -175,7 +175,7 @@ public static class MetadataTableProjector
             return new MetadataRowReferenceSet(
                 target, [], [], [], Truncated: false, TargetExists: false);
 
-        var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader, MetadataReaderOptions.None);
         return MetadataRowReferenceFinder.FindReferences(reader, target, maxReferences);
     }
 
@@ -214,7 +214,7 @@ public static class MetadataTableProjector
         if (!peReader.HasMetadata)
             return null;
 
-        var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader, MetadataReaderOptions.None);
         return MetadataHeapProjector.ReadHeapValue(reader, heap, address, options);
     }
 
@@ -260,7 +260,7 @@ public static class MetadataTableProjector
         if (!peReader.HasMetadata)
             return null;
 
-        var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader, MetadataReaderOptions.None);
         return MetadataHeapProjector.ReadHeapEntries(reader, heap, options);
     }
 

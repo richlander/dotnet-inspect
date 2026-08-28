@@ -92,7 +92,7 @@ public static class ExtensionMethodScanner
         if (!peReader.HasMetadata)
             yield break;
 
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         var normalizedTarget = FqnParser.NormalizeTypeName(targetType);
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
@@ -212,7 +212,7 @@ public static class ExtensionMethodScanner
         if (!peReader.HasMetadata)
             yield break;
 
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
@@ -317,7 +317,7 @@ public static class ExtensionMethodScanner
         if (!peReader.HasMetadata)
             return [];
 
-        MetadataReader reader = peReader.GetMetadataReader();
+        MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         var types = new List<ExtensionReachabilityType>(
             reader.TypeDefinitions.Count);
         foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
@@ -351,7 +351,7 @@ public static class ExtensionMethodScanner
                 nameof(metadataToken));
         }
 
-        MetadataReader reader = peReader.GetMetadataReader();
+        MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         return FindReachableEdges(
             reader,
             (TypeDefinitionHandle)entity);
@@ -396,7 +396,7 @@ public static class ExtensionMethodScanner
                     disposables.Add(peReader);
                     disposables.Add(stream);
 
-                    var reader = peReader.GetMetadataReader();
+                    var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
                     foreach (var typeDefHandle in reader.TypeDefinitions)
                     {
                         var typeDef = reader.GetTypeDefinition(typeDefHandle);

@@ -2646,7 +2646,7 @@ public static partial class AttributeReader
     {
         if (!peReader.HasMetadata) return [];
 
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         return ReadMethodAttributes(reader, FindMethodHandle(reader, fullTypeName, methodName, overloadIndex, publicOnly));
     }
 

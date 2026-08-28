@@ -639,7 +639,7 @@ public class PdbContext : IDisposable
                 log,
                 (streamOptions & PEStreamOptions.PrefetchEntireImage) != 0,
                 lastWriteTimeUtc);
-            if (!peReader.HasMetadata)
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
                 return context;
 
             context.ReadDebugDirectory(
@@ -870,7 +870,7 @@ public class PdbContext : IDisposable
 
         try
         {
-            var reader = _peReader.GetMetadataReader();
+            var reader = MetadataFormatAdmission.GetMetadataReader(_peReader);
             MethodDefinitionHandle handle = ResolveMethodHandle(
                 reader,
                 typeName: "",
@@ -907,7 +907,7 @@ public class PdbContext : IDisposable
 
         try
         {
-            var reader = _peReader.GetMetadataReader();
+            var reader = MetadataFormatAdmission.GetMetadataReader(_peReader);
             MethodDefinitionHandle handle = ResolveMethodHandle(
                 reader,
                 typeName,
@@ -1020,7 +1020,7 @@ public class PdbContext : IDisposable
 
         try
         {
-            var reader = _peReader.GetMetadataReader();
+            var reader = MetadataFormatAdmission.GetMetadataReader(_peReader);
             var methodHandle = (MethodDefinitionHandle)handle;
             var method = reader.GetMethodDefinition(methodHandle);
             var type = reader.GetTypeDefinition(method.GetDeclaringType());
@@ -1069,7 +1069,7 @@ public class PdbContext : IDisposable
 
         try
         {
-            var reader = _peReader.GetMetadataReader();
+            var reader = MetadataFormatAdmission.GetMetadataReader(_peReader);
             var method = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
             if (method.RelativeVirtualAddress == 0)
             {
@@ -1128,7 +1128,7 @@ public class PdbContext : IDisposable
 
         try
         {
-            var reader = _peReader.GetMetadataReader();
+            var reader = MetadataFormatAdmission.GetMetadataReader(_peReader);
             var method = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
             if (method.RelativeVirtualAddress == 0)
             {
@@ -1178,7 +1178,7 @@ public class PdbContext : IDisposable
         if (_pdbReader == null || !_peReader.HasMetadata)
             return null;
 
-        var reader = _peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(_peReader);
         MethodDefinitionHandle methodHandle = ResolveMethodHandle(
             reader,
             typeName,
@@ -1415,7 +1415,7 @@ public class PdbContext : IDisposable
         if (_pdbReader == null || !_peReader.HasMetadata)
             yield break;
 
-        var metadata = _peReader.GetMetadataReader();
+        var metadata = MetadataFormatAdmission.GetMetadataReader(_peReader);
         foreach (var methodHandle in EnumerateSelectedMethods(metadata, metadataTokens))
         {
             int metadataToken = MetadataTokens.GetToken(methodHandle);
@@ -1524,7 +1524,7 @@ public class PdbContext : IDisposable
         if (_pdbReader == null || !_peReader.HasMetadata)
             yield break;
 
-        var metadata = _peReader.GetMetadataReader();
+        var metadata = MetadataFormatAdmission.GetMetadataReader(_peReader);
         foreach (var typeHandle in metadata.TypeDefinitions)
         {
             var type = metadata.GetTypeDefinition(typeHandle);
@@ -1852,7 +1852,7 @@ public class PdbContext : IDisposable
             if (handle.Kind != HandleKind.MethodDefinition)
                 return null;
 
-            var metadata = _peReader.GetMetadataReader();
+            var metadata = MetadataFormatAdmission.GetMetadataReader(_peReader);
             var methodHandle = (MethodDefinitionHandle)handle;
             var method = metadata.GetMethodDefinition(methodHandle);
             var type = metadata.GetTypeDefinition(method.GetDeclaringType());

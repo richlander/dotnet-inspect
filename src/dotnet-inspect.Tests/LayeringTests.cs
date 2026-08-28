@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using DotnetInspector.AssemblyOnlyHost.Fixture;
@@ -325,6 +326,22 @@ public sealed class LayeringTests
     }
 
     [Fact]
+    public void Metadata_MetadataReadersRequireFormatAdmission()
+    {
+        string[] sites = MetadataReaderConstructionSites(
+                typeof(AssemblyInspectionSession).Assembly.Location)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(
+            [
+                "ILInspector.Metadata.MetadataFormatAdmission.GetMetadataReader/1",
+                "ILInspector.Metadata.MetadataFormatAdmission.GetMetadataReader/2",
+            ],
+            sites);
+    }
+
+    [Fact]
     public void InstructionDiff_DoesNotExpandInstructionSubstrate()
     {
         Assert.Equal(
@@ -546,6 +563,90 @@ public sealed class LayeringTests
         Assert.True(
             packages.Length == 0,
             $"Forbidden NuGet implementation packages entered the closure: {string.Join(", ", packages)}");
+    }
+
+    static IEnumerable<string> MetadataReaderConstructionSites(
+        string assemblyPath)
+    {
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        var sites = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (MethodDefinitionHandle handle in reader.MethodDefinitions)
+        {
+            MethodDefinition method = reader.GetMethodDefinition(handle);
+            if (method.RelativeVirtualAddress == 0)
+                continue;
+
+            byte[] il =
+                peReader.GetMethodBody(method.RelativeVirtualAddress)
+                    .GetILBytes()
+                ?? [];
+            if (!CallsAssemblyMetadataReaderConstruction(reader, il))
+                continue;
+
+            TypeDefinitionHandle declaringHandle =
+                method.GetDeclaringType();
+            TypeDefinition declaring = reader.GetTypeDefinition(
+                declaringHandle);
+            int parameterCount = method.GetParameters().Count(
+                parameter =>
+                    reader.GetParameter(parameter).SequenceNumber != 0);
+            sites.Add(
+                $"{reader.GetString(declaring.Namespace)}."
+                + $"{reader.GetString(declaring.Name)}."
+                + $"{reader.GetString(method.Name)}/{parameterCount}");
+        }
+
+        return sites;
+    }
+
+    static bool CallsAssemblyMetadataReaderConstruction(
+        MetadataReader reader,
+        byte[] il)
+    {
+        foreach (DecodedInstruction instruction in InstructionDecoder.Decode(il))
+        {
+            if (instruction.Operand
+                    is not (OperandKind.InlineMethod or OperandKind.InlineTok))
+            {
+                continue;
+            }
+
+            EntityHandle operand =
+                MetadataTokens.EntityHandle((int)instruction.OperandValue);
+            if (operand.Kind != HandleKind.MemberReference)
+                continue;
+
+            MemberReference member = reader.GetMemberReference(
+                (MemberReferenceHandle)operand);
+            if (member.Parent.Kind != HandleKind.TypeReference)
+            {
+                continue;
+            }
+
+            TypeReference type = reader.GetTypeReference(
+                (TypeReferenceHandle)member.Parent);
+            string methodName = reader.GetString(member.Name);
+            string typeName = reader.GetString(type.Name);
+            string typeNamespace = reader.GetString(type.Namespace);
+            if ((typeName == nameof(PEReaderExtensions)
+                    && typeNamespace == typeof(MetadataReader).Namespace
+                    && methodName
+                        == nameof(MetadataFormatAdmission.GetMetadataReader))
+                || (typeName == nameof(MetadataReaderProvider)
+                    && typeNamespace == typeof(MetadataReader).Namespace
+                    && methodName == "FromPortableExecutableImage")
+                || (typeName == nameof(MetadataReader)
+                    && typeNamespace == typeof(MetadataReader).Namespace
+                    && methodName == ".ctor"))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool IsNuGetImplementationPackage(string package) =>

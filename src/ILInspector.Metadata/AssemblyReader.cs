@@ -25,7 +25,7 @@ public static class AssemblyReader
             using var stream = File.OpenRead(path);
             using var peReader = new PEReader(stream);
             if (!peReader.HasMetadata
-                || peReader.GetMetadataReader().IsAssembly)
+                || MetadataFormatAdmission.GetMetadataReader(peReader).IsAssembly)
             {
                 return null;
             }
@@ -38,10 +38,11 @@ public static class AssemblyReader
             return surface;
         }
         catch (Exception ex) when (
-            ex is IOException
-                or UnauthorizedAccessException
-                or BadImageFormatException
-                or ArgumentException)
+            ex is not MalformedMetadataRootException
+                and (IOException
+                    or UnauthorizedAccessException
+                    or BadImageFormatException
+                    or ArgumentException))
         {
             return null;
         }
@@ -92,7 +93,8 @@ public static class AssemblyReader
 
             return ApiSurfaceExtractor.Extract(peReader, includeAll, typesOnly);
         }
-        catch (BadImageFormatException)
+        catch (BadImageFormatException ex)
+            when (ex is not MalformedMetadataRootException)
         {
             return null;
         }
@@ -143,7 +145,8 @@ public static class AssemblyReader
 
             return ApiSurfaceExtractor.ExtractSummary(peReader);
         }
-        catch (BadImageFormatException)
+        catch (BadImageFormatException ex)
+            when (ex is not MalformedMetadataRootException)
         {
             return null;
         }
@@ -168,9 +171,11 @@ public static class AssemblyReader
             if (!peReader.HasMetadata)
                 return null;
 
-            return FindUniquePublicType(peReader.GetMetadataReader(), typeName);
+            return FindUniquePublicType(MetadataFormatAdmission.GetMetadataReader(peReader), typeName);
         }
-        catch
+        catch (Exception ex)
+            when (ex is not UnsupportedMetadataFormatException
+                and not MalformedMetadataRootException)
         {
             return null;
         }
@@ -240,7 +245,9 @@ public static class AssemblyReader
             // Must materialize results before PEReader is disposed
             return TypeHierarchyScanner.FindImplementers(peReader, targetType, includeHidden).ToList();
         }
-        catch
+        catch (Exception ex)
+            when (ex is not UnsupportedMetadataFormatException
+                and not MalformedMetadataRootException)
         {
             return [];
         }
@@ -260,7 +267,7 @@ public static class AssemblyReader
             if (!peReader.HasMetadata)
                 return 0;
 
-            var reader = peReader.GetMetadataReader();
+            var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
             int count = 0;
 
             foreach (var typeDefHandle in reader.TypeDefinitions)
@@ -279,7 +286,9 @@ public static class AssemblyReader
 
             return count;
         }
-        catch
+        catch (Exception ex)
+            when (ex is not UnsupportedMetadataFormatException
+                and not MalformedMetadataRootException)
         {
             return 0;
         }

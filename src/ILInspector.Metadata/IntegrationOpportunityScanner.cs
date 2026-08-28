@@ -66,7 +66,7 @@ public static class IntegrationOpportunityScanner
         if (!peReader.HasMetadata)
             return [];
 
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         Dictionary<string, IntegrationOpportunityInfo> gaps = new(StringComparer.Ordinal);
 
         foreach (var handle in reader.TypeDefinitions)

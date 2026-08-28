@@ -20,7 +20,7 @@ public static class SwitchScanner
         if (!peReader.HasMetadata)
             return [];
 
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         Dictionary<string, SwitchInfo> switches = new(StringComparer.Ordinal);
         AddRuntimeHostConfigurationOptions(reader, switches);
         AddFeatureSwitchDefinitions(reader, switches);

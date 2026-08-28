@@ -66,7 +66,7 @@ internal static class EcosystemIntegrationPresenceBuilder
 
         if (peReader.HasMetadata)
         {
-            MetadataReader reader = peReader.GetMetadataReader();
+            MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
             foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
             {
                 TypeDefinition typeDefinition =
