@@ -1302,6 +1302,18 @@ public sealed class StateMachineCompletenessTests
     /// reach, so a stream that throws on read covers it directly rather than
     /// being excused as an exception to the rule. Coverage here is total, with
     /// no carve-out to keep honest.
+    ///
+    /// Round 7 found that total coverage was not the same as total coverage of
+    /// the outcomes. Reading the CLI directory answers either "present" or
+    /// "absent", and both answers shared one site, so the "present" answer that
+    /// every ordinary managed file produces reported the site reached and the
+    /// "absent" answer was never exercised at all. Neither enumeration could
+    /// reach it: single-byte corruption cannot zero eight bytes, and any prefix
+    /// long enough to contain the directory contains its real non-zero value.
+    /// The site is split in two now, and the field-zeroing dimension below
+    /// reaches the second one. The general rule this leaves is that a site must
+    /// name an outcome, not a place in the source; a site assigned before a
+    /// branch is reported reached by whichever branch runs first.
     /// </summary>
     [Fact]
     public void ReadManagedClaim_EnumeratedRange_ReachesEveryExitPath()
@@ -1337,6 +1349,13 @@ public sealed class StateMachineCompletenessTests
 
                 copy[offset] = original;
             }
+        }
+
+        foreach ((bool _, bool _, byte[] zeroed) in CliDirectoryZeroings(image))
+        {
+            using MemoryStream stream = new(zeroed, writable: false);
+            ReadManagedClaim(stream, ref detail, out ClaimExitSite site);
+            reached.Add(site);
         }
 
         using (ThrowingStream throwing = new())
@@ -1394,15 +1413,20 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
-    /// Every way out of <c>ReadManagedClaim</c>, one member per path.
+    /// Every way out of <c>ReadManagedClaim</c>, one member per outcome.
     ///
     /// These are names rather than numbers so the set of paths is derived from
     /// this declaration instead of being restated as a count that can drift
     /// away from it. Adding a member without wiring it to a path fails the
     /// coverage test as unreached, and wiring a path requires naming a member.
-    /// Two paths reporting the same member would still hide one of them, but a
-    /// duplicated name reads as obviously wrong at the point of use in a way a
-    /// duplicated integer does not.
+    ///
+    /// A member must correspond to an outcome, not to a place in the source.
+    /// An earlier revision assigned one member and then branched to two
+    /// different answers, which let the common answer report the site reached
+    /// while the other was never exercised -- the coverage test passed and
+    /// proved less than it said. Assign the site inside each branch, after the
+    /// answer is decided, so that "reached" and "answered this way" cannot come
+    /// apart.
     /// </summary>
     enum ClaimExitSite
     {
@@ -1439,8 +1463,20 @@ public sealed class StateMachineCompletenessTests
         /// <summary>The stream could not be read at all.</summary>
         StreamUnreadable,
 
-        /// <summary>The CLI directory was read and answered.</summary>
-        CliDirectoryRead,
+        /// <summary>
+        /// The CLI directory was read and at least one field was non-zero, so
+        /// the file claims to be managed.
+        /// </summary>
+        CliDirectoryPresent,
+
+        /// <summary>
+        /// The CLI directory was read and both fields were zero, so the file
+        /// makes no managed claim and the sweep may skip it. This is the
+        /// laundering direction: a wrong answer here removes a file from the
+        /// population while still reporting success, so it gets its own site
+        /// rather than sharing one with <see cref="CliDirectoryPresent"/>.
+        /// </summary>
+        CliDirectoryAbsent,
     }
 
     static ManagedClaim ReadManagedClaim(Stream stream, ref string? detail) =>
@@ -1585,11 +1621,15 @@ public sealed class StateMachineCompletenessTests
             // zero, so requiring both before skipping is the direction that
             // cannot hide damage.
             ReadOnlySpan<byte> entry = optional.AsSpan(cli, 8);
-            exitSite = ClaimExitSite.CliDirectoryRead;
-            return BinaryPrimitives.ReadUInt32LittleEndian(entry) != 0
-                || BinaryPrimitives.ReadUInt32LittleEndian(entry[4..]) != 0
-                ? ManagedClaim.Yes
-                : ManagedClaim.No;
+            if (BinaryPrimitives.ReadUInt32LittleEndian(entry) != 0
+                || BinaryPrimitives.ReadUInt32LittleEndian(entry[4..]) != 0)
+            {
+                exitSite = ClaimExitSite.CliDirectoryPresent;
+                return ManagedClaim.Yes;
+            }
+
+            exitSite = ClaimExitSite.CliDirectoryAbsent;
+            return ManagedClaim.No;
         }
         catch (Exception ex)
             when (ex is IOException or UnauthorizedAccessException)
@@ -1617,6 +1657,126 @@ public sealed class StateMachineCompletenessTests
                 + "this repository's own build outputs.");
 
         return Measure(pe.GetMetadataReader());
+    }
+
+    /// <summary>
+    /// Enumerates every way the CLI directory's two fields can be zeroed and
+    /// pins both the claim and the exit site for each.
+    ///
+    /// This is the branch that decides which files leave the population, so it
+    /// is the laundering direction: a wrong answer here removes a file from the
+    /// sweep while still reporting success. Round 7 found that neither the
+    /// prefix nor the corruption enumeration could reach it. Single-byte
+    /// corruption cannot zero eight bytes, and a prefix long enough to contain
+    /// the directory contains the real non-zero value, so the "absent" outcome
+    /// was unreachable by construction while sharing an exit site with
+    /// "present" -- which meant the coverage test reported it exercised.
+    ///
+    /// The domain is the two fields being independently zeroed or not, so it is
+    /// four cases and they are all here rather than sampled. Three of them are
+    /// damage and must still claim managed: that is the asymmetry the reader
+    /// above is written for, and a one-sided test would be satisfied by a
+    /// reader that answered <c>Yes</c> unconditionally.
+    /// </summary>
+    [Fact]
+    public void ReadManagedClaim_CliDirectoryFieldZeroing_LaundersNothing()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(StateMachineCompletenessTests).Assembly.Location);
+
+        Assert.True(
+            BinaryPrimitives.ReadUInt32LittleEndian(
+                image.AsSpan(CliDirectoryFileOffset(image))) != 0,
+            "The unmodified test assembly must have a non-zero CLI directory "
+                + "RVA, or this test is zeroing something that was already zero.");
+
+        List<string> wrong = [];
+
+        foreach ((bool zeroRva, bool zeroSize, byte[] copy) in
+            CliDirectoryZeroings(image))
+        {
+            bool bothZeroed = zeroRva && zeroSize;
+
+            ManagedClaim expectedClaim =
+                bothZeroed ? ManagedClaim.No : ManagedClaim.Yes;
+            ClaimExitSite expectedSite = bothZeroed
+                ? ClaimExitSite.CliDirectoryAbsent
+                : ClaimExitSite.CliDirectoryPresent;
+
+            using var stream = new MemoryStream(copy, writable: false);
+            string? detail = null;
+            ManagedClaim claim =
+                ReadManagedClaim(stream, ref detail, out ClaimExitSite site);
+
+            if (claim != expectedClaim || site != expectedSite)
+            {
+                wrong.Add(
+                    $"rva zeroed={zeroRva}, size zeroed={zeroSize}: "
+                        + $"expected {expectedClaim}/{expectedSite}, "
+                        + $"got {claim}/{site}");
+            }
+        }
+
+        Assert.True(
+            wrong.Count == 0,
+            "The CLI directory reader disagreed with the rule that only a file "
+                + "with both fields zero makes no managed claim: "
+                + string.Join("; ", wrong));
+    }
+
+    /// <summary>
+    /// The file offset of the CLI data directory in a PE image.
+    /// </summary>
+    static int CliDirectoryFileOffset(byte[] image)
+    {
+        int peOffset = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(0x3C));
+        int optionalOffset = peOffset + 24;
+        int directories = BinaryPrimitives.ReadUInt16LittleEndian(
+            image.AsSpan(optionalOffset)) switch
+        {
+            0x10B => 96,
+            0x20B => 112,
+            _ => throw new InvalidOperationException(
+                "The test assembly is neither PE32 nor PE32+, so this test "
+                    + "cannot locate its CLI directory."),
+        };
+
+        return optionalOffset + directories + (14 * 8);
+    }
+
+    /// <summary>
+    /// Every combination of the CLI directory's two fields being zeroed, which
+    /// is the complete domain of that dimension in four cases.
+    ///
+    /// Both the coverage test and the laundering test enumerate this from here
+    /// so that the dimension has one definition. If they each built their own,
+    /// one could narrow without the other noticing, and the coverage test would
+    /// keep reporting a path exercised that the property test no longer covered.
+    /// </summary>
+    static IEnumerable<(bool ZeroRva, bool ZeroSize, byte[] Image)>
+        CliDirectoryZeroings(byte[] image)
+    {
+        int cliOffset = CliDirectoryFileOffset(image);
+
+        foreach (bool zeroRva in (bool[])[false, true])
+        {
+            foreach (bool zeroSize in (bool[])[false, true])
+            {
+                byte[] copy = (byte[])image.Clone();
+
+                if (zeroRva)
+                {
+                    copy.AsSpan(cliOffset, 4).Clear();
+                }
+
+                if (zeroSize)
+                {
+                    copy.AsSpan(cliOffset + 4, 4).Clear();
+                }
+
+                yield return (zeroRva, zeroSize, copy);
+            }
+        }
     }
 
     /// <summary>
