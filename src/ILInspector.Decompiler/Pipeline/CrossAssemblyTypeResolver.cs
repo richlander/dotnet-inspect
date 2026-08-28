@@ -1202,30 +1202,53 @@ internal sealed class CrossAssemblyTypeResolver
         TypeRef type,
         ResolvedAssemblyReference? localAssembly = null)
     {
-        if (type.Assembly == TypeRef.CoreLibrary)
+        ResolvedAssemblyReference root =
+            localAssembly ?? _selfAssembly;
+        MetadataTypeDefinitionName? definitionName =
+            type.DefinitionName;
+        AssemblyReferenceIdentity? resolutionAssembly =
+            type.ResolutionAssembly;
+        if (definitionName is null)
         {
-            MetadataTypeDefinitionName? definitionName =
-                type.DefinitionName;
-            if (definitionName is null
-                && !TryResolutionIdentity(
+            if (!TryResolutionIdentity(
                     type,
                     out definitionName,
-                    out _))
+                    out resolutionAssembly))
             {
                 return null;
             }
-            return _context.ResolveCoreLibraryDefinition(
-                localAssembly ?? _selfAssembly,
-                definitionName);
         }
-
-        if (!TryCreateReferenceResolutionRequest(
-                type,
-                localAssembly,
-                out ResolvedAssemblyReference root,
-                out TypeResolutionRequest request))
+        else if (type.Assembly != TypeRef.CoreLibrary
+            && resolutionAssembly is null
+            && localAssembly is null)
         {
             return null;
+        }
+
+        TypeResolutionRequest request;
+        if (localAssembly is not null
+            && resolutionAssembly is null)
+        {
+            request = TypeResolutionRequest.FromAssembly(
+                localAssembly,
+                ScopeFor(type),
+                definitionName);
+        }
+        else if (type.Assembly == TypeRef.CoreLibrary)
+        {
+            return _context.ResolveCoreLibraryDefinition(
+                root,
+                definitionName);
+        }
+        else
+        {
+            if (resolutionAssembly is not { } identity)
+                return null;
+            request = TypeResolutionRequest.FromReference(
+                identity,
+                AssemblyBindingOrigin.FromAssembly(root),
+                ScopeFor(type),
+                definitionName);
         }
 
         TypeResolutionOutcome outcome =
