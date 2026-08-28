@@ -152,14 +152,23 @@ public static class ArgumentPreprocessor
             }
         }
 
-        // Set HeadLines for explicit -n N (so -n 6 behaves like -6)
+        // Set HeadLines for explicit -n N or -n=N (so -n 6 behaves like -6)
         if (HeadLines == null)
         {
-            for (int i = 0; i < args.Length - 1; i++)
+            for (int i = 0; i < args.Length; i++)
             {
-                if (args[i] == "-n" && int.TryParse(args[i + 1], out var n))
+                if (args[i] == "-n"
+                    && i + 1 < args.Length
+                    && int.TryParse(args[i + 1], out var separated))
                 {
-                    HeadLines = n;
+                    HeadLines = separated;
+                    break;
+                }
+
+                if (args[i].StartsWith("-n=", StringComparison.Ordinal)
+                    && int.TryParse(args[i].AsSpan(3), out var inline))
+                {
+                    HeadLines = inline;
                     break;
                 }
             }

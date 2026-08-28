@@ -605,6 +605,17 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void PreprocessArgs_InlineLineLimitSetsHeadLines()
+    {
+        string[] args = ["package", "Foo", "-n=5"];
+
+        string[] result = CommandLineBuilder.PreprocessArgs(args);
+
+        Assert.Same(args, result);
+        Assert.Equal(5, CommandLineBuilder.HeadLines);
+    }
+
+    [Fact]
     public void PreprocessArgs_WithUnknownFirstArg_PrependsRouter()
     {
         var args = new[] { "System.Text.Json", "--versions" };

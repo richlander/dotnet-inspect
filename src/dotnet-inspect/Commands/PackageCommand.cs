@@ -801,6 +801,10 @@ public class PackageCommand
             // Handle file content modes and exit early.
             if (options.ShowContent)
             {
+                var destination = PackagePayloadDestination(options);
+                if (!ProjectionDestinationWriter.ValidateBeforeAcquisition(destination))
+                    return 1;
+
                 var packageId = nuspec?.PackageName ?? packageName;
                 var packageVersion = nuspec?.Version ?? version;
                 var packageReadme = PackageFileLister.ResolvePackageReadme(extractPath, nuspec?.ReadmeFile);
@@ -2321,11 +2325,7 @@ public class PackageCommand
                 options.Jsonl,
                 options.JsonArray,
                 options.Bare,
-                new ProjectionDestination(
-                    options.OutputPath,
-                    options.Rows,
-                    ExactTransfer: HasUnstructuredOutputPath(options)
-                        && options.ContentScope == PackageFileContentScope.Full)));
+                PackagePayloadDestination(options)));
     }
 
     private static List<ShapeProjectionRow> ProjectPackageFiles(IEnumerable<PackageFileRow>? files, string section, ShapeProjectionKind kind, InspectionOptions options)
@@ -3327,6 +3327,13 @@ public class PackageCommand
             && !options.Jsonl
             && !options.JsonArray;
 
+    private static ProjectionDestination PackagePayloadDestination(InspectionOptions options)
+        => new(
+            options.OutputPath,
+            options.Rows,
+            ExactTransfer: HasUnstructuredOutputPath(options)
+                && options.ContentScope == PackageFileContentScope.Full);
+
     /// <summary>
     /// Restores the readme role to the document the manifest declares when
     /// <see cref="PackageFileLister.ResolvePackageReadme"/> passed over it. That resolver answers
@@ -3479,11 +3486,12 @@ public class PackageCommand
         if (LensProjection.TryProject(options, "--content", visibleRows.Count(row => row.Found), out var contentProjectionExit))
             return contentProjectionExit;
 
+        var destination = PackagePayloadDestination(options);
         if (options.Bare)
-            return PrintBarePackageFileContentRows(visibleRows, options.OutputPath);
+            return PrintBarePackageFileContentRows(visibleRows, destination);
 
         if (HasUnstructuredOutputPath(options)
-            && options.OutputPath is { } exactOutputPath)
+            && ProjectionDestinationWriter.IsFile(destination))
         {
             List<PackageFileContent> found =
                 visibleRows.Where(row => row.Found).ToList();
@@ -3494,7 +3502,7 @@ public class PackageCommand
                 return 1;
             }
 
-            WritePackageFileExport(found[0], exactOutputPath);
+            WritePackageFileExport(found[0], destination);
             return 0;
         }
 
@@ -3505,15 +3513,17 @@ public class PackageCommand
             ? RenderPackageFileContentJsonl(textRows)
             : RenderPackageFileContentBlocks(textRows);
 
-        if (!string.IsNullOrEmpty(options.OutputPath))
-            File.WriteAllText(options.OutputPath, output);
+        if (ProjectionDestinationWriter.IsFile(destination))
+            ProjectionDestinationWriter.WriteText(destination, output);
         else
             Console.Write(output);
 
         return 0;
     }
 
-    private static int PrintBarePackageFileContentRows(IReadOnlyList<PackageFileContent> rows, string? outputPath)
+    private static int PrintBarePackageFileContentRows(
+        IReadOnlyList<PackageFileContent> rows,
+        ProjectionDestination destination)
     {
         var found = rows.Where(row => row.Found).ToList();
         if (found.Count != 1)
@@ -3524,9 +3534,9 @@ public class PackageCommand
             return 1;
         }
 
-        if (!string.IsNullOrEmpty(outputPath))
+        if (ProjectionDestinationWriter.IsFile(destination))
         {
-            WritePackageFileExport(found[0], outputPath);
+            WritePackageFileExport(found[0], destination);
             return 0;
         }
 
@@ -3804,6 +3814,10 @@ public class PackageCommand
             return 1;
         }
 
+        var destination = PackagePayloadDestination(options);
+        if (!ProjectionDestinationWriter.ValidateBeforeAcquisition(destination))
+            return 1;
+
         var content = ReadPackageFileContent(
             extractPath,
             packageName,
@@ -3812,9 +3826,9 @@ public class PackageCommand
             PackageFileContentScope.Full,
             normalizeGithubLinksToRaw: !options.BrowsableUrls,
             includeExactContent: HasUnstructuredOutputPath(options));
-        if (!string.IsNullOrEmpty(options.OutputPath))
+        if (ProjectionDestinationWriter.IsFile(destination))
         {
-            WritePackageFileExport(content, options.OutputPath);
+            WritePackageFileExport(content, destination);
             return 0;
         }
 
@@ -3847,12 +3861,12 @@ public class PackageCommand
 
     private static void WritePackageFileExport(
         PackageFileContent content,
-        string outputPath)
+        ProjectionDestination destination)
     {
         if (content.ExactContent is { } exact)
-            File.WriteAllBytes(outputPath, exact);
+            ProjectionDestinationWriter.WriteExactBytes(destination, exact);
         else
-            File.WriteAllText(outputPath, content.Content);
+            ProjectionDestinationWriter.WriteText(destination, content.Content);
     }
 
     private static List<PackageFile> GetPackageFileRows(InspectionResult result, string section)

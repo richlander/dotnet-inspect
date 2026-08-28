@@ -28905,36 +28905,57 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task PackageExactProjectionLineWindows_PreserveAbsentAndExistingDestinations()
+    public async Task PackageExactTransferLineWindows_PreserveAbsentAndExistingDestinations()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
             "Test.Projection.ExactRefusal",
             "README.md",
             "first\nsecond");
-        var absentPath = Path.Combine(tempDir, "absent.md");
-        var existingPath = Path.Combine(tempDir, "existing.md");
         byte[] sentinel = [0xEF, 0xBB, 0xBF, 0x73, 0x61, 0x66, 0x65];
-        File.WriteAllBytes(existingPath, sentinel);
         try
         {
-            async Task<(int Exit, string Output, string Error)> RunAsync(string path) =>
-                await RunAppAsync(
-                    "package", packagePath,
-                    "-S", "Package README file",
-                    "--print", "--bare", "-n", "1",
-                    "--out", path, "--tips", "q");
+            (string Name, string[] Arguments)[] cases =
+            [
+                (
+                    "print-separated",
+                    ["-S", "Package README file", "--print", "--bare", "-n", "1"]),
+                (
+                    "print-inline",
+                    ["-S", "Package README file", "--print", "--bare", "-n=1"]),
+                (
+                    "bare",
+                    ["-S", "Package README file", "--bare", "-n", "1"]),
+                (
+                    "content",
+                    ["--content", "--path", "README.md", "-n", "1"]),
+            ];
 
-            var absent = await RunAsync(absentPath);
-            var existing = await RunAsync(existingPath);
+            foreach (var testCase in cases)
+            {
+                var absentPath = Path.Combine(tempDir, $"{testCase.Name}-absent.md");
+                var existingPath = Path.Combine(tempDir, $"{testCase.Name}-existing.md");
+                File.WriteAllBytes(existingPath, sentinel);
 
-            Assert.Equal(1, absent.Exit);
-            Assert.Equal(1, existing.Exit);
-            Assert.Empty(absent.Output);
-            Assert.Empty(existing.Output);
-            Assert.Contains("line limit", absent.Error, StringComparison.Ordinal);
-            Assert.Contains("exact --out", absent.Error, StringComparison.Ordinal);
-            Assert.False(File.Exists(absentPath));
-            Assert.Equal(sentinel, File.ReadAllBytes(existingPath));
+                async Task<(int Exit, string Output, string Error)> RunAsync(string path) =>
+                    await RunAppAsync(
+                        [
+                            "package", packagePath,
+                            .. testCase.Arguments,
+                            "--out", path, "--tips", "q",
+                        ]);
+
+                var absent = await RunAsync(absentPath);
+                var existing = await RunAsync(existingPath);
+
+                Assert.Equal(1, absent.Exit);
+                Assert.Equal(1, existing.Exit);
+                Assert.Empty(absent.Output);
+                Assert.Empty(existing.Output);
+                Assert.Contains("line limit", absent.Error, StringComparison.Ordinal);
+                Assert.Contains("exact --out", absent.Error, StringComparison.Ordinal);
+                Assert.False(File.Exists(absentPath));
+                Assert.Equal(sentinel, File.ReadAllBytes(existingPath));
+            }
         }
         finally
         {
