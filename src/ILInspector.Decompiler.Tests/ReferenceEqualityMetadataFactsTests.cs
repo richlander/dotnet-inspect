@@ -358,6 +358,61 @@ public class ReferenceEqualityMetadataFactsTests
     }
 
     [Fact]
+    public void ExtensionConflictGenericParameters_EnforceWorkBudget()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "extension-conflict-cross-budget-").FullName;
+        string path = Path.Combine(directory, "WideGeneric.dll");
+        try
+        {
+            File.WriteAllBytes(
+                path,
+                BuildWideGenericParameterImage(
+                    5000,
+                    includeBaseType: true));
+            var resolver = new SingleAssemblyResolver(
+                "WideGeneric",
+                path);
+            using var context = new MetadataContext(resolver);
+            using var source = MetadataSource.OpenWithoutSymbols(
+                typeof(ReferenceEqualityMetadataFactsTests)
+                    .Assembly.Location,
+                resolver,
+                context);
+            var identity = new AssemblyReferenceIdentity(
+                "WideGeneric",
+                new Version(1, 0, 0, 0),
+                null,
+                null);
+            TypeRef type = Definition(
+                "WideGeneric",
+                "N",
+                "Wide",
+                ["Wide"],
+                identity);
+            var extension = new MethodRef(
+                type,
+                "Missing",
+                TypeRef.CoreLib("System", "Void"),
+                [type],
+                HasThis: false)
+            {
+                IsExtension = MetadataFactState.Yes,
+            };
+
+            Assert.Equal(
+                MetadataFactState.Unknown,
+                source.CrossAssembly.ExtensionSyntaxConflict(
+                    type,
+                    extension));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void VersionedSiblingLocalHierarchyNodes_DoNotShareVisitedIdentity()
     {
         string directory = Directory.CreateTempSubdirectory("reference-equality-versioned-hierarchy-").FullName;
@@ -1798,7 +1853,8 @@ public class ReferenceEqualityMetadataFactsTests
     }
 
     static byte[] BuildWideGenericParameterImage(
-        int parameterCount)
+        int parameterCount,
+        bool includeBaseType = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1814,6 +1870,26 @@ public class ReferenceEqualityMetadataFactsTests
             default,
             default,
             default);
+        EntityHandle baseType = default;
+        if (includeBaseType)
+        {
+            var systemRuntime = metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(11, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0xb0, 0x3f, 0x5f, 0x7f,
+                        0x11, 0xd5, 0x0a, 0x3a,
+                    }),
+                default,
+                default);
+            baseType = metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+        }
         metadata.AddTypeDefinition(
             default,
             default,
@@ -1825,7 +1901,7 @@ public class ReferenceEqualityMetadataFactsTests
             TypeAttributes.Public | TypeAttributes.Class,
             metadata.GetOrAddString("N"),
             metadata.GetOrAddString("Wide"),
-            default,
+            baseType,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
         StringHandle parameterName =

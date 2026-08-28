@@ -339,6 +339,12 @@ internal sealed class CrossAssemblyTypeResolver
         {
             return MetadataFactState.Unknown;
         }
+        receiverType = ExtensionBindingReceiver(receiverType);
+        if (receiverType.Kind is TypeRefKind.GenericParameter
+            or TypeRefKind.MethodGenericParameter)
+        {
+            return MetadataFactState.Yes;
+        }
 
         try
         {
@@ -413,15 +419,33 @@ internal sealed class CrossAssemblyTypeResolver
                 break;
             }
 
+            bool isInterface = (typeDef.Attributes
+                & System.Reflection.TypeAttributes.Interface) != 0;
+            var interfaces = typeDef.GetInterfaceImplementations();
+            var hierarchyScope = new GenericScope([], []);
+            if ((!typeDef.BaseType.IsNil || interfaces.Count > 0)
+                && !TryCreateHierarchyScope(
+                    typeDef.GetGenericParameters(),
+                    ref remainingWork,
+                    out hierarchyScope))
+            {
+                unresolved = true;
+                break;
+            }
             if (!typeDef.BaseType.IsNil)
             {
-                if (DecodeBaseType(
+                if (remainingWork-- <= 0)
+                {
+                    unresolved = true;
+                    break;
+                }
+                if (DecodeType(
                     reader,
-                    typeDef,
-                    typeArguments) is { } baseType)
+                    typeDef.BaseType,
+                    hierarchyScope) is { } openBaseType)
                 {
                     pending.Push((
-                        baseType,
+                        openBaseType.Instantiate(typeArguments, []),
                         resolved.Assembly.Assembly));
                 }
                 else
@@ -429,16 +453,12 @@ internal sealed class CrossAssemblyTypeResolver
                     unresolved = true;
                 }
             }
-            if ((typeDef.Attributes
-                & System.Reflection.TypeAttributes.Interface) != 0)
+            if (isInterface)
             {
-                var scope = new GenericScope(
-                    MethodDefinitionFacts.GenericParameterNames(
-                        reader,
-                        typeDef.GetGenericParameters()),
-                    []);
-                foreach (var implHandle
-                    in typeDef.GetInterfaceImplementations())
+                pending.Push((
+                    TypeRef.CoreLib("System", "Object"),
+                    null));
+                foreach (var implHandle in interfaces)
                 {
                     if (remainingWork-- <= 0)
                     {
@@ -450,7 +470,7 @@ internal sealed class CrossAssemblyTypeResolver
                     if (DecodeType(
                         reader,
                         implementation.Interface,
-                        scope) is not { } openInterface)
+                        hierarchyScope) is not { } openInterface)
                     {
                         unresolved = true;
                         continue;
@@ -463,6 +483,22 @@ internal sealed class CrossAssemblyTypeResolver
         }
 
         return !unresolved && pending.Count == 0;
+    }
+
+    static TypeRef ExtensionBindingReceiver(TypeRef type)
+    {
+        while (type is
+            {
+                Kind: TypeRefKind.ByRef or TypeRefKind.Pinned,
+                ElementType: { } element,
+            })
+        {
+            type = element;
+        }
+
+        return type.Kind is TypeRefKind.SzArray or TypeRefKind.Array
+            ? TypeRef.CoreLib("System", "Array")
+            : type;
     }
 
     static bool HasNamedMember(
@@ -592,7 +628,7 @@ internal sealed class CrossAssemblyTypeResolver
                 break;
 
             var typeArguments = current.Kind == TypeRefKind.GenericInstance ? current.TypeArguments : [];
-            if (!TryCreateOperatorHierarchyScope(
+            if (!TryCreateHierarchyScope(
                 typeDef.GetGenericParameters(),
                 ref remainingWork,
                 out var scope))
@@ -652,7 +688,7 @@ internal sealed class CrossAssemblyTypeResolver
         return !unresolved && pending.Count == 0;
     }
 
-    static bool TryCreateOperatorHierarchyScope(
+    static bool TryCreateHierarchyScope(
         GenericParameterHandleCollection parameters,
         ref int remainingWork,
         out GenericScope scope)

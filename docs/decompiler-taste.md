@@ -130,7 +130,10 @@ form to that member, or reject the invocation without considering the extension.
 The decompiler does not speculate about full overload resolution; a known name
 conflict conservatively preserves the IL target. This exception is enforced by
 `ExtensionMethodCallTests.ShadowingInstanceMethod_KeepsStaticExtensionSpelling`
-and `PlatformBaseInstanceMethod_KeepsStaticExtensionSpelling`.
+and its method, property, array, managed-reference, interface, generic, and
+platform-hierarchy neighbors. A generic-parameter receiver stays static because
+its binding hierarchy depends on constraints unavailable from the call's
+`TypeRef`.
 
 ### Pointer member syntax
 

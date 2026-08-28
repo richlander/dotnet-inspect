@@ -60,3 +60,49 @@ public static class ExtensionPropertyCollisionSamples
         => Values(receiver, typeof(Attribute), true)
             .FirstOrDefault<Attribute>();
 }
+
+public struct RefExtensionCollisionReceiver
+{
+    public int Value() => 0;
+}
+
+public static class RefExtensionCollisionSamples
+{
+    public static string Value(
+        this ref RefExtensionCollisionReceiver receiver) => "";
+
+    public static string CallsShadowedRefExtension(
+        ref RefExtensionCollisionReceiver receiver)
+        => Value(ref receiver);
+}
+
+public static class ArrayExtensionCollisionSamples
+{
+    public static string Clone(this int[] values) => "";
+
+    public static string CallsShadowedArrayExtension(int[] values)
+        => Clone(values);
+}
+
+public interface IInterfaceExtensionCollisionReceiver;
+
+public static class InterfaceExtensionCollisionSamples
+{
+    public static bool Equals(
+        this IInterfaceExtensionCollisionReceiver receiver,
+        object other) => false;
+
+    public static bool CallsObjectShadowedExtension(
+        IInterfaceExtensionCollisionReceiver receiver,
+        object other) => Equals(receiver, other);
+}
+
+public static class GenericParameterExtensionCollisionSamples
+{
+    public static bool Equals<T>(this T value, object other)
+        => false;
+
+    public static bool CallsConstraintUnknownExtension<T>(
+        T value,
+        object other) => Equals(value, other);
+}

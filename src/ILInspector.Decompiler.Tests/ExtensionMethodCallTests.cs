@@ -131,4 +131,58 @@ public class ExtensionMethodCallTests
             "return Values(receiver, typeof(Attribute), true).FirstOrDefault<Attribute>();",
             output);
     }
+
+    [Fact]
+    public void ByRefReceiver_KeepsStaticExtensionSpelling()
+    {
+        string output = PrintRaised(
+            typeof(RefExtensionCollisionSamples),
+            nameof(
+                RefExtensionCollisionSamples
+                    .CallsShadowedRefExtension));
+
+        Assert.Equal("return Value(ref receiver);", output);
+    }
+
+    [Fact]
+    public void ArrayReceiver_KeepsStaticExtensionSpelling()
+    {
+        string output = PrintRaised(
+            typeof(ArrayExtensionCollisionSamples),
+            nameof(
+                ArrayExtensionCollisionSamples
+                    .CallsShadowedArrayExtension));
+
+        Assert.Equal(
+            "return Clone(values);",
+            output);
+    }
+
+    [Fact]
+    public void InterfaceReceiver_IncludesObjectMembers()
+    {
+        string output = PrintRaised(
+            typeof(InterfaceExtensionCollisionSamples),
+            nameof(
+                InterfaceExtensionCollisionSamples
+                    .CallsObjectShadowedExtension));
+
+        Assert.Equal(
+            "return Equals(receiver, other);",
+            output);
+    }
+
+    [Fact]
+    public void GenericParameterReceiver_KeepsStaticExtensionSpelling()
+    {
+        string output = PrintRaised(
+            typeof(GenericParameterExtensionCollisionSamples),
+            nameof(
+                GenericParameterExtensionCollisionSamples
+                    .CallsConstraintUnknownExtension));
+
+        Assert.Equal(
+            "return Equals<T>(value, other);",
+            output);
+    }
 }
