@@ -262,13 +262,13 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             methodDefinition,
             typeSourceGenerated);
 
-    MethodIdentity?
+    AsyncBodyAttribution?
         ILibraryMethodAnalysisInfrastructure
-            .ResolveAsyncStateMachineSource(
+            .ResolveAsyncBody(
                 MethodIdentity method,
                 MethodDefinition methodDefinition,
                 bool typeSourceGenerated) =>
-        _asyncSourceResolver.ResolveDeclaredSourceMethod(
+        _asyncSourceResolver.ResolveAsyncBody(
             method,
             methodDefinition,
             typeSourceGenerated);
