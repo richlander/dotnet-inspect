@@ -406,16 +406,16 @@ projection. Neither operation scans metadata or probes Section effectiveness.
 The Census begins with structured Integration evidence from source Types
 admitted by the selected universe. It considers:
 
-- `api.extension` observations with a `MemberAnchor`, structured declaring
-  Type, and named receiver Type;
 - `integration.observed` observations with the same source currency plus one
   Integration concept descriptor and named peer Type; and
 - `integration.opportunity` observations with one structured source Type,
   concept descriptor, and exact policy-issued target.
 
-`metadata.reference` may inform binding and graph context, but it is not an
-Integration candidate row. Display-only signal rows, legacy presence flags,
-and rendered graph failures cannot create candidates.
+Every Census candidate therefore has one configured Integration concept.
+`api.extension` and `metadata.reference` observations may inform binding,
+fulfillment, and graph context, but they are not independent Census candidates.
+Display-only signal rows, legacy presence flags, and rendered graph failures
+cannot create candidates.
 
 The frontier is intentionally not a global catalog. A candidate remains visible
 while its evidence-bearing source is admitted even when its peer is outside the
@@ -429,8 +429,8 @@ concept catalog knows that an Integration kind exists.
 admission. It combines:
 
 - the Integration relationship descriptor;
-- the concept descriptor when the relationship has one;
-- the producer-owned source occurrence identity; and
+- the required Integration concept descriptor;
+- one Integration-owned `IntegrationCandidateSourceIdentity`; and
 - the structured named peer reference or policy-issued target.
 
 Disposition, resolved peer subject, graph-local ids, labels, and rendered names
@@ -438,25 +438,54 @@ do not participate. The same evidence therefore keeps one candidate identity
 when a finite universe variant adds or removes its peer.
 
 Equality compares the relationship and concept descriptor identities, the
-source occurrence identity under its producer's declared equivalence, and the
-peer's exact metadata Type name plus structured scope. Assembly-reference
-scopes use semantic ECMA assembly-identity equivalence; current-assembly,
-intrinsic-core-library, and module-reference scopes remain distinct, and module
-names compare ordinally. The acquisition path, selected-universe membership,
-resolved peer registration, and parent package reached during binding cannot
-split or merge candidates.
+candidate-source identity, and the peer's exact metadata Type name plus
+structured scope. Assembly-reference scopes use semantic ECMA
+assembly-identity equivalence; current-assembly, intrinsic-core-library, and
+module-reference scopes remain distinct, and module names compare ordinally.
+The acquisition path, selected-universe membership, resolved peer registration,
+and parent package reached during binding cannot split or merge candidates.
 
-For package- or platform-owned source evidence, the portable identity retains
-the acquisition owner's realized source coordinate, semantic assembly identity,
-and structured member or Type identity. For a source with no portable
-coordinate, the identity retains its workspace registration and is stable only
-inside that workspace generation. The producer never correlates two local
-artifacts from assembly spelling alone.
+`IntegrationCandidateSourceIdentity` is distinct from graph occurrence
+identity. For package- or platform-owned source evidence, its portable form
+retains the acquisition owner's realized source coordinate, semantic assembly
+identity, and structured member or Type identity. For a source with no portable
+coordinate, its workspace form retains the acquisition registration plus the
+same structured source identity and is stable only inside that workspace
+generation. The producer never correlates two local artifacts from assembly
+spelling alone.
+
+Current graph occurrence identity remains registration-scoped and continues to
+own deduplication inside one graph document. A Census candidate retains explicit
+correspondence to that receipt when projected as a graph, but graph occurrence
+equality neither defines nor overrides candidate equality.
 
 The focused add/remove gate uses multiple finite universe descriptions over one
 retained superset workspace. Cross-generation correlation is asserted only for
 portable candidate identities; a new registration by itself is not proof of
 the same source.
+
+### Candidate attempt accounting
+
+The producer derives one ordered `IntegrationCandidateAttempt` for every
+identity-distinct concept-bearing candidate in the pre-binding frontier. Each
+attempt has exactly one outcome:
+
+| Outcome | Meaning |
+| --- | --- |
+| `Classified` | Peer resolution and Integration policy completed; carries one `In` or `Out` candidate. |
+| `Suppressed` | Typed Integration policy proved that another retained observation fulfills or supersedes this candidate. |
+| `Failed` | Binding, validation, or candidate policy could not produce a trustworthy classification. |
+
+The expected attempt set derives from the structured producer evidence before
+peer admission, suppression, or graph projection. Missing, duplicate, and
+extraneous attempts reject Census construction. A fulfilled raw opportunity is
+the required suppression canary: it remains accounted for by identity but does
+not become an inventory row, graph failure, or incomplete outcome.
+
+`Suppressed` is a completed policy decision with a closed Integration-owned
+reason and correspondence to the fulfilling observation. `Failed` retains its
+typed cause and makes the affected Census incomplete. Only `Classified`
+attempts contribute candidate inventory.
 
 ### Candidate disposition
 
@@ -465,7 +494,7 @@ Every successfully classified candidate has one closed disposition:
 | Disposition | Meaning |
 | --- | --- |
 | `In` | The source is admitted, the exact peer resolves to an admitted universe Type, and normal Integration admission accepts the candidate. |
-| `Out` | Healthy structured source evidence names a peer that is not admitted by this finite universe. |
+| `Out` | The exact peer resolves and validates in the universe provider's healthy binding/comparison domain, is outside the selected finite population, and normal Integration policy otherwise accepts the candidate. |
 
 `Out` is a statement about this requested universe, not global absence,
 request capability, Finding inspection, graph failure, or package
@@ -477,11 +506,17 @@ sparse matrix, that explicitly retain universe disposition. It never becomes a
 Finding, focused Library Integration row, graph node, graph edge, graph
 occurrence, or graph failure.
 
-An unavailable, ambiguous, rejected, forwarded, malformed, or selected-but-
-missing binding cannot become `Out`. The corresponding typed producer failure
-remains visible and makes the affected Census attempt incomplete.
-`OpportunityTargetMissing` and other actionable opportunity failures likewise
-remain failures. Candidate inventory does not replace or downgrade them.
+The binding/comparison domain may be a retained superset of the selected Type
+population, but it is owner-issued finite input rather than implicit
+acquisition or widening. Exact resolution in that healthy domain is the
+positive proof that distinguishes `Out` from an unknown peer.
+
+An unacquired, unavailable, ambiguous, rejected, forwarded, malformed, or
+selected-but-missing binding cannot become `Out`. The corresponding typed
+producer failure remains visible and makes the affected Census attempt
+incomplete. `OpportunityTargetMissing` and other actionable opportunity
+failures likewise remain failures. Candidate inventory does not replace or
+downgrade them.
 
 `In` does not promise one graph edge for every row. Normal relationship
 deduplication may combine multiple physical candidates into one logical edge,
@@ -489,22 +524,34 @@ and the candidate retains its occurrence and admitted-edge correspondence.
 
 ### Census result and completeness
 
-`IntegrationCensus` contains:
+`IntegrationCensusSnapshot` is the immutable, projection-neutral producer
+result. It contains:
 
-- the exact validated request and configured concept catalog revision;
+- the exact analysis, report-surface, universe, and Census-mode inputs retained
+  from a validated plan, plus the configured concept catalog revision;
+- the descriptor-issued producer requirements used to validate those shared
+  inputs;
 - one ordered attempt for every required source participant;
-- the ordered, identity-distinct classified candidates;
-- typed participant and candidate-classification failures;
+- one ordered attempt for every identity-distinct pre-binding candidate;
+- the classified candidates, policy suppressions, and typed failures;
 - exact universe completeness and rejected-member inputs; and
-- projection correspondence produced from those candidates.
+- admitted relationship identity sufficient for later projection.
+
+One `IntegrationCensusProjectionResult` retains the exact five-field validated
+request, including its one projection descriptor, and one compatible Census
+snapshot plus the requested payload. Rows, matrix, and graph are independently
+validated requests. They may reuse one snapshot only when their analysis,
+surface, universe, mode, descriptor requirements, and catalog revision are
+identical. Reuse never treats one projection's validation as authorization for
+another.
 
 The existing `AssemblyIntegrationsEntry.Available`, `Rejected`, and `Failed`
 topology is the starting point for participant attempts. A Census is complete
 only when every required source participant produced healthy structured
-evidence and every required candidate classification completed. Available rows
-may survive beside failures, but incomplete execution cannot manufacture zero
-concept counts, empty cells, `Out` rows, or absence claims for the failed
-domain.
+evidence and every required candidate attempt is `Classified` or `Suppressed`.
+Available rows may survive beside failures, but incomplete execution cannot
+manufacture zero concept counts, empty cells, `Out` rows, or absence claims for
+the failed domain.
 
 A complete Census with no candidates is a successful empty Integration result.
 It does not use Finding `Absent`. `In` and `Out` remain Integration-owned
@@ -524,7 +571,7 @@ candidate and retains:
 - typed peer lookup currency;
 - resolved peer subject and provenance when `In`;
 - `In` or `Out` plus the typed `Out` reason; and
-- admitted occurrence and logical-edge correspondence when `In`.
+- admitted relationship identity when `In`.
 
 The Section is `Verbose`, `NetworkFree`, and `ExplicitOnly`. It does not enter
 the existing Library `@Integrations` catalog, so selecting that category keeps
@@ -554,11 +601,12 @@ timing.
 
 ### Graph projection
 
-The graph adapter consumes the same Census. It admits `In` candidate
-occurrences through the existing relationship and induced-set contracts and
-retains their candidate-to-occurrence and candidate-to-edge correspondence.
-`Out` candidates produce no graph edge, failure, node, or synthetic occurrence;
-they remain addressable through `Integration Inventory`.
+The graph adapter consumes an independently validated graph request plus a
+compatible Census snapshot. It admits `In` candidate occurrences through the
+existing relationship and induced-set contracts and retains their
+candidate-to-occurrence and candidate-to-edge correspondence. `Out` candidates
+produce no graph edge, failure, node, or synthetic occurrence; they remain
+addressable through `Integration Inventory`.
 
 The graph document continues to own logical edge rows, graph-local ids,
 grouping, characteristics, limits, failures, and rendering. The Census does not
@@ -615,7 +663,7 @@ Integration detection or disposition policy.
 Implementation should land as focused slices:
 
 1. descriptor catalog, candidate identity, attempts, disposition, and Census
-   query;
+   snapshot;
 2. `Integration Inventory` row Section and structured row output;
 3. graph correspondence from `In` candidates without changing graph semantics;
 4. sparse matrix projection and WASM demo; and
@@ -631,8 +679,11 @@ Integration graph behavior until its replacement path has parity gates.
 | --- | --- |
 | Configured concept with no observations | Structurally discoverable concept; no invented candidate |
 | Complete healthy universe with no candidates | Successful empty Census |
-| Source admitted, peer outside universe | `Out(PeerOutsideUniverse)` |
+| Source admitted, peer resolves in healthy superset but is unselected | `Out(PeerOutsideUniverse)` |
+| Source admitted, peer is unacquired | Typed failure; never `Out` |
 | Exact peer admitted and candidate accepted | `In` with occurrence correspondence |
+| Raw extension observation has no Integration concept | Supporting evidence; no candidate |
+| Raw opportunity fulfilled by an observed adapter | Accounted `Suppressed` attempt |
 | Peer assembly unavailable or ambiguous | Typed failure; never `Out` |
 | Selected peer assembly lacks the exact Type | Typed failure; never `Out` |
 | Source participant rejected or malformed | Incomplete attempt beside healthy rows |
@@ -641,8 +692,8 @@ Integration graph behavior until its replacement path has parity gates.
 | Same candidate under wider universe | Same identity; disposition may change |
 | Sole source evidence removed | Candidate disappears |
 | Multiple candidates collapse to one edge | Distinct candidate rows share edge correspondence |
-| Rows and matrix selected | Same candidate identities and counts |
-| Graph projection selected | Only `In` candidates contribute occurrences |
+| Rows and matrix requested independently | Exact plans share one compatible snapshot and candidate counts |
+| Graph requested independently | Exact plan projects only `In` candidate occurrences |
 
 ### Workspace Census verification
 
@@ -652,12 +703,19 @@ The target implementation is unverified until these named gates land:
 - `IntegrationCapability_DoesNotExecuteProducersOrProbeSections`
 - `IntegrationCapability_RejectsUnsupportedCensusRequestBeforeExecution`
 - `IntegrationCensus_AccountsForEveryRequiredSourceParticipant`
+- `IntegrationCensus_AccountsForEveryDiscoveredCandidateAttempt`
+- `IntegrationCensus_RejectsMissingDuplicateOrExtraneousCandidateAttempts`
 - `IntegrationCensus_EmptyCompleteUniverseIsSuccessful`
 - `IntegrationCensus_IncompleteParticipantCannotManufactureZeroOrOut`
+- `IntegrationCensus_FailedCandidateCannotManufactureZeroOrOut`
 - `IntegrationCandidate_IdentityDoesNotContainDispositionOrGraphLocalIds`
+- `IntegrationCandidate_SourceIdentityIsIndependentOfGraphOccurrenceIdentity`
 - `IntegrationCandidate_PortableSourceIdentitySurvivesWorkspaceReacquisition`
 - `IntegrationCandidate_WorkspaceIdentityDoesNotCrossRegistrationGeneration`
-- `IntegrationCandidate_PeerOutsideUniverseIsOut`
+- `IntegrationCandidate_RawExtensionWithoutConceptIsNotCandidate`
+- `IntegrationCandidate_FulfilledOpportunityIsAccountedAndSuppressed`
+- `IntegrationCandidate_ResolvedUnselectedPeerIsOut`
+- `IntegrationCandidate_UnacquiredPeerCannotBeOut`
 - `IntegrationCandidate_UnavailableAmbiguousOrMissingSelectedPeerIsFailure`
 - `IntegrationCandidate_AddingPeerPreservesIdentityAndMovesOutToIn`
 - `IntegrationCandidate_RemovingPeerPreservesIdentityAndMovesInToOut`
@@ -673,7 +731,9 @@ The target implementation is unverified until these named gates land:
 - `IntegrationGraph_OnlyInCandidatesContributeOccurrences`
 - `IntegrationGraph_OutCandidatesAreNeitherEdgesNorFailures`
 - `IntegrationGraph_CandidateInventoryPrecedesInducedSetProjection`
-- `IntegrationProjection_RowsMatrixAndGraphShareOneAnalysisAndCensusResult`
+- `IntegrationProjection_EachResponseRetainsItsExactValidatedRequest`
+- `IntegrationProjection_ReuseRequiresCompatibleCensusSnapshot`
+- `IntegrationProjection_RowsMatrixAndGraphShareOneAnalysisAndSnapshot`
 - `IntegrationWasmDemo_RendersSharedProjectionWithoutDetectionPolicy`
 
 The configured concept set and close-negative disposition set should derive
