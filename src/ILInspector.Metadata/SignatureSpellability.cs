@@ -137,6 +137,7 @@ public sealed class SignatureSpellability
         {
             stream = resolved.OpenRead();
             pe = new PEReader(stream);
+            resolved.ValidateArtifactContent(pe);
             if (pe.HasMetadata)
             {
                 var reader = pe.GetMetadataReader();
