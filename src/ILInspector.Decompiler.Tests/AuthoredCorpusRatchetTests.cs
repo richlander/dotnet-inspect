@@ -1471,6 +1471,10 @@ public class AuthoredCorpusRatchetTests
             "ASSEMBLY_SHA256=\"91f4b016890cfd5468d46d32c451931cac34096f869cc1c8077c902d9a7f5ccd\"",
             poolScript,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "dotnet restore \"$tmp/oracles.csproj\" --verbosity quiet >&2",
+            poolScript,
+            StringComparison.Ordinal);
     }
 
     /// <summary>

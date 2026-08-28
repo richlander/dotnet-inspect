@@ -23,7 +23,7 @@ cat > "$tmp/oracles.csproj" <<EOF
 </Project>
 EOF
 
-dotnet restore "$tmp/oracles.csproj" --verbosity quiet >/dev/null
+dotnet restore "$tmp/oracles.csproj" --verbosity quiet >&2
 
 packages="${NUGET_PACKAGES:-$HOME/.nuget/packages}"
 assembly="$packages/system.text.encodings.web/$VERSION/lib/$TFM/System.Text.Encodings.Web.dll"
