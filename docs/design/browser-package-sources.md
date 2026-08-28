@@ -117,9 +117,11 @@ InertText's credential-path grammar.
 
 Three roles remain distinct:
 
-- **Producer identity** names one immutable package-content domain. Gallery and
-  v3 transports for canonical NuGet.org share it. Credential rotation, signed
-  query rotation, and transport selection do not change it.
+- **Producer identity** is a credential-free package-content provenance label,
+  subject to the declared recognized-slot equivalence. Gallery and v3
+  transports for canonical NuGet.org share it. Credential rotation, signed
+  query rotation, and transport selection do not change it. It is not
+  configured-source authority.
 - **Caller association** is an opaque, caller-created reference token. It ties
   the result back to the caller's exact configured authority without placing
   that authority, its query, or its credentials in NuGetFetch.
@@ -146,6 +148,18 @@ sealed class PackageSourceResultIdentity
     PackageSourceKind TransportKind { get; }
 }
 
+interface IPackageSourceResult
+{
+    PackageSourceResultIdentity Source { get; }
+}
+
+sealed class PackageSourceOperationResult<T>
+    where T : IPackageSourceResult
+{
+    T? Value { get; }
+    PackageSourceFailure? Failure { get; }
+}
+
 sealed class PackageSourceResultFactory
 {
     PackageSourceResultIdentity Source { get; }
@@ -155,7 +169,9 @@ sealed class PackageSourceResultFactory
     PackageVersionResult Versions(...);
     PackageSourceManifest Manifest(...);
     PackageSourcePayload Payload(...);
-    PackageSourceFailure Failure(
+    PackageSourceOperationResult<T> Succeeded<T>(T value)
+        where T : IPackageSourceResult;
+    PackageSourceOperationResult<T> Failed<T>(
         PackageSourceCapabilities capability,
         PackageSourceFailureKind kind,
         PackageSourceCoordinate? coordinate);
@@ -327,8 +343,8 @@ Every built-in `IPackageSourceClient` owns one
 `PackageSourceResultFactory`, permanently bound to one immutable
 `PackageSourceResultIdentity`. Supported custom-client registration receives
 the same kind of bound factory. Result, observation, manifest, payload, and
-failure construction is closed through that factory rather than accepting
-independent identity arguments.
+operation-outcome construction is closed through that factory rather than
+accepting independent identity arguments.
 
 The same closed-construction rule applies after publication: identity-bearing
 result and failure types expose no public copy constructor, clone, init setter,
@@ -352,6 +368,15 @@ The exact client identity is then carried without reconstruction:
 - `PackageSourceFailure` carries it for unsupported, absent, authentication,
   timeout, invalid-response, bounded-response, and transport outcomes.
 
+Concrete operation values implement the owner-controlled
+`IPackageSourceResult` contract. `Succeeded<T>` validates the value's complete
+source identity against the bound factory before wrapping it. `Failed<T>`
+constructs both the failure and its operation wrapper from the factory's
+identity and closed failure inputs; it does not accept a separately constructed
+failure. The closed operation result contains exactly one of value or failure.
+Its success and failed variants have the same closed constructor, copy, and
+init-setter rules as their payloads.
+
 For collection results, the bound factory first snapshots the supplied
 observations into private storage, then validates the snapshot against its
 identity, then publishes a read-only view that does not expose the backing
@@ -361,9 +386,12 @@ independent producer, association, and transport arguments. Mixed identity is
 a construction error, and empty success and failure remain equally
 attributable.
 
-Multi-source aggregation remains above NuGetFetch. An aggregator may group
-candidate observations by producer or associate them with package authority,
-but it does not mutate their issuing identity.
+Multi-source aggregation remains above NuGetFetch. It retains producer identity
+as provenance but does not use producer equality alone to collapse configured
+sources, authorize candidates or payloads, or key package/browser caches.
+Grouping transports or results requires the package owner's authority and
+association contract from #4797 and #4805. Aggregation does not mutate the
+issuing result identity.
 
 ### Safe retained failures
 
@@ -459,16 +487,17 @@ reference to the legacy type from the source tree, including implicit
 formatting and equality call sites rather than only reads of selected members.
 Its temporary file inventory groups NuGetFetch compatibility and tests under
 issue #4795, package authority and acquisition readers under #4797, and query
-and CLI projection readers under #4806. It fails for both an unlisted reference
-and a stale entry.
+and CLI projection readers under #4806. Browser pending-acquisition readers,
+including the direct `BrowserPackageWorkspace` read, are grouped under #4805.
+It fails for both an unlisted reference and a stale entry.
 
-Issue #4805 is a transitive migration dependency through package-owned endpoint
-canonicalization rather than a direct legacy-type reader. Its browser cache
-slots currently depend on the exact canonical authority bytes. Implementation
-slices #4797 and #4805 must either preserve those bytes exactly or introduce an
-explicit cache-key version and migration; their owner gates make that decision.
-This contract does not silently rotate their persisted slots. The final removal
-slice deletes the temporary reader gate with the legacy type.
+Issue #4805 is both a direct legacy-type migration and a cache dependency
+through package-owned endpoint canonicalization. Its browser cache slots
+currently depend on the exact canonical authority bytes. Implementation slices
+for issues #4797 and #4805 must either preserve those bytes exactly or introduce
+an explicit cache-key version and migration; their owner gates make that
+decision. This contract does not silently rotate their persisted slots. The
+final removal slice deletes the temporary reader gate with the legacy type.
 
 ### Gates
 
@@ -479,9 +508,10 @@ Implementation is not complete until Release gates establish:
   percent-escaped path, root, repeated-root path, and the pinned
   recognized credential-slot owner output;
 - `ProducerIdentityConsumesNormalizedEndpointProjection` is the non-vacuity
-  wiring gate: its exact factory signature accepts only the owner-issued host
-  kind, address or A-label, ordinal zone, and escaped request path, and
-  end-to-end vectors prove raw scoped-IPv6 and escaped paths survive the
+  wiring gate: its exact factory signature accepts only the one owner-issued
+  projection containing scheme, host kind, address or A-label, ordinal zone,
+  effective port, and escaped request path, with no `Uri` fallback; end-to-end
+  vectors prove raw scoped-IPv6 and escaped paths survive the
   request-projection handoff;
 - `ProducerIdentityIgnoresAmbientCulture` runs the exact key vectors under
   differing current cultures and proves all case and numeric operations are
@@ -506,6 +536,9 @@ Implementation is not complete until Release gates establish:
 - `QueryDistinctAuthoritiesRequireDistinctAssociations` proves query-distinct
   configured authorities with one producer cannot be recovered through the
   wrong association;
+- `SourceResultIdentityEqualityUsesAllRoles` varies producer, association, and
+  transport independently and proves complete equality, inequality, and hash
+  consistency;
 - `EverySourceResultCarriesTheIssuingIdentity` covers non-empty and empty
   search and version results, candidates, manifests, payloads, and every
   failure kind;
@@ -514,12 +547,16 @@ Implementation is not complete until Release gates establish:
   retaining distinct transport kinds;
 - `SourceResultFactoryBindsIssuingIdentity` proves built-in clients construct
   every result through their bound factory and reject a foreign candidate;
+- `SourceOperationOutcomesBindIssuingIdentity` proves success rejects a value
+  from another source and failed outcomes can contain only the bound factory's
+  owner-constructed failure, with exactly one value or failure per outcome;
 - `SourceResultCollectionsAreImmutableSnapshots` proves mutation of the
   supplied list or array after construction cannot alter the result and no
   mutable backing collection is exposed;
 - `IdentityBearingResultShapesAreClosed` uses public-surface reflection to
-  prove result and failure types have no public constructor, clone, copy
-  constructor, or init setter that can replace identity or summary text;
+  prove result, operation-outcome, and failure types have no public constructor,
+  clone, copy constructor, or init setter that can replace identity or summary
+  text;
 - `FailureFactoryAcceptsNoArbitraryRetainedText` locks the public construction
   surface and the closed failure-kind-to-summary mapping;
 - `RetainedFailureHasNoConfiguredEndpointOrRecognizedCredentialText` covers
@@ -692,29 +729,35 @@ distinguishes feeds on a shared host.
 
 ## Multi-source resolution
 
-Source order is not version precedence. Resolution follows the package source
-model:
+Source order is not version precedence. The positive source-composition
+algorithm belongs to package owner #4797. Until that contract lands, this
+document states only the boundary-level sequence:
 
-1. Determine active and package-ID-eligible source descriptors.
-2. Collapse descriptors and transport profiles by immutable producer identity.
-3. Request candidates from every eligible producer capable of discovery.
-4. Retain the reporting producer set for every coordinate.
+1. Determine active and package-ID-eligible configured authorities.
+2. Compose only authorities that the package owner proves equivalent; producer
+   identity alone is insufficient.
+3. Request candidates from every eligible composed authority capable of
+   discovery.
+4. Retain both caller authority association and producer provenance for every
+   coordinate.
 5. Select the semantic version required by the caller.
-6. Acquire from a producer authorized for that coordinate.
-7. Record the producer and payload location independently.
+6. Acquire from a configured authority authorized for that coordinate.
+7. Record authority, producer provenance, and serving transport independently.
 
-A producer may have more than one transport, such as the Gallery browser
-transport and the canonical NuGet.org v3 transport. The host chooses the
-applicable transport order before a producer query. Failure of one transport
-falls through to the next without creating a partial aggregate or a second
-candidate source. The producer fails only after every applicable transport
-fails. Candidate and provenance output names the producer once, independently
-of which transport succeeded.
+One configured authority may have more than one transport, such as the Gallery
+browser transport and the canonical NuGet.org v3 transport. The package owner
+may group those transports only after establishing the same authority; their
+shared producer label is not sufficient. The host chooses the applicable
+transport order before a source query. Failure of one transport falls through
+to the next without creating a partial aggregate or a second configured source.
+The source fails only after every applicable transport fails. Candidate and
+provenance output can name the producer independently of which transport
+succeeded.
 
 For example, NuGet Gallery may report `0.18.0` while a corporate mirror reports
-only `0.16.0`. Selecting `0.18.0` authorizes its Gallery producer; it does not
-authorize requesting `0.18.0` from the mirror and interpreting a 404 as a
-package-wide absence.
+only `0.16.0`. Selecting `0.18.0` authorizes its Gallery authority; shared or
+similar producer display does not authorize requesting `0.18.0` from the mirror
+and interpreting a 404 as a package-wide absence.
 
 Pinned coordinates are caller-supplied candidates. Any eligible source with
 the required payload may fulfill them, subject to the source-provenance rules
@@ -723,7 +766,7 @@ in the package source model.
 An aggregate discovery operation cannot silently report a complete answer
 while an eligible source timed out or failed authentication. It either fails
 or marks the answer partial. A pinned payload operation may succeed from one
-authorized producer without proving every peer source readable.
+authorized authority without proving every peer source readable.
 
 Complete listing-aware Gallery enumeration also depends on registration
 metadata. If registration cannot be read, raw enumeration may expose the
@@ -756,18 +799,24 @@ Markdown/TSV/JSONL projection remains implementation work for
 
 ## Cache and provenance
 
-Candidate and payload caches are source-scoped:
+Candidate and payload caches are source-authority-scoped. Producer identity is
+retained provenance and is never the sole cache-authorization key. Package
+composition #4797 and browser acquisition #4805 own the positive authority key
+and its migration:
 
-- candidate cache keys include source identity, package ID, and discovery
-  contract/version;
-- payload cache keys include source identity and exact coordinate;
+- candidate cache keys include owner-issued authority, package ID, and
+  discovery contract/version;
+- payload cache keys include owner-issued authority and exact coordinate;
+- cache entries retain the source-result producer and transport as provenance;
 - Gallery and v3 access strategies for the canonical NuGet.org source share
-  the producer identity defined above; and
+  producer identity but share cache authority only when the package owner
+  composes their configured authorities; and
 - changing the selected source set never reinterprets bytes from an
-  unauthorized producer.
+  unauthorized configured authority.
 
 Search metadata does not authorize payload bytes from every active source.
-Candidate provenance determines the producer set for a discovered coordinate.
+Candidate authority and provenance together determine which source may fulfill
+a discovered coordinate.
 
 Symbol packages have independent provenance. NuGet Gallery's known symbol CDN
 is a Gallery capability. A custom v3 feed does not acquire symbols from
