@@ -947,7 +947,7 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
-    public void Build_RejectsDuplicatedRuntimeBindingTarget()
+    public void Build_RejectsSecondRuntimeBindingTargetWithDifferentHash()
     {
         string path =
             typeof(PopulateExports).Assembly.Location;
@@ -968,7 +968,7 @@ public sealed class JsExportSurfaceBuilderTests
             Assert.Single(
                 export.RuntimeJsExportWrapperCandidates!);
         Assert.True(candidate.RegistrationCount > 1);
-        string target = Assert.Single(
+        DirectCall targetCall = Assert.Single(
             bodyIndex.DirectCalls
                 .Where(call =>
                     call.EvidenceMethod.MetadataToken
@@ -976,16 +976,34 @@ public sealed class JsExportSurfaceBuilderTests
                     && call.FirstArgumentStringLiteral?.EndsWith(
                         $":{export.Name}",
                         StringComparison.Ordinal)
-                        == true)
-                .Select(call =>
-                    call.FirstArgumentStringLiteral!)
-                .Distinct());
+                        == true));
+        string target = targetCall.FirstArgumentStringLiteral!;
+        int targetHash = Assert.IsType<int>(
+            targetCall.ResolvedArgumentValues[1]
+                .Single!
+                .Int32Value);
+        DirectCall decoy = Assert.Single(
+            bodyIndex.DirectCalls
+                .Where(call =>
+                    call.EvidenceMethod.MetadataToken
+                        == candidate.RegistrationMethodToken
+                    && call.Callee.Name == "BindManagedFunction"
+                    && call.FirstArgumentStringLiteral is not null
+                    && call.ResolvedArgumentValues[1].Single
+                        is
+                        {
+                            Kind:
+                                ResolvedValueSourceKind.Int32Literal,
+                            Int32Value: { } hash,
+                        }
+                    && hash != targetHash)
+                .Take(1));
         ImmutableArray<DirectCall> duplicatedCalls =
         [
             .. bodyIndex.DirectCalls.Select(call =>
                 call.EvidenceMethod.MetadataToken
-                    == candidate.RegistrationMethodToken
-                    && call.FirstArgumentStringLiteral is not null
+                        == decoy.EvidenceMethod.MetadataToken
+                    && call.ILOffset == decoy.ILOffset
                     ? call with
                     {
                         FirstArgumentStringLiteral = target,
@@ -1217,10 +1235,6 @@ public sealed class JsExportSurfaceBuilderTests
                     Type: "string",
                 },
             ]);
-        runtimeExports.Add(
-            "Identify",
-            runtimeExports[intFunction.RuntimeDispatchKey!]);
-
         Assert.Equal(
             "int:7",
             runtimeExports[intFunction.RuntimeDispatchKey!](7));
@@ -1228,12 +1242,6 @@ public sealed class JsExportSurfaceBuilderTests
             "string:seven",
             runtimeExports[stringFunction.RuntimeDispatchKey!](
                 "seven"));
-        Assert.Same(
-            runtimeExports[intFunction.RuntimeDispatchKey!],
-            runtimeExports["Identify"]);
-        Assert.NotSame(
-            runtimeExports[stringFunction.RuntimeDispatchKey!],
-            runtimeExports["Identify"]);
 
         string json = JsonSerializer.Serialize(
             new ILInspector.JsExportSurface.JsExportSurface

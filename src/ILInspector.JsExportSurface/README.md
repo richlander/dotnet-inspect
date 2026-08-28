@@ -36,7 +36,9 @@ applications do not need it in their runtime bundle.
   `RuntimeDispatchKey` published by `getAssemblyExports()`. Overloads sharing a
   managed name are matched by both binding name and authenticated signature
   hash, so each receives its own runtime key without relying on registration
-  order. The
+  order. A non-overloaded export retains the stricter one-binding-name
+  requirement, preventing a second same-name registration from taking over the
+  runtime's bare-name compatibility alias. The
   `ReadOnlySpan<JSMarshalerType>` descriptor argument must resolve to one
   element per export return and parameter, each built by a
   `JSMarshalerType` factory compatible with that managed type. A diagnosed
@@ -132,6 +134,7 @@ calls the other.
 `Build_RejectsRuntimeWrapperFromDifferentModule`,
 `Build_RejectsRuntimeWrapperWithoutModuleIdentity`,
 `Build_RejectsRuntimeWrapperWithNullModuleIdentity`,
+`Build_RejectsSecondRuntimeBindingTargetWithDifferentHash`,
 `Build_RejectsRuntimeWrapperWithUnauthenticatedMarshalerArgument`,
 `Build_RejectsRuntimeRegistrationWithUntrustedCoreAlias`,
 `Build_RejectsRuntimeWrapperWithUntrustedCoreVoid`,

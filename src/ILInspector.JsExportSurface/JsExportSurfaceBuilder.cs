@@ -115,6 +115,10 @@ public static class JsExportSurfaceBuilder
                         FormatMemberLocation(type, member),
                         "bodyless JS exports have no runtime wrapper");
                 }
+                bool hasManagedNameOverloads =
+                    type.Members.Count(candidate =>
+                        HasJsExportEvidence(candidate)
+                        && candidate.Name == member.Name) > 1;
                 string? runtimeDispatchKey = null;
                 if (bodyIndex is null
                         ? member.HasRuntimeJsExportWrapperCandidate
@@ -127,6 +131,7 @@ public static class JsExportSurfaceBuilder
                                 type,
                                 member,
                                 incompleteBodyTokens,
+                                hasManagedNameOverloads,
                                 out runtimeDispatchKey))
                 {
                     throw new UnsupportedJsExportSurfaceException(
@@ -867,6 +872,7 @@ public static class JsExportSurfaceBuilder
         ApiType declaringType,
         ApiMember export,
         IReadOnlySet<int> incompleteBodyTokens,
+        bool hasManagedNameOverloads,
         out string? runtimeDispatchKey)
     {
         runtimeDispatchKey = null;
@@ -905,6 +911,7 @@ public static class JsExportSurfaceBuilder
                     wrapper,
                     export.Name,
                     incompleteBodyTokens,
+                    hasManagedNameOverloads,
                     out DirectCall? registration,
                     out int signatureHash))
                 continue;
@@ -973,6 +980,7 @@ public static class JsExportSurfaceBuilder
         MethodIdentity wrapper,
         string exportName,
         IReadOnlySet<int> incompleteBodyTokens,
+        bool hasManagedNameOverloads,
         out DirectCall? registration,
         out int signatureHash)
     {
@@ -1012,15 +1020,24 @@ public static class JsExportSurfaceBuilder
             return false;
         }
 
-        DirectCall[] matching =
+        DirectCall[] named =
         [
             .. bindings.Where(call => string.Equals(
                 call.FirstArgumentStringLiteral,
                 runtimeBindingName,
-                StringComparison.Ordinal)
-                && HasSignatureHash(
-                    call,
-                    expectedSignatureHash)),
+                StringComparison.Ordinal)),
+        ];
+        if (!hasManagedNameOverloads
+            && named.Length != 1)
+        {
+            return false;
+        }
+
+        DirectCall[] matching =
+        [
+            .. named.Where(call => HasSignatureHash(
+                call,
+                expectedSignatureHash)),
         ];
         if (matching is not [var match]
             || match.IsReachable != true
