@@ -163,6 +163,7 @@ export function createPackageInspectionCoordinator(
   dependencies: PackageInspectionDependencies,
 ): PackageInspectionCoordinator {
   const { state } = dependencies;
+  let metadataRequestSequence = 0;
 
   const platformCoordinates = (
     packageModel: AppPackage,
@@ -392,10 +393,14 @@ export function createPackageInspectionCoordinator(
     async loadMetadata(packageModel, signature, scopedLibrary) {
       if (packageModel.isRuntimePack && !scopedLibrary) return;
       if (state.packageMetadataKey === signature
-        && (state.packageMetadata || state.packageMetadataError)) {
+        && (state.packageMetadataLoading || state.packageMetadata)) {
         dependencies.render();
         return;
       }
+      const requestSequence = ++metadataRequestSequence;
+      const ownsRequest = () =>
+        state.packageMetadataKey === signature
+        && metadataRequestSequence === requestSequence;
       state.packageMetadataKey = signature;
       state.packageMetadata = null;
       state.packageMetadataError = "";
@@ -412,18 +417,22 @@ export function createPackageInspectionCoordinator(
               coordinates.assemblyFileName,
               coordinates.pack)
           : await dependencies.queryPackageMetadata(packageModel);
-        if (state.packageMetadataKey === signature) {
-          state.packageMetadata = result;
+        if (ownsRequest()) {
+          const completeFailure = (result.assemblies?.length ?? 0) === 0
+            ? result.inspectionError
+            : null;
+          state.packageMetadata = completeFailure ? null : result;
+          state.packageMetadataError = completeFailure || "";
         }
       } catch (error) {
-        if (state.packageMetadataKey === signature) {
+        if (ownsRequest()) {
           state.packageMetadataError = dependencies.describeError(error);
         }
       } finally {
-        if (state.packageMetadataKey === signature) {
+        if (ownsRequest()) {
           state.packageMetadataLoading = false;
+          dependencies.render();
         }
-        dependencies.render();
       }
     },
   };
