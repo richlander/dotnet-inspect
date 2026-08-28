@@ -260,6 +260,37 @@ public sealed partial class CSharpPrinter
             : null;
     }
 
+    string? PointerRefExtensionStaticArguments(
+        MethodRef method,
+        IReadOnlyList<IrExpression> arguments)
+    {
+        if (arguments.Count == 0
+            || PointerRefExtensionReceiver(
+                method,
+                arguments[0]) is not { } receiver)
+        {
+            return null;
+        }
+
+        var restTypes = method.ParameterTypes.Skip(1).ToArray();
+        var restRefKinds = method.ParameterRefKinds.IsDefaultOrEmpty
+            ? method.ParameterRefKinds
+            : [.. method.ParameterRefKinds.Skip(1)];
+        string rest = Arguments(
+            arguments.Skip(1),
+            restTypes,
+            restRefKinds);
+        string refKeyword =
+            method.ParameterRefKinds is
+            [ArgumentRefKind.In, ..]
+                ? "in"
+                : "ref";
+        string first = $"{refKeyword} *{receiver}";
+        return rest.Length == 0
+            ? first
+            : $"{first}, {rest}";
+    }
+
     string PropertyTarget(MethodRef accessor, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments, string name, bool isVirtual = true, bool isEvent = false)
     {
         if (PointerMemberReceiver(instance) is { } pointerReceiver)
@@ -696,12 +727,14 @@ public sealed partial class CSharpPrinter
             // operator spelling is the faithful inverse.
             if (IsOperatorCall(call))
                 return OperatorSpelling(call)!;
-            // An extension method's static call C.M(receiver, args) renders as the
-            // instance form receiver.M(args) the source used. No IL anchor chooses
-            // between the two forms (taste rule case 3), and the runtime writes the
-            // instance form; only sugar on confirmed [Extension] evidence, and drop
-            // the receiver from the parameter pairing (it is parameter 0).
-            if (call.Callee.IsExtension == MetadataFactState.Yes && arguments.Count >= 1)
+            // An extension method's static call C.M(receiver, args) normally
+            // renders as receiver.M(args). Keep the static spelling when proven
+            // instance-member lookup would capture that syntax; otherwise use
+            // sugar only on confirmed [Extension] evidence and drop receiver
+            // parameter 0 from argument pairing.
+            if (call.Callee.IsExtension == MetadataFactState.Yes
+                && call.ExtensionSyntaxConflict != MetadataFactState.Yes
+                && arguments.Count >= 1)
             {
                 IReadOnlyList<TypeRef> restTypes = [.. call.Callee.ParameterTypes.Skip(1)];
                 var restRefKinds = call.Callee.ParameterRefKinds.IsDefaultOrEmpty
@@ -742,10 +775,26 @@ public sealed partial class CSharpPrinter
             // `this.`), so an unqualified call would bind to the local.
             string sourceName = CSharpNaming.SourceMethodName(call.Callee);
             string staticName = $"{sourceName}{typeArguments}";
-            string staticArgs = Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds);
-            return IsEnclosingTypeAtOwnInstantiation(call.Callee.DeclaringType) && !IsStaticCallNameShadowed(sourceName)
-                ? $"{staticName}({staticArgs})"
-                : $"{TypeQualifierText(call.Callee.DeclaringType)}.{staticName}({staticArgs})";
+            string staticArgs =
+                PointerRefExtensionStaticArguments(
+                    call.Callee,
+                    arguments)
+                ?? Arguments(
+                    arguments,
+                    call.Callee.ParameterTypes,
+                    call.Callee.ParameterRefKinds);
+            if (IsEnclosingTypeAtOwnInstantiation(call.Callee.DeclaringType)
+                && !IsStaticCallNameShadowed(sourceName))
+            {
+                return $"{staticName}({staticArgs})";
+            }
+
+            string qualifier =
+                call.Callee.IsExtension == MetadataFactState.Yes
+                && call.ExtensionSyntaxConflict == MetadataFactState.Yes
+                    ? FullyQualifiedTypeText(call.Callee.DeclaringType)
+                    : TypeQualifierText(call.Callee.DeclaringType);
+            return $"{qualifier}.{staticName}({staticArgs})";
         }
         var receiver = arguments[0];
         string rest = Arguments(arguments.Skip(1), call.Callee.ParameterTypes, call.Callee.ParameterRefKinds);
