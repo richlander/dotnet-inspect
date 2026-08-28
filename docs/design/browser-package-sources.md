@@ -139,6 +139,7 @@ sealed class PackageProducerIdentity
 
 sealed class PackageSourceAssociation
 {
+    public static PackageSourceAssociation Create();
 }
 
 sealed class PackageSourceResultIdentity
@@ -148,13 +149,7 @@ sealed class PackageSourceResultIdentity
     PackageSourceKind TransportKind { get; }
 }
 
-interface IPackageSourceResult
-{
-    PackageSourceResultIdentity Source { get; }
-}
-
 sealed class PackageSourceOperationResult<T>
-    where T : class, IPackageSourceResult
 {
     T? Value { get; }
     PackageSourceFailure? Failure { get; }
@@ -169,13 +164,21 @@ sealed class PackageSourceResultFactory
     PackageVersionResult Versions(...);
     PackageSourceManifest Manifest(...);
     PackageSourcePayload Payload(...);
-    PackageSourceOperationResult<T> Succeeded<T>(T value)
-        where T : class, IPackageSourceResult;
-    PackageSourceOperationResult<T> Failed<T>(
+    PackageSourceOperationResult<PackageSearchResult> Succeeded(
+        PackageSearchResult value);
+    PackageSourceOperationResult<PackageVersionResult> Succeeded(
+        PackageVersionResult value);
+    PackageSourceOperationResult<PackageSourceManifest> Succeeded(
+        PackageSourceManifest value);
+    PackageSourceOperationResult<PackageSourcePayload> Succeeded(
+        PackageSourcePayload value);
+    PackageSourceOperationResult<PackageSearchResult> FailedSearch(
         PackageSourceCapabilities capability,
         PackageSourceFailureKind kind,
-        PackageSourceCoordinate? coordinate)
-        where T : class, IPackageSourceResult;
+        PackageSourceCoordinate? coordinate);
+    PackageSourceOperationResult<PackageVersionResult> FailedVersions(...);
+    PackageSourceOperationResult<PackageSourceManifest> FailedManifest(...);
+    PackageSourceOperationResult<PackageSourcePayload> FailedPayload(...);
 }
 ```
 
@@ -216,15 +219,14 @@ value, equality, hash, and formatting behavior remain unchanged during
 migration. A distinct permanent `PackageProducerIdentity` avoids changing that
 meaning while package-authority readers still exist.
 
-`IPackageSourceResult` is a constraint surface, not a custom result extension
-point. Only owner-controlled sealed reference-result types carry the private
-issuer required for acceptance. Supported custom clients construct those types
-through their supplied factory rather than implementing the marker. All target
-identity-bearing results are sealed classes with owner-controlled construction
-and get-only state. If an implementation retains record syntax, its copy
-constructor is private. No public constructor, init setter, clone, or `with`
-expression can replace source identity or retained failure text after the bound
-factory constructs the object.
+Only the four owner-controlled sealed reference-result types are permitted
+operation values. Supported custom clients construct those types and outcomes
+through their supplied factory; there is no public marker or generic outcome
+factory to extend. All target identity-bearing results are sealed classes with
+owner-controlled construction and get-only state. If an implementation retains
+record syntax, its copy constructor is private. No public constructor, init
+setter, clone, or `with` expression can replace source identity or retained
+failure text after the bound factory constructs the object.
 
 ### Normalized endpoint input
 
@@ -381,15 +383,16 @@ The exact client identity is then carried without reconstruction:
 - `PackageSourceFailure` carries it for unsupported, absent, authentication,
   timeout, invalid-response, bounded-response, and transport outcomes.
 
-Concrete operation values implement the owner-controlled
-`IPackageSourceResult` contract. `Succeeded<T>` validates both the value's
-complete public source identity and its private issuer reference against the
-bound factory before wrapping it. `Failed<T>` constructs both the failure and
-its operation wrapper with the factory's identity and issuer from closed
-failure inputs; it does not accept a separately constructed failure. The closed
-operation result contains exactly one of value or failure. Its success and
-failed variants have the same closed constructor, copy, and init-setter rules
-as their payloads.
+The four `Succeeded` overloads validate both the concrete value's complete
+public source identity and its private issuer reference against the bound
+factory before wrapping it. The four result-specific failure methods construct
+both the failure and its operation wrapper with the factory's identity and
+issuer from closed failure inputs; they do not accept a separately constructed
+failure. The closed generic operation-result container has no public
+constructor or copy path and is issued only for search, version, manifest, and
+payload result types. It contains exactly one of value or failure. Its success
+and failed variants have the same closed constructor, copy, and init-setter
+rules as their payloads.
 
 For caller-supplied aggregate data, the bound factory first snapshots the
 supplied data into owner-controlled immutable storage, then validates the
@@ -588,9 +591,10 @@ Implementation is not complete until Release gates establish:
 - `SourceOperationOutcomesBindIssuingIdentity` proves success rejects a value
   from another factory, including one with equal public source identity, and
   failed outcomes can contain only the bound factory's owner-constructed
-  failure, with exactly one value or failure per outcome; public-shape
-  reflection pins the `class, IPackageSourceResult` constraint and excludes
-  value-type or foreign generic result shapes;
+  failure, with exactly one value or failure per outcome; an external-consumer
+  compilation gate admits the four concrete factory-issued result types while
+  proving no generic failure method or public construction path can issue an
+  outcome for a foreign result type;
 - `SourceResultCollectionsAndBuffersAreImmutableSnapshots` proves mutation of
   supplied observation lists, arrays, and manifest buffers after construction
   cannot alter the result and no mutable backing storage is exposed;
@@ -601,6 +605,10 @@ Implementation is not complete until Release gates establish:
 - `SourceResultIssuerIsPrivateConstructionEvidence` proves the issuer has no
   public member or caller construction path and enters no NuGetFetch-owned
   public object or diagnostic surface;
+- `PackageSourceAssociationHasOpaqueReferenceSurface` pins its public creation
+  method and proves it declares no data members, interfaces, serialization
+  attributes, equality/hash overrides, or display override; separate instances
+  retain ordinary object reference identity;
 - `FailureFactoryAcceptsNoArbitraryRetainedText` locks the public construction
   surface and the closed failure-kind-to-summary mapping;
 - `RetainedFailureHasNoConfiguredEndpointOrRecognizedCredentialText` covers
