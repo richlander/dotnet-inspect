@@ -196,6 +196,22 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
   dispatching the next round's reviewers.
 - **Authorizing the next round before CI completes:** the agent does not need
   to check CI status first; proceed with the authorized round.
+- **Skip re-review after a trivial base interaction:** requires the user's
+  approval for one exact integration head. Offer this adjustment only for a
+  `main`-targeting PR or bottom open stack slice that changes from a
+  review-clean head solely to integrate a moved base. Every overlap must be
+  mechanically resolved by taking the analyzed base side verbatim or dropping
+  the PR's change to that file, the resulting PR diff must be a subset of the
+  reviewed diff, and no surviving reviewed claim, contract, or behavior may
+  change. Dropping an entire conflicting-file change may narrow the PR;
+  explain why that removal does not weaken its remaining claims. Present that
+  evidence before asking. Run the affected focused gates and retain all
+  current-head CI and mergeability requirements. The prior reviews remain
+  evidence only for their reviewed head: remove `review-clean`, do not
+  describe the integration head as reviewed or review-clean, and record the
+  exact-head waiver publicly. Any semantic conflict resolution, new authored
+  change, or interaction with surviving reviewed behavior requires ordinary
+  re-review.
 
 ## Before changing files
 
@@ -824,7 +840,10 @@ least one reviewer returned a finding.
 
 - **Conflict:** supersede the attempt, integrate and resolve, push immediately,
   and restart the same round without waiting for CI. The six-round boundary
-  still applies.
+  still applies. A conflict after clean review may instead take the exact-head
+  trivial-interaction waiver path below when its resolution satisfies every
+  stated condition; do not dispatch replacement reviewers while that decision
+  is pending.
 - **Scope violation:** keep the locked head unchanged while the user chooses
   split, abandonment, or an explicitly approved broad exception. Split or
   abandonment supersedes the attempt without spending the round; reconcile
@@ -854,8 +873,9 @@ before the restarted round closes.
 ### Forming a candidate
 
 Spend review only on a pushed, settled head formed by the canonical cycle.
-Record the exact head and effective base. If a conflict, author change, finding,
-or restack moves the head, form a replacement through the cycle again.
+Record the exact head and effective base. If a conflict, author change,
+finding, or restack moves the head, form a replacement through the cycle again
+unless the user approves the exact-head trivial-interaction waiver below.
 
 While a candidate is locked, do not push or integrate. Recovery is the only
 mutation exception; a non-mutating fetch is allowed to re-establish state after
@@ -883,8 +903,7 @@ bottom open stack slice. An upper slice follows its parent, so parent movement
 is a restack and requires review at the new head.
 
 After a non-mutating fetch, classify the exact landed range into exactly one
-outcome and act on it directly — the classification drives the response, not a
-per-movement approval prompt:
+outcome and act on it directly:
 
 - **No interaction.** The range does not touch files, contracts, or behavior
   this change touches. Keep `review-clean`, integrate the exact analyzed tip by
@@ -894,20 +913,33 @@ per-movement approval prompt:
   gate. Merging itself still needs a live readiness check and explicit user
   authorization (invariants 5 and 8 under [Adversarial
   review](#adversarial-review)); base movement alone does not grant it.
+- **Trivial interaction.** The range overlaps files, but integration can
+  resolve every overlap mechanically by taking the analyzed base side verbatim
+  or dropping the PR's change to that file, and no surviving reviewed claim,
+  contract, or behavior changes. Remove `review-clean`, integrate the exact
+  analyzed tip, run affected focused gates, and push the resolution head.
+  Confirm that the resulting PR diff is a subset of the reviewed diff, then
+  present the old and new heads, exact resolution, diff comparison, why any
+  dropped change does not weaken the remaining claims, and gate results. Ask
+  whether to skip re-review for that exact head before dispatching reviewers.
+  A proactive approval may be recorded without asking again. Approval waives
+  re-review but does not transfer review evidence or restore `review-clean`;
+  current-head CI, live mergeability, and explicit merge authorization remain
+  mandatory. Without approval, run the ordinary replacement review.
 - **Significant interaction, no conflict.** The range touches related files,
   contracts, or behavior but merges cleanly. Remove `review-clean`, integrate
   the tip, re-run the applicable validation and current-head CI, and
   re-dispatch the required reviewers at the new head as a normal round; the
   prior clean reviews do not carry forward.
-- **Merge conflict.** Remove `review-clean` and treat it as an author change:
-  integrate, resolve the conflict, rebuild and re-test, and re-dispatch the
-  required reviewers at the new head, following the ordinary [conflict recovery
-  transition](#recovery-transitions).
+- **Merge conflict requiring semantic resolution.** Remove `review-clean` and
+  treat it as an author change: integrate, resolve the conflict, rebuild and
+  re-test, and re-dispatch the required reviewers at the new head, following
+  the ordinary [conflict recovery transition](#recovery-transitions).
 
 Report the classification and the action taken as normal session output before
-changing labels or dispatching reviewers. Re-classify only when the landed
-range itself changes — a later, distinct base movement — not on every poll of
-an already-classified range. Follow the full
+changing labels, integrating a trivial interaction, or dispatching reviewers.
+Re-classify only when the landed range itself changes — a later, distinct base
+movement — not on every poll of an already-classified range. Follow the full
 [carry-forward procedure](docs/round-orchestration.md#carry-forward-after-clean-reviews).
 
 ### A quick read is not a round
