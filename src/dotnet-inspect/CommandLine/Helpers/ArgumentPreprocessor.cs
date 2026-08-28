@@ -163,7 +163,7 @@ public static class ArgumentPreprocessor
                 if (args[i] == "--")
                     break;
 
-                if (IsOutputPathValue(args, i))
+                if (IsFollowingRequiredOptionValue(args, i))
                     continue;
 
                 if (args[i] == "-n"
@@ -277,17 +277,6 @@ public static class ArgumentPreprocessor
         return enabled == true;
     }
 
-    private static bool IsOutputPathValue(string[] args, int index)
-    {
-        if (index == 0)
-            return false;
-
-        string precedingToken = args[index - 1];
-        string optionName = precedingToken.Split('=', 2)[0];
-        return !precedingToken.Contains('=', StringComparison.Ordinal)
-            && OutputPathAliases.Contains(optionName);
-    }
-
     private static bool IsFollowingRequiredOptionValue(
         string[] args,
         int index)
@@ -306,8 +295,6 @@ public static class ArgumentPreprocessor
     private static readonly string[] ColumnsAliases = ["--columns"];
     private static readonly string[] FieldsAliases = ["--fields"];
     private static readonly string[] PathAliases = ["--path"];
-    private static readonly HashSet<string> OutputPathAliases =
-        new(["--out", "--output", "-o"], StringComparer.OrdinalIgnoreCase);
     private static readonly HashSet<string> OptionsWithOptionalFollowingValue =
         new(
             [

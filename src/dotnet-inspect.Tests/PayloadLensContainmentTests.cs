@@ -126,6 +126,29 @@ public class PayloadLensContainmentTests : IDisposable
         Assert.Equal(HostileReadme, File.ReadAllText(outputPath));
     }
 
+    [Fact]
+    public void ReadmeLens_ScopedFileExportVisuallyEncodesThePayload()
+    {
+        using var package = HostilePackage.Create();
+        string outputPath = System.IO.Path.Combine(
+            package.Directory,
+            "README.body.md");
+
+        var (output, error) = RunCli(
+            [
+                package.Path,
+                ..ReadmeLens,
+                "--body",
+                "--bare",
+                "--out",
+                outputPath,
+            ]);
+
+        Assert.Empty(output);
+        Assert.Empty(error);
+        AssertIsEncodedPayload(File.ReadAllText(outputPath));
+    }
+
     /// <summary>
     /// Companion tool-authored framing remains on the contained diagnostic stream.
     /// </summary>

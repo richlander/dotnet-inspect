@@ -543,15 +543,26 @@ public class ProjectCommand
 
     private static int PrintSkillDocument(IReadOnlyList<ProjectSkillRow> rows, ProjectOptions options)
     {
-        var documents = rows
-            .Select((row, index) => CreatePrintableSkillDocument(row, index + 1, options))
-            .Where(document => document is not null)
-            .Cast<PrintableDocument>()
-            .ToList();
-        var visibleDocuments = RowWindow.Apply(options.Rows, documents);
+        var printableRows = new List<PrintableRow>(rows.Count);
+        var sourceByRow = new Dictionary<PrintableRow, ProjectSkillRow>(
+            ReferenceEqualityComparer.Instance);
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var source = rows[i];
+            var row = new PrintableRow(
+                i + 1,
+                ProjectSkillsSection,
+                $"{source.Package} {source.Path}",
+                source.Path,
+                null);
+            printableRows.Add(row);
+            sourceByRow.Add(row, source);
+        }
+        var visibleRows = RowWindow.Apply(options.Rows, printableRows);
 
         return PrintProjectionOutput.Write(
-            visibleDocuments,
+            visibleRows,
+            row => ReadPrintableSkillContent(sourceByRow[row], options),
             new PrintProjectionOptions(
                 options.Bare && !options.Print ? RowSelector.First : options.PrintRow,
                 options.JsonOutput,
@@ -605,20 +616,15 @@ public class ProjectCommand
         };
     }
 
-    private static PrintableDocument? CreatePrintableSkillDocument(ProjectSkillRow row, int rowNumber, ProjectOptions options)
+    private static string ReadPrintableSkillContent(
+        ProjectSkillRow row,
+        ProjectOptions options)
     {
-        if (row.FullPath == null || !File.Exists(row.FullPath))
-            return null;
-
-        var content = GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(
-            MarkdownContent.ApplyScope(File.ReadAllText(row.FullPath), options.ContentScope));
-        return new PrintableDocument(
-            rowNumber,
-            ProjectSkillsSection,
-            $"{row.Package} {row.Path}",
-            row.Path,
-            null,
-            content);
+        string fullPath = row.FullPath
+            ?? throw new InvalidOperationException(
+                $"The selected skill '{row.Path}' has no content path.");
+        return GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(
+            MarkdownContent.ApplyScope(File.ReadAllText(fullPath), options.ContentScope));
     }
 
     private static bool ValidateProjectProjectionOptions()

@@ -160,9 +160,8 @@ public static class PrintProjectionOutput
             return;
         }
 
-        var rendered = ProjectionDestinationWriter.IsFile(destination)
-            ? output.Content
-            : new InertString(TextPolicy.Prose, output.Content).ToString();
+        var rendered =
+            new InertString(TextPolicy.Prose, output.Content).ToString();
         ProjectionDestinationWriter.WriteText(destination, rendered);
     }
 }
