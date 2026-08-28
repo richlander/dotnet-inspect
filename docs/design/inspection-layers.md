@@ -913,6 +913,102 @@ This boundary does not define:
 - outer-result publication, CLI/output behavior, or row integrity; or
 - Source, PDB, network, cache, retry, or authored-source behavior.
 
+## Package-realization coordinate admission
+
+**Status:** target design, scoped independently of #4745; unimplemented. This
+is a separate future responsibility of the same L1 owner, not an extension of
+the [Package-role planning and cleanup boundary](#package-role-planning-and-cleanup-boundary)'s
+plan/realize/cleanup contract or its gate list. It is *intended* to compose
+with that boundary rather than redefine it -- this admission layer decides
+whether a `RealizePackageAssemblyContextRoles` (or its #4745 typed successor)
+operation starts at all for a given package coordinate, and the existing
+boundary still owns everything that happens once that operation runs -- but
+that composition is not yet fully defined; see the granularity and
+shared-realization-lifetime open questions under
+[Target shape](#target-shape) below.
+
+### Current admission gap
+
+`RealizePackageAssemblyContextRoles` has no cache or admission logic today.
+Two calls with an identical realized package coordinate (package id, version,
+target framework, runtime identifier, and resolved producer -- see
+`RealizedMemberCoordinate.Package` in
+`src/DotnetInspector.Queries/WorkspaceAcquisitionCoordinates.cs`) each
+independently reopen content and mint an unrelated `AssemblyContextGroup`
+and participant set. `PackageAssemblyContextRealizationConcurrentDemandTests`
+(pending in #4958, not yet merged) is intended to demonstrate this; the
+admission gap itself is tracked by issue #4960.
+
+### Why the coordinate, not the assembly content
+
+A package coordinate is stable and decidable: id, version, framework, runtime
+identifier, and producer determine one selectable package occurrence, and
+`Producer` specifically resolves the case where two feeds could otherwise
+serve the same id and version with different bytes. Individual assembly/PE content has no
+equivalent independent identity -- `Foo.dll` can duplicate within one package
+or across packages with no canonical resolution -- so this admission layer is
+scoped to package coordinates only. It does not admit by assembly identity,
+and it does not replace `AssemblyInspectionSession.Borrow`'s existing
+pass-the-open-handle convention at that layer, which remains correct and
+conservative because no stable content coordinate exists to key a cache by.
+
+### Target shape
+
+A workspace-scoped cache, keyed by realized package coordinate, holds one of
+three states per coordinate: absent, in flight, or ready with a retained
+realization. A demand for an absent coordinate starts the one admitting
+operation; a demand for an in-flight coordinate joins it instead of starting a
+second one; a demand for a ready coordinate reuses the retained realization
+directly. Every demand that admitted or joined one operation observes the same
+outcome. A failed operation is not cached as failed -- the coordinate returns
+to absent so a later demand can retry -- because a transient acquisition
+failure should not permanently poison a coordinate that never had a chance to
+succeed.
+
+This says nothing about assembly-content identity, `AssemblyContextGroup`'s own
+callback/quiescence/disposal lifecycle (already modeled by
+[`AssemblyContextGroupLifecycle.tla`](../models/assembly-context-group-lifecycle/AssemblyContextGroupLifecycle.tla)),
+or the internal plan/open/cleanup shape of one admitting operation (owned by
+the boundary above). It also does not claim current product behavior.
+
+Two compositions with the existing API surface remain open and are not solved
+by this design:
+
+- **Request granularity.** `RealizePackageAssemblyContextRoles` admits an
+  entire caller-supplied package set plus its options (budget, per-role
+  limits) in one call, not one coordinate. This admission layer models the
+  per-coordinate primitive; decomposing a multi-package request into
+  independent per-coordinate admissions (and correctly composing partial
+  cache hits with fresh admissions inside one caller request) is future work
+  for whichever adapter or migration slice adopts this cache, not something
+  this model or section resolves. `PackageAssemblyContextSelection` itself
+  does not carry a realized coordinate today -- it has no runtime identifier
+  and its id/version/framework are not yet canonicalized -- so deriving the
+  cache key still depends on `PackageCoordinateResolver`, the same normalizer
+  `RealizedMemberCoordinate.Package` already defers to; this design assumes
+  that resolution happens, it does not add it.
+- **Shared-realization lifetime.** "Reuses the retained realization directly"
+  implies more than one demand can hold the same realized groups
+  concurrently. The existing [Package-role planning and cleanup
+  boundary](#package-role-planning-and-cleanup-boundary) gives each
+  `PackageRoleGroupReleaseCompletion` cell exactly one release: the first
+  caller to request it initiates release and every other caller only
+  observes or awaits that same completion, so today's mechanism already
+  treats a second releaser as an unsafe race, not as a supported share.
+  Multiple independent callers sharing one cached realization therefore need
+  reference-counted or lease-scoped release semantics that neither this
+  section nor that boundary defines yet; attaching a cache to that boundary
+  without resolving that composition would let one caller's close release
+  groups another caller is still using.
+
+[`PackageRealizationAdmission.tla`](../models/package-realization-admission/PackageRealizationAdmission.tla)
+checks this target design's own internal soundness: single-flight admission
+per coordinate, consistent shared outcomes among joined demands, and
+cache-state consistency, plus reachability of the join, retry-after-failure,
+and multi-demand shared-outcome transitions. See its companion
+[`README.md`](../models/package-realization-admission/README.md) for the
+checked configurations.
+
 ## Current migration state
 
 Metadata-image, direct-reference, assembly-context reference,
