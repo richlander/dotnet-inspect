@@ -143,6 +143,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Inspect-web TypeScript semantic facts](design/inspect-web-typescript-semantic-facts.md):
   one pinned TypeScript project snapshot exposed through repository-owned
   semantic handles, queries, and explicit failure results.
+- [Inspect-web asynchronous operations](design/inspect-web-asynchronous-operations.md):
+  worker-hosted .NET execution plus main-thread operation identity,
+  cancellation, progress, terminal outcome, publication authority, and
+  quiescence.
 - [Bounded metadata traversal](design/bounded-metadata-traversal.md): cycle, depth, count, text-budget, failure, and verification rules for artifact-derived metadata graphs.
 - [Rendering model](design/rendering-model.md): output mode and verbosity design.
 - [Progressive disclosure](design/progressive-disclosure.md): base/domain scope,
