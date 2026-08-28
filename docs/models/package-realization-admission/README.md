@@ -9,6 +9,14 @@ gap it targets, tracked by issue #4960), and it does not cover assembly/PE
 content identity, which is not independently decidable the way a package
 coordinate (id, version, framework, producer) is.
 
+Owning design:
+[`docs/design/inspection-layers.md`](../../design/inspection-layers.md)'s
+"Package-realization coordinate admission" section, which is deliberately
+separate from that document's "Package-role planning and cleanup boundary"
+(target design for #4745) -- this model checks whether an admitting operation
+starts at all for a repeated coordinate, not the internal plan/open/cleanup
+shape of one such operation.
+
 ## Files
 
 - [`PackageRealizationAdmission.tla`](PackageRealizationAdmission.tla) — the

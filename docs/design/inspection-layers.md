@@ -913,6 +913,67 @@ This boundary does not define:
 - outer-result publication, CLI/output behavior, or row integrity; or
 - Source, PDB, network, cache, retry, or authored-source behavior.
 
+## Package-realization coordinate admission
+
+**Status:** target design, independent of #4745; unimplemented. This is a
+separate future responsibility of the same L1 owner, not an extension of the
+[Package-role planning and cleanup boundary](#package-role-planning-and-cleanup-boundary)'s
+plan/realize/cleanup contract or its gate list. It composes with that
+boundary rather than redefining it: this admission layer decides whether a
+`RealizePackageAssemblyContextRoles` (or its #4745 typed successor) operation
+starts at all for a given package coordinate; the existing boundary still owns
+everything that happens once that operation runs.
+
+### Current admission gap
+
+`RealizePackageAssemblyContextRoles` has no cache or admission logic today.
+Two calls with an identical realized package coordinate (package id, version,
+target framework, and resolved producer -- see `RealizedMemberCoordinate.Package`
+in `src/DotnetInspector.Queries/WorkspaceAcquisitionCoordinates.cs`) each
+independently reopen content and mint an unrelated `AssemblyContextGroup`
+and participant set. `PackageAssemblyContextRealizationConcurrentDemandTests`
+demonstrates this; issue #4960 tracks it.
+
+### Why the coordinate, not the assembly content
+
+A package coordinate is stable and decidable: id, version, framework, and
+producer determine one selectable package occurrence, and `Producer`
+specifically resolves the case where two feeds could otherwise serve the same
+id and version with different bytes. Individual assembly/PE content has no
+equivalent independent identity -- `Foo.dll` can duplicate within one package
+or across packages with no canonical resolution -- so this admission layer is
+scoped to package coordinates only. It does not admit by assembly identity,
+and it does not replace `AssemblyInspectionSession.Borrow`'s existing
+pass-the-open-handle convention at that layer, which remains correct and
+conservative because no stable content coordinate exists to key a cache by.
+
+### Target shape
+
+A workspace-scoped cache, keyed by realized package coordinate, holds one of
+three states per coordinate: absent, in flight, or ready with a retained
+realization. A demand for an absent coordinate starts the one admitting
+operation; a demand for an in-flight coordinate joins it instead of starting a
+second one; a demand for a ready coordinate reuses the retained realization
+directly. Every demand that admitted or joined one operation observes the same
+outcome. A failed operation is not cached as failed -- the coordinate returns
+to absent so a later demand can retry -- because a transient acquisition
+failure should not permanently poison a coordinate that never had a chance to
+succeed.
+
+This says nothing about assembly-content identity, `AssemblyContextGroup`'s own
+callback/quiescence/disposal lifecycle (already modeled by
+[`AssemblyContextGroupLifecycle.tla`](../models/assembly-context-group-lifecycle/AssemblyContextGroupLifecycle.tla)),
+or the internal plan/open/cleanup shape of one admitting operation (owned by
+the boundary above). It also does not claim current product behavior.
+
+[`PackageRealizationAdmission.tla`](../models/package-realization-admission/PackageRealizationAdmission.tla)
+checks this target design's own internal soundness: single-flight admission
+per coordinate, consistent shared outcomes among joined demands, and
+cache-state consistency, plus reachability of the join, retry-after-failure,
+and multi-demand shared-outcome transitions. See its companion
+[`README.md`](../models/package-realization-admission/README.md) for the
+checked configurations.
+
 ## Current migration state
 
 Metadata-image, direct-reference, assembly-context reference,
