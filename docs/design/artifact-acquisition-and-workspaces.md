@@ -295,6 +295,30 @@ reports quiescence. Synchronous disposal may initiate this deferred release; it
 must not invalidate content under an active callback. Cleanup failures compose
 with, and never replace, the active operation failure.
 
+### Interaction model
+
+[`docs/models/artifact-session-admission/ArtifactSessionAdmission.tla`](../models/artifact-session-admission/ArtifactSessionAdmission.tla)
+model-checks the admission lifecycle described above: single-flight admission
+across concurrent demands, voluntary cancellation draining, disposal-forced
+draining, and the rule that a late adapter result must never publish a session
+or group. It abstracts away budget arithmetic, adapter identity, content
+digests, and query-lease authorization, and it bounds the state space to one
+outstanding published group's lease lifecycle at a time (a fresh admission
+cannot publish while the previous group awaits lease release); this is a
+scope-bounding simplification of the model, not a claim about real concurrent
+groups.
+
+TLC 2026.08.21.155922 (rev `9787e65`, from the pinned `tla2tools.jar` v1.8.0 —
+see [`docs/runbooks/tla-plus-setup.md`](../../runbooks/tla-plus-setup.md))
+checked the model with 3 demands and 2 admission generations: 1,420 distinct
+states, no invariant violations, and no counterexamples for the checked
+liveness properties. The invariants include the headline
+`DisposalPreventsPublication` (`disposed => admission # "InFlight"`, since only
+`"InFlight"` can transition to a published outcome) and independent
+guard-witness invariants that re-derive, at the point of action, the exact
+condition each of `DisposalPreventsPublication` and the lease-release ordering
+depends on.
+
 Retaining content does not retain authority. The artifact owner issues two
 different source-neutral access leases:
 
