@@ -1868,7 +1868,7 @@ internal static class CSharpDeclarationWriter
     static (int Start, int End) FindCompatibilityParameterList(
         string signature)
     {
-        for (int open = signature.LastIndexOf('(');
+        for (int open = signature.IndexOf('(');
             open >= 0;)
         {
             int close = Matching(signature, open, '(', ')');
@@ -1880,9 +1880,7 @@ internal static class CSharpDeclarationWriter
                 return (open, close);
             }
 
-            if (open == 0)
-                break;
-            open = signature.LastIndexOf('(', open - 1);
+            open = signature.IndexOf('(', open + 1);
         }
 
         return (-1, -1);
@@ -2692,6 +2690,20 @@ internal static class CSharpDeclarationWriter
         var sb = new StringBuilder(text.Length);
         for (int i = 0; i < text.Length;)
         {
+            if (IsStringLiteralStart(text, i))
+            {
+                int end = SkipStringLiteral(text, i);
+                sb.Append(text.AsSpan(i, end - i));
+                i = end;
+                continue;
+            }
+            if (text[i] == '\'')
+            {
+                int end = SkipCharLiteral(text, i);
+                sb.Append(text.AsSpan(i, end - i));
+                i = end;
+                continue;
+            }
             if (IsIdentifierStart(text[i]))
             {
                 int start = i++;

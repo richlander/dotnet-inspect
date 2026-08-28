@@ -127,18 +127,23 @@ those implementation fields and preserves its established schema. The
 in-memory compatibility `Signature` contains every raw type and identifier slot
 before direct rendering. When a structured model cannot reproduce metadata-only
 default syntax, renderers preserve that producer-contained signature rather
-than re-containing it; only model-free fallback is imported as opaque text.
+than re-containing it; synthetic structured producers such as CLI accessor
+projection satisfy the same raw-slot boundary before composing their fallback.
+Identifier substitution over structured declarations skips rendered string and
+character literals. Only model-free fallback is imported as opaque text.
 
 Legacy or degraded model-free text uses conservative compatibility containment.
-Only a quote after `=` inside the terminal parameter list opens a rendered C#
-literal, and its interior is still checked for raw rendering hazards. Artifact
-JSON always marks a model-free signature `Degraded`: arbitrary metadata can
-mimic rendered syntax, so text alone cannot prove raw identity. When a literal
-backslash in a structured raw slot requires disambiguation, document JSON
-prepares that declaration without mutating `ApiMember`; benign signatures stay
-byte-neutral. Generic-constraint JSON uses the metadata type-versus-keyword
-classification, so type-name entries cross the raw boundary without changing
-`class`, `struct`, `default`, or `new()` syntax.
+Only a quote after `=` inside the declaration parameter list opens a rendered
+C# literal. That list is the first parenthesized group whose suffix ends the
+declaration or starts a full constraint clause, so a terminal `new()` constraint
+cannot masquerade as it; literal interiors are still checked for raw rendering
+hazards. Artifact JSON always marks a model-free signature `Degraded`: arbitrary
+metadata can mimic rendered syntax, so text alone cannot prove raw identity.
+When a literal backslash in a structured raw slot requires disambiguation,
+document JSON prepares that declaration without mutating `ApiMember`; benign
+signatures stay byte-neutral. Generic-constraint JSON uses the metadata
+type-versus-keyword classification, so type-name entries cross the raw boundary
+without changing `class`, `struct`, `default`, or `new()` syntax.
 Adding trusted inline-code markup preserves the original containment evidence
 rather than re-importing its visible spelling as clean text.
 `SemanticTypeOutputContainmentTests.CSharpField_PreservesEscapesAndContainsResidualScalars`,
@@ -158,10 +163,13 @@ rather than re-importing its visible spelling as clean text.
 `UntrustedMemberSignatureTests.FieldPropertyAndEventSignatures_ContainHostileNames`,
 `UntrustedMemberSignatureTests.FieldAndEnumDeclarations_ContainNamesBeforeComposition`,
 `UntrustedMemberSignatureTests.StructuredMetadataDefaultFallback_PreservesContainedSignatureAndStatus`,
+`UntrustedMemberSignatureTests.SynthesizedAccessorFallback_ContainsRawSignatureSlotsInDecompiledSource`,
 `MetadataDeclarationQueryTests.TypeSurface_ContainsRawTypeSlotsInCompatibilitySignatures`,
 `DefaultValueRenderingTests.HostileEnumDefaults_ContainRawTypeAndMemberSlots`,
 `UntrustedLibraryViewContainmentTests.TypeJson_WithLiteralEscapeMetadataName_PreservesIdentity`,
 `CSharpDeclarationWriterTests.CompatibilitySignature_ContainsCodeButPreservesLiteralEscapes`,
+`CSharpDeclarationWriterTests.CompatibilitySignature_KeywordTypeParameterDoesNotRewriteDefaultLiteral`,
+`CSharpDeclarationWriterTests.CompatibilitySignature_TerminalNewConstraintPreservesDefaultLiteralEscape`,
 `CSharpDeclarationWriterTests.StructuredOperator_DoesNotRecontainCompatibilityNames`,
 `CSharpDeclarationWriterTests.UnterminatedMetadataQuote_DoesNotDisableCompatibilityContainment`,
 `CSharpDeclarationWriterTests.BalancedMetadataQuotes_DoNotDisableCompatibilityContainment`,

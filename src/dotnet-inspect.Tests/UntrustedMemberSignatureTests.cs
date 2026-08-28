@@ -3,9 +3,11 @@ using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
+using DotnetInspector.Commands;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Sections;
 using DotnetInspector.Views;
 using ILInspector.CSharp;
 using CSharpText;
@@ -25,6 +27,7 @@ namespace DotnetInspector.Tests;
 /// rendered evidence before the fix was a signature cell reading
 /// <c>public int N&lt;VT&gt;    INJECTED</c> with a live vertical tab in it.
 /// </remarks>
+[Collection("Console")]
 public class UntrustedMemberSignatureTests
 {
     static readonly CSharpFormatter Formatter = new();
@@ -379,6 +382,68 @@ public class UntrustedMemberSignatureTests
         }
     }
 
+    [Fact]
+    public async Task SynthesizedAccessorFallback_ContainsRawSignatureSlotsInDecompiledSource()
+    {
+        string path = EmitHostileIndexer();
+        try
+        {
+            using (var stream = File.OpenRead(path))
+            using (var peReader = new PEReader(stream))
+            {
+                ApiSurface surface = ApiSurfaceExtractor.Extract(
+                    peReader,
+                    includeAll: true);
+                ApiType type = Assert.Single(
+                    surface.Types,
+                    candidate => candidate.Name == "Probe");
+                ApiMember property = Assert.Single(
+                    type.Members,
+                    candidate => candidate.Name == "Item");
+                ApiMember accessor = Assert.Single(
+                    ApiOutputFormatter.AccessorMethods(property, type));
+
+                Assert.Contains(
+                    '\u202E',
+                    Assert.Single(
+                        accessor.SignatureModel!.Parameters).Name);
+                Assert.DoesNotContain('\u202E', accessor.Signature!);
+                Assert.Contains(
+                    "get_Item(System.DateTime idx_evil)",
+                    accessor.Signature,
+                    StringComparison.Ordinal);
+            }
+
+            var result = await ConsoleCapture.RunAsync(
+                () => MemberCommand.ExecuteAsync(new MemberOptions
+                {
+                    TypeName = "Probe",
+                    AssemblyPath = path,
+                    MemberFilter = ["Item"],
+                    IncludeSections = [SectionNames.DecompiledSource],
+                    TipLevel = TipLevel.Quiet,
+                    Verbosity = Verbosity.Normal,
+                }));
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Contains(
+                "## Decompiled Source",
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "get_Item(System.DateTime idx_evil)",
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                result.Output,
+                HostileOutputAssert.IsForbidden);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     static string EmitStructuredMetadataDefault()
     {
         var assemblyName = new AssemblyName("StructuredMetadataDefault");
@@ -419,6 +484,57 @@ public class UntrustedMemberSignatureTests
         string path = Path.Combine(
             Path.GetTempPath(),
             $"StructuredMetadataDefault-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
+    static string EmitHostileIndexer()
+    {
+        const char Hazard = '\u202E';
+        var assemblyName = new AssemblyName("HostileIndexer");
+        var assembly = new PersistedAssemblyBuilder(
+            assemblyName,
+            typeof(object).Assembly);
+        ModuleBuilder module =
+            assembly.DefineDynamicModule(assemblyName.Name!);
+        TypeBuilder type = module.DefineType(
+            "Probe",
+            TypeAttributes.Public | TypeAttributes.Class);
+        MethodBuilder getter = type.DefineMethod(
+            "get_Item",
+            MethodAttributes.Public | MethodAttributes.SpecialName,
+            typeof(string),
+            [typeof(DateTime)]);
+        ParameterBuilder parameter = getter.DefineParameter(
+            1,
+            ParameterAttributes.Optional,
+            $"idx{Hazard}evil");
+        parameter.SetCustomAttribute(
+            typeof(System.Runtime.InteropServices.OptionalAttribute)
+                .GetConstructor(Type.EmptyTypes)!,
+            [0x01, 0x00, 0x00, 0x00]);
+        parameter.SetCustomAttribute(
+            typeof(System.Runtime.CompilerServices.DateTimeConstantAttribute)
+                .GetConstructor([typeof(long)])!,
+            [
+                0x01, 0x00,
+                0x2A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00,
+            ]);
+        ILGenerator il = getter.GetILGenerator();
+        il.Emit(OpCodes.Ldnull);
+        il.Emit(OpCodes.Ret);
+        PropertyBuilder property = type.DefineProperty(
+            "Item",
+            PropertyAttributes.None,
+            typeof(string),
+            [typeof(DateTime)]);
+        property.SetGetMethod(getter);
+        type.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"HostileIndexer-{Guid.NewGuid():N}.dll");
         assembly.Save(path);
         return path;
     }

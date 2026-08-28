@@ -1666,7 +1666,13 @@ public static class ApiOutputFormatter
             ? owner.Accessibility
             : accessorEntry!.Accessibility;
 
-        var renderedParameters = string.Join(", ", parameters.Select(p => $"{p.TypeWithModifier} {p.Name}"));
+        string renderedReturnType =
+            CSharpFormatter.EscapeTypeKeywords(returnType);
+        string renderedName =
+            CSharpIdentifier.ContainIdentifierForDeclaration(name);
+        var renderedParameters = string.Join(
+            ", ",
+            parameters.Select(FormatAccessorSignatureParameter));
         return new ApiMember
         {
             Name = name,
@@ -1674,7 +1680,8 @@ public static class ApiOutputFormatter
             MetadataToken = token,
             DeclaringType = declaringType,
             ReturnType = returnType,
-            Signature = $"{returnType} {name}({renderedParameters})",
+            Signature =
+                $"{renderedReturnType} {renderedName}({renderedParameters})",
             SignatureModel = new ApiSignature
             {
                 MemberName = name,
@@ -1691,6 +1698,14 @@ public static class ApiOutputFormatter
             Documentation = owner.Documentation,
         };
     }
+
+    static string FormatAccessorSignatureParameter(ApiParameter parameter)
+        => CSharpFormatter.FormatParameter(new ApiParameter
+        {
+            Name = parameter.Name,
+            Type = parameter.Type,
+            Modifier = parameter.Modifier,
+        });
 
     static ApiParameter CloneAccessorParameter(ApiParameter parameter) => new()
     {

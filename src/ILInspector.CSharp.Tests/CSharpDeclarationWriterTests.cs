@@ -1498,6 +1498,57 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void CompatibilitySignature_KeywordTypeParameterDoesNotRewriteDefaultLiteral()
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "Holder",
+            Kind = "class",
+        };
+        var member = new ApiMember
+        {
+            Name = "M",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "void",
+                MemberName = "M<class>",
+                TypeParameters =
+                [
+                    new TypeParameter { Name = "class" },
+                ],
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Name = "value",
+                        Type = "string",
+                        HasDefault = true,
+                        DefaultValueText = "\"class\"",
+                    },
+                ],
+            },
+        };
+
+        Assert.Equal(
+            "void M<@class>(string value = \"class\")",
+            new CSharpFormatter()
+                .FormatCompatibilityMemberSignature(type, member));
+    }
+
+    [Fact]
+    public void CompatibilitySignature_TerminalNewConstraintPreservesDefaultLiteralEscape()
+    {
+        const string Signature =
+            "void M<T>(string value = \"line\\n\") where T : new()";
+
+        Assert.Equal(
+            Signature,
+            CSharpFormatter.ContainCompatibilitySignature(Signature));
+    }
+
+    [Fact]
     public void CompatibilitySignature_ContainsCodeButPreservesLiteralEscapes()
     {
         const string literalType = @"N.Lit\u202EType";
