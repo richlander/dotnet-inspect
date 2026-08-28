@@ -234,7 +234,7 @@ plan all replacements into one typed artifact and compile one donor.
    +-----------------------------------------+
    | Product artifact pipeline                |
    | TypeShellProducer      (existing)         |
-   | typed MemberBodyProducer seam (planned)  |
+   | typed MemberBodyProducer seam (existing) |
    | CSharpTypePrinter      (existing)         |
    +-------------------+---------------------+
                        |
@@ -323,8 +323,7 @@ public enum RoundTripBodyPolicy
 
 public sealed record RoundTripMethodReplacement(
     MemberAnchor Method,
-    CSharpBlockBody Body,
-    SuppliedBodyDependencyPlan? Dependencies);
+    CSharpBlockBody Body);
 
 public sealed record RoundTripRequest(
     ArtifactIdentity Artifact,
@@ -343,14 +342,14 @@ through the owning artifact session, whose acquisition registration and guarded
 retained content supply the exact bytes and provenance. Display text and a
 readable path are not identity or read authority.
 
-`SuppliedBodyDependencyPlan` is tools request evidence for one exact supplied
-body digest. It retains typed dependency occurrences, expected definition
-identities, and owner-issued source coordinates that the compiler adapter can
-bind. A source-only `CSharpBlockBody` may still compile and participate in
-comparison, but without this plan it cannot produce a complete compile-context
-receipt or `Exact`. The original member's IL census is not evidence for
-dependencies introduced only by supplied source, and tools do not parse that
-source to discover them.
+A source-only `CSharpBlockBody` may compile and participate in comparison, but
+it cannot produce a complete compile-context receipt or `Exact` under this
+contract. A caller-provided dependency list could prove that listed occurrences
+are fresh, but not that no source-only dependency was omitted. The original
+member's IL census and the rebuilt IL are likewise not evidence for dependencies
+introduced only by supplied source. Tools do not parse that source to invent a
+closure claim. Receipt-bearing supplied-body support therefore requires a
+separate focused producer contract for a complete occurrence manifest.
 
 For the first contract, supplied C# is a `CSharpBlockBody` addressed to one
 metadata method definition: an ordinary method, constructor, or individual
@@ -572,8 +571,8 @@ union:
 
 - `SourceLocalDefinition` identifies an original `TypeDef` included in the
   generated source declaration plan;
-- `ExternalDefinition` identifies an exact selected reference descriptor and
-  resolved terminal `TypeDef`;
+- `ExternalDefinition` identifies one requirement's exact selected reference
+  descriptor and durable terminal `TypeDef` address;
 - `IntrinsicDefinition` identifies a compiler intrinsic for which Metadata
   requires no external definition;
 - `CompilerSynthesizedDefinition` identifies a source-local generated
@@ -607,10 +606,20 @@ capability exists, an absent, unsupported, or ambiguous per-attempt result makes
 the compile-context receipt unavailable and the attempted product result
 `Failed`.
 
-The external arm is local to the frozen compile context. It uses the selected
-descriptor ID and terminal type-definition token, not an opaque catalog key
-from another lifetime. Original and rebuilt resolution must map through the
-same descriptor before definitions correspond.
+The external arm is requirement identity local to the frozen compile context;
+it is not a cross-reader correspondence claim. While the catalog generation is
+live, transient binding evaluation retains the original and rebuilt opaque
+`ResolvedTypeDefinitionKey` values and asks the Metadata-owned comparison API
+for `DefinitionCorrespondence`. Only `Same` discharges the binding obligation.
+`Different`, `IndeterminateDuplicateArtifact`, `IncomparableCatalogs`, and
+`StaleGeneration` remain visible non-success outcomes; tools never reconstruct
+correspondence from descriptor IDs, candidates, MVIDs, tokens, or paths.
+
+Before releasing the catalog, tools materialize the owner-issued correspondence
+outcome, both durable `MetadataTypeDefinitionAddress` values, selected
+descriptor, and exact artifact/reference digests into the receipt. The durable
+addresses permit later re-location but do not themselves establish
+cross-artifact correspondence.
 
 A namespace-qualified C# name remains a spelling and diagnostic key. If one
 spelling denotes both a source-local definition and a non-corresponding external
@@ -787,20 +796,29 @@ slot, exception-region ordinal, parent token, and signature path as applicable.
 The census is a tools-only compile-closure artifact, not an Analysis Finding or
 a reusable interpretation of method behavior.
 
-### Supplied-body reference plan
+### Supplied-body comparison boundary
 
 A supplied replacement body does not inherit the original member's
-`BodyReferenceCensus`. Its optional `SuppliedBodyDependencyPlan` is bound to the
-exact supplied-body digest and carries every typed source occurrence and
-expected definition identity. The compiler adapter resolves those owner-issued
-coordinates while its semantic model is live.
+`BodyReferenceCensus` and cannot contribute a receipt under this design. Its
+artifact may still produce compilation, C#, and IL comparison observations, but
+`CompileContextOutcome` is
+`Unavailable(SuppliedBodyOccurrenceCompletenessUnverified)` and the verdict
+classifier returns `FidelityUnavailable`. This comparison-only path does not
+project as `ProductWholeMemberAdmission.Admitted`.
 
-Without the plan, or when a coordinate is missing, stale, or does not bind to
-the expected definition, the member's binding receipt is unavailable. The body
-may still produce compile and diff observations, but the verdict classifier
-cannot construct `Exact`. Source parsing, name lookup, and emitted-IL absence
-cannot repair the missing evidence; a source-only dependency such as a
-compile-time name expression may intentionally leave no rebuilt IL operand.
+Any request with a non-empty `Replacements` list is a comparison-only request.
+All supplied replacements in that request still compile into one donor, but
+they do not share an artifact with receipt-bearing decompiler-produced bodies.
+A caller that needs both runs a separate product/decompiler request so the
+supplied source cannot make an otherwise provable member's artifact receipt
+unavailable.
+
+No caller-provided completeness flag or occurrence list can upgrade that result.
+Source parsing, name lookup, and emitted-IL absence cannot repair the missing
+evidence; a source-only dependency such as a compile-time name expression may
+intentionally leave no rebuilt IL operand. A future receipt-bearing capability
+must be a separately owned complete-occurrence producer contract, not another
+field on `RoundTripMethodReplacement`.
 
 ### Closure outcome
 
@@ -853,8 +871,8 @@ Each iteration follows one ordered transition:
 1. Build an immutable typed candidate plan without treating it as product
    evidence.
 2. Recompute signature requirements, declaration-reference censuses, local
-   receipts, generated-fragment censuses, supplied-body dependency plans, and
-   every effective real-body census against the frozen reference set.
+   receipts, generated-fragment censuses, and every effective real-body census
+   against the frozen reference set.
 3. Add any supported source-local declaration roots and repeat planning. A
    final unspellable, missing, ambiguous, or incomplete provider is a policy
    refusal and produces `Declined`; it cannot add a reference from a compiler
@@ -900,12 +918,12 @@ correspondence and compares:
   identities;
 - original and rebuilt declaration-reference censuses;
 - original and rebuilt body-reference censuses for every effective real body;
-- every supplied-body dependency occurrence through its body-digest-bound plan;
 - each generated-fragment dependency with the compiler binding at its
   owner-issued source occurrence and every corresponding rebuilt destination;
 - each rebuilt local definition projected through the typed declaration plan;
-- each rebuilt external definition through the exact frozen reference
-  descriptor that supplied it;
+- each rebuilt external definition through Metadata's live
+  `DefinitionCorrespondence`, retaining the supplying descriptor and durable
+  addresses only after that comparison;
 - each deferred compiler-synthesized definition through the applicable
   owner-issued cross-reader correspondence.
 
@@ -1116,8 +1134,8 @@ blocked on their respective owner results.
 ### Milestone 2: general selected-member comparison
 
 - Support supplied replacement bodies independently of decompiler-produced
-  bodies; source-only replacements remain comparison evidence until a
-  body-digest-bound typed dependency plan is supplied.
+  bodies as comparison-only evidence. They cannot issue a compile-context
+  receipt or `Exact` under this design.
 - Reject field-initializer and aggregate property/event replacement shapes in the
   first method-addressed contract; test each rejection explicitly.
 - Consume the existing `MethodCorrespondenceResolver` for ordinary structural
@@ -1321,18 +1339,27 @@ Issue #4810 adds these named gates:
     retains Metadata's definition and accessibility evidence as `Unspellable`,
     produces pre-commit `Declined`, and cannot be converted into `Complete` by
     direct-name lookup or permissive compiler binding.
-25. `SuppliedBodyRequiresTypedDependencyEvidence` uses a replacement body with a
-    source-only same-FQN dependency that is absent from emitted IL. Source
-    without a dependency plan can compile and compare but reports
-    `FidelityUnavailable`; a digest-matched plan binds the exact external
-    definition, while a stale coordinate or local rebind remains unavailable.
-    No arm parses the supplied body.
+25. `SuppliedBodyCannotIssueReceiptWithoutCompleteOccurrenceOwner` uses a
+    replacement body with a source-only same-FQN dependency that is absent from
+    emitted IL. Its isolated comparison-only artifact compiles and both C#/IL
+    comparers report equality, yet the context remains
+    `Unavailable(SuppliedBodyOccurrenceCompletenessUnverified)` and the verdict
+    is `FidelityUnavailable`. No arm parses the supplied body or mixes it into a
+    receipt-bearing donor.
 26. `LegacyArtifactCoverageIsEmitterIssued` renders a legacy artifact with a
     primary target, sibling stub, declaration shape, and generated fragment.
     The emitter manifest exactly covers them and can support gate 14's legacy
     positive arm. Removing a participant-bearing emission, adding a raw source
     append outside `LegacyArtifactEmitter`, copying the planner's expected set,
     or reusing a manifest under another artifact digest fails the gate.
+27. `ExternalDefinitionBindingUsesMetadataCorrespondence` resolves original and
+    rebuilt same-FQN definitions under one live catalog and accepts only the
+    owner-issued `DefinitionCorrespondence.Same` arm. Different definitions,
+    duplicate-indeterminate candidates, incomparable catalogs, and stale
+    generations remain unavailable even when descriptor fields, MVIDs, or
+    tokens are copied. Retained durable addresses can re-locate definitions
+    after disposal but cannot make this gate pass without the captured owner
+    outcome.
 
 Documentation-only changes validate Markdown. Implementation milestones add the
 smallest focused product and harness checks that prove their claims.
