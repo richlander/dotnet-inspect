@@ -45,24 +45,30 @@ public sealed class DiffQueryContext
 }
 
 public sealed record DiffSectionCatalog(
-    SectionPipeline<DiffDiscoveryModel> Pipeline,
-    InspectionQueryRegistry<DiffQueryContext> QueryRegistry);
+    SectionCatalog<DiffDiscoveryModel> Sections,
+    InspectionQueryCatalog<DiffQueryContext> QueryCatalog)
+{
+    public SectionPipeline<DiffDiscoveryModel> Pipeline => Sections.Pipeline;
+}
 
 public static class DiffSections
 {
-    public static DiffSectionCatalog CreateCatalog()
-    {
-        var queryRegistry = CreateQueryRegistry();
-        return new DiffSectionCatalog(
-            CreatePipeline(queryRegistry.CostOf),
-            queryRegistry);
-    }
+    /// <summary>The reusable fixed-domain catalog for Diff queries.</summary>
+    public static InspectionQueryCatalog<DiffQueryContext> QueryCatalog { get; } =
+        BuildQueryCatalog();
+
+    /// <summary>The reusable fixed-domain catalog for Diff sections and query-demand plans.</summary>
+    public static SectionCatalog<DiffDiscoveryModel> SectionCatalog { get; } =
+        CreatePipeline().Compile();
+
+    /// <summary>The complete reusable Diff section and query catalog.</summary>
+    public static DiffSectionCatalog Catalog { get; } =
+        new(SectionCatalog, QueryCatalog);
+
+    public static DiffSectionCatalog CreateCatalog() => Catalog;
 
     public static SectionPipeline<DiffDiscoveryModel> CreatePipeline()
-    {
-        var queryRegistry = CreateQueryRegistry();
-        return CreatePipeline(queryRegistry.CostOf);
-    }
+        => CreatePipeline(QueryCatalog.CostOf);
 
     private static SectionPipeline<DiffDiscoveryModel> CreatePipeline(
         Func<InspectionQueryDefinition, InspectionCost> queryCost)
@@ -76,6 +82,9 @@ public static class DiffSections
     }
 
     public static InspectionQueryRegistry<DiffQueryContext> CreateQueryRegistry()
+        => QueryCatalog.ToBuilder();
+
+    private static InspectionQueryCatalog<DiffQueryContext> BuildQueryCatalog()
         => new InspectionQueryRegistry<DiffQueryContext>()
             .Add(
                 ApiComparisonQuery.Definition,
@@ -89,7 +98,8 @@ public static class DiffSections
             .Add(
                 ImplementationComparisonQuery.Definition,
                 static context => ImplementationComparisonQuery.Execute(
-                    context.GetImplementationComparisonInput()));
+                    context.GetImplementationComparisonInput()))
+            .Compile();
 
     public static DocumentSchema CreateSchema()
     {

@@ -146,6 +146,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Signals](assembly-audit.md): package/library signal semantics and network scope.
 - [PDB acquisition](pdb-acquisition.md): symbols and SourceLink acquisition.
 - [Untrusted data threat model](design/untrusted-data-threat-model.md): trust boundaries and security rules for inspected artifacts, network input, caches, output paths, and rendering.
+- [Inspect-web TypeScript semantic facts](design/inspect-web-typescript-semantic-facts.md):
+  one pinned TypeScript project snapshot exposed through repository-owned
+  semantic handles, queries, and explicit failure results.
 - [Bounded metadata traversal](design/bounded-metadata-traversal.md): cycle, depth, count, text-budget, failure, and verification rules for artifact-derived metadata graphs.
 - [Rendering model](design/rendering-model.md): output mode and verbosity design.
 - [Progressive disclosure](design/progressive-disclosure.md): base/domain scope,
@@ -153,9 +156,16 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Item and line limits](design/item-and-line-limits.md): target `-n`,
   range-only `--rows`, ranked `--top`, line windows, and multi-item printable
   payload behavior.
+- [Semantic row selection](design/semantic-row-selection.md): dependency-free
+  ordered-stage, strict-window, reindexing, and all-or-failure sequence
+  component.
 - [Command transitions](design/command-transition-model.md): when source, focus, operation arity, lens, traversal, or rendering changes should switch commands versus stay within one command.
 - [Row query and ordering](design/row-query-order.md): proposed field-scoped row predicates, ordering, `--top`, and schema-discoverable defaults.
 - [Product vocabulary](design/vocabulary.md): sectioned, host-neutral legal query values shared by CLI and browser/WASM.
+- [Inspection subject navigation](design/inspection-subject-navigation.md):
+  host-neutral root, Library, Type, and Member descriptors, availability,
+  initial recommendations, transitions, reconciliation, and model-checked
+  retained-session authority.
 - [Inspect Web UI](design/inspect-web-ui.md): shared website control states,
   interaction grammar, and visual composition rules.
 - [Analysis UX scopes](design/analysis-ux-scopes.md): shared analysis vocabulary across offset, member, type, and library scopes.

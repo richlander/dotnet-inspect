@@ -101,13 +101,22 @@ size. A long stack does not make a trivial slice non-trivial, and every
 non-trivial slice gets the standard review round.
 
 **A slice's head moves for reasons other than findings** — a restack, or a
-retarget after the parent lands. The fixed-head rule applies to those the same
-way: a reviewed slice whose head has moved is not ready until a review is clean
-at the *new* head. Because one restack can move every head above it, a single
-press can invalidate several reviews at once; that is the cost of the button,
-and it is paid per slice. A posted `range-diff` is what keeps each of those
-re-reviews a confirmation rather than a second full pass — without one, a
-reviewer cannot tell a restack from a rewrite.
+retarget after the parent lands. Except for the narrow bottom-slice waiver
+below, the fixed-head rule applies to those the same way: a reviewed slice
+whose head has moved is not ready until a review is clean at the *new* head.
+Because one restack can move every head above it, a single press can invalidate
+several reviews at once; that is the cost of the button, and it is paid per
+slice. A posted `range-diff` is what keeps each of those re-reviews a
+confirmation rather than a second full pass — without one, a reviewer cannot
+tell a restack from a rewrite.
+
+The only moved-stack-head exception is the bottom open slice after it targets
+`main`. If its base integration satisfies the
+[trivial-interaction waiver](../AGENTS.md#standing-adjustments) and the user
+approves that exact head, it may proceed without another review-clean round.
+That integration is not an upper-slice restack: it neither rewrites a child
+onto a newly landed parent nor changes a surviving reviewed claim. The waiver
+keeps `review-clean` absent and does not apply to any slice above the bottom.
 
 **A restack does not retire a finding.** It can destroy the exact head a
 reviewer was given, which makes "reproduce it on a clean exact-head review

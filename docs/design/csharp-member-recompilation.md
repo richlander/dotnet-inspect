@@ -959,8 +959,10 @@ converged attempt can contribute durable receipts or fidelity outcomes.
 
 #### Admission interaction model
 
-[`CompileBackAdmission.tla`](../models/CompileBackAdmission.tla), checked with
-[`CompileBackAdmission.cfg`](../models/CompileBackAdmission.cfg), models the
+[`CompileBackAdmission.tla`](../models/compile-back-admission/CompileBackAdmission.tla),
+checked with
+[`CompileBackAdmission.cfg`](../models/compile-back-admission/CompileBackAdmission.cfg),
+models the
 tools-owned planning, product-attempt, legacy-attempt, supersession, receipt,
 and verdict interaction. It deliberately abstracts reference/closure internals
 as nondeterministic transition choices; their typed meanings remain in this
