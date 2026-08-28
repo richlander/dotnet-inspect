@@ -18,6 +18,7 @@ VARIABLES
     productAdmission,
     legacyAdmission,
     productEvidenceAttempt,
+    productCoverageReceiptAttempt,
     productReceiptAttempt,
     legacyReceipt,
     verdict,
@@ -25,8 +26,8 @@ VARIABLES
 
 vars ==
     <<phase, iteration, productAdmission, legacyAdmission,
-      productEvidenceAttempt, productReceiptAttempt, legacyReceipt,
-      verdict, suppliedBody>>
+      productEvidenceAttempt, productCoverageReceiptAttempt,
+      productReceiptAttempt, legacyReceipt, verdict, suppliedBody>>
 
 Init ==
     /\ phase = "Planning"
@@ -34,6 +35,7 @@ Init ==
     /\ productAdmission = "None"
     /\ legacyAdmission = "None"
     /\ productEvidenceAttempt = -1
+    /\ productCoverageReceiptAttempt = -1
     /\ productReceiptAttempt = -1
     /\ legacyReceipt = FALSE
     /\ verdict = "None"
@@ -46,8 +48,8 @@ SuppliedBodyComparison ==
     /\ verdict' = "Unavailable"
     /\ UNCHANGED
         <<iteration, productAdmission, legacyAdmission,
-          productEvidenceAttempt, productReceiptAttempt,
-          legacyReceipt, suppliedBody>>
+          productEvidenceAttempt, productCoverageReceiptAttempt,
+          productReceiptAttempt, legacyReceipt, suppliedBody>>
 
 PlanningDeclineWithoutLegacy ==
     /\ phase = "Planning"
@@ -57,7 +59,8 @@ PlanningDeclineWithoutLegacy ==
     /\ verdict' = "Unavailable"
     /\ UNCHANGED
         <<iteration, legacyAdmission, productEvidenceAttempt,
-          productReceiptAttempt, legacyReceipt, suppliedBody>>
+          productCoverageReceiptAttempt, productReceiptAttempt,
+          legacyReceipt, suppliedBody>>
 
 PlanningDeclineToLegacy ==
     /\ phase = "Planning"
@@ -66,7 +69,8 @@ PlanningDeclineToLegacy ==
     /\ productAdmission' = "Declined"
     /\ UNCHANGED
         <<iteration, legacyAdmission, productEvidenceAttempt,
-          productReceiptAttempt, legacyReceipt, verdict, suppliedBody>>
+          productCoverageReceiptAttempt, productReceiptAttempt,
+          legacyReceipt, verdict, suppliedBody>>
 
 ProductCommit ==
     /\ phase = "Planning"
@@ -75,14 +79,26 @@ ProductCommit ==
     /\ productEvidenceAttempt' = iteration
     /\ UNCHANGED
         <<iteration, productAdmission, legacyAdmission,
-          productReceiptAttempt, legacyReceipt, verdict, suppliedBody>>
+          productCoverageReceiptAttempt, productReceiptAttempt,
+          legacyReceipt, verdict, suppliedBody>>
+
+ProductCoverageReceipt ==
+    /\ phase = "ProductAttempt"
+    /\ productCoverageReceiptAttempt = -1
+    /\ productCoverageReceiptAttempt' = iteration
+    /\ UNCHANGED
+        <<phase, iteration, productAdmission, legacyAdmission,
+          productEvidenceAttempt, productReceiptAttempt,
+          legacyReceipt, verdict, suppliedBody>>
 
 ProductExpand ==
     /\ phase = "ProductAttempt"
+    /\ productCoverageReceiptAttempt = iteration
     /\ iteration < MaxIterations
     /\ phase' = "Planning"
     /\ iteration' = iteration + 1
     /\ productEvidenceAttempt' = -1
+    /\ productCoverageReceiptAttempt' = -1
     /\ productReceiptAttempt' = -1
     /\ legacyReceipt' = FALSE
     /\ UNCHANGED
@@ -90,13 +106,15 @@ ProductExpand ==
 
 ProductBudgetFail ==
     /\ phase = "ProductAttempt"
+    /\ productCoverageReceiptAttempt = iteration
     /\ iteration = MaxIterations
     /\ phase' = "Done"
     /\ productAdmission' = "Failed"
     /\ verdict' = "Unavailable"
     /\ UNCHANGED
         <<iteration, legacyAdmission, productEvidenceAttempt,
-          productReceiptAttempt, legacyReceipt, suppliedBody>>
+          productCoverageReceiptAttempt, productReceiptAttempt,
+          legacyReceipt, suppliedBody>>
 
 ProductFail ==
     /\ phase = "ProductAttempt"
@@ -105,27 +123,41 @@ ProductFail ==
     /\ verdict' = "Unavailable"
     /\ UNCHANGED
         <<iteration, legacyAdmission, productEvidenceAttempt,
-          productReceiptAttempt, legacyReceipt, suppliedBody>>
+          productCoverageReceiptAttempt, productReceiptAttempt,
+          legacyReceipt, suppliedBody>>
 
 ProductAdmitExact ==
     /\ phase = "ProductAttempt"
+    /\ productCoverageReceiptAttempt = iteration
     /\ phase' = "Done"
     /\ productAdmission' = "Admitted"
     /\ productReceiptAttempt' = iteration
     /\ verdict' = "Exact"
     /\ UNCHANGED
         <<iteration, legacyAdmission, productEvidenceAttempt,
-          legacyReceipt, suppliedBody>>
+          productCoverageReceiptAttempt, legacyReceipt, suppliedBody>>
 
 ProductAdmitDifferent ==
     /\ phase = "ProductAttempt"
+    /\ productCoverageReceiptAttempt = iteration
     /\ phase' = "Done"
     /\ productAdmission' = "Admitted"
     /\ productReceiptAttempt' = iteration
     /\ verdict' = "Different"
     /\ UNCHANGED
         <<iteration, legacyAdmission, productEvidenceAttempt,
-          legacyReceipt, suppliedBody>>
+          productCoverageReceiptAttempt, legacyReceipt, suppliedBody>>
+
+ProductAdmitUnavailable ==
+    /\ phase = "ProductAttempt"
+    /\ productCoverageReceiptAttempt = iteration
+    /\ phase' = "Done"
+    /\ productAdmission' = "Admitted"
+    /\ productReceiptAttempt' = iteration
+    /\ verdict' = "Unavailable"
+    /\ UNCHANGED
+        <<iteration, legacyAdmission, productEvidenceAttempt,
+          productCoverageReceiptAttempt, legacyReceipt, suppliedBody>>
 
 LegacyDecline ==
     /\ phase = "LegacyPlanning"
@@ -134,15 +166,16 @@ LegacyDecline ==
     /\ verdict' = "Unavailable"
     /\ UNCHANGED
         <<iteration, productAdmission, productEvidenceAttempt,
-          productReceiptAttempt, legacyReceipt, suppliedBody>>
+          productCoverageReceiptAttempt, productReceiptAttempt,
+          legacyReceipt, suppliedBody>>
 
 LegacyCommit ==
     /\ phase = "LegacyPlanning"
     /\ phase' = "LegacyAttempt"
     /\ UNCHANGED
         <<iteration, productAdmission, legacyAdmission,
-          productEvidenceAttempt, productReceiptAttempt,
-          legacyReceipt, verdict, suppliedBody>>
+          productEvidenceAttempt, productCoverageReceiptAttempt,
+          productReceiptAttempt, legacyReceipt, verdict, suppliedBody>>
 
 LegacyFail ==
     /\ phase = "LegacyAttempt"
@@ -151,7 +184,8 @@ LegacyFail ==
     /\ verdict' = "Unavailable"
     /\ UNCHANGED
         <<iteration, productAdmission, productEvidenceAttempt,
-          productReceiptAttempt, legacyReceipt, suppliedBody>>
+          productCoverageReceiptAttempt, productReceiptAttempt,
+          legacyReceipt, suppliedBody>>
 
 LegacyAdmitExact ==
     /\ phase = "LegacyAttempt"
@@ -161,7 +195,7 @@ LegacyAdmitExact ==
     /\ verdict' = "Exact"
     /\ UNCHANGED
         <<iteration, productAdmission, productEvidenceAttempt,
-          productReceiptAttempt, suppliedBody>>
+          productCoverageReceiptAttempt, productReceiptAttempt, suppliedBody>>
 
 LegacyAdmitDifferent ==
     /\ phase = "LegacyAttempt"
@@ -171,7 +205,17 @@ LegacyAdmitDifferent ==
     /\ verdict' = "Different"
     /\ UNCHANGED
         <<iteration, productAdmission, productEvidenceAttempt,
-          productReceiptAttempt, suppliedBody>>
+          productCoverageReceiptAttempt, productReceiptAttempt, suppliedBody>>
+
+LegacyAdmitUnavailable ==
+    /\ phase = "LegacyAttempt"
+    /\ phase' = "Done"
+    /\ legacyAdmission' = "Admitted"
+    /\ legacyReceipt' = TRUE
+    /\ verdict' = "Unavailable"
+    /\ UNCHANGED
+        <<iteration, productAdmission, productEvidenceAttempt,
+          productCoverageReceiptAttempt, productReceiptAttempt, suppliedBody>>
 
 DoneStutter ==
     /\ phase = "Done"
@@ -182,16 +226,19 @@ Next ==
     \/ PlanningDeclineWithoutLegacy
     \/ PlanningDeclineToLegacy
     \/ ProductCommit
+    \/ ProductCoverageReceipt
     \/ ProductExpand
     \/ ProductBudgetFail
     \/ ProductFail
     \/ ProductAdmitExact
     \/ ProductAdmitDifferent
+    \/ ProductAdmitUnavailable
     \/ LegacyDecline
     \/ LegacyCommit
     \/ LegacyFail
     \/ LegacyAdmitExact
     \/ LegacyAdmitDifferent
+    \/ LegacyAdmitUnavailable
     \/ DoneStutter
 
 TypeOK ==
@@ -200,6 +247,7 @@ TypeOK ==
     /\ productAdmission \in ProductAdmissions
     /\ legacyAdmission \in LegacyAdmissions
     /\ productEvidenceAttempt \in -1..MaxIterations
+    /\ productCoverageReceiptAttempt \in -1..MaxIterations
     /\ productReceiptAttempt \in -1..MaxIterations
     /\ legacyReceipt \in BOOLEAN
     /\ verdict \in Verdicts
@@ -229,6 +277,14 @@ ReceiptRequiresAdmission ==
     /\ (productReceiptAttempt = -1 \/ productAdmission = "Admitted")
     /\ (~legacyReceipt \/ legacyAdmission = "Admitted")
 
+CoverageReceiptMatchesAttempt ==
+    productCoverageReceiptAttempt = -1
+    \/ productCoverageReceiptAttempt = iteration
+
+ProductAdmissionRequiresCoverage ==
+    productAdmission # "Admitted"
+    \/ productCoverageReceiptAttempt = iteration
+
 AttemptEvidenceMatchesPhase ==
     /\ (phase # "ProductAttempt" \/ productEvidenceAttempt = iteration)
     /\ (phase # "Planning" \/ productEvidenceAttempt = -1)
@@ -237,6 +293,11 @@ SupersededAttemptClearsReceipt ==
     phase # "Planning"
     \/ iteration = 0
     \/ productReceiptAttempt = -1
+
+SupersededAttemptClearsCoverage ==
+    phase # "Planning"
+    \/ iteration = 0
+    \/ productCoverageReceiptAttempt = -1
 
 SupersededAttemptClearsEvidence ==
     phase # "Planning"

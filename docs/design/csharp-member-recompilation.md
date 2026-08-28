@@ -477,7 +477,7 @@ The owner consumes, but does not redefine:
 - compiler diagnostics and rebuilt PE bytes from the tools compiler adapter;
 - C# and IL comparison results from their existing owners.
 
-Four adjacent-owner prerequisites are now explicit:
+Five adjacent-owner prerequisites are now explicit:
 
 - [#4881](https://github.com/richlander/dotnet-inspect/issues/4881) is the
   `ILInspector.CSharp` design for an artifact-digest-bound participant manifest.
@@ -495,6 +495,10 @@ Four adjacent-owner prerequisites are now explicit:
   the landed `ILInspector.Metadata` signature-spellability aggregate. Current
   `SignatureSpellabilityResult` collapses the result to `CanSpell` plus decode
   status and cannot supply the closed evidence consumed here.
+- [#4916](https://github.com/richlander/dotnet-inspect/issues/4916) implements
+  the artifact owner's on-demand digest over retained immutable content.
+  Current artifact sessions expose `OpenRead`, while the owning design reserves
+  digest authority to the session and marks this API unverified.
 
 These prerequisites do not transfer their owners' construction, validation,
 identity, or failure semantics into tools. The compile-back implementation may
@@ -528,6 +532,13 @@ Each `CompileReferenceDescriptor` records:
 - inert source-path or remote-location provenance, when available;
 - aliases and embed-interop role;
 - whether platform policy authorized it as a trusted platform reference.
+
+Every descriptor digest is the owner-issued result from
+[#4916](https://github.com/richlander/dotnet-inspect/issues/4916), computed over
+the same retained bytes later supplied to Metadata and Roslyn. Until that
+capability exists, digest-dependent reference selection is a pre-commit refusal;
+tools do not hash a mutable path or independently opened stream to fill the
+field.
 
 The selected set records the current source artifact separately, including its
 acquisition registration, retained snapshot, digest, and module identity. The
@@ -877,13 +888,13 @@ Each iteration follows one ordered transition:
    final unspellable, missing, ambiguous, or incomplete provider is a policy
    refusal and produces `Declined`; it cannot add a reference from a compiler
    search path.
-4. Check the pre-attempt owner capabilities required by this exact plan: the
-   artifact manifest, and generated-definition correspondence when the plan
-   carries those obligations. If one is unavailable, produce pre-commit
-   `Declined` with that exact capability reason; this is distinct from static
-   closure `Incomplete`. Otherwise, after static closure is `Complete`, cross
-   `ProductAttemptCommit` for that exact plan and invoke product artifact
-   production.
+4. Check the pre-attempt owner capabilities required by this exact plan:
+   retained-content digests, the artifact manifest, and generated-definition
+   correspondence when the plan carries those obligations. If one is
+   unavailable, produce pre-commit `Declined` with that exact capability reason;
+   this is distinct from static closure `Incomplete`. Otherwise, after static
+   closure is `Complete`, cross `ProductAttemptCommit` for that exact plan and
+   invoke product artifact production.
 5. Bind the returned participant manifest to the exact source-artifact digest
    and compare it with `ArtifactParticipantPlan`. A missing or mismatched
    manifest produces `Failed`. Exact coverage issues
@@ -925,19 +936,29 @@ TLC checks:
 - every fair execution terminates;
 - `Exact` has the current product-attempt receipt or an independently admitted
   legacy receipt;
+- admitted product and legacy attempts may still report an unavailable
+  comparison verdict;
 - product `Failed` never transitions through legacy evidence;
 - a supplied-body comparison never reports `Exact`;
-- supersession clears the earlier product receipt; and
+- supersession clears attempt-bound coverage receipts and partial evidence; and
 - receipts exist only for the matching admitted policy.
 
 The model result is evidence about this interaction contract, not the
 implementation. The named Release gates below remain the implementation proof.
 
-TLC 2.19 checked the configuration with no errors: 64 states generated, 38
-distinct states, and a maximum depth of 8. The first model pass exposed that the
-terminal `Done` state needed an explicit stutter action for TLC's deadlock check;
-adding that action made the intended terminal behavior explicit. No safety or
-liveness counterexample was found.
+TLC 2.19 checked the configuration with no errors: 85 states generated, 50
+distinct states, and a maximum depth of 10. Action coverage reached
+`ProductCoverageReceipt`, `ProductAdmitUnavailable`, and
+`LegacyAdmitUnavailable` three times each and `ProductExpand` twice. A mutation
+that preserves the earlier coverage receipt across `ProductExpand` violates
+`CoverageReceiptMatchesAttempt`.
+
+The first model pass exposed that the terminal `Done` state needed an explicit
+stutter action for TLC's deadlock check. A later review rejected the 38-state
+model because it created product receipts only at terminal admission, making
+receipt invalidation on supersession vacuous. The current model adds the
+non-terminal attempt-bound coverage receipt and the load-bearing mutation above.
+No safety or liveness counterexample remains.
 
 ### Rebuilt binding receipt
 
@@ -1036,9 +1057,9 @@ planning transition:
 
 - `Declined` is the pre-`ProductAttemptCommit` policy refusal from reference
   selection, declaration planning, closure, local requirements, Metadata
-  aggregate capability, artifact-manifest capability, or required
-  generated-correspondence capability. It carries the typed reasons and
-  selected legacy policy, when permitted.
+  aggregate capability, retained-content digest capability, artifact-manifest
+  capability, or required generated-correspondence capability. It carries the
+  typed reasons and selected legacy policy, when permitted.
 - `Failed` when artifact production, compilation, rebuilt resolution, or
   binding fails after `ProductAttemptCommit`, including participant-manifest
   mismatch, a stalled post-commit diagnostic, and root/iteration budget
@@ -1101,7 +1122,7 @@ signature-only shortcut.
 | --- | --- |
 | Selection | target missing, ambiguous overload, unsupported member kind |
 | Artifact production | unsupported declaration, partial body, missing manifest, participant mismatch |
-| Reference selection | exact set, missing identity, ambiguous candidates, changed bytes |
+| Reference selection | exact set, missing identity, owner digest unavailable, ambiguous candidates, changed bytes |
 | Closure | complete, unspellable, missing requirement, ambiguous provider, incomplete census |
 | Post-commit convergence | expandable diagnostic, stalled closure, root budget, iteration budget |
 | Compilation | parse failure, bind failure, emit failure |
@@ -1125,11 +1146,14 @@ No layer converts failure or unavailability into an empty successful result.
   compiler-generated cross-reader definition correspondence.
 - [#4885](https://github.com/richlander/dotnet-inspect/issues/4885) implements
   the Metadata signature-spellability aggregate designed by #4809 and PR #4821.
+- [#4916](https://github.com/richlander/dotnet-inspect/issues/4916) implements
+  owner-mediated retained-content digests.
 
 Milestone 1 may add explicit `Declined`/unavailable arms before these issues
 land. Its positive artifact-coverage, generated-fragment, and
 compiler-synthesized receipts and differentiated signature outcomes remain
-blocked on their respective owner results.
+blocked on their respective owner results. All digest-bound positive paths are
+also blocked on #4916.
 
 ### Milestone 1: extract round-trip compilation
 
@@ -1394,6 +1418,12 @@ Issue #4810 adds these named gates:
     tokens are copied. Retained durable addresses can re-locate definitions
     after disposal but cannot make this gate pass without the captured owner
     outcome.
+28. `CompileReferenceDigestComesFromRetainedArtifactOwner` declines before
+    selection while #4916's capability is unavailable. With the owner result,
+    the descriptor digest matches the retained bytes opened under the same query
+    lease. Hashing a mutable path, hashing an independently reopened stream, or
+    supplying a consumer-computed digest fails the architecture arm; replacing
+    the source after retention does not change the owner digest.
 
 Documentation-only changes validate Markdown. Implementation milestones add the
 smallest focused product and harness checks that prove their claims.
