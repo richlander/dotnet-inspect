@@ -601,6 +601,13 @@ lists them.
 portable `AnnotatedSourceDocument` contract, and `QueryMemberAnnotatedSource` now
 feeds it a real document.
 
+The proposed
+[Annotated Source viewer interaction](../../docs/design/annotated-source-viewer-interaction.md)
+design owns disclosure, actions, selection, annotations, media, Escape, and
+focus inside the embedded reader and modal viewer. The shared
+[Inspect Web UI](../../docs/design/inspect-web-ui.md) design continues to own
+modal composition, browser-history behavior, and destination focus.
+
 The viewer reuses the owner's module rather than copying it.
 `prototypes/annotated-source-viewer/src/document-model.js` owns validation,
 UTF-16 coordinates, line derivation, segmentation, and the fact → target → node →
