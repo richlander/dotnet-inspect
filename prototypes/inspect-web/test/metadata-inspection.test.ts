@@ -308,7 +308,8 @@ test("explorer windows route package coordinates and publish errors", async () =
   assert.deepEqual(events, ["render", "render", "scroll"]);
   assert.equal(explorer.windows[2]?.loading, false);
   assert.equal(explorer.windows[2]?.error, "malformed row");
-  assert.equal(explorer.windows[2]?.data?.startRowId, 51);
+  assert.equal(explorer.windows[2]?.data, null);
+  assert.equal(explorer.windows[2]?.startRowId, 51);
 });
 
 test("explorer window failures remain visible for the current explorer", async () => {
@@ -332,6 +333,31 @@ test("explorer window failures remain visible for the current explorer", async (
   assert.equal(explorer.windows[2]?.data, null);
   assert.equal(renders, 2);
   assert.equal(scrolls, 1);
+});
+
+test("explorer typed table failures remain visible and can retry", async () => {
+  const explorer = explorerState({ focusIndex: 2 });
+  const state = inspectionState({ explorer });
+  let queries = 0;
+  const coordinator = createMetadataInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPackageTable: async (_requestExplorer, index) => {
+        queries++;
+        return tableResult(
+          index,
+          1,
+          "Assembly unavailable: InvalidImage.");
+      },
+    }));
+
+  await coordinator.loadExplorerWindow(2, 101, 50);
+  await coordinator.loadExplorerWindow(2, 101, 50);
+
+  assert.equal(queries, 2);
+  assert.equal(
+    explorer.windows[2]?.error,
+    "Assembly unavailable: InvalidImage.");
+  assert.equal(explorer.windows[2]?.data, null);
 });
 
 test("explorer window completion cannot publish after explorer replacement", async () => {
@@ -358,6 +384,87 @@ test("explorer window completion cannot publish after explorer replacement", asy
   assert.equal(explorer.windows[2]?.loading, true);
   assert.equal(renders, 1);
   assert.equal(scrolls, 0);
+});
+
+test("newer explorer window requests suppress stale completions", async () => {
+  const explorer = explorerState();
+  const first = deferred<ExplorerTableData>();
+  const second = deferred<ExplorerTableData>();
+  const starts: number[] = [];
+  let renders = 0;
+  let scrolls = 0;
+  const state = inspectionState({ explorer });
+  const coordinator = createMetadataInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPackageTable: async (_requestExplorer, index, startRowId) => {
+        starts.push(startRowId);
+        return startRowId === 1 ? first.promise : second.promise;
+      },
+      render: () => renders++,
+      scrollExplorerToFocus: () => scrolls++,
+    }));
+
+  const firstLoad = coordinator.loadExplorerWindow(2, 1, 50);
+  await coordinator.loadExplorerWindow(2, 1, 50);
+  const secondLoad = coordinator.loadExplorerWindow(2, 101, 50);
+  first.resolve(tableResult(2, 1));
+  await firstLoad;
+
+  assert.deepEqual(starts, [1, 101]);
+  assert.equal(explorer.windows[2]?.loading, true);
+  assert.equal(explorer.windows[2]?.startRowId, 101);
+  assert.equal(explorer.windows[2]?.data, null);
+  assert.equal(renders, 2);
+  assert.equal(scrolls, 0);
+
+  second.resolve(tableResult(2, 101));
+  await secondLoad;
+
+  assert.equal(explorer.windows[2]?.loading, false);
+  assert.equal(state.explorer?.windows[2]?.data?.startRowId, 101);
+  assert.equal(renders, 3);
+  assert.equal(scrolls, 1);
+});
+
+test("a focused retained window supersedes the pending range", async () => {
+  const explorer = explorerState({
+    windows: {
+      2: {
+        loading: false,
+        error: "",
+        data: tableResult(2, 1),
+        startRowId: 1,
+        maxRows: 50,
+      },
+    },
+  });
+  const nextPage = deferred<ExplorerTableData>();
+  const focusedPage = deferred<ExplorerTableData>();
+  const starts: number[] = [];
+  const state = inspectionState({ explorer });
+  const coordinator = createMetadataInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPackageTable: async (_requestExplorer, _index, startRowId) => {
+        starts.push(startRowId);
+        return startRowId === 51 ? nextPage.promise : focusedPage.promise;
+      },
+    }));
+
+  const nextPageLoad = coordinator.loadExplorerWindow(2, 51, 50);
+  assert.equal(explorer.windows[2]?.data?.startRowId, 1);
+
+  const focusLoad = coordinator.loadExplorerWindow(2, 1, 50);
+  assert.deepEqual(starts, [51, 1]);
+
+  nextPage.resolve(tableResult(2, 51));
+  await nextPageLoad;
+  assert.equal(explorer.windows[2]?.loading, true);
+  assert.equal(explorer.windows[2]?.startRowId, 1);
+
+  focusedPage.resolve(tableResult(2, 1));
+  await focusLoad;
+  assert.equal(explorer.windows[2]?.loading, false);
+  assert.equal(explorer.windows[2]?.data?.startRowId, 1);
 });
 
 test("explorer window cache requires the same row range", async () => {
@@ -464,4 +571,30 @@ test("explorer heap failures remain visible for the current explorer", async () 
   assert.equal(explorer.heapWindows.Blob?.data, null);
   assert.equal(renders, 2);
   assert.equal(scrolls, 1);
+});
+
+test("explorer typed heap failures remain visible and can retry", async () => {
+  const explorer = explorerState({ focusHeap: "String" });
+  const state = inspectionState({ explorer });
+  let queries = 0;
+  const coordinator = createMetadataInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPackageHeap: async () => {
+        queries++;
+        return {
+          ...heapResult(),
+          coverage: "NotEnumerable",
+          error: "InvalidImage: identity mismatch",
+        };
+      },
+    }));
+
+  await coordinator.loadExplorerHeap("String");
+  await coordinator.loadExplorerHeap("String");
+
+  assert.equal(queries, 2);
+  assert.equal(
+    explorer.heapWindows.String?.error,
+    "InvalidImage: identity mismatch");
+  assert.equal(explorer.heapWindows.String?.data, null);
 });
