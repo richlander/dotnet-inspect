@@ -141,10 +141,10 @@ to check stateful or concurrent interactions that are hard to reason about in
 prose alone.
 
 Keep each model in its own directory, normally under `docs/models/` or the
-owning design's `models/` directory. Store the `.tla` module, its `.cfg`
-configurations, model `README.md`, and local exclusions for generated TLC
-artifacts together; do not place standalone model files in the parent models
-directory or combine unrelated models in one directory.
+owning design's `models/` directory. Keep its `.tla` module and any companion
+`.cfg` configurations, model `README.md`, or local exclusions for generated
+TLC artifacts together; do not place standalone model files in the parent
+models directory or combine unrelated models in one directory.
 
 The following table is a user-curated set of at most six merged examples, not
 an inventory of repository models. It is intentionally incomplete.
