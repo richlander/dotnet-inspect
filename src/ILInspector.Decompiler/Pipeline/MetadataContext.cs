@@ -168,6 +168,32 @@ public sealed class MetadataContext : IDisposable
         return context.Resolve(request);
     }
 
+    /// <summary>
+    /// Resolves both requests in one frozen catalog generation and accepts only
+    /// exact catalog-issued correspondence. Duplicate artifacts remain
+    /// indeterminate and therefore do not compare equal.
+    /// </summary>
+    internal bool ResolveToSameDefinition(
+        ResolvedAssemblyReference leftRoot,
+        TypeResolutionRequest leftRequest,
+        ResolvedAssemblyReference rightRoot,
+        TypeResolutionRequest rightRequest)
+    {
+        using TypeResolutionContext context =
+            _typeResolutionCatalog.CreateContext(
+                _bindingPolicy,
+                [leftRoot, rightRoot],
+                [leftRequest, rightRequest]);
+        TypeResolutionOutcome leftOutcome = context.Resolve(leftRequest);
+        TypeResolutionOutcome rightOutcome = context.Resolve(rightRequest);
+        return leftOutcome is TypeResolutionOutcome.Resolved left
+            && rightOutcome is TypeResolutionOutcome.Resolved right
+            && _typeResolutionCatalog.Compare(
+                left.Definition.Key,
+                right.Definition.Key)
+                is DefinitionCorrespondence.Same;
+    }
+
     internal ResolvedTypeDefinition? ResolveCoreLibraryDefinition(
         ResolvedAssemblyReference root,
         MetadataTypeDefinitionName type)

@@ -636,6 +636,7 @@ internal sealed class CrossAssemblyTypeResolver
                     callee,
                     allowCoreLibraryAliases,
                     type.ResolutionAssembly,
+                    definition.Assembly.Assembly,
                     out var parameterRefKinds,
                     out var declaredReturnType))
                     continue;
@@ -759,13 +760,14 @@ internal sealed class CrossAssemblyTypeResolver
             },
         };
 
-    static bool TryMatchMethod(
+    bool TryMatchMethod(
         MetadataReader reader,
         TypeDefinition declaringType,
         MethodDefinition method,
         MethodRef callee,
         bool allowCoreLibraryAliases,
         AssemblyReferenceIdentity? resolvedLocalBindingIdentity,
+        ResolvedAssemblyReference resolvedAssembly,
         out ParameterRefKindResult parameterRefKinds,
         out TypeRef declaredReturnType)
     {
@@ -795,7 +797,11 @@ internal sealed class CrossAssemblyTypeResolver
                 allowCoreLibraryAliases,
                 localAssembly,
                 localAssemblyIdentity,
-                resolvedLocalBindingIdentity))
+                resolvedLocalBindingIdentity,
+                (resolved, expected) => SameBoundDefinition(
+                    resolved,
+                    expected,
+                    resolvedAssembly)))
             {
                 return false;
             }
@@ -808,7 +814,11 @@ internal sealed class CrossAssemblyTypeResolver
             allowCoreLibraryAliases,
             localAssembly,
             localAssemblyIdentity,
-            resolvedLocalBindingIdentity))
+            resolvedLocalBindingIdentity,
+            (resolved, expected) => SameBoundDefinition(
+                resolved,
+                expected,
+                resolvedAssembly)))
             return false;
         declaredReturnType = signature.ReturnType;
 
@@ -827,7 +837,11 @@ internal sealed class CrossAssemblyTypeResolver
                     allowCoreLibraryAliases,
                     localAssembly,
                     localAssemblyIdentity,
-                    resolvedLocalBindingIdentity))
+                    resolvedLocalBindingIdentity,
+                    (resolved, expected) => SameBoundDefinition(
+                        resolved,
+                        expected,
+                        resolvedAssembly)))
                 {
                     return false;
                 }
@@ -843,7 +857,11 @@ internal sealed class CrossAssemblyTypeResolver
                 allowCoreLibraryAliases,
                 localAssembly,
                 localAssemblyIdentity,
-                resolvedLocalBindingIdentity))
+                resolvedLocalBindingIdentity,
+                (resolved, expected) => SameBoundDefinition(
+                    resolved,
+                    expected,
+                    resolvedAssembly)))
                 return false;
             parameters.Add(parameter);
         }
@@ -852,13 +870,34 @@ internal sealed class CrossAssemblyTypeResolver
         return true;
     }
 
+    bool SameBoundDefinition(
+        TypeRef resolved,
+        TypeRef expected,
+        ResolvedAssemblyReference resolvedAssembly)
+        => TryCreateReferenceResolutionRequest(
+                resolved,
+                resolvedAssembly,
+                out ResolvedAssemblyReference resolvedRoot,
+                out TypeResolutionRequest resolvedRequest)
+            && TryCreateReferenceResolutionRequest(
+                expected,
+                localAssembly: null,
+                out ResolvedAssemblyReference expectedRoot,
+                out TypeResolutionRequest expectedRequest)
+            && _context.ResolveToSameDefinition(
+                resolvedRoot,
+                resolvedRequest,
+                expectedRoot,
+                expectedRequest);
+
     internal static bool SameSignatureType(
         TypeRef resolved,
         TypeRef expected,
         bool allowCoreLibraryAliases,
         string? resolvedLocalAssembly = null,
         AssemblyReferenceIdentity? resolvedLocalAssemblyIdentity = null,
-        AssemblyReferenceIdentity? resolvedLocalBindingIdentity = null)
+        AssemblyReferenceIdentity? resolvedLocalBindingIdentity = null,
+        Func<TypeRef, TypeRef, bool>? sameBoundDefinition = null)
     {
         if (resolved.Kind != expected.Kind)
             return false;
@@ -868,7 +907,8 @@ internal sealed class CrossAssemblyTypeResolver
             allowCoreLibraryAliases,
             resolvedLocalAssembly,
             resolvedLocalAssemblyIdentity,
-            resolvedLocalBindingIdentity))
+            resolvedLocalBindingIdentity,
+            sameBoundDefinition))
         {
             return false;
         }
@@ -889,7 +929,7 @@ internal sealed class CrossAssemblyTypeResolver
                     return true;
                 }
                 if (resolved.Assembly != expected.Assembly)
-                    return false;
+                    return sameBoundDefinition?.Invoke(resolved, expected) == true;
                 // Trusted platform assemblies are resolved version-agnostically,
                 // and their facades share one canonical core-library identity.
                 if (allowCoreLibraryAliases || resolved.Assembly == TypeRef.CoreLibrary)
@@ -903,7 +943,7 @@ internal sealed class CrossAssemblyTypeResolver
                     resolvedAssembly = resolvedLocalAssemblyIdentity;
                     resolvedFromLocalAssembly = true;
                 }
-                return (resolvedAssembly, expected.ResolutionAssembly) switch
+                bool sameMetadataIdentity = (resolvedAssembly, expected.ResolutionAssembly) switch
                 {
                     (null, null) => true,
                     ({ } actual, { } expectedAssembly)
@@ -913,6 +953,8 @@ internal sealed class CrossAssemblyTypeResolver
                                 && bindingIdentity.IsEquivalentTo(expectedAssembly),
                     _ => false,
                 };
+                return sameMetadataIdentity
+                    || sameBoundDefinition?.Invoke(resolved, expected) == true;
             case TypeRefKind.GenericInstance:
                 if (!SameSignatureType(
                         resolved.ElementType!,
@@ -920,7 +962,8 @@ internal sealed class CrossAssemblyTypeResolver
                         allowCoreLibraryAliases,
                         resolvedLocalAssembly,
                         resolvedLocalAssemblyIdentity,
-                        resolvedLocalBindingIdentity)
+                        resolvedLocalBindingIdentity,
+                        sameBoundDefinition)
                     || resolved.TypeArguments.Length != expected.TypeArguments.Length)
                     return false;
                 for (int i = 0; i < resolved.TypeArguments.Length; i++)
@@ -930,7 +973,8 @@ internal sealed class CrossAssemblyTypeResolver
                         allowCoreLibraryAliases,
                         resolvedLocalAssembly,
                         resolvedLocalAssemblyIdentity,
-                        resolvedLocalBindingIdentity))
+                        resolvedLocalBindingIdentity,
+                        sameBoundDefinition))
                         return false;
                 return true;
             case TypeRefKind.SzArray or TypeRefKind.Pointer or TypeRefKind.Pinned or TypeRefKind.ByRef:
@@ -940,7 +984,8 @@ internal sealed class CrossAssemblyTypeResolver
                     allowCoreLibraryAliases,
                     resolvedLocalAssembly,
                     resolvedLocalAssemblyIdentity,
-                    resolvedLocalBindingIdentity);
+                    resolvedLocalBindingIdentity,
+                    sameBoundDefinition);
             case TypeRefKind.Array:
                 return resolved.Rank == expected.Rank
                     && SameSignatureType(
@@ -949,7 +994,8 @@ internal sealed class CrossAssemblyTypeResolver
                         allowCoreLibraryAliases,
                         resolvedLocalAssembly,
                         resolvedLocalAssemblyIdentity,
-                        resolvedLocalBindingIdentity);
+                        resolvedLocalBindingIdentity,
+                        sameBoundDefinition);
             case TypeRefKind.FunctionPointer:
                 if (resolved.CallingConvention != expected.CallingConvention
                     || !SameSignatureType(
@@ -958,7 +1004,8 @@ internal sealed class CrossAssemblyTypeResolver
                         allowCoreLibraryAliases,
                         resolvedLocalAssembly,
                         resolvedLocalAssemblyIdentity,
-                        resolvedLocalBindingIdentity)
+                        resolvedLocalBindingIdentity,
+                        sameBoundDefinition)
                     || resolved.TypeArguments.Length != expected.TypeArguments.Length
                     || resolved.FunctionPointerParameterRefKinds.Length != expected.FunctionPointerParameterRefKinds.Length)
                     return false;
@@ -969,7 +1016,8 @@ internal sealed class CrossAssemblyTypeResolver
                         allowCoreLibraryAliases,
                         resolvedLocalAssembly,
                         resolvedLocalAssemblyIdentity,
-                        resolvedLocalBindingIdentity))
+                        resolvedLocalBindingIdentity,
+                        sameBoundDefinition))
                         return false;
                 for (int i = 0; i < resolved.FunctionPointerParameterRefKinds.Length; i++)
                     if (resolved.FunctionPointerParameterRefKinds[i] != expected.FunctionPointerParameterRefKinds[i])
@@ -997,7 +1045,8 @@ internal sealed class CrossAssemblyTypeResolver
         bool allowCoreLibraryAliases,
         string? resolvedLocalAssembly,
         AssemblyReferenceIdentity? resolvedLocalAssemblyIdentity,
-        AssemblyReferenceIdentity? resolvedLocalBindingIdentity)
+        AssemblyReferenceIdentity? resolvedLocalBindingIdentity,
+        Func<TypeRef, TypeRef, bool>? sameBoundDefinition)
     {
         if (resolved.CustomModifiers.Length != expected.CustomModifiers.Length)
             return false;
@@ -1012,7 +1061,8 @@ internal sealed class CrossAssemblyTypeResolver
                     allowCoreLibraryAliases,
                     resolvedLocalAssembly,
                     resolvedLocalAssemblyIdentity,
-                    resolvedLocalBindingIdentity))
+                    resolvedLocalBindingIdentity,
+                    sameBoundDefinition))
             {
                 return false;
             }
@@ -1152,55 +1202,86 @@ internal sealed class CrossAssemblyTypeResolver
         TypeRef type,
         ResolvedAssemblyReference? localAssembly = null)
     {
-        MetadataTypeDefinitionName? definitionName = type.DefinitionName;
-        AssemblyReferenceIdentity? resolutionAssembly = type.ResolutionAssembly;
-        if (definitionName is null)
+        if (type.Assembly == TypeRef.CoreLibrary)
         {
-            if (!TryResolutionIdentity(
-                type,
-                out definitionName,
-                out resolutionAssembly))
+            MetadataTypeDefinitionName? definitionName =
+                type.DefinitionName;
+            if (definitionName is null
+                && !TryResolutionIdentity(
+                    type,
+                    out definitionName,
+                    out _))
             {
                 return null;
             }
+            return _context.ResolveCoreLibraryDefinition(
+                localAssembly ?? _selfAssembly,
+                definitionName);
         }
-        else if (type.Assembly != TypeRef.CoreLibrary
-            && resolutionAssembly is null
-            && localAssembly is null)
+
+        if (!TryCreateReferenceResolutionRequest(
+                type,
+                localAssembly,
+                out ResolvedAssemblyReference root,
+                out TypeResolutionRequest request))
         {
             return null;
         }
 
-        TypeResolutionRequest request;
+        TypeResolutionOutcome outcome =
+            _context.Resolve(root, request);
+        return outcome is TypeResolutionOutcome.Resolved resolved
+            ? resolved.Definition
+            : null;
+    }
+
+    bool TryCreateReferenceResolutionRequest(
+        TypeRef type,
+        ResolvedAssemblyReference? localAssembly,
+        out ResolvedAssemblyReference root,
+        out TypeResolutionRequest request)
+    {
+        root = localAssembly ?? _selfAssembly;
+        request = null!;
+        if (type.Assembly == TypeRef.CoreLibrary)
+            return false;
+
+        MetadataTypeDefinitionName? definitionName = type.DefinitionName;
+        AssemblyReferenceIdentity? resolutionAssembly =
+            type.ResolutionAssembly;
+        if (definitionName is null)
+        {
+            if (!TryResolutionIdentity(
+                    type,
+                    out definitionName,
+                    out resolutionAssembly))
+            {
+                return false;
+            }
+        }
+        else if (resolutionAssembly is null && localAssembly is null)
+        {
+            return false;
+        }
+
         if (localAssembly is not null && resolutionAssembly is null)
         {
             request = TypeResolutionRequest.FromAssembly(
                 localAssembly,
                 ScopeFor(type),
                 definitionName);
-        }
-        else if (type.Assembly == TypeRef.CoreLibrary)
-        {
-            return _context.ResolveCoreLibraryDefinition(
-                _selfAssembly,
-                definitionName);
-        }
-        else
-        {
-            if (resolutionAssembly is not { } identity)
-                return null;
-            request = TypeResolutionRequest.FromReference(
-                identity,
-                AssemblyBindingOrigin.FromAssembly(_selfAssembly),
-                ScopeFor(type),
-                definitionName);
+            return true;
         }
 
-        TypeResolutionOutcome outcome =
-            _context.Resolve(_selfAssembly, request);
-        return outcome is TypeResolutionOutcome.Resolved resolved
-            ? resolved.Definition
-            : null;
+        if (resolutionAssembly is not { } identity)
+            return false;
+
+        request = TypeResolutionRequest.FromReference(
+            identity,
+            AssemblyBindingOrigin.FromAssembly(root),
+            ScopeFor(type),
+            definitionName);
+        return true;
     }
 
     static AssemblyResolutionScope ScopeFor(TypeRef type) =>
