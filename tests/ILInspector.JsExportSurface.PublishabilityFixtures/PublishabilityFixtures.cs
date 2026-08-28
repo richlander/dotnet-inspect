@@ -63,6 +63,16 @@ public static partial class WrapperPrefixCollisionFixture
     public static int Foo_Bar(int value) => value + 2;
 }
 
+[SupportedOSPlatform("browser")]
+public static partial class OverloadedExportFixture
+{
+    [JSExport]
+    public static string Identify(int value) => $"int:{value}";
+
+    [JSExport]
+    public static string Identify(string value) => $"string:{value}";
+}
+
 public static partial class NestedExportContainer
 {
     [SupportedOSPlatform("browser")]

@@ -314,6 +314,20 @@ internal static class DetectionTestSuite
                 FormatValues(webDependency));
         }
 
+        Dictionary<string, string> manifestQueryDependency = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "src/DotnetInspector.Queries/PackageManifestFactsQuery.cs",
+            outputs);
+        if (manifestQueryDependency["code"] != "true"
+            || manifestQueryDependency["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Package-manifest query canary did not select code and web: "
+                + FormatValues(manifestQueryDependency));
+        }
+
         Dictionary<string, string> sharedWebCompileInput = RunDetection(
             repository,
             body,
