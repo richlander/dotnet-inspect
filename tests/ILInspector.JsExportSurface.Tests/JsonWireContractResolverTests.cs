@@ -419,7 +419,13 @@ public sealed class JsonWireContractResolverTests
         Assert.True(resultSink.IsComplete);
         Assert.Equal("MoveNext", resultSink.EvidenceMethod.Name);
         Assert.NotEqual(resultSink.Caller, resultSink.EvidenceMethod);
-        Assert.Equal(export, resultSink.AsyncStateMachineSource);
+        AsyncBodyAttribution asyncBody =
+            Assert.IsType<AsyncBodyAttribution>(
+                resultSink.AsyncBody);
+        Assert.Equal(
+            AsyncLoweringKind.StateMachine,
+            asyncBody.Lowering);
+        Assert.Equal(export, asyncBody.SourceMethod);
         Assert.Equal(
             export,
             bodyIndex.ResolveDeclaredMethod(resultSink.EvidenceMethod));

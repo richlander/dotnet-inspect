@@ -610,6 +610,26 @@ public enum MethodResultSinkKind
 }
 
 /// <summary>
+/// The compiler lowering used by an authenticated async method body.
+/// </summary>
+public enum AsyncLoweringKind
+{
+    /// <summary>The method executes directly under runtime async.</summary>
+    Runtime,
+
+    /// <summary>The method executes through a compiler-generated state machine.</summary>
+    StateMachine,
+}
+
+/// <summary>
+/// Analysis-owned attribution from a physical async body to its exact source
+/// method and lowering.
+/// </summary>
+public sealed record AsyncBodyAttribution(
+    MethodIdentity SourceMethod,
+    AsyncLoweringKind Lowering);
+
+/// <summary>
 /// Conservative, physical-body evidence for the direct-call producers of a
 /// method-result sink.
 /// </summary>
@@ -638,13 +658,20 @@ public sealed record MethodResultSink(
     bool IsComplete)
 {
     /// <summary>
-    /// Direct async source method authenticated by Analysis for this physical
-    /// state-machine body. Null when the body is not a proven async
-    /// state-machine execution body.
-    /// <c>JsonWireContractResolverTests.Build_RejectsUnrelatedAsyncBuilderResultSink</c>
-    /// gates the consumer boundary.
+    /// Exact source method and lowering authenticated by Analysis for this
+    /// physical async body. Runtime-async bodies name their own physical
+    /// method; state-machine bodies name their kickoff source. Null when the
+    /// body is not proven async evidence.
+    /// <c>LibraryBodyIndexTests.ResultSinks_PublishRuntimeAsyncBodyAttribution</c>
+    /// and
+    /// <c>LibraryBodyIndexTests.ResultSinks_PublishStateMachineAsyncBodyAttribution</c>
+    /// gate both lowering forms;
+    /// <c>LibraryBodyIndexTests.ResultSinks_DoNotAttributeSynchronousIteratorBodiesAsAsync</c>
+    /// gates the close negative.
+    /// <c>JsonWireContractResolverTests.Build_ResolvesRegisteredStringArrayAfterAwait</c>
+    /// gates the compiler-state-machine consumer path.
     /// </summary>
-    public MethodIdentity? AsyncStateMachineSource { get; init; }
+    public AsyncBodyAttribution? AsyncBody { get; init; }
 
     /// <summary>
     /// The resolved provenance union for the sink value, independent of the
