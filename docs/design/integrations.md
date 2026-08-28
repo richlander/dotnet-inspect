@@ -709,11 +709,14 @@ Zero is displayable only when the source-participant attempt is healthy, every
 producer-policy attempt for that participant whose requirement names the cell's
 concept is `Completed`, and every candidate attempt addressed to that
 participant's source evidence, binding context, and concept is complete. A
-failure makes that participant/concept domain incomplete without contaminating
-healthy cells for another participant or concept. An unavailable or failed
-attempt has an explicit incomplete cell state and is never rendered as zero or
-omitted as if no Integration were observed. Matrix ordering derives from
-workspace participant and context order plus concept-catalog order, not
+producer-policy `Unavailable` or `Failed` receipt makes its
+participant/concept domain incomplete across every binding context because the
+receipt is context-free. A `Failed` candidate attempt makes only its
+participant/context/concept cell incomplete. Neither failure contaminates
+another participant or concept, and a candidate failure does not contaminate
+another binding context. An incomplete cell is explicit and is never rendered
+as zero or omitted as if no Integration were observed. Matrix ordering derives
+from workspace participant and context order plus concept-catalog order, not
 discovery timing. The ordering gate uses discovery order that deliberately
 differs from all three declared orders and includes one participant repeated
 across binding contexts.
@@ -817,6 +820,7 @@ Integration graph behavior until its replacement path has parity gates.
 | Advertised producer policy omits its execution receipt | Census construction rejects the missing attempt; no zero or `Out` |
 | Two policies emit equal candidate coordinates | One candidate identity retains both policy correspondences and has one attempt per context |
 | Policy execution fails for one participant and concept | Its cells are incomplete; unrelated healthy cells remain eligible for zero |
+| Candidate attempt fails in one binding context | Only its cell is incomplete; the same participant/concept in another context may show zero |
 | Capable provider cannot resolve one discovered peer | Failed incomplete attempt; request capability remains unchanged |
 | Peer assembly unavailable or ambiguous | Typed failure; never `Out` |
 | Selected peer assembly lacks the exact Type | Typed failure; never `Out` |
@@ -896,6 +900,7 @@ The target implementation is unverified until these named gates land:
 - `IntegrationMatrix_RepeatedLibraryAcrossContextsRemainsDistinct`
 - `IntegrationMatrix_IncompleteLibraryDoesNotRenderAsZero`
 - `IntegrationMatrix_PolicyFailureDoesNotContaminateUnrelatedCells`
+- `IntegrationMatrix_CandidateFailureDoesNotContaminateOtherBindingContexts`
 - `IntegrationMatrix_OrdersByDeclaredParticipantContextAndConceptOrder`
 - `IntegrationGraph_OnlyInCandidatesContributeOccurrences`
 - `IntegrationGraph_OutCandidatesAreNeitherEdgesNorFailures`
