@@ -498,6 +498,127 @@ public class ClassicAsyncReconstructionPassTests
                 StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void CheckedRegionHasOnePrimaryRealization()
+    {
+        using var source = OpenClassicFixture();
+        IrFunction function = ImportClassicFixture(
+            source,
+            "AwaitInLoopChecked");
+        var evidence = Assert.IsType<ClassicAsyncRelationshipEvidence>(
+            function.ClassicAsyncRelationship);
+
+        var reconstruct =
+            Assert.IsType<ClassicAsyncDecision.Reconstruct>(
+                PublishedDecision(evidence));
+        ClassicAsyncRegionLedger ledger =
+            reconstruct.Plan.RegionLedger;
+        ClassicAsyncUserRegion region =
+            Assert.Single(ledger.UserRegions);
+        ClassicAsyncUserRegionRealization realization =
+            Assert.Single(ledger.Realizations);
+
+        Assert.Equal(
+            ClassicAsyncUserRegionKind.CheckedArithmetic,
+            region.Semantics.Kind);
+        Assert.Equal(region.Id, realization.UserRegion);
+        Assert.Equal(
+            region.Semantics,
+            realization.PrimaryOutputNode.Semantics);
+    }
+
+    [Fact]
+    public void RegionLedgerRejectsMissingDuplicateAndMismatchedRealizations()
+    {
+        var firstId = new ClassicAsyncRegionId(
+            ClassicAsyncRegionHost.Execution,
+            "0.0");
+        var secondId = new ClassicAsyncRegionId(
+            ClassicAsyncRegionHost.Execution,
+            "0.1");
+        var first = new ClassicAsyncUserRegion(
+            firstId,
+            new(
+                ClassicAsyncUserRegionKind.Throw,
+                "throw",
+                Occurrence: 0));
+        var second = new ClassicAsyncUserRegion(
+            secondId,
+            new(
+                ClassicAsyncUserRegionKind.Break,
+                "break",
+                Occurrence: 0));
+        var throwOutput = new ClassicAsyncOutputNode(
+            first.Semantics);
+
+        Assert.False(ClassicAsyncRegionLedger.TryCreate(
+            [first, second],
+            [new(firstId, throwOutput)],
+            out _));
+        Assert.False(ClassicAsyncRegionLedger.TryCreate(
+            [first],
+            [
+                new(firstId, throwOutput),
+                new(firstId, throwOutput with
+                {
+                    Semantics = throwOutput.Semantics with
+                    {
+                        Occurrence = 1,
+                    },
+                }),
+            ],
+            out _));
+        Assert.False(ClassicAsyncRegionLedger.TryCreate(
+            [first],
+            [new(firstId, throwOutput with
+            {
+                Semantics = second.Semantics,
+            })],
+            out _));
+        Assert.False(ClassicAsyncRegionLedger.TryCreate(
+            [first, second],
+            [
+                new(firstId, throwOutput),
+                new(secondId, throwOutput),
+            ],
+            out _));
+    }
+
+    [Fact]
+    public void RegionLedgerUsesOccurrenceToPairRepeatedSemantics()
+    {
+        var first = new ClassicAsyncUserRegion(
+            new(
+                ClassicAsyncRegionHost.Execution,
+                "0.0"),
+            new(
+                ClassicAsyncUserRegionKind.CheckedArithmetic,
+                "Add|True|False",
+                Occurrence: 0));
+        var second = new ClassicAsyncUserRegion(
+            new(
+                ClassicAsyncRegionHost.Execution,
+                "0.1"),
+            first.Semantics with { Occurrence = 1 });
+        var firstOutput = new ClassicAsyncOutputNode(first.Semantics);
+        var secondOutput = new ClassicAsyncOutputNode(second.Semantics);
+
+        Assert.True(ClassicAsyncRegionLedger.TryCreate(
+            [first, second],
+            [
+                new(first.Id, firstOutput),
+                new(second.Id, secondOutput),
+            ],
+            out _));
+        Assert.False(ClassicAsyncRegionLedger.TryCreate(
+            [first, second],
+            [
+                new(first.Id, secondOutput),
+                new(second.Id, firstOutput),
+            ],
+            out _));
+    }
+
     static MethodRef CaptureMoveNextRequest(MetadataSource source)
     {
         IrFunction function = ImportClassicFixture(source, "AwaitVoid");

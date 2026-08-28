@@ -308,6 +308,63 @@ public static class AsyncFixtures
         return sum;
     }
 
+    public static async Task<int> AwaitInLoopChecked(
+        Task<int>[] tasks)
+    {
+        int sum = 0;
+        foreach (Task<int> task in tasks)
+        {
+            checked
+            {
+                sum += await task;
+            }
+        }
+        return sum;
+    }
+
+    public static async Task<int> AwaitInLoopWithBreak(
+        Task<int>[] tasks,
+        bool stop)
+    {
+        int sum = 0;
+        foreach (Task<int> task in tasks)
+        {
+            if (stop)
+            {
+                break;
+            }
+            sum += await task;
+        }
+        return sum;
+    }
+
+    public static async Task<int> AwaitInLoopWithContinue(
+        Task<int>[] tasks,
+        bool skip)
+    {
+        int sum = 0;
+        foreach (Task<int> task in tasks)
+        {
+            if (skip)
+            {
+                continue;
+            }
+            sum += await task;
+        }
+        return sum;
+    }
+
+    public static async Task<int> AwaitWithGuardedThrow(
+        Task<int> task,
+        bool fail)
+    {
+        if (fail)
+        {
+            throw new InvalidOperationException();
+        }
+        return await task;
+    }
+
     public static async Task<int> AwaitInLoopWithWrappedOperand(
         Task<int>[] tasks)
     {

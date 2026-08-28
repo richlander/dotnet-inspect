@@ -134,6 +134,51 @@ public class ClassicAsyncReconstructionHonestyTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void CheckedLoopArithmeticIsRealizedExactly()
+    {
+        using var source = OpenClassicFixture(readSymbols: true);
+        IrFunction function = ImportAndRaise(
+            source,
+            "AwaitInLoopChecked");
+
+        DecompilerResult result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.True(result.RequiresAsyncBodyModifier);
+        Assert.Contains(
+            "checked { sum += (await task); }",
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("AwaitInLoopWithBreak")]
+    [InlineData("AwaitInLoopWithContinue")]
+    [InlineData("AwaitWithGuardedThrow")]
+    public void UnrealizedControlFlowRegionDeclinesAtPartialFidelity(
+        string methodName)
+    {
+        using var source = OpenClassicFixture(readSymbols: true);
+        IrFunction function = ImportAndRaise(source, methodName);
+
+        DecompilerResult result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.False(result.RequiresAsyncBodyModifier);
+        var marker = Assert.Single(
+            function.Descendants.OfType<UnsupportedNode>(),
+            node => node.Opcode == "classic async");
+        Assert.Contains(
+            "unconsumed user effects",
+            marker.Reason,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            ".Start<",
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("SequentialWithOrdinarySetResultCall")]
     [InlineData("SequentialWithSeparateBuilderReceiver")]

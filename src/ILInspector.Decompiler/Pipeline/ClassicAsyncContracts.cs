@@ -188,9 +188,128 @@ internal sealed class ClassicAsyncStorageSet
     }
 }
 
+internal enum ClassicAsyncRegionHost
+{
+    Kickoff,
+    Execution,
+}
+
+internal enum ClassicAsyncUserRegionKind
+{
+    CheckedArithmetic,
+    Throw,
+    Break,
+    Continue,
+}
+
+internal sealed record ClassicAsyncRegionId(
+    ClassicAsyncRegionHost Host,
+    string StructuralPath);
+
+internal sealed record ClassicAsyncRegionSemantics(
+    ClassicAsyncUserRegionKind Kind,
+    string Discriminator,
+    int Occurrence);
+
+internal sealed record ClassicAsyncUserRegion(
+    ClassicAsyncRegionId Id,
+    ClassicAsyncRegionSemantics Semantics);
+
+internal sealed record ClassicAsyncOutputNode(
+    ClassicAsyncRegionSemantics Semantics);
+
+internal sealed record ClassicAsyncUserRegionRealization(
+    ClassicAsyncRegionId UserRegion,
+    ClassicAsyncOutputNode PrimaryOutputNode);
+
+internal sealed class ClassicAsyncRegionLedger
+    : IEquatable<ClassicAsyncRegionLedger>
+{
+    readonly ImmutableArray<ClassicAsyncUserRegion> _userRegions;
+    readonly ImmutableArray<ClassicAsyncUserRegionRealization> _realizations;
+
+    ClassicAsyncRegionLedger(
+        ImmutableArray<ClassicAsyncUserRegion> userRegions,
+        ImmutableArray<ClassicAsyncUserRegionRealization> realizations)
+    {
+        _userRegions = userRegions;
+        _realizations = realizations;
+    }
+
+    internal IReadOnlyList<ClassicAsyncUserRegion> UserRegions
+        => _userRegions;
+
+    internal IReadOnlyList<ClassicAsyncUserRegionRealization> Realizations
+        => _realizations;
+
+    internal static bool TryCreate(
+        IEnumerable<ClassicAsyncUserRegion> userRegions,
+        IEnumerable<ClassicAsyncUserRegionRealization> realizations,
+        out ClassicAsyncRegionLedger ledger)
+    {
+        ImmutableArray<ClassicAsyncUserRegion> regions =
+        [
+            .. userRegions.OrderBy(
+                static region => region.Id.StructuralPath,
+                StringComparer.Ordinal),
+        ];
+        ImmutableArray<ClassicAsyncUserRegionRealization> realized =
+        [
+            .. realizations.OrderBy(
+                static realization =>
+                    realization.UserRegion.StructuralPath,
+                StringComparer.Ordinal),
+        ];
+
+        bool valid = regions
+                .Select(static region => region.Id)
+                .Distinct()
+                .Count() == regions.Length
+            && realized
+                .Select(static realization => realization.UserRegion)
+                .Distinct()
+                .Count() == realized.Length
+            && realized
+                .Select(static realization =>
+                    realization.PrimaryOutputNode.Semantics)
+                .Distinct()
+                .Count() == realized.Length
+            && regions.All(region => realized.Any(realization =>
+                realization.UserRegion == region.Id
+                && realization.PrimaryOutputNode.Semantics
+                    == region.Semantics))
+            && realized.All(realization => regions.Any(region =>
+                region.Id == realization.UserRegion));
+
+        ledger = valid
+            ? new(regions, realized)
+            : null!;
+        return valid;
+    }
+
+    public bool Equals(ClassicAsyncRegionLedger? other)
+        => other is not null
+            && _userRegions.SequenceEqual(other._userRegions)
+            && _realizations.SequenceEqual(other._realizations);
+
+    public override bool Equals(object? obj)
+        => obj is ClassicAsyncRegionLedger other && Equals(other);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        foreach (ClassicAsyncUserRegion region in _userRegions)
+            hash.Add(region);
+        foreach (ClassicAsyncUserRegionRealization realization in _realizations)
+            hash.Add(realization);
+        return hash.ToHashCode();
+    }
+}
+
 internal sealed record ClassicAsyncPlan(
     ClassicAsyncMachine Machine,
     ClassicAsyncBodyPlan Body,
+    ClassicAsyncRegionLedger RegionLedger,
     IrTypeFactsSnapshot TypeFacts);
 
 /// <summary>

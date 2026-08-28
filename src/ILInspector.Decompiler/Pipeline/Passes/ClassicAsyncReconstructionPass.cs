@@ -184,7 +184,8 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             kickoffFunction,
             out var body,
             out var locals,
-            out var localNames);
+            out var localNames,
+            out var regionLedger);
         if (reconstruction
             == ReconstructionResult.UnconsumedExecutionRegion)
         {
@@ -215,6 +216,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         var plan = new ClassicAsyncPlan(
             machine,
             ClassicAsyncBodyPlan.Capture(body, locals, localNames),
+            regionLedger,
             IrTypeFactsSnapshot.Capture(moveNext));
         return new ClassicAsyncPreparationResult.Decided(
             new ClassicAsyncDecision.Reconstruct(plan));
@@ -626,11 +628,13 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         IrFunction kickoff,
         out BlockContainer body,
         out ImmutableArray<TypeRef> locals,
-        out ImmutableArray<string?> localNames)
+        out ImmutableArray<string?> localNames,
+        out ClassicAsyncRegionLedger regionLedger)
     {
         body = null!;
         locals = [];
         localNames = [];
+        regionLedger = null!;
 
         var localBuilder = new LocalBuilder();
         if (!TryBuildStatements(
@@ -654,9 +658,179 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
         body = new BlockContainer();
         body.Add(block);
+        if (!TryBuildRegionLedger(moveNext, body, out regionLedger))
+            return ReconstructionResult.UnconsumedExecutionRegion;
+
         locals = localBuilder.Locals;
         localNames = localBuilder.Names;
         return ReconstructionResult.Reconstructed;
+    }
+
+    static bool TryBuildRegionLedger(
+        IrFunction moveNext,
+        BlockContainer output,
+        out ClassicAsyncRegionLedger ledger)
+    {
+        if (!TryCaptureUserRegions(moveNext, out var regions))
+        {
+            ledger = null!;
+            return false;
+        }
+        List<ClassicAsyncOutputNode> outputs =
+            CaptureOutputNodes(output);
+        var available = new List<ClassicAsyncOutputNode>(outputs);
+        var realizations =
+            new List<ClassicAsyncUserRegionRealization>(regions.Count);
+
+        foreach (ClassicAsyncUserRegion region in regions)
+        {
+            int outputIndex = available.FindIndex(outputNode =>
+                outputNode.Semantics == region.Semantics);
+            if (outputIndex < 0)
+            {
+                ledger = null!;
+                return false;
+            }
+
+            ClassicAsyncOutputNode primary = available[outputIndex];
+            available.RemoveAt(outputIndex);
+            realizations.Add(new(region.Id, primary));
+        }
+
+        if (available.Count != 0)
+        {
+            ledger = null!;
+            return false;
+        }
+
+        return ClassicAsyncRegionLedger.TryCreate(
+            regions,
+            realizations,
+            out ledger);
+    }
+
+    static bool TryCaptureUserRegions(
+        IrFunction moveNext,
+        out List<ClassicAsyncUserRegion> regions)
+    {
+        regions = [];
+        var occurrences = new Dictionary<
+            (ClassicAsyncUserRegionKind Kind, string Discriminator),
+            int>();
+        foreach (IrNode node in moveNext.Descendants)
+        {
+            if (!TryGetUserRegion(
+                    node,
+                    out ClassicAsyncUserRegionKind kind,
+                    out string discriminator))
+            {
+                continue;
+            }
+
+            var key = (kind, discriminator);
+            int occurrence = occurrences.GetValueOrDefault(key);
+            occurrences[key] = occurrence + 1;
+            if (!TryStructuralPath(
+                    moveNext,
+                    node,
+                    out string structuralPath))
+            {
+                regions = [];
+                return false;
+            }
+            regions.Add(new(
+                new(
+                    ClassicAsyncRegionHost.Execution,
+                    structuralPath),
+                new(kind, discriminator, occurrence)));
+        }
+        return true;
+    }
+
+    static List<ClassicAsyncOutputNode> CaptureOutputNodes(
+        BlockContainer output)
+    {
+        var nodes = new List<ClassicAsyncOutputNode>();
+        var occurrences = new Dictionary<
+            (ClassicAsyncUserRegionKind Kind, string Discriminator),
+            int>();
+        foreach (IrNode node in output.Descendants)
+        {
+            if (!TryGetUserRegion(
+                    node,
+                    out ClassicAsyncUserRegionKind kind,
+                    out string discriminator))
+            {
+                continue;
+            }
+
+            var key = (kind, discriminator);
+            int occurrence = occurrences.GetValueOrDefault(key);
+            occurrences[key] = occurrence + 1;
+            nodes.Add(new(new(kind, discriminator, occurrence)));
+        }
+        return nodes;
+    }
+
+    static bool TryGetUserRegion(
+        IrNode node,
+        out ClassicAsyncUserRegionKind kind,
+        out string discriminator)
+    {
+        switch (node)
+        {
+            case Binary binary
+                when binary.IsChecked || binary.IsUnsigned:
+                kind = ClassicAsyncUserRegionKind.CheckedArithmetic;
+                discriminator =
+                    $"{binary.Kind}|{binary.IsChecked}|{binary.IsUnsigned}";
+                return true;
+            case Throw { Value: CaughtException }:
+                kind = ClassicAsyncUserRegionKind.Throw;
+                discriminator = "rethrow";
+                return true;
+            case Throw:
+                kind = ClassicAsyncUserRegionKind.Throw;
+                discriminator = "throw";
+                return true;
+            case Break:
+                // The execution snapshot has run the registered structuring
+                // prefix. These transfers conservatively force a decline until
+                // a recipe maps them; UnrealizedControlFlowRegionDeclinesAtPartialFidelity
+                // gates that shipped boundary.
+                kind = ClassicAsyncUserRegionKind.Break;
+                discriminator = "break";
+                return true;
+            case Continue:
+                kind = ClassicAsyncUserRegionKind.Continue;
+                discriminator = "continue";
+                return true;
+            default:
+                kind = default;
+                discriminator = "";
+                return false;
+        }
+    }
+
+    static bool TryStructuralPath(
+        IrNode root,
+        IrNode node,
+        out string path)
+    {
+        var indices = new Stack<int>();
+        IrNode? current = node;
+        while (!ReferenceEquals(current, root))
+        {
+            if (current?.Parent is null)
+            {
+                path = "";
+                return false;
+            }
+            indices.Push(current.ChildIndex);
+            current = current.Parent;
+        }
+        path = string.Join(".", indices);
+        return true;
     }
 
     static bool HasUnconsumedExecutionStore(IrFunction moveNext)
@@ -1167,6 +1341,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         }
 
         var sumType = accumulatorStore.Type;
+        var accumulator = (Binary)accumulatorStore.Value;
         var sumIndex = locals.Add(sumType, "sum");
         var taskIndex = locals.Add(taskType, "task");
 
@@ -1179,7 +1354,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         body.Add(new StoreLocal(
             sumIndex,
             sumType,
-            new Binary(BinaryKind.Add, isChecked: false, isUnsigned: false, new LoadLocal(sumIndex, sumType), awaited)));
+            new Binary(
+                BinaryKind.Add,
+                accumulator.IsChecked,
+                accumulator.IsUnsigned,
+                new LoadLocal(sumIndex, sumType),
+                awaited)));
 
         var collection = CloneAndRemap((IrExpression)tasksField, kickoff);
         if (collection is null)

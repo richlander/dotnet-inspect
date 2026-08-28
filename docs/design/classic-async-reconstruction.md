@@ -399,10 +399,19 @@ to source parameters, not accepted by field-name resemblance. A local,
 address-of local, or field use that cannot be mapped to the same machine makes
 the kickoff non-narrow.
 
-For a declined narrow kickoff, application replaces the handoff with one
-`UnsupportedNode` carrying `ReplacedNarrowHandoff`. For a non-narrow kickoff,
-application inserts the marker before an unchanged copy of the original
-statements and carries `PreservedOriginal`.
+When the decline is about the handoff itself and the kickoff is proven narrow,
+application may replace it with one `UnsupportedNode` carrying
+`ReplacedNarrowHandoff`. An execution-recipe decline preserves the original
+kickoff even when the handoff is narrow: removing the call into an
+unrecognized or incompletely realized `MoveNext` would remove the behavior the
+decline is meant to keep visible. Non-narrow declines likewise insert the
+marker before an unchanged copy of the original statements and carry
+`PreservedOriginal`.
+
+`UnsupportedResolvedClassic_PreservesKickoffAndNamesDecline`,
+`NaturalUnmatchedShapePreservesKickoff`, and the compiled
+`UnrealizedControlFlowRegionDeclinesAtPartialFidelity` cases gate this
+reason-specific disposition.
 
 The marker is not a success diagnostic. It is visible source evidence that the
 component declined. The existing fidelity-cause projection may associate a
