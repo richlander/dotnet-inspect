@@ -125,6 +125,19 @@ requires exactly one tree shape; standalone `--mermaid` requires exactly one
 graph shape. Selecting one section with `--tfm all` still produces one shape
 per inspection, so it does not satisfy any single-shape contract.
 
+Released `package --all-libraries` row windowing preserves producer-declared
+row-set scope. Singular sections retain one table per library even when a row
+format flattens them with provenance; aggregate sections window the rolled-up
+table once. The pending L2 declared-row-set integration must preserve that
+topology when it adopts semantic selection.
+`PackageCommand_AllLibraries_RowFormats_WindowPerLibraryLikeMarkdownCount` and
+`PackageCommand_AllLibraries_AggregateRowFormats_WindowAcrossRolledUpSection`
+gate both scopes and count/row-format parity.
+`PackageCommand_AllLibraries_RowFormats_TailWindowMatchesMarkdownRows`,
+`PackageCommand_AllLibraries_AggregateRowFormats_WindowSameRowsAsMarkdown`, and
+`PackageCommand_AllLibraries_OpportunityRowFormat_WindowSameRowAsMarkdown` gate
+selected-row identity at the window boundary.
+
 ### Coordinate carriers sit before the ladder
 
 A fourth kind of flag does not walk the ladder at all: it *supplies an input the

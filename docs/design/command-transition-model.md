@@ -250,11 +250,14 @@ Shape reducers do not revise operation arity. In particular:
   not silently transition from version-address rows to package artifact
   inspection. The explicit transition remains `package Package@version`.
 
-The same rule applies to `timeline`. `--count` can reduce an already assembled
-Timeline table; it cannot probe additional cells and rejects item/range
-windows. `--print` can print only payloads already carried or explicitly
-referenced by evaluated rows; it cannot turn unevaluated rows into implicit
-acquisition.
+The same acquisition boundary applies to `timeline`. In the released path,
+current `--rows` windowing is applied to an already assembled Timeline table
+before `--count` reduces it; it cannot probe additional cells.
+`TimelineCommandTests.Count_AppliesRowsAndValidatesProjectedColumns` gates that
+behavior. The pending L2 and L3 designs own how future typed `Window` stages
+compose with count. `--print` can print only payloads already carried or
+explicitly referenced by evaluated rows; it cannot turn unevaluated rows into
+implicit acquisition.
 
 The current package `--versions` path is implemented as a specialized early-exit
 list writer, so some shared reducers and projectors are not yet honored
