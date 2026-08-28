@@ -190,15 +190,18 @@ sealed class PackageSourceResultFactory
     PackageVersionResult Versions(...);
     PackageSourceManifest Manifest(...);
     PackageSourcePayload Payload(...);
-    PackageSourceOperationResult<PackageSearchResult> Succeeded(
+    PackageSourceOperationResult<PackageSearchResult> SucceededSearch(
         PackageSearchResult value);
-    PackageSourceOperationResult<PackageVersionResult> Succeeded(
+    PackageSourceOperationResult<PackageVersionResult> SucceededVersions(
         PackageVersionResult value);
-    PackageSourceOperationResult<PackageSourceManifest> Succeeded(
+    PackageSourceOperationResult<PackageSourceManifest> SucceededManifest(
+        PackageSourceCoordinate requestedCoordinate,
         PackageSourceManifest value);
     PackageSourceOperationResult<PackageSourcePayload> SucceededPackage(
+        PackageSourceCoordinate requestedCoordinate,
         PackageSourcePayload value);
     PackageSourceOperationResult<PackageSourcePayload> SucceededSymbols(
+        PackageSourceCoordinate requestedCoordinate,
         PackageSourcePayload value);
     PackageSourceOperationResult<PackageSearchResult> FailedSearch(
         PackageSourceFailureKind kind);
@@ -395,9 +398,11 @@ observation, manifest, payload, and operation-outcome construction is closed
 through that factory rather than accepting independent identity or issuer
 arguments.
 
-The same closed-construction rule applies after publication: identity-bearing
-result and failure types expose no public copy constructor, clone, init setter,
-or other record-copy path that can replace identity or summary text.
+The same closed-construction rule applies after publication: every
+issuer-bearing observation, result, outcome, and failure type, including
+`PackageCandidateObservation`, exposes no public constructor, copy constructor,
+clone, init setter, or record `with` path that can preserve its issuer while
+replacing identity, coordinate, listing, payload-kind, or summary data.
 
 The runtime-client factory requires the caller association for portable
 descriptors, desktop compatibility sources, and the built-in Gallery client;
@@ -425,9 +430,10 @@ The exact client identity is then carried without reconstruction:
 The five operation-class success methods validate both the concrete value's
 complete public source identity and its private issuer reference against the
 bound factory before wrapping it. Search and prefix search share the search
-success method. Package and symbol success methods additionally require the
-matching payload kind, so one operation cannot return the other operation's
-payload.
+success method. Manifest, package, and symbol success methods additionally
+accept the normalized requested coordinate and require the value's coordinate
+to equal it. Package and symbol success methods also require the matching
+payload kind, so one operation cannot return the other operation's payload.
 
 The five operation-class failure methods construct both the failure and its
 operation wrapper with the factory's identity and issuer from closed failure
@@ -442,8 +448,22 @@ exact-coordinate methods; the other six failure kinds are valid for all five
 methods. The closed generic operation-result container has no public
 constructor or copy path and is issued only for search, version, manifest, and
 payload result types. It contains exactly one of value or failure. Its success
-and failed variants have the same closed constructor, copy, and init-setter
+and failure states have the same closed constructor, copy, and init-setter
 rules as their payloads.
+
+The one closed outcome representation stores exactly a nullable typed value, a
+nullable failure, and its private issuer reference. Because the four permitted
+result types are owner-controlled reference types, success stores a non-null
+value and a null failure; failure stores a null value and a non-null failure.
+No discriminator, union holder, `object` slot, nested state, or variant-specific
+field is required or permitted.
+
+Each built-in manifest, package, and symbol operation normalizes its package ID
+and version once at invocation, then passes that exact coordinate through
+result construction and the operation-specific success or failure method. A
+success method rejects a value carrying another coordinate. Every classified
+failure, including failures before payload or manifest construction, retains
+the invocation coordinate rather than reconstructing or substituting it.
 
 For caller-supplied aggregate data, the bound factory first snapshots the
 supplied data into owner-controlled immutable storage, then validates the
@@ -518,8 +538,8 @@ boundary.
 
 The retained object graph for a failure is closed to its source identity,
 private issuer reference, capability, optional coordinate, failure kind, and
-derived summary. The failed operation wrapper retains only that failure and
-the same private issuer reference needed for factory validation. Neither type
+derived summary. The closed operation wrapper has only its typed value, failure,
+and issuer fields; for a failed outcome the typed value is null. Neither type
 has an additional field, property backing field, nested holder, exception,
 response object, or arbitrary `object` slot through which transport data can
 remain reachable.
@@ -670,6 +690,11 @@ Implementation is not complete until Release gates establish:
   operations to their result type, payload kind where applicable, fixed
   capability, coordinate arity, legal failure kinds, and matching success and
   failure factory methods;
+- `ExactOperationCoordinatesMatchInvocation` derives every built-in manifest,
+  package, and symbol operation path and proves success and each classified
+  failure carry the coordinate produced by normalizing that invocation's
+  package ID and version; success factory methods reject a same-factory value
+  for another coordinate;
 - `SourceResultIssuerCoversEveryConstructibleShape` derives the expected shape
   set from the owner-controlled result types and proves issuer presence plus
   same-public-identity cross-factory rejection for candidate, empty and
@@ -695,9 +720,13 @@ Implementation is not complete until Release gates establish:
   exact-length `ToArray` results including empty content, and the exact public
   members and interfaces of `PackageSourceManifestContent`;
 - `IdentityBearingResultShapesAreClosed` uses public-surface reflection to
-  prove `PackageProducerIdentity`, `PackageSourceResultIdentity`, concrete
-  results, operation outcomes, and failures have no public constructor, clone,
-  copy constructor, or init setter that can replace identity or summary text;
+  cover the two closed identity types and derive every issuer-bearing shape. It
+  proves `PackageProducerIdentity`, `PackageSourceResultIdentity`,
+  `PackageCandidateObservation`, concrete results, operation outcomes, and
+  failures have no public constructor, clone, copy constructor, init setter, or
+  record `with` path that can preserve issuer while replacing identity,
+  coordinate, listing, payload-kind, or summary data; an external-consumer
+  compilation gate rejects those candidate construction and copy paths;
 - `SourceResultIssuerIsPrivateConstructionEvidence` proves the issuer has no
   public member or caller construction path, is present as private construction
   evidence on every covered NuGetFetch-owned result object, and enters no
@@ -711,9 +740,11 @@ Implementation is not complete until Release gates establish:
 - `RetainedFailureStorageMatchesAllowList` derives the exact instance-field
   graph for failures and failed operation wrappers and permits only source
   identity, issuer, capability, optional coordinate, kind, derived summary,
-  and the wrapper's failure reference; end-to-end endpoint, redirect,
-  response-body, and exception-message sentinels across every classified
-  failure path prove none remains reachable;
+  and the wrapper's typed value and failure fields; it proves exactly one field
+  is non-null for every allowed closed result type and that the typed value is
+  null on failure. End-to-end endpoint, redirect, response-body, and
+  exception-message sentinels across every classified failure path prove none
+  remains reachable;
 - `RetainedFailureHasNoConfiguredEndpointOrRecognizedCredentialText` covers
   signed query and InertText-recognized credential-slot inputs across the
   failure object and NuGetFetch-owned diagnostic formatting; consumer
