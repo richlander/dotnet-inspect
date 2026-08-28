@@ -184,10 +184,11 @@ DemandJoinsAdmission(d) ==
 
 DemandRejectedWhileDisposed(d) ==
   /\ disposed = TRUE
+  /\ pendingGeneration[d] # NoGeneration
   /\ d \notin waiters
   /\ outcomeOf[d] = "none"
   /\ outcomeOf' = [outcomeOf EXCEPT ![d] = "rejected"]
-  /\ outcomeStableWitness' = outcomeStableWitness /\ OutcomeChangeIsGuarded(outcomeOf, outcomeOf')
+  /\ outcomeStableWitness' = (outcomeStableWitness /\ OutcomeChangeIsGuarded(outcomeOf, outcomeOf'))
   /\ UNCHANGED << admission, generation, waiters, pendingGeneration, reserved,
                   disposed, groupActive, groupQuiescent, leaseReleased,
                   publishSafetyWitness, leaseSafetyWitness,
@@ -203,7 +204,7 @@ WaiterCancels(d) ==
   /\ waiters' = waiters \ {d}
   /\ admission' = IF waiters \ {d} = {} THEN "Draining" ELSE "InFlight"
   /\ outcomeOf' = [outcomeOf EXCEPT ![d] = "cancelled"]
-  /\ outcomeStableWitness' = outcomeStableWitness /\ OutcomeChangeIsGuarded(outcomeOf, outcomeOf')
+  /\ outcomeStableWitness' = (outcomeStableWitness /\ OutcomeChangeIsGuarded(outcomeOf, outcomeOf'))
   /\ UNCHANGED << generation, pendingGeneration, reserved, disposed,
                   groupActive, groupQuiescent, leaseReleased,
                   publishSafetyWitness, leaseSafetyWitness,
@@ -238,13 +239,13 @@ AdapterSucceeds ==
   /\ generation' = NoGeneration
   /\ reserved' = FALSE
   /\ outcomeOf' = [d \in Demands |-> IF d \in waiters THEN "published" ELSE outcomeOf[d]]
-  /\ outcomeStableWitness' = outcomeStableWitness /\ OutcomeChangeIsGuarded(outcomeOf, outcomeOf')
-  /\ authorizedOutcomeWitness' = authorizedOutcomeWitness /\ ResolvedOnlyAttachedDemands(waiters, outcomeOf, outcomeOf')
+  /\ outcomeStableWitness' = (outcomeStableWitness /\ OutcomeChangeIsGuarded(outcomeOf, outcomeOf'))
+  /\ authorizedOutcomeWitness' = (authorizedOutcomeWitness /\ ResolvedOnlyAttachedDemands(waiters, outcomeOf, outcomeOf'))
   /\ waiters' = {}
   /\ groupActive' = TRUE
   /\ groupQuiescent' = FALSE
   /\ leaseReleased' = FALSE
-  /\ publishSafetyWitness' = publishSafetyWitness /\ (disposed = FALSE)
+  /\ publishSafetyWitness' = (publishSafetyWitness /\ (disposed = FALSE))
   /\ UNCHANGED << pendingGeneration, disposed, leaseSafetyWitness >>
 
 AdapterFails ==
@@ -253,8 +254,8 @@ AdapterFails ==
   /\ generation' = NoGeneration
   /\ reserved' = FALSE
   /\ outcomeOf' = [d \in Demands |-> IF d \in waiters THEN "failed" ELSE outcomeOf[d]]
-  /\ outcomeStableWitness' = outcomeStableWitness /\ OutcomeChangeIsGuarded(outcomeOf, outcomeOf')
-  /\ authorizedOutcomeWitness' = authorizedOutcomeWitness /\ ResolvedOnlyAttachedDemands(waiters, outcomeOf, outcomeOf')
+  /\ outcomeStableWitness' = (outcomeStableWitness /\ OutcomeChangeIsGuarded(outcomeOf, outcomeOf'))
+  /\ authorizedOutcomeWitness' = (authorizedOutcomeWitness /\ ResolvedOnlyAttachedDemands(waiters, outcomeOf, outcomeOf'))
   /\ waiters' = {}
   /\ UNCHANGED << pendingGeneration, disposed, groupActive, groupQuiescent,
                   leaseReleased, publishSafetyWitness, leaseSafetyWitness >>
@@ -265,8 +266,8 @@ AdapterDrains ==
   /\ generation' = NoGeneration
   /\ reserved' = FALSE
   /\ outcomeOf' = [d \in Demands |-> IF d \in waiters THEN "stale" ELSE outcomeOf[d]]
-  /\ outcomeStableWitness' = outcomeStableWitness /\ OutcomeChangeIsGuarded(outcomeOf, outcomeOf')
-  /\ authorizedOutcomeWitness' = authorizedOutcomeWitness /\ ResolvedOnlyAttachedDemands(waiters, outcomeOf, outcomeOf')
+  /\ outcomeStableWitness' = (outcomeStableWitness /\ OutcomeChangeIsGuarded(outcomeOf, outcomeOf'))
+  /\ authorizedOutcomeWitness' = (authorizedOutcomeWitness /\ ResolvedOnlyAttachedDemands(waiters, outcomeOf, outcomeOf'))
   /\ waiters' = {}
   /\ UNCHANGED << pendingGeneration, disposed, groupActive, groupQuiescent,
                   leaseReleased, publishSafetyWitness, leaseSafetyWitness >>
@@ -293,7 +294,7 @@ ReleaseLeases ==
   /\ disposed = TRUE
   /\ leaseReleased' = TRUE
   /\ groupActive' = FALSE
-  /\ leaseSafetyWitness' = leaseSafetyWitness /\ (groupQuiescent = TRUE) /\ (disposed = TRUE)
+  /\ leaseSafetyWitness' = (leaseSafetyWitness /\ (groupQuiescent = TRUE) /\ (disposed = TRUE))
   /\ UNCHANGED << admission, generation, waiters, pendingGeneration, reserved,
                   disposed, outcomeOf, groupQuiescent, publishSafetyWitness,
                   outcomeStableWitness, authorizedOutcomeWitness >>
