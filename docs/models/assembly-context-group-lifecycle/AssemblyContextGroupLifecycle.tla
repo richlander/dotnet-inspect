@@ -5,12 +5,16 @@ CONSTANTS
     ParticipantCount,
     CallbackCount,
     MaxRetainedImages,
-    AllowEarlyRelease
+    AllowEarlyRelease,
+    AllowEarlySnapshotRelease,
+    AllowRejectedRetention
 
 ASSUME /\ ParticipantCount \in Nat \ {0}
        /\ CallbackCount \in Nat \ {0}
        /\ MaxRetainedImages \in 0..ParticipantCount
        /\ AllowEarlyRelease \in BOOLEAN
+       /\ AllowEarlySnapshotRelease \in BOOLEAN
+       /\ AllowRejectedRetention \in BOOLEAN
 
 Participants == 1..ParticipantCount
 Callbacks == 1..CallbackCount
@@ -166,9 +170,18 @@ FinishUnavailableCallback(callback) ==
     /\ participantState[Target(callback)] \in {"Rejected", "Released"}
     /\ callbackState' =
         [callbackState EXCEPT ![callback] = "Done"]
+    /\ IF /\ releaseOnExit[callback]
+          /\ groupState = "Open"
+          /\ participantState[Target(callback)] = "Rejected"
+       THEN IF AllowRejectedRetention
+            THEN UNCHANGED participantState
+            ELSE participantState' =
+                    [participantState EXCEPT
+                        ![Target(callback)] = "Released"]
+       ELSE UNCHANGED participantState
     /\ UNCHANGED
-        <<callbackHasView, releaseOnExit, participantState, openCount,
-          retainedImages, groupState, releasePhase, resourceState,
+        <<callbackHasView, releaseOnExit, openCount, retainedImages,
+          groupState, releasePhase, resourceState,
           releaseCount, admissionWitness, quiescenceWitness,
           resourceOrderWitness, activeViewWitness>>
 
@@ -250,6 +263,18 @@ BeginSnapshotRelease ==
           resourceState, releaseCount, admissionWitness,
           quiescenceWitness, activeViewWitness>>
 
+BeginEarlySnapshotRelease ==
+    /\ AllowEarlySnapshotRelease
+    /\ releasePhase = "Resources"
+    /\ resourceState = "Owned"
+    /\ releasePhase' = "Snapshots"
+    /\ resourceOrderWitness' = FALSE
+    /\ UNCHANGED
+        <<callbackState, callbackHasView, releaseOnExit,
+          participantState, openCount, retainedImages, groupState,
+          resourceState, releaseCount, admissionWitness,
+          quiescenceWitness, activeViewWitness>>
+
 ReleaseParticipant(participant) ==
     /\ releasePhase = "Snapshots"
     /\ participantState[participant] # "Released"
@@ -304,6 +329,7 @@ Next ==
     \/ BeginEarlyGroupRelease
     \/ ReleaseOwnedResource
     \/ BeginSnapshotRelease
+    \/ BeginEarlySnapshotRelease
     \/ \E participant \in Participants:
         ReleaseParticipant(participant)
     \/ CompleteGroupRelease
@@ -324,6 +350,7 @@ Fairness ==
     /\ WF_vars(BeginEarlyGroupRelease)
     /\ WF_vars(ReleaseOwnedResource)
     /\ WF_vars(BeginSnapshotRelease)
+    /\ WF_vars(BeginEarlySnapshotRelease)
     /\ WF_vars(CompleteGroupRelease)
 
 Spec ==
@@ -368,8 +395,15 @@ GroupReleaseWaitsForQuiescence ==
 
 OwnedResourcesPrecedeGroupSnapshots ==
     /\ resourceOrderWitness
-    /\ releasePhase \in {"Snapshots", "Complete"}
-        => resourceState = "Released"
+    /\ (releasePhase \in {"Snapshots", "Complete"} =>
+        resourceState = "Released")
+
+RejectedReleaseAfterUseIsTerminal ==
+    \A callback \in Callbacks:
+        /\ callbackState[callback] = "Done"
+        /\ releaseOnExit[callback]
+        /\ groupState = "Open"
+        => participantState[Target(callback)] # "Rejected"
 
 ActiveViewsSurviveGroupRelease ==
     activeViewWitness

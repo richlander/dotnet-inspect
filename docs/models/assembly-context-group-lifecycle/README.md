@@ -17,7 +17,8 @@ The modeled interactions are:
 - callback admission before disposal;
 - one participant-local lazy open, including budget rejection and rejection
   after reservation;
-- cached ready or rejected outcomes;
+- cached ready or rejected outcomes for ordinary access, with unavailable
+  one-shot completion terminally releasing its participant;
 - callback-local views that survive release of the group's retained reference;
 - the release-after-use path used by one-shot asynchronous participant work;
 - disposal that closes admission immediately and waits for callbacks to become
@@ -56,6 +57,7 @@ rules are consistent over its bounded state space.
 | `NoAdmissionAfterDisposal` | Callback admission occurs only while the group is open. |
 | `GroupReleaseWaitsForQuiescence` | Full-group resource release begins only after every admitted callback settles. |
 | `OwnedResourcesPrecedeGroupSnapshots` | Full-group release disposes owned resources before participant snapshots. |
+| `RejectedReleaseAfterUseIsTerminal` | A one-shot callback that observes a cached rejection releases that participant before completing while the group remains open. |
 | `ActiveViewsSurviveGroupRelease` | Full-group snapshot release never reaches a participant still used by an active callback. |
 | `GroupReleaseBeginsExactlyOnce` | Disposal claims the full-group release path at most once. |
 | `GroupReleaseRequiresDisposal` | Full-group release cannot begin while the group remains open. |
@@ -66,9 +68,11 @@ rules are consistent over its bounded state space.
 | `DisposedGroupEventuallyReleases` | Under weak fairness, a disposed group eventually reaches terminal release. |
 
 The admission, quiescence, resource-order, and active-view claims use
-independent monotonic witness variables. Weakening the corresponding transition
-guard falsifies the witness rather than making the invariant a restatement of
-that guard.
+independent monotonic witness variables. Weakening the corresponding
+transition guard falsifies the witness rather than making the invariant a
+restatement of that guard. The rejected release-after-use claim is a
+post-state invariant over completed one-shot callbacks and has its own
+retention mutation.
 
 ## Configurations
 
@@ -77,6 +81,8 @@ that guard.
 | `Safety.cfg` | Explores three callbacks over two participants with one retained-image slot and checks every safety invariant. |
 | `Liveness.cfg` | Explores two callbacks over two participants and checks callback, open, and disposal progress under weak fairness. |
 | `BrokenEarlyRelease.cfg` | Enables a deliberate mutation that lets full-group release begin before callbacks quiesce; TLC must report a counterexample. |
+| `BrokenResourceOrder.cfg` | Lets full-group snapshot release begin while the owned resource remains live; TLC must report the ordering violation. |
+| `BrokenRejectedRetention.cfg` | Retains a rejected participant after unavailable one-shot completion; TLC must report the terminal-release violation. |
 
 ## Running TLC
 
@@ -93,16 +99,23 @@ java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC \
 java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC -cleanup \
   -config BrokenEarlyRelease.cfg \
   AssemblyContextGroupLifecycle.tla
+java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC -cleanup \
+  -config BrokenResourceOrder.cfg \
+  AssemblyContextGroupLifecycle.tla
+java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC -cleanup \
+  -config BrokenRejectedRetention.cfg \
+  AssemblyContextGroupLifecycle.tla
 ```
 
 Run these commands sequentially. Concurrent TLC processes in one directory
 share the default `states/` checkpoint path unless each receives a distinct
 `-metadir`.
 
-The first two commands must complete without errors. The broken configuration
-must fail `GroupReleaseWaitsForQuiescence` or
-`ActiveViewsSurviveGroupRelease`; a successful run would mean the mutation no
-longer exercises the intended guard.
+The first two commands must complete without errors. The broken configurations
+must fail `GroupReleaseWaitsForQuiescence`,
+`OwnedResourcesPrecedeGroupSnapshots`, and
+`RejectedReleaseAfterUseIsTerminal`, respectively. A successful mutation run
+would mean its probe no longer exercises the intended rule.
 
 ## TLC evidence
 
@@ -113,11 +126,14 @@ repository-pinned TLA+ `v1.8.0` prerelease (`TLC2 2026.08.21.155922`, rev
 
 | Configuration | Result | Generated states | Distinct states | Maximum depth |
 | --- | --- | ---: | ---: | ---: |
-| `Safety.cfg` | No error | 11,514 | 5,116 | 19 |
-| `Liveness.cfg` | No error | 1,410 | 774 | 17 |
+| `Safety.cfg` | No error | 10,671 | 4,797 | 19 |
+| `Liveness.cfg` | No error | 1,343 | 739 | 17 |
 | `BrokenEarlyRelease.cfg` | `GroupReleaseWaitsForQuiescence` violated | 52 | 46 | 4 |
+| `BrokenResourceOrder.cfg` | `OwnedResourcesPrecedeGroupSnapshots` violated | 57 | 49 | 4 |
+| `BrokenRejectedRetention.cfg` | `RejectedReleaseAfterUseIsTerminal` violated | 229 | 155 | 6 |
 
 The normal configurations explored their complete bounded state graphs. The
-broken configuration stopped at the first expected counterexample: a callback
-was admitted, the group was disposed, and the mutation began full-group release
-while that callback was still live.
+broken configurations stopped at their first expected counterexamples:
+full-group release began while a callback was still live, snapshot release
+began before resource release, and unavailable one-shot completion retained its
+rejected participant.
