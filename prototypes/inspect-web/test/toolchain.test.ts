@@ -23,6 +23,7 @@ import {
 } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
+import { parseSync, type Statement } from "oxc-parser";
 import { failOnHtmlParseErrors, isHtmlParseFailure } from "../scripts/html-parse-gate.ts";
 import {
   supportedAnalysisHosts,
@@ -560,8 +561,24 @@ function resolvedValue(value: string): string {
 // Only semicolon-terminated references are reported. Without the semicolon a browser
 // expands a name only in narrow legacy cases, and `?a=1&c=2` is an ordinary query string
 // that has to keep working.
+// Round 5 (Gemini) found this reporting `&b;` in `/api?a=1&b;c=2`, an ordinary query string
+// a browser leaves alone, and proposed dropping the check. That would restore the `&bsol;`
+// hole exactly: `&commat;` is a real reference this table also lacks, and silence about it
+// is the failure this exists to prevent. The report is right; its scope was too wide.
+//
+// A reference can only change the answer this gate wants -- the scheme and the authority --
+// if it can reach them. Neither `?` nor `#` may appear in a scheme, so nothing after the
+// first one can create one; and a value whose first character is `?` or `#` can never begin
+// `//`, so nothing after it can create an authority either. Everything from the first `?`
+// or `#` onward is therefore query or fragment, where an undecoded reference is text.
+//
+// `/` deliberately does not end the region. `/&bsol;evil.com/x` resolves to
+// `https://evil.com/x`, which is the round 4 attack, and a rule that stopped at the first
+// slash would wave it through.
 function undecodedReferences(value: string): readonly string[] {
+  const settled = value.search(/[#?]/u);
   return [...value.matchAll(/&(?:#(\d+)|#x([\da-f]+)|([\da-z]+));/gi)]
+    .filter(match => settled < 0 || match.index < settled)
     .filter(match => entityText(match[1], match[2], match[3]) === undefined)
     .map(match => match[0]);
 }
@@ -598,7 +615,12 @@ function pinsItsBytes(value: string): boolean {
   // strongest of those, ignoring the rest, so one well-formed supported digest is what
   // makes the bytes pinned. An unrecognized entry beside it does not weaken that, which
   // is why this asks for one rather than for all.
-  return value.trim().split(/\s+/u).some(entry =>
+  // Round 5 (Sol) found the split too generous. `\s` and `trim()` are Unicode, and a
+  // browser separates hash expressions on ASCII whitespace only. Given `bogus\u00A0sha384-`
+  // plus a digest, this read two entries and found a good one while a browser read a single
+  // entry, recognized no algorithm in it, derived no metadata at all and ran the script
+  // unpinned. Splitting the way the browser splits is what makes one entry mean one entry.
+  return value.split(/[\t\n\f\r ]+/u).some(entry =>
     /^sha(?:256|384|512)-[\d+/A-Za-z]+={0,2}(?:\?[!-~]*)?$/i.test(entry));
 }
 
@@ -894,7 +916,9 @@ function markupFindings(name: string, html: string): string[] {
       if (unreadable.length > 0) {
         findings.push(`${name}: <${tag.element} ${spelled}> contains `
           + `${unreadable.join(", ")}, which this file cannot decode, so it cannot tell `
-          + "what URL a browser resolves here. Add the reference to `namedEntities`");
+          + "what URL a browser resolves here. If it is a real character reference, add it "
+          + "to `namedEntities` with the character it produces; if it is not, a browser "
+          + "leaves it as text, and it should not be spelled that way before the query");
         continue;
       }
       const scheme = urlScheme(attribute.value);
@@ -906,6 +930,57 @@ function markupFindings(name: string, html: string): string[] {
   }
   return findings;
 }
+
+test("subresource integrity is read the way a browser separates it", () => {
+  // Round 5 (Sol) found `\s`-splitting accepted a value a browser rejects outright. The
+  // browser separates hash expressions on ASCII whitespace, so a non-ASCII space does not
+  // start a new entry: the whole value is one unrecognized algorithm token, no metadata is
+  // derived and the remote script runs unpinned while this said it was pinned.
+  const digest = "sha384-zLRFO4dwowZvh8kzutOb5AWhH7f39HeJp+N7PtHF1SQtTBnifRx0AtmvTYs3F4YV";
+  const script = (integrity: string): string =>
+    `<script src="https://cdn.example.com/x.js" integrity="${integrity}"></script>`;
+
+  for (const separator of ["\u00A0", "\u2003", "\u3000"]) {
+    assert.ok(markupFindings("sri", script(`bogus${separator}${digest}`)).length > 0,
+      `a browser splits hash expressions on ASCII whitespace only, so \`bogus${
+        JSON.stringify(separator)}…\` is a single unrecognized entry and the bytes are `
+        + "not pinned at all. This accepted it");
+  }
+
+  // The separators a browser does honor still work, and so does an unsupported algorithm
+  // beside a supported one -- a browser enforces the strongest it supports and ignores the
+  // rest, so the bytes are pinned.
+  for (const accepted of [digest, `md5-abc=  ${digest}`, `${digest}\t${digest}`]) {
+    assert.deepEqual(markupFindings("sri", script(accepted)), [],
+      `\`${accepted}\` pins the bytes and was rejected`);
+  }
+});
+
+test("an undecodable character reference is reported only where it could change the URL", () => {
+  // Round 5 (Gemini) found `&b;` in a query string reported as undecodable. A browser
+  // leaves it as text, and nothing after the first `?` or `#` can produce a scheme or an
+  // authority, so there is nothing this needs to know about it.
+  for (const inert of ["/api?a=1&b;c=2", "/search?q=x&NotAnEntity;&y=2", "/p#a&b;c"]) {
+    assert.deepEqual(markupFindings("ref", `<a href="${inert}">x</a>`), [],
+      `\`${inert}\` is a query or fragment a browser leaves as text, and it was rejected`);
+  }
+
+  // Before the query it still reports, because that is where a reference this cannot read
+  // decides the answer. `&commat;` is a real reference this table lacks, which is the case
+  // that makes silence unsafe; `&b;` is not, and telling them apart is the whole problem.
+  for (const reported of ["/&commat;evil.example/x", "/&b;/x", "&unknown;://host/x"]) {
+    assert.ok(markupFindings("ref", `<a href="${reported}">x</a>`).length > 0,
+      `\`${reported}\` carries a reference this file cannot decode before the query, so it `
+        + "cannot know what URL a browser resolves. It said nothing");
+  }
+
+  // The slash does not end the region: this is the round 4 attack, and a rule that stopped
+  // at the first slash would pass it.
+  assert.ok(markupFindings("ref", '<a href="/&bsol;evil.example/x">x</a>').length === 0,
+    "`&bsol;` is in the table, so it decodes rather than being reported as unreadable");
+  assert.ok(markupFindings("ref", '<base href="/&bsol;evil.example/" />').length > 0,
+    "`/&bsol;evil.example/` resolves to a remote authority and must be reported as one");
+});
 
 test("a text attribute cannot become a URL the browser follows", () => {
   // The scheme rule exempts `textAttributes`, so each entry is a claim that a browser
@@ -930,13 +1005,23 @@ test("a text attribute cannot become a URL the browser follows", () => {
 
 // The set of parse5 verdicts Vite drops before `scripts/html-parse-gate.ts` can make them
 // fatal, read out of the Vite build this project runs rather than copied into a list here.
-// `handleParseError` opens with a switch whose arms return for exactly those codes, so the
-// answer is in the shipped source and does not have to be remembered.
+// `handleParseError` returns early for exactly those codes, so the answer is in the shipped
+// source and does not have to be remembered.
 //
-// Every step fails closed. If the resolution, the function, the switch, or the shape of
-// its arms is not what this expects, it fails rather than returning the smaller set it
-// managed to find -- because a short answer here reads as "Vite discards less than it
-// does", which is the direction that silently drops coverage.
+// Round 5 (Sol and Gemini, independently) found the first version of this reading that
+// source with `indexOf` and a regex, which is the same mistake this gate exists to punish:
+// hand-parsing a language instead of asking a parser. Sol moved the discard to an `if`
+// ahead of the switch and Gemini put a `}` in a comment inside it; both shapes are ordinary
+// JavaScript, and under each the derivation returned a *smaller* set, matched it against
+// the specimens, and passed. A short answer here reads as "Vite discards less than it
+// does", which is precisely the direction that silently drops coverage.
+//
+// So this asks `oxc-parser` -- already this suite's answer to "what does this source say?"
+// -- and the fail-closed core is no longer a shape assumption but a count. Every discard is
+// an argument-less `return`, so every argument-less `return` in the function has to be a
+// discard this recognized. Vite can add one as a switch arm or as an `if`; if it adds one
+// in a shape not recognized below, the counts disagree and this fails rather than reporting
+// the smaller set it understood.
 function viteDiscardedParseErrorCodes(): ReadonlySet<string> {
   const entry = fileURLToPath(import.meta.resolve("vite"));
   let root = dirname(entry);
@@ -960,31 +1045,80 @@ function viteDiscardedParseErrorCodes(): ReadonlySet<string> {
   const marker = "function handleParseError";
   const carriers = sources.filter(path => readFileSync(path, "utf8").includes(marker));
   assert.equal(carriers.length, 1,
-    `expected exactly one Vite source to define \`${marker}\`, the switch that decides `
+    `expected exactly one Vite source to define \`${marker}\`, the function that decides `
       + `which parse5 verdicts are dropped, and found ${carriers.length}. Vite has been `
       + "restructured, so this can no longer tell which verdicts reach the build gate");
 
-  const source = readFileSync(carriers[0] ?? "", "utf8");
-  const start = source.indexOf(marker);
-  assert.equal(source.indexOf(marker, start + 1), -1,
-    `\`${marker}\` is defined more than once, so which switch decides is ambiguous`);
+  const carrier = carriers[0] ?? "";
+  const parsed = parseSync(carrier, readFileSync(carrier, "utf8"));
+  assert.deepEqual(parsed.errors, [],
+    `\`${carrier}\` did not parse, so nothing below is reading Vite's discard decision`);
 
-  const switchAt = source.indexOf("switch", start);
-  assert.ok(switchAt > start && switchAt - start < 200,
-    "`handleParseError` no longer opens with the switch that drops parse codes");
+  const declarations = parsed.program.body.filter(statement =>
+    statement.type === "FunctionDeclaration" && statement.id?.name === "handleParseError");
+  assert.equal(declarations.length, 1,
+    `expected exactly one top-level \`handleParseError\` and found ${declarations.length}`
+      + ", so which one decides is ambiguous");
 
-  const open = source.indexOf("{", switchAt);
-  const close = source.indexOf("}", open);
-  assert.ok(open > switchAt && close > open, "the discard switch has no readable body");
-  const body = source.slice(open + 1, close);
+  const declaration = declarations[0];
+  const body = declaration?.type === "FunctionDeclaration" ? declaration.body?.body : undefined;
+  assert.ok(body !== undefined, "`handleParseError` has no readable body");
 
-  // A nested block would put arms outside `body`, and an arm doing anything but returning
-  // is not a discard. Either shape means this is reading the wrong thing.
-  const codes = [...body.matchAll(/case\s*"([^"]+)"\s*:\s*return;/g)].map(match => match[1] ?? "");
-  assert.equal((body.match(/\bcase\b/g) ?? []).length, codes.length,
-    `the discard switch has arms this cannot read, so the codes it drops are not all `
-      + `accounted for. Read: ${codes.join(", ")}`);
-  assert.ok(codes.length > 0, "the discard switch dropped no codes, which has never been "
+  // A discard returns nothing. Anything with an argument is a value this is not reading.
+  const isDiscard = (node: Statement | null | undefined): boolean =>
+    node?.type === "ReturnStatement" && (node.argument === null || node.argument === undefined);
+
+  // `if (x.code === "literal") return;`, in either operand order, with no `else` and
+  // nothing but the return in its consequent. This is the shape Sol used to defeat the
+  // previous version, so it is recognized rather than merely counted.
+  const guardedCode = (statement: Statement): string | undefined => {
+    if (statement.type !== "IfStatement" || statement.alternate != null) { return undefined; }
+    const consequent = statement.consequent;
+    const returned = consequent.type === "BlockStatement"
+      ? (consequent.body.length === 1 ? consequent.body[0] : undefined)
+      : consequent;
+    if (!isDiscard(returned)) { return undefined; }
+    const condition = statement.test;
+    if (condition.type !== "BinaryExpression"
+      || (condition.operator !== "===" && condition.operator !== "==")) { return undefined; }
+    for (const side of [condition.left, condition.right]) {
+      if (side.type === "Literal" && typeof side.value === "string") { return side.value; }
+    }
+    return undefined;
+  };
+
+  const codes: string[] = [];
+  for (const statement of body) {
+    const guarded = guardedCode(statement);
+    if (guarded !== undefined) { codes.push(guarded); continue; }
+    if (statement.type !== "SwitchStatement") { continue; }
+    for (const branch of statement.cases) {
+      // A `default:`, a fallthrough, or an arm doing anything but returning is a shape
+      // this does not understand. Leaving it uncounted is what makes the tally below fail.
+      if (branch.test?.type !== "Literal" || typeof branch.test.value !== "string") { continue; }
+      if (branch.consequent.length !== 1 || !isDiscard(branch.consequent[0])) { continue; }
+      codes.push(branch.test.value);
+    }
+  }
+
+  // The tally is the part that fails closed, and it has to see the whole function rather
+  // than the shapes above, or a discard in an unrecognized shape would go uncounted on both
+  // sides and the two would agree by accident. Serializing walks every node there is.
+  let discards = 0;
+  JSON.stringify(declaration, (_key: string, value: unknown): unknown => {
+    if (typeof value === "object" && value !== null && "type" in value
+      && value.type === "ReturnStatement"
+      && (!("argument" in value) || value.argument === null || value.argument === undefined)) {
+      discards += 1;
+    }
+    return value;
+  });
+
+  assert.equal(codes.length, discards,
+    `\`handleParseError\` returns without a value ${discards} time(s) and this recognized `
+      + `${codes.length} of them, so Vite drops parse verdicts this cannot name. Read: `
+      + codes.join(", "));
+  assert.ok(codes.length > 0, "`handleParseError` dropped no codes, which has never been "
     + "true; this is reading the wrong code rather than reporting a change in Vite");
 
   return new Set(codes);
