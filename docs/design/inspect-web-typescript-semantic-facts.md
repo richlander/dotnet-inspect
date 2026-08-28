@@ -40,8 +40,8 @@ The semantic-facts owner defines:
 - the repository-owned handles used to refer to files, nodes, symbols,
   declarations, types, and signatures within one snapshot;
 - alias normalization and declaration provenance;
-- on-demand symbol, type, contextual-type, signature, overload, module, and
-  source-location queries;
+- on-demand and batched symbol and type queries, plus contextual-type,
+  signature, overload, module, and source-location queries;
 - explicit absent, unavailable, ambiguous, and stale-handle outcomes;
 - deterministic ordering and caching within a snapshot; and
 - characterization and non-vacuity tests against the pinned TypeScript API and
@@ -301,9 +301,17 @@ fact returns `Unavailable(MissingApiFact)`.
 The pinned TypeScript 7.0.2 checker panics when asked for the type of a
 type-only import-clause node. That node remains a valid syntax subject, but the
 adapter recognizes it before invoking the checker and returns
-`Unavailable(MissingApiFact)`. The implementation gate sweeps every node in a
-real type-importing source through the symbol and type queries so this upstream
-failure cannot poison the session.
+`Unavailable(MissingApiFact)`. The implementation gate covers that clause
+through scalar and batched queries, and separately sweeps every project-root
+node through batched symbol and type queries so this upstream failure cannot
+poison the session.
+
+The batch symbol-at-node and type-at-node operations return one outer
+`QueryResult` containing an ordered inner result for every input. Wrong-kind
+and stale-session handles, semantic absence, missing API facts, and
+compatibility outcomes remain aligned with their individual inputs. A process
+or protocol failure poisons the outer operation and session rather than being
+misreported as one node's semantic result.
 
 Calling a category-specific query with any other subject returns
 `NotApplicable` without invoking TypeScript. The implementation gate derives
@@ -352,7 +360,11 @@ identities or declarations.
 A declaration fact includes node kind, source location, source-file
 classification, and its containing declaration chain. Declaration identity is
 the basis for consumers that need to distinguish platform, dependency, and
-product definitions.
+product definitions. The declaration predicate is the complete concrete
+`DeclarationBase` kind set exposed by the pinned TypeScript declarations rather
+than a hand-selected list. The implementation gate includes anonymous type,
+function-type, class-expression, and import-clause containers so a new syntax
+shape cannot silently skip an ownership boundary.
 
 ### Types
 
@@ -421,12 +433,18 @@ returning to the repository facade. Tests may import a separate adapter test
 seam, but not the unstable packages directly.
 
 The adapter batches equivalent TypeScript queries where the unstable API
-supports batching and memoizes translations by session and TypeScript object
-identity. A private session-scoped registry maps repository handles to the raw
-TypeScript objects required by follow-up queries. It is confined to the one
-unstable adapter module, never returned through the facade, and cleared during
-disposal. All other caches contain repository facts and handles only and are
-also cleared on disposal.
+supports batching. The symbol-at-node and type-at-node operations use the
+pinned checker's array overloads, preserve input order and per-input result
+classification, and retain scalar/batch handle identity through the same
+session registries. The implementation gate performs one non-vacuous batched
+sweep of more than 100,000 nodes across every real project root.
+
+Translations are memoized by session and TypeScript object identity. A private
+session-scoped registry maps repository handles to the raw TypeScript objects
+required by follow-up queries. It is confined to the one unstable adapter
+module, never returned through the facade, and cleared during disposal. All
+other caches contain repository facts and handles only and are also cleared on
+disposal.
 
 The pinned TypeScript version is part of the owner contract. A version update
 must pass the characterization gate before the package pin changes. A changed
@@ -474,10 +492,13 @@ script. Its gate contains:
    unverified.
 3. **Fact characterization:** maps every repository node, symbol, type,
    signature, diagnostic, and source-file category used by the facade against
-   TypeScript 7.0.2. Removing a mapping or adding an unknown API value fails.
+   TypeScript 7.0.2. It covers the complete pinned declaration-kind set and the
+   overlapping whole-enum and enum-member type flags. Removing a mapping or
+   adding an unknown API value fails.
 4. **Alias and declaration identity:** distinguishes lexical shadows and
    same-named declarations, preserves immediate alias chains, and resolves an
-   imported alias to its original declaration.
+   imported alias to its original declaration. Anonymous type, function-type,
+   class-expression, and import-clause ancestry remain explicit.
 5. **Type queries:** covers unions, intersections, literals, constraints,
    generics, base types, properties, indexes, narrowed types, error types, and a
    cyclic shared type graph without flattening identity.
@@ -502,10 +523,15 @@ script. Its gate contains:
    undifferentiated unavailable result. It also proves disposal takes
    precedence over a prior poisoned state and that handle validation runs only
    for a healthy active session.
+   Ordered scalar/batch equivalence covers resolved identity, wrong-kind and
+   stale-session handles, the toxic type-only import clause, and outer-session
+   poisoning from a batched checker failure. A project-wide batched sweep over
+   every project root provides non-vacuous real-source coverage.
 9. **Import isolation:** a named non-vacuity test uses the toolchain gate's
    shared, case-insensitive TypeScript and JavaScript source inventory and fails
    if any module other than the one adapter references either unstable
-   TypeScript API.
+   TypeScript API, including quoted and no-substitution-template imports,
+   dynamic imports, `require`, and `createRequire`.
 10. **Artifact isolation:** audits the Vite graph, runs the production build,
     requires its shipped chunks to equal the audited chunks, and proves the
     adapter, TypeScript API packages, and semantic fact code are absent.
@@ -518,12 +544,13 @@ npx --yes node@24 --run inspect-web-typescript-semantic-facts
 npx --yes node@24 --run build
 ```
 
-The focused gate is implemented by
-`prototypes/inspect-web/test/typescript-semantic-facts.test.ts` plus the shipped
-chunk equivalence owner in `prototypes/inspect-web/test/toolchain.test.ts`. It
-opens the real inspect-web project and compiled fixtures, exercises the public
-facade and failure seams, scans unstable-package references, audits the Vite
-graph, and proves that audit describes the production build.
+The focused gate is implemented by the unfiltered
+`prototypes/inspect-web/test/typescript-semantic-facts.test.ts` and
+`prototypes/inspect-web/test/typescript-semantic-facts-artifact.test.ts` files.
+It opens the real inspect-web project and compiled fixtures, exercises the
+public facade and failure seams, scans unstable-package references, audits one
+Vite graph for semantic-tooling exclusion, and proves that exact audited build
+equals the production chunks.
 
 This gate proves the adapter contract only. It does not prove a semantic
 consumer's rules, coverage, or behavior.

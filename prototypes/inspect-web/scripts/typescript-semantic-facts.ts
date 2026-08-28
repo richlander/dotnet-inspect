@@ -33,32 +33,22 @@ import {
 import {
   SyntaxKind,
   isCallLikeExpression,
-  isClassDeclaration,
   isElementAccessExpression,
   isEnumMember,
-  isEnumDeclaration,
   isExportDeclaration,
   isExportSpecifier,
   isExpression,
   isExternalModuleReference,
-  isFunctionDeclaration,
   isImportDeclaration,
   isImportClause,
-  isImportSpecifier,
   isImportTypeNode,
-  isInterfaceDeclaration,
   isLiteralTypeNode,
-  isMethodDeclaration,
-  isModuleDeclaration,
-  isParameterDeclaration,
   isPropertyAccessExpression,
   isShorthandPropertyAssignment,
   isSourceFile,
   isStatement,
   isStringLiteralLikeNode,
-  isTypeAliasDeclaration,
   isTypeNode,
-  isVariableDeclaration,
   type Node as TypeScriptNode,
   type SourceFile as TypeScriptSourceFile,
 } from "typescript/unstable/ast";
@@ -80,11 +70,15 @@ export const NodeKind = Object.freeze({
   FunctionDeclaration: "FunctionDeclaration",
   ArrowFunction: "ArrowFunction",
   ClassDeclaration: "ClassDeclaration",
+  ClassExpression: "ClassExpression",
   InterfaceDeclaration: "InterfaceDeclaration",
   TypeAliasDeclaration: "TypeAliasDeclaration",
+  TypeLiteral: "TypeLiteral",
+  FunctionType: "FunctionType",
   ModuleDeclaration: "ModuleDeclaration",
   MethodDeclaration: "MethodDeclaration",
   ImportDeclaration: "ImportDeclaration",
+  ImportClause: "ImportClause",
   ExportDeclaration: "ExportDeclaration",
   ImportSpecifier: "ImportSpecifier",
   ExportSpecifier: "ExportSpecifier",
@@ -639,11 +633,17 @@ export interface TypeScriptSemanticFactsSession {
   ): QueryResult<NodeFact>;
   getSymbol(handle: SemanticHandle): QueryResult<SymbolFact>;
   getSymbolAtNode(node: SemanticHandle): QueryResult<SymbolFact>;
+  getSymbolsAtNodes(
+    nodes: readonly SemanticHandle[],
+  ): QueryResult<readonly QueryResult<SymbolFact>[]>;
   getSourceSymbol(node: SemanticHandle): QueryResult<SymbolFact>;
   getDeclaration(handle: SemanticHandle): QueryResult<DeclarationFact>;
   getAliasChain(symbol: SemanticHandle): QueryResult<AliasChainFact>;
   getType(handle: SemanticHandle): QueryResult<TypeFact>;
   getTypeAtNode(node: SemanticHandle): QueryResult<TypeFact>;
+  getTypesAtNodes(
+    nodes: readonly SemanticHandle[],
+  ): QueryResult<readonly QueryResult<TypeFact>[]>;
   getContextualType(node: SemanticHandle): QueryResult<TypeFact>;
   getDeclaredType(symbol: SemanticHandle): QueryResult<TypeFact>;
   getSymbolValueType(symbol: SemanticHandle): QueryResult<TypeFact>;
@@ -1403,16 +1403,24 @@ function nodeKind(node: TypeScriptNode): NodeKind {
       return NodeKind.ArrowFunction;
     case SyntaxKind.ClassDeclaration:
       return NodeKind.ClassDeclaration;
+    case SyntaxKind.ClassExpression:
+      return NodeKind.ClassExpression;
     case SyntaxKind.InterfaceDeclaration:
       return NodeKind.InterfaceDeclaration;
     case SyntaxKind.TypeAliasDeclaration:
       return NodeKind.TypeAliasDeclaration;
+    case SyntaxKind.TypeLiteral:
+      return NodeKind.TypeLiteral;
+    case SyntaxKind.FunctionType:
+      return NodeKind.FunctionType;
     case SyntaxKind.ModuleDeclaration:
       return NodeKind.ModuleDeclaration;
     case SyntaxKind.MethodDeclaration:
       return NodeKind.MethodDeclaration;
     case SyntaxKind.ImportDeclaration:
       return NodeKind.ImportDeclaration;
+    case SyntaxKind.ImportClause:
+      return NodeKind.ImportClause;
     case SyntaxKind.ExportDeclaration:
       return NodeKind.ExportDeclaration;
     case SyntaxKind.ImportSpecifier:
@@ -1453,33 +1461,64 @@ function nodeKind(node: TypeScriptNode): NodeKind {
   }
 }
 
+const declarationKinds: ReadonlySet<SyntaxKind> = new Set([
+  SyntaxKind.VariableDeclaration,
+  SyntaxKind.Parameter,
+  SyntaxKind.BindingElement,
+  SyntaxKind.MissingDeclaration,
+  SyntaxKind.FunctionDeclaration,
+  SyntaxKind.ClassDeclaration,
+  SyntaxKind.ClassExpression,
+  SyntaxKind.InterfaceDeclaration,
+  SyntaxKind.TypeAliasDeclaration,
+  SyntaxKind.EnumMember,
+  SyntaxKind.EnumDeclaration,
+  SyntaxKind.ImportDeclaration,
+  SyntaxKind.NamespaceImport,
+  SyntaxKind.ExportAssignment,
+  SyntaxKind.NamespaceExportDeclaration,
+  SyntaxKind.NamespaceExport,
+  SyntaxKind.ExportSpecifier,
+  SyntaxKind.CallSignature,
+  SyntaxKind.ConstructSignature,
+  SyntaxKind.Constructor,
+  SyntaxKind.GetAccessor,
+  SyntaxKind.SetAccessor,
+  SyntaxKind.IndexSignature,
+  SyntaxKind.MethodSignature,
+  SyntaxKind.MethodDeclaration,
+  SyntaxKind.PropertySignature,
+  SyntaxKind.PropertyDeclaration,
+  SyntaxKind.SemicolonClassElement,
+  SyntaxKind.ClassStaticBlockDeclaration,
+  SyntaxKind.NoSubstitutionTemplateLiteral,
+  SyntaxKind.BinaryExpression,
+  SyntaxKind.ArrowFunction,
+  SyntaxKind.FunctionExpression,
+  SyntaxKind.CallExpression,
+  SyntaxKind.ObjectLiteralExpression,
+  SyntaxKind.SpreadAssignment,
+  SyntaxKind.PropertyAssignment,
+  SyntaxKind.ShorthandPropertyAssignment,
+  SyntaxKind.MappedType,
+  SyntaxKind.TypeLiteral,
+  SyntaxKind.NamedTupleMember,
+  SyntaxKind.FunctionType,
+  SyntaxKind.ConstructorType,
+  SyntaxKind.JsxAttributes,
+  SyntaxKind.JsxAttribute,
+  SyntaxKind.JSDocSignature,
+  SyntaxKind.ModuleDeclaration,
+  SyntaxKind.ImportEqualsDeclaration,
+  SyntaxKind.ExportDeclaration,
+  SyntaxKind.ImportClause,
+  SyntaxKind.ImportSpecifier,
+  SyntaxKind.TypeParameter,
+  SyntaxKind.JSDocTypeLiteral,
+]);
+
 function isDeclarationNode(node: TypeScriptNode): boolean {
-  return isVariableDeclaration(node)
-    || isParameterDeclaration(node)
-    || isFunctionDeclaration(node)
-    || isClassDeclaration(node)
-    || isInterfaceDeclaration(node)
-    || isTypeAliasDeclaration(node)
-    || isModuleDeclaration(node)
-    || isMethodDeclaration(node)
-    || isImportDeclaration(node)
-    || isExportDeclaration(node)
-    || isImportSpecifier(node)
-    || isExportSpecifier(node)
-    || isShorthandPropertyAssignment(node)
-    || isEnumDeclaration(node)
-    || isEnumMember(node)
-    || node.kind === SyntaxKind.ArrowFunction
-    || node.kind === SyntaxKind.PropertyDeclaration
-    || node.kind === SyntaxKind.PropertySignature
-    || node.kind === SyntaxKind.MethodSignature
-    || node.kind === SyntaxKind.Constructor
-    || node.kind === SyntaxKind.GetAccessor
-    || node.kind === SyntaxKind.SetAccessor
-    || node.kind === SyntaxKind.CallSignature
-    || node.kind === SyntaxKind.ConstructSignature
-    || node.kind === SyntaxKind.IndexSignature
-    || node.kind === SyntaxKind.FunctionExpression;
+  return declarationKinds.has(node.kind);
 }
 
 function typeCategory(
@@ -1489,6 +1528,8 @@ function typeCategory(
     return TypeCategory.Error;
   }
   const categories = [
+    [TypeFlags.Union, TypeCategory.Union],
+    [TypeFlags.Intersection, TypeCategory.Intersection],
     [TypeFlags.Any, TypeCategory.Any],
     [TypeFlags.Unknown, TypeCategory.Unknown],
     [TypeFlags.Undefined, TypeCategory.Undefined],
@@ -1516,8 +1557,6 @@ function typeCategory(
     [TypeFlags.Substitution, TypeCategory.Substitution],
     [TypeFlags.IndexedAccess, TypeCategory.IndexedAccess],
     [TypeFlags.Conditional, TypeCategory.Conditional],
-    [TypeFlags.Union, TypeCategory.Union],
-    [TypeFlags.Intersection, TypeCategory.Intersection],
   ] as const;
   for (const [flag, category] of categories) {
     if ((type.flags & flag) !== 0) {
@@ -2387,6 +2426,88 @@ class SemanticFactsSession implements TypeScriptSemanticFactsSession {
     });
   }
 
+  #translatedFact<T>(
+    read: () => T | undefined,
+    absentReason: string,
+  ): QueryResult<T> {
+    try {
+      const value = read();
+      return value === undefined ? absent(absentReason) : resolved(value);
+    } catch (error) {
+      if (error instanceof QueryFailure) {
+        return error.result;
+      }
+      if (error instanceof CompatibilityFailure) {
+        return unavailable(error.reason, error.message);
+      }
+      throw error;
+    }
+  }
+
+  #completeBatch<T>(
+    results: readonly (QueryResult<T> | undefined)[],
+  ): readonly QueryResult<T>[] {
+    return Object.freeze(results.map((result, index) => {
+      if (result === undefined) {
+        throw new CompatibilityFailure(
+          "UnsupportedResponseShape",
+          `TypeScript batch result ${String(index)} was not populated`,
+        );
+      }
+      return result;
+    }));
+  }
+
+  getSymbolsAtNodes(
+    nodes: readonly SemanticHandle[],
+  ): QueryResult<readonly QueryResult<SymbolFact>[]> {
+    return this.#run("getSymbolsAtNodes", () => {
+      const results: (QueryResult<SymbolFact> | undefined)[] = Array.from({
+        length: nodes.length,
+      });
+      const rawNodes: TypeScriptNode[] = [];
+      const resultIndices: number[] = [];
+      for (const [index, handle] of nodes.entries()) {
+        try {
+          rawNodes.push(this.#requireNode(handle));
+          resultIndices.push(index);
+        } catch (error) {
+          if (error instanceof QueryFailure) {
+            results[index] = error.result;
+          } else {
+            throw error;
+          }
+        }
+      }
+      const symbols = rawNodes.length === 0
+        ? []
+        : this.#checkerCall(
+          "getSymbolsAtNodes",
+          () => this.#checker.getSymbolAtLocation(rawNodes),
+        );
+      if (symbols.length !== rawNodes.length) {
+        throw new CompatibilityFailure(
+          "UnsupportedResponseShape",
+          "TypeScript returned a misaligned symbol batch",
+        );
+      }
+      for (const [offset, symbol] of symbols.entries()) {
+        const index = resultIndices[offset];
+        if (index === undefined) {
+          throw new CompatibilityFailure(
+            "UnsupportedResponseShape",
+            `symbol batch result ${String(offset)} has no input index`,
+          );
+        }
+        results[index] = this.#translatedFact(() => {
+          const checked = this.#checkedSymbol(symbol);
+          return checked === undefined ? undefined : this.#symbolFact(checked);
+        }, "TypeScript reports no symbol at this syntax");
+      }
+      return resolved(this.#completeBatch(results));
+    });
+  }
+
   getSourceSymbol(node: SemanticHandle): QueryResult<SymbolFact> {
     return this.#run("getSourceSymbol", () => {
       const rawNode = this.#requireNode(node);
@@ -2476,6 +2597,67 @@ class SemanticFactsSession implements TypeScriptSemanticFactsSession {
       return type === undefined
         ? absent("TypeScript reports no type at this syntax")
         : resolved(this.#typeFact(type));
+    });
+  }
+
+  getTypesAtNodes(
+    nodes: readonly SemanticHandle[],
+  ): QueryResult<readonly QueryResult<TypeFact>[]> {
+    return this.#run("getTypesAtNodes", () => {
+      const results: (QueryResult<TypeFact> | undefined)[] = Array.from({
+        length: nodes.length,
+      });
+      const rawNodes: TypeScriptNode[] = [];
+      const resultIndices: number[] = [];
+      for (const [index, handle] of nodes.entries()) {
+        try {
+          const rawNode = this.#requireNode(handle);
+          if (
+            isImportClause(rawNode)
+            && rawNode.phaseModifier === SyntaxKind.TypeKeyword
+          ) {
+            results[index] = unavailable(
+              "MissingApiFact",
+              "TypeScript 7.0.2 cannot type a type-only import clause",
+            );
+          } else {
+            rawNodes.push(rawNode);
+            resultIndices.push(index);
+          }
+        } catch (error) {
+          if (error instanceof QueryFailure) {
+            results[index] = error.result;
+          } else {
+            throw error;
+          }
+        }
+      }
+      const types = rawNodes.length === 0
+        ? []
+        : this.#checkerCall(
+          "getTypesAtNodes",
+          () => this.#checker.getTypeAtLocation(rawNodes),
+        );
+      if (types.length !== rawNodes.length) {
+        throw new CompatibilityFailure(
+          "UnsupportedResponseShape",
+          "TypeScript returned a misaligned type batch",
+        );
+      }
+      for (const [offset, type] of types.entries()) {
+        const index = resultIndices[offset];
+        if (index === undefined) {
+          throw new CompatibilityFailure(
+            "UnsupportedResponseShape",
+            `type batch result ${String(offset)} has no input index`,
+          );
+        }
+        results[index] = this.#translatedFact(
+          () => type === undefined ? undefined : this.#typeFact(type),
+          "TypeScript reports no type at this syntax",
+        );
+      }
+      return resolved(this.#completeBatch(results));
     });
   }
 

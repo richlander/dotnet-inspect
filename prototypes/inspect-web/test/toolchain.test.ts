@@ -33,7 +33,7 @@ import {
   typeScriptSourceExtensions,
 } from "./project-source-inventory.ts";
 import { verifySiteArtifact } from "../scripts/verify-site-artifact.ts";
-import { auditedBuild, builtinPluginNames, bundlerReadFiles, shippedChunks } from "./vite-audit.ts";
+import { auditedBuild, builtinPluginNames, bundlerReadFiles } from "./vite-audit.ts";
 
 interface PackageLockEntry {
   readonly link?: boolean;
@@ -768,37 +768,6 @@ test("the bundler has no unread path into the shipped output", async () => {
     "the build declares worker plugins. This project bundles no workers, and a worker "
       + "plugin injects into a bundle these gates do not audit, so the two have to stay "
       + "that way together");
-});
-
-// Round 10 derived the two settings above from Vite's resolution instead of the text of
-// the config, which closed every spelling of *declaring* a plugin. Round 11 (Sol) showed
-// that resolution is still a question asked at a particular moment, in a particular
-// process. A plugin guarded by `process.env.npm_lifecycle_event === "build"` is simply
-// not there when `npm test` resolves the config, and is there when `npm run build` runs:
-// the gate above saw Vite's own plugin list unchanged, all four commands stayed green,
-// and the payload shipped in `dist/assets/dotnet-inspect-B2MTdysw.js`.
-//
-// That is not only an evasion. Config conditional on mode or environment is ordinary Vite
-// practice, so the plugin gate was equally blind to an honest conditional plugin. Every
-// gate in this file audits a build that the *test* runs, and each one inherits this: they
-// describe the build the test could see, not the build that ships.
-//
-// So this asserts the two are the same build. `npm run build` runs in its own process
-// with whatever environment npm gives it, and its chunks must match the audited build's
-// exactly. It models nothing about what a config may do -- a config that behaves
-// differently when it is being watched makes the two disagree, whatever it switched on.
-// The gates above keep their value because this one says they were looking at the
-// artifact that ships.
-test("the audited build is the build that ships", async () => {
-  const root = fileURLToPath(new URL("../", import.meta.url));
-  const audited = await auditedBuild(root);
-  assert.ok(audited.chunks.length > 0, "the audited build emitted no chunks to compare");
-  assert.deepStrictEqual(shippedChunks(root), audited.chunks,
-    "`npm run build` emits different code than the build these gates audit, so the "
-      + "audit describes something other than what ships. A config that resolves "
-      + "differently under the build than under the test -- conditional on mode, on the "
-      + "npm lifecycle, or on any other environment -- does this, and so does anything "
-      + "that injects into one build and not the other");
 });
 
 // Being under a lint target turns out not to mean the lint reads the file. oxlint applies

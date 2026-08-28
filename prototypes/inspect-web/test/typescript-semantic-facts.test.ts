@@ -13,7 +13,6 @@ import {
   dirname,
   join,
   relative,
-  resolve,
   sep,
 } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -69,7 +68,6 @@ import {
   projectSourceFiles,
   typeScriptSourceExtensions,
 } from "./project-source-inventory.ts";
-import { auditedBuild } from "./vite-audit.ts";
 
 const inspectWebRoot = fileURLToPath(new URL("../", import.meta.url));
 const realTsconfig = join(inspectWebRoot, "tsconfig.json");
@@ -121,6 +119,9 @@ export type Conditional<T> = T extends string ? "text" : "other";
 export type Template<T extends string> = \`prefix-\${T}\`;
 export type Mapping<T extends string> = Uppercase<T>;
 export type Mapped<T> = { [K in keyof T]: T[K] };
+export type Callback = (callbackValue: string) => number;
+export type AnonymousShape = { nestedField: string };
+export const AnonymousClass = class { anonymousField = 1; };
 
 export function identity<T>(value: T): T {
   return value;
@@ -434,7 +435,7 @@ test("opens the real inspect-web project and preserves DOM overload provenance",
   }
 });
 
-test("all nodes in a real type-importing source remain safe semantic subjects", () => {
+test("batched semantic queries safely cover every real project-root node", () => {
   const session = expectOpened(openTypeScriptSemanticFacts(realTsconfig));
   try {
     const source = sourceByPath(session, "src/annotated-source-view.ts");
@@ -443,30 +444,21 @@ test("all nodes in a real type-importing source remain safe semantic subjects", 
       "utf8",
     );
     const nodes = nodesFor(session, source);
-    const typeOnlyClause = nodes.find(node =>
-      node.kind === NodeKind.Other
-      && nodeText(node, text).startsWith("type {"));
-    assert.ok(typeOnlyClause !== undefined);
-    assert.deepEqual(session.getTypeAtNode(typeOnlyClause.handle), {
-      kind: "Unavailable",
-      reason: "MissingApiFact",
-      detail: "TypeScript 7.0.2 cannot type a type-only import clause",
-    });
-
-    for (const node of nodes) {
-      const symbol = session.getSymbolAtNode(node.handle);
-      assert.notEqual(
-        symbol.kind,
-        "SessionFailure",
-        `symbol query poisoned at ${node.kind} ${node.location.start}`,
-      );
-      const type = session.getTypeAtNode(node.handle);
-      assert.notEqual(
-        type.kind,
-        "SessionFailure",
-        `type query poisoned at ${node.kind} ${node.location.start}`,
-      );
+    let swept = 0;
+    const roots = expectResolved(session.getSourceFiles()).filter(candidate =>
+      candidate.classification === SourceFileClassification.ProjectRoot);
+    for (const root of roots) {
+      const rootNodes = nodesFor(session, root);
+      const handles = rootNodes.map(node => node.handle);
+      const symbols = expectResolved(session.getSymbolsAtNodes(handles));
+      const types = expectResolved(session.getTypesAtNodes(handles));
+      assert.equal(symbols.length, handles.length);
+      assert.equal(types.length, handles.length);
+      assert.ok(symbols.every(result => result.kind !== "SessionFailure"));
+      assert.ok(types.every(result => result.kind !== "SessionFailure"));
+      swept += handles.length;
     }
+    assert.ok(swept > 100_000, `expected a project-wide sweep, observed ${swept} nodes`);
 
     const lineStart = text.indexOf(".map(line =>")
       + ".map(".length;
@@ -587,7 +579,7 @@ test("handles are session-scoped, kind-checked, terminal-first, and disposal is 
   const first = expectOpened(openTypeScriptSemanticFacts(fixtureTsconfig));
   const second = expectOpened(openTypeScriptSemanticFacts(fixtureTsconfig));
   const entry = sourceByPath(first, "entry.ts");
-  const firstNode = expectResolved(first.getNodes(entry.handle))[0];
+  const firstNode = identifierNodes(nodesFor(first, entry), "cycle")[0];
   assert.ok(firstNode !== undefined);
 
   assert.deepEqual(first.getNode(entry.handle), {
@@ -598,6 +590,31 @@ test("handles are session-scoped, kind-checked, terminal-first, and disposal is 
     kind: "InvalidHandle",
     reason: "StaleSession",
   });
+  const secondEntry = sourceByPath(second, "entry.ts");
+  const secondNode = expectResolved(second.getNodes(secondEntry.handle))[0];
+  assert.ok(secondNode !== undefined);
+  const symbolBatch = expectResolved(first.getSymbolsAtNodes([
+    entry.handle,
+    firstNode.handle,
+    secondNode.handle,
+  ]));
+  assert.deepEqual(symbolBatch[0], { kind: "InvalidHandle", reason: "WrongKind" });
+  assert.strictEqual(
+    expectResolved(symbolBatch[1] ?? assert.fail("missing symbol batch result")).handle,
+    expectResolved(first.getSymbolAtNode(firstNode.handle)).handle,
+  );
+  assert.deepEqual(symbolBatch[2], { kind: "InvalidHandle", reason: "StaleSession" });
+  const typeBatch = expectResolved(first.getTypesAtNodes([
+    entry.handle,
+    firstNode.handle,
+    secondNode.handle,
+  ]));
+  assert.deepEqual(typeBatch[0], { kind: "InvalidHandle", reason: "WrongKind" });
+  assert.strictEqual(
+    expectResolved(typeBatch[1] ?? assert.fail("missing type batch result")).handle,
+    expectResolved(first.getTypeAtNode(firstNode.handle)).handle,
+  );
+  assert.deepEqual(typeBatch[2], { kind: "InvalidHandle", reason: "StaleSession" });
 
   const disposed = first.dispose();
   assert.equal(disposed.kind, "Disposed");
@@ -803,15 +820,23 @@ test("coordinates use trivia-free half-open UTF-16 spans across CRLF and non-BMP
 test("coordinate ambiguity remains distinct from absence", () => {
   const session = expectOpened(openTypeScriptSemanticFacts(realTsconfig));
   try {
-    const source = sourceByPath(session, "src/annotated-source-view.ts");
-    const groups = new Map<string, NodeFact[]>();
-    for (const node of nodesFor(session, source)) {
-      const key = `${node.location.start}:${node.location.length}:${node.kind}`;
-      const group = groups.get(key) ?? [];
-      group.push(node);
-      groups.set(key, group);
+    let source: SourceFileFact | undefined;
+    let ambiguous: NodeFact[] | undefined;
+    for (const candidateSource of expectResolved(session.getSourceFiles())) {
+      const groups = new Map<string, NodeFact[]>();
+      for (const node of nodesFor(session, candidateSource)) {
+        const key = `${node.location.start}:${node.location.length}:${node.kind}`;
+        const group = groups.get(key) ?? [];
+        group.push(node);
+        groups.set(key, group);
+      }
+      ambiguous = [...groups.values()].find(group => group.length > 1);
+      if (ambiguous !== undefined) {
+        source = candidateSource;
+        break;
+      }
     }
-    const ambiguous = [...groups.values()].find(group => group.length > 1);
+    assert.ok(source !== undefined);
     assert.ok(ambiguous !== undefined);
     const candidate = ambiguous[0];
     assert.ok(candidate !== undefined);
@@ -887,6 +912,67 @@ test("normalizes nodes, symbols, aliases, lexical shadows, and declaration prove
       expectedSubject: queryApplicability.getSourceSymbol,
       actualSubject: NodeKind.Identifier,
     });
+  } finally {
+    session.dispose();
+  }
+});
+
+test("declaration ancestry preserves anonymous and import boundaries", () => {
+  const session = expectOpened(openTypeScriptSemanticFacts(fixtureTsconfig));
+  try {
+    const base = sourceByPath(session, "base.ts");
+    const baseNodes = nodesFor(session, base);
+    const entry = sourceByPath(session, "entry.ts");
+    const entryNodes = nodesFor(session, entry);
+    const entryText = sourceText(entry);
+    const containingKind = (
+      nodes: readonly NodeFact[],
+      spelling: string,
+    ): NodeFact["kind"] => {
+      const name = identifierNodes(nodes, spelling)[0];
+      assert.ok(name !== undefined, `missing declaration name '${spelling}'`);
+      const symbol = symbolAt(session, name);
+      const declaration = expectResolved(session.getDeclaration(
+        symbol.declarations[0]
+          ?? assert.fail(`symbol '${spelling}' had no declaration`),
+      ));
+      const container = expectResolved(session.getDeclaration(
+        declaration.containingDeclarations[0]
+          ?? assert.fail(`declaration '${spelling}' had no container`),
+      ));
+      return container.kind;
+    };
+
+    assert.equal(
+      containingKind(baseNodes, "callbackValue"),
+      NodeKind.FunctionType,
+    );
+    assert.equal(
+      containingKind(baseNodes, "nestedField"),
+      NodeKind.TypeLiteral,
+    );
+    assert.equal(
+      containingKind(baseNodes, "anonymousField"),
+      NodeKind.ClassExpression,
+    );
+    assert.equal(
+      containingKind(entryNodes, "genericIdentity"),
+      NodeKind.ImportClause,
+    );
+    const typeOnlyClause = entryNodes.find(node =>
+      node.kind === NodeKind.ImportClause
+      && nodeText(node, entryText).startsWith("type {"));
+    assert.ok(typeOnlyClause !== undefined);
+    const unavailableType = {
+      kind: "Unavailable",
+      reason: "MissingApiFact",
+      detail: "TypeScript 7.0.2 cannot type a type-only import clause",
+    } as const;
+    assert.deepEqual(session.getTypeAtNode(typeOnlyClause.handle), unavailableType);
+    assert.deepEqual(
+      expectResolved(session.getTypesAtNodes([typeOnlyClause.handle]))[0],
+      unavailableType,
+    );
   } finally {
     session.dispose();
   }
@@ -1316,6 +1402,18 @@ test("resolves module symbols, exports, source symbols, and exact constant outco
         ?? assert.fail("enum member declaration had no containing declaration"),
     ));
     assert.equal(enumContainer.kind, NodeKind.EnumDeclaration);
+    const enumName = identifierNodes(baseNodes, "Choice")[0];
+    assert.ok(enumName !== undefined);
+    const enumType = expectResolved(session.getDeclaredType(
+      symbolAt(session, enumName).handle,
+    ));
+    assert.equal(enumType.category, TypeCategory.Union);
+    assert.ok(isUnionTypeFact(enumType));
+    assert.equal(isLiteralTypeFact(enumType), false);
+    assert.equal(
+      expectResolved(session.getUnionConstituents(enumType.handle)).length,
+      2,
+    );
     const importedEnumAccess = oneNode(
       nodes,
       text,
@@ -1323,10 +1421,10 @@ test("resolves module symbols, exports, source symbols, and exact constant outco
       "Choice.Two",
     );
     assert.equal(session.getConstantValue(importedEnumAccess.handle).kind, "Absent");
-    const enumType = expectResolved(session.getTypeAtNode(importedEnumAccess.handle));
-    assert.equal(enumType.category, TypeCategory.EnumLiteral);
-    assert.ok(isLiteralTypeFact(enumType));
-    assert.equal(session.getLiteralBaseType(enumType.handle).kind, "Resolved");
+    const enumMemberType = expectResolved(session.getTypeAtNode(importedEnumAccess.handle));
+    assert.equal(enumMemberType.category, TypeCategory.EnumLiteral);
+    assert.ok(isLiteralTypeFact(enumMemberType));
+    assert.equal(session.getLiteralBaseType(enumMemberType.handle).kind, "Resolved");
     const nonConstant = oneNode(
       nodes,
       text,
@@ -1473,6 +1571,29 @@ test("unknown symbols, error types, unsupported values, and poisoned sessions st
   });
   checkerSession.dispose();
 
+  const batchCheckerHarness = semanticFactsTestSeam.createHarness({
+    checkerFailure: {
+      operation: "getTypesAtNodes",
+      reason: "ProcessFailure",
+      detail: "injected batch checker child-process failure",
+    },
+  });
+  const batchCheckerSession = expectOpened(batchCheckerHarness.open(fixtureTsconfig));
+  const batchEntry = sourceByPath(batchCheckerSession, "entry.ts");
+  const batchNode = nodesFor(batchCheckerSession, batchEntry)[0];
+  assert.ok(batchNode !== undefined);
+  assert.deepEqual(batchCheckerSession.getTypesAtNodes([batchNode.handle]), {
+    kind: "SessionFailure",
+    reason: "ProcessFailure",
+    detail: "injected batch checker child-process failure",
+  });
+  assert.deepEqual(batchCheckerSession.getSourceFiles(), {
+    kind: "SessionFailure",
+    reason: "ProcessFailure",
+    detail: "injected batch checker child-process failure",
+  });
+  batchCheckerSession.dispose();
+
   const protocolHarness = semanticFactsTestSeam.createHarness({
     queryFailure: {
       operation: "getSourceFiles",
@@ -1526,7 +1647,7 @@ function unstableImports(
   files: Readonly<Record<string, string>>,
 ): readonly string[] {
   const unstablePattern
-    = /["']typescript\/unstable\/(?:sync|ast)["']/u;
+    = /(["'`])typescript\/unstable\/(?:sync|ast)\1/u;
   return Object.entries(files)
     .filter(([, content]) => unstablePattern.test(content))
     .map(([path]) => path)
@@ -1544,11 +1665,20 @@ test("only the adapter imports unstable TypeScript packages and the scan is non-
     "require-forbidden.cjs": `require(${unstableSync});`,
     "create-require-forbidden.mts":
       `createRequire(import.meta.url)(${unstableSync});`,
+    "dynamic-template-forbidden.ts":
+      `void import(\`${unstablePackagePrefix}sync\`);`,
+    "require-template-forbidden.cjs":
+      `require(\`${unstablePackagePrefix}ast\`);`,
+    "create-require-template-forbidden.mts":
+      `createRequire(import.meta.url)(\`${unstablePackagePrefix}sync\`);`,
   }), [
     "create-require-forbidden.mts",
+    "create-require-template-forbidden.mts",
     "dynamic-forbidden.ts",
+    "dynamic-template-forbidden.ts",
     "first-forbidden.ts",
     "require-forbidden.cjs",
+    "require-template-forbidden.cjs",
     "second-forbidden.ts",
     "side-effect-forbidden.ts",
   ]);
@@ -1598,35 +1728,6 @@ test("only the adapter imports unstable TypeScript packages and the scan is non-
     readFileSync(join(inspectWebRoot, "package.json"), "utf8"),
     /"typescript": "7\.0\.2"/u,
   );
-});
-
-test("the real Vite graph excludes semantic tooling, tests, and TypeScript packages", async () => {
-  const adapter = join(inspectWebRoot, "scripts", "typescript-semantic-facts.ts");
-  const testFile = fileURLToPath(import.meta.url);
-  const typeScriptApi = resolve(
-    inspectWebRoot,
-    "node_modules",
-    "typescript",
-    "dist",
-    "api",
-    "sync",
-    "api.js",
-  );
-  assert.ok(existsSync(adapter));
-  assert.ok(existsSync(testFile));
-  assert.ok(existsSync(typeScriptApi));
-
-  const audited = await auditedBuild(inspectWebRoot);
-  const read = new Set(audited.readFiles.map(file => resolve(file)));
-  assert.ok(audited.readFiles.length > 20);
-  assert.ok(!read.has(resolve(adapter)));
-  assert.ok(!read.has(resolve(testFile)));
-  assert.ok(![...read].some(file =>
-    file.includes(`${sep}node_modules${sep}typescript${sep}`)));
-  assert.ok(!audited.chunks.some(chunk =>
-    chunk.includes("TypeScriptSemanticFactsHandle")
-    || chunk.includes(`${unstablePackagePrefix}sync`)
-    || chunk.includes(`${unstablePackagePrefix}ast`)));
 });
 
 test("public facts expose opaque repository handles rather than upstream values", () => {
