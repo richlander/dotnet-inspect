@@ -95,8 +95,10 @@ binding-consistent target. Repeat `--package name[@version]`, provide the shared
 should be narrowed. This is an induced set, not a traversal: it has no direction
 or depth. Markdown is an edge table by default; `--tree`, `--mermaid`, `--json`,
 `--jsonl`, `--count`, and `--rows` project the same logical relationships.
-Binding failures usually mean a package that owns the missing endpoint was not
-included; they remain visible and produce a nonzero exit.
+Endpoints whose assemblies are absent from the explicit package set remain
+outside the induced graph; add the owning package to admit those relationships.
+Other binding failures -- unavailable, ambiguous, rejected, or selected outside
+the active context -- remain visible and produce a nonzero exit.
 
 ```bash
 dnx dotnet-inspect -y -- graph integrations \
