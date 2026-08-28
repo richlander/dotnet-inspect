@@ -241,6 +241,7 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
 | Inspection-graph modes | `docs/design/inspection-graph-modes.md` |
 | Call-graph projection | `docs/design/call-graph-projection.md` |
 | Shared IL/control-flow substrate | `docs/design/instruction-substrate.md`, plus the consuming subsystem's docs |
+| TypeScript facade generation for `[JSExport]` | `docs/design/ts-jsexport.md` |
 | IL round-trip tests | `tests/DotnetInspector.ILRoundtrip.Tests/README.md` |
 | Decompiler raising, structuring, typing, or printer behavior | `docs/decompiler-correctness-pipeline.md`, then `docs/decompiler-raise-discipline.md` |
 | Classic async state-machine reconstruction | `docs/design/classic-async-reconstruction.md` |
@@ -356,6 +357,23 @@ general request to redesign a subsystem, or reviewer suggestion is not
 approval. Before requesting approval, present the component map, explain why
 focused designs cannot close independently, and name the intended claims and
 non-claims.
+
+### Keep specifications readable; model interactions
+
+Design specifications own detailed requirements, component boundaries, and
+policies. Keep them readable as prose and typed contracts; do not turn them
+into unconventional EBNF-like descriptions of operational behavior. When a
+feature's correctness depends on significant stateful, concurrent, distributed,
+or scheduling interactions, use a small TLA+ model that states the relevant
+safety and liveness properties, and model-check it before implementation. Use
+the model to evaluate whether the interaction or algorithm is effective, and
+keep the design specification focused on what the system must guarantee. Link
+the model from the owning design and record its assumptions, checking bounds,
+checked properties, and any material counterexamples. These results establish
+evidence about the model, not the implementation. Implementation-level safety,
+soundness, or faithfulness claims must still follow
+[Asserted properties name their gate](#asserted-properties-name-their-gate).
+The model supplements rather than replaces the readable specification.
 
 ### Reviewing focused designs
 
