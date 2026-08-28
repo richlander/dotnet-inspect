@@ -25,9 +25,10 @@ applications do not need it in their runtime bundle.
   MethodDef. A registration for another declaring type, or a handwritten
   registration elsewhere, cannot be borrowed. Analysis then authenticates the
   exact registration token as a body containing the retained number of trusted
-  `BindManagedFunction` calls, exactly one trusted call whose proven first
-  string-literal argument equals the export's structured runtime binding name,
-  non-empty equal metadata/body module MVIDs, an exact
+  `BindManagedFunction` calls, exactly as many trusted calls whose proven first
+  string-literal argument equals the export's structured runtime binding name
+  as managed exports sharing that name, non-empty equal metadata/body module
+  MVIDs, an exact
   `System.Runtime.InteropServices.JavaScript` `JSMarshalerArgument`, plus a
   **reachable** wrapper-to-stub-to-export MethodDef call chain. The
   registration's second argument must be an `int32` literal equal to the

@@ -127,10 +127,11 @@ be combined with Analysis evidence from another module. The candidate is
 deliberately not publication provenance:
 `ILInspector.JsExportSurface` authenticates the Analysis-owned
 registration body and wrapper-to-stub-to-export MethodDef call chain, including
-an exact count of trusted `BindManagedFunction` calls, exactly one call whose
-proven first string-literal argument is the export's structured runtime binding
-name, equal module identities throughout, and complete body analysis for the
-registration, wrapper, and stub, before publishing a runtime binding.
+an exact count of trusted `BindManagedFunction` calls, one same-name call per
+managed export sharing the structured runtime binding name, exactly one of
+those calls matching each wrapper's authenticated signature hash, equal module
+identities throughout, and complete body analysis for the registration,
+wrapper, and stub, before publishing a runtime binding.
 This separates Metadata's declaration fact from body evidence and rejects
 diagnosed chains, prefix siblings, or handwritten wrapper names. Null remains
 the compatibility shape for older or hand-composed surfaces only through the
