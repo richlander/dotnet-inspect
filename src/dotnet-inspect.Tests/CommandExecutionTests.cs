@@ -28769,6 +28769,202 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PackageProjectionDestinations_MatchStdoutAcrossTextAndStructuredModes()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Projection.Destinations",
+            "README.md",
+            "first\nsecond\nthird",
+            null,
+            null,
+            ("skills/alpha/SKILL.md", "alpha"),
+            ("skills/beta/SKILL.md", "beta"));
+        try
+        {
+            (string Name, string[] Arguments, bool TerminatesWithLf)[] projections =
+            [
+                ("print", ["-S", "Package README file", "--print"], false),
+                ("bare", ["-S", "Package README file", "--print", "--bare"], false),
+                ("value", ["-S", "Package Info", "--fields", "Version", "--value"], true),
+                ("paths", ["-S", "Package skill files", "--paths"], true),
+                ("json", ["-S", "Package Info", "--fields", "Version", "--value", "--json"], false),
+                ("jsonl", ["-S", "Package Info", "--fields", "Version", "--value", "--jsonl"], true),
+                ("json-array", ["-S", "Package Info", "--fields", "Version", "--value", "--json-array"], false),
+                ("print-json", ["-S", "Package README file", "--print", "--json"], false),
+                ("print-jsonl", ["-S", "Package README file", "--print", "--jsonl"], true),
+                ("print-json-array", ["-S", "Package README file", "--print", "--json-array"], false),
+            ];
+
+            foreach (var projection in projections)
+            {
+                var outputPath = Path.Combine(tempDir, $"{projection.Name}.txt");
+                var baseline = await RunAppAsync(
+                    ["package", packagePath, .. projection.Arguments, "--tips", "q"]);
+                var redirected = await RunAppAsync(
+                    ["package", packagePath, .. projection.Arguments, "--out", outputPath, "--tips", "q"]);
+
+                Assert.Equal(0, baseline.Exit);
+                Assert.Equal(baseline.Exit, redirected.Exit);
+                Assert.Empty(baseline.Error);
+                Assert.Empty(redirected.Error);
+                Assert.Empty(redirected.Output);
+                Assert.Equal(baseline.Output, File.ReadAllText(outputPath));
+                Assert.DoesNotContain('\r', baseline.Output);
+                Assert.Equal(
+                    projection.TerminatesWithLf,
+                    baseline.Output.EndsWith('\n'));
+                Assert.False(baseline.Output.EndsWith("\n\n", StringComparison.Ordinal));
+            }
+
+            var urlsOutputPath = Path.Combine(tempDir, "urls.txt");
+            string[] urlsArguments =
+            [
+                "package", "Newtonsoft.Json@13.0.3",
+                "-S", "Source Files", "-t", "JsonReader",
+                "--urls", "--row", "1", "--raw", "--tips", "q"
+            ];
+            var urlsBaseline = await RunAppAsync(urlsArguments);
+            var urlsRedirected = await RunAppAsync(
+                [.. urlsArguments, "--out", urlsOutputPath]);
+
+            Assert.Equal(0, urlsBaseline.Exit);
+            Assert.Equal(urlsBaseline.Exit, urlsRedirected.Exit);
+            Assert.Empty(urlsBaseline.Error);
+            Assert.Empty(urlsRedirected.Error);
+            Assert.Empty(urlsRedirected.Output);
+            Assert.Equal(urlsBaseline.Output, File.ReadAllText(urlsOutputPath));
+            Assert.StartsWith(
+                "https://raw.githubusercontent.com/JamesNK/Newtonsoft.Json/",
+                urlsBaseline.Output,
+                StringComparison.Ordinal);
+            Assert.EndsWith("\n", urlsBaseline.Output, StringComparison.Ordinal);
+            Assert.False(urlsBaseline.Output.EndsWith("\n\n", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageProjectionDestinations_ApplyHeadAndTailToRenderedLines()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Projection.Windows",
+            "README.md",
+            "---\nname: projection\n---\nfirst\nsecond\nthird",
+            null,
+            null,
+            ("skills/alpha/SKILL.md", "alpha"),
+            ("skills/beta/SKILL.md", "beta"));
+        try
+        {
+            (string Name, string[] Arguments, string Expected)[] cases =
+            [
+                (
+                    "paths-head",
+                    ["-S", "Package skill files", "--paths", "-n", "1"],
+                    "skills/alpha/SKILL.md\n"),
+                (
+                    "paths-tail",
+                    ["-S", "Package skill files", "--paths", "-n", "1", "--tail"],
+                    "skills/beta/SKILL.md\n"),
+                (
+                    "print-head",
+                    ["-S", "Package README file", "--print", "--body", "-n", "2"],
+                    "first\nsecond\n"),
+                (
+                    "print-tail",
+                    ["-S", "Package README file", "--print", "--body", "-n", "2", "--tail"],
+                    "second\nthird\n"),
+            ];
+
+            foreach (var testCase in cases)
+            {
+                var outputPath = Path.Combine(tempDir, $"{testCase.Name}.txt");
+                var baseline = await RunAppInDirectoryAsync(
+                    tempDir,
+                    ["package", packagePath, .. testCase.Arguments, "--tips", "q"]);
+                var redirected = await RunAppInDirectoryAsync(
+                    tempDir,
+                    ["package", packagePath, .. testCase.Arguments, "--out", outputPath, "--tips", "q"]);
+
+                Assert.Equal(0, baseline.Exit);
+                Assert.Equal(baseline.Exit, redirected.Exit);
+                Assert.Empty(baseline.Error);
+                Assert.Empty(redirected.Error);
+                Assert.Empty(redirected.Output);
+                Assert.Equal(testCase.Expected, baseline.Output);
+                Assert.Equal(testCase.Expected, File.ReadAllText(outputPath));
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageExactProjectionLineWindows_PreserveAbsentAndExistingDestinations()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Projection.ExactRefusal",
+            "README.md",
+            "first\nsecond");
+        var absentPath = Path.Combine(tempDir, "absent.md");
+        var existingPath = Path.Combine(tempDir, "existing.md");
+        byte[] sentinel = [0xEF, 0xBB, 0xBF, 0x73, 0x61, 0x66, 0x65];
+        File.WriteAllBytes(existingPath, sentinel);
+        try
+        {
+            async Task<(int Exit, string Output, string Error)> RunAsync(string path) =>
+                await RunAppAsync(
+                    "package", packagePath,
+                    "-S", "Package README file",
+                    "--print", "--bare", "-n", "1",
+                    "--out", path, "--tips", "q");
+
+            var absent = await RunAsync(absentPath);
+            var existing = await RunAsync(existingPath);
+
+            Assert.Equal(1, absent.Exit);
+            Assert.Equal(1, existing.Exit);
+            Assert.Empty(absent.Output);
+            Assert.Empty(existing.Output);
+            Assert.Contains("line limit", absent.Error, StringComparison.Ordinal);
+            Assert.Contains("exact --out", absent.Error, StringComparison.Ordinal);
+            Assert.False(File.Exists(absentPath));
+            Assert.Equal(sentinel, File.ReadAllBytes(existingPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageOrdinaryConsoleOutput_RetainsItsTrailingNewline()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Projection.OrdinaryOutput",
+            "README.md",
+            "readme");
+        try
+        {
+            var result = await RunAppAsync(
+                "package", packagePath, "-S", "Package Info", "--tips", "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.EndsWith("\n", result.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_QuietSignedValuePerformsExplicitVerification()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -29101,17 +29297,18 @@ public partial class CommandExecutionTests
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
         var packageRoot = Path.Combine(tempDir, "content");
         Directory.CreateDirectory(packageRoot);
-        var nuspec = """
-            <?xml version="1.0" encoding="utf-16"?>
-            <package>
-              <metadata>
-                <id>Test.Bom.Nuspec</id>
-                <version>1.0.0</version>
-                <authors>tests</authors>
-                <description>test package</description>
-              </metadata>
-            </package>
-            """;
+        var nuspec = string.Join(
+            "\r\n",
+            "<?xml version=\"1.0\" encoding=\"utf-16\"?>",
+            "<package>",
+            "  <metadata>",
+            "    <id>Test.Bom.Nuspec</id>",
+            "    <version>1.0.0</version>",
+            "    <authors>tests</authors>",
+            "    <description>test package</description>",
+            "  </metadata>",
+            "</package>",
+            "");
         var encoding = new UnicodeEncoding(
             bigEndian: false,
             byteOrderMark: true,
@@ -29124,6 +29321,10 @@ public partial class CommandExecutionTests
         try
         {
             Assert.Equal(0xFF, shipped[0]);
+            Assert.True(shipped.AsSpan().IndexOf(
+                new byte[] { 0x0D, 0x00, 0x0A, 0x00 }) >= 0);
+            Assert.True(shipped.AsSpan().EndsWith(
+                new byte[] { 0x0D, 0x00, 0x0A, 0x00 }));
 
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, "-S", "Package nuspec file", "--print", "--bare");
@@ -30496,6 +30697,53 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Empty(error);
             Assert.Equal(["skills/SKILL.md", "skills/two/SKILL.md"], output.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProjectProjectionDestinations_MatchStdoutForShapeAndPrintConsumers()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Projection.Destination",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills:
+                [
+                    CompliantProjectSkill(
+                        "skills/project-skill/SKILL.md",
+                        "project skill")
+                ]));
+        try
+        {
+            (string Name, string[] Arguments)[] cases =
+            [
+                ("paths", ["-S", "Skills", "--paths"]),
+                ("print", ["-S", "Skills", "--print", "--row", "1", "--body"]),
+            ];
+
+            foreach (var testCase in cases)
+            {
+                var outputPath = Path.Combine(tempDir, $"project-{testCase.Name}.txt");
+                var baseline = await RunProjectFixtureAsync(
+                    projectPath,
+                    [.. testCase.Arguments, "--tips", "q"]);
+                var redirected = await RunProjectFixtureAsync(
+                    projectPath,
+                    [.. testCase.Arguments, "--out", outputPath, "--tips", "q"]);
+
+                Assert.Equal(0, baseline.Exit);
+                Assert.Equal(baseline.Exit, redirected.Exit);
+                Assert.Empty(baseline.Error);
+                Assert.Empty(redirected.Error);
+                Assert.Empty(redirected.Output);
+                Assert.Equal(baseline.Output, File.ReadAllText(outputPath));
+            }
         }
         finally
         {

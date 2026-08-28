@@ -557,7 +557,7 @@ public class ProjectCommand
                 options.Jsonl,
                 options.JsonArray,
                 options.Bare,
-                options.OutputPath));
+                new ProjectionDestination(options.OutputPath, options.Rows)));
     }
 
     private static int WriteSkillShapeProjection(IReadOnlyList<ProjectSkillRow> rows, ProjectOptions options)
@@ -580,7 +580,13 @@ public class ProjectCommand
 
         return ShapeProjectionOutput.Write(
             projected,
-            new ShapeProjectionOptions(kind, options.PrintRow, options.JsonOutput, options.Jsonl, options.JsonArray));
+            new ShapeProjectionOptions(
+                kind,
+                options.PrintRow,
+                options.JsonOutput,
+                options.Jsonl,
+                options.JsonArray,
+                new ProjectionDestination(options.OutputPath, options.Rows)));
     }
 
     private static string? SelectSkillValue(ProjectSkillRow row, ProjectOptions options)
