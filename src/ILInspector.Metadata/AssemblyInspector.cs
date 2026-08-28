@@ -294,6 +294,7 @@ public static class AssemblyInspector
         ArgumentNullException.ThrowIfNull(assembly);
         using var stream = assembly.OpenRead();
         using var peReader = new PEReader(stream);
+        assembly.ValidateArtifactContent(peReader);
         return ExtractReferenceIdentitiesAndCompany(peReader);
     }
 
