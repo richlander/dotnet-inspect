@@ -137,7 +137,7 @@ the compatibility shape for older or hand-composed surfaces only through the
 declaration-only `Build(surface)` seam; a body-backed build requires exact
 non-null provenance.
 `Build_RejectsRegistrationBodyCountMismatch` and
-`Build_RejectsDuplicatedRuntimeBindingTarget`,
+`Build_RejectsSecondRuntimeBindingTargetWithDifferentHash`,
 `Build_RejectsRuntimeWrapperFromDifferentModule`,
 `Build_WithBodiesRejectsLegacyNullWrapperProvenance`, and
 `ApiTypeJson_RoundTripsRuntimeJsExportFailureEvidence` gate the exact evidence

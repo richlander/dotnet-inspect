@@ -115,10 +115,10 @@ public static class JsExportSurfaceBuilder
                         FormatMemberLocation(type, member),
                         "bodyless JS exports have no runtime wrapper");
                 }
-                bool hasManagedNameOverloads =
+                int managedNameExportCount =
                     type.Members.Count(candidate =>
                         HasJsExportEvidence(candidate)
-                        && candidate.Name == member.Name) > 1;
+                        && candidate.Name == member.Name);
                 string? runtimeDispatchKey = null;
                 if (bodyIndex is null
                         ? member.HasRuntimeJsExportWrapperCandidate
@@ -131,7 +131,7 @@ public static class JsExportSurfaceBuilder
                                 type,
                                 member,
                                 incompleteBodyTokens,
-                                hasManagedNameOverloads,
+                                managedNameExportCount,
                                 out runtimeDispatchKey))
                 {
                     throw new UnsupportedJsExportSurfaceException(
@@ -872,7 +872,7 @@ public static class JsExportSurfaceBuilder
         ApiType declaringType,
         ApiMember export,
         IReadOnlySet<int> incompleteBodyTokens,
-        bool hasManagedNameOverloads,
+        int managedNameExportCount,
         out string? runtimeDispatchKey)
     {
         runtimeDispatchKey = null;
@@ -911,7 +911,7 @@ public static class JsExportSurfaceBuilder
                     wrapper,
                     export.Name,
                     incompleteBodyTokens,
-                    hasManagedNameOverloads,
+                    managedNameExportCount,
                     out DirectCall? registration,
                     out int signatureHash))
                 continue;
@@ -980,7 +980,7 @@ public static class JsExportSurfaceBuilder
         MethodIdentity wrapper,
         string exportName,
         IReadOnlySet<int> incompleteBodyTokens,
-        bool hasManagedNameOverloads,
+        int managedNameExportCount,
         out DirectCall? registration,
         out int signatureHash)
     {
@@ -1027,8 +1027,7 @@ public static class JsExportSurfaceBuilder
                 runtimeBindingName,
                 StringComparison.Ordinal)),
         ];
-        if (!hasManagedNameOverloads
-            && named.Length != 1)
+        if (named.Length != managedNameExportCount)
         {
             return false;
         }

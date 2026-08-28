@@ -1195,30 +1195,62 @@ public sealed class JsExportSurfaceBuilderTests
                 .Order(StringComparer.Ordinal));
 
         var runtimeExports =
-            registrations.ToDictionary(
-                call =>
-                    "Identify."
-                    + Assert.IsType<int>(
-                        call.ResolvedArgumentValues[1]
-                            .Single!
-                            .Int32Value)
-                        .ToString(CultureInfo.InvariantCulture),
-                call => call.SpanArgumentSources
-                    .ForArgument(2)!
-                    .Elements[1]
-                    .Single!
-                    .Name switch
-                {
-                    "get_Int32" =>
-                        (Func<object, string>)(value =>
-                            $"int:{Assert.IsType<int>(value)}"),
-                    "get_String" =>
-                        value =>
-                            $"string:{Assert.IsType<string>(value)}",
-                    var name => throw new InvalidOperationException(
-                        $"Unexpected parameter marshaler '{name}'."),
-                },
+            new Dictionary<string, MethodInfo>(
                 StringComparer.Ordinal);
+        foreach (RuntimeJsExportWrapperCandidate candidate
+            in fixture.Members
+                .SelectMany(member =>
+                    member.RuntimeJsExportWrapperCandidates!)
+                .DistinctBy(candidate =>
+                    candidate.WrapperMethodToken))
+        {
+            MethodIdentity wrapper = Assert.Single(
+                bodyIndex.Methods,
+                method => method.MetadataToken
+                    == candidate.WrapperMethodToken);
+            Assert.True(
+                RuntimeJsExportWrapperName.TryGetSignatureHash(
+                    wrapper.Name,
+                    nameof(OverloadedExportFixture.Identify),
+                    out uint wrapperHash));
+            DirectCall registration = Assert.Single(
+                registrations,
+                call => call.ResolvedArgumentValues[1].Single
+                    is
+                    {
+                        Kind:
+                            ResolvedValueSourceKind.Int32Literal,
+                        Int32Value: { } hash,
+                    }
+                    && unchecked((uint)hash) == wrapperHash);
+            DirectCall wrapperCall = Assert.Single(
+                bodyIndex.DirectCalls,
+                call => call.EvidenceMethod.MetadataToken
+                        == wrapper.MetadataToken
+                    && call.Callee.Name.StartsWith(
+                        $"<{wrapper.Name}>g____Stub|",
+                        StringComparison.Ordinal));
+            DirectCall exportCall = Assert.Single(
+                bodyIndex.DirectCalls,
+                call => call.EvidenceMethod.MetadataToken
+                        == wrapperCall.CalleeDefinitionToken
+                    && call.Callee.DeclaringType.Name
+                        == nameof(OverloadedExportFixture)
+                    && call.Callee.Name
+                        == nameof(OverloadedExportFixture.Identify));
+            MethodInfo implementation = Assert.IsAssignableFrom<MethodInfo>(
+                typeof(OverloadedExportFixture).Module.ResolveMethod(
+                    exportCall.CalleeDefinitionToken));
+            int signatureHash = Assert.IsType<int>(
+                registration.ResolvedArgumentValues[1]
+                    .Single!
+                    .Int32Value);
+            runtimeExports.Add(
+                "Identify."
+                    + signatureHash.ToString(
+                        CultureInfo.InvariantCulture),
+                implementation);
+        }
         JsExportFunction intFunction = Assert.Single(
             functions,
             function => function.Parameters is
@@ -1237,11 +1269,14 @@ public sealed class JsExportSurfaceBuilderTests
             ]);
         Assert.Equal(
             "int:7",
-            runtimeExports[intFunction.RuntimeDispatchKey!](7));
+            Assert.IsType<string>(
+                runtimeExports[intFunction.RuntimeDispatchKey!]
+                    .Invoke(null, [7])));
         Assert.Equal(
             "string:seven",
-            runtimeExports[stringFunction.RuntimeDispatchKey!](
-                "seven"));
+            Assert.IsType<string>(
+                runtimeExports[stringFunction.RuntimeDispatchKey!]
+                    .Invoke(null, ["seven"])));
 
         string json = JsonSerializer.Serialize(
             new ILInspector.JsExportSurface.JsExportSurface
@@ -1320,13 +1355,106 @@ public sealed class JsExportSurfaceBuilderTests
                 },
             ]);
         intExport.RuntimeJsExportWrapperCandidates = [wrongCandidate];
-        fixture.Members = [intExport];
+        fixture.Members = [.. overloads];
 
         UnsupportedJsExportSurfaceException exception =
             Assert.Throws<UnsupportedJsExportSurfaceException>(
                 () => JsExportSurfaceBuilder.Build(
                     extracted,
                     bodyIndex));
+        Assert.Contains(
+            "no compiler-generated runtime wrapper",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsUnmatchedRuntimeBindingForOverloadGroup()
+    {
+        string path = typeof(OverloadedExportFixture).Assembly.Location;
+        ApiSurface extracted = ExtractApiSurface(path);
+        ApiType fixture = Assert.Single(
+            extracted.Types,
+            type => type.Name == nameof(OverloadedExportFixture));
+        fixture.Members =
+        [
+            .. fixture.Members.Where(
+                member => member.Name
+                    == nameof(OverloadedExportFixture.Identify)),
+        ];
+        Assert.Equal(2, fixture.Members.Count);
+        extracted.FilteredRuntimeJsExportFacts = [];
+        extracted.Types = [fixture];
+        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(path);
+        RuntimeJsExportWrapperCandidate[] candidates =
+        [
+            .. fixture.Members[0].RuntimeJsExportWrapperCandidates!,
+        ];
+        Assert.NotEmpty(candidates);
+        int registrationToken = candidates[0].RegistrationMethodToken;
+        Assert.All(
+            candidates,
+            candidate => Assert.Equal(
+                registrationToken,
+                candidate.RegistrationMethodToken));
+        DirectCall[] targetCalls =
+        [
+            .. bodyIndex.DirectCalls.Where(call =>
+                call.EvidenceMethod.MetadataToken == registrationToken
+                && call.Callee.Name == "BindManagedFunction"
+                && call.FirstArgumentStringLiteral?.EndsWith(
+                    ":Identify",
+                    StringComparison.Ordinal) == true),
+        ];
+        Assert.Equal(2, targetCalls.Length);
+        string target = Assert.Single(
+            targetCalls
+                .Select(call => call.FirstArgumentStringLiteral!)
+                .Distinct(StringComparer.Ordinal));
+        HashSet<int> targetHashes =
+        [
+            .. targetCalls.Select(call =>
+                Assert.IsType<int>(
+                    call.ResolvedArgumentValues[1]
+                        .Single!
+                        .Int32Value)),
+        ];
+        DirectCall decoy = bodyIndex.DirectCalls.First(call =>
+            call.EvidenceMethod.MetadataToken == registrationToken
+            && call.Callee.Name == "BindManagedFunction"
+            && call.FirstArgumentStringLiteral is not null
+            && call.ResolvedArgumentValues[1].Single
+                is
+                {
+                    Kind: ResolvedValueSourceKind.Int32Literal,
+                    Int32Value: { } hash,
+                }
+            && !targetHashes.Contains(hash));
+        ImmutableArray<DirectCall> calls =
+        [
+            .. bodyIndex.DirectCalls.Select(call =>
+                call.EvidenceMethod.MetadataToken
+                        == decoy.EvidenceMethod.MetadataToken
+                    && call.ILOffset == decoy.ILOffset
+                    ? call with
+                    {
+                        FirstArgumentStringLiteral = target,
+                    }
+                    : call),
+        ];
+        LibraryBodyIndex tamperedIndex =
+            LibraryBodyIndex.FromEvidence(
+                bodyIndex.Methods,
+                [],
+                diagnostics: bodyIndex.Diagnostics,
+                directCalls: calls,
+                resultSinks: bodyIndex.ResultSinks);
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    extracted,
+                    tamperedIndex));
         Assert.Contains(
             "no compiler-generated runtime wrapper",
             exception.Message,
