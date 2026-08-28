@@ -298,8 +298,9 @@ subject closure enter the graph. Its default relationship family is
 `--relationship <id>` to select an exact subset. Markdown renders an edge table
 by default; `--tree`, `--mermaid`, `--table`, `--tsv`, `--jsonl`, `--json`,
 `--count`, and `--rows` address the same ordered logical-edge rows. Missing
-endpoints whose assemblies are absent from the explicit package set remain
-outside the induced graph and do not make the command fail. Other binding
+`api.extension` or `integration.observed` endpoints whose assemblies are absent
+from the explicit package set remain outside the induced graph and do not make
+the command fail. A missing `integration.opportunity` target and other binding
 failures -- unavailable, ambiguous, rejected, or selected outside the active
 context -- remain visible and produce a nonzero exit. Tabular edge rows include
 source/target assembly identity and package ownership. JSON and JSONL keep
