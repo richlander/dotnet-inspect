@@ -4608,9 +4608,9 @@ public class CfgSampleClass
         return value;
     }
 
-    // A nested type whose leaf name (NestedSample) is shared with an unrelated
-    // top-level type below. Its full metadata name is the declaring chain
-    // (CfgSampleClass.NestedSample), not the leaf — the IR importer must
+    // A nested type whose leaf name (NestedSample) is shared with the top-level
+    // type in NestedTypeIdentitySamples.cs. Its full metadata name includes the
+    // declaring chain (CfgSampleClass.NestedSample), not the leaf — the IR importer must
     // qualify nested types or this body is unreachable (and collides with the
     // top-level NestedSample on its bare leaf name).
     public sealed class NestedSample
@@ -5374,26 +5374,6 @@ public class CfgSampleClass
     }
 }
 
-// A top-level type sharing the nested type's leaf name, to prove the importer
-// keys on the fully-qualified name, not the leaf.
-public sealed class NestedSample
-{
-    public static int Negate(int x) => -x;
-}
-
-public sealed class RefKindBox<T>
-{
-    T _value = default!;
-
-    public bool TryGet(out T value)
-    {
-        value = _value;
-        return true;
-    }
-
-    public void Put(in T value) => _value = value;
-}
-
 public interface IJoinShape
 {
     string Shape();
@@ -5422,11 +5402,6 @@ public sealed class SlotReuseSection
 {
     public string Status { get; set; } = "";
     public int Missing { get; set; }
-}
-
-public sealed class JoinTypeProvider
-{
-    public System.Type ResolvedType => typeof(string);
 }
 
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }

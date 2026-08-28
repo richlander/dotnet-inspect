@@ -159,12 +159,16 @@ query's required closure, transitive cost, and single-query execution plan, and
 passes that cost into the host execution scope. Commands compile multi-query
 plans once and may reuse them across assembly contexts.
 
-`DotnetInspector.Artifacts` now provides the source-neutral floor below these
+`DotnetInspector.Artifacts` provides the source-neutral floor below these
 layers: generation-scoped identity and registration, adapter-owned typed
 provenance and diagnostics, acquisition outcomes, and owner-issued guarded
-admission/query access. It references no project. No current workspace behavior
-has moved onto that floor yet; `ArtifactSetSession`, local acquisition, and
-Metadata consumption remain later migration steps.
+admission/query access. It references no project.
+`DotnetInspector.Artifacts.Workspaces` composes bounded immutable contributions
+into a sealed `ArtifactSetSession`, and `DotnetInspector.Artifacts.Local`
+snapshots explicit files before registration. The package-free host fixture
+passes a guarded session snapshot to Metadata. Core Queries, retained workspaces,
+directory acquisition, and Metadata trust-role consumption remain later
+migration steps.
 
 ### L1 — `DotnetInspector.Queries`
 
@@ -389,10 +393,10 @@ Research execution, L1 snapshots and seals:
   an explicit `Before` or `After` side.
 
 This is the complete **query input population**. It is not the later set of
-resolved methods, Research subjects, attempts, work items, or producer
-dispositions. Target expansion and body-presence resolution consume this
-population in the Research-owned follow-up design; they cannot add query input
-members retroactively.
+resolved methods, Research subjects, attempts, correspondence outcomes, work
+items, or producer results. Target expansion and target correspondence consume
+this population in the Research-owned follow-up design; they cannot add query
+input members retroactively.
 
 The operation, question, and input ids are identity. Assembly names, paths,
 MVIDs, list positions, rendered labels, filter text, and Research subject ids
@@ -542,8 +546,9 @@ closure and remains the dependency-direction proof.
 This boundary does not define:
 
 - package-role realization, resource ownership, cleanup, or budgets;
-- Research target requests, attempts, body-presence outcomes, work items,
-  producer execution, completion, or comparison semantics;
+- Research target requests, attempts, correspondence outcomes, work items,
+  producer-specific inspection topology, producer execution, completion, or
+  comparison semantics;
 - direct-member designation or comparison;
 - Source, PDB, network, or authored-source behavior;
 - outer result publication, failure composition, CLI projection, or output

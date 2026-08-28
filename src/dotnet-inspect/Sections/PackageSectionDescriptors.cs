@@ -5,8 +5,11 @@ using DotnetInspector.Views;
 namespace DotnetInspector.Sections;
 
 public sealed record PackageSectionCatalog(
-    SectionPipeline<InspectionResult> Pipeline,
-    InspectionQueryRegistry<SourceLinkQueryContext> QueryRegistry);
+    SectionCatalog<InspectionResult> Sections,
+    InspectionQueryCatalog<SourceLinkQueryContext> QueryCatalog)
+{
+    public SectionPipeline<InspectionResult> Pipeline => Sections.Pipeline;
+}
 
 /// <summary>
 /// Section descriptors for the package command.
@@ -19,24 +22,31 @@ public sealed record PackageSectionCatalog(
 /// </summary>
 public static class PackageSectionDescriptors
 {
-    /// <summary>Builds the section pipeline with all package sections registered.</summary>
-    public static SectionPipeline<InspectionResult> CreatePipeline()
-    {
-        var queryRegistry = CreateQueryRegistry();
-        return CreatePipeline(queryRegistry.CostOf);
-    }
+    /// <summary>The reusable fixed-domain catalog for package SourceLink queries.</summary>
+    public static InspectionQueryCatalog<SourceLinkQueryContext> QueryCatalog { get; } =
+        BuildQueryCatalog();
 
-    public static PackageSectionCatalog CreateCatalog()
-    {
-        var queryRegistry = CreateQueryRegistry();
-        return new PackageSectionCatalog(
-            CreatePipeline(queryRegistry.CostOf),
-            queryRegistry);
-    }
+    /// <summary>The reusable fixed-domain catalog for package sections and query-demand plans.</summary>
+    public static SectionCatalog<InspectionResult> SectionCatalog { get; } =
+        CreatePipeline().Compile();
+
+    /// <summary>The complete reusable package section and query catalog.</summary>
+    public static PackageSectionCatalog Catalog { get; } =
+        new(SectionCatalog, QueryCatalog);
+
+    /// <summary>Builds the section pipeline with all package sections registered.</summary>
+    public static SectionPipeline<InspectionResult> CreatePipeline() =>
+        CreatePipeline(QueryCatalog.CostOf);
+
+    public static PackageSectionCatalog CreateCatalog() => Catalog;
 
     public static InspectionQueryRegistry<SourceLinkQueryContext> CreateQueryRegistry()
+        => QueryCatalog.ToBuilder();
+
+    private static InspectionQueryCatalog<SourceLinkQueryContext> BuildQueryCatalog()
         => new InspectionQueryRegistry<SourceLinkQueryContext>()
-            .AddSourceLinkQueries(static context => context);
+            .AddSourceLinkQueries(static context => context)
+            .Compile();
 
     private static SectionPipeline<InspectionResult> CreatePipeline(
         Func<InspectionQueryDefinition, InspectionCost> queryCost)

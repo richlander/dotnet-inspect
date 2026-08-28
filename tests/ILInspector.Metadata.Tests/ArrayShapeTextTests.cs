@@ -347,9 +347,9 @@ public class ArrayShapeTextTests
         var (reader, handle) = BuildTypeSpec(
             [0x14, 0x08, 0xdf, 0xff, 0xff, 0xff, 0x00, 0x00]);
 
-        long before = GC.GetTotalAllocatedBytes(precise: true);
+        long before = GC.GetAllocatedBytesForCurrentThread();
         var result = GuardedSignatureDecoder.DecodeTypeSpecification(reader, handle);
-        long allocated = GC.GetTotalAllocatedBytes(precise: true) - before;
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
         string rendered = Assert.IsType<SignatureDecodeResult<string>.Decoded>(result).Value;
         Assert.Contains("invalid rank", rendered, StringComparison.Ordinal);

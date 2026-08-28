@@ -136,14 +136,18 @@ package version vector:
   `analysis.unsafety` observes one selected method's Analysis census.
 - No `--at` evaluates zero package payloads; repeated `--at` selectors perform
   sparse probes; `--at all` explicitly authorizes dense traversal.
-- `Evaluations` preserves `Present`/`Missing` self-presence through an exact
-  `FindingCorrelation<T>` and `Complete`/`SubjectAbsent` owned censuses through
-  `FindingCensusCorrelation<T>`, plus `Failed` and `Unevaluated` cells. Exact
-  identity tracks derive from the census correlation rather than bypassing it.
-  `Transitions` compares adjacent evaluated cells; a
+- `Evaluations` currently preserves `Present`/`Missing` self-presence through
+  an exact `FindingCorrelation<T>` and `Complete`/`SubjectAbsent` owned censuses
+  through `FindingCensusCorrelation<T>`, plus `Failed` and `Unevaluated` cells.
+  Exact identity tracks derive from the census correlation rather than
+  bypassing it. `Transitions` compares adjacent evaluated cells; a
   gap-spanning row is qualified and never claims an exact transition version.
   Analysis cells decode only the selected method body from the selected package
-  assembly.
+  assembly. The target
+  [#4796 Finding topology](design/finding-nomenclature.md#inspection-and-comparison-semantics)
+  will split the current absence state into `SubjectAbsent` and
+  `NoApplicableInput`; that split remains unimplemented and unverified until
+  its named Findings gates land.
 
 ### find
 
@@ -931,10 +935,14 @@ Research overlay bridge, and the application layer:
   synchronous-iterator implementations with named decoys, duplicate iterator
   source claims, and async-iterator claims over classic-only state machines,
   including the declared-source fallback for their rejected `MoveNext`.
+  `LibraryBodyDeclaredSourceResolver` composes the async and lifted resolvers
+  into ultimate declared owners, owns the async/lifted/async scoped-evidence
+  expansion sequence, and publishes declared-source mappings plus recoverable
+  diagnostics. It owns no metadata image or parallel scheduling lifetime.
   `AsyncSource_MethodImplRequiresValidSourceMethodShape` gates the kickoff and
-  state-machine body requirements. The resolver reuses primary metadata
-  identity and generated-code judgments plus the builder's shared local
-  type-definition index.
+  state-machine body requirements. The async source resolver reuses primary
+  metadata identity and generated-code judgments plus the builder's shared
+  local type-definition index.
   `OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`,
   `AsyncStateMachineAttribute_RequiresFrameworkOrigin`,
   `ScopedStateMachineExpansion_RequiresTrustedClassicSource`, and
@@ -950,7 +958,8 @@ Research overlay bridge, and the application layer:
   gates partial-result accumulation.
   The assembly builder retains the metadata-ordered work list, parallel
   scheduling, shared local type-definition infrastructure, and service
-  lifetime composition.
+  lifetime composition; declared-source policy is delegated to
+  `LibraryBodyDeclaredSourceResolver`.
   Cross-assembly type-definition binding,
   referenced-image metadata lifetime, and the registration-keyed cache belong
   to `LibraryBodyReferenceMetadataResolver`, which composes
