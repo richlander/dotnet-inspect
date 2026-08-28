@@ -89,6 +89,12 @@ substrates, and inspection producers that will extend that space.
   and interaction language while individual components retain rendering,
   binding, and state-transition responsibilities.
 - `tools/DecompilerHarness/` owns ReturnToSender closure discovery and type-cluster planning. RTS specifies the required Metadata/CSharp request shape; `ILInspector.CSharp` owns rendering it.
+- [`docs/design/ts-jsexport.md`](design/ts-jsexport.md) owns the `ts-jsexport`
+  TypeScript facade projected at build time from an
+  `ILInspector.JsExportSurface`. The host-side tool consumes that evidence
+  without entering the inspected application's browser dependency closure,
+  emits one opinionated TypeScript module, and leaves compilation and
+  publication to the consumer.
 
 ## Engineering guidance
 
@@ -102,8 +108,14 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Artifact acquisition and workspace composition](design/artifact-acquisition-and-workspaces.md):
   the target separation between storage, source adapters, multi-source
   workspace lifetimes, packages, and assembly inspection.
+- [Assembly image lifetime and MVID correctness](design/assembly-image-lifetime.md):
+  the single-image inspection lifetime, source-specific cache scope, and
+  non-cryptographic role of MVID-scoped metadata addresses.
 - [Architecture](architecture.md): command and metadata architecture.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
+- [`ts-jsexport` TypeScript facade generation](design/ts-jsexport.md): ownership,
+  type views, compiler handoff, related generator categories, and migration from
+  direct JavaScript plus declaration emission.
 - [Member inspection planning and metadata projection](design/member-inspection-planning-and-metadata-projection.md):
   proposed separation of type/member intent, section resolution, producer
   authorization, shared declaration validation, and C# representability.

@@ -54,9 +54,14 @@ of repeated in every row.
 
 | Currency | Scope | Answers | Does not answer |
 | --- | --- | --- | --- |
-| `MetadataMethodAddress` | MVID plus validated MethodDef handle/token | Where to re-locate a method after reopening and revalidating its module | Cryptographic artifact identity or cross-module correspondence |
+| `MetadataMethodAddress` | Portable MVID plus MethodDef handle/token; current consumers validate MVID and row against a supplied reader | Where a consumer may attempt to re-locate a method in that reader | Artifact identity, content authorization, or cross-module correspondence |
 | `MemberAnchor` | Canonical API member signature and stable selector | Which API member a persisted selector or digest denotes | Physical module identity or body-evidence identity by itself |
 | `MetadataNameArity` | One metadata-name segment, or a name in a stated nesting spelling | Whether a trailing `` `N `` is the canonical CLR generic-arity suffix, and the simple name left once it is removed | Whether the remaining name is spellable, unique, or resolvable, or where a namespace ends |
+
+The target [assembly image lifetime](assembly-image-lifetime.md) contract adds
+owner-authorized image binding before current MVID and row validation. That
+binding is unverified pending
+`MetadataAddress_RebindingRequiresOwnerAndMvidValidation`.
 
 #### `CSharpText`
 
@@ -334,7 +339,10 @@ into a display string or a durable identifier.
 | `TypeForwardingHop` | One resolution outcome | Which verified `ExportedType` declaration and exact target reference were encountered | Successful target binding, definition identity, or correspondence |
 | `ResolvedTypeDefinition` | One frozen catalog generation | The successful candidate, exact name, address, and opaque key | Forwarding hops, object equality, or persistence as a whole |
 | `ResolvedTypeDefinitionKey` | One frozen catalog generation | What the catalog may compare for exact definition correspondence | Hashing, sorting, cross-catalog comparison, or durable storage |
-| `MetadataTypeDefinitionAddress` | MVID plus validated TypeDef token | Where to re-locate a definition after reopening the module | Proof that two artifacts correspond |
+| `MetadataTypeDefinitionAddress` | Portable MVID plus validated TypeDef token; `TryResolve` checks a supplied live reader | Where a consumer may attempt to re-locate a definition in that reader | Artifact identity, content authorization, or proof that two artifacts correspond |
+
+The same unverified owner-binding target applies to durable TypeDef addresses;
+the current `TryResolve` API accepts a bare reader.
 
 #### Current `ILInspector.Metadata` correspondence
 
@@ -442,7 +450,7 @@ Find your question here; the shape census below says what to use.
 | 2 | "Look up this exact metadata type name in one image." | Lookup | `MetadataTypeDefinitionName` |
 | 3 | "Return a definition reached through forwarders." | Resolution | `TypeResolutionOutcome.Resolved`, carrying `ResolvedTypeDefinition` plus hops |
 | 4 | "Prove two resolved references denote one definition." | Correspondence | Catalog comparison over `ResolvedTypeDefinitionKey` |
-| 5 | "Re-locate a definition after reopening its module." | Durable location | `MetadataTypeDefinitionAddress`, followed by MVID/token validation |
+| 5 | "Re-locate a definition against a supplied live reader." | Durable location | `MetadataTypeDefinitionAddress.TryResolve`, which validates MVID and token |
 | 6 | "Compare two signature shapes inside Analysis or Decompiler." | Structural shape | That layer's own `TypeRef` |
 | 7 | "Show a type to a human or an agent." | Display | `TypeNode.Render()` or the owning output projection |
 | 8 | "Look a type up in XML documentation." | Projection | XML-doc id projection — *not* the identity digest |
