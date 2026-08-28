@@ -1,4 +1,6 @@
+using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using ILInspector.Metadata;
@@ -52,6 +54,89 @@ public class ApiMemberIdentityTests
         Assert.Equal(
             ApiMemberIdentity.CreateMethodAnchor(reader, typeHandle, method),
             identity.Anchor);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CreateMethodAnchorInfo_BoundedProjectionPreservesIdentity(
+        bool isExtensionMethod)
+    {
+        using var stream =
+            File.OpenRead(typeof(ApiMemberIdentityTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var (typeHandle, method) = FindFixtureMethod(reader);
+        MethodAnchorInfo expected =
+            ApiMemberIdentity.CreateMethodAnchorInfo(
+                reader,
+                typeHandle,
+                method,
+                isExtensionMethod);
+        int workRemaining =
+            MetadataSafetyPolicy.MaxAnchorSignatureWorkChars;
+
+        MethodAnchorInfo actual =
+            ApiMemberIdentity.CreateMethodAnchorInfo(
+                reader,
+                typeHandle,
+                method,
+                ref workRemaining,
+                isExtensionMethod);
+
+        Assert.Equal(expected, actual);
+        int spent =
+            MetadataSafetyPolicy.MaxAnchorSignatureWorkChars
+            - workRemaining;
+        Assert.True(
+            spent > expected.Anchor.CanonicalSignature.Length * 2,
+            $"Complete projection charged only {spent:N0} work units.");
+    }
+
+    [Fact]
+    public void CreateMethodAnchorInfo_RepeatedLongNamesExhaustSharedProjectionBudget()
+    {
+        byte[] image = BuildRepeatedLongMethodNameImage(
+            methodCount: 8,
+            methodNameLength: 300_000);
+        using var peReader = new PEReader(new MemoryStream(image));
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle typeHandle =
+            reader.TypeDefinitions.Last();
+        TypeDefinition type = reader.GetTypeDefinition(typeHandle);
+        int workRemaining =
+            MetadataSafetyPolicy.MaxAnchorSignatureWorkChars;
+        int completed = 0;
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        BadImageFormatException ex =
+            Assert.Throws<BadImageFormatException>(
+                () =>
+                {
+                    foreach (MethodDefinitionHandle methodHandle in
+                        type.GetMethods())
+                    {
+                        ApiMemberIdentity.CreateMethodAnchorInfo(
+                            reader,
+                            typeHandle,
+                            reader.GetMethodDefinition(methodHandle),
+                            ref workRemaining);
+                        completed++;
+                    }
+                });
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Contains(
+            "cumulative work budget",
+            ex.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(0, workRemaining);
+        Assert.InRange(completed, 2, 7);
+        Assert.True(
+            allocated < 24 * 1024 * 1024,
+            $"Repeated long-name projection allocated {allocated:N0} bytes.");
     }
 
     [Fact]
@@ -500,6 +585,70 @@ public class ApiMemberIdentityTests
         }
 
         throw new InvalidOperationException("Fixture method not found.");
+    }
+
+    static byte[] BuildRepeatedLongMethodNameImage(
+        int methodCount,
+        int methodNameLength)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("LongMethodNames.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("LongMethodNames"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("C"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        StringHandle methodName =
+            metadata.GetOrAddString(new string('M', methodNameLength));
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteByte(0x00);
+        signature.WriteByte(0x01);
+        BlobHandle signatureHandle =
+            metadata.GetOrAddBlob(signature);
+        for (int i = 0; i < methodCount; i++)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                methodName,
+                signatureHandle,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        }
+
+        var pe = new ManagedPEBuilder(
+            new PEHeaderBuilder(
+                imageCharacteristics:
+                    Characteristics.Dll
+                    | Characteristics.ExecutableImage),
+            new MetadataRootBuilder(metadata),
+            ilStream: new BlobBuilder());
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
     }
 
     static List<(TypeDefinitionHandle TypeHandle, MethodDefinition Method)> FindConversionOperatorMethods(MetadataReader reader)

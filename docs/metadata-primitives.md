@@ -113,6 +113,13 @@ references MetadataPrimitives directly.
 | Neutral matching | Dependency-free name distance and similarity |
 | Lossless `MethodSemantics` rows | Bounded mechanical decode of raw semantics, MethodDef, and HasSemantics columns where SRM exposes no lossless row API |
 
+The shared member-anchor work ceiling is mechanical, but
+`ILInspector.Metadata.ApiMemberIdentity` decides which semantic projection work
+draws from it. Its cumulative overload charges the complete anchor projection
+against one caller-owned counter rather than allowing repeated MethodDefs to
+restart the limit. MetadataPrimitives does not construct the canonical
+signature, selector, or fingerprint.
+
 Metadata retains product-facing definition identities, including
 `MetadataTypeDefinitionName` and `MetadataTypeDefinitionAddress`. Moving those
 currencies is not part of this decision. That defining-assembly ownership is

@@ -20,10 +20,10 @@ public static class MetadataSafetyPolicy
     public const int MaxStructuralSignatureWorkChars = 4 * 1024 * 1024;
 
     /// <summary>
-    /// Maximum work charged while constructing one member-anchor signature
-    /// tree. Type-name occurrences are charged by character length with a
-    /// short-leaf floor, and every composite type node (arrays, pointers,
-    /// generics, function pointers) is charged a fixed per-node unit, so
+    /// Maximum work charged while constructing one member anchor. Type-name
+    /// occurrences are charged by character length with a short-leaf floor,
+    /// and every composite type node (arrays, pointers, generics, function
+    /// pointers) is charged a fixed per-node unit, so
     /// discarded modifier subtrees that are deep or wide cannot amplify past
     /// this ceiling before rejection. TypeDef/TypeRef leaves charge from
     /// UTF-8 storage and materialize names only when rendered, so unique long
@@ -33,8 +33,12 @@ public static class MetadataSafetyPolicy
     /// <c>CreateMethodAnchor_NestedArrayModoptsFailBeforeLargeAllocation</c>,
     /// <c>CreateMethodAnchor_WideGenericModoptsFailBeforeLargeAllocation</c>,
     /// <c>CreateMethodAnchor_WideTypeRefGenericModoptsFailBeforeLargeAllocation</c>,
+    /// <c>CreateMethodAnchor_UniqueLongTypeRefModoptsFailBeforeLargeAllocation</c>,
     /// and
-    /// <c>CreateMethodAnchor_UniqueLongTypeRefModoptsFailBeforeLargeAllocation</c>.
+    /// <c>CreateMethodAnchorInfo_RepeatedLongNamesExhaustSharedProjectionBudget</c>.
+    /// The caller-owned cumulative overload also charges names, rendered
+    /// strings, canonical identity, selector output, and fingerprint input
+    /// against this ceiling.
     /// </summary>
     public const int MaxAnchorSignatureWorkChars =
         MaxStructuralSignatureWorkChars;
@@ -86,7 +90,8 @@ public static class MetadataSafetyPolicy
     /// method scan. Prevents many near-limit successful identities from
     /// multiplying per-anchor cost when none individually trips the failure
     /// counter. Gated by
-    /// <c>Scan_NearLimitMultiMethodIdentitiesFailClosedBeforeLargeAllocation</c>.
+    /// <c>Scan_NearLimitMultiMethodIdentitiesFailClosedBeforeLargeAllocation</c>
+    /// and <c>Scan_CoreLibraryRemainsWithinCompleteAnchorProjectionBudget</c>.
     /// </summary>
     public const int MaxClassificationScanWorkChars =
         MaxAnchorSignatureWorkChars;
