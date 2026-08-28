@@ -50,11 +50,16 @@ Both linters run in `npm run lint`, which CI invokes through `npm run analyze`.
 
 | Tool | Configuration | What it covers |
 | --- | --- | --- |
-| [html-validate][hv] | `.htmlvalidate.json`, `html-elements.json` | HTML validity and the `recommended` preset; `require-sri` for cross-origin `<script>` and `<link>`; the SRI digest grammar, declared as element metadata; `allowed-links` restricting external references to an allow list |
-| [htmlhint][hh] | `.htmlhintrc` | `inline-script-disabled` only -- inline `on*` event handlers, and `javascript:` URLs in link and source attributes |
+| [html-validate][hv] | `.htmlvalidate.json`, `html-elements.json` | HTML validity and the `recommended` preset; `attr-pattern` rejecting every `on*` event handler attribute; `require-sri` for cross-origin `<script>` and `<link>`; the SRI digest grammar, declared as element metadata; `allowed-links` restricting external references to an allow list |
+| [htmlhint][hh] | `.htmlhintrc` | `inline-script-disabled` -- `javascript:` URLs in link and source attributes |
 
-htmlhint is present for exactly one rule. html-validate has no equivalent, because event
-handler attributes are valid HTML and no validity rule rejects them.
+Inline event handlers are owned by html-validate's `attr-pattern`, configured with a
+pattern that rejects any attribute name beginning `on`. That is deliberately a *shape*
+rather than a list. htmlhint's `inline-script-disabled` also flags event handlers, but it
+enumerates event names and its list predates the modern ones -- `onpointerdown`,
+`onbeforeinput`, `onanimationstart` and `ontoggle` all pass it. A rule that has to be
+extended every time the platform grows an event is the same losing position this project
+just left, so the pattern does that work and htmlhint is kept only for `javascript:` URLs.
 
 Read that second column narrowly. `inline-script-disabled` inspects `href` and `src`; a
 `javascript:` URL reached through any other executable attribute is not covered, and
@@ -122,11 +127,20 @@ before any preload or import map, but nothing checks that a base is local.
 attribute, and `attribute-allowed-values` enforces that its value is a digest a browser
 will actually honour. That second half is not html-validate's default: `require-sri` is a
 presence check, and out of the box `integrity="bogus"` satisfies it. A browser discards
-metadata it cannot parse and fetches the resource *unpinned*, so a malformed digest looks
+metadata it cannot use and fetches the resource *unpinned*, so a malformed digest looks
 pinned to a reader and behaves like no SRI at all. `html-elements.json` closes that gap by
-declaring the SRI grammar as element metadata for `<script>` and `<link>`, which is what
-turns a typo into a lint error. `allowed-links` then restricts external references to the
-CDN allow list in `.htmlvalidate.json`.
+declaring the SRI grammar as element metadata for `<script>` and `<link>`.
+
+That grammar follows the [SRI][sri] and [CSP3][csp] productions rather than being
+tightened to taste, because a false rejection here blocks a legitimate dependency bump.
+It accepts both the base64 and base64url alphabets, optional padding, surrounding and
+separating whitespace, multiple digests, and the `?options` suffix. It pins the
+*significant length* of each digest -- 43, 64, and 86 characters for SHA-256, SHA-384, and
+SHA-512 -- because length is what distinguishes a real digest from a truncated paste, and
+a truncated digest fails closed in the browser at runtime.
+
+`allowed-links` then restricts external references to the CDN allow list in
+`.htmlvalidate.json`.
 
 These are real: a CDN can change the bytes it serves, and this is the one boundary in this
 project where an actor outside the machine is in scope.
@@ -135,6 +149,17 @@ The tools enforce the mechanics, so what is left for review is the judgement:
 
 **In review, check:** adding a host to the `allowExternal` allow list is a deliberate
 decision about whose bytes we run, not a lint fix.
+
+### Link relations that `require-sri` does not recognise
+
+`require-sri` matches the whole `rel` attribute against a small set of values instead of
+tokenizing it. `rel="stylesheet"` is checked; `rel="alternate stylesheet"`,
+`rel="stylesheet license"`, and `rel="STYLESHEET"` are not, and load without `integrity`.
+The allow list still applies, so such a link can only reach the pinned CDN -- but it
+reaches it unpinned.
+
+**In review, reject:** any `<link>` with a multi-token or unusually cased `rel` that
+carries no `integrity`.
 
 ### `javascript:` URLs outside `href` and `src`
 
@@ -189,3 +214,5 @@ Two structural defaults are worth preserving:
 [agents]: ../../AGENTS.md
 [hv]: https://html-validate.org/
 [hh]: https://htmlhint.com/
+[sri]: https://www.w3.org/TR/sri/
+[csp]: https://www.w3.org/TR/CSP3/

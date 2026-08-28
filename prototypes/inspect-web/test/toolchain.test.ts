@@ -450,12 +450,27 @@ const markupLinters: readonly MarkupLinter[] = [
     specimens: [
       // Remote bytes with no integrity attribute at all.
       { markup: remoteScript(""), rule: "require-sri" },
-      // Remote bytes carrying integrity metadata a browser cannot parse. A browser
-      // discards unparseable metadata and fetches the resource unpinned, so this is
+      // Remote bytes carrying integrity metadata a browser cannot honour. A browser
+      // discards unusable SRI metadata and fetches the resource unpinned, so this is
       // indistinguishable from the case above at runtime while looking pinned to a
-      // reader. `html-elements.json` is what makes this fail; without the digest
-      // grammar it declares, `require-sri` is satisfied by any non-empty string.
-      { markup: remoteScript(' integrity="bogus"'), rule: "attribute-allowed-values" },
+      // reader. The digest here is one character short of a SHA-256, which is what a
+      // truncated copy-paste produces; `require-sri` is satisfied by any non-empty
+      // string, and a grammar that checked only the shape and not the length would
+      // accept it too. `html-elements.json` is what makes it fail.
+      {
+        markup: remoteScript(
+          ' integrity="sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSu"'),
+        rule: "attribute-allowed-values",
+      },
+      // An inline event handler. `attr-pattern` rejects any attribute whose name begins
+      // `on`, so this holds for handlers that did not exist when it was written --
+      // htmlhint's equivalent rule enumerates event names and misses the modern ones.
+      {
+        markup: '<!DOCTYPE html><html lang="en"><head><title>t</title></head>'
+          + '<body><button type="button" onpointerdown="doThing()">x</button>'
+          + "</body></html>",
+        rule: "attr-pattern",
+      },
       // A host that is not the one CDN this project pins bytes from.
       {
         markup: '<!DOCTYPE html><html lang="en"><head><title>t</title>'
