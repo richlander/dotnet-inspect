@@ -1836,7 +1836,7 @@ public static class ApiSurfaceExtractor
             AddInspectionFailure(
                 surface,
                 budget,
-                "enum attribute type index",
+                ApiSurfaceInspectionFailure.EnumAttributeTypeIndexOperation,
                 default,
                 indexFailure);
         }

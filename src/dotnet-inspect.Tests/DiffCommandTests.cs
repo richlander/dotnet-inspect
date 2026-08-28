@@ -971,38 +971,74 @@ public class DiffCommandTests
             "DiffFixtureSample.BodyStateSample");
 
         Assert.NotEmpty(rows);
-        Assert.All(
-            rows,
-            row => Assert.Equal("PairFinding.Added", row.Transition));
+        Assert.All(rows, row =>
+        {
+            Assert.Equal("PairFinding.Added", row.Transition);
+            Assert.Equal("no-applicable-input", row.OldInspection);
+            Assert.Equal("complete", row.NewInspection);
+        });
     }
 
     [Fact]
-    public void RetainedComparisonRows_EmptyComparison_PreservesInspectionStates()
+    public void RetainedComparisonRows_EmptyComparison_PreservesNineCellTopology()
     {
         var subject = new ResearchSubjectKey(
             ResearchSubjectKind.Member,
             "member",
             "Sample.Widget.Empty");
-        var comparison = FindingComparison.Compare<CSharpCanonicalLine>(
-            new FindingInspection<CSharpCanonicalLine>.Complete([]),
-            new FindingInspection<CSharpCanonicalLine>.Absent(
-                FindingInspectionAbsenceKind.NoApplicableInput,
-                "no body"));
-        var retained = new RetainedFindingComparison<CSharpCanonicalLine>(
-            subject,
-            CSharpFindings.LineDescriptor,
-            comparison);
+        FindingInspectionState[] states =
+            Enum.GetValues<FindingInspectionState>();
 
-        var row = Assert.Single(DiffCommand.RetainedComparisonRows(
-            retained,
-            "v1",
-            "v2",
-            emitEmptyComparison: true,
-            static (_, _, _, _) => throw new InvalidOperationException()));
+        foreach (FindingInspectionState oldState in states)
+        {
+            foreach (FindingInspectionState newState in states)
+            {
+                var retained =
+                    new RetainedFindingComparison<CSharpCanonicalLine>(
+                        subject,
+                        CSharpFindings.LineDescriptor,
+                        FindingComparison.Compare(
+                            Inspection(oldState),
+                            Inspection(newState)));
 
-        Assert.Equal("FindingComparison.Complete", row.Transition);
-        Assert.Equal("complete", row.Old);
-        Assert.Equal("absent", row.New);
+                var row = Assert.Single(DiffCommand.RetainedComparisonRows(
+                    retained,
+                    "v1",
+                    "v2",
+                    emitEmptyComparison: true,
+                    static (_, _, _, _) =>
+                        throw new InvalidOperationException()));
+
+                Assert.Equal("FindingComparison.Complete", row.Transition);
+                Assert.Equal(InspectionStateName(oldState), row.OldInspection);
+                Assert.Equal(InspectionStateName(newState), row.NewInspection);
+            }
+        }
+
+        static FindingInspection<CSharpCanonicalLine> Inspection(
+            FindingInspectionState state)
+            => state switch
+            {
+                FindingInspectionState.Complete =>
+                    new FindingInspection<CSharpCanonicalLine>.Complete([]),
+                FindingInspectionState.SubjectAbsent =>
+                    new FindingInspection<CSharpCanonicalLine>.Absent(
+                        FindingInspectionAbsenceKind.SubjectAbsent),
+                FindingInspectionState.NoApplicableInput =>
+                    new FindingInspection<CSharpCanonicalLine>.Absent(
+                        FindingInspectionAbsenceKind.NoApplicableInput),
+                _ => throw new ArgumentOutOfRangeException(nameof(state)),
+            };
+
+        static string InspectionStateName(FindingInspectionState state)
+            => state switch
+            {
+                FindingInspectionState.Complete => "complete",
+                FindingInspectionState.SubjectAbsent => "subject-absent",
+                FindingInspectionState.NoApplicableInput =>
+                    "no-applicable-input",
+                _ => throw new ArgumentOutOfRangeException(nameof(state)),
+            };
     }
 
     [Fact]
@@ -1035,6 +1071,8 @@ public class DiffCommandTests
         Assert.Equal("FindingComparison.Failed", row.Transition);
         Assert.Equal("failed", row.Old);
         Assert.Equal("complete", row.New);
+        Assert.Equal("failed", row.OldInspection);
+        Assert.Equal("complete", row.NewInspection);
         Assert.Contains("render failed", row.Detail);
     }
 
@@ -1044,14 +1082,15 @@ public class DiffCommandTests
         var view = DiffOutputFormatter.BuildFindingTransitionsView(
             "Sample",
             [new FindingTransitionRow(
-                "PairFinding.Added",
-                "api.type",
-                "Sample.Widget",
-                "1.0.0",
-                "2.0.0",
-                "absent",
-                "present",
-                null)],
+                    "PairFinding.Added",
+                    "api.type",
+                    "Sample.Widget",
+                    "1.0.0",
+                    "2.0.0",
+                    "absent",
+                    "present",
+                    null)
+                .WithInspectionStates("subject-absent", "complete")],
             "1.0.0",
             "2.0.0");
 
@@ -1062,6 +1101,9 @@ public class DiffCommandTests
         Assert.Contains("Sample.Widget", markdown);
         Assert.Contains("1.0.0", markdown);
         Assert.Contains("2.0.0", markdown);
+        Assert.Contains("Old Inspection", markdown);
+        Assert.Contains("subject-absent", markdown);
+        Assert.Contains("complete", markdown);
     }
 
     [Fact]
@@ -2327,6 +2369,12 @@ public class DiffCommandTests
         var transition = Assert.Single(
             document.RootElement.GetProperty("finding_transitions").EnumerateArray());
         Assert.Equal("PairFinding.Present", transition.GetProperty("transition").GetString());
+        Assert.Equal(
+            "complete",
+            transition.GetProperty("old_inspection").GetString());
+        Assert.Equal(
+            "complete",
+            transition.GetProperty("new_inspection").GetString());
     }
 
     [Fact]

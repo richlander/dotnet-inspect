@@ -393,6 +393,8 @@ public sealed record ApiSurfaceInspectionFailure(
     public const string
         GenericParameterConstraintResolutionOperation =
             "resolve generic parameter constraints";
+    public const string EnumAttributeTypeIndexOperation =
+        "enum attribute type index";
 
     [JsonIgnore]
     public string? SourceAssemblyPath { get; init; }

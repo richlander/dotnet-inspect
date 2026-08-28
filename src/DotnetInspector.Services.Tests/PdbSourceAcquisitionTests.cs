@@ -69,6 +69,56 @@ public class PdbSourceAcquisitionTests
     }
 
     [Fact]
+    public async Task WindowsPdbIsNoApplicableInputForMemberAndType()
+    {
+        using SourceLinkService source = OpenSourceNeedingPdb();
+        source.Context.LoadPdbFromStream(new MemoryStream(
+            Encoding.ASCII.GetBytes(
+                "Microsoft C/C++ MSF 7.00\r\n\u001ADS\0\0\0"),
+            writable: false));
+        Assert.True(source.Context.WindowsPdbDetected);
+        using var client = new HttpClient(new QueueHandler());
+        var fetcher = new SourceFetcher(
+            client,
+            new InMemorySourceContentStore());
+        var type = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                "DotnetInspector.Services.Tests",
+                [nameof(PdbSourceAcquisitionTests)]));
+
+        PdbMemberSourceInspection member =
+            await PdbSourceAcquisition.AcquireMemberAsync(
+                source,
+                0x06000001,
+                "M",
+                Subject,
+                fetcher,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        PdbTypeSourceInspection typeInspection =
+            await PdbSourceAcquisition.AcquireTypeAsync(
+                source,
+                type.Name,
+                Subject,
+                fetcher,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var memberAbsent =
+            Assert.IsType<FindingInspection<string>.Absent>(
+                member.Lines.Value);
+        var typeAbsent =
+            Assert.IsType<FindingInspection<string>.Absent>(
+                typeInspection.Lines.Value);
+        Assert.Equal(
+            FindingInspectionAbsenceKind.NoApplicableInput,
+            memberAbsent.Kind);
+        Assert.Equal(
+            FindingInspectionAbsenceKind.NoApplicableInput,
+            typeAbsent.Kind);
+    }
+
+    [Fact]
     public void FromContent_VerifiedSourceProducesCompleteLineCensus()
     {
         byte[] content = Encoding.UTF8.GetBytes(Source);

@@ -1559,7 +1559,8 @@ public class DiffCommand
             return CompletePairs(typeComparison)
                 .Where(pair => options.TypeFilter.Any(filter =>
                     MatchesDiffTypeFilter(TypeTarget(pair), filter)))
-                .Select(pair => ToTypeTransitionRow(pair, fromVersion, toVersion))
+                .Select(pair => ToTypeTransitionRow(pair, fromVersion, toVersion)
+                    .WithInspectionStates("complete", "complete"))
                 .OrderBy(row => row.Target, StringComparer.Ordinal)
                 .ToList();
         }
@@ -1568,12 +1569,29 @@ public class DiffCommand
         {
             var typeNames = ResolveFindingTypeNames(fromSurface, toSurface, options.TypeFilter);
             return typeNames
-                .SelectMany(typeName => CompletePairs(MetadataFindings.CompareApiAttributes(
-                    fromSurface,
-                    toSurface,
-                    subject,
-                    typeName)))
-                .Select(pair => ToAttributeTransitionRow(pair, fromVersion, toVersion))
+                .SelectMany(typeName =>
+                {
+                    var comparison = MetadataFindings.CompareApiAttributes(
+                        fromSurface,
+                        toSurface,
+                        subject,
+                        typeName);
+                    var complete =
+                        (FindingComparison<ApiAttributeHandle>.Complete)
+                            comparison.Value;
+                    string oldInspection =
+                        InspectionState(complete.OldInspection);
+                    string newInspection =
+                        InspectionState(complete.NewInspection);
+                    return complete.Pairs.Select(pair =>
+                        ToAttributeTransitionRow(
+                            pair,
+                            fromVersion,
+                            toVersion)
+                        .WithInspectionStates(
+                            oldInspection,
+                            newInspection));
+                })
                 .OrderBy(row => row.Target, StringComparer.Ordinal)
                 .ToList();
         }
@@ -1588,7 +1606,8 @@ public class DiffCommand
             return CompletePairs(memberComparison)
                 .Where(pair => options.TypeFilter.Any(filter =>
                     MatchesDiffTypeFilter(MemberTypeTarget(pair), filter)))
-                .Select(pair => ToMemberTransitionRow(pair, fromVersion, toVersion))
+                .Select(pair => ToMemberTransitionRow(pair, fromVersion, toVersion)
+                    .WithInspectionStates("complete", "complete"))
                 .OrderBy(row => row.Target, StringComparer.Ordinal)
                 .ToList();
         }
@@ -1600,7 +1619,8 @@ public class DiffCommand
             options.TypeFilter);
         return CompletePairs(memberComparison)
             .Where(pair => MatchesMemberPair(pair, targets))
-            .Select(pair => ToMemberTransitionRow(pair, fromVersion, toVersion))
+            .Select(pair => ToMemberTransitionRow(pair, fromVersion, toVersion)
+                .WithInspectionStates("complete", "complete"))
             .OrderBy(row => row.Target, StringComparer.Ordinal)
             .ToList();
     }
@@ -1780,7 +1800,10 @@ public class DiffCommand
                 toVersion,
                 InspectionState(failed.OldInspection),
                 InspectionState(failed.NewInspection),
-                failed.Failure);
+                failed.Failure)
+                .WithInspectionStates(
+                    InspectionState(failed.OldInspection),
+                    InspectionState(failed.NewInspection));
             yield break;
         }
 
@@ -1804,7 +1827,10 @@ public class DiffCommand
                 toVersion,
                 InspectionState(complete.OldInspection),
                 InspectionState(complete.NewInspection),
-                null);
+                null)
+                .WithInspectionStates(
+                    InspectionState(complete.OldInspection),
+                    InspectionState(complete.NewInspection));
             yield break;
         }
 
@@ -1814,7 +1840,10 @@ public class DiffCommand
                 retained.Subject,
                 pair,
                 fromVersion,
-                toVersion);
+                toVersion)
+                .WithInspectionStates(
+                    InspectionState(complete.OldInspection),
+                    InspectionState(complete.NewInspection));
         }
     }
 
@@ -1823,7 +1852,16 @@ public class DiffCommand
         => inspection switch
         {
             FindingInspection<T>.Complete => "complete",
-            FindingInspection<T>.Absent => "absent",
+            FindingInspection<T>.Absent
+                {
+                    Kind: FindingInspectionAbsenceKind.SubjectAbsent,
+                } => "subject-absent",
+            FindingInspection<T>.Absent
+                {
+                    Kind: FindingInspectionAbsenceKind.NoApplicableInput,
+                } => "no-applicable-input",
+            FindingInspection<T>.Absent absent => throw new InvalidOperationException(
+                $"Unsupported Finding inspection absence kind '{absent.Kind}'."),
             FindingInspection<T>.Failed => "failed",
         };
 

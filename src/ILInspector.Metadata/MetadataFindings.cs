@@ -144,18 +144,29 @@ public static partial class MetadataFindings
             return SurfaceUnavailable<ApiAttributeHandle>(subject, AttributeDescriptor);
 
         var type = FindType(surface, typeFullName);
-        if (FindTypeIdentityFailure(surface, typeFullName) is { } failure)
+        if (type is null)
+        {
+            if (FindTypeIdentityFailure(surface, typeFullName) is { } failure)
+            {
+                return SurfaceIncomplete<ApiAttributeHandle>(
+                    subject,
+                    AttributeDescriptor,
+                    typeFullName,
+                    failure);
+            }
+
+            return new FindingInspection<ApiAttributeHandle>.Absent(
+                FindingInspectionAbsenceKind.SubjectAbsent);
+        }
+
+        if (FindAttributeInspectionFailure(surface, typeFullName) is { } attributeFailure)
         {
             return SurfaceIncomplete<ApiAttributeHandle>(
                 subject,
                 AttributeDescriptor,
                 typeFullName,
-                failure);
+                attributeFailure);
         }
-
-        if (type is null)
-            return new FindingInspection<ApiAttributeHandle>.Absent(
-                FindingInspectionAbsenceKind.SubjectAbsent);
 
         var occurrences = new Dictionary<string, int>(StringComparer.Ordinal);
         return new FindingInspection<ApiAttributeHandle>.Complete(
@@ -203,6 +214,18 @@ public static partial class MetadataFindings
                 + $"{failure.Operation} failed ({failure.Kind}): {failure.Detail}"));
 
     static ApiSurfaceInspectionFailure? FindTypeIdentityFailure(
+        ApiSurface surface,
+        string typeFullName)
+        => surface.InspectionFailures.FirstOrDefault(failure =>
+            failure.Operation
+                != ApiSurfaceInspectionFailure
+                    .GenericParameterConstraintResolutionOperation
+            && failure.Operation
+                != ApiSurfaceInspectionFailure
+                    .EnumAttributeTypeIndexOperation
+            && MayAffectType(failure, typeFullName));
+
+    static ApiSurfaceInspectionFailure? FindAttributeInspectionFailure(
         ApiSurface surface,
         string typeFullName)
         => surface.InspectionFailures.FirstOrDefault(failure =>

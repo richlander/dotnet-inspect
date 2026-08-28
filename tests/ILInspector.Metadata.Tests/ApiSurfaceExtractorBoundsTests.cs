@@ -692,10 +692,25 @@ public sealed class ApiSurfaceExtractorBoundsTests
         var inspection = MetadataFindings.InspectApiAttributes(
             surface,
             new FindingSubject("Attributed", "Attributed"),
-            "Attributed");
+            attributed.FullName);
         var failed = Assert.IsType<FindingInspection<ApiAttributeHandle>.Failed>(
             inspection.Value);
         Assert.Contains("enum attribute type index", failed.Error.Reason);
+        var missingType = Assert.IsType<FindingInspection<ApiTypeHandle>.Complete>(
+            MetadataFindings.InspectApiType(
+                surface,
+                new FindingSubject("Missing", "Missing"),
+                "Missing").Value);
+        Assert.Empty(missingType.Findings);
+        var missingMembers =
+            Assert.IsType<FindingInspection<ApiMemberHandle>.Absent>(
+                MetadataFindings.InspectApiMembers(
+                    surface,
+                    new FindingSubject("Missing", "Missing"),
+                    "Missing").Value);
+        Assert.Equal(
+            FindingInspectionAbsenceKind.SubjectAbsent,
+            missingMembers.Kind);
         Assert.True(
             allocated < 64L * 1024 * 1024,
             $"{(bounded ? "bounded" : "unbounded")} extraction allocated {allocated:N0} bytes");
