@@ -209,6 +209,18 @@ allocation-free repeated catalog acquisition and common plan lookup.
 `CreatePipeline()` and `CreateQueryRegistry()` remain fresh mutable
 compatibility builders.
 
+`PackageProfileSections` completes the same migration for the fixed
+package-prefix profile domain. Discovery, query execution, and rendering share
+one process-wide query catalog and compiled section catalog; execution selects
+the section plan once and runs its precomputed single-query plan against the
+request-owned package source.
+`PackageProfileSectionCatalog_QueryPlansMatchMutablePipeline` gates
+section-demand equivalence, and
+`PackageProfileCatalog_RepeatedAcquisitionAndCommonPlanningAllocateNothing`
+gates allocation-free repeated catalog acquisition and common plan lookup.
+`CreatePipeline()` and `CreateQueryRegistry()` remain fresh mutable
+compatibility builders.
+
 Commands compile arbitrary multi-query demand once and reuse the resulting
 immutable query plan for every assembly in that request, so package inspection
 does not rebuild dependency state per assembly. The mutable

@@ -271,7 +271,7 @@ public class FindCommandTests
         Assert.Same(PackageProfileQuery.Definition, binding.Query);
         Assert.Same(
             PackageProfileQuery.Definition,
-            Assert.Single(catalog.QueryRegistry.RegisteredQueries));
+            Assert.Single(catalog.QueryCatalog.RegisteredQueries));
 
         PackageProfileView view = PackageProfileSections.CreateDocument(
             "Contoso.",
@@ -409,24 +409,25 @@ public class FindCommandTests
     }
 
     [Fact]
-    public async Task PackageProfileRegistry_MaterializesSourceExecutionOnce()
+    public async Task PackageProfileCatalog_MaterializesSourceExecutionOnce()
     {
         var source = new CountingPackageSource();
         PackageProfileSectionCatalog catalog =
             PackageProfileSections.CreateCatalog();
-        HashSet<InspectionQueryDefinition> requested =
-            catalog.Pipeline.GetRequiredQueries(
+        SectionQueryPlan sectionPlan =
+            catalog.Sections.PlanQueries(
                 Verbosity.Normal,
                 [PackageProfileSections.Packages]);
 
         InspectionQueryResults results =
-            await catalog.QueryRegistry.RunAsync(
-                requested,
-                new PackageProfileQueryContext(
-                    source,
-                    new PackagePrefixProfileRequest("Contoso.")),
-                cancellationToken:
-                    TestContext.Current.CancellationToken);
+            await catalog.QueryCatalog
+                .Plan(sectionPlan.Queries[0])
+                .RunAsync(
+                    new PackageProfileQueryContext(
+                        source,
+                        new PackagePrefixProfileRequest("Contoso.")),
+                    cancellationToken:
+                        TestContext.Current.CancellationToken);
 
         Assert.Equal(1, source.SearchRequests);
         ImmutableArray<PackageProfileEvent> first =
