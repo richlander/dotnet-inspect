@@ -382,26 +382,23 @@ Retained operations read the session's installed snapshot. The separate
 stateless variant may consume an explicit prior snapshot and has no implicit
 cross-command state.
 
-## Canonical restoration
-
-Canonical restoration prepares subject and lens together under one explicit
-intent. The authoritative transaction state machine is
-[`AtomicRestoration.tla`](models/inspection-subject-navigation/AtomicRestoration.tla).
+## Canonical restoration participant
 
 After packet decoding, coordinate realization, and portable identity
-resolution, the canonical-state owner supplies:
+resolution, the canonical-state owner supplies one realized coordinate and the
+optional exact subject and navigation lens requested for it.
 
-- the realized coordinate;
-- an optional exact subject; and
-- an optional exact navigation lens.
+Inspection Subject Navigation independently retains that requested payload,
+resolves its subject and lens halves, and publishes one complete prepared
+snapshot only when both halves succeed. A half-failure aborts the preparation,
+and supersession prevents an older preparation from being published. The
+focused participant state machine is
+[`AtomicRestoration.tla`](models/inspection-subject-navigation/AtomicRestoration.tla).
 
-Inspection Subject Navigation prepares one complete snapshot without installing
-it. Issue #4787's coordinator commits that snapshot only when every restoration
-participant is ready. Participant failure aborts without partial navigation
-state; supersession prevents an older preparation from committing.
-
-Section, body, source-target, and other portable state remain outside this
-owner.
+This owner does not install the prepared snapshot or coordinate other
+restoration participants. Complete restoration composition and atomic commit
+belong to issue #4787. Section, body, source-target, and other portable state
+remain outside this owner.
 
 ## Consumer contract
 
@@ -439,9 +436,9 @@ retaining a navigation session.
 
 | Model | Checked design properties |
 | --- | --- |
-| `NavigationSession.tla` | Latest explicit intent wins; maintenance is request ordered; stale authority has no effect; abort and acknowledgement preserve liveness |
-| `AtomicRestoration.tla` | Subject and lens commit together; failed or superseded preparation cannot partially install |
-| `SnapshotAuthority.tla` | Retained state comes only from the installed snapshot; stateless prior state is explicit; stale or foreign authority is rejected |
+| `NavigationSession.tla` | Latest explicit intent wins; unavailable revision behavior follows complete-snapshot change; maintenance is request ordered; abort and acknowledgement preserve liveness; stale authority has no effect |
+| `AtomicRestoration.tla` | One exact requested subject+lens pair is prepared atomically; failed or superseded preparation is not published |
+| `SnapshotAuthority.tla` | Retained state comes only from the installed snapshot; applied lens results equal the independently retained request; stale or foreign authority is rejected |
 
 The model README records the TLC commands and scope. Model checking validates
 these finite specifications, not the implementation.
@@ -457,6 +454,7 @@ The eventual subject-navigation implementation must include named gates for:
 - `UnavailableDescriptor_HasNoTargetOrActionId`
 - `ExplicitUnavailableTransition_DoesNotApplyFallback`
 - `UnavailableReplacement_AdvancesStateRevision`
+- `UnavailableUnchangedSnapshot_RetainsStateRevision`
 - `SameCoordinateReconciliation_FollowsSubjectTable`
 - `CoordinateVariation_UsesTypedCorrespondence`
 - `LensReconciliation_PreservesExactSubjectScopedIdentity`
@@ -464,22 +462,14 @@ The eventual subject-navigation implementation must include named gates for:
 - `RetainedSession_RejectsCallerSuppliedPriorSnapshot`
 - `RetainedSession_RejectsSuppliedSameSessionSnapshotCustody`
 - `SuppliedPriorRejection_CorrelatesExactOperation`
+- `AppliedResult_EqualsExactRequestedSubjectAndLens`
 - `Maintenance_SerializesInRequestOrderAcrossCompletionTiming`
 - `Maintenance_CannotInstallDuringUnconsumedEffect`
+- `StaleBasisMaintenance_SameRequestRebuildsRegathersAndIsAdmitted`
 - `EffectAuthority_RequiresExactCurrentSessionRevisionIntentAndEpoch`
 - `ExternalIntentAbort_ReleasesMaintenanceAfterAcknowledgement`
-- `CanonicalRestoration_PreparesAndCommitsSubjectLensAtomically`
+- `CanonicalRestoration_PreparedPairEqualsExactRequest`
 - `CanonicalRestoration_FailedPreparationSettlesAsAbort`
-
-Inspect Web needs non-vacuity gates that fail when it:
-
-- chooses an initial subject or fallback locally;
-- submits Type or Member identities instead of action IDs;
-- supplies retained prior state outside the navigation session;
-- derives Type-inventory Library context from visible rows;
-- constructs or compares intent tokens;
-- installs or focuses under stale effect authority; or
-- splits canonical subject and lens restoration.
 
 ## Acceptance cases
 
@@ -497,7 +487,7 @@ Inspect Web needs non-vacuity gates that fail when it:
 | Two lens requests complete out of order | Latest issued lens is final |
 | Refresh and reconciliation complete out of order | Maintenance request order determines final snapshot |
 | Coordinate acquisition fails | Prior snapshot retained; abort effect visible; maintenance eventually resumes |
-| Canonical subject plus non-default lens | One prepared snapshot commits with no intermediate lens |
+| Canonical subject plus non-default lens | One prepared snapshot returns the exact requested pair with no partial result |
 
 ## Non-goals
 

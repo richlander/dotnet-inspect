@@ -3,18 +3,20 @@
 (* Design model of the retained Inspection Subject Navigation session.     *)
 (*                                                                         *)
 (* The model checks the ordering, supersession, and authority rules of the *)
-(* design in `docs/design/inspection-subject-navigation.md`.  It says      *)
-(* nothing about identity ranking, availability classification, lens       *)
-(* contents, rendering, or any implementation.                             *)
+(* design in `docs/design/inspection-subject-navigation.md`.  It models    *)
+(* unavailable revision behavior, but not descriptor classification,       *)
+(* identity ranking, lens contents, rendering, or any implementation.       *)
 (*                                                                         *)
 (* Product concept                    Model variable                       *)
-(*   installed navigation snapshot      installedRev (0 = none retained)   *)
+(*   installed navigation snapshot      installedSnapshot                  *)
+(*   installed snapshot revision        installedRev                       *)
 (*   product-issued explicit intent     currentIntent                      *)
 (*   unresolved explicit operation      explicit                           *)
 (*   superseded explicit operation      superseded                         *)
 (*   owner-issued maintenance number    nextMaintenance                    *)
 (*   standalone maintenance queue       maintenanceQueue (request order)   *)
 (*   last admitted maintenance          lastAdmitted                       *)
+(*   last semantic navigation result    lastResult                         *)
 (*   effect epoch                       effectEpoch                        *)
 (*   unconsumed effect authority        effect                             *)
 (*   authority held by a consumer       hostAuthority                      *)
@@ -27,19 +29,23 @@
 (* future weakening of an action guard lets a step happen without that     *)
 (* condition.  They are model bookkeeping, not product state.              *)
 (***************************************************************************)
-EXTENDS Naturals, Sequences
+EXTENDS Naturals, Sequences, FiniteSets
 
 CONSTANTS
   MaxIntent,        \* how many explicit intents one behaviour may issue
   MaxMaintenance,   \* how many standalone maintenance requests it may issue
   IntentKinds,      \* subject, lens, coordinate, and canonical restoration
+  SnapshotValues,   \* finite complete-snapshot contents
+  InitialSnapshot,  \* content retained before the first modelled result
   SessionId,        \* the identity of this retained navigation session
   ForeignSessionId  \* some other session, used only for foreign authority
 
 ASSUME MaxIntent \in Nat /\ MaxMaintenance \in Nat
+ASSUME InitialSnapshot \in SnapshotValues /\ Cardinality(SnapshotValues) > 1
 ASSUME SessionId # ForeignSessionId
 
 VARIABLES
+  installedSnapshot,
   installedRev,
   currentIntent,
   explicit,
@@ -47,6 +53,7 @@ VARIABLES
   nextMaintenance,
   maintenanceQueue,
   lastAdmitted,
+  lastResult,
   effectEpoch,
   effect,
   hostAuthority,
@@ -54,9 +61,10 @@ VARIABLES
   orderWitness,
   visibleWitness
 
-vars == << installedRev, currentIntent, explicit, superseded, nextMaintenance,
-           maintenanceQueue, lastAdmitted, effectEpoch, effect, hostAuthority,
-           admissionWitness, orderWitness, visibleWitness >>
+vars == << installedSnapshot, installedRev, currentIntent, explicit,
+           superseded, nextMaintenance, maintenanceQueue, lastAdmitted,
+           lastResult, effectEpoch, effect, hostAuthority, admissionWitness,
+           orderWitness, visibleWitness >>
 
 (***************************************************************************)
 (* Currencies.                                                             *)
@@ -66,6 +74,24 @@ vars == << installedRev, currentIntent, explicit, superseded, nextMaintenance,
 (* outcome class records which kind of result carried it.                  *)
 (***************************************************************************)
 Outcomes == {"applied", "retained", "aborted", "maintenance"}
+SemanticOutcomes ==
+  {"applied", "unavailable", "rejected", "failed", "aborted", "maintenance"}
+
+NoResult ==
+  [ outcome         |-> "none",
+    snapshotChanged |-> FALSE,
+    priorSnapshot   |-> InitialSnapshot,
+    resultSnapshot  |-> InitialSnapshot,
+    priorRev        |-> 0,
+    resultRev       |-> 0 ]
+
+Result(outcome, priorSnapshot, resultSnapshot, priorRev, resultRev) ==
+  [ outcome         |-> outcome,
+    snapshotChanged |-> resultSnapshot # priorSnapshot,
+    priorSnapshot   |-> priorSnapshot,
+    resultSnapshot  |-> resultSnapshot,
+    priorRev        |-> priorRev,
+    resultRev       |-> resultRev ]
 
 Authority(outcome, rev, intent, epoch) ==
   [ session |-> SessionId,
@@ -95,6 +121,7 @@ MaintenanceIndex(n) == CHOOSE i \in DOMAIN maintenanceQueue : maintenanceQueue[i
 MaintenanceEntry(n) == maintenanceQueue[MaintenanceIndex(n)]
 
 TypeOK ==
+  /\ installedSnapshot \in SnapshotValues
   /\ installedRev \in Nat
   /\ currentIntent \in 0 .. MaxIntent
   /\ explicit.token \in 0 .. MaxIntent
@@ -102,6 +129,12 @@ TypeOK ==
   /\ superseded \subseteq 1 .. MaxIntent
   /\ nextMaintenance \in 1 .. (MaxMaintenance + 1)
   /\ lastAdmitted \in 0 .. MaxMaintenance
+  /\ lastResult.outcome \in SemanticOutcomes \cup {"none"}
+  /\ lastResult.snapshotChanged \in BOOLEAN
+  /\ lastResult.priorSnapshot \in SnapshotValues
+  /\ lastResult.resultSnapshot \in SnapshotValues
+  /\ lastResult.priorRev \in Nat
+  /\ lastResult.resultRev \in Nat
   /\ effectEpoch \in Nat
   /\ effect.outcome \in Outcomes \cup {"none"}
   /\ hostAuthority.outcome \in Outcomes \cup {"none"}
@@ -111,6 +144,7 @@ TypeOK ==
        /\ maintenanceQueue[i].basis \in Nat
 
 Init ==
+  /\ installedSnapshot = InitialSnapshot
   /\ installedRev = 0
   /\ currentIntent = 0
   /\ explicit = NoExplicitWork
@@ -118,6 +152,7 @@ Init ==
   /\ nextMaintenance = 1
   /\ maintenanceQueue = << >>
   /\ lastAdmitted = 0
+  /\ lastResult = NoResult
   /\ effectEpoch = 0
   /\ effect = NoAuthority
   /\ hostAuthority = NoAuthority
@@ -145,37 +180,68 @@ BeginExplicitIntent(kind) ==
   /\ maintenanceQueue' =
        [ i \in DOMAIN maintenanceQueue |->
            [maintenanceQueue[i] EXCEPT !.ready = FALSE] ]
-  /\ UNCHANGED << installedRev, nextMaintenance, lastAdmitted, effectEpoch,
-                  hostAuthority, admissionWitness, orderWitness,
-                  visibleWitness >>
+  /\ UNCHANGED << installedSnapshot, installedRev, nextMaintenance,
+                  lastAdmitted, lastResult, effectEpoch, hostAuthority,
+                  admissionWitness, orderWitness, visibleWitness >>
 
-\* An `Applied` outcome: the explicit operation installs a replacement
-\* snapshot and returns fresh authority under its own intent token.
-ExplicitResultInstalls ==
+\* An `Applied` outcome installs a semantically changed replacement snapshot
+\* and returns fresh authority under its own intent token.
+ExplicitResultInstalls(returnedSnapshot) ==
   /\ explicit # NoExplicitWork
   /\ explicit.token = currentIntent
+  /\ returnedSnapshot # installedSnapshot
+  /\ installedSnapshot' = returnedSnapshot
   /\ installedRev' = installedRev + 1
   /\ effectEpoch' = effectEpoch + 1
   /\ effect' = Authority("applied", installedRev + 1, currentIntent, effectEpoch + 1)
   /\ hostAuthority' = effect'
+  /\ lastResult' =
+       Result("applied", installedSnapshot, returnedSnapshot,
+              installedRev, installedRev + 1)
   /\ explicit' = NoExplicitWork
   /\ UNCHANGED << currentIntent, superseded, nextMaintenance,
                   maintenanceQueue, lastAdmitted, admissionWitness,
                   orderWitness, visibleWitness >>
 
-\* An `Unavailable`, `Rejected`, or `Failed` outcome: the snapshot revision is
-\* retained, but the result still gets its own effect epoch so an older
-\* deferred outcome cannot surface under it.
-ExplicitResultRetains ==
+\* An unavailable request returns a complete snapshot value.  Change is
+\* derived by comparing that value with the installed snapshot, not supplied
+\* as an independent choice.
+ExplicitUnavailable(returnedSnapshot) ==
+  /\ explicit # NoExplicitWork
+  /\ explicit.token = currentIntent
+  /\ LET changed == returnedSnapshot # installedSnapshot IN
+       /\ installedSnapshot' = returnedSnapshot
+       /\ installedRev' = IF changed THEN installedRev + 1 ELSE installedRev
+       /\ effectEpoch' = effectEpoch + 1
+       /\ effect' =
+            Authority(IF changed THEN "applied" ELSE "retained",
+                      installedRev', currentIntent, effectEpoch + 1)
+       /\ hostAuthority' = effect'
+       /\ lastResult' =
+            Result("unavailable", installedSnapshot, returnedSnapshot,
+                   installedRev, installedRev')
+  /\ explicit' = NoExplicitWork
+  /\ UNCHANGED << currentIntent, superseded, nextMaintenance,
+                  maintenanceQueue, lastAdmitted, admissionWitness,
+                  orderWitness, visibleWitness >>
+
+\* Rejected and failed navigation results retain the installed snapshot but
+\* receive a fresh effect epoch so delayed outcome work cannot surface later.
+ExplicitResultRetains(outcome) ==
+  /\ outcome \in {"rejected", "failed"}
   /\ explicit # NoExplicitWork
   /\ explicit.token = currentIntent
   /\ effectEpoch' = effectEpoch + 1
-  /\ effect' = Authority("retained", installedRev, currentIntent, effectEpoch + 1)
+  /\ effect' =
+       Authority("retained", installedRev, currentIntent, effectEpoch + 1)
   /\ hostAuthority' = effect'
+  /\ lastResult' =
+       Result(outcome, installedSnapshot, installedSnapshot,
+              installedRev, installedRev)
   /\ explicit' = NoExplicitWork
-  /\ UNCHANGED << installedRev, currentIntent, superseded, nextMaintenance,
-                  maintenanceQueue, lastAdmitted, admissionWitness,
-                  orderWitness, visibleWitness >>
+  /\ UNCHANGED << installedSnapshot, installedRev, currentIntent, superseded,
+                  nextMaintenance, maintenanceQueue, lastAdmitted,
+                  admissionWitness, orderWitness, visibleWitness >>
 
 \* Packet decoding, coordinate realization, or another prerequisite owner
 \* failed before navigation could run.  The intent terminates with a typed
@@ -187,19 +253,23 @@ ExternalPrerequisiteAbort ==
   /\ effectEpoch' = effectEpoch + 1
   /\ effect' = Authority("aborted", installedRev, currentIntent, effectEpoch + 1)
   /\ hostAuthority' = effect'
+  /\ lastResult' =
+       Result("aborted", installedSnapshot, installedSnapshot,
+              installedRev, installedRev)
   /\ explicit' = NoExplicitWork
-  /\ UNCHANGED << installedRev, currentIntent, superseded, nextMaintenance,
-                  maintenanceQueue, lastAdmitted, admissionWitness,
-                  orderWitness, visibleWitness >>
+  /\ UNCHANGED << installedSnapshot, installedRev, currentIntent, superseded,
+                  nextMaintenance, maintenanceQueue, lastAdmitted,
+                  admissionWitness, orderWitness, visibleWitness >>
 
 \* A superseded explicit operation returns late.  It produces no visible
 \* effect and cannot install.
 SupersededResultDiscarded(token) ==
   /\ token \in superseded
   /\ superseded' = superseded \ {token}
-  /\ UNCHANGED << installedRev, currentIntent, explicit, nextMaintenance,
+  /\ UNCHANGED << installedSnapshot, installedRev, currentIntent, explicit,
+                  nextMaintenance,
                   maintenanceQueue, lastAdmitted, effectEpoch, effect,
-                  hostAuthority, admissionWitness, orderWitness,
+                  hostAuthority, lastResult, admissionWitness, orderWitness,
                   visibleWitness >>
 
 (***************************************************************************)
@@ -216,8 +286,9 @@ RequestMaintenance ==
        Append(maintenanceQueue,
               [seq |-> nextMaintenance, ready |-> FALSE, basis |-> installedRev])
   /\ nextMaintenance' = nextMaintenance + 1
-  /\ UNCHANGED << installedRev, currentIntent, explicit, superseded,
-                  lastAdmitted, effectEpoch, effect, hostAuthority,
+  /\ UNCHANGED << installedSnapshot, installedRev, currentIntent, explicit,
+                  superseded,
+                  lastAdmitted, lastResult, effectEpoch, effect, hostAuthority,
                   admissionWitness, orderWitness, visibleWitness >>
 
 \* Facts for one queued request finish gathering.  Any request may finish
@@ -227,8 +298,9 @@ GatherMaintenanceFacts(n) ==
   /\ LET i == MaintenanceIndex(n) IN
        /\ ~maintenanceQueue[i].ready
        /\ maintenanceQueue' = [maintenanceQueue EXCEPT ![i].ready = TRUE]
-  /\ UNCHANGED << installedRev, currentIntent, explicit, superseded,
-                  nextMaintenance, lastAdmitted, effectEpoch, effect,
+  /\ UNCHANGED << installedSnapshot, installedRev, currentIntent, explicit,
+                  superseded,
+                  nextMaintenance, lastAdmitted, lastResult, effectEpoch, effect,
                   hostAuthority, admissionWitness, orderWitness,
                   visibleWitness >>
 
@@ -240,8 +312,9 @@ RebuildMaintenance(n) ==
        /\ maintenanceQueue[i].basis # installedRev
        /\ maintenanceQueue' = [maintenanceQueue EXCEPT ![i].basis = installedRev,
                                                        ![i].ready = FALSE]
-  /\ UNCHANGED << installedRev, currentIntent, explicit, superseded,
-                  nextMaintenance, lastAdmitted, effectEpoch, effect,
+  /\ UNCHANGED << installedSnapshot, installedRev, currentIntent, explicit,
+                  superseded,
+                  nextMaintenance, lastAdmitted, lastResult, effectEpoch, effect,
                   hostAuthority, admissionWitness, orderWitness,
                   visibleWitness >>
 
@@ -257,6 +330,13 @@ MaintenanceAdmissible ==
 
 AdmitMaintenance ==
   /\ MaintenanceAdmissible
+  /\ LET replacement ==
+       CHOOSE snapshot \in SnapshotValues \ {installedSnapshot} : TRUE
+     IN
+       /\ installedSnapshot' = replacement
+       /\ lastResult' =
+            Result("maintenance", installedSnapshot, replacement,
+                   installedRev, installedRev + 1)
   /\ installedRev' = installedRev + 1
   /\ effectEpoch' = effectEpoch + 1
   /\ effect' = Authority("maintenance", installedRev + 1, currentIntent,
@@ -291,9 +371,10 @@ VisibleEffect ==
        /\ hostAuthority.intent = currentIntent
        /\ hostAuthority.epoch = effectEpoch
        /\ hostAuthority.rev = installedRev
-  /\ UNCHANGED << installedRev, currentIntent, explicit, superseded,
+  /\ UNCHANGED << installedSnapshot, installedRev, currentIntent, explicit,
+                  superseded,
                   nextMaintenance, maintenanceQueue, lastAdmitted,
-                  effectEpoch, effect, hostAuthority, admissionWitness,
+                  lastResult, effectEpoch, effect, hostAuthority, admissionWitness,
                   orderWitness >>
 
 \* Installation and every required focus and outcome effect completed.
@@ -303,9 +384,10 @@ AcknowledgeEffect ==
   /\ hostAuthority = effect
   /\ effect' = NoAuthority
   /\ hostAuthority' = NoAuthority
-  /\ UNCHANGED << installedRev, currentIntent, explicit, superseded,
+  /\ UNCHANGED << installedSnapshot, installedRev, currentIntent, explicit,
+                  superseded,
                   nextMaintenance, maintenanceQueue, lastAdmitted,
-                  effectEpoch, admissionWitness, orderWitness,
+                  lastResult, effectEpoch, admissionWitness, orderWitness,
                   visibleWitness >>
 
 \* The owning surface was destroyed, or revalidation failed and the consumer
@@ -315,23 +397,28 @@ AbandonEffect ==
   /\ hostAuthority # NoAuthority
   /\ hostAuthority' = NoAuthority
   /\ effect' = IF hostAuthority = effect THEN NoAuthority ELSE effect
-  /\ UNCHANGED << installedRev, currentIntent, explicit, superseded,
+  /\ UNCHANGED << installedSnapshot, installedRev, currentIntent, explicit,
+                  superseded,
                   nextMaintenance, maintenanceQueue, lastAdmitted,
-                  effectEpoch, admissionWitness, orderWitness,
+                  lastResult, effectEpoch, admissionWitness, orderWitness,
                   visibleWitness >>
 
 \* A consumer is handed authority minted by a different navigation session.
 ForeignAuthorityOffered ==
   /\ hostAuthority = NoAuthority
   /\ hostAuthority' = ForeignAuthority
-  /\ UNCHANGED << installedRev, currentIntent, explicit, superseded,
+  /\ UNCHANGED << installedSnapshot, installedRev, currentIntent, explicit,
+                  superseded,
                   nextMaintenance, maintenanceQueue, lastAdmitted,
-                  effectEpoch, effect, admissionWitness, orderWitness,
+                  lastResult, effectEpoch, effect, admissionWitness, orderWitness,
                   visibleWitness >>
 
 ResolveExplicit ==
-  \/ ExplicitResultInstalls
-  \/ ExplicitResultRetains
+  \/ \E returnedSnapshot \in SnapshotValues :
+       ExplicitResultInstalls(returnedSnapshot)
+  \/ \E returnedSnapshot \in SnapshotValues :
+       ExplicitUnavailable(returnedSnapshot)
+  \/ \E outcome \in {"rejected", "failed"} : ExplicitResultRetains(outcome)
   \/ ExternalPrerequisiteAbort
 
 Next ==
@@ -394,6 +481,17 @@ MaintenanceRequestOrder ==
 \* No stale visible effect: every render, focus, or outcome effect executed
 \* under exactly the session's current unconsumed authority.
 NoStaleVisibleEffect == visibleWitness
+
+\* An unavailable outcome advances the state revision exactly when the
+\* complete returned snapshot changed.  The semantic outcome and change bit
+\* are explicit model currencies rather than inferred from apply/retain class.
+UnavailableRevisionMatchesSnapshotChange ==
+  lastResult.outcome = "unavailable" =>
+    /\ lastResult.snapshotChanged =
+         (lastResult.resultSnapshot # lastResult.priorSnapshot)
+    /\ IF lastResult.snapshotChanged
+         THEN lastResult.resultRev = lastResult.priorRev + 1
+         ELSE lastResult.resultRev = lastResult.priorRev
 
 (***************************************************************************)
 (* Liveness.                                                               *)

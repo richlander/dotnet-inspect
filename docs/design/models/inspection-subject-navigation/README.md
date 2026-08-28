@@ -11,14 +11,14 @@ enough for TLC to explore its entire state space in a second or two.
 | Model | Mechanism |
 | --- | --- |
 | `NavigationSession.tla` | Retained session: intent, supersession, maintenance order, effect authority |
-| `AtomicRestoration.tla` | Canonical restoration: one prepared subject+lens pair committed as a transaction |
+| `AtomicRestoration.tla` | Canonical restoration participant: one exact requested subject+lens pair published as a prepared snapshot |
 | `SnapshotAuthority.tla` | Retained versus stateless execution and the prior state each may read |
 
 ## What these models cover
 
 Each model is a design specification. TLC checks that the design's own rules
 are mutually consistent across every interleaving of a small finite instance:
-every ordering of user intent, background maintenance, participant readiness,
+every ordering of user intent, background maintenance, preparation readiness,
 fact completion, failure, and consumer acknowledgement that the rules permit.
 
 ## What these models do not cover
@@ -29,9 +29,10 @@ read that way:
 - **Identity ranking.** Initial subject recommendation, Type candidate tiers,
   Library declaration order, and lens preference are not modelled. Subjects
   and lenses appear only as opaque values.
-- **Availability semantics.** The distinction between available, unavailable,
-  failed, and selection-required, and the reconciliation tables, are not
-  modelled.
+- **Availability classification.** Descriptor classification and the
+  reconciliation tables are not modelled. `NavigationSession.tla` does model
+  the narrower rule that an `Unavailable` result advances revision exactly
+  when its complete returned snapshot changed.
 - **UI accessibility.** Focus, roving `tabindex`, menu and tablist semantics,
   history, and rendering belong to [Inspect Web UI](../../inspect-web-ui.md)
   and appear here only as an abstract "consumer holds authority and executes a
@@ -39,6 +40,9 @@ read that way:
 - **Implementation correctness.** Nothing here proves that a future C# or
   TypeScript implementation conforms to these specifications. Conformance is
   the job of the named implementation gates in the owning document.
+- **Complete restoration coordination.** `AtomicRestoration.tla` covers only
+  the navigation participant's subject+lens preparation. Other participants,
+  transaction commit, and installation belong to issue #4787.
 - **Acquisition, security, or performance.** Coordinate realization appears
   only as an external prerequisite that may abort.
 
@@ -53,14 +57,14 @@ A claim that says "an operation like this eventually reaches an outcome like
 that" can be discharged by some *other* operation's outcome. Every claim in
 these models that could fall into that trap names the thing it is talking
 about: a maintenance request number, an intent token, a restoration token and
-its recorded settlement reason, or a navigation operation ID that the result
-carries back. The three models therefore carry three correlation currencies:
+its retained payload, or a navigation operation ID that the result carries
+back. The three models therefore carry three correlation currencies:
 
 | Model | Currency | Used by |
 | --- | --- | --- |
 | `NavigationSession.tla` | maintenance request number, intent token | per-request admission and per-token settlement |
-| `AtomicRestoration.tla` | restoration token plus a settlement reason | per-attempt settlement and commit provenance |
-| `SnapshotAuthority.tla` | operation ID assigned on submission | per-operation resolution and rejection |
+| `AtomicRestoration.tla` | restoration token plus an independently retained request payload | per-attempt settlement and exact prepared result |
+| `SnapshotAuthority.tla` | operation ID plus independently retained requested lens | per-operation resolution, rejection, and exact applied result |
 
 ## `NavigationSession.tla`
 
@@ -86,6 +90,7 @@ a consumer holding authority that has since stopped being current.
 | `MaintenanceAdmissionDiscipline` | No maintenance was admitted while explicit work was unresolved or an effect was unconsumed |
 | `MaintenanceRequestOrder` | Maintenance was admitted in owner-issued request order, never fact-completion order, and the queue stays ordered and outstanding |
 | `NoStaleVisibleEffect` | Every render, focus, or outcome effect executed under exactly the session's current unconsumed authority |
+| `UnavailableRevisionMatchesSnapshotChange` | An unavailable result advances revision exactly when the complete returned snapshot changed |
 
 Progress is stated per request and per intent token rather than only for the
 session as a whole. Each property below names a specific blocker or a specific
@@ -110,47 +115,35 @@ bounded, so TLC can show that the queue drains once intents stop arriving.
 
 ## `AtomicRestoration.tla`
 
-Canonical restoration prepares one subject and one lens together under one
-explicit intent, coordinates with at least one other restoration participant,
-and commits or aborts as a transaction.
+Canonical restoration gives Inspection Subject Navigation one exact requested
+subject+lens payload. The owner retains that request independently while its
+subject and lens halves resolve, then publishes one prepared snapshot only
+when both halves are ready. Complete restoration coordination and installation
+are deliberately absent.
 
-Navigation's own preparation has two explicitly tracked halves. The subject
-half and the lens half are each working, ready, or failed, so navigation can
-fail before either half resolves, after the subject half alone, or after the
-lens half alone. Each of those failures has to settle through abort with
-neither half becoming visible.
+The two halves are each working, ready, or failed. A half-failure settles as
+aborted, including after the other half became ready. A newer intent prevents
+an older live preparation from publishing and settles it as discarded unless
+it had already failed.
 
-Every attempt records its own settlement reason: `committed`, `aborted`, or
-`discarded`. A failed preparation settles as `aborted` even when a newer intent
-superseded it as well, because the ordinary superseded-discard path explicitly
-excludes failed preparations. Supersession does not relabel a failure.
-
-The visible subject and the visible lens are modelled as two separate
-variables, each tagged with the intent that installed it. That is the shape a
-host reaches for when it stores subject levels independently, which makes
-`NoPartialInstallation` a real check rather than a restatement of a single
-assignment. `lastCommit` is written only by the commit action, so any other
-action that disturbed the visible pair is detected.
+Requests and results are separate records. This makes exact payload correlation
+an executable claim rather than trusting mutable preparation state or an
+operation token: a prepared result must contain the independently retained
+subject and lens requested for that same token.
 
 | Invariant | Claim |
 | --- | --- |
 | `TypeOK` | State stays within its declared shape |
-| `NoPartialInstallation` | The visible subject and visible lens always come from the same restoration |
-| `VisiblePairIsLastCommit` | Failure, abort, and supersession retain the prior visible pair exactly |
-| `CommitRequiresReadyParticipantsAndCurrentIntent` | A commit happened only with both navigation halves ready, every peer ready, and the preparation's token still current |
-| `NoSupersededCommit` | A preparation a newer intent replaced never became visible |
-| `FailedPreparationNeverVisible` | A preparation that failed in either navigation half or in a peer never became visible |
-| `PreparationIsInvisible` | A live preparation never leaks its subject or lens before commit |
-| `LiveAttemptHasNoSettlement` | A settlement reason is recorded once, by the step that ended the attempt |
-| `FailedAttemptSettlesAsAborted` | A failed preparation settles as aborted, never as a commit and never as an ordinary superseded discard |
-| `CommittedAttemptWasNeitherFailedNorSuperseded` | An attempt recorded as committed appears in neither the failure nor the supersession history |
-| `VisiblePairComesFromACommittedAttempt` | The token that installed the visible pair is the one recorded as committed |
+| `PreparationRequiresReadyPairAndCurrentIntent` | A prepared result was published only for the current token after both halves became ready |
+| `PreparedPairEqualsRequestedPayload` | A prepared result contains the exact independently retained requested subject and lens |
+| `NoSupersededPreparationResult` | A preparation replaced by a newer intent was never published |
+| `FailedPreparationNeverPrepared` | A preparation that failed in either half was never published |
+| `PreparationIsInvisibleUntilPublished` | A live preparation exposes no partial result |
 
 | Liveness property | Claim |
 | --- | --- |
-| `EveryAttemptSettles` | Every attempt settles with its own recorded reason; another attempt settling does not discharge it |
-| `FailedAttemptsAbort` | An attempt with any failed participant settles with the aborted reason, not merely as no longer live |
-| `HalfFailedAttemptsSettle` | A navigation half-failure reaches that same aborted settlement, including when the other half is already prepared |
+| `EveryAttemptSettles` | Every attempt reaches its own prepared, aborted, or discarded result |
+| `FailedAttemptsAbort` | A half-failed attempt settles specifically as aborted |
 
 ## `SnapshotAuthority.tla`
 
@@ -174,6 +167,10 @@ name one operation's own outcome instead of settling for some outcome having
 occurred: a later operation that is wrongly applied is not excused by an
 earlier one having been rejected.
 
+The requested lens is also retained independently by operation ID. An applied
+result must return that exact lens, and retained execution must install it
+rather than another lens that happens to be admissible for the session.
+
 A retained typed rejection is still a retained result. It changes no installed
 state, but it advances the effect epoch and returns current retained
 authority, so a consumer renders and acknowledges a rejection exactly as it
@@ -190,6 +187,7 @@ retained authority, whether it succeeds or is rejected.
 | `NonApplyStepsPreserveInstalledSnapshot` | Stateless execution, stateless rejection, retained rejection, and the authority-only steps left the whole installed snapshot record unchanged, compared field by field rather than by revision counting |
 | `RetainedRejectionHasExactAuthorityAndInstallsNothing` | Every retained rejection advanced the effect epoch, returned authority naming this session, the unchanged installed revision, the current operation, and the new epoch, and installed nothing |
 | `RetainedCommittedLensEqualsInstalledLens` | The retained committed lens equals the installed snapshot's lens and is never a lens only supplied data could carry |
+| `AppliedResultEqualsExactRequest` | Every applied result returns the independently retained requested lens, and retained execution installs that exact lens |
 | `StatelessIssuesNoRetainedAuthority` | A stateless evaluation issues no retained effect authority |
 | `ExactCurrentAuthority` | Unconsumed authority matches the session identity, installed revision, current operation, and epoch exactly |
 | `StaleOrForeignAuthorityNeverExecutes` | Stale or foreign authority never executes deferred work |
@@ -205,37 +203,37 @@ retained authority, whether it succeeds or is rejected.
 The three models were scanned against the current owning document. The
 remaining differences are deliberate abstractions rather than disagreements:
 
-- **Outcome classes.** The document's five explicit-activation outcomes
-  collapse to three classes in `NavigationSession.tla`. `applied` covers every
-  outcome that installs a replacement snapshot, which includes an
-  `Unavailable` outcome whenever refreshed availability or reconciliation
-  returns a semantically changed, revision-advancing snapshot. `retained`
-  covers only outcomes that leave the installed snapshot unchanged: `Rejected`,
-  `Failed`, and an `Unavailable` outcome whose complete refreshed snapshot,
-  including its descriptors and active subject, is unchanged. A superseded
-  operation returns with no visible effect at all. Every non-superseded class
-  still takes a new effect epoch, which is what keeps two results that share a
-  revision distinguishable.
+- **Outcome classes.** Effect authority still uses the internal `applied` and
+  `retained` execution classes, but `NavigationSession.tla` now separately
+  records semantic outcome, complete-snapshot change, prior revision, and
+  result revision. This explicitly checks that changed `Unavailable` advances
+  revision while unchanged `Unavailable` retains it. `Rejected` and `Failed`
+  retain revision; superseded work returns no visible effect.
 - **Superseded maintenance results.** A newer explicit intent invalidates
   already gathered maintenance facts. The queued request remains, rebuilds
   from the replacement snapshot, and re-gathers before admission.
 - **Optional restoration inputs.** Canonical restoration's subject and lens are
-  optional in the packet. The model always prepares both, because the claim
-  under test is that a prepared pair installs together.
+  optional in the packet. The model always receives both resolved values
+  because the claim under test begins at the navigation participant boundary:
+  one exact pair is prepared and published together. It models neither other
+  restoration participants nor installation.
+- **Retained request payload.** `SnapshotAuthority.tla` instantiates exact
+  retained-result correlation for a lens request. Exact subject-result
+  correlation remains a named implementation gate; canonical preparation
+  checks the complete subject+lens pair.
 - **Unmodelled currencies.** Action IDs, generations, descriptor states,
   diagnostics, and correspondence are not modelled. Subjects, lenses, and
-  snapshots are opaque values. The operation ID and settlement reason in the
-  models are correlation currencies for the specifications, not proposed
-  product fields.
+  snapshots are opaque values. Operation IDs and retained request maps are
+  model correlation currencies, not proposed product fields.
 
 ## Guard witnesses
 
 Some claims are about a step rather than a state: "no maintenance was admitted
 while an effect was unconsumed" is not visible in any single state after the
 fact. Those claims use latching boolean witness variables, named
-`admissionWitness`, `orderWitness`, `visibleWitness`, `commitWitness`,
-`basisWitness`, `snapshotStabilityWitness`, `rejectionAuthorityWitness`, and
-`executeWitness`.
+`admissionWitness`, `orderWitness`, `visibleWitness`, `readinessWitness`,
+`payloadWitness`, `basisWitness`,
+`snapshotStabilityWitness`, `rejectionAuthorityWitness`, and `executeWitness`.
 
 A witness re-derives, in the pre-state and independently of the action's own
 guard, the exact condition the design requires for the step being taken, and
@@ -249,10 +247,10 @@ than its revision, so a step that rewrote the snapshot's lens or provenance
 while leaving the revision alone is still caught. Probe `SA5`/`SA6` below
 demonstrates exactly that gap in revision arithmetic.
 
-The settlement reason in `AtomicRestoration.tla` is not a witness. It is
-ordinary modelled state that the settling step records, and the invariants
-cross-check it against the independently maintained failure and supersession
-histories.
+`AtomicRestoration.tla` uses `readinessWitness` and `payloadWitness` for the
+navigation participant's publish step. Its request map is ordinary modelled
+state written only when an intent begins; the prepared result is maintained
+separately and must equal that exact request.
 
 ## Running TLC
 
@@ -281,7 +279,7 @@ The results below came from:
 
 - TLC `TLC2 Version 2026.08.21.155922 (rev: 9787e65)`, from the official
   `v1.8.0` `tla2tools.jar` asset downloaded on 2026-08-27.
-- Eclipse Temurin JRE `21.0.12.1+1`, macOS `arm64`.
+- OpenJDK `21.0.12+8-1-24.04`, Ubuntu Linux `amd64`.
 - Run on 2026-08-27.
 
 ## Evidence
@@ -300,15 +298,14 @@ report `Model checking completed. No error has been found.`
 
 | Model | States generated | Distinct states | Search depth |
 | --- | --- | --- | --- |
-| `NavigationSession.tla` | 9,834 | 1,867 | 15 |
-| `AtomicRestoration.tla` | 78,733 | 13,097 | 11 |
-| `SnapshotAuthority.tla` | 13,767 | 4,850 | 9 |
+| `NavigationSession.tla` | 25,337 | 4,088 | 15 |
+| `AtomicRestoration.tla` | 8,081 | 2,333 | 9 |
+| `SnapshotAuthority.tla` | 36,755 | 13,790 | 9 |
 
-Adding the settlement reason, the operation ID, and snapshot custody did not
-change any distinct-state count, because each is fully determined by state the
-models already carried. That is the point: the invariants re-derive the same
-fact from independently maintained history and would diverge if a step
-mislabelled its outcome.
+The additional state records semantic unavailable outcomes independently from
+their apply/retain execution class, retains canonical request payloads
+independently from prepared results, and retains each operation's requested
+lens independently from its result.
 
 Deadlock checking is disabled in all three configs. A behaviour that has issued
 every intent, drained its queue, and consumed its last effect has nothing left
@@ -317,11 +314,11 @@ to do; termination is the intended end state, not a defect.
 ### Action coverage
 
 `tlc2.TLC -coverage 1` reports that every action in every model contributes
-transitions in the shipped configuration, so no modelled step is dead. Two
-actions contribute transitions but no new distinct states: `VisibleEffect` in
-`NavigationSession.tla` and `ExecuteEffectWork` in `SnapshotAuthority.tla` only
-latch a witness that is already true, which is the intended shape for a
-consumer-side revalidation step.
+transitions in the shipped configuration, so no modelled step is dead.
+`VisibleEffect` in `NavigationSession.tla` and `ExecuteEffectWork` in
+`SnapshotAuthority.tla` contribute transitions but no new distinct states
+because each only latches a witness that is already true. That is the intended
+shape for a consumer-side revalidation step.
 
 ### Mutation probes
 
@@ -350,21 +347,15 @@ records how to reproduce them.
 | NS11 | Stop releasing the effect on acknowledgement | `EffectEventuallyConsumed` | violated |
 | NS12 | Stop releasing the effect on acknowledgement | `MaintenanceEventuallyDrains` | violated |
 | NS13 | Let a superseded operation stay outstanding forever | `EveryExplicitIntentSettles` | violated |
-| AR1 | Commit the restored subject without the restored lens | `NoPartialInstallation` | violated |
-| AR2 | Drop the current-intent requirement from commit | `CommitRequiresReadyParticipantsAndCurrentIntent` | violated |
-| AR3 | Drop the current-intent requirement from commit | `NoSupersededCommit` | violated |
-| AR4 | Reset the visible pair on abort | `VisiblePairIsLastCommit` | violated |
-| AR5 | Commit with a failed navigation half | `FailedPreparationNeverVisible` | violated |
-| AR6 | Show the subject half as soon as it is prepared | `PreparationIsInvisible` | violated |
-| AR7 | Abort only on peer failure, never on a navigation half-failure | `HalfFailedAttemptsSettle` | violated |
-| AR8 | Abort only on peer failure, never on a navigation half-failure | `EveryAttemptSettles` | violated |
-| AR9 | Abort only on peer failure, never on a navigation half-failure | `FailedAttemptsAbort` | violated |
-| AR10 | Let the superseded-discard path swallow a failed preparation | `FailedAttemptSettlesAsAborted` | violated |
-| AR11 | Record an abort as a discard | `FailedAttemptsAbort` | violated |
-| AR12 | Let the superseded-discard path swallow a failed preparation | `FailedAttemptsAbort` | violated |
-| AR13 | Record a commit while the preparation is still live | `LiveAttemptHasNoSettlement` | violated |
-| AR14 | Drop the current-intent requirement from commit | `CommittedAttemptWasNeitherFailedNorSuperseded` | violated |
-| AR15 | Record a commit under the discard reason | `VisiblePairComesFromACommittedAttempt` | violated |
+| NS14 | Keep the revision unchanged for a changed-snapshot unavailable result | `UnavailableRevisionMatchesSnapshotChange` | violated |
+| NS15 | Advance the revision for an unchanged-snapshot unavailable result | `UnavailableRevisionMatchesSnapshotChange` | violated |
+| AR1 | Drop the current-intent requirement from preparation publication | `PreparationRequiresReadyPairAndCurrentIntent` | violated |
+| AR2 | Publish a different subject than the independently retained request | `PreparedPairEqualsRequestedPayload` | violated |
+| AR3 | Allow a superseded preparation to publish | `NoSupersededPreparationResult` | violated |
+| AR4 | Allow a failed half to publish a prepared result | `FailedPreparationNeverPrepared` | violated |
+| AR5 | Expose a prepared result while its preparation remains live | `PreparationIsInvisibleUntilPublished` | violated |
+| AR6 | Drop fairness on attempt settlement | `EveryAttemptSettles` | violated |
+| AR7 | Remove the abort path for a failed preparation | `FailedAttemptsAbort` | violated |
 | SA1 | Take the retained basis from supplied prior state | `InstalledSnapshotIsSessionCustody` | violated |
 | SA2 | Take the retained basis from supplied prior state | `RetainedPriorStateIsInstalledSnapshot` | violated |
 | SA3 | Take the retained basis from supplied prior state | `SuppliedRetainedPriorStateIsAlwaysRejected` | violated |
@@ -382,23 +373,25 @@ records how to reproduce them.
 | SA15 | Adopt only the stale same-session supplied snapshot | `InstalledSnapshotIsSessionCustody` | violated |
 | SA16 | Adopt only the stale same-session supplied snapshot | `RetainedPriorStateIsInstalledSnapshot` | violated |
 | SA17 | Return a result that does not record its operation ID | `OperationAndResultAreCorrelated` | violated |
+| SA18 | Install and return another admissible session lens instead of the exact requested lens | `AppliedResultEqualsExactRequest` | violated |
 
-Forty-five probes, forty-four expected violations and one expected pass. `SA6`
+Forty probes, thirty-nine expected violations and one expected pass. `SA6`
 is the one probe expected not to fire: it applies the same mutation as `SA5`
 and checks the revision-arithmetic invariant instead, which does not notice a
 snapshot rewritten in place. That pair is why
 `NonApplyStepsPreserveInstalledSnapshot` compares the record.
 
-Three probes exist specifically because a claim used to be satisfiable by the
-wrong thing. `AR11` records an abort under the discard reason, `SA14` applies a
-later supplied-prior operation after an earlier one was rejected, and `SA15`
-adopts only the stale same-session supplied snapshot, whose origin and lens are
-indistinguishable from session data.
+Four probes exist specifically because a claim used to be satisfiable by the
+wrong thing. `AR2` publishes a payload that differs from the retained request,
+`SA14` applies a later supplied-prior operation after an earlier one was
+rejected, `SA15` adopts only the stale same-session supplied snapshot whose
+origin and lens resemble session data, and `SA18` returns another admissible
+session lens under the correct operation ID.
 
 ## Changing a model
 
 Keep each model independent and finite. Raising `MaxIntent`, `MaxMaintenance`,
-`MaxCommands`, or the `Peers`, `Subjects`, and `Lenses` sets grows the state
+`MaxCommands`, or the `Subjects` and `Lenses` sets grows the state
 space quickly and buys little: the shipped bounds are the smallest that reach
 supersession, out-of-order fact completion, half-failed preparation, stale
 authority, abort, and one operation's outcome standing next to another's. When

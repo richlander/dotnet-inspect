@@ -14,6 +14,7 @@
 (*   how many retained commits happened    retainedCommits                   *)
 (*   the operation now executing           command                           *)
 (*   the returned navigation result        result                            *)
+(*   exact lens requested by each operation requestedLenses                  *)
 (*   the session's effect epoch            effectEpoch                       *)
 (*   the unconsumed effect authority       effect                            *)
 (*   authority held by a consumer          hostAuthority                     *)
@@ -58,13 +59,14 @@ VARIABLES
   effect,
   hostAuthority,
   commandsIssued,
+  requestedLenses,
   basisWitness,
   snapshotStabilityWitness,
   rejectionAuthorityWitness,
   executeWitness
 
 vars == << installed, retainedCommits, command, result, effectEpoch, effect,
-           hostAuthority, commandsIssued, basisWitness,
+           hostAuthority, commandsIssued, requestedLenses, basisWitness,
            snapshotStabilityWitness, rejectionAuthorityWitness,
            executeWitness >>
 
@@ -134,6 +136,8 @@ TypeOK ==
   /\ result.mode \in Modes \cup {"none"}
   /\ result.outcome \in {"applied", "rejected", "none"}
   /\ commandsIssued \in 0 .. MaxCommands
+  /\ \A id \in 1 .. MaxCommands :
+       requestedLenses[id] \in AllLenses \cup {"none"}
   /\ effectEpoch \in Nat
   /\ basisWitness \in BOOLEAN
   /\ snapshotStabilityWitness \in BOOLEAN
@@ -151,6 +155,7 @@ Init ==
   /\ effect = NoAuthority
   /\ hostAuthority = NoAuthority
   /\ commandsIssued = 0
+  /\ requestedLenses = [id \in 1 .. MaxCommands |-> "none"]
   /\ basisWitness = TRUE
   /\ snapshotStabilityWitness = TRUE
   /\ rejectionAuthorityWitness = TRUE
@@ -168,6 +173,8 @@ SubmitCommand(mode, lens, prior) ==
   /\ command' = [id |-> commandsIssued + 1, mode |-> mode, lens |-> lens,
                  prior |-> prior]
   /\ commandsIssued' = commandsIssued + 1
+  /\ requestedLenses' =
+       [requestedLenses EXCEPT ![commandsIssued + 1] = lens]
   /\ effect' = NoAuthority
   /\ UNCHANGED << installed, retainedCommits, result, effectEpoch,
                   hostAuthority, basisWitness, rejectionAuthorityWitness,
@@ -194,8 +201,8 @@ RejectSuppliedPriorState ==
   /\ effect' = Authority(installed.rev, commandsIssued, effectEpoch + 1)
   /\ hostAuthority' = effect'
   /\ command' = NoCommand
-  /\ UNCHANGED << installed, retainedCommits, commandsIssued, basisWitness,
-                  executeWitness >>
+  /\ UNCHANGED << installed, retainedCommits, commandsIssued,
+                  requestedLenses, basisWitness, executeWitness >>
   /\ snapshotStabilityWitness' =
        /\ snapshotStabilityWitness
        /\ installed' = installed
@@ -225,8 +232,8 @@ RejectLensOutsideInstalledSnapshot ==
   /\ effect' = Authority(installed.rev, commandsIssued, effectEpoch + 1)
   /\ hostAuthority' = effect'
   /\ command' = NoCommand
-  /\ UNCHANGED << installed, retainedCommits, commandsIssued, basisWitness,
-                  executeWitness >>
+  /\ UNCHANGED << installed, retainedCommits, commandsIssued,
+                  requestedLenses, basisWitness, executeWitness >>
   /\ snapshotStabilityWitness' =
        /\ snapshotStabilityWitness
        /\ installed' = installed
@@ -270,7 +277,7 @@ ExecuteRetained ==
   /\ effect' = Authority(installed.rev + 1, commandsIssued, effectEpoch + 1)
   /\ hostAuthority' = effect'
   /\ command' = NoCommand
-  /\ UNCHANGED << commandsIssued, snapshotStabilityWitness,
+  /\ UNCHANGED << commandsIssued, requestedLenses, snapshotStabilityWitness,
                   rejectionAuthorityWitness, executeWitness >>
 
 (***************************************************************************)
@@ -291,7 +298,7 @@ ExecuteStateless ==
                 basis |-> command.prior.origin, reason |-> "none"]
   /\ command' = NoCommand
   /\ UNCHANGED << installed, retainedCommits, effectEpoch, effect,
-                  hostAuthority, commandsIssued, basisWitness,
+                  hostAuthority, commandsIssued, requestedLenses, basisWitness,
                   rejectionAuthorityWitness, executeWitness >>
   /\ snapshotStabilityWitness' =
        /\ snapshotStabilityWitness
@@ -306,7 +313,7 @@ RejectStatelessLens ==
                 reason |-> "lensNotInSuppliedPriorState"]
   /\ command' = NoCommand
   /\ UNCHANGED << installed, retainedCommits, effectEpoch, effect,
-                  hostAuthority, commandsIssued, basisWitness,
+                  hostAuthority, commandsIssued, requestedLenses, basisWitness,
                   rejectionAuthorityWitness, executeWitness >>
   /\ snapshotStabilityWitness' =
        /\ snapshotStabilityWitness
@@ -326,7 +333,8 @@ ExecuteEffectWork ==
        /\ hostAuthority.intent = commandsIssued
        /\ hostAuthority.epoch = effectEpoch
   /\ UNCHANGED << installed, retainedCommits, command, result, effectEpoch,
-                  effect, hostAuthority, commandsIssued, basisWitness,
+                  effect, hostAuthority, commandsIssued, requestedLenses,
+                  basisWitness,
                   rejectionAuthorityWitness >>
   /\ snapshotStabilityWitness' =
        /\ snapshotStabilityWitness
@@ -339,7 +347,8 @@ AcknowledgeEffect ==
   /\ effect' = NoAuthority
   /\ hostAuthority' = NoAuthority
   /\ UNCHANGED << installed, retainedCommits, command, result, effectEpoch,
-                  commandsIssued, basisWitness, rejectionAuthorityWitness,
+                  commandsIssued, requestedLenses, basisWitness,
+                  rejectionAuthorityWitness,
                   executeWitness >>
   /\ snapshotStabilityWitness' =
        /\ snapshotStabilityWitness
@@ -351,7 +360,8 @@ AbandonEffect ==
   /\ hostAuthority' = NoAuthority
   /\ effect' = IF hostAuthority = effect THEN NoAuthority ELSE effect
   /\ UNCHANGED << installed, retainedCommits, command, result, effectEpoch,
-                  commandsIssued, basisWitness, rejectionAuthorityWitness,
+                  commandsIssued, requestedLenses, basisWitness,
+                  rejectionAuthorityWitness,
                   executeWitness >>
   /\ snapshotStabilityWitness' =
        /\ snapshotStabilityWitness
@@ -363,7 +373,7 @@ ForeignAuthorityOffered ==
   /\ hostAuthority = NoAuthority
   /\ hostAuthority' = ForeignAuthority
   /\ UNCHANGED << installed, retainedCommits, command, result, effectEpoch,
-                  effect, commandsIssued, basisWitness,
+                  effect, commandsIssued, requestedLenses, basisWitness,
                   rejectionAuthorityWitness, executeWitness >>
   /\ snapshotStabilityWitness' =
        /\ snapshotStabilityWitness
@@ -453,6 +463,16 @@ RetainedCommittedLensEqualsInstalledLens ==
     /\ result.lens = installed.lens
     /\ result.lens \in SessionLenses
     /\ result.basis = "session"
+
+\* The requested lens is retained independently of the mutable command and
+\* result records.  An applied operation must return that exact lens, and a
+\* retained apply must install it rather than another admissible session lens.
+AppliedResultEqualsExactRequest ==
+  result.outcome = "applied" =>
+    /\ result.id \in 1 .. MaxCommands
+    /\ result.lens = requestedLenses[result.id]
+    /\ (result.mode = "retained" =>
+          installed.lens = requestedLenses[result.id])
 
 \* A stateless evaluation issues no retained effect authority.
 StatelessIssuesNoRetainedAuthority ==
