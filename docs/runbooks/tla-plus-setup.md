@@ -140,10 +140,10 @@ TLA+ is used per
 to check stateful or concurrent interactions that are hard to reason about in
 prose alone.
 
-The following table is a small, curated set of merged examples, not an
-inventory of repository models. It is intentionally incomplete. Contributors
-and agents must not add a new model to this list as part of normal model work;
-only the user may add, remove, or replace a curated example.
+The following table is a user-curated set of at most six merged examples, not
+an inventory of repository models. It is intentionally incomplete.
+Contributors and agents must not add a new model to this list as part of normal
+model work; only the user may add, remove, or replace a curated example.
 
 | Example | What it demonstrates |
 | --- | --- |
