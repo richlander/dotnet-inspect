@@ -99,10 +99,10 @@ ProductExpand ==
     /\ iteration' = iteration + 1
     /\ productEvidenceAttempt' = -1
     /\ productCoverageReceiptAttempt' = -1
-    /\ productReceiptAttempt' = -1
     /\ legacyReceipt' = FALSE
     /\ UNCHANGED
-        <<productAdmission, legacyAdmission, verdict, suppliedBody>>
+        <<productAdmission, legacyAdmission, productReceiptAttempt,
+          verdict, suppliedBody>>
 
 ProductBudgetFail ==
     /\ phase = "ProductAttempt"
@@ -288,11 +288,6 @@ ProductAdmissionRequiresCoverage ==
 AttemptEvidenceMatchesPhase ==
     /\ (phase # "ProductAttempt" \/ productEvidenceAttempt = iteration)
     /\ (phase # "Planning" \/ productEvidenceAttempt = -1)
-
-SupersededAttemptClearsReceipt ==
-    phase # "Planning"
-    \/ iteration = 0
-    \/ productReceiptAttempt = -1
 
 SupersededAttemptClearsCoverage ==
     phase # "Planning"
