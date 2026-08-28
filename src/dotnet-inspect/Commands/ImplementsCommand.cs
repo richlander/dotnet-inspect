@@ -30,9 +30,22 @@ public class ImplementsCommand
             {
                 var schema = new DocumentSchema()
                     .Add("Implementers", "column", "Type", "Kind", "Relationship", "Library", "Source");
-                return DiscoverOutput.Execute(options.Discover, schema,
-                    tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl,
-                    projection: options);
+                var format = DiscoveryOutputRequest.ResolveFormat(
+                    options.Format,
+                    options.JsonOutput,
+                    options.Tsv,
+                    options.Jsonl,
+                    options.Tabular,
+                    options.PlainText);
+                return DiscoverOutput.Execute(
+                    options.Discover,
+                    schema,
+                    DiscoveryOutputRequest.From(
+                        options,
+                        format,
+                        tree: options.Tree,
+                        tableExplicitlySet: options.TabularExplicitlySet,
+                        noHeader: options.NoHeader));
             }
 
             // Safety fallback — default to all platform frameworks

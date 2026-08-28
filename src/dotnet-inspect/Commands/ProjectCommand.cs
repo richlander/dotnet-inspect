@@ -57,12 +57,18 @@ public class ProjectCommand
             return DiscoverOutput.Execute(
                 options.Discover,
                 ProjectDiscoverySchema(),
-                projection: options,
-                tree: options.Tree,
-                json: options.JsonOutput,
-                tsv: options.Tsv,
-                jsonl: options.Jsonl,
-                markdown: !options.Tabular && !options.JsonOutput,
+                DiscoveryOutputRequest.From(
+                    options,
+                    DiscoveryOutputRequest.ResolveFormat(
+                        options.Format,
+                        options.JsonOutput,
+                        options.Tsv,
+                        options.Jsonl,
+                        options.Tabular,
+                        options.PlainText),
+                    tree: options.Tree,
+                    tableExplicitlySet: options.TabularExplicitlySet,
+                    noHeader: options.NoHeader),
                 sectionCategories: ProjectCategoryMap());
         }
 

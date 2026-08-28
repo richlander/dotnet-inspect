@@ -109,6 +109,12 @@ var result = schema.Discover("Package Info");
 
 The result is a list of `(Name, Kind)` pairs. The consumer renders them however it wants — table, TSV, markdown, tree, JSON.
 
+The CLI passes discovery through one `DiscoveryOutputRequest`. It carries the resolved format
+(including plaintext), explicit table intent, header policy, field/column projection, row window,
+output destination, and tree promotion policy. `DiscoverOutput` validates that request before
+rendering, so an incompatible format or projection reports a normal command diagnostic rather
+than being dropped by an individual command caller.
+
 ### Selection
 
 Selection resolves a user query to a section:

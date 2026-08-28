@@ -150,12 +150,25 @@ public static class TypeCommand
                     ApiCommand.ApplySurfaceFilters(api, options, options.TypeFilter);
                     var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
                     var effective = typePipeline.GetDiscoverableSections(api, options.IncludeSections);
-                    return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
-                        tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
+                    return DiscoverOutput.ExecuteEffective(
+                        options.Discover,
+                        effective,
+                        schema,
+                        DiscoveryOutputRequest.From(
+                            options,
+                            DiscoveryOutputRequest.ResolveFormat(
+                                options.Format,
+                                options.JsonOutput,
+                                options.Tsv,
+                                options.Jsonl,
+                                options.Tabular,
+                                options.PlainText),
+                            tree: options.Tree,
+                            tableExplicitlySet: options.TabularExplicitlySet,
+                            noHeader: options.NoHeader),
                         verbosity: (int)options.Verbosity,
                         sectionCostAnnotations: typePipeline.GetCostAnnotations(),
-                        sectionCategories: typePipeline.GetCategoryMap(),
-                        projection: options);
+                        sectionCategories: typePipeline.GetCategoryMap());
                 }
 
                 var listExitCode = ApiCommand.WriteFullApiOutput(api, options, selectedTfm);
@@ -432,12 +445,25 @@ public static class TypeCommand
                     ApiCommand.ApplySurfaceFilters(api, options, options.TypeFilter);
                     var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
                     var effective = typePipeline.GetDiscoverableSections(api, options.IncludeSections);
-                    return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
-                        tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
+                    return DiscoverOutput.ExecuteEffective(
+                        options.Discover,
+                        effective,
+                        schema,
+                        DiscoveryOutputRequest.From(
+                            options,
+                            DiscoveryOutputRequest.ResolveFormat(
+                                options.Format,
+                                options.JsonOutput,
+                                options.Tsv,
+                                options.Jsonl,
+                                options.Tabular,
+                                options.PlainText),
+                            tree: options.Tree,
+                            tableExplicitlySet: options.TabularExplicitlySet,
+                            noHeader: options.NoHeader),
                         verbosity: (int)options.Verbosity,
                         sectionCostAnnotations: typePipeline.GetCostAnnotations(),
-                        sectionCategories: typePipeline.GetCategoryMap(),
-                        projection: options);
+                        sectionCategories: typePipeline.GetCategoryMap());
                 }
                 else if (TryWritePrefixBrowse(
                     api,
@@ -670,12 +696,25 @@ public static class TypeCommand
         {
             var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
             var effective = typePipeline.GetDiscoverableSections(api, browseOptions.IncludeSections);
-            return DiscoverOutput.ExecuteEffective(browseOptions.Discover, effective, schema,
-                tree: browseOptions.Tree, json: browseOptions.JsonOutput, tsv: browseOptions.Tsv, jsonl: browseOptions.Jsonl, markdown: !browseOptions.Tabular && !browseOptions.JsonOutput,
+            return DiscoverOutput.ExecuteEffective(
+                browseOptions.Discover,
+                effective,
+                schema,
+                DiscoveryOutputRequest.From(
+                    browseOptions,
+                    DiscoveryOutputRequest.ResolveFormat(
+                        browseOptions.Format,
+                        browseOptions.JsonOutput,
+                        browseOptions.Tsv,
+                        browseOptions.Jsonl,
+                        browseOptions.Tabular,
+                        browseOptions.PlainText),
+                    tree: browseOptions.Tree,
+                    tableExplicitlySet: browseOptions.TabularExplicitlySet,
+                    noHeader: browseOptions.NoHeader),
                 verbosity: (int)browseOptions.Verbosity,
                 sectionCostAnnotations: typePipeline.GetCostAnnotations(),
-                sectionCategories: typePipeline.GetCategoryMap(),
-                projection: browseOptions);
+                sectionCategories: typePipeline.GetCategoryMap());
         }
 
         return ApiCommand.WriteFullApiOutput(api, browseOptions);

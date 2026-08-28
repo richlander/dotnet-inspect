@@ -31,14 +31,20 @@ public static class VocabularyCommand
             return DiscoverOutput.Execute(
                 discover,
                 schema,
-                projection: options,
-                tree: options.Tree,
-                json: options.JsonOutput,
-                tsv: options.Tsv,
-                jsonl: options.Jsonl,
-                markdown: !options.Tabular && !options.JsonOutput && !options.PlainText,
+                DiscoveryOutputRequest.From(
+                    options,
+                    DiscoveryOutputRequest.ResolveFormat(
+                        options.Format,
+                        options.JsonOutput,
+                        options.Tsv,
+                        options.Jsonl,
+                        options.Tabular,
+                        options.PlainText),
+                    tree: options.Tree,
+                    tableExplicitlySet: options.TabularExplicitlySet,
+                    noHeader: options.NoHeader),
                 sectionCategories: categoryMap,
-                plainText: options.PlainText);
+                listedCategoryDoors: null);
         }
 
         SelectResult selection = SelectResolver.ResolveSelectAsSections(

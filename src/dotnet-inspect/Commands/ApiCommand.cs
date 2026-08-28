@@ -412,11 +412,23 @@ public class ApiCommand
                 schema = ToQueryableSchema(schema, structuralOptions);
             }
 
-            return (null!, DiscoverOutput.Execute(options.Discover, schema,
-                tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
+            return (null!, DiscoverOutput.Execute(
+                options.Discover,
+                schema,
+                DiscoveryOutputRequest.From(
+                    options,
+                    DiscoveryOutputRequest.ResolveFormat(
+                        options.Format,
+                        options.JsonOutput,
+                        options.Tsv,
+                        options.Jsonl,
+                        options.Tabular,
+                        options.PlainText),
+                    tree: options.Tree,
+                    tableExplicitlySet: options.TabularExplicitlySet,
+                    noHeader: options.NoHeader),
                 sectionCostAnnotations: singleTypeMode ? memberPipeline.GetCostAnnotations() : null,
-                sectionCategories: singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
-                projection: options));
+                sectionCategories: singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap()));
         }
 
         // Bare -S renders the fixed overview: the sections whose length does not depend on which
@@ -3135,12 +3147,25 @@ public class ApiCommand
         }
         var schema = DiscoverOutput.FilterSchemaToRenderedColumns(
             queryEffective, fullSchema, renderManifest, TypeFieldLayoutSections);
-        return DiscoverOutput.ExecuteEffective(options.Discover, queryEffective, schema,
-            tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
+        return DiscoverOutput.ExecuteEffective(
+            options.Discover,
+            queryEffective,
+            schema,
+            DiscoveryOutputRequest.From(
+                options,
+                DiscoveryOutputRequest.ResolveFormat(
+                    options.Format,
+                    options.JsonOutput,
+                    options.Tsv,
+                    options.Jsonl,
+                    options.Tabular,
+                    options.PlainText),
+                tree: options.Tree,
+                tableExplicitlySet: options.TabularExplicitlySet,
+                noHeader: options.NoHeader),
             verbosity: (int)options.Verbosity, fullSchema: fullSchema,
             sectionCostAnnotations: displayAnnotations,
-            sectionCategories: memberPipeline.GetCategoryMap(),
-            projection: options);
+            sectionCategories: memberPipeline.GetCategoryMap());
     }
 
     /// <summary>

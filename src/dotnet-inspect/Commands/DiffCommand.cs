@@ -56,8 +56,23 @@ public class DiffCommand
         {
             var schemaMap = DiffSections.CreateSchema();
             var discoverable = pipeline.GetDiscoverableSections(new DiffDiscoveryModel(), options.IncludeSections);
-            return DiscoverOutput.ExecuteEffective(options.Discover, discoverable, schemaMap,
-                tree: options.Tree, json: false, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular,
+            var format = DiscoveryOutputRequest.ResolveFormat(
+                options.Format,
+                options.JsonOutput,
+                options.Tsv,
+                options.Jsonl,
+                options.Tabular,
+                options.PlainText);
+            return DiscoverOutput.ExecuteEffective(
+                options.Discover,
+                discoverable,
+                schemaMap,
+                DiscoveryOutputRequest.From(
+                    options,
+                    format,
+                    tree: options.Tree,
+                    tableExplicitlySet: options.TabularExplicitlySet,
+                    noHeader: options.NoHeader),
                 sectionCostAnnotations: pipeline.GetCostAnnotations(),
                 sectionCategories: pipeline.GetCategoryMap());
         }
@@ -2273,8 +2288,11 @@ public class DiffCommand
 /// <summary>
 /// Options for the diff command.
 /// </summary>
-public record DiffOptions
+public record DiffOptions : IProjectionOptions
 {
+    public OutputFormat Format { get; init; } = OutputFormat.Markdown;
+    public bool PlainText { get; init; }
+
     public string? PackageVersionRange { get; init; }
     public string? PlatformVersionRange { get; init; }
     public string? LibraryVersionRange { get; init; }
@@ -2314,6 +2332,7 @@ public record DiffOptions
     public string[]? Fields { get; init; }
     public RowWindow? Rows { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
+    public bool Count => false;
 
     /// <summary>
     /// Local git clone paths consulted for PDB source (Implementation Diff), by SourceLink

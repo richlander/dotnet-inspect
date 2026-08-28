@@ -107,8 +107,11 @@ public static class DiffOptionsParser
         if (memberFilterValues?.Length > 0)
             memberFilter = new HashSet<string>(memberFilterValues, StringComparer.OrdinalIgnoreCase);
 
+        var format = opts.ResolveFormat(parseResult);
         var options = new DiffOptions
         {
+            Format = format,
+            PlainText = format == OutputFormat.PlainText,
             PackageVersionRange = packageVersionRange,
             PlatformVersionRange = platformVersionRange,
             LibraryVersionRange = libraryVersionRange,
@@ -121,7 +124,7 @@ public static class DiffOptionsParser
             Tabular = opts.ResolveTabular(parseResult),
             Tsv = opts.ResolveTsv(parseResult),
             Jsonl = opts.ResolveJsonl(parseResult),
-            JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
+            JsonOutput = format == OutputFormat.Json,
             TabularExplicitlySet = opts.IsTableExplicitlySet(parseResult),
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             NoHeader = parseResult.GetValue(opts.NoHeaders),

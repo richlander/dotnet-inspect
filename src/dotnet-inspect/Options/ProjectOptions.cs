@@ -35,11 +35,19 @@ public record ProjectOptions : IProjectionOptions
 
     public bool JsonOutput { get; init; }
 
+    public bool PlainText { get; init; }
+
     public bool Tabular { get; init; }
 
     public bool Tsv { get; init; }
 
     public bool Jsonl { get; init; }
+
+    public bool TabularExplicitlySet { get; init; }
+
+    public bool FormatExplicitlySet { get; init; }
+
+    public OutputFormat Format { get; init; } = OutputFormat.Markdown;
 
     public bool NoHeader { get; init; }
 

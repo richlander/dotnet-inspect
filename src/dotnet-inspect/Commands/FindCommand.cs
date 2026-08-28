@@ -38,15 +38,22 @@ public class FindCommand
                     return DiscoverOutput.Execute(
                         options.Discover,
                         PackageProfileSections.CreateSchema(),
-                        tree: options.Tree,
-                        json: options.JsonOutput,
-                        tsv: options.Tsv,
-                        jsonl: options.Jsonl,
+                        DiscoveryOutputRequest.From(
+                            options,
+                            DiscoveryOutputRequest.ResolveFormat(
+                                options.Format,
+                                options.JsonOutput,
+                                options.Tsv,
+                                options.Jsonl,
+                                options.Tabular,
+                                options.PlainText),
+                            tree: options.Tree,
+                            tableExplicitlySet: options.TabularExplicitlySet,
+                            noHeader: options.NoHeader),
                         sectionCostAnnotations:
                             pipeline.GetCostAnnotations(),
                         sectionCategories:
-                            pipeline.GetCategoryMap(),
-                        projection: options);
+                            pipeline.GetCategoryMap());
                 }
 
                 var schema = options.Members
@@ -54,9 +61,21 @@ public class FindCommand
                         .Add("Members", "column", "Pattern", "Member", "Kind", "Type", "Signature", "Library", "Source")
                     : new DocumentSchema()
                         .Add("Results", "column", "Pattern", "Type", "Namespace", "Kind", "Library", "Source", "Match", "Sim");
-                return DiscoverOutput.Execute(options.Discover, schema,
-                    tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl,
-                    projection: options);
+                return DiscoverOutput.Execute(
+                    options.Discover,
+                    schema,
+                    DiscoveryOutputRequest.From(
+                        options,
+                        DiscoveryOutputRequest.ResolveFormat(
+                            options.Format,
+                            options.JsonOutput,
+                            options.Tsv,
+                            options.Jsonl,
+                            options.Tabular,
+                            options.PlainText),
+                        tree: options.Tree,
+                        tableExplicitlySet: options.TabularExplicitlySet,
+                        noHeader: options.NoHeader));
             }
 
             if (options.IsPackageProfile)

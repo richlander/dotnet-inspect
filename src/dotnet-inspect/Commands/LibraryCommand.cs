@@ -167,16 +167,28 @@ public class LibraryCommand
             }
             else
             {
-                return DiscoverOutput.Execute(options.Discover, schemaMap,
-                    tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
+                return DiscoverOutput.Execute(
+                    options.Discover,
+                    schemaMap,
+                    DiscoveryOutputRequest.From(
+                        options,
+                        DiscoveryOutputRequest.ResolveFormat(
+                            options.Format,
+                            options.JsonOutput,
+                            options.Tsv,
+                            options.Jsonl,
+                            options.Tabular,
+                            options.PlainText),
+                        tree: options.Tree,
+                        tableExplicitlySet: options.TabularExplicitlySet,
+                        noHeader: options.NoHeader),
                     verbosity: (int)options.Verbosity,
                     sectionCostAnnotations: pipeline.GetCostAnnotations(),
                     sectionCategories: sections.SelectionCategoryMap,
                     // --schema reveals every registered section. Structural category drill-down
                     // keeps the curated top-level scope when no target inspection is requested.
                     catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections(),
-                    listedCategoryDoors: pipeline.GetListedCategoryDoors(),
-                    projection: options);
+                    listedCategoryDoors: pipeline.GetListedCategoryDoors());
             }
         }
 
@@ -2413,14 +2425,27 @@ public class LibraryCommand
         var effective = FilterEffective(allEffective, options);
 
         var rootLabel = Path.GetFileNameWithoutExtension(assemblyPath);
-        int discoveryExitCode = DiscoverOutput.ExecuteEffective(options.Discover, effective, filteredSchema,
-            tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
+        int discoveryExitCode = DiscoverOutput.ExecuteEffective(
+            options.Discover,
+            effective,
+            filteredSchema,
+            DiscoveryOutputRequest.From(
+                options,
+                DiscoveryOutputRequest.ResolveFormat(
+                    options.Format,
+                    options.JsonOutput,
+                    options.Tsv,
+                    options.Jsonl,
+                    options.Tabular,
+                    options.PlainText),
+                tree: options.Tree,
+                tableExplicitlySet: options.TabularExplicitlySet,
+                noHeader: options.NoHeader),
             verbosity: (int)userVerbosity, rootLabel: rootLabel, fullSchema: schemaMap,
             sectionCostAnnotations: pipeline.GetCostAnnotations(),
             sectionCategories: pipeline.GetCategoryMap(),
             catalogHiddenSections: EffectiveCatalogHidden(pipeline, effective),
-            listedCategoryDoors: pipeline.GetListedCategoryDoors(),
-            projection: options);
+            listedCategoryDoors: pipeline.GetListedCategoryDoors());
         return Math.Max(
             Math.Max(discoveryExitCode, inspectionFailureExitCode),
             IntegrityExitCode(
@@ -2575,14 +2600,27 @@ public class LibraryCommand
         SectionPipeline<LibraryInspection> pipeline, Verbosity userVerbosity = Verbosity.Minimal,
         string? rootLabel = null)
     {
-        return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
-            tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
+        return DiscoverOutput.ExecuteEffective(
+            options.Discover,
+            effective,
+            schema,
+            DiscoveryOutputRequest.From(
+                options,
+                DiscoveryOutputRequest.ResolveFormat(
+                    options.Format,
+                    options.JsonOutput,
+                    options.Tsv,
+                    options.Jsonl,
+                    options.Tabular,
+                    options.PlainText),
+                tree: options.Tree,
+                tableExplicitlySet: options.TabularExplicitlySet,
+                noHeader: options.NoHeader),
             verbosity: (int)userVerbosity, rootLabel: rootLabel,
             sectionCostAnnotations: pipeline.GetCostAnnotations(),
             sectionCategories: pipeline.GetCategoryMap(),
             catalogHiddenSections: EffectiveCatalogHidden(pipeline, effective),
-            listedCategoryDoors: pipeline.GetListedCategoryDoors(),
-            projection: options);
+            listedCategoryDoors: pipeline.GetListedCategoryDoors());
     }
 
     /// <summary>
