@@ -3,6 +3,16 @@ using System.Diagnostics;
 
 namespace DotnetInspector.Queries;
 
+/// <summary>Non-generic structural view of an immutable query catalog.</summary>
+public interface IInspectionQueryCatalog
+{
+    /// <summary>Every registered query, in stable registration order.</summary>
+    ImmutableArray<InspectionQueryDefinition> RegisteredQueries { get; }
+
+    /// <summary>Whether this catalog contains <paramref name="query"/>.</summary>
+    bool Contains(InspectionQueryDefinition query);
+}
+
 /// <summary>
 /// An immutable fixed-domain catalog of typed inspection queries.
 /// </summary>
@@ -12,7 +22,7 @@ namespace DotnetInspector.Queries;
 /// retain one catalog for the process lifetime; per-run state remains in the supplied context
 /// and returned <see cref="InspectionQueryResults"/>.
 /// </remarks>
-public sealed class InspectionQueryCatalog<TContext>
+public sealed class InspectionQueryCatalog<TContext> : IInspectionQueryCatalog
 {
     private readonly ImmutableArray<InspectionQueryRegistry<TContext>.Registration>
         _registrations;
@@ -133,6 +143,22 @@ public sealed class InspectionQueryCatalog<TContext>
     /// explicitly.
     /// </summary>
     public InspectionQueryPlan<TContext> Plan(
+        ImmutableArray<InspectionQueryDefinition> requested)
+    {
+        if (requested.IsDefaultOrEmpty)
+            return _emptyPlan;
+        if (requested.Length == 1)
+            return Plan(requested[0]);
+
+        return CompileRequested(requested);
+    }
+
+    /// <summary>
+    /// Returns a deterministic plan for the requested queries and their required closures.
+    /// Single-query requests use the precomputed plan; arbitrary combinations are compiled
+    /// explicitly.
+    /// </summary>
+    public InspectionQueryPlan<TContext> Plan(
         IEnumerable<InspectionQueryDefinition> requested)
     {
         ArgumentNullException.ThrowIfNull(requested);
@@ -142,13 +168,14 @@ public sealed class InspectionQueryCatalog<TContext>
         if (requested is InspectionQueryDefinition[] { Length: 1 } single)
             return Plan(single[0]);
         if (requested is ImmutableArray<InspectionQueryDefinition> immutable)
-        {
-            if (immutable.IsEmpty)
-                return _emptyPlan;
-            if (immutable.Length == 1)
-                return Plan(immutable[0]);
-        }
+            return Plan(immutable);
 
+        return CompileRequested(requested);
+    }
+
+    private InspectionQueryPlan<TContext> CompileRequested(
+        IEnumerable<InspectionQueryDefinition> requested)
+    {
         bool[] active = new bool[_registrations.Length];
         int onlyRequested = -1;
         bool hasMultipleRequested = false;
@@ -169,6 +196,13 @@ public sealed class InspectionQueryCatalog<TContext>
         if (!hasMultipleRequested)
             return _singleQueryPlans[onlyRequested];
         return CompilePlan(active);
+    }
+
+    /// <summary>Whether this catalog contains <paramref name="query"/>.</summary>
+    public bool Contains(InspectionQueryDefinition query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        return _indexes.ContainsKey(query);
     }
 
     /// <summary>Expands queries to include every transitively required query.</summary>

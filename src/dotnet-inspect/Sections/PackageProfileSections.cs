@@ -8,13 +8,6 @@ using NuGetFetch;
 
 namespace DotnetInspector.Sections;
 
-public sealed record PackageProfileSectionCatalog(
-    SectionCatalog<PackageProfileView> Sections,
-    InspectionQueryCatalog<PackageProfileQueryContext> QueryCatalog)
-{
-    public SectionPipeline<PackageProfileView> Pipeline => Sections.Pipeline;
-}
-
 /// <summary>
 /// Sections and row projection for a package-prefix profile.
 /// </summary>
@@ -30,11 +23,15 @@ public static class PackageProfileSections
     public static SectionCatalog<PackageProfileView> SectionCatalog { get; } =
         CreatePipeline().Compile();
 
-    /// <summary>The complete reusable package-profile section and query catalog.</summary>
-    public static PackageProfileSectionCatalog Catalog { get; } =
+    /// <summary>The package-profile lens bound to its reusable query domain.</summary>
+    public static InspectionLensCatalog<
+        PackageProfileQueryContext,
+        PackageProfileView> Catalog { get; } =
         new(SectionCatalog, QueryCatalog);
 
-    public static PackageProfileSectionCatalog CreateCatalog() => Catalog;
+    public static InspectionLensCatalog<
+        PackageProfileQueryContext,
+        PackageProfileView> CreateCatalog() => Catalog;
 
     public static SectionPipeline<PackageProfileView> CreatePipeline() =>
         CreatePipeline(QueryCatalog.CostOf);

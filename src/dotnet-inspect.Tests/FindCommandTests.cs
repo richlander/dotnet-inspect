@@ -262,7 +262,9 @@ public class FindCommandTests
     [Fact]
     public void PackageProfileSection_BindsProfileQueryAndProjectsDependencySecond()
     {
-        PackageProfileSectionCatalog catalog =
+        InspectionLensCatalog<
+            PackageProfileQueryContext,
+            PackageProfileView> catalog =
             PackageProfileSections.CreateCatalog();
         SectionPipeline<PackageProfileView> pipeline =
             catalog.Pipeline;
@@ -413,16 +415,16 @@ public class FindCommandTests
     public async Task PackageProfileCatalog_MaterializesSourceExecutionOnce()
     {
         var source = new CountingPackageSource();
-        PackageProfileSectionCatalog catalog =
+        InspectionLensCatalog<
+            PackageProfileQueryContext,
+            PackageProfileView> catalog =
             PackageProfileSections.CreateCatalog();
-        SectionQueryPlan sectionPlan =
-            catalog.Sections.PlanQueries(
-                Verbosity.Normal,
-                [PackageProfileSections.Packages]);
 
         InspectionQueryResults results =
-            await catalog.QueryCatalog
-                .Plan(sectionPlan.Queries[0])
+            await catalog
+                .Plan(
+                    Verbosity.Normal,
+                    [PackageProfileSections.Packages])
                 .RunAsync(
                     new PackageProfileQueryContext(
                         source,
@@ -451,16 +453,17 @@ public class FindCommandTests
         var source = new DefaultScalePackageSource(
             candidateCount,
             dependenciesPerManifest);
-        PackageProfileSectionCatalog catalog =
+        InspectionLensCatalog<
+            PackageProfileQueryContext,
+            PackageProfileView> catalog =
             PackageProfileSections.CreateCatalog();
-        HashSet<InspectionQueryDefinition> requested =
-            catalog.Pipeline.GetRequiredQueries(
-                Verbosity.Normal,
-                [PackageProfileSections.Packages]);
 
         InspectionQueryResults results =
-            await catalog.QueryCatalog.ToBuilder().RunAsync(
-                requested,
+            await catalog
+                .Plan(
+                    Verbosity.Normal,
+                    [PackageProfileSections.Packages])
+                .RunAsync(
                 new PackageProfileQueryContext(
                     source,
                     new PackagePrefixProfileRequest("Contoso.")),

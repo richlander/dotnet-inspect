@@ -228,6 +228,46 @@ does not rebuild dependency state per assembly. The mutable
 and focused extensions; its `Compile` method snapshots it into a catalog
 without allowing later registrations to mutate that snapshot.
 
+## Compiled lenses and query domains
+
+`InspectionLensCatalog<TContext, TModel>` is the reusable L2 composition
+between one immutable section lens and one immutable L1 query domain. It does
+not create another producer registry: `InspectionQueryCatalog<TContext>`
+remains the owner of producer identity, dependencies, cost, planning, and
+execution, while `SectionCatalog<TModel>` remains the owner of section
+selection and direct producer demand.
+
+A complete lens binding validates at construction that every query declared by
+its sections belongs to the bound query catalog. Multiple section lenses may
+share the same query catalog, which is the intended shape for commands with
+alternate views over one producer domain. Package Profile is the first adopter:
+its command now asks the generic lens catalog to lower the selected `Packages`
+section directly to the reusable query plan.
+`InspectionLensCatalog_RejectsAnUnregisteredSectionQuery` and
+`PackageProfileCatalog_RepeatedAcquisitionAndCommonPlanningAllocateNothing`
+gate registration completeness and the allocation-free common planning path.
+
+A section lens may span producers that require different context types.
+`CreatePartition` binds one such query domain and plans only the selected
+queries registered there. The composing host must call `ValidatePartitions`
+over all bindings; it rejects both unclaimed and multiply claimed
+section-declared queries. A query and its complete required dependency closure
+must remain in one partition. Partial-partition filtering is request-time
+composition and may allocate; commands compile it once per request rather than
+rebuilding it for every inspected item.
+`InspectionLensCatalog_PartitionsOneLensAcrossQueryDomains` and
+`InspectionLensCatalog_RejectsMissingOrOverlappingPartitions` gate that
+boundary.
+
+The lens catalog does not own request context construction, workspace
+admission, acquisition lifetime, analysis-request semantics, semantic row
+selection, sink projection, or rendering. Those owners provide the context or
+consume the typed query results. In particular, row selection remains a
+post-production operation, and display-bound artifact text remains
+`InertString` when projected to sink models. Synchronous and asynchronous
+execution, cancellation, failure visibility, and execution ordering remain
+properties of the bound query plan.
+
 ## Resource declarations
 
 Whole-assembly body analysis is acquired through

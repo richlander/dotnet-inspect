@@ -3849,6 +3849,113 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void InspectionLensCatalog_RejectsAnUnregisteredSectionQuery()
+    {
+        var sectionQuery = new InspectionQuery<int>(
+            "section query",
+            InspectionCost.NetworkFree);
+        SectionCatalog<TestModel> sections =
+            new SectionPipeline<TestModel>()
+                .Add<QueryBackedSection>(sectionQuery)
+                .Compile();
+        InspectionQueryCatalog<object?> queries =
+            new InspectionQueryRegistry<object?>().Compile();
+
+        var exception = Assert.Throws<InspectionQueryException>(
+            () => new InspectionLensCatalog<object?, TestModel>(
+                sections,
+                queries));
+
+        Assert.Contains(sectionQuery.Name, exception.Message);
+    }
+
+    [Fact]
+    public void InspectionLensCatalog_PartitionsOneLensAcrossQueryDomains()
+    {
+        var firstQuery = new InspectionQuery<int>(
+            "first query",
+            InspectionCost.NetworkFree);
+        var secondQuery = new InspectionQuery<int>(
+            "second query",
+            InspectionCost.NetworkFree);
+        SectionCatalog<TestModel> sections =
+            new SectionPipeline<TestModel>()
+                .Add<QueryBackedSection>([firstQuery, secondQuery])
+                .Compile();
+        InspectionQueryCatalog<object?> firstDomain =
+            new InspectionQueryRegistry<object?>()
+                .Add(firstQuery, static _ => 1)
+                .Compile();
+        InspectionQueryCatalog<string> secondDomain =
+            new InspectionQueryRegistry<string>()
+                .Add(secondQuery, static _ => 2)
+                .Compile();
+        InspectionLensCatalog<object?, TestModel> firstPartition =
+            InspectionLensCatalog<object?, TestModel>.CreatePartition(
+                sections,
+                firstDomain);
+        InspectionLensCatalog<string, TestModel> secondPartition =
+            InspectionLensCatalog<string, TestModel>.CreatePartition(
+                sections,
+                secondDomain);
+        InspectionLensCatalog.ValidatePartitions(
+            sections,
+            firstDomain,
+            secondDomain);
+
+        SectionQueryPlan sectionPlan = sections.PlanQueries(
+            Verbosity.Normal,
+            [QueryBackedSection.Name]);
+        InspectionQueryPlan<object?> firstPlan =
+            firstPartition.Plan(sectionPlan);
+        InspectionQueryPlan<string> secondPlan =
+            secondPartition.Plan(sectionPlan);
+
+        Assert.Equal([firstQuery], firstPlan.Queries);
+        Assert.Equal([secondQuery], secondPlan.Queries);
+        Assert.Equal(1, firstPlan.Run(null).Get(firstQuery));
+        Assert.Equal(2, secondPlan.Run("").Get(secondQuery));
+    }
+
+    [Fact]
+    public void InspectionLensCatalog_RejectsMissingOrOverlappingPartitions()
+    {
+        var firstQuery = new InspectionQuery<int>(
+            "first query",
+            InspectionCost.NetworkFree);
+        var secondQuery = new InspectionQuery<int>(
+            "second query",
+            InspectionCost.NetworkFree);
+        SectionCatalog<TestModel> sections =
+            new SectionPipeline<TestModel>()
+                .Add<QueryBackedSection>([firstQuery, secondQuery])
+                .Compile();
+        InspectionQueryCatalog<object?> firstDomain =
+            new InspectionQueryRegistry<object?>()
+                .Add(firstQuery, static _ => 1)
+                .Compile();
+        InspectionQueryCatalog<string> overlappingDomain =
+            new InspectionQueryRegistry<string>()
+                .Add(firstQuery, static _ => 1)
+                .Add(secondQuery, static _ => 2)
+                .Compile();
+
+        InspectionQueryException missing = Assert.Throws<InspectionQueryException>(
+            () => InspectionLensCatalog.ValidatePartitions(
+                sections,
+                firstDomain));
+        InspectionQueryException overlapping =
+            Assert.Throws<InspectionQueryException>(
+                () => InspectionLensCatalog.ValidatePartitions(
+                    sections,
+                    firstDomain,
+                    overlappingDomain));
+
+        Assert.Contains(secondQuery.Name, missing.Message);
+        Assert.Contains(firstQuery.Name, overlapping.Message);
+    }
+
+    [Fact]
     public void LibrarySectionCatalog_QueryPlansMatchMutablePipeline()
         => AssertSectionCatalogQueryPlansMatch(
             LibrarySections.CreateCatalog().Sections);
@@ -4095,7 +4202,9 @@ public class SectionPipelineTests
     [Fact]
     public void PackageProfileCatalog_RepeatedAcquisitionAndCommonPlanningAllocateNothing()
     {
-        PackageProfileSectionCatalog profileCatalog =
+        InspectionLensCatalog<
+            PackageProfileQueryContext,
+            PackageProfileView> profileCatalog =
             PackageProfileSections.CreateCatalog();
         SectionCatalog<PackageProfileView> sectionCatalog =
             profileCatalog.Sections;
@@ -4113,7 +4222,7 @@ public class SectionPipelineTests
                 Verbosity.Normal,
                 packageSelection);
         InspectionQueryPlan<PackageProfileQueryContext> packageQueryPlan =
-            queryCatalog.Plan(packageSectionPlan.Queries[0]);
+            profileCatalog.Plan(packageSectionPlan);
 
         long before = GC.GetAllocatedBytesForCurrentThread();
         for (int iteration = 0; iteration < 1_000; iteration++)
@@ -4137,7 +4246,7 @@ public class SectionPipelineTests
                         packageSelection))
                 || !ReferenceEquals(
                     packageQueryPlan,
-                    queryCatalog.Plan(packageSectionPlan.Queries[0])))
+                    profileCatalog.Plan(packageSectionPlan)))
             {
                 throw new InvalidOperationException(
                     "The package-profile catalog or a precomputed plan changed identity.");

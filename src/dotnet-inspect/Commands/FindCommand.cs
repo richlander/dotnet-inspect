@@ -31,7 +31,9 @@ public class FindCommand
             {
                 if (options.IsPackageProfile)
                 {
-                    PackageProfileSectionCatalog catalog =
+                    InspectionLensCatalog<
+                        PackageProfileQueryContext,
+                        PackageProfileView> catalog =
                         PackageProfileSections.CreateCatalog();
                     SectionPipeline<PackageProfileView> pipeline =
                         catalog.Pipeline;
@@ -195,16 +197,14 @@ public class FindCommand
         var request = new PackagePrefixProfileRequest(
             options.PackagePrefix!,
             maximumPackages);
-        PackageProfileSectionCatalog catalog =
+        InspectionLensCatalog<
+            PackageProfileQueryContext,
+            PackageProfileView> catalog =
             PackageProfileSections.CreateCatalog();
         HashSet<string> includeSections =
             [PackageProfileSections.Packages];
-        SectionQueryPlan sectionPlan =
-            catalog.Sections.PlanQueries(
-                Verbosity.Normal,
-                includeSections);
         InspectionQueryPlan<PackageProfileQueryContext> queryPlan =
-            catalog.QueryCatalog.Plan(sectionPlan.Queries[0]);
+            catalog.Plan(Verbosity.Normal, includeSections);
         InspectionQueryResults queryResults =
             await queryPlan.RunAsync(
                 new PackageProfileQueryContext(source, request),
