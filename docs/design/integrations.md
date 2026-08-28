@@ -452,10 +452,13 @@ results.
 Passing capability validation does not prove that each required producer policy
 executed. The producer derives an expected
 `IntegrationProducerPolicyAttemptAddress` set from the validated plan before
-execution. One address combines a required source-participant identity with one
-applicable producer-policy requirement identity. Producer evidence is issued
-before peer binding, so binding context is not part of this address; completed
-evidence is evaluated later in every declared binding context.
+execution. The expected set is the Cartesian product of every required
+source-participant identity and every producer-policy requirement retained by
+that plan. One address combines one identity from each set; no runtime
+applicability predicate may remove an address. A policy that finds no applicable
+source evidence returns an empty `Completed` result. Producer evidence is
+issued before peer binding, so binding context is not part of this address;
+completed evidence is evaluated later in every declared binding context.
 
 Every expected address has exactly one terminal
 `IntegrationProducerPolicyAttempt`:
@@ -703,13 +706,17 @@ browser renders that typed projection; it does not rescan metadata or infer
 support from labels.
 
 Zero is displayable only when the source-participant attempt is healthy, every
-applicable producer-policy attempt is `Completed`, and every candidate attempt
-for that binding context is complete. An unavailable or failed attempt has an
-explicit incomplete cell state and is never rendered as zero or omitted as if
-no Integration were observed. Matrix ordering derives from workspace
-participant and context order plus concept-catalog order, not discovery timing.
-The ordering gate uses discovery order that deliberately differs from all three
-declared orders and includes one participant repeated across binding contexts.
+producer-policy attempt for that participant whose requirement names the cell's
+concept is `Completed`, and every candidate attempt addressed to that
+participant's source evidence, binding context, and concept is complete. A
+failure makes that participant/concept domain incomplete without contaminating
+healthy cells for another participant or concept. An unavailable or failed
+attempt has an explicit incomplete cell state and is never rendered as zero or
+omitted as if no Integration were observed. Matrix ordering derives from
+workspace participant and context order plus concept-catalog order, not
+discovery timing. The ordering gate uses discovery order that deliberately
+differs from all three declared orders and includes one participant repeated
+across binding contexts.
 
 ### Graph projection
 
@@ -808,7 +815,8 @@ Integration graph behavior until its replacement path has parity gates.
 | Provider supplies peer binding but no stable binding-context identity | Typed unsatisfied-universe rejection before execution |
 | Provider supplies observed but not opportunity evidence | Rejection names the unmet policy requirement and affected concepts |
 | Advertised producer policy omits its execution receipt | Census construction rejects the missing attempt; no zero or `Out` |
-| Two policies emit equal candidate coordinates | One candidate per context retains both producer-policy correspondences |
+| Two policies emit equal candidate coordinates | One candidate identity retains both policy correspondences and has one attempt per context |
+| Policy execution fails for one participant and concept | Its cells are incomplete; unrelated healthy cells remain eligible for zero |
 | Capable provider cannot resolve one discovered peer | Failed incomplete attempt; request capability remains unchanged |
 | Peer assembly unavailable or ambiguous | Typed failure; never `Out` |
 | Selected peer assembly lacks the exact Type | Typed failure; never `Out` |
@@ -844,6 +852,7 @@ The target implementation is unverified until these named gates land:
 - `IntegrationCapability_EveryDeclaredUniverseRequirementHasPositiveAndNegativeCoverage`
 - `IntegrationCensus_AccountsForEveryRequiredSourceParticipant`
 - `IntegrationCensus_AccountsForEveryRequiredProducerPolicyAttempt`
+- `IntegrationCensus_ProducerPolicyExpectedSetIsFullParticipantRequirementProduct`
 - `IntegrationCensus_RejectsMissingDuplicateOrExtraneousProducerPolicyAttempts`
 - `IntegrationCensus_OmittedProducerPolicyCannotManufactureZeroOrOut`
 - `IntegrationCensus_AccountsForEveryDiscoveredCandidateAttempt`
@@ -886,6 +895,7 @@ The target implementation is unverified until these named gates land:
 - `IntegrationMatrix_RetainsCandidateIdentityAndDispositionCounts`
 - `IntegrationMatrix_RepeatedLibraryAcrossContextsRemainsDistinct`
 - `IntegrationMatrix_IncompleteLibraryDoesNotRenderAsZero`
+- `IntegrationMatrix_PolicyFailureDoesNotContaminateUnrelatedCells`
 - `IntegrationMatrix_OrdersByDeclaredParticipantContextAndConceptOrder`
 - `IntegrationGraph_OnlyInCandidatesContributeOccurrences`
 - `IntegrationGraph_OutCandidatesAreNeitherEdgesNorFailures`
