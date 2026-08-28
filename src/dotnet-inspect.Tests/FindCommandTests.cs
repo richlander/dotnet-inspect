@@ -459,7 +459,7 @@ public class FindCommandTests
                 [PackageProfileSections.Packages]);
 
         InspectionQueryResults results =
-            await catalog.QueryRegistry.RunAsync(
+            await catalog.QueryCatalog.ToBuilder().RunAsync(
                 requested,
                 new PackageProfileQueryContext(
                     source,

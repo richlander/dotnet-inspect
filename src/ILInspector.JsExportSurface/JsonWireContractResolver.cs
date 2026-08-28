@@ -121,6 +121,7 @@ public static class JsonWireContractResolver
         {
             DeclaringType = function.DeclaringType,
             Name = function.Name,
+            RuntimeDispatchKey = function.RuntimeDispatchKey,
             ReturnType = function.ReturnType,
             ReturnTypeReferences =
                 function.ReturnTypeReferences,

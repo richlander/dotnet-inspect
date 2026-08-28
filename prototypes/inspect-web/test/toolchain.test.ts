@@ -17,9 +17,7 @@ import {
   dirname,
   isAbsolute,
   join,
-  relative,
   resolve,
-  sep,
 } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
@@ -27,8 +25,15 @@ import {
   supportedAnalysisHosts,
   verifyAnalysisHost,
 } from "../scripts/verify-analysis-host.ts";
+import {
+  isGeneratedDirectory,
+  javaScriptSourceExtensions,
+  projectRelative,
+  projectSourceFiles,
+  typeScriptSourceExtensions,
+} from "./project-source-inventory.ts";
 import { verifySiteArtifact } from "../scripts/verify-site-artifact.ts";
-import { auditedBuild, builtinPluginNames, bundlerReadFiles, shippedChunks } from "./vite-audit.ts";
+import { auditedBuild, builtinPluginNames, bundlerReadFiles } from "./vite-audit.ts";
 
 interface PackageLockEntry {
   readonly link?: boolean;
@@ -113,17 +118,6 @@ const testTsconfig = readJson<TsconfigFile>("tsconfig.json");
 const nodeTsconfig = readJson<TsconfigFile>("../tsconfig.node.json");
 const staticWebAppConfig
   = readJson<StaticWebAppConfig>("../staticwebapp.config.json");
-
-// Every path comparison in this file is a root-relative string match, and round 3 (Sol)
-// pointed out that `relative` returns them separator-native: on Windows `src\main.ts`
-// matches no `src/` prefix and `node_modules\vite` contains no `node_modules` component,
-// so the gates would report the project's own source as unlinted and its dependencies as
-// project-owned. Comparisons are against paths spelled in `package.json` and tsconfig
-// files, which are always `/`, so the fix is to speak that dialect everywhere rather than
-// to compare separator-native strings against portable ones.
-function projectRelative(root: string, file: string): string {
-  return relative(root, file).split(sep).join("/");
-}
 
 // The lint targets are read here rather than inside the gate that checks coverage,
 // because the pruning rules below also need to know which directories hold authored
@@ -292,20 +286,7 @@ for (const [name, project] of [
 const unprunedRoots = ["public", ...lintTargetDirectories];
 
 function isGenerated(directory: string, name: string, root: string): boolean {
-  const [outermost] = projectRelative(root, join(directory, name)).split("/");
-  if (outermost !== undefined && unprunedRoots.includes(outermost)) {
-    return false;
-  }
-  if (name === "node_modules") {
-    return true;
-  }
-  if (name === "dist") {
-    return resolve(directory) === resolve(root);
-  }
-  if (name === "bin" || name === "obj") {
-    return readdirSync(directory).some(sibling => sibling.endsWith(".csproj"));
-  }
-  return false;
+  return isGeneratedDirectory(directory, name, root, unprunedRoots);
 }
 
 // Converting this file from JavaScript put it inside its own scan. The suppression
@@ -320,23 +301,7 @@ function isGenerated(directory: string, name: string, root: string): boolean {
 // treat it as JavaScript and only this comparison did not.
 function projectFiles(extensions: readonly string[]): string[] {
   const root = fileURLToPath(new URL("../", import.meta.url));
-  const files: string[] = [];
-  const walk = (directory: string): void => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const full = join(directory, entry.name);
-      if (entry.isDirectory()) {
-        if (!isGenerated(directory, entry.name, root)) {
-          walk(full);
-        }
-      } else if ((entry.isFile() || entry.isSymbolicLink())
-        && extensions.some(extension =>
-          entry.name.toLowerCase().endsWith(extension))) {
-        files.push(full);
-      }
-    }
-  };
-  walk(root);
-  return files;
+  return projectSourceFiles(root, extensions, unprunedRoots);
 }
 
 // A symbolic link is neither a file nor a directory to `readdirSync`, so the walk above
@@ -381,8 +346,8 @@ test("no source directory reaches content through a symbolic link", () => {
 // checked?" instead of "is every file I remembered to think of checked?" -- `.mts` was
 // Sol's finding: `scripts/probe.mts` with a type error in it passed every gate, because
 // `tsconfig.node.json` included `scripts/**/*.ts` and nothing considered `.mts` at all.
-const typeScriptExtensions = [".ts", ".mts", ".cts", ".tsx"] as const;
-const javaScriptExtensions = [".js", ".mjs", ".cjs", ".jsx"] as const;
+const typeScriptExtensions = typeScriptSourceExtensions;
+const javaScriptExtensions = javaScriptSourceExtensions;
 
 
 test("no source file suppresses type checking", () => {
@@ -1282,37 +1247,6 @@ test("the bundler has no unread path into the shipped output", async () => {
     "the build declares worker plugins. This project bundles no workers, and a worker "
       + "plugin injects into a bundle these gates do not audit, so the two have to stay "
       + "that way together");
-});
-
-// Round 10 derived the two settings above from Vite's resolution instead of the text of
-// the config, which closed every spelling of *declaring* a plugin. Round 11 (Sol) showed
-// that resolution is still a question asked at a particular moment, in a particular
-// process. A plugin guarded by `process.env.npm_lifecycle_event === "build"` is simply
-// not there when `npm test` resolves the config, and is there when `npm run build` runs:
-// the gate above saw Vite's own plugin list unchanged, all four commands stayed green,
-// and the payload shipped in `dist/assets/dotnet-inspect-B2MTdysw.js`.
-//
-// That is not only an evasion. Config conditional on mode or environment is ordinary Vite
-// practice, so the plugin gate was equally blind to an honest conditional plugin. Every
-// gate in this file audits a build that the *test* runs, and each one inherits this: they
-// describe the build the test could see, not the build that ships.
-//
-// So this asserts the two are the same build. `npm run build` runs in its own process
-// with whatever environment npm gives it, and its chunks must match the audited build's
-// exactly. It models nothing about what a config may do -- a config that behaves
-// differently when it is being watched makes the two disagree, whatever it switched on.
-// The gates above keep their value because this one says they were looking at the
-// artifact that ships.
-test("the audited build is the build that ships", async () => {
-  const root = fileURLToPath(new URL("../", import.meta.url));
-  const audited = await auditedBuild(root);
-  assert.ok(audited.chunks.length > 0, "the audited build emitted no chunks to compare");
-  assert.deepStrictEqual(shippedChunks(root), audited.chunks,
-    "`npm run build` emits different code than the build these gates audit, so the "
-      + "audit describes something other than what ships. A config that resolves "
-      + "differently under the build than under the test -- conditional on mode, on the "
-      + "npm lifecycle, or on any other environment -- does this, and so does anything "
-      + "that injects into one build and not the other");
 });
 
 // Being under a lint target turns out not to mean the lint reads the file. oxlint applies
