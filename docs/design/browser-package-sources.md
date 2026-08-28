@@ -166,54 +166,58 @@ sealed class PackageSourceManifestContent
     byte[] ToArray();
 }
 
-static class PackageSourceClientFactory
+public static class PackageSourceClientFactory
 {
-    IPackageSourceClient Create(
+    public static IPackageSourceClient Create(
         PackageSource source,
         PackageSourceAssociation association,
         ...);
-    IPackageSourceClient Create(
+    public static IPackageSourceClient Create(
         PackageSourceDescriptor descriptor,
         PackageSourceAssociation association,
         ...);
-    IPackageSourceClient CreateGallery(
+    public static IPackageSourceClient CreateGallery(
         PackageSourceAssociation association,
         ...);
+    public static IPackageSourceClient CreateCustom(
+        PackageSourceDescriptor descriptor,
+        PackageSourceAssociation association,
+        Func<PackageSourceResultFactory, IPackageSourceClient> createClient);
 }
 
-sealed class PackageSourceResultFactory
+public sealed class PackageSourceResultFactory
 {
-    PackageSourceResultIdentity Source { get; }
+    public PackageSourceResultIdentity Source { get; }
 
-    PackageCandidateObservation Candidate(...);
-    PackageSearchResult Search(...);
-    PackageVersionResult Versions(...);
-    PackageSourceManifest Manifest(...);
-    PackageSourcePayload Payload(...);
-    PackageSourceOperationResult<PackageSearchResult> SucceededSearch(
+    public PackageCandidateObservation Candidate(...);
+    public PackageSearchResult Search(...);
+    public PackageVersionResult Versions(...);
+    public PackageSourceManifest Manifest(...);
+    public PackageSourcePayload Payload(...);
+    public PackageSourceOperationResult<PackageSearchResult> SucceededSearch(
         PackageSearchResult value);
-    PackageSourceOperationResult<PackageVersionResult> SucceededVersions(
+    public PackageSourceOperationResult<PackageVersionResult> SucceededVersions(
         PackageVersionResult value);
-    PackageSourceOperationResult<PackageSourceManifest> SucceededManifest(
+    public PackageSourceOperationResult<PackageSourceManifest> SucceededManifest(
         PackageSourceCoordinate requestedCoordinate,
         PackageSourceManifest value);
-    PackageSourceOperationResult<PackageSourcePayload> SucceededPackage(
+    public PackageSourceOperationResult<PackageSourcePayload> SucceededPackage(
         PackageSourceCoordinate requestedCoordinate,
         PackageSourcePayload value);
-    PackageSourceOperationResult<PackageSourcePayload> SucceededSymbols(
+    public PackageSourceOperationResult<PackageSourcePayload> SucceededSymbols(
         PackageSourceCoordinate requestedCoordinate,
         PackageSourcePayload value);
-    PackageSourceOperationResult<PackageSearchResult> FailedSearch(
+    public PackageSourceOperationResult<PackageSearchResult> FailedSearch(
         PackageSourceFailureKind kind);
-    PackageSourceOperationResult<PackageVersionResult> FailedVersions(
+    public PackageSourceOperationResult<PackageVersionResult> FailedVersions(
         PackageSourceFailureKind kind);
-    PackageSourceOperationResult<PackageSourceManifest> FailedManifest(
+    public PackageSourceOperationResult<PackageSourceManifest> FailedManifest(
         PackageSourceCoordinate coordinate,
         PackageSourceFailureKind kind);
-    PackageSourceOperationResult<PackageSourcePayload> FailedPackage(
+    public PackageSourceOperationResult<PackageSourcePayload> FailedPackage(
         PackageSourceCoordinate coordinate,
         PackageSourceFailureKind kind);
-    PackageSourceOperationResult<PackageSourcePayload> FailedSymbols(
+    public PackageSourceOperationResult<PackageSourcePayload> FailedSymbols(
         PackageSourceCoordinate coordinate,
         PackageSourceFailureKind kind);
 }
@@ -393,10 +397,21 @@ projections use the HTTP producer factory.
 Every built-in `IPackageSourceClient` owns one
 `PackageSourceResultFactory`, permanently bound to one immutable
 `PackageSourceResultIdentity` and one private issuer reference. Supported
-custom-client registration receives the same kind of bound factory. Result,
-observation, manifest, payload, and operation-outcome construction is closed
-through that factory rather than accepting independent identity or issuer
-arguments.
+custom-client registration receives the same kind of bound factory through
+`PackageSourceClientFactory.CreateCustom`. Result, observation, manifest,
+payload, and operation-outcome construction is closed through that factory
+rather than accepting independent identity or issuer arguments.
+
+`CreateCustom` accepts an admitted portable descriptor, the caller's
+association, and a callback from the external client assembly. NuGetFetch
+constructs the complete source identity, private issuer, and bound public
+result factory before invoking the callback exactly once. The result factory's
+constructor remains owner-controlled, but its finite construction methods are
+public so the callback-created client can retain and use it. Registration
+rejects a null client or one whose `Source` is not the exact
+`PackageSourceResultFactory.Source` reference supplied to the callback. The
+callback has no issuer accessor and no generic result or outcome construction
+path. Local-folder descriptors remain unsupported until #3759.
 
 The same closed-construction rule applies after publication: every
 issuer-bearing observation, result, outcome, and failure type, including
@@ -411,10 +426,11 @@ authority. Every production path that creates an `IPackageSourceClient`,
 including caller-owned transport injection, accepts the association explicitly
 and passes that exact reference to the client's bound result factory. Gallery
 and v3 creation may deliberately receive the same reference when they represent
-one authority. No overload creates a token implicitly or substitutes a
-value-equal token. A deliberately dishonest trusted client remains outside the
-threat model, but ordinary product construction cannot accidentally substitute
-another client's self-consistent identity.
+one authority. Custom registration likewise binds the supplied association
+before handing the factory to the callback. No overload creates a token
+implicitly or substitutes a value-equal token. A deliberately dishonest trusted
+client remains outside the threat model, but ordinary product construction
+cannot accidentally substitute another client's self-consistent identity.
 
 The exact client identity is then carried without reconstruction:
 
@@ -514,11 +530,15 @@ A retained failure may contain:
 - a validated package coordinate when the operation had one; and
 - a product-authored, failure-kind-specific summary.
 
-Failure construction is closed through the identity-bound result factory. The
-factory accepts the closed failure kind, capability, and optional validated
-coordinate, and derives the summary from the failure kind. It does not accept
-an arbitrary message, endpoint, response text, or exception. Supported custom
-clients use that structured factory rather than directly constructing a
+Failure construction is closed through the identity-bound result factory.
+`FailedSearch` and `FailedVersions` accept only the closed failure kind;
+their capability and absence of a coordinate derive from the selected method.
+`FailedManifest`, `FailedPackage`, and `FailedSymbols` accept the required
+normalized invocation coordinate and closed failure kind; their capability and
+coordinate presence likewise derive from the selected method. Every method
+derives the summary from the failure kind. None accepts an arbitrary capability,
+message, endpoint, response text, exception, or optional coordinate. Supported
+custom clients use that structured factory rather than directly constructing a
 failure record.
 
 It does not contain a configured endpoint, resolved resource URL, redirect
@@ -684,6 +704,14 @@ Implementation is not complete until Release gates establish:
   requires a non-null caller association, passes that exact reference to the
   bound result factory, permits Gallery and v3 clients to share one reference,
   keeps distinct references distinct, and has no implicit-token overload;
+- `CustomClientRegistrationReceivesBoundFactory` is a cross-assembly
+  compilation and runtime gate that registers an external client from an
+  admitted descriptor and association, proves its callback receives exactly one
+  owner-constructed factory with the expected complete source identity, and
+  constructs every permitted result and outcome through that retained factory.
+  It rejects null or source-mismatched clients while proving the external
+  assembly cannot construct the factory, issuer, identity-bearing values, or
+  foreign generic outcomes directly;
 - `SourceOperationFactoryMatchesClientOperations` derives the complete client
   operation and finite failure-factory surfaces and pins the mapping from
   search and prefix search, version enumeration, manifest, package, and symbol
