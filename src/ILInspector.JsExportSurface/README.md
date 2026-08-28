@@ -25,13 +25,23 @@ applications do not need it in their runtime bundle.
   MethodDef. A registration for another declaring type, or a handwritten
   registration elsewhere, cannot be borrowed. Analysis then authenticates the
   exact registration token as a body containing the retained number of trusted
-  `BindManagedFunction` calls, exactly one trusted call whose proven first
-  string-literal argument equals the export's structured runtime binding name,
-  non-empty equal metadata/body module MVIDs, an exact
+  `BindManagedFunction` calls, exactly as many trusted calls whose proven first
+  string-literal argument equals the export's structured runtime binding name
+  as managed exports sharing that name, non-empty equal metadata/body module
+  MVIDs, an exact
   `System.Runtime.InteropServices.JavaScript` `JSMarshalerArgument`, plus a
   **reachable** wrapper-to-stub-to-export MethodDef call chain. The
   registration's second argument must be an `int32` literal equal to the
   decimal suffix of the wrapper's own `__Wrapper_<Name>_<digits>` name, and its
+  signed decimal value is retained with the method name as the exact
+  `RuntimeDispatchKey` published by `getAssemblyExports()`. Overloads sharing a
+  managed name are matched by both binding name and authenticated signature
+  hash, so each receives its own runtime key without relying on registration
+  order. The number of same-name runtime bindings must equal the number of
+  managed exports in the overload group. This retains the stricter
+  one-binding-name requirement for a non-overloaded export and prevents an
+  unmatched registration from taking over the runtime's bare-name
+  compatibility alias. The
   `ReadOnlySpan<JSMarshalerType>` descriptor argument must resolve to one
   element per export return and parameter, each built by a
   `JSMarshalerType` factory compatible with that managed type. A diagnosed
@@ -123,15 +133,19 @@ calls the other.
 `Build_RejectsHandwrittenRuntimeWrapperCandidate`,
 `Build_DoesNotBorrowWrapperRegistrationFromAnotherType`,
 `Build_RejectsRegistrationBodyCountMismatch`,
-`Build_RejectsDuplicatedRuntimeBindingTarget`,
 `Build_RejectsRuntimeWrapperFromDifferentModule`,
 `Build_RejectsRuntimeWrapperWithoutModuleIdentity`,
 `Build_RejectsRuntimeWrapperWithNullModuleIdentity`,
+`Build_RejectsSecondRuntimeBindingTargetWithDifferentHash`,
+`Build_RejectsUnmatchedRuntimeBindingForOverloadGroup`,
 `Build_RejectsRuntimeWrapperWithUnauthenticatedMarshalerArgument`,
 `Build_RejectsRuntimeRegistrationWithUntrustedCoreAlias`,
 `Build_RejectsRuntimeWrapperWithUntrustedCoreVoid`,
 `Build_WithBodiesRejectsLegacyNullWrapperProvenance`,
 `Build_DoesNotCreditPrefixSiblingWrapper`,
+`Build_ProjectsDistinctRuntimeDispatchKeysForCompiledOverloads`,
+`Build_PreservesNegativeRuntimeDispatchKeyLiteral`,
+`Build_DoesNotBorrowAnotherOverloadWrapperRegistration`,
 `Build_RejectsDiagnosedRuntimeWrapperChain`,
 `Build_ProjectsRuntimeQualifiedDeclaringTypePath`,
 `Build_ProjectsNestedRuntimeDeclaringTypePath`,
