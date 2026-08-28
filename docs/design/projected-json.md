@@ -702,8 +702,8 @@ JSON.
   `--fields`/`--columns`; their migration must be explicit.
 - No general field-to-column alias; the shipped `vocabulary` exception is
   command-owned and gated.
-- No second item-domain, range, line-window, or multi-print contract; this
-  document consumes the focused owners listed in
+- No second semantic row-selection, rendered-line, or multi-print contract;
+  this document consumes the focused owners listed in
   [Item and line selection composition](item-and-line-limits.md).
 - No silent fallback from requested lowered JSON to typed or unprojected JSON.
 - No reconstruction of sections, rows, or trees from rendered Markdown.

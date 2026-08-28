@@ -261,8 +261,14 @@ not reject this count-result table.
 
 For multiple package subjects, `Package Info` and package-file sections count
 their existing cross-package survey rows; other sections merge each package's
-structured section rows. Every selected row set reports its full post-filter
-cardinality within the declared input extent.
+structured section rows. On the released package paths, each selected row set
+reports its cardinality after command-owned filtering and the current `--rows`
+window. `PackageSection_Rows_WindowsTheTabularRenderAndAgreesWithCount`,
+`PackageCommand_AllLibraries_RowFormats_WindowPerLibraryLikeMarkdownCount`,
+and
+`PackageCommand_AllLibraries_AggregateRowFormats_WindowAcrossRolledUpSection`
+gate that count/render parity. The pending L2 integration and L3 designs own
+how future typed selection stages compose with count reduction.
 
 Trees and graphs do not acquire row semantics from whichever presentation a
 formatter happens to choose. A producer that supports counting such a shape
