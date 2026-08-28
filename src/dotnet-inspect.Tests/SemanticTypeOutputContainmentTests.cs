@@ -448,6 +448,50 @@ public sealed class SemanticTypeOutputContainmentTests
     }
 
     [Fact]
+    public void PreparedJsonSignature_DoesNotPromoteParameterAttributes()
+    {
+        const string signature = @"bool Validate(string value\marker)";
+        var member = new ApiMember
+        {
+            Name = "Validate",
+            Kind = "method",
+            Signature = signature,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "bool",
+                MemberName = "Validate",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Attributes = ["System.Diagnostics.CodeAnalysis.NotNullWhen(false)"],
+                        Type = "string",
+                        Name = @"value\marker",
+                    },
+                ],
+            },
+        };
+        var type = new ApiType
+        {
+            Name = "Probe",
+            Kind = "class",
+            Members = [member],
+        };
+
+        ApiArtifactJson.Prepare(type);
+        using JsonDocument document = JsonDocument.Parse(
+            JsonSerializer.Serialize(type, ApiArtifactJson.Type));
+        string prepared = document.RootElement
+            .GetProperty("members")[0]
+            .GetProperty("signature")
+            .GetString()!;
+
+        Assert.Equal(@"bool Validate(string value\\marker)", prepared);
+        Assert.DoesNotContain("NotNullWhen", prepared, StringComparison.Ordinal);
+        Assert.Equal(signature, member.Signature);
+    }
+
+    [Fact]
     public void PreparedJsonSignature_DegradedFallbackRemainsVisible()
     {
         const string signature = "Legacy.Type Run(Legacy.Type value)";

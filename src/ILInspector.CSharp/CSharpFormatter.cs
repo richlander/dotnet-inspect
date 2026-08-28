@@ -164,7 +164,8 @@ public sealed class CSharpFormatter
     /// <summary>
     /// Contains a member's legacy signature shape from structured slots when
     /// available, without applying declaration-only rewrites such as operator
-    /// or constructor spelling.
+    /// or constructor spelling, or introducing signature attributes that were
+    /// not part of that compatibility shape.
     /// </summary>
     public string FormatCompatibilityMemberSignature(
         ApiType type,

@@ -673,6 +673,48 @@ public class ApiOutputFormatterTests
     }
 
     [Fact]
+    public void ShapeView_CompatibilitySignatureDoesNotPromoteParameterAttributes()
+    {
+        var member = new ApiMember
+        {
+            Name = "Validate",
+            Kind = "method",
+            Signature = "bool Validate(string value)",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "bool",
+                MemberName = "Validate",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Attributes = ["System.Diagnostics.CodeAnalysis.NotNullWhen(false)"],
+                        Type = "string",
+                        Name = "value",
+                    },
+                ],
+            },
+        };
+        var type = new ApiType
+        {
+            Name = "Probe",
+            Kind = "class",
+            Members = [member],
+        };
+
+        var view = ApiOutputFormatter.BuildShapeView(
+            type,
+            foundIn: null,
+            packageName: null,
+            packageVersion: null,
+            memberFilter: []);
+
+        Assert.Equal(
+            member.Signature,
+            Assert.Single(Assert.Single(view.Members).Children!).Text);
+    }
+
+    [Fact]
     public void ShapeView_FinalizerOnTypeNestedInGeneric_SpellsInnermostSegment()
     {
         // Regression guard (adversarial review): the destructor spelling must

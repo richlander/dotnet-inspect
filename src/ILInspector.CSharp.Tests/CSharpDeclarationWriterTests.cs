@@ -444,6 +444,68 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void CompatibilitySignatures_DoNotIntroduceSignatureAttributes()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var method = new ApiMember
+        {
+            Name = "Validate",
+            Kind = "method",
+            Signature = "bool Validate(string value)",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "bool",
+                MemberName = "Validate",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Attributes = ["System.Diagnostics.CodeAnalysis.NotNullWhen(false)"],
+                        Type = "string",
+                        Name = "value",
+                    },
+                ],
+            },
+        };
+        var property = new ApiMember
+        {
+            Name = "Item",
+            Kind = "property",
+            Signature = "string this[string key] { get; }",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "string",
+                MemberName = "this[]",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Attributes = ["System.Diagnostics.CodeAnalysis.NotNull"],
+                        Type = "string",
+                        Name = "key",
+                    },
+                ],
+                Accessors =
+                [
+                    new ApiAccessor
+                    {
+                        Kind = "get",
+                        ReturnAttributes = ["System.Diagnostics.CodeAnalysis.NotNull"],
+                    },
+                ],
+            },
+        };
+        var formatter = new CSharpFormatter();
+
+        Assert.Equal(
+            method.Signature,
+            formatter.FormatCompatibilityMemberSignature(type, method));
+        Assert.Equal(
+            property.Signature,
+            formatter.FormatCompatibilityMemberSignature(type, property));
+    }
+
+    [Fact]
     public void MethodDeclaration_CanRenderStructuredParameterAttributes()
     {
         var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };

@@ -1903,7 +1903,7 @@ internal static class CSharpDeclarationWriter
         if (!TryRenderSignatureModel(
                 type,
                 member,
-                options,
+                options with { IncludeSignatureAttributes = false },
                 methodParameters: null,
                 compatibilityShape: true,
                 out string signature))
