@@ -16,12 +16,63 @@ public static class ClassicAsyncSiblingFixture
         return Task.FromResult(value);
     }
 
+    [CompilerGenerated]
+    public static class CompilerGeneratedAsyncOwnerContainer
+    {
+        public static int Read(int value) => value;
+
+        public static Task<int> ReadAsync(int value) =>
+            Task.FromResult(value);
+
+        public static async Task<int> AnalyzeAsync(int value)
+        {
+            await Task.Yield();
+            return Read(value);
+        }
+    }
+
     public static async Task<int> CallsSyncSiblingFromAsync(
         int value)
     {
         await Task.Yield();
         return ReadValue(value);
     }
+
+    public static async Task<bool> AsyncGenBoxed<T>(
+        T left,
+        T right)
+    {
+        await Task.Yield();
+        return left!.Equals(right);
+    }
+
+    [CompilerGenerated]
+    public static async Task<int> CompilerGeneratedAsyncOwner(
+        int value)
+    {
+        await Task.Yield();
+        Func<int> capture = () => value;
+        return ReadValue(capture());
+    }
+
+    [GeneratedCode("ILInspector.Analysis.Fixtures", "1.0")]
+    public static Func<int, Task<int>>
+        GeneratedUltimateAsyncOwner()
+    {
+        return Child;
+
+        static async Task<int> Child(int value)
+        {
+            await Task.Yield();
+            return GeneratedRead(value);
+        }
+    }
+
+    public static int GeneratedRead(int value) =>
+        value;
+
+    public static Task<int> GeneratedReadAsync(int value) =>
+        Task.FromResult(value);
 
     public static Action<Task> AwaitTaskInAsyncLambda() =>
         async task => await task;
@@ -185,7 +236,7 @@ public static class ClassicAsyncSiblingFixture
         async Task<object> BuildAsync()
         {
             await Task.Yield();
-            return new object();
+            return new object[1];
         }
 
         try
@@ -198,6 +249,23 @@ public static class ClassicAsyncSiblingFixture
             GC.KeepAlive(BuildAsync());
         }
     }
+
+    internal static Func<Task<object>>
+        ScopedCapturedAsyncLocalAllocationOwner(int marker)
+    {
+        async Task<object> BuildAsync()
+        {
+            await Task.Yield();
+            GC.KeepAlive(marker);
+            return new object[1];
+        }
+
+        return BuildAsync;
+    }
+
+    internal static Func<int>
+        SharedLambdaOrdinalOwner() =>
+        static () => 42;
 
     public static Task ScopedAsyncLambdaOwner(int marker) =>
         Task.CompletedTask;
@@ -265,6 +333,18 @@ public static class ClassicAsyncSiblingFixture
         return Core();
 
         int Core() => ReadValue(offset);
+    }
+
+    public static async Task<int> AsyncOwnerCallsThroughAsyncLambda(
+        int value)
+    {
+        await Task.Yield();
+        Func<Task<int>> core = async () =>
+        {
+            await Task.Yield();
+            return ReadValue(value);
+        };
+        return await core();
     }
 
     public static async Task<int> AsyncLiftedFunctionCallsSibling(
