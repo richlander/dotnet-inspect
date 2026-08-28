@@ -69,6 +69,28 @@ public static class UrlRedaction
     public const string UnparsableMarker = "<unparsable-url>";
 
     /// <summary>
+    /// Returns an already-separated URL path component with credential-bearing
+    /// segments removed and non-graphic scalars encoded.
+    /// </summary>
+    /// <remarks>
+    /// This method does not parse or classify <paramref name="path"/> as a URL,
+    /// authority, network path, query, or fragment. The caller must separate
+    /// the path from those components before calling it. This preserves every
+    /// non-credential path distinction while sharing the path-token rule used
+    /// by complete-URL diagnostics.
+    ///
+    /// Gated by
+    /// <c>ForPathComponent_PreservesNonCredentialPathText</c>,
+    /// <c>ForPathComponent_RedactsCredentialSlots</c>, and
+    /// <c>ForPathComponent_EncodesNonGraphicScalars</c>.
+    /// </remarks>
+    public static InertString ForPathComponent(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        return new InertString(TextPolicy.Field, RedactPath(path));
+    }
+
+    /// <summary>
     /// Returns <paramref name="url"/> with credential-bearing components
     /// removed and non-graphic scalars encoded, ready to print.
     /// </summary>
