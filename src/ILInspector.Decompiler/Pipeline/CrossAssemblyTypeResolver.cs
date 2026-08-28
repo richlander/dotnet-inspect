@@ -39,7 +39,7 @@ internal sealed class CrossAssemblyTypeResolver
     readonly ConcurrentDictionary<TypeResolutionCoordinates, MetadataFactState> _inlineArrayCache = new();
     readonly ConcurrentDictionary<TypeResolutionCoordinates, MetadataFactState> _byRefLikeCache = new();
     readonly ConcurrentDictionary<(FieldRef Field, TypeResolutionCoordinates Type), ResolvedFieldFacts?> _fieldFactCache = new();
-    readonly ConcurrentDictionary<(MethodRef Method, TypeResolutionCoordinates Type), ResolvedMethodFacts?> _methodFactCache = new();
+    readonly ConcurrentDictionary<(MethodFactCacheIdentity Method, TypeResolutionCoordinates Type), ResolvedMethodFacts?> _methodFactCache = new();
     readonly ConcurrentDictionary<(TypeRef Instance, TypeResolutionCoordinates Type, TypeRef Interface, AssemblyReferenceIdentity? InterfaceAssembly), MetadataFactState> _interfaceCache = new();
     readonly ConcurrentDictionary<(TypeResolutionCoordinates Type, string MethodName), MetadataFactState> _operatorHierarchyCache = new();
 
@@ -177,8 +177,8 @@ internal sealed class CrossAssemblyTypeResolver
         if (!TryCoordinates(type, out TypeResolutionCoordinates coordinates))
             return callee;
         var facts = _methodFactCache.GetOrAdd(
-            (callee, coordinates),
-            entry => ResolveMethodFacts(entry.Method, type));
+            (new MethodFactCacheIdentity(callee), coordinates),
+            entry => ResolveMethodFacts(entry.Method.Method, type));
 
         if (facts is not { } resolved)
             return callee;
@@ -1410,6 +1410,144 @@ internal sealed class CrossAssemblyTypeResolver
         bool IsCoreLibrary,
         AssemblyReferenceIdentity? Assembly,
         MetadataTypeDefinitionName Type);
+
+    sealed class MethodFactCacheIdentity
+        : IEquatable<MethodFactCacheIdentity>
+    {
+        readonly int _hashCode;
+
+        public MethodFactCacheIdentity(MethodRef method)
+        {
+            Method = method;
+            var hash = new HashCode();
+            hash.Add(method);
+            AddResolutionIdentity(ref hash, method.DeclaringType);
+            AddResolutionIdentity(ref hash, method.ReturnType);
+            AddResolutionIdentities(ref hash, method.ParameterTypes);
+            AddResolutionIdentities(ref hash, method.TypeArguments);
+            AddResolutionIdentity(ref hash, method.DefinitionReturnType);
+            AddResolutionIdentities(
+                ref hash,
+                method.DefinitionParameterTypes);
+            _hashCode = hash.ToHashCode();
+        }
+
+        public MethodRef Method { get; }
+
+        public bool Equals(MethodFactCacheIdentity? other) =>
+            other is not null
+            && Method.Equals(other.Method)
+            && SameResolutionIdentity(
+                Method.DeclaringType,
+                other.Method.DeclaringType)
+            && SameResolutionIdentity(
+                Method.ReturnType,
+                other.Method.ReturnType)
+            && SameResolutionIdentities(
+                Method.ParameterTypes,
+                other.Method.ParameterTypes)
+            && SameResolutionIdentities(
+                Method.TypeArguments,
+                other.Method.TypeArguments)
+            && SameResolutionIdentity(
+                Method.DefinitionReturnType,
+                other.Method.DefinitionReturnType)
+            && SameResolutionIdentities(
+                Method.DefinitionParameterTypes,
+                other.Method.DefinitionParameterTypes);
+
+        public override bool Equals(object? obj) =>
+            Equals(obj as MethodFactCacheIdentity);
+
+        public override int GetHashCode() => _hashCode;
+
+        static bool SameResolutionIdentities(
+            ImmutableArray<TypeRef> left,
+            ImmutableArray<TypeRef> right)
+        {
+            if (left.Length != right.Length)
+                return false;
+            for (int i = 0; i < left.Length; i++)
+            {
+                if (!SameResolutionIdentity(left[i], right[i]))
+                    return false;
+            }
+
+            return true;
+        }
+
+        static bool SameResolutionIdentity(
+            TypeRef? left,
+            TypeRef? right)
+        {
+            if (left is null || right is null)
+                return left is null && right is null;
+            if (left.ResolutionAssembly != right.ResolutionAssembly
+                || left.CustomModifiers.Length
+                    != right.CustomModifiers.Length
+                || !SameResolutionIdentity(
+                    left.ElementType,
+                    right.ElementType)
+                || !SameResolutionIdentities(
+                    left.TypeArguments,
+                    right.TypeArguments))
+            {
+                return false;
+            }
+
+            for (int i = 0; i < left.CustomModifiers.Length; i++)
+            {
+                TypeRefCustomModifier leftModifier =
+                    left.CustomModifiers[i];
+                TypeRefCustomModifier rightModifier =
+                    right.CustomModifiers[i];
+                if (leftModifier.IsRequired
+                        != rightModifier.IsRequired
+                    || !leftModifier.Modifier.Equals(
+                        rightModifier.Modifier)
+                    || !SameResolutionIdentity(
+                        leftModifier.Modifier,
+                        rightModifier.Modifier))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        static void AddResolutionIdentities(
+            ref HashCode hash,
+            ImmutableArray<TypeRef> types)
+        {
+            hash.Add(types.Length);
+            foreach (TypeRef type in types)
+                AddResolutionIdentity(ref hash, type);
+        }
+
+        static void AddResolutionIdentity(
+            ref HashCode hash,
+            TypeRef? type)
+        {
+            if (type is null)
+            {
+                hash.Add(0);
+                return;
+            }
+
+            hash.Add(type.ResolutionAssembly);
+            AddResolutionIdentity(ref hash, type.ElementType);
+            AddResolutionIdentities(ref hash, type.TypeArguments);
+            hash.Add(type.CustomModifiers.Length);
+            foreach (TypeRefCustomModifier modifier
+                in type.CustomModifiers)
+            {
+                hash.Add(modifier.IsRequired);
+                hash.Add(modifier.Modifier);
+                AddResolutionIdentity(ref hash, modifier.Modifier);
+            }
+        }
+    }
 
     static bool NeedsParameterRefKinds(MethodRef method)
     {
