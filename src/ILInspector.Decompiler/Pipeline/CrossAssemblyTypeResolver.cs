@@ -319,6 +319,221 @@ internal sealed class CrossAssemblyTypeResolver
         return result;
     }
 
+    /// <summary>
+    /// Whether reducing an explicit static extension call to instance syntax
+    /// would expose a same-named member in the receiver's binding hierarchy.
+    /// Static spelling is retained for that conservative conflict; deciding
+    /// whether C# overload resolution would select a particular method is
+    /// intentionally outside this metadata query.
+    /// </summary>
+    /// <remarks>
+    /// Gated by the method, property, generic, and platform-hierarchy conflict
+    /// cases in <c>ExtensionMethodCallTests</c>.
+    /// </remarks>
+    public MetadataFactState ExtensionSyntaxConflict(
+        TypeRef receiverType,
+        MethodRef extension)
+    {
+        if (extension.IsExtension != MetadataFactState.Yes
+            || extension.ParameterTypes.Length == 0)
+        {
+            return MetadataFactState.Unknown;
+        }
+
+        try
+        {
+            return TryFindConflictingMember(
+                receiverType,
+                extension.Name,
+                out bool found)
+                    ? found
+                        ? MetadataFactState.Yes
+                        : MetadataFactState.No
+                    : MetadataFactState.Unknown;
+        }
+        catch (Exception ex) when (ex is IOException
+            or BadImageFormatException
+            or UnauthorizedAccessException)
+        {
+            return MetadataFactState.Unknown;
+        }
+    }
+
+    bool TryFindConflictingMember(
+        TypeRef receiverType,
+        string memberName,
+        out bool found)
+    {
+        found = false;
+        bool unresolved = false;
+        int remainingWork = OperatorHierarchyLimits.WorkItems;
+        var seen = new HashSet<TypeDefinitionIdentity>();
+        var pending =
+            new Stack<(TypeRef Type, ResolvedAssemblyReference? LocalAssembly)>();
+        pending.Push((
+            receiverType,
+            NamedDefinition(receiverType) is { } receiverDefinition
+                && IsSelf(receiverDefinition)
+                    ? _selfAssembly
+                    : null));
+
+        while (pending.Count > 0
+            && seen.Count < OperatorHierarchyLimits.Types
+            && remainingWork-- > 0)
+        {
+            var (current, localAssembly) = pending.Pop();
+            if (NamedDefinition(current) is not { } definition
+                || Locate(definition, localAssembly) is not { } resolved
+                || _context.Open(resolved, out var handle) is not { } assembly)
+            {
+                unresolved = true;
+                continue;
+            }
+            if (!seen.Add(ResolvedIdentity(definition, resolved)))
+                continue;
+
+            var reader = assembly.Reader;
+            var typeDef = reader.GetTypeDefinition(handle);
+            var typeArguments = current.Kind == TypeRefKind.GenericInstance
+                ? current.TypeArguments
+                : [];
+            if (HasNamedMember(
+                reader,
+                typeDef,
+                memberName,
+                ref remainingWork,
+                out bool budgetExhausted))
+            {
+                found = true;
+                return true;
+            }
+            if (budgetExhausted)
+            {
+                unresolved = true;
+                break;
+            }
+
+            if (!typeDef.BaseType.IsNil)
+            {
+                if (DecodeBaseType(
+                    reader,
+                    typeDef,
+                    typeArguments) is { } baseType)
+                {
+                    pending.Push((
+                        baseType,
+                        resolved.Assembly.Assembly));
+                }
+                else
+                {
+                    unresolved = true;
+                }
+            }
+            if ((typeDef.Attributes
+                & System.Reflection.TypeAttributes.Interface) != 0)
+            {
+                var scope = new GenericScope(
+                    MethodDefinitionFacts.GenericParameterNames(
+                        reader,
+                        typeDef.GetGenericParameters()),
+                    []);
+                foreach (var implHandle
+                    in typeDef.GetInterfaceImplementations())
+                {
+                    if (remainingWork-- <= 0)
+                    {
+                        unresolved = true;
+                        break;
+                    }
+                    var implementation =
+                        reader.GetInterfaceImplementation(implHandle);
+                    if (DecodeType(
+                        reader,
+                        implementation.Interface,
+                        scope) is not { } openInterface)
+                    {
+                        unresolved = true;
+                        continue;
+                    }
+                    pending.Push((
+                        openInterface.Instantiate(typeArguments, []),
+                        resolved.Assembly.Assembly));
+                }
+            }
+        }
+
+        return !unresolved && pending.Count == 0;
+    }
+
+    static bool HasNamedMember(
+        MetadataReader reader,
+        TypeDefinition type,
+        string memberName,
+        ref int remainingWork,
+        out bool budgetExhausted)
+    {
+        budgetExhausted = false;
+
+        foreach (var methodHandle in type.GetMethods())
+        {
+            if (remainingWork-- <= 0)
+            {
+                budgetExhausted = true;
+                return false;
+            }
+            if (reader.StringComparer.Equals(
+                reader.GetMethodDefinition(methodHandle).Name,
+                memberName))
+            {
+                return true;
+            }
+        }
+        foreach (var propertyHandle in type.GetProperties())
+        {
+            if (remainingWork-- <= 0)
+            {
+                budgetExhausted = true;
+                return false;
+            }
+            if (reader.StringComparer.Equals(
+                reader.GetPropertyDefinition(propertyHandle).Name,
+                memberName))
+            {
+                return true;
+            }
+        }
+        foreach (var fieldHandle in type.GetFields())
+        {
+            if (remainingWork-- <= 0)
+            {
+                budgetExhausted = true;
+                return false;
+            }
+            if (reader.StringComparer.Equals(
+                reader.GetFieldDefinition(fieldHandle).Name,
+                memberName))
+            {
+                return true;
+            }
+        }
+        foreach (var eventHandle in type.GetEvents())
+        {
+            if (remainingWork-- <= 0)
+            {
+                budgetExhausted = true;
+                return false;
+            }
+            if (reader.StringComparer.Equals(
+                reader.GetEventDefinition(eventHandle).Name,
+                memberName))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     bool TryHasOperatorInBindingHierarchy(TypeRef type, string methodName, out bool hasOperator)
     {
         hasOperator = false;

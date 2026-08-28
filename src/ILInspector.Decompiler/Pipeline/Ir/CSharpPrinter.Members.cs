@@ -696,12 +696,14 @@ public sealed partial class CSharpPrinter
             // operator spelling is the faithful inverse.
             if (IsOperatorCall(call))
                 return OperatorSpelling(call)!;
-            // An extension method's static call C.M(receiver, args) renders as the
-            // instance form receiver.M(args) the source used. No IL anchor chooses
-            // between the two forms (taste rule case 3), and the runtime writes the
-            // instance form; only sugar on confirmed [Extension] evidence, and drop
-            // the receiver from the parameter pairing (it is parameter 0).
-            if (call.Callee.IsExtension == MetadataFactState.Yes && arguments.Count >= 1)
+            // An extension method's static call C.M(receiver, args) normally
+            // renders as receiver.M(args). Keep the static spelling when proven
+            // instance-member lookup would capture that syntax; otherwise use
+            // sugar only on confirmed [Extension] evidence and drop receiver
+            // parameter 0 from argument pairing.
+            if (call.Callee.IsExtension == MetadataFactState.Yes
+                && call.ExtensionSyntaxConflict != MetadataFactState.Yes
+                && arguments.Count >= 1)
             {
                 IReadOnlyList<TypeRef> restTypes = [.. call.Callee.ParameterTypes.Skip(1)];
                 var restRefKinds = call.Callee.ParameterRefKinds.IsDefaultOrEmpty

@@ -120,6 +120,18 @@ Conflicts between class 1 and class 2 are rare by construction — most fixer su
 - LINQ query syntax (`from x in xs select f`) compiles to the *same* `Enumerable.Where/Select/...` calls as the fluent chain — query expressions are translated during binding, before any lowering, so the two forms are IL-identical. With no anchor to choose between them, the oracle decides: the runtime writes fluent method chains, so that is what we render. We do not re-sugar back to `from..select`. (This is why the `Query` row in the lowering ledger is `Declined` — a no-anchor mechanism distinct from `Unhandled`/owed, not a gap to fill.)
 - **Erased before lowering — render the constant.** Some constructs the compiler resolves to a bare constant before any lowering, leaving no IL to recover from. `nameof(x)` compiles to the string literal `ldstr "x"` — indistinguishable from writing `"x"` — so it comes back as the string; there is nothing to re-sugar. The same holds for constant folding (`60 * 60` → `3600`), primitive and reference `default` (`default(int)` → `0`, `default(string)` → `null`), and string spelling (verbatim, raw, and escaped forms collapse to one `ldstr`). A *struct* `default` is not in this set: `default(BigStruct)` emits `initobj`, an anchored shape recovered as `default`.
 
+### Extension method syntax
+
+A confirmed static extension call normally uses reduced instance syntax because
+the two forms target the same method and the runtime overwhelmingly prefers the
+instance form. Keep the explicit static target when the receiver's binding
+hierarchy contains a same-named member: C# member lookup can bind the reduced
+form to that member, or reject the invocation without considering the extension.
+The decompiler does not speculate about full overload resolution; a known name
+conflict conservatively preserves the IL target. This exception is enforced by
+`ExtensionMethodCallTests.ShadowingInstanceMethod_KeepsStaticExtensionSpelling`
+and `PlatformBaseInstanceMethod_KeepsStaticExtensionSpelling`.
+
 ### Pointer member syntax
 
 Pointer member access has a C# spelling choice for named members and a different
