@@ -71,6 +71,7 @@ interface IPackageSourceClient
     PackageSourceCapabilities Capabilities { get; }
 
     Task<PackageSourceOperationResult<PackageSearchResult>> SearchAsync(...);
+    Task<PackageSourceOperationResult<PackageSearchResult>> SearchByPrefixAsync(...);
     Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(...);
     Task<PackageSourceOperationResult<PackageSourceManifest>> GetManifestAsync(...);
     Task<PackageSourceOperationResult<PackageSourcePayload>> GetPackageAsync(...);
@@ -165,6 +166,21 @@ sealed class PackageSourceManifestContent
     byte[] ToArray();
 }
 
+static class PackageSourceClientFactory
+{
+    IPackageSourceClient Create(
+        PackageSource source,
+        PackageSourceAssociation association,
+        ...);
+    IPackageSourceClient Create(
+        PackageSourceDescriptor descriptor,
+        PackageSourceAssociation association,
+        ...);
+    IPackageSourceClient CreateGallery(
+        PackageSourceAssociation association,
+        ...);
+}
+
 sealed class PackageSourceResultFactory
 {
     PackageSourceResultIdentity Source { get; }
@@ -180,15 +196,23 @@ sealed class PackageSourceResultFactory
         PackageVersionResult value);
     PackageSourceOperationResult<PackageSourceManifest> Succeeded(
         PackageSourceManifest value);
-    PackageSourceOperationResult<PackageSourcePayload> Succeeded(
+    PackageSourceOperationResult<PackageSourcePayload> SucceededPackage(
+        PackageSourcePayload value);
+    PackageSourceOperationResult<PackageSourcePayload> SucceededSymbols(
         PackageSourcePayload value);
     PackageSourceOperationResult<PackageSearchResult> FailedSearch(
-        PackageSourceCapabilities capability,
-        PackageSourceFailureKind kind,
-        PackageSourceCoordinate? coordinate);
-    PackageSourceOperationResult<PackageVersionResult> FailedVersions(...);
-    PackageSourceOperationResult<PackageSourceManifest> FailedManifest(...);
-    PackageSourceOperationResult<PackageSourcePayload> FailedPayload(...);
+        PackageSourceFailureKind kind);
+    PackageSourceOperationResult<PackageVersionResult> FailedVersions(
+        PackageSourceFailureKind kind);
+    PackageSourceOperationResult<PackageSourceManifest> FailedManifest(
+        PackageSourceCoordinate coordinate,
+        PackageSourceFailureKind kind);
+    PackageSourceOperationResult<PackageSourcePayload> FailedPackage(
+        PackageSourceCoordinate coordinate,
+        PackageSourceFailureKind kind);
+    PackageSourceOperationResult<PackageSourcePayload> FailedSymbols(
+        PackageSourceCoordinate coordinate,
+        PackageSourceFailureKind kind);
 }
 ```
 
@@ -378,8 +402,13 @@ or other record-copy path that can replace identity or summary text.
 The runtime-client factory requires the caller association for portable
 descriptors, desktop compatibility sources, and the built-in Gallery client;
 there is no implicit token that could accidentally split or merge caller
-authority. A deliberately dishonest trusted client remains outside the threat
-model, but ordinary product construction cannot accidentally substitute
+authority. Every production path that creates an `IPackageSourceClient`,
+including caller-owned transport injection, accepts the association explicitly
+and passes that exact reference to the client's bound result factory. Gallery
+and v3 creation may deliberately receive the same reference when they represent
+one authority. No overload creates a token implicitly or substitutes a
+value-equal token. A deliberately dishonest trusted client remains outside the
+threat model, but ordinary product construction cannot accidentally substitute
 another client's self-consistent identity.
 
 The exact client identity is then carried without reconstruction:
@@ -393,12 +422,24 @@ The exact client identity is then carried without reconstruction:
 - `PackageSourceFailure` carries it for unsupported, absent, authentication,
   timeout, invalid-response, bounded-response, and transport outcomes.
 
-The four `Succeeded` overloads validate both the concrete value's complete
-public source identity and its private issuer reference against the bound
-factory before wrapping it. The four result-specific failure methods construct
-both the failure and its operation wrapper with the factory's identity and
-issuer from closed failure inputs; they do not accept a separately constructed
-failure. The closed generic operation-result container has no public
+The five operation-class success methods validate both the concrete value's
+complete public source identity and its private issuer reference against the
+bound factory before wrapping it. Search and prefix search share the search
+success method. Package and symbol success methods additionally require the
+matching payload kind, so one operation cannot return the other operation's
+payload.
+
+The five operation-class failure methods construct both the failure and its
+operation wrapper with the factory's identity and issuer from closed failure
+inputs; they do not accept a capability or a separately constructed failure.
+Search and prefix search use `FailedSearch`, fixed to `Search` with no
+coordinate. Version enumeration uses `FailedVersions`, fixed to
+`VersionEnumeration` with no coordinate. Manifest, package, and symbol
+operations use `FailedManifest`, `FailedPackage`, and `FailedSymbols`,
+respectively, each fixed to its matching capability and requiring the
+operation's exact coordinate. `NotFound` is valid only for those three
+exact-coordinate methods; the other six failure kinds are valid for all five
+methods. The closed generic operation-result container has no public
 constructor or copy path and is issued only for search, version, manifest, and
 payload result types. It contains exactly one of value or failure. Its success
 and failed variants have the same closed constructor, copy, and init-setter
@@ -407,14 +448,28 @@ rules as their payloads.
 For caller-supplied aggregate data, the bound factory first snapshots the
 supplied data into owner-controlled immutable storage, then validates the
 snapshot against its identity and issuer, then publishes an immutable view.
-Search and version observations use private copied storage without an exposed
-backing array. Manifest content is copied into a sealed
-`PackageSourceManifestContent` value. Its safe public surface exposes length,
-indexed byte reads, copy into caller storage, and `ToArray` as a fresh copy; it
-returns no array, `Memory`, `ReadOnlyMemory`, collection, or segment over the
-owner's storage. Mutating the original buffer or a returned copy cannot alter a
-published manifest. Unsafe or reflection-based private-storage corruption is
-outside the trusted-layer contract.
+Search and version results transitively copy all caller-controlled collection
+content, including search metadata's version and owner collections. Their
+public `IReadOnlyList<T>` properties return private sealed owner-controlled
+runtime objects that implement only the required read-only list and enumerable
+interfaces. Neither the list nor its enumerator exposes an array, memory,
+segment, mutable collection, marshal-unwrappable storage, by-reference element,
+or public custom enumerator. Every returned reference element is itself an
+owner-created immutable snapshot.
+
+Manifest content is copied into a sealed `PackageSourceManifestContent` value.
+Its indexer returns the byte at the requested zero-based index and throws
+`ArgumentOutOfRangeException` for a negative index or one at or beyond
+`Length`. `CopyTo` requires a destination at least as long as the content. It
+throws `ArgumentException` before writing when the destination is too short;
+otherwise it copies every byte to the destination prefix and leaves any
+remaining suffix unchanged. Empty content copies successfully. `ToArray`
+returns a new exact-length independently mutable array on every call, including
+for empty content. The content value implements no public interface and returns
+no array, `Memory`, `ReadOnlyMemory`, collection, or segment over the owner's
+storage. Mutating the original buffer, a destination, or a returned array
+cannot alter a published manifest. Unsafe or reflection-based private-storage
+corruption is outside the trusted-layer contract.
 
 The caller-owned payload stream remains the explicit exception: its content is
 consumed after the result returns and is not snapshotted into memory. Its
@@ -460,6 +515,14 @@ The product-authored summary remains an ordinary string because it contains no
 source-controlled text. The source display remains `InertString`; converting it
 to a raw endpoint-shaped string inside the failure would discard the typed
 boundary.
+
+The retained object graph for a failure is closed to its source identity,
+private issuer reference, capability, optional coordinate, failure kind, and
+derived summary. The failed operation wrapper retains only that failure and
+the same private issuer reference needed for factory validation. Neither type
+has an additional field, property backing field, nested holder, exception,
+response object, or arbitrary `object` slot through which transport data can
+remain reachable.
 
 `PackageSourcePayload` carries the issuing identity when the payload operation
 returns. A later exception from reading or disposing its stream is not a
@@ -596,6 +659,17 @@ Implementation is not complete until Release gates establish:
 - `SourceResultFactoryBindsIssuingIdentity` proves built-in clients construct
   every result through their bound factory; two factories with value-equal
   public source identities reject each other's candidates by issuer reference;
+- `RuntimeClientFactoriesRequireCallerAssociation` derives every production
+  client-creation path, including transport-injection paths, and proves each
+  requires a non-null caller association, passes that exact reference to the
+  bound result factory, permits Gallery and v3 clients to share one reference,
+  keeps distinct references distinct, and has no implicit-token overload;
+- `SourceOperationFactoryMatchesClientOperations` derives the complete client
+  operation and finite failure-factory surfaces and pins the mapping from
+  search and prefix search, version enumeration, manifest, package, and symbol
+  operations to their result type, payload kind where applicable, fixed
+  capability, coordinate arity, legal failure kinds, and matching success and
+  failure factory methods;
 - `SourceResultIssuerCoversEveryConstructibleShape` derives the expected shape
   set from the owner-controlled result types and proves issuer presence plus
   same-public-identity cross-factory rejection for candidate, empty and
@@ -603,29 +677,43 @@ Implementation is not complete until Release gates establish:
   and failed outcomes;
 - `SourceOperationOutcomesBindIssuingIdentity` proves success rejects a value
   from another factory, including one with equal public source identity, and
-  failed outcomes can contain only the bound factory's owner-constructed
-  failure, with exactly one value or failure per outcome; an external-consumer
-  compilation gate admits the four concrete factory-issued result types while
-  proving no generic failure method or public construction path can issue an
-  outcome for a foreign result type;
+  package and symbol success reject the other payload kind; failed outcomes can
+  contain only the bound factory's owner-constructed failure, with exactly one
+  value or failure per outcome; an external-consumer compilation gate admits
+  the four concrete factory-issued result types while proving no generic
+  failure method or public construction path can issue an outcome for a foreign
+  result type;
 - `SourceResultCollectionsAndBuffersAreImmutableSnapshots` proves mutation of
-  supplied observation lists, arrays, and manifest buffers after construction
-  cannot alter the result; mutation of a manifest `ToArray` copy is likewise
-  isolated, and public-surface reflection proves the content value returns no
-  backing-storage view;
+  supplied observation lists, arrays, nested search-version and owner
+  collections, and manifest buffers after construction cannot alter the
+  result; the published collection runtime types, interfaces, casts,
+  enumerators, marshal helpers, and returned elements reveal no mutable or
+  by-reference storage path;
+- `ManifestContentIsByteAccurateCopyOutStorage` proves every indexed byte,
+  negative and upper bounds, exact, oversized, undersized, and empty
+  `CopyTo` behavior, all-or-nothing failure and untouched suffixes, independent
+  exact-length `ToArray` results including empty content, and the exact public
+  members and interfaces of `PackageSourceManifestContent`;
 - `IdentityBearingResultShapesAreClosed` uses public-surface reflection to
   prove `PackageProducerIdentity`, `PackageSourceResultIdentity`, concrete
   results, operation outcomes, and failures have no public constructor, clone,
   copy constructor, or init setter that can replace identity or summary text;
 - `SourceResultIssuerIsPrivateConstructionEvidence` proves the issuer has no
-  public member or caller construction path and enters no NuGetFetch-owned
-  public object or diagnostic surface;
+  public member or caller construction path, is present as private construction
+  evidence on every covered NuGetFetch-owned result object, and enters no
+  public API, serialization, or diagnostic surface;
 - `PackageSourceAssociationHasOpaqueReferenceSurface` pins its public creation
   method and proves it declares no data members, interfaces, serialization
   attributes, equality/hash overrides, or display override; separate instances
   retain ordinary object reference identity;
 - `FailureFactoryAcceptsNoArbitraryRetainedText` locks the public construction
   surface and the closed failure-kind-to-summary mapping;
+- `RetainedFailureStorageMatchesAllowList` derives the exact instance-field
+  graph for failures and failed operation wrappers and permits only source
+  identity, issuer, capability, optional coordinate, kind, derived summary,
+  and the wrapper's failure reference; end-to-end endpoint, redirect,
+  response-body, and exception-message sentinels across every classified
+  failure path prove none remains reachable;
 - `RetainedFailureHasNoConfiguredEndpointOrRecognizedCredentialText` covers
   signed query and InertText-recognized credential-slot inputs across the
   failure object and NuGetFetch-owned diagnostic formatting; consumer
