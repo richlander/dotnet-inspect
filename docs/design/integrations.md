@@ -468,8 +468,10 @@ the same source.
 ### Candidate attempt accounting
 
 The producer derives one ordered `IntegrationCandidateAttempt` for every
-identity-distinct concept-bearing candidate in the pre-binding frontier. Each
-attempt has exactly one outcome:
+candidate evaluation address in the pre-binding frontier. The address combines
+the portable or workspace-scoped `IntegrationCandidateIdentity` with the
+universe provider's owner-issued binding-context identity. Each attempt has
+exactly one outcome:
 
 | Outcome | Meaning |
 | --- | --- |
@@ -477,11 +479,18 @@ attempt has exactly one outcome:
 | `Suppressed` | Typed Integration policy proved that another retained observation fulfills or supersedes this candidate. |
 | `Failed` | Binding, validation, or candidate policy could not produce a trustworthy classification. |
 
-The expected attempt set derives from the structured producer evidence before
-peer admission, suppression, or graph projection. Missing, duplicate, and
-extraneous attempts reject Census construction. A fulfilled raw opportunity is
-the required suppression canary: it remains accounted for by identity but does
-not become an inventory row, graph failure, or incomplete outcome.
+The expected attempt-address set derives from the structured producer evidence
+and every context in which that source evidence is evaluated, before peer
+admission, suppression, or graph projection. Missing, duplicate, and extraneous
+attempts reject Census construction. A fulfilled raw opportunity is the
+required suppression canary: it remains accounted for by address but does not
+become an inventory row, graph failure, or incomplete outcome.
+
+One candidate identity may therefore correspond to multiple attempts. The same
+portable source and peer can bind under two policies and correctly produce
+different outcomes without splitting the candidate identity or collapsing the
+contexts. Attempt identity, disposition, and binding context do not become
+candidate identity.
 
 `Suppressed` is a completed policy decision with a closed Integration-owned
 reason and correspondence to the fulfilling observation. `Failed` retains its
@@ -509,15 +518,21 @@ occurrence, or graph failure.
 
 The binding/comparison domain may be a retained superset of the selected Type
 population, but it is owner-issued finite input rather than implicit
-acquisition or widening. Exact resolution in that healthy domain is the
-positive proof that distinguishes `Out` from an unknown peer.
+acquisition or widening. Classification consumes the terminal owner-issued
+type-resolution outcome. A successful forwarding chain is exact resolution:
+its terminal definition's selected-universe membership determines `In` or
+`Out`, and its forwarding hops remain evidence. Exact terminal resolution in a
+healthy domain is the positive proof that distinguishes `Out` from an unknown
+peer.
 
-An unacquired, unavailable, ambiguous, rejected, forwarded, malformed, or
-selected-but-missing binding cannot become `Out`. The corresponding typed
-producer failure remains visible and makes the affected Census attempt
-incomplete. `OpportunityTargetMissing` and other actionable opportunity
-failures likewise remain failures. Candidate inventory does not replace or
-downgrade them.
+An unacquired, unavailable, ambiguous, rejected, malformed, or
+selected-but-missing binding cannot become `Out`. A forwarding cycle, rejected
+hop, missing terminal definition, or other chain that does not resolve
+successfully has the same failure boundary; forwarding itself is not failure.
+The corresponding typed producer failure remains visible and makes the
+affected Census attempt incomplete. `OpportunityTargetMissing` and other
+actionable opportunity failures likewise remain failures. Candidate inventory
+does not replace or downgrade them.
 
 `In` does not promise one graph edge for every row. Normal relationship
 deduplication may combine multiple physical candidates into one logical edge,
@@ -533,7 +548,7 @@ result. It contains:
 - the descriptor-issued producer requirements used to validate those shared
   inputs;
 - one ordered attempt for every required source participant;
-- one ordered attempt for every identity-distinct pre-binding candidate;
+- one ordered attempt for every pre-binding candidate evaluation address;
 - the classified candidates, policy suppressions, and typed failures;
 - exact universe completeness and rejected-member inputs; and
 - admitted relationship identity sufficient for later projection.
@@ -562,9 +577,10 @@ or `Failed`.
 ### Candidate row projection
 
 `Integration Inventory` is the named row Section. One row is one classified
-candidate and retains:
+candidate attempt and retains:
 
 - candidate identity;
+- binding-context attempt identity;
 - concept and relationship descriptor identities;
 - typed source member or Type identity;
 - source assembly and authoritative package or platform provenance when
@@ -589,25 +605,28 @@ part of a default medium-verbosity document.
 
 ### Sparse matrix projection
 
-The matrix is a lossless grouping of the same candidate rows by source Library
-and Integration concept descriptor. A non-empty cell retains the ordered
-candidate identities and separate `In` and `Out` counts. The browser renders
-that typed projection; it does not rescan metadata or infer support from labels.
+The matrix is a lossless grouping of the same candidate rows by owner-issued
+source participant within its binding context and by Integration concept
+descriptor. A repeated Library in two contexts produces two typed matrix rows
+rather than one merged display row. A non-empty cell retains the ordered
+attempt and candidate identities and separate `In` and `Out` counts. The
+browser renders that typed projection; it does not rescan metadata or infer
+support from labels.
 
-Zero is displayable only for a complete source-Library attempt. An unavailable
-or failed attempt has an explicit incomplete cell state and is never rendered
-as zero or omitted as if no Integration were observed. Matrix ordering derives
-from workspace participant order and concept-catalog order, not discovery
-timing.
+Zero is displayable only for a complete source-participant attempt in that
+binding context. An unavailable or failed attempt has an explicit incomplete
+cell state and is never rendered as zero or omitted as if no Integration were
+observed. Matrix ordering derives from workspace participant and context order
+plus concept-catalog order, not discovery timing.
 
 ### Graph projection
 
 The graph adapter consumes an independently validated graph request plus a
-compatible Census snapshot. It admits `In` candidate occurrences through the
-existing relationship and induced-set contracts and retains their
-candidate-to-occurrence and candidate-to-edge correspondence. `Out` candidates
-produce no graph edge, failure, node, or synthetic occurrence; they remain
-addressable through `Integration Inventory`.
+compatible Census snapshot. It admits `In` candidate-attempt occurrences
+through the existing relationship and induced-set contracts and retains
+candidate-to-attempt plus attempt-to-occurrence and attempt-to-edge
+correspondence. `Out` attempts produce no graph edge, failure, node, or
+synthetic occurrence; they remain addressable through `Integration Inventory`.
 
 The graph document continues to own logical edge rows, graph-local ids,
 grouping, characteristics, limits, failures, and rendering. The Census does not
@@ -689,11 +708,15 @@ Integration graph behavior until its replacement path has parity gates.
 | Raw opportunity fulfilled by an observed adapter | Accounted `Suppressed` attempt |
 | Peer assembly unavailable or ambiguous | Typed failure; never `Out` |
 | Selected peer assembly lacks the exact Type | Typed failure; never `Out` |
+| Forwarder resolves to selected terminal Type | `In` with forwarding evidence |
+| Forwarder resolves to healthy unselected terminal Type | `Out` with forwarding evidence |
+| Forwarder cycle or failed terminal resolution | Typed failure; never `Out` |
 | Source participant rejected or malformed | Incomplete attempt beside healthy rows |
 | Parent package provenance known | Authoritative coordinate rendered directly |
 | Parent provenance unknown | Typed lookup retained; no assembly-name guess |
 | Embedded source reacquired with the same digest-bearing coordinate | Same portable source identity |
 | Same candidate under wider universe | Same identity; disposition may change |
+| Same portable candidate evaluated in two binding contexts | Two addressed attempts; outcomes remain distinct |
 | Sole source evidence removed | Candidate disappears |
 | Multiple candidates collapse to one edge | Distinct candidate rows share edge correspondence |
 | Rows and matrix requested independently | Exact plans share one compatible snapshot and candidate counts |
@@ -709,6 +732,7 @@ The target implementation is unverified until these named gates land:
 - `IntegrationCensus_AccountsForEveryRequiredSourceParticipant`
 - `IntegrationCensus_AccountsForEveryDiscoveredCandidateAttempt`
 - `IntegrationCensus_RejectsMissingDuplicateOrExtraneousCandidateAttempts`
+- `IntegrationCensus_AttemptsAreAddressedByCandidateAndBindingContext`
 - `IntegrationCensus_EmptyCompleteUniverseIsSuccessful`
 - `IntegrationCensus_IncompleteParticipantCannotManufactureZeroOrOut`
 - `IntegrationCensus_FailedCandidateCannotManufactureZeroOrOut`
@@ -726,6 +750,9 @@ The target implementation is unverified until these named gates land:
 - `IntegrationCandidate_ResolvedUnselectedPeerIsOut`
 - `IntegrationCandidate_UnacquiredPeerCannotBeOut`
 - `IntegrationCandidate_UnavailableAmbiguousOrMissingSelectedPeerIsFailure`
+- `IntegrationCandidate_ResolvedForwardedPeerUsesTerminalUniverseMembership`
+- `IntegrationCandidate_UnresolvedForwardingIsFailure`
+- `IntegrationCandidate_SameIdentityAcrossContextsRetainsDistinctAttempts`
 - `IntegrationCandidate_AddingPeerPreservesIdentityAndMovesOutToIn`
 - `IntegrationCandidate_RemovingPeerPreservesIdentityAndMovesInToOut`
 - `IntegrationCandidate_RemovingSoleSourceRemovesCandidate`
@@ -737,11 +764,12 @@ The target implementation is unverified until these named gates land:
 - `IntegrationInventory_IsExplicitNetworkFreeVerboseSection`
 - `IntegrationInventory_DoesNotWidenLibraryIntegrationsCategory`
 - `IntegrationMatrix_RetainsCandidateIdentityAndDispositionCounts`
+- `IntegrationMatrix_RepeatedLibraryAcrossContextsRemainsDistinct`
 - `IntegrationMatrix_IncompleteLibraryDoesNotRenderAsZero`
 - `IntegrationGraph_OnlyInCandidatesContributeOccurrences`
 - `IntegrationGraph_OutCandidatesAreNeitherEdgesNorFailures`
 - `IntegrationGraph_CandidateInventoryPrecedesInducedSetProjection`
-- `IntegrationGraph_RetainsCandidateOccurrenceAndEdgeCorrespondence`
+- `IntegrationGraph_RetainsCandidateAttemptOccurrenceAndEdgeCorrespondence`
 - `IntegrationGraph_MultipleCandidatesMayCorrespondToOneLogicalEdge`
 - `IntegrationProjection_EachResponseRetainsItsExactValidatedRequest`
 - `IntegrationProjection_ReuseRequiresCompatibleCensusSnapshot`
