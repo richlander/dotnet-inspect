@@ -508,6 +508,19 @@ must fit the current array-backed snapshot implementation, and each selection
 collection count must not exceed `MaxEntries`. Validation and the defensive
 selection copies complete before filesystem work.
 
+Those defaults are standalone adapter ceilings, not safe compositional
+allowances. A host adding a directory batch to a workspace must map the
+supplemental capacity reserved by
+[#5010](https://github.com/richlander/dotnet-inspect/issues/5010) into options:
+`MaxEntries` cannot exceed remaining artifact-count capacity,
+`MaxFileBytes` cannot exceed remaining per-artifact capacity, and
+`MaxTotalBytes` cannot exceed remaining retained-byte capacity after required
+artifacts and earlier supplemental batches. The observed-entry limit may
+reserve count conservatively because ignored entries never increase the
+published count. Without that reservation, the host does not invoke the
+directory adapter: discovering an admitted overrun only at `SealAsync` would
+turn a supplemental source into an unattributed whole-generation failure.
+
 Exclusions are source-selection inputs, not artifact identities. Each must be
 one non-rooted file name with no directory separator or parent traversal. The
 adapter uses the repository's portable path-name convention:
@@ -527,26 +540,29 @@ extensions and exclusions collapse under their respective comparers.
 
 Acquisition follows this order:
 
-1. Canonicalize the requested root and verify that it is an existing directory
-   not observed as a symbolic link or reparse point.
-2. Enumerate top-level entries incrementally. Count every observed entry before
+1. Canonicalize the requested root. On Browser, Wasm, or another unsupported
+   host, return `local.directory.platform-unsupported` before filesystem or
+   native access.
+2. Verify that the root is an existing directory not observed as a symbolic
+   link or reparse point.
+3. Enumerate top-level entries incrementally. Count every observed entry before
    classifying it and stop with a typed rejection as soon as the entry limit is
    exceeded.
-3. For an enumeration within the limit, derive one direct-child relative name
+4. For an enumeration within the limit, derive one direct-child relative name
    per entry and sort by that observed name with `StringComparer.Ordinal`.
    Underlying filesystem enumeration order is never publication order.
-4. Ignore every entry observed as an ordinary directory before filename
+5. Ignore every entry observed as an ordinary directory before filename
    selection because recursion is not enabled. Apply extension selection and
    exclusions to the remaining names. Before opening a selected path, require
    a platform file-kind probe to establish that the observed entry is a regular
    file rather than a symbolic link, reparse point, device, socket, or pipe.
    Reject the selected entry if its regular-file kind cannot be established.
-5. Open and copy each selected file in sorted order. Check its initial length
+6. Open and copy each selected file in sorted order. Check its initial length
    against the per-file limit first and then the remaining aggregate budget
    before allocating its snapshot. Enforce both remaining limits in that order
    in the read loop even when the initial length was within them, then subtract
    the exact copied length with checked arithmetic.
-6. Register no contribution until every selected file has an adapter-private
+7. Register no contribution until every selected file has an adapter-private
    immutable snapshot. Then register the complete sorted batch in one
    contribution scope. Registration or outcome construction failure aborts the
    scope; no contribution from that failed batch may publish.
@@ -573,7 +589,7 @@ stable code and non-artifact summary:
 | --- | --- | --- |
 | Root does not exist | `Unavailable` | `local.directory.missing` |
 | Root is not a directory | `Rejected` | `local.directory.invalid-root` |
-| Host cannot classify local file kinds | `Failed` | `local.directory.platform-unsupported` |
+| Host does not support local-directory acquisition | `Failed` | `local.directory.platform-unsupported` |
 | Root or selected entry is a link/reparse point | `Rejected` | `local.directory.link` |
 | Selected name is not an ordinary file | `Rejected` | `local.directory.unsupported-entry` |
 | Observed entry count exceeds the limit | `Rejected` | `local.directory.entry-limit` |
@@ -596,7 +612,10 @@ Each contribution records a `LocalDirectoryArtifactProvenance`:
 The artifact kind is `local-directory-entry`; the entry name, matched extension,
 and bytes do not establish media or semantic kind. The artifact session still
 performs its own second bounded copy and may enforce stricter limits. Adapter
-acceptance is therefore not a promise that a containing session will publish.
+acceptance is therefore not by itself a promise that a containing session will
+publish. The supplemental-reservation precondition above prevents this batch
+from being the reason a containing session first discovers a count or byte
+overrun during seal.
 
 The adapter establishes an immutable batch of the bytes it actually copied,
 not a transactional filesystem snapshot. A file created after enumeration is
@@ -621,19 +640,33 @@ The first slice supports Windows, Linux, and macOS local filesystems without a
 new package dependency. Unix classification uses a local private
 `LibraryImport("libSystem.Native")` binding to the runtime's normalized
 `SystemNative_LStat` result, not a raw libc `struct stat` layout. This is the
-NativeAOT-compatible runtime-shim pattern already used by
+NativeAOT-compatible runtime-shim pattern used by the runtime itself and by
 `PhysicalFileIdentityProvider` for `SystemNative_FStat`; the local adapter owns
-its private binding rather than depending on the CLI implementation. Browser
-and Wasm hosts have no local-directory coordinate to invoke. Another host
-returns `local.directory.platform-unsupported` before opening a selected entry
-rather than treating every file as regular.
+its private binding rather than depending on the CLI implementation.
+
+The shim converts each host `struct stat` into a fixed-width `FileStatus`;
+`SystemNative_LStat` and the runtime's managed `Interop.Sys.FileStatus` contract
+carry file mode independently of host struct layout and process bitness. The
+adapter reads only that normalized mode. It therefore does not inherit
+`PhysicalFileIdentityProvider`'s conservative 64-bit guard, which protects a
+different device/inode identity claim.
+
+Browser and Wasm direct calls, and calls on operating systems other than
+Windows, Linux, and macOS, return `local.directory.platform-unsupported` before
+filesystem or native access. This visible failure affects only the local
+directory API; explicit in-memory and other artifact sources remain available.
+`BrowserLocalDirectoryAcquisition_ReturnsUnsupportedBeforeFileSystemAccess`
+gates the Browser path, and
+`LocalDirectoryPlatformPolicy_UnknownHostReturnsUnsupported` pins the complete
+supported-host allow list and its unknown-host result.
 `LocalDirectoryAcquisition_StableNonRegularEntryRejectsBeforeOpen` gates this
 with a stable Unix FIFO under an outer process deadline and asserts typed
 rejection with no registered contribution.
 `NativeAotLocalDirectoryProbe_AcquiresRegularFileAndRejectsNonRegularEntry`
 publishes and runs a package-free local-adapter fixture for the current
-NativeAOT RID; Unix exercises a regular file and FIFO, while Windows exercises
-a regular file and reparse point.
+NativeAOT RID under an outer process deadline, with timeout as gate failure;
+Unix exercises a regular file and FIFO, while Windows exercises a regular file
+and reparse point.
 
 This is not a hostile-local-mutation guarantee. Portable .NET APIs do not
 provide an atomic cross-platform "enumerate, classify, and open this child
@@ -1128,6 +1161,8 @@ The target is complete only when tests equivalent to these exist:
 - `LocalDirectoryAcquisition_NoMatchesReturnsEmptyBatchWithoutRegistration`
 - `LocalDirectoryAcquisition_StableNonRegularEntryRejectsBeforeOpen`
 - `NativeAotLocalDirectoryProbe_AcquiresRegularFileAndRejectsNonRegularEntry`
+- `BrowserLocalDirectoryAcquisition_ReturnsUnsupportedBeforeFileSystemAccess`
+- `LocalDirectoryPlatformPolicy_UnknownHostReturnsUnsupported`
 - `LocalDirectoryAcquisition_LinkOrEntryFailureCannotShortenTheBatch`
 - `LocalDirectoryAcquisition_ExcludesExplicitNamesWithoutGrantingDesignation`
 - `LocalDirectoryAcquisition_ProvenancePreservesRootNameAndSnapshotObservation`
@@ -1187,17 +1222,20 @@ unverified. Together they require bounded top-level enumeration, ordinal
 publication order, source-neutral files, exclusion without designation,
 directory-specific provenance, immutable snapshots, empty success without
 registration when no names match, prompt rejection of stable non-regular
-entries in managed and NativeAOT hosts, typed unsupported-platform failure,
-rejection without partial publication for links or limits, visible entry
-failure, and cancellation preservation.
+entries in managed and NativeAOT hosts under process deadlines, Browser
+non-vacuity, a closed supported-host set with typed unsupported-platform
+failure before filesystem access, rejection without partial publication for
+links or limits, visible entry failure, and cancellation preservation.
 `LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`
 deletes its temporary source after publication, then passes an
 `ArtifactContentReference`'s guarded published snapshot opener to Metadata, so
 a source-path fallback cannot satisfy the gate.
 
-Workspace-wide admission budgets, single-flight/reentrancy, directory
-acquisition, content digests, dependent-group quiescence, and Metadata
-consumption of workspace roles remain unverified.
+Workspace-wide admission budgets, including the supplemental reservation that
+must constrain directory options before adapter invocation,
+single-flight/reentrancy, directory acquisition, content digests,
+dependent-group quiescence, and Metadata consumption of workspace roles remain
+unverified.
 
 ## Non-goals
 
