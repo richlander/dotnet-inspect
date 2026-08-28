@@ -10,6 +10,7 @@ public enum CSharpShellMemberKind
     EventAdd,
     EventRemove,
     Constructor,
+    Finalizer,
     Method,
     Operator,
     Field,
@@ -83,7 +84,12 @@ public sealed record CSharpMemberShellSpec(
     int? GetterToken = null,
     int? SetterToken = null,
     int? AdderToken = null,
-    int? RemoverToken = null);
+    int? RemoverToken = null,
+    bool SuppressDestructorSyntax = false,
+    bool? CSharpOperatorDeclaration = null,
+    string? OperatorPairingKey = null,
+    bool HasOperatorPairingKey = false,
+    string? MetadataName = null);
 
 /// <summary>
 /// Composes product-owned C# member models and body policies from a neutral shell
@@ -194,7 +200,12 @@ public static class CSharpMemberShellProducer
                     CSharpBodyPolicy.Full,
                     TargetBlockBody(RequiredBody(spec), initializer)),
             CSharpShellBodyKind.TargetBody
-                => new(member, CSharpBodyPolicy.Full, TargetBlockBody(RequiredBody(spec))),
+                => new(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    TargetBlockBody(
+                        RequiredBody(spec),
+                        suppressDestructorSyntax: spec.SuppressDestructorSyntax)),
             CSharpShellBodyKind.TargetGetterWithSetter
                 or CSharpShellBodyKind.TargetGetterWithInitSetter
                 => new(
@@ -256,6 +267,7 @@ public static class CSharpMemberShellProducer
                     CSharpShellMemberKind.PropertyGet or CSharpShellMemberKind.PropertySet => "property",
                     CSharpShellMemberKind.EventAdd or CSharpShellMemberKind.EventRemove => "event",
                     CSharpShellMemberKind.Constructor => "constructor",
+                    CSharpShellMemberKind.Finalizer => "finalizer",
                     CSharpShellMemberKind.Method => "method",
                     CSharpShellMemberKind.Operator => "operator",
                     CSharpShellMemberKind.Field => "field",
@@ -269,6 +281,7 @@ public static class CSharpMemberShellProducer
             IsVirtual = spec.IsVirtual,
             IsOverride = spec.IsOverride,
             IsSealed = spec.IsSealed,
+            IsFinalizer = spec.Kind == CSharpShellMemberKind.Finalizer,
             Accessibility = spec.Accessibility switch
             {
                 CSharpShellAccessibility.Public => "public",
@@ -276,10 +289,13 @@ public static class CSharpMemberShellProducer
                 _ => throw new NotSupportedException(
                     $"Unsupported C# shell accessibility '{spec.Accessibility}'."),
             },
-            Attributes = spec.Attributes?.ToList() ?? [],
+            Attributes = MemberAttributes(spec, isProperty, isExplicitInterface),
             IsUnsafe = spec.RequiresUnsafeModifier || RequiresUnsafe(spec),
             IsAsync = spec.IsAsync,
             IsExtension = spec.IsExtension,
+            CSharpOperatorDeclaration = spec.CSharpOperatorDeclaration,
+            OperatorPairingKey = spec.OperatorPairingKey,
+            HasOperatorPairingKey = spec.HasOperatorPairingKey,
             IsConst = spec.Kind == CSharpShellMemberKind.Field
                 && spec.BodyKind == CSharpShellBodyKind.TargetBody,
             MetadataToken = spec.MetadataToken,
@@ -332,8 +348,43 @@ public static class CSharpMemberShellProducer
         return member;
     }
 
+    static List<string> MemberAttributes(
+        CSharpMemberShellSpec spec,
+        bool isProperty,
+        bool isExplicitInterface)
+    {
+        var attributes = spec.Attributes?.ToList() ?? [];
+        string metadataName = spec.MetadataName ?? spec.Name;
+        if (isProperty
+            && spec.Parameters.Count > 0
+            && !isExplicitInterface
+            && metadataName != "Item"
+            && CSharpIdentifier.IsIdentifierLike(metadataName)
+            && !attributes.Any(IsIndexerNameAttribute))
+        {
+            attributes.Add(
+                $"System.Runtime.CompilerServices.IndexerNameAttribute(\"{metadataName}\")");
+        }
+
+        return attributes;
+    }
+
+    static bool IsIndexerNameAttribute(string attribute)
+    {
+        int argumentStart = attribute.IndexOf('(');
+        string name = (argumentStart < 0 ? attribute : attribute[..argumentStart]).Trim();
+        if (name.StartsWith("global::", StringComparison.Ordinal))
+            name = name["global::".Length..];
+        return name is "IndexerName" or "IndexerNameAttribute"
+            or "System.Runtime.CompilerServices.IndexerName"
+            or "System.Runtime.CompilerServices.IndexerNameAttribute";
+    }
+
     static string? DeclarationSignature(CSharpMemberShellSpec spec)
     {
+        if (spec.Kind == CSharpShellMemberKind.Finalizer)
+            return $"{spec.ReturnType ?? "void"} {spec.Name}()";
+
         if (spec.Kind != CSharpShellMemberKind.Method
             || spec.ExplicitInterfaceMemberName is null)
         {
@@ -611,8 +662,13 @@ public static class CSharpMemberShellProducer
 
     static CSharpBlockBody TargetBlockBody(
         string source,
-        CSharpConstructorInitializer? constructorInitializer = null)
-        => new(source, constructorInitializer) { IsReplacementTarget = true };
+        CSharpConstructorInitializer? constructorInitializer = null,
+        bool suppressDestructorSyntax = false)
+        => new(source, constructorInitializer)
+        {
+            IsReplacementTarget = true,
+            SuppressDestructorSyntax = suppressDestructorSyntax,
+        };
 
     static CSharpAccessorBody TargetAccessorBody(string source)
         => CSharpAccessorBody.Block(source) with { IsReplacementTarget = true };

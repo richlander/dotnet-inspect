@@ -81,6 +81,23 @@ compiler-produced target gate for this boundary.
 the same resolver to reach closure member-surface planning; target
 classification alone is not sufficient.
 
+ReturnToSender must retain a reconstructed base slot only when its typed
+signature, static shape, generic arity, and generic-parameter positions match
+the override; it must resolve an external explicit event through the frozen
+compilation closure before naming its qualified event and base interface; it
+must let closure growth settle before treating an implicit-interface diagnostic
+as final; and it must decline an implicit interface target when the exact
+declaring interface member (including a specialized same-assembly
+property/event accessor) is absent from the product-produced surface. The gates
+are
+`CompileBackTargets_PreservesGenericOverrideWithRenamedTypeParameterWhenBaseSlotIsEmitted`,
+`CompileBackTargets_FullRoundTripsExternalExplicitInterfaceEvent`, and
+`CompileBackTargets_FullRoundTripsReconstructedGenericImplicitInterfaceGetter`;
+`CompileBackTargets_SameAssemblyImplicitInterfaceWithoutReconstructedMemberDeclines`
+remains the missing-member decline gate.
+`CompileBackTargets_UnrelatedExternalInterfaceDoesNotDeclineLocalSlot` pins the
+close non-matching interface boundary.
+
 An assembly-bound Portable PDB does not supply the missing attribution identity.
 When present and recognized, its checksum can authenticate a mapped document's
 content, but a `#line` directive in another, potentially unsupplied compilation

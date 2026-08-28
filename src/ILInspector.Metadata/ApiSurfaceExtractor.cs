@@ -300,7 +300,8 @@ public static class ApiSurfaceExtractor
         MetadataReader reader,
         bool includeAll = false,
         bool typesOnly = false,
-        bool includeCompilerGenerated = false)
+        bool includeCompilerGenerated = false,
+        IOperatorTypeRelationshipResolver? operatorRelationshipResolver = null)
         => Extract(
             reader,
             includeAll
@@ -309,7 +310,8 @@ public static class ApiSurfaceExtractor
             typesOnly,
             includeCompilerGenerated,
             budget: null,
-            constraintResolution: null);
+            constraintResolution: null,
+            operatorRelationshipResolver);
 
     /// <summary>
     /// Extracts one API surface at an explicit scope.
@@ -515,7 +517,8 @@ public static class ApiSurfaceExtractor
         bool typesOnly,
         bool includeCompilerGenerated,
         ExtractionBudget? budget,
-        TypeParameterConstraintResolution? constraintResolution)
+        TypeParameterConstraintResolution? constraintResolution,
+        IOperatorTypeRelationshipResolver? operatorRelationshipResolver = null)
     {
         if (!Enum.IsDefined(scope))
             throw new ArgumentOutOfRangeException(nameof(scope));
@@ -1163,7 +1166,8 @@ public static class ApiSurfaceExtractor
                             ?? OperatorMetadata
                                 .ClassifyCSharpOperatorDeclaration(
                                     reader,
-                                    method)
+                                    method,
+                                    operatorRelationshipResolver)
                         : null;
                 bool hasOperatorPairingIdentity = isOperator
                     && (OperatorNames.RequiredOperatorSibling(methodName) is not null

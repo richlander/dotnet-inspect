@@ -142,6 +142,2819 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_DoesNotRehomeExtensionMethodsOntoExtendedType()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Target
+            {
+                public int Run() => this.Extra();
+            }
+
+            public static class TargetExtensions
+            {
+                public static int Extra(this Target target) => target.Run();
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)]));
+
+            var target = Assert.Single(result.Plan.Types, type => type.Name == "Target");
+            Assert.DoesNotContain(target.Members, member => member.Name == "Extra");
+            var extensions = Assert.Single(result.Plan.Types, type => type.Name == "TargetExtensions");
+            Assert.Contains(extensions.Members, member => member.Name == "Extra" && member.IsExtension);
+            Assert.Contains("static class TargetExtensions", result.Source, StringComparison.Ordinal);
+            Assert.Contains("int Extra(this Target target)", result.Source, StringComparison.Ordinal);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullMatchesOverloadedIndexerByExactSignature()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Holder
+            {
+                public int this[int index] => 1;
+                public int this[string index] => 2;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "get_Item", 1)],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Contains("this[int index]", result.Source, StringComparison.Ordinal);
+            Assert.Contains("this[string index]", result.Source, StringComparison.Ordinal);
+            Assert.Contains("return 1;", result.Source, StringComparison.Ordinal);
+            Assert.Contains("return 2;", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullKeepsPublicInterfaceImplementationPublic()
+    {
+        var assemblyPath = CompileFixture("""
+            using System.Collections;
+
+            public class Holder : IEqualityComparer
+            {
+                bool IEqualityComparer.Equals(object left, object right) =>
+                    ReferenceEquals(left, right);
+
+                public virtual int GetHashCode(object value) => 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Holder",
+                    "System.Collections.IEqualityComparer.Equals",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Contains(
+                "bool System.Collections.IEqualityComparer.Equals(",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "public virtual int GetHashCode(object value)",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "System.Collections.IEqualityComparer.GetHashCode",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullKeepsAbstractInterfaceImplementationAbstract()
+    {
+        var assemblyPath = CompileFixture("""
+            using System.Collections;
+
+            public abstract class Holder : IEqualityComparer
+            {
+                bool IEqualityComparer.Equals(object left, object right) =>
+                    ReferenceEquals(left, right);
+
+                public abstract int GetHashCode(object value);
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Holder",
+                    "System.Collections.IEqualityComparer.Equals",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Contains(
+                "public abstract int GetHashCode(object value);",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullUsesInheritedInterfaceImplementation()
+    {
+        var assemblyPath = CompileFixture("""
+            public class BaseHolder
+            {
+                public virtual int GetHashCode(object value) => 42;
+            }
+
+            public sealed class Holder :
+                BaseHolder,
+                System.Collections.IEqualityComparer
+            {
+                bool System.Collections.IEqualityComparer.Equals(
+                    object left,
+                    object right) =>
+                    ((System.Collections.IEqualityComparer)this).GetHashCode(left) == 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Holder",
+                    "System.Collections.IEqualityComparer.Equals",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.DoesNotContain(
+                "int System.Collections.IEqualityComparer.GetHashCode(",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.Equal(
+                42,
+                InvokeDonorComparer(
+                    Assert.IsType<byte[]>(result.DonorPe),
+                    comparer => comparer.GetHashCode(new object())));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_GenericBaseInterfaceImplementationDeclinesVisibly()
+    {
+        var assemblyPath = CompileFixture("""
+            public class BaseHolder<T>
+            {
+                public virtual int GetHashCode(T value) => 42;
+            }
+
+            public sealed class Holder :
+                BaseHolder<object>,
+                System.Collections.IEqualityComparer
+            {
+                bool System.Collections.IEqualityComparer.Equals(
+                    object left,
+                    object right) =>
+                    ((System.Collections.IEqualityComparer)this).GetHashCode(left) == 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Holder",
+                    "System.Collections.IEqualityComparer.Equals",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, result.Status);
+            Assert.Contains(
+                "external-interface-base-not-reconstructed",
+                result.Detail,
+                StringComparison.Ordinal);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "System_Collections_IEqualityComparer_Equals",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                ": System.Collections.IEqualityComparer",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_GenericTargetInheritedInterfaceImplementationDeclinesVisibly()
+    {
+        var assemblyPath = CompileFixture("""
+            public class BaseHolder
+            {
+                public virtual int GetHashCode(object value) => 42;
+            }
+
+            public sealed class Holder<T> :
+                BaseHolder,
+                System.Collections.IEqualityComparer
+            {
+                bool System.Collections.IEqualityComparer.Equals(
+                    object left,
+                    object right) =>
+                    ((System.Collections.IEqualityComparer)this).GetHashCode(left) == 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Holder`1",
+                    "System.Collections.IEqualityComparer.Equals",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, result.Status);
+            Assert.Contains(
+                "external-interface-base-not-reconstructed",
+                result.Detail,
+                StringComparison.Ordinal);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "System_Collections_IEqualityComparer_Equals",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                ": System.Collections.IEqualityComparer",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullPreservesImplicitInterfaceOverrideSlot()
+    {
+        var assemblyPath = CompileFixture("""
+            public class BaseHolder
+            {
+                public virtual int GetHashCode(object value) => 1;
+            }
+
+            public static class Helper
+            {
+                public static bool Check(BaseHolder holder, object value) =>
+                    holder.GetHashCode(value) == 2;
+            }
+
+            public sealed class Holder :
+                BaseHolder,
+                System.Collections.IEqualityComparer
+            {
+                bool System.Collections.IEqualityComparer.Equals(
+                    object left,
+                    object right) =>
+                    Helper.Check(this, left);
+
+                public override int GetHashCode(object value) => 2;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Holder",
+                    "System.Collections.IEqualityComparer.Equals",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Contains(
+                "public override int GetHashCode(object value)",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.True(InvokeDonorComparer(
+                Assert.IsType<byte[]>(result.DonorPe),
+                comparer => comparer.Equals(new object(), new object())));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullKeepsDerivedShellOfAbstractBaseBuildable()
+    {
+        var assemblyPath = CompileFixture("""
+            public abstract class BaseNode
+            {
+                public int Target() => 42;
+                public abstract int Render();
+            }
+
+            public sealed class DerivedNode : BaseNode
+            {
+                public override int Render() => 1;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("BaseNode", "Target", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "public virtual int Render() { throw null; }",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "abstract-base-member-stubbed");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_OperatorSurfaceDoesNotExpandAbstractHierarchy()
+    {
+        var assemblyPath = CompileFixture("""
+            public abstract class BaseNode
+            {
+                public abstract int Render();
+
+                public static explicit operator int(BaseNode value) => 42;
+            }
+
+            public sealed class DerivedNode : BaseNode
+            {
+                public override int Render() => 1;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("BaseNode", "op_Explicit", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Selected));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.DoesNotContain("Render", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ConsumedOperatorDoesNotExpandDeclaringTypeSurface()
+    {
+        var assemblyPath = CompileFixture("""
+            public abstract class CounterBase
+            {
+                public abstract string Render();
+            }
+
+            public sealed class Counter : CounterBase
+            {
+                public int Value;
+
+                public Counter(int value) => Value = value;
+
+                public override string Render() => Value.ToString();
+
+                public static Counter operator ++(Counter value) =>
+                    new Counter(value.Value + 1);
+            }
+
+            public static class Holder
+            {
+                public static Counter Increment(Counter value) => value++;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "Increment", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Selected));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.DoesNotContain("Render", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_TargetOwnedOperatorDependencyIncludesRequiredPair()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Counter
+            {
+                public static bool operator ==(Counter left, Counter right) => true;
+                public static bool operator !=(Counter left, Counter right) => false;
+
+                public bool Self() => this == this;
+                public bool Same => this == this;
+
+                public override bool Equals(object value) => value is Counter;
+                public override int GetHashCode() => 0;
+            }
+            """);
+        try
+        {
+            var method = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Counter", "Self", 0)],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Selected));
+            var property = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Counter", "get_Same", 0)],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Selected));
+
+            Assert.All(
+                [method, property],
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.False(result.UsedCompileBackFloor, result.Detail);
+                    Assert.Contains("operator ==", result.Source, StringComparison.Ordinal);
+                    Assert.Contains("operator !=", result.Source, StringComparison.Ordinal);
+                    Assert.DoesNotContain("op_Equality", result.Source, StringComparison.Ordinal);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_KeepsOverrideWhenReconstructedBaseEmitsInternalSlot()
+    {
+        var assemblyPath = CompileFixture("""
+            public class BaseNode
+            {
+                internal virtual int Render() => 1;
+            }
+
+            public sealed class DerivedNode : BaseNode
+            {
+                internal override int Render() => 2;
+
+                public int Target() => Render();
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("DerivedNode", "Target", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("virtual int Render()", result.Source, StringComparison.Ordinal);
+            Assert.Contains("override int Render()", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DropsOverrideWhenExternalBaseIsNotReconstructed()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            "public class ExternalBase { public virtual string Describe() => \"base\"; }",
+            directory: fixtureDir,
+            assemblyName: "contracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class Impl : ExternalBase
+            {
+                public override string Describe() => "impl";
+
+                public string Target() => Describe();
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Impl", "Target", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("string Describe()", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("override string Describe()", result.Source, StringComparison.Ordinal);
+            Assert.Contains(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "override-slot-unavailable");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesGenericOverrideWithRenamedTypeParameterWhenBaseSlotIsEmitted()
+    {
+        var assemblyPath = CompileFixture("""
+            public class BaseNode
+            {
+                public virtual string Echo<T>(T value) => "base";
+            }
+
+            public sealed class DerivedNode : BaseNode
+            {
+                public override string Echo<U>(U value) => "derived";
+
+                public string Target() => DispatchProbe.Run(this);
+            }
+
+            public static class DispatchProbe
+            {
+                public static string Run(BaseNode value) => value.Echo(42);
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("DerivedNode", "Target", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("string Echo<T>(T value)", result.Source, StringComparison.Ordinal);
+            Assert.Contains("override string Echo<U>(U value)", result.Source, StringComparison.Ordinal);
+            Assert.Equal(
+                "derived",
+                InvokeDonorGenericOverride(
+                    Assert.IsType<byte[]>(result.DonorPe)));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PrimaryTargetsPreserveSealedOverrideSlots()
+    {
+        var assemblyPath = CompileFixture("""
+            public class BaseNode
+            {
+                public virtual int Read() => 1;
+                public virtual int Value => 1;
+                public virtual event System.Action Changed
+                {
+                    add { }
+                    remove { }
+                }
+            }
+
+            public class LeafNode : BaseNode
+            {
+                public sealed override int Read() => 2;
+                public sealed override int Value => 2;
+                public sealed override event System.Action Changed
+                {
+                    add { }
+                    remove { }
+                }
+            }
+            """);
+        try
+        {
+            var method = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("LeafNode", "Read", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+            var property = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("LeafNode", "get_Value", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+            var @event = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("LeafNode", "add_Changed", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.All(
+                [method, property, @event],
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.False(result.UsedCompileBackFloor, result.Detail);
+                });
+            Assert.Contains("sealed override int Read()", method.Source, StringComparison.Ordinal);
+            Assert.Contains("sealed override int Value", property.Source, StringComparison.Ordinal);
+            Assert.Contains("sealed override event", @event.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PrimaryExternalOverrideDeclinesVisibly()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            "public class ExternalBase { public virtual string Describe() => \"base\"; }",
+            directory: fixtureDir,
+            assemblyName: "contracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class Impl : ExternalBase
+            {
+                public override string Describe() => "impl";
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Impl", "Describe", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "target-override-slot-unavailable",
+                result.Detail,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DemotedMiddleSlotsRemainVirtualForDerivedOverrides()
+    {
+        var assemblyPath = CompileFixture("""
+            public class GenericBase<T>
+            {
+                public virtual int Ping() => 1;
+                public virtual int Value => 1;
+                public virtual event System.Action Changed
+                {
+                    add { }
+                    remove { }
+                }
+            }
+
+            public class MiddleNode : GenericBase<int>
+            {
+                public override int Ping() => 2;
+                public override int Value => 2;
+                public override event System.Action Changed
+                {
+                    add { }
+                    remove { }
+                }
+            }
+
+            public sealed class LeafNode : MiddleNode
+            {
+                public override int Ping() => 3;
+                public override int Value => 3;
+                public override event System.Action Changed
+                {
+                    add { }
+                    remove { }
+                }
+
+                public int Target(System.Action handler)
+                {
+                    Changed += handler;
+                    return Ping() + Value;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("LeafNode", "Target", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("virtual int Ping()", result.Source, StringComparison.Ordinal);
+            Assert.Contains("override int Ping()", result.Source, StringComparison.Ordinal);
+            Assert.Contains("virtual int Value", result.Source, StringComparison.Ordinal);
+            Assert.Contains("override int Value", result.Source, StringComparison.Ordinal);
+            Assert.Contains("virtual event", result.Source, StringComparison.Ordinal);
+            Assert.Contains("override event", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DropsOverridesWhoseSlotsExistOnlyOnDroppedAncestor()
+    {
+        var assemblyPath = CompileFixture("""
+            public class GenericBase<T>
+            {
+                public virtual int Read() => 1;
+                public virtual int Value => 1;
+                public virtual event System.Action Changed
+                {
+                    add { }
+                    remove { }
+                }
+            }
+
+            public class MiddleNode : GenericBase<int>
+            {
+            }
+
+            public sealed class LeafNode : MiddleNode
+            {
+                public override int Read() => 3;
+                public override int Value => 3;
+                public override event System.Action Changed
+                {
+                    add { }
+                    remove { }
+                }
+
+                public int Target(System.Action handler)
+                {
+                    Changed += handler;
+                    return Read() + Value;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("LeafNode", "Target", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.DoesNotContain("override int Read()", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("override int Value", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("override event", result.Source, StringComparison.Ordinal);
+            Assert.Contains(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "override-slot-unavailable");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExternalImplicitInterfaceTargetDeclinesNatively()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            "public interface IProbe { int Read(); }",
+            directory: fixtureDir,
+            assemblyName: "contracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class Probe : IProbe
+            {
+                public int Read() => 42;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Probe", "Read", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "implicit-interface-not-reconstructed",
+                result.Detail,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ValueTypeImplicitInterfaceMethodsAndAccessorsDeclineWhenOmitted()
+    {
+        var fixtureDir = Path.Combine(
+            Path.GetTempPath(),
+            $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            """
+            using System;
+
+            public interface IProbe
+            {
+                int Read();
+                int Value { get; }
+                event Action Changed;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "contracts");
+        var assemblyPath = CompileFixture(
+            """
+            using System;
+
+            public struct Probe : IProbe
+            {
+                public int Read() => 42;
+                public int Value => 42;
+                public event Action Changed;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Probe", "Read", 0),
+                    new ReturnToSender.RequestedTarget("Probe", "get_Value", 0),
+                    new ReturnToSender.RequestedTarget("Probe", "add_Changed", 0),
+                ],
+                applyCompileBackFloor: false);
+
+            Assert.Collection(
+                results,
+                method =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, method.Status);
+                    Assert.Contains("implicit-interface-not-reconstructed", method.Detail, StringComparison.Ordinal);
+                },
+                property =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, property.Status);
+                    Assert.Contains("implicit-interface-not-reconstructed", property.Detail, StringComparison.Ordinal);
+                },
+                @event =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, @event.Status);
+                    Assert.Contains("implicit-interface-not-reconstructed", @event.Detail, StringComparison.Ordinal);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_SameAssemblyImplicitInterfaceWithoutReconstructedMemberDeclines()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface ILocal
+            {
+                int Read();
+            }
+
+            public sealed class Probe : ILocal
+            {
+                public int Read() => 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Probe", "Read", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "implicit-interface-not-reconstructed",
+                result.Detail,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullRoundTripsSameAssemblyImplicitInterfaceEdge()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface ILocal
+            {
+                int Read();
+            }
+
+            public sealed class Probe : ILocal
+            {
+                public int Read() => 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Probe", "Read", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(
+                "public sealed class Probe : ILocal",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "implicit-interface-not-reconstructed");
+            Assert.NotNull(result.DonorPe);
+            using var donorPe = new PEReader(new MemoryStream((byte[])result.DonorPe!));
+            var donorReader = donorPe.GetMetadataReader();
+            var probe = Assert.Single(
+                donorReader.TypeDefinitions,
+                handle => donorReader.GetString(donorReader.GetTypeDefinition(handle).Name) == "Probe");
+            Assert.Contains(
+                donorReader.GetTypeDefinition(probe).GetInterfaceImplementations(),
+                handle => donorReader.GetInterfaceImplementation(handle).Interface.Kind
+                    == HandleKind.TypeDefinition);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullRoundTripsInheritedSameAssemblyInterfacePath()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface IBase
+            {
+                int Read();
+            }
+
+            public interface IDerived : IBase
+            {
+            }
+
+            public sealed class Probe : IDerived
+            {
+                public int Read() => 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Probe", "Read", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("public sealed class Probe : IDerived", result.Source, StringComparison.Ordinal);
+            Assert.Contains("public interface IDerived : IBase", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "implicit-interface-not-reconstructed");
+            Assert.NotNull(result.DonorPe);
+            using var donorPe = new PEReader(new MemoryStream((byte[])result.DonorPe!));
+            var donorReader = donorPe.GetMetadataReader();
+            var derived = Assert.Single(
+                donorReader.TypeDefinitions,
+                handle => donorReader.GetString(donorReader.GetTypeDefinition(handle).Name) == "IDerived");
+            Assert.Contains(
+                donorReader.GetTypeDefinition(derived).GetInterfaceImplementations(),
+                handle => donorReader.GetInterfaceImplementation(handle).Interface.Kind
+                    == HandleKind.TypeDefinition);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullRoundTripsReconstructedGenericImplicitInterfaceMethod()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface IProbe<T>
+            {
+                T Read();
+            }
+
+            public sealed class Probe : IProbe<int>
+            {
+                public int Read() => 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Probe", "Read", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(
+                "public sealed class Probe : IProbe<int>",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.NotNull(result.DonorPe);
+            using (var donorPe = new PEReader(new MemoryStream((byte[])result.DonorPe!)))
+            {
+                var donorReader = donorPe.GetMetadataReader();
+                var probe = Assert.Single(
+                    donorReader.TypeDefinitions,
+                    handle => donorReader.GetString(donorReader.GetTypeDefinition(handle).Name) == "Probe");
+                Assert.Contains(
+                    donorReader.GetTypeDefinition(probe).GetInterfaceImplementations(),
+                    handle => donorReader.GetInterfaceImplementation(handle).Interface.Kind
+                        == HandleKind.TypeSpecification);
+            }
+            Assert.DoesNotContain(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "implicit-interface-not-reconstructed");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullRoundTripsImplicitStaticAbstractInterfaceMethod()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface IParseable
+            {
+                static abstract int Parse(string text);
+            }
+
+            public sealed class ImplicitStaticFixture : IParseable
+            {
+                public static int Parse(string text) => text.Length;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ImplicitStaticFixture",
+                    "Parse",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(
+                "public sealed class ImplicitStaticFixture : IParseable",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "public static int Parse(string text)",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.True(
+                result.Plan.Diagnostics.All(diagnostic => diagnostic.Reason != "implicit-interface-not-reconstructed"),
+                $"{result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.NotNull(result.DonorPe);
+            using var donorPe = new PEReader(new MemoryStream((byte[])result.DonorPe!));
+            var donorReader = donorPe.GetMetadataReader();
+            var targetType = Assert.Single(
+                donorReader.TypeDefinitions,
+                handle => donorReader.GetString(donorReader.GetTypeDefinition(handle).Name)
+                    == "ImplicitStaticFixture");
+            var targetMethod = Assert.Single(
+                donorReader.GetTypeDefinition(targetType).GetMethods(),
+                handle => donorReader.GetString(donorReader.GetMethodDefinition(handle).Name)
+                    == "Parse");
+            Assert.Contains(
+                donorReader.GetTypeDefinition(targetType).GetMethodImplementations(),
+                handle =>
+                {
+                    var implementation = donorReader.GetMethodImplementation(handle);
+                    return implementation.MethodBody == targetMethod
+                        && implementation.MethodDeclaration.Kind == HandleKind.MethodDefinition
+                        && donorReader.GetString(
+                            donorReader.GetTypeDefinition(
+                                donorReader.GetMethodDefinition(
+                                    (MethodDefinitionHandle)implementation.MethodDeclaration)
+                                    .GetDeclaringType()).Name) == "IParseable";
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullRoundTripsReconstructedGenericImplicitInterfaceGetter()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface IProbe<T>
+            {
+                T Value { get; }
+            }
+
+            public sealed class Probe : IProbe<int>
+            {
+                public int Value => 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Probe", "get_Value", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.DoesNotContain(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "implicit-interface-not-reconstructed");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullRoundTripsReconstructedImplicitInterfaceEventAccessor()
+    {
+        var assemblyPath = CompileFixture("""
+            using System;
+
+            public interface IProbe
+            {
+                event Action Changed;
+            }
+
+            public sealed class Probe : IProbe
+            {
+                public event Action Changed
+                {
+                    add { }
+                    remove { }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Probe", "add_Changed", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.DoesNotContain(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "implicit-interface-not-reconstructed");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_UnrelatedExternalInterfaceDoesNotDeclineLocalSlot()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Probe : System.IDisposable
+            {
+                public int Read() => 42;
+                public void Dispose() { }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Probe", "Read", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.DoesNotContain(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "implicit-interface-not-reconstructed");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_GenericLocalInterfaceDeclineUsesNeutralReason()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface ILocal<T>
+            {
+                T Read();
+            }
+
+            public sealed class Probe : ILocal<int>
+            {
+                public int Read() => 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Probe", "Read", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, result.Status);
+            Assert.Contains(
+                "implicit-interface-not-reconstructed",
+                result.Detail,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain("external-", result.Detail, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    // An external interface whose definition cannot be read leaves the question "does this
+    // interface declare the target?" unanswered. Reporting the unanswered case as "no" made
+    // a dropped `: IProbe` base-list entry round-trip as a clean Exact even though the
+    // target's final/newslot slot exists only because of that interface.
+    [Fact]
+    public void CompileBackTargets_UnavailableExternalImplicitInterfaceReportsUnknownEvidence()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            "public interface IProbe { int Read(); }",
+            directory: fixtureDir,
+            assemblyName: "contracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class Probe : IProbe
+            {
+                public int Read() => 42;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            // Close negative: the definition is readable, so the omission is proven and
+            // keeps the proven reason.
+            var resolved = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Probe", "Read", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, resolved.Status);
+            Assert.Contains(
+                resolved.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "implicit-interface-not-reconstructed");
+            Assert.DoesNotContain(
+                resolved.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "implicit-interface-evidence-unavailable");
+
+            File.Delete(contractsPath);
+
+            var unavailable = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Probe", "Read", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, unavailable.Status);
+            Assert.Contains(
+                "implicit-interface-evidence-unavailable",
+                unavailable.Detail,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                unavailable.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "implicit-interface-evidence-unavailable"
+                    && diagnostic.Layer == "type identity"
+                    && diagnostic.Detail.Contains("Probe::Read", StringComparison.Ordinal));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    // A constructed generic interface nested in another type is referenced through a
+    // TypeSpec whose root TypeRef is scoped to its enclosing TypeRef, not to an assembly
+    // reference. That reference cannot be resolved to a definition here, so the interface's
+    // members are never read: the base-list entry disappears and, before the tri-state
+    // evidence, nothing said so.
+    [Fact]
+    public void CompileBackTargets_NestedExternalConstructedInterfaceReportsUnknownEvidence()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            """
+            public interface IOuter
+            {
+                public interface IInner<T>
+                {
+                    int Read();
+                }
+            }
+
+            public interface ITopLevel<T>
+            {
+                int Read();
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "contracts");
+        var nestedPath = CompileFixture(
+            """
+            public sealed class Probe : IOuter.IInner<int>
+            {
+                public int Read() => 42;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "nested",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        var topLevelPath = CompileFixture(
+            """
+            public sealed class Probe : ITopLevel<int>
+            {
+                public int Read() => 42;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "toplevel",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var nested = Assert.Single(ReturnToSender.CompileBackTargets(
+                nestedPath,
+                [new ReturnToSender.RequestedTarget("Probe", "Read", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, nested.Status);
+            Assert.DoesNotContain("IInner", nested.Source, StringComparison.Ordinal);
+            Assert.Contains(
+                nested.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "implicit-interface-evidence-unavailable"
+                    && diagnostic.Layer == "type identity");
+
+            // Close negative: the same constructed generic shape at top level resolves, so
+            // the omission stays a proven fact rather than an unavailable one.
+            var topLevel = Assert.Single(ReturnToSender.CompileBackTargets(
+                topLevelPath,
+                [new ReturnToSender.RequestedTarget("Probe", "Read", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, topLevel.Status);
+            Assert.Contains(
+                topLevel.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "implicit-interface-not-reconstructed");
+            Assert.DoesNotContain(
+                topLevel.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "implicit-interface-evidence-unavailable");
+        }
+        finally
+        {
+            DeleteFixture(nestedPath);
+        }
+    }
+
+    // The interface an explicit event accessor implements is named by the accessor's own
+    // canonical metadata name, not by MethodImpl table order. `Probe` carries two
+    // `.override` rows on one accessor and emits the wrong one first, so first-row selection
+    // reconstructs the event as `IB.Changed` and silently moves the member to another
+    // interface's slot.
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void CompileBackTargets_ExplicitEventUsesCanonicalDeclarationNotTableOrder()
+    {
+        var ilasm = TryLocateIlasm();
+        if (ilasm is null)
+        {
+            Assert.Skip("ilasm not available; skipping hand-authored IL explicit-event regression.");
+            return;
+        }
+
+        var directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var assemblyPath = AssembleIlFixture(ilasm, MultiOverrideEventIl, directory, "eventoverride");
+        try
+        {
+            var shared = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Probe", "IA.add_Changed", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.Contains("IA.Changed", shared.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("IB.Changed", shared.Source, StringComparison.Ordinal);
+
+            // Close negative: one `.override` row for the same canonical name selects the
+            // same interface and is unaffected by the tie-break.
+            var single = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Solo", "IA.add_Changed", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.Contains("IA.Changed", single.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("IB.Changed", single.Source, StringComparison.Ordinal);
+            Assert.True(
+                shared.Status == single.Status,
+                $"shared {shared.Status}: {shared.Detail}{Environment.NewLine}"
+                    + $"single {single.Status}: {single.Detail}");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    // The closure member surface classifies operators through a cross-assembly relationship
+    // resolver, so classification is unavailable exactly when a signature type cannot be
+    // resolved at all. Both the unclassifiable and the proven-negative case emit a raw
+    // method, but only the proven one may claim the member is not representable.
+    [Fact]
+    public void CompileBackTargets_UnknownOperatorClassificationUsesUnknownReason()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            "public sealed class Money { }",
+            directory: fixtureDir,
+            assemblyName: "contracts");
+        const string WalletSource = """
+            public sealed class Wallet
+            {
+                public static implicit operator Money(Wallet value) => new Money();
+
+                public static Wallet Create() => new Wallet();
+            }
+
+            public static class Target
+            {
+                public static object Run() => Wallet.Create();
+            }
+            """;
+        var externalPath = CompileFixture(
+            WalletSource,
+            directory: fixtureDir,
+            assemblyName: "external",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        var localPath = CompileFixture(
+            "public sealed class Money { }" + Environment.NewLine + WalletSource,
+            directory: fixtureDir,
+            assemblyName: "local");
+        try
+        {
+            // Close negative: the conversion target resolves, so the operator is classified,
+            // representable, and reports nothing. `All` reconstructs Wallet as a closure root
+            // with its member surface, which is where the classification is consumed.
+            var resolved = Assert.Single(ReturnToSender.CompileBackTargets(
+                externalPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.DoesNotContain(
+                resolved.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason is "operator-representability-unknown"
+                    or "operator-not-representable");
+
+            File.Delete(contractsPath);
+
+            var unavailable = Assert.Single(ReturnToSender.CompileBackTargets(
+                externalPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Contains(
+                unavailable.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "operator-representability-unknown"
+                    && diagnostic.Layer == "member surface"
+                    && diagnostic.Detail.Contains("op_Implicit", StringComparison.Ordinal));
+            Assert.DoesNotContain(
+                unavailable.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "operator-not-representable"
+                    && diagnostic.Detail.Contains("op_Implicit", StringComparison.Ordinal));
+
+            // Close negative: the same operator with an in-assembly conversion target is
+            // classified without consulting any reference, and reports nothing.
+            var local = Assert.Single(ReturnToSender.CompileBackTargets(
+                localPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.DoesNotContain(
+                local.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason is "operator-representability-unknown"
+                    or "operator-not-representable");
+        }
+        finally
+        {
+            DeleteFixture(externalPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExternalImplicitInterfaceAccessorsDeclineNatively()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            """
+            public interface IProbe
+            {
+                int Count { get; }
+                int Value { set; }
+                event System.Action Changed;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "contracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class Probe : IProbe
+            {
+                public int Count => 42;
+                public int Value { set { } }
+                public event System.Action Changed
+                {
+                    add { }
+                    remove { }
+                }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            foreach (string methodName in new[] { "get_Count", "set_Value", "add_Changed", "remove_Changed" })
+            {
+                var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                    assemblyPath,
+                    [new ReturnToSender.RequestedTarget("Probe", methodName, 0)],
+                    applyCompileBackFloor: false));
+
+                Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, result.Status);
+                Assert.False(result.UsedCompileBackFloor, result.Detail);
+                Assert.Contains(
+                    "implicit-interface-not-reconstructed",
+                    result.Detail,
+                    StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RealPrintedRangeMapAccessorDeclinesNatively()
+    {
+        var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            typeof(PrintedRangeMap).Assembly.Location,
+            [new ReturnToSender.RequestedTarget(
+                "ILInspector.Decompiler.Pipeline.PrintedRangeMap",
+                "get_Count",
+                0)],
+            applyCompileBackFloor: false));
+
+        Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, result.Status);
+        Assert.False(result.UsedCompileBackFloor, result.Detail);
+        Assert.Contains(
+            "implicit-interface-not-reconstructed",
+            result.Detail,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CompileBackTargets_RepairsAbstractBasePropertyShell()
+    {
+        var assemblyPath = CompileFixture("""
+            public abstract class Shape
+            {
+                public abstract int Corners { get; }
+            }
+
+            public sealed class Triangle : Shape
+            {
+                public override int Corners => 3;
+
+                public int First => Corners;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Triangle", "get_First", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("virtual int Corners", result.Source, StringComparison.Ordinal);
+            Assert.Contains("override int Corners", result.Source, StringComparison.Ordinal);
+            Assert.Contains(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "abstract-base-member-stubbed"
+                    && diagnostic.Detail.Contains("Corners", StringComparison.Ordinal));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesReconstructedEventOverrideSlot()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Publisher
+            {
+                public virtual event System.Action Changed
+                {
+                    add { }
+                    remove { }
+                }
+            }
+
+            public sealed class ConcretePublisher : Publisher
+            {
+                public override event System.Action Changed
+                {
+                    add { }
+                    remove { }
+                }
+
+                public void Target(System.Action handler) => Changed += handler;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("ConcretePublisher", "Target", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("virtual event", result.Source, StringComparison.Ordinal);
+            Assert.Contains("override event", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RepairsAbstractBaseEventShell()
+    {
+        var assemblyPath = CompileFixture("""
+            public abstract class Publisher
+            {
+                public abstract event System.Action Changed;
+
+                public void Target(System.Action handler) => Changed += handler;
+            }
+
+            public sealed class ConcretePublisher : Publisher
+            {
+                public override event System.Action Changed
+                {
+                    add { }
+                    remove { }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Publisher", "Target", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("virtual event", result.Source, StringComparison.Ordinal);
+            Assert.Contains(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "abstract-base-member-stubbed"
+                    && diagnostic.Detail.Contains("Changed", StringComparison.Ordinal));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullKeepsExplicitOverloadedIndexersDistinct()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface IValues
+            {
+                int this[int index] { get; }
+                int this[string index] { get; }
+            }
+
+            public sealed class Holder : IValues
+            {
+                int IValues.this[int index] => 1;
+                int IValues.this[string index] => 2;
+            }
+
+            public static class Target
+            {
+                public static int Run() => 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Contains("int IValues.this[int index]", result.Source, StringComparison.Ordinal);
+            Assert.Contains("int IValues.this[string index]", result.Source, StringComparison.Ordinal);
+            Assert.Contains("return 1;", result.Source, StringComparison.Ordinal);
+            Assert.Contains("return 2;", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesStandaloneAccessorPrefixedMethods()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Target
+            {
+                public int get_Value() => 7;
+                public int op_Custom() => 2;
+                public void op_AdditionAssignment(int value) { }
+                public int Helper()
+                {
+                    op_AdditionAssignment(1);
+                    return get_Value() + op_Custom();
+                }
+                public int Run() => 1;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            var target = Assert.Single(result.Plan.Types, type => type.Name == "Target");
+            Assert.Contains(target.Members, member => member.Name == "get_Value");
+            Assert.Contains(target.Members, member => member.Name == "op_Custom");
+            Assert.Contains(target.Members, member => member.Name == "op_AdditionAssignment");
+            Assert.Contains(
+                "void op_AdditionAssignment(int value)",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "operator +=",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ReconstructsInstanceAssignmentOperatorCalls()
+    {
+        var assemblyPath = CompileFixture("""
+            public struct Vec
+            {
+                public int X;
+
+                public void operator +=(Vec other)
+                {
+                    X += other.X;
+                }
+
+                public void operator ++()
+                {
+                    X++;
+                }
+            }
+
+            public sealed class Target
+            {
+                public int Run(Vec other)
+                {
+                    var value = new Vec();
+                    value += other;
+                    value++;
+                    return value.X;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Contains("void operator +=(Vec other)", result.Source, StringComparison.Ordinal);
+            Assert.Contains("void operator ++()", result.Source, StringComparison.Ordinal);
+            Assert.Contains("+= other;", result.Source, StringComparison.Ordinal);
+            Assert.Contains("++;", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(".op_AdditionAssignment(", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(".op_IncrementAssignment(", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ReconstructsCheckedInstanceAssignmentOperatorCalls()
+    {
+        var assemblyPath = CompileFixture("""
+            public struct Vec
+            {
+                public int X;
+
+                public void operator +=(Vec other)
+                {
+                    X += other.X;
+                }
+
+                public void operator checked +=(Vec other)
+                {
+                    X = checked(X + other.X);
+                }
+
+                public void operator ++()
+                {
+                    X++;
+                }
+
+                public void operator checked ++()
+                {
+                    X = checked(X + 1);
+                }
+            }
+
+            public sealed class Target
+            {
+                public int Run(Vec other)
+                {
+                    var value = new Vec();
+                    checked
+                    {
+                        value += other;
+                        value++;
+                    }
+                    return value.X;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Contains("void operator checked +=(Vec other)", result.Source, StringComparison.Ordinal);
+            Assert.Contains("void operator checked ++()", result.Source, StringComparison.Ordinal);
+            Assert.Contains("checked {", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(".op_CheckedAdditionAssignment(", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(".op_CheckedIncrementAssignment(", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ReconstructsCrossAssemblyInstanceAssignmentOperators()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        string operatorsPath = CompileFixture(
+            """
+            public struct ExternalVec
+            {
+                public int X;
+
+                public void operator +=(ExternalVec other)
+                {
+                    X += other.X;
+                }
+
+                public void operator checked +=(ExternalVec other)
+                {
+                    X = checked(X + other.X);
+                }
+            }
+            """,
+            directory: directory,
+            assemblyName: "ExternalOperators");
+        string assemblyPath = CompileFixture(
+            """
+            public sealed class Target
+            {
+                public int Run(ExternalVec other)
+                {
+                    var value = new ExternalVec();
+                    value += other;
+                    checked
+                    {
+                        value += other;
+                    }
+                    return value.X;
+                }
+            }
+            """,
+            directory: directory,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(operatorsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("+= other;", result.Source, StringComparison.Ordinal);
+            Assert.Contains("checked {", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(".op_AdditionAssignment(", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(".op_CheckedAdditionAssignment(", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ResolvesGenericTypeSpecOperatorByDefinitionSignature()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        string operatorsPath = CompileFixture(
+            """
+            public struct GenericVec<T>
+            {
+                public int X;
+
+                private void op_AdditionAssignment(T value)
+                {
+                    X = 1;
+                }
+
+                public void operator +=(int value)
+                {
+                    X += value;
+                }
+            }
+            """,
+            directory: directory,
+            assemblyName: "GenericExternalOperators");
+        string assemblyPath = CompileFixture(
+            """
+            public sealed class Target
+            {
+                public int Run(int amount)
+                {
+                    var value = new GenericVec<int>();
+                    value += amount;
+                    return value.X;
+                }
+            }
+            """,
+            directory: directory,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(operatorsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("+= amount;", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(".op_AdditionAssignment(", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PinsInstanceAssignmentOperatorRhsOverload()
+    {
+        var assemblyPath = CompileFixture("""
+            public struct Vec
+            {
+                public int X;
+
+                public void operator +=(object? value)
+                {
+                    X = 1;
+                }
+
+                public void operator +=(string? value)
+                {
+                    X = 2;
+                }
+            }
+
+            public sealed class Target
+            {
+                public int Run()
+                {
+                    var value = new Vec();
+                    value += (object?)null;
+                    return value.X;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("+= (object)null;", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesNestedUncheckedOperatorInsideCheckedAssignment()
+    {
+        var assemblyPath = CompileFixture("""
+            public struct Vec
+            {
+                public int X;
+
+                public static Vec operator +(Vec left, Vec right)
+                    => new() { X = left.X + right.X };
+
+                public static Vec operator checked +(Vec left, Vec right)
+                    => new() { X = checked(left.X + right.X + 1) };
+
+                public void operator +=(Vec other)
+                {
+                    X += other.X;
+                }
+
+                public void operator checked +=(Vec other)
+                {
+                    X = checked(X + other.X);
+                }
+            }
+
+            public sealed class Target
+            {
+                public int Run(Vec left, Vec right)
+                {
+                    var value = new Vec();
+                    checked
+                    {
+                        value += unchecked(left + right);
+                    }
+                    return value.X;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains(
+                "+= unchecked(left + right);",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_AllFullPreservesFinalizerIdentity()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Target
+            {
+                ~Target()
+                {
+                    System.GC.KeepAlive(this);
+                }
+
+                public int Run() => 1;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Contains("~Target()", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("void Finalize()", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void CompileBackTargets_ReconstructsUnrepresentableOperatorAsRawClosureMethod(
+        bool staticZeroParameter)
+    {
+        var assemblyPath = EmitUnrepresentableOperatorFixture(staticZeroParameter);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.DoesNotContain("operator +", result.Source, StringComparison.Ordinal);
+            Assert.Contains(
+                result.FullBodies,
+                body => body.Member == "Poison.op_Addition"
+                    && body.Status == MemberBodyProductionStatus.Complete);
+            Assert.Contains("op_Addition(", result.Source, StringComparison.Ordinal);
+            Assert.Contains(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "operator-not-representable"
+                    && diagnostic.Detail.Contains("op_Addition", StringComparison.Ordinal)
+                    && diagnostic.Detail.Contains("not representable", StringComparison.Ordinal));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CompileBackTargets_FullKeepsUnpairedOperatorsAsOneRawMethod(
+        bool checkedAddition)
+    {
+        var assemblyPath = EmitUnpairedOperatorFixture(checkedAddition);
+        string methodName = checkedAddition ? "op_CheckedAddition" : "op_Equality";
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Number", methodName, 0)],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Contains(methodName, result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("operator ==", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("operator checked +", result.Source, StringComparison.Ordinal);
+            Assert.Single(
+                result.Plan.Types
+                    .Single(type => type.Name == "Number")
+                    .Members,
+                member => member.Name == methodName);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FinalizerTargetPreservesFinalizerIdentity()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Target
+            {
+                ~Target()
+                {
+                    System.GC.KeepAlive(this);
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Finalize", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Contains("~Target()", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("void Finalize()", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Theory]
+    [InlineData(RoundTripBodyPolicy.Selected)]
+    [InlineData(RoundTripBodyPolicy.Full)]
+    public void CompileBackTargets_SuppressedFinalizerKeepsItsDeclarator(
+        RoundTripBodyPolicy bodyPolicy)
+    {
+        var assemblyPath = EmitNonDestructorFinalizerFixture();
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Finalize", 0)],
+                RoundTripScope.Cluster,
+                bodyPolicy));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("void Finalize()", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("void\n", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DoesNotBorrowNonGenericOverloadTokenForGenericRequirement()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Target
+            {
+                public int Run() => M<int>(1);
+
+                public static int M<T>(int value) => value;
+
+                public static int M(int value) => value + 1;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Contains("M<T>(int value)", result.Source, StringComparison.Ordinal);
+            Assert.Contains("M(int value)", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CreateMemberSurfaceIndex_DefersDuplicateNameFailureUntilLookup()
+    {
+        var duplicateName = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("Sample", ["Duplicate"])).Name;
+        var uniqueName = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("Sample", ["Unique"])).Name;
+        var surface = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType { DefinitionName = duplicateName, Name = "Duplicate" },
+                new ApiType { DefinitionName = duplicateName, Name = "Duplicate" },
+                new ApiType { DefinitionName = uniqueName, Name = "Unique" },
+            ],
+        };
+
+        var index = CompileBackSourceComposer.CreateMemberSurfaceIndex(surface);
+
+        Assert.True(index.TryGetValue(uniqueName, out var unique));
+        Assert.Equal("Unique", unique.Name);
+        Assert.Throws<InvalidOperationException>(
+            () => index.TryGetValue(duplicateName, out _));
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesUnownedSpecialNameAccessorMethod()
+    {
+        var assemblyPath = EmitUnownedSpecialNameAccessorFixture();
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            var target = Assert.Single(result.Plan.Types, type => type.Name == "Target");
+            Assert.Contains(target.Members, member => member.Name == "get_Value");
+            var semantics = Assert.Single(result.Plan.Types, type => type.Name == "SemanticsFixture");
+            Assert.Contains(semantics.Members, member => member.Name == "OtherProperty");
+            Assert.Contains(semantics.Members, member => member.Name == "RaiseChanged");
+            Assert.Contains(semantics.Members, member => member.Name == "OtherEvent");
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_AllFullBackfillsRequiredOperatorToken()
+    {
+        var assemblyPath = CompileFixture("""
+            public readonly struct Number
+            {
+                public Number(int value) => Value = value;
+                public int Value { get; }
+                public static Number operator +(Number left, Number right) =>
+                    new(left.Value + right.Value);
+            }
+
+            public static class Target
+            {
+                public static int Run() => (new Number(1) + new Number(2)).Value;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            var body = Assert.Single(result.FullBodies, candidate =>
+                candidate.Member == "Number.op_Addition");
+            Assert.Equal(MemberBodyProductionStatus.Complete, body.Status);
+            Assert.DoesNotContain("throw null", result.Source, StringComparison.Ordinal);
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_AllFullBackfillsExactOverloadTokens()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Worker
+            {
+                public int Convert(int value) => value + 1;
+                public int Convert(string value) => value.Length;
+                public int Run() => Convert("value");
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Worker", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Contains("Convert(int value)", result.Source, StringComparison.Ordinal);
+            Assert.Contains("Convert(string value)", result.Source, StringComparison.Ordinal);
+            Assert.Equal(
+                2,
+                result.FullBodies.Count(body => body.Member == "Worker.Convert"
+                    && body.Status == MemberBodyProductionStatus.Complete));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_AllFullMaterializesUnrelatedOperators()
+    {
+        var assemblyPath = CompileFixture("""
+            public readonly struct Number
+            {
+                public Number(int value) => Value = value;
+                public int Value { get; }
+                public static Number operator +(Number left, Number right) =>
+                    new(left.Value + right.Value);
+            }
+
+            public static class Target
+            {
+                public static int Run() => 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Contains("operator +", result.Source, StringComparison.Ordinal);
+            Assert.Contains(
+                result.FullBodies,
+                body => body.Member == "Number.op_Addition"
+                    && body.Status == MemberBodyProductionStatus.Complete);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DistinguishesDottedAndNestedTypeNames()
+    {
+        var assemblyPath = EmitTypeNameCollisionFixture();
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("N.C", "Top", 0)],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Source.Contains("int Top()", StringComparison.Ordinal),
+                $"{result.Status}: {result.Detail}");
+            Assert.DoesNotContain("int Nested()", result.Source, StringComparison.Ordinal);
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RejectsAmbiguousDottedTypeTarget()
+    {
+        var assemblyPath = EmitTypeNameCollisionFixture();
+        try
+        {
+            var exception = Assert.Throws<AmbiguousMatchException>(() =>
+                ReturnToSender.CompileBackTargets(
+                    assemblyPath,
+                    [new ReturnToSender.RequestedTarget("N.C", "Shared", 0)]));
+
+            Assert.Contains("ambiguous", exception.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RejectsDuplicatePhysicalTypeDefinitions()
+    {
+        var assemblyPath = EmitDuplicateTypeDefinitionFixture();
+        try
+        {
+            var exception = Assert.Throws<AmbiguousMatchException>(() =>
+                ReturnToSender.CompileBackTargets(
+                    assemblyPath,
+                    [new ReturnToSender.RequestedTarget("N.C", ".ctor", 0)],
+                    RoundTripScope.Cluster,
+                    RoundTripBodyPolicy.Selected));
+
+            Assert.Contains("multiple TypeDef rows", exception.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_UsesCanonicalSignatureToDisambiguateDottedTypeTarget()
+    {
+        var assemblyPath = EmitTypeNameCollisionFixture();
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "N.C",
+                    "SignatureShared",
+                    Overload: 0,
+                    Signature: CanonicalMethodSignature("int SignatureShared(int value);"))]));
+
+            Assert.Contains("int SignatureShared(int", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("int SignatureShared(string", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Theory]
+    [InlineData("`0(string)")]
+    [InlineData("() -> corelib:System.String")]
+    public void CompileBackTargets_FallsBackToOrdinalWhenSignatureDoesNotResolve(
+        string signature)
+    {
+        var assemblyPath = EmitTypeNameCollisionFixture();
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "N.C",
+                    "Top",
+                    Overload: 0,
+                    Signature: signature)]));
+
+            Assert.Contains("int Top()", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("int Nested()", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Theory]
+    [InlineData("`0(bool)")]
+    [InlineData("(corelib:System.Boolean) -> corelib:System.Int32")]
+    public void CompileBackTargets_PreservesAmbiguityWhenSignatureDoesNotResolve(
+        string signature)
+    {
+        var assemblyPath = EmitTypeNameCollisionFixture();
+        try
+        {
+            Assert.Throws<AmbiguousMatchException>(() =>
+                ReturnToSender.CompileBackTargets(
+                    assemblyPath,
+                    [new ReturnToSender.RequestedTarget(
+                        "N.C",
+                        "SignatureShared",
+                        Overload: 0,
+                        Signature: signature)]));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ContainsMalformedBodyDuringSignatureDiscovery()
+    {
+        var assemblyPath = EmitTypeNameCollisionFixture();
+        try
+        {
+            CorruptMethodBody(assemblyPath, "N.C", "Shared");
+
+            Assert.Throws<AmbiguousMatchException>(() =>
+                ReturnToSender.CompileBackTargets(
+                    assemblyPath,
+                    [new ReturnToSender.RequestedTarget(
+                        "N.C",
+                        "Shared",
+                        Overload: 0,
+                        Signature: "() -> corelib:System.String")]));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_FullRejectsMultiplePrimaryTargets()
     {
         var exception = Assert.Throws<NotSupportedException>(() => ReturnToSender.CompileBackTargets(
@@ -1292,6 +4105,263 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_FullRoundTripsExternalExplicitInterfaceEvent()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            """
+            using System;
+
+            namespace Contracts;
+
+            public interface IEvents
+            {
+                event Action Changed;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "contracts");
+        var assemblyPath = CompileFixture(
+            """
+            using System;
+
+            public sealed class EventSource : Contracts.IEvents
+            {
+                private Action? _changed;
+
+                event Action Contracts.IEvents.Changed
+                {
+                    add { _changed += value; }
+                    remove { _changed -= value; }
+                }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "EventSource",
+                    "Contracts.IEvents.add_Changed",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(
+                    Environment.NewLine,
+                    result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+            Assert.True(
+                result.Source.Contains(
+                    "class EventSource : Contracts.IEvents",
+                    StringComparison.Ordinal)
+                || result.Source.Contains(
+                    "class EventSource : IEvents",
+                    StringComparison.Ordinal),
+                result.Source);
+            Assert.True(
+                result.Source.Contains(
+                    "event Action Contracts.IEvents.Changed",
+                    StringComparison.Ordinal)
+                || result.Source.Contains(
+                    "event Action IEvents.Changed",
+                    StringComparison.Ordinal),
+                result.Source);
+            var sourceMember = Assert.Single(
+                Assert.Single(
+                    result.Plan.Types,
+                    type => type.Type.MetadataFullName == "EventSource").Members,
+                member => member.MetadataName == "Contracts.IEvents.Changed");
+            Assert.Equal("Contracts.IEvents.Changed", sourceMember.ExplicitInterfaceMemberName);
+            Assert.Contains(
+                Assert.Single(result.Plan.Types, type => type.Type.MetadataFullName == "EventSource")
+                    .ExternalInterfaces,
+                interfaceName => interfaceName == "Contracts.IEvents");
+            Assert.Equal(
+                MemberBodyProductionStatus.Complete,
+                Assert.Single(
+                    result.FullBodies,
+                    body => body.Member == "EventSource.Contracts.IEvents.add_Changed").Status);
+            Assert.Equal(
+                MemberBodyProductionStatus.Complete,
+                Assert.Single(
+                    result.FullBodies,
+                    body => body.Member.EndsWith(
+                        ".remove_Contracts.IEvents.Changed",
+                        StringComparison.Ordinal)).Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceEventSkipsNonmatchingMethodImpl()
+    {
+        var ilasm = TryLocateIlasm();
+        if (ilasm is null)
+        {
+            Assert.Skip("ilasm not available; skipping external event MethodImpl regression.");
+            return;
+        }
+
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            """
+            using System;
+
+            namespace Contracts;
+
+            public interface IEvents
+            {
+                event Action Changed;
+            }
+
+            public interface IOther
+            {
+                event Action Changed;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "contracts");
+        var assemblyPath = AssembleIlFixture(
+            ilasm,
+            """
+            .assembly extern System.Runtime { .ver 0:0:0:0 }
+            .assembly extern contracts { }
+            .assembly fixture { }
+            .module fixture.dll
+
+            .class public auto ansi sealed beforefieldinit EventSource
+                extends [System.Runtime]System.Object
+                implements [contracts]Contracts.IEvents, [contracts]Contracts.IOther
+            {
+              .method private final hidebysig newslot specialname virtual
+                  instance void 'Contracts.IEvents.add_Changed'(class [System.Runtime]System.Action) cil managed
+              {
+                .override method instance void [contracts]Contracts.IOther::add_Changed(class [System.Runtime]System.Action)
+                .override method instance void [contracts]Contracts.IEvents::add_Changed(class [System.Runtime]System.Action)
+                ret
+              }
+              .method private final hidebysig newslot specialname virtual
+                  instance void 'Contracts.IEvents.remove_Changed'(class [System.Runtime]System.Action) cil managed
+              {
+                .override method instance void [contracts]Contracts.IOther::remove_Changed(class [System.Runtime]System.Action)
+                .override method instance void [contracts]Contracts.IEvents::remove_Changed(class [System.Runtime]System.Action)
+                ret
+              }
+              .event [System.Runtime]System.Action 'Contracts.IEvents.Changed'
+              {
+                .addon instance void EventSource::'Contracts.IEvents.add_Changed'(class [System.Runtime]System.Action)
+                .removeon instance void EventSource::'Contracts.IEvents.remove_Changed'(class [System.Runtime]System.Action)
+              }
+              .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
+              {
+                ldarg.0
+                call instance void [System.Runtime]System.Object::.ctor()
+                ret
+              }
+            }
+            """,
+            fixtureDir,
+            "fixture");
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "EventSource",
+                    "Contracts.IEvents.add_Changed",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "event Action Contracts.IEvents.Changed",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            TryDeleteDirectory(fixtureDir);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullKeepsPlainEventWithSameSimpleNameAsExplicitEvent()
+    {
+        var assemblyPath = CompileFixture("""
+            using System;
+
+            public interface IEvents
+            {
+                event Action Changed;
+            }
+
+            public sealed class EventSource : IEvents
+            {
+                private Action _explicitChanged;
+                private Action _plainChanged;
+
+                event Action IEvents.Changed
+                {
+                    add { _explicitChanged += value; }
+                    remove { _explicitChanged -= value; }
+                }
+
+                public event Action Changed
+                {
+                    add { _plainChanged += value; }
+                    remove { _plainChanged -= value; }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "EventSource",
+                    "IEvents.add_Changed",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(
+                "event Action IEvents.Changed",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "public event Action Changed",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                Assert.Single(
+                    result.Plan.Types,
+                    type => type.Type.MetadataFullName == "EventSource").Members,
+                member => member.MetadataName == "IEvents.Changed");
+            Assert.Contains(
+                Assert.Single(
+                    result.Plan.Types,
+                    type => type.Type.MetadataFullName == "EventSource").Members,
+                member => member.MetadataName == "Changed");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_RoundTripsExternalExplicitInterfaceOrdinaryOperatorName()
     {
         var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
@@ -2285,6 +5355,64 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_ExternalImplicitKeywordMethodDoesNotDuplicate()
+    {
+        var fixtureDir = Path.Combine(
+            Path.GetTempPath(),
+            $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            """
+            namespace RtsKeyword;
+
+            public interface IProbe
+            {
+                void Run();
+                int @class();
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "RtsKeywordContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class Holder : RtsKeyword.IProbe
+            {
+                void RtsKeyword.IProbe.Run()
+                {
+                    _ = @class();
+                }
+
+                public int @class() => 42;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Holder",
+                    "RtsKeyword.IProbe.Run",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Equal(
+                1,
+                result.Source.Split("public int @class()", StringSplitOptions.None).Length - 1);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_MultiMemberExternalExplicitInterfaceWithUnspellableSiblingFallsBackWithoutRecompileFail()
     {
         // #3112 Increment 2 whole-surface atomicity: engaging a multi-member external interface
@@ -3218,6 +6346,30 @@ public class ReturnToSenderPrototypeTests
             Assert.False(result.UsedCompileBackFloor, result.Detail);
             Assert.Contains("static int IParseable.Parse(string text)", result.Source, StringComparison.Ordinal);
             Assert.DoesNotContain("IParseable_Parse", result.Source, StringComparison.Ordinal);
+            Assert.NotNull(result.DonorPe);
+            using var donorPe = new PEReader(new MemoryStream((byte[])result.DonorPe!));
+            var donorReader = donorPe.GetMetadataReader();
+            var targetType = Assert.Single(
+                donorReader.TypeDefinitions,
+                handle => donorReader.GetString(donorReader.GetTypeDefinition(handle).Name)
+                    == "ExplicitStaticFixture");
+            var targetMethod = Assert.Single(
+                donorReader.GetTypeDefinition(targetType).GetMethods(),
+                handle => donorReader.GetString(donorReader.GetMethodDefinition(handle).Name)
+                    == "IParseable.Parse");
+            Assert.Contains(
+                donorReader.GetTypeDefinition(targetType).GetMethodImplementations(),
+                handle =>
+                {
+                    var implementation = donorReader.GetMethodImplementation(handle);
+                    return implementation.MethodBody == targetMethod
+                        && implementation.MethodDeclaration.Kind == HandleKind.MethodDefinition
+                        && donorReader.GetString(
+                            donorReader.GetTypeDefinition(
+                                donorReader.GetMethodDefinition(
+                                    (MethodDefinitionHandle)implementation.MethodDeclaration)
+                                    .GetDeclaringType()).Name) == "IParseable";
+                });
         }
         finally
         {
@@ -4427,15 +7579,8 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_FallsBackToCompileBackFloorForAttributeShellStall()
+    public void CompileBackFirstPropertyGetter_RepairsAbstractBaseMemberShell()
     {
-        // Issue #2527: base-class reconstruction restores same-assembly base classes,
-        // so the old dropped-base attribute stall no longer occurs. A concrete shell
-        // that inherits an abstract member it does not itself consume still cannot
-        // satisfy that obligation (CS0534) — the growth loop does not synthesize
-        // abstract/interface member implementations. The shell stalls with a complete
-        // payload; the compile-back floor (which compiles the decompiled member
-        // against the full original assembly) rescues it.
         var assemblyPath = CompileFixture("""
             public abstract class Shape
             {
@@ -4453,18 +7598,12 @@ public class ReturnToSenderPrototypeTests
         {
             var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
-            Assert.True(result.UsedCompileBackFloor, result.Detail);
-            Assert.NotNull(result.CompileBackFloor);
-            Assert.True(
-                result.Status is FidelityCheck.CompileBackStatus.Exact
-                    or FidelityCheck.CompileBackStatus.OpcodeDiff
-                    or FidelityCheck.CompileBackStatus.OperandDiff,
-                result.Detail);
-            Assert.Equal(result.CompileBackFloor.Status, result.Status);
-            Assert.Contains("compile-back-floor", result.Detail);
-            Assert.Contains("CS0534", result.Detail);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "abstract-base-member-stubbed");
             Assert.Contains("Corners", result.TargetBody);
-            Assert.Contains("Corners", result.Source);
             Assert.NotNull(result.MemberAnchor);
         }
         finally
@@ -4477,34 +7616,27 @@ public class ReturnToSenderPrototypeTests
     public void CorpusParity_DoesNotApplyCompileBackFloorToRtsFailure()
     {
         var assemblyPath = CompileFixture("""
-            public abstract class Shape
+            public sealed class Holder
             {
-                protected abstract int Corners();
-            }
-
-            public sealed class Triangle : Shape
-            {
-                protected override int Corners() => 3;
-
-                public int First => Corners();
+                public int Compute() => 1;
             }
             """);
         try
         {
-            var target = new ReturnToSender.RequestedTarget("Triangle", "get_First", 0);
-            var floored = Assert.Single(ReturnToSender.CompileBackTargets(assemblyPath, [target]));
-            Assert.True(floored.UsedCompileBackFloor, floored.Detail);
-            var reference = Assert.IsType<FidelityCheck.CompileBackResult>(floored.CompileBackFloor);
-
-            var native = Assert.Single(ReturnToSender.CompileBackTargets(
+            var target = new ReturnToSender.RequestedTarget("Holder", "Compute", 0);
+            var reference = Assert.Single(
+                FidelityCheck.Evaluate(assemblyPath),
+                row => row.Type == "Holder" && row.Method == "Compute");
+            var exact = Assert.Single(ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [target],
                 applyCompileBackFloor: false));
-            Assert.False(native.UsedCompileBackFloor);
-            Assert.True(
-                native.Status is FidelityCheck.CompileBackStatus.RecompileFail
-                    or FidelityCheck.CompileBackStatus.ContextFail,
-                $"{native.Status}: {native.Detail}");
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, exact.Status);
+            var native = exact with
+            {
+                Status = FidelityCheck.CompileBackStatus.RecompileFail,
+                Detail = "synthetic native RTS failure",
+            };
 
             var aligned = CorpusSensor.AlignReturnToSenderResultsForTesting([reference], [native]);
             var parity = CorpusSensor.SummarizeReturnToSenderParityForTesting([reference], aligned);
@@ -7484,7 +10616,14 @@ public class ReturnToSenderPrototypeTests
             Overload: overload,
             SignatureText: "",
             ClosureRoots: new HashSet<TypeDefinitionHandle> { typeHandle },
-            ClosureFacts: new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>());
+            ClosureFacts: new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>())
+        {
+            MemberSurfaceByDefinitionName = CompileBackSourceComposer.CreateMemberSurfaceIndex(
+                ApiSurfaceExtractor.Extract(
+                    reader,
+                    includeAll: true,
+                    includeCompilerGenerated: true)),
+        };
         ReturnToSenderSourceIndex? sourceIndex;
         if (useRawSourceIndex)
         {
@@ -7887,6 +11026,84 @@ public class ReturnToSenderPrototypeTests
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             Assert.Contains("public int this[int index]", result.Source);
             Assert.Contains("set", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsCustomNamedIndexerSetter()
+    {
+        var assemblyPath = CompileFixture("""
+            using System.Runtime.CompilerServices;
+
+            public sealed class Holder
+            {
+                private int _value;
+
+                [IndexerName("Custom")]
+                public int this[int index]
+                {
+                    set { _value = index + value; }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "set_Custom", 0)],
+                false));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("IndexerName", result.Source, StringComparison.Ordinal);
+            Assert.Contains("public int this[int index]", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Theory]
+    [InlineData("get_class")]
+    [InlineData("set_class")]
+    public void CompileBackTargets_RoundTripsKeywordNamedIndexer(string methodName)
+    {
+        var assemblyPath = CompileFixture("""
+            using System.Runtime.CompilerServices;
+
+            public sealed class Holder
+            {
+                private int _value;
+
+                [IndexerName("class")]
+                public int this[int index]
+                {
+                    get => _value + index;
+                    set { _value = value; }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", methodName, 0)],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Selected));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains(
+                "IndexerNameAttribute(\"class\")",
+                result.Source,
+                StringComparison.Ordinal);
         }
         finally
         {
@@ -8639,7 +11856,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_DoesNotMarkUserBaseOverrideWithoutBaseShell()
+    public void CompileBackTargets_DemotesUserOverrideWhenBaseSlotIsUnavailable()
     {
         var assemblyPath = CompileFixture("""
             public abstract class BaseNode
@@ -8659,7 +11876,8 @@ public class ReturnToSenderPrototypeTests
                 [new ReturnToSender.RequestedTarget("DerivedNode", "Describe", 0)]));
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-            Assert.Contains("public string Describe()", result.Source);
+            Assert.True(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("public virtual string Describe()", result.Source);
             Assert.DoesNotContain("override string Describe", result.Source);
         }
         finally
@@ -9185,6 +12403,249 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_ClusterPreservesNestedGenericIncrementDecrementOperators()
+    {
+        var assemblyPath = CompileNestedGenericIncrementDecrementFixture();
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Selected));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            var counter = Assert.Single(
+                result.Plan.Types,
+                type => type.Type.MetadataFullName == "Outer`1.Counter");
+            Assert.Single(counter.Members, member =>
+                member.Name == "op_Increment"
+                && member.IsOperator
+                && member.SourceFacts.Any(
+                    fact => fact.Id == "typed-closure-method"
+                        && fact.Detail == "op_Increment"));
+            Assert.Single(counter.Members, member =>
+                member.Name == "op_Decrement"
+                && member.IsOperator
+                && member.SourceFacts.Any(
+                    fact => fact.Id == "typed-closure-method"
+                        && fact.Detail == "op_Decrement"));
+            Assert.Contains("operator ++", result.Source, StringComparison.Ordinal);
+            Assert.Contains("operator --", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "operator-not-representable");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_AllFullRepresentsNestedGenericIncrementDecrementOperators()
+    {
+        var assemblyPath = CompileNestedGenericIncrementDecrementFixture();
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(
+                result.BodyComplete,
+                string.Join(
+                    Environment.NewLine,
+                    result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+            Assert.Single(
+                result.FullBodies,
+                body => body.Member.EndsWith(".op_Increment", StringComparison.Ordinal)
+                    && body.Status == MemberBodyProductionStatus.Complete);
+            Assert.Single(
+                result.FullBodies,
+                body => body.Member.EndsWith(".op_Decrement", StringComparison.Ordinal)
+                    && body.Status == MemberBodyProductionStatus.Complete);
+            Assert.Contains("operator ++", result.Source, StringComparison.Ordinal);
+            Assert.Contains("operator --", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason is "operator-not-representable"
+                    or "declaration-not-represented");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ClusterPreservesDerivedReturnIncrementDecrementTargets()
+    {
+        var assemblyPath = CompileDerivedReturnIncrementDecrementFixture();
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Counter", "op_Increment", 0),
+                    new ReturnToSender.RequestedTarget("Counter", "op_Decrement", 0),
+                ],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Selected);
+
+            Assert.Collection(
+                results,
+                increment => AssertDerivedReturnOperator(
+                    increment,
+                    "op_Increment",
+                    "IncrementedCounter operator ++"),
+                decrement => AssertDerivedReturnOperator(
+                    decrement,
+                    "op_Decrement",
+                    "DecrementedCounter operator --"));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+
+        static void AssertDerivedReturnOperator(
+            ReturnToSender.Result result,
+            string methodName,
+            string declaration)
+        {
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            var counter = Assert.Single(result.Plan.Types, type => type.Name == "Counter");
+            Assert.Contains(
+                counter.Members,
+                member => member.Name == methodName && member.IsOperator);
+            var member = Assert.Single(
+                result.Plan.PrintRequests.SelectMany(request => request.Members),
+                member => member.Name == methodName);
+            Assert.True(member.CSharpOperatorDeclaration);
+            Assert.Contains(declaration, result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "operator-not-representable");
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_AllFullRepresentsDerivedReturnIncrementDecrementOperators()
+    {
+        var assemblyPath = CompileDerivedReturnIncrementDecrementFixture();
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(
+                result.BodyComplete,
+                string.Join(
+                    Environment.NewLine,
+                    result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+            Assert.Single(
+                result.FullBodies,
+                body => body.Member == "Counter.op_Increment"
+                    && body.Status == MemberBodyProductionStatus.Complete);
+            Assert.Single(
+                result.FullBodies,
+                body => body.Member == "Counter.op_Decrement"
+                    && body.Status == MemberBodyProductionStatus.Complete);
+            Assert.Contains(
+                "IncrementedCounter operator ++",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "DecrementedCounter operator --",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason is "operator-not-representable"
+                    or "declaration-not-represented");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_UnrepresentableIncrementDecrementTargetsStayRawMethods()
+    {
+        var assemblyPath = EmitUnrepresentableIncrementDecrementFixture();
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Poison", "op_Increment", 0),
+                    new ReturnToSender.RequestedTarget("Poison", "op_Decrement", 0),
+                ],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Selected);
+
+            Assert.Collection(
+                results,
+                increment => AssertUnrepresentableOperator(
+                    increment,
+                    "op_Increment",
+                    "operator ++"),
+                decrement => AssertUnrepresentableOperator(
+                    decrement,
+                    "op_Decrement",
+                    "operator --"));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+
+        static void AssertUnrepresentableOperator(
+            ReturnToSender.Result result,
+            string methodName,
+            string operatorDeclaration)
+        {
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            var poison = Assert.Single(result.Plan.Types, type => type.Name == "Poison");
+            var requirement = Assert.Single(
+                poison.Members,
+                member => member.Name == methodName);
+            Assert.False(requirement.IsOperator);
+            var member = Assert.Single(
+                result.Plan.PrintRequests.SelectMany(request => request.Members),
+                member => member.Name == methodName);
+            Assert.Null(member.CSharpOperatorDeclaration);
+            Assert.Contains($"string {methodName}(Poison value)", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(operatorDeclaration, result.Source, StringComparison.Ordinal);
+            Assert.Contains(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "operator-not-representable"
+                    && diagnostic.Detail.Contains(methodName, StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_PreservesCheckedBinaryOperatorSibling()
     {
         var assemblyPath = CompileFixture("""
@@ -9225,10 +12686,10 @@ public class ReturnToSenderPrototypeTests
             var addition = Assert.Single(number.Members, member => member.Name == "op_Addition");
             Assert.Contains(
                 addition.SourceFacts,
-                fact => fact.Id == "operator-pair-sibling" && fact.Detail == "op_Addition");
+                fact => fact.Id == "closure-method" && fact.Detail == "op_Addition");
             Assert.DoesNotContain(
                 addition.SourceFacts,
-                fact => fact.Id == "typed-closure-method");
+                fact => fact.Id == "operator-pair-sibling");
         }
         finally
         {
@@ -9264,8 +12725,14 @@ public class ReturnToSenderPrototypeTests
                 },
                 typedEquals =>
                 {
-                    Assert.True(
-                        typedEquals.Status == FidelityCheck.CompileBackStatus.OperandDiff,
+                    Assert.Equal(
+                        FidelityCheck.CompileBackStatus.ContextFail,
+                        typedEquals.Status);
+                    Assert.Contains(
+                        typedEquals.Plan.Diagnostics,
+                        diagnostic => diagnostic.Reason == "implicit-interface-not-reconstructed");
+                    Assert.False(
+                        typedEquals.Status == FidelityCheck.CompileBackStatus.Exact,
                         $"{typedEquals.Status}: {typedEquals.Detail}{Environment.NewLine}{typedEquals.Source}");
                     Assert.Contains("public bool Equals(Row other)", typedEquals.Source);
                     Assert.Contains("public string Name;", typedEquals.Source);
@@ -9402,7 +12869,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_EmitsSignatureMatchedEqualityOperatorPairSibling()
+    public void CompileBackTargets_EmitsProductEqualityOperatorSurface()
     {
         var assemblyPath = CompileFixture("""
             public sealed class Row
@@ -9424,7 +12891,8 @@ public class ReturnToSenderPrototypeTests
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             Assert.Contains("operator ==(Row left, string right)", result.Source);
             Assert.Contains("operator !=(Row left, string right)", result.Source);
-            Assert.DoesNotContain("operator !=(Row left, Row right)", result.Source);
+            Assert.Contains("operator ==(Row left, Row right)", result.Source);
+            Assert.Contains("operator !=(Row left, Row right)", result.Source);
         }
         finally
         {
@@ -9992,13 +13460,8 @@ public class ReturnToSenderPrototypeTests
     [Fact]
     public void CompileBackTargets_FullExplicitInterfaceEventTargetDoesNotDoubleDeclare()
     {
-        // Issue #3007 follow-up (PR #3075 review): the Full member surface folds events by the
-        // sanitized full metadata name ("IBaseEvents.Changed") while an explicit-interface event
-        // target requirement carries the stripped identity ("Changed"). Enabling the surface for
-        // such a target missed the fold and appended a SECOND `event Action IBaseEvents.Changed`
-        // with a `throw null` accessor (CS8646/CS0102) while still reporting BodyComplete=true — a
-        // double-declaration false success. Declining the surface for explicit-interface targets
-        // restores the pre-#3007 single-accessor shape and the honest incomplete floor.
+        // The Full surface identifies events by their raw metadata name. An explicit event target
+        // therefore folds into its surface event rather than appending a second declaration.
         var assemblyPath = CompileFixture("""
             using System;
 
@@ -10033,10 +13496,7 @@ public class ReturnToSenderPrototypeTests
                 $"Expected a single explicit-interface event declaration, found {declarations}.{Environment.NewLine}{result.Source}");
             Assert.DoesNotContain("throw null", result.Source, StringComparison.Ordinal);
 
-            // The sibling remover and the constructor are not represented under the declined
-            // surface, so BodyComplete is honestly false rather than an inflated double-declaration
-            // success (coherent explicit-interface reconstruction is out of #3007's scope).
-            Assert.False(
+            Assert.True(
                 result.BodyComplete,
                 string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
         }
@@ -10385,6 +13845,104 @@ public class ReturnToSenderPrototypeTests
         pe.Serialize(image);
         return image.ToArray();
     }
+
+    // Hand-authored IL exercising MethodImpl table order against canonical declaration
+    // identity: two interfaces declare the same event shape, and `Probe` satisfies both with
+    // one pair of accessors whose canonical metadata names spell `IA`. The `.override` rows
+    // are emitted IB-first, so table order disagrees with the accessor's own name. `Solo` is
+    // the single-row control. Assembled with ilasm because C# cannot emit one accessor
+    // carrying overrides for two interfaces.
+    const string MultiOverrideEventIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly eventoverride { }
+        .module eventoverride.dll
+
+        .class interface public abstract auto ansi IA
+        {
+          .method public hidebysig newslot specialname abstract virtual
+              instance void add_Changed(class [System.Runtime]System.Action 'value') cil managed {}
+          .method public hidebysig newslot specialname abstract virtual
+              instance void remove_Changed(class [System.Runtime]System.Action 'value') cil managed {}
+          .event [System.Runtime]System.Action Changed
+          {
+            .addon instance void IA::add_Changed(class [System.Runtime]System.Action)
+            .removeon instance void IA::remove_Changed(class [System.Runtime]System.Action)
+          }
+        }
+
+        .class interface public abstract auto ansi IB
+        {
+          .method public hidebysig newslot specialname abstract virtual
+              instance void add_Changed(class [System.Runtime]System.Action 'value') cil managed {}
+          .method public hidebysig newslot specialname abstract virtual
+              instance void remove_Changed(class [System.Runtime]System.Action 'value') cil managed {}
+          .event [System.Runtime]System.Action Changed
+          {
+            .addon instance void IB::add_Changed(class [System.Runtime]System.Action)
+            .removeon instance void IB::remove_Changed(class [System.Runtime]System.Action)
+          }
+        }
+
+        .class public auto ansi sealed beforefieldinit Probe
+            extends [System.Runtime]System.Object
+            implements IA, IB
+        {
+          .method private hidebysig newslot specialname virtual final
+              instance void 'IA.add_Changed'(class [System.Runtime]System.Action 'value') cil managed
+          {
+            .override IB::add_Changed
+            .override IA::add_Changed
+            ret
+          }
+          .method private hidebysig newslot specialname virtual final
+              instance void 'IA.remove_Changed'(class [System.Runtime]System.Action 'value') cil managed
+          {
+            .override IB::remove_Changed
+            .override IA::remove_Changed
+            ret
+          }
+          .event [System.Runtime]System.Action 'IA.Changed'
+          {
+            .addon instance void Probe::'IA.add_Changed'(class [System.Runtime]System.Action)
+            .removeon instance void Probe::'IA.remove_Changed'(class [System.Runtime]System.Action)
+          }
+          .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
+          {
+            ldarg.0
+            call instance void [System.Runtime]System.Object::.ctor()
+            ret
+          }
+        }
+
+        .class public auto ansi sealed beforefieldinit Solo
+            extends [System.Runtime]System.Object
+            implements IA
+        {
+          .method private hidebysig newslot specialname virtual final
+              instance void 'IA.add_Changed'(class [System.Runtime]System.Action 'value') cil managed
+          {
+            .override IA::add_Changed
+            ret
+          }
+          .method private hidebysig newslot specialname virtual final
+              instance void 'IA.remove_Changed'(class [System.Runtime]System.Action 'value') cil managed
+          {
+            .override IA::remove_Changed
+            ret
+          }
+          .event [System.Runtime]System.Action 'IA.Changed'
+          {
+            .addon instance void Solo::'IA.add_Changed'(class [System.Runtime]System.Action)
+            .removeon instance void Solo::'IA.remove_Changed'(class [System.Runtime]System.Action)
+          }
+          .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
+          {
+            ldarg.0
+            call instance void [System.Runtime]System.Object::.ctor()
+            ret
+          }
+        }
+        """;
 
     // Hand-authored IL exercising the shadowing-sibling regression: a class with a clean
     // explicit-interface metadata name for System.Collections.IEnumerable.GetEnumerator plus
@@ -10750,6 +14308,49 @@ public class ReturnToSenderPrototypeTests
         return dllPath;
     }
 
+    static TResult InvokeDonorComparer<TResult>(
+        byte[] assemblyBytes,
+        Func<System.Collections.IEqualityComparer, TResult> action)
+    {
+        var context = new System.Runtime.Loader.AssemblyLoadContext(
+            $"rts-donor-{Guid.NewGuid():N}",
+            isCollectible: true);
+        try
+        {
+            using var stream = new MemoryStream(assemblyBytes, writable: false);
+            var assembly = context.LoadFromStream(stream);
+            var holder = (System.Collections.IEqualityComparer)Activator.CreateInstance(
+                assembly.GetType("Holder", throwOnError: true)!)!;
+            return action(holder);
+        }
+        finally
+        {
+            context.Unload();
+        }
+    }
+
+    static string InvokeDonorGenericOverride(byte[] assemblyBytes)
+    {
+        var context = new System.Runtime.Loader.AssemblyLoadContext(
+            $"rts-donor-{Guid.NewGuid():N}",
+            isCollectible: true);
+        try
+        {
+            using var stream = new MemoryStream(assemblyBytes, writable: false);
+            var assembly = context.LoadFromStream(stream);
+            var derived = Activator.CreateInstance(
+                assembly.GetType("DerivedNode", throwOnError: true)!)!;
+            return Assert.IsType<string>(assembly
+                .GetType("DispatchProbe", throwOnError: true)!
+                .GetMethod("Run")!
+                .Invoke(null, [derived]));
+        }
+        finally
+        {
+            context.Unload();
+        }
+    }
+
     static string CompileFixture(
         string source,
         string? directory = null,
@@ -10774,6 +14375,489 @@ public class ReturnToSenderPrototypeTests
 
         var emit = compilation.Emit(path);
         Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
+        return path;
+    }
+
+    static string CompileNestedGenericIncrementDecrementFixture()
+        => CompileFixture("""
+            public class Outer<T>
+            {
+                public sealed class Counter
+                {
+                    public int Value;
+
+                    public Counter(int value)
+                    {
+                        Value = value;
+                    }
+
+                    public static Outer<T>.Counter operator ++(Counter value)
+                        => new Outer<T>.Counter(value.Value + 1);
+
+                    public static Outer<T>.Counter operator --(Counter value)
+                        => new Outer<T>.Counter(value.Value - 1);
+                }
+            }
+
+            public static class Target
+            {
+                public static Outer<int>.Counter Run(Outer<int>.Counter value)
+                {
+                    value++;
+                    value--;
+                    return value;
+                }
+            }
+            """);
+
+    static string CompileDerivedReturnIncrementDecrementFixture()
+        => CompileFixture("""
+            public class Counter
+            {
+                public static IncrementedCounter operator ++(Counter value)
+                    => new IncrementedCounter();
+
+                public static DecrementedCounter operator --(Counter value)
+                    => new DecrementedCounter();
+            }
+
+            public sealed class IncrementedCounter : Counter;
+
+            public sealed class DecrementedCounter : Counter;
+
+            public static class Target
+            {
+                public static int Run() => 42;
+            }
+            """);
+
+    static string EmitUnrepresentableIncrementDecrementFixture()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"return-to-sender-unrepresentable-increment-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "fixture.dll");
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new AssemblyName("fixture"),
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("fixture");
+
+        var poison = module.DefineType("Poison", TypeAttributes.Public | TypeAttributes.Class);
+        foreach (string methodName in new[] { "op_Increment", "op_Decrement" })
+        {
+            var method = poison.DefineMethod(
+                methodName,
+                MethodAttributes.Public | MethodAttributes.Static
+                    | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                typeof(string),
+                [poison]);
+            method.DefineParameter(1, ParameterAttributes.None, "value");
+            var il = method.GetILGenerator();
+            il.Emit(System.Reflection.Emit.OpCodes.Ldnull);
+            il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        }
+        poison.CreateType();
+
+        assembly.Save(path);
+        return path;
+    }
+
+    static string EmitUnownedSpecialNameAccessorFixture()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"return-to-sender-special-name-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "fixture.dll");
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new AssemblyName("fixture"),
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("fixture");
+        var type = module.DefineType(
+            "Target",
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
+        var accessorLikeMethod = type.DefineMethod(
+            "get_Value",
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+            typeof(int),
+            Type.EmptyTypes);
+        var accessorIl = accessorLikeMethod.GetILGenerator();
+        accessorIl.Emit(System.Reflection.Emit.OpCodes.Ldc_I4_7);
+        accessorIl.Emit(System.Reflection.Emit.OpCodes.Ret);
+        var run = type.DefineMethod(
+            "Run",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(int),
+            Type.EmptyTypes);
+        var runIl = run.GetILGenerator();
+        runIl.Emit(System.Reflection.Emit.OpCodes.Call, accessorLikeMethod);
+        runIl.Emit(System.Reflection.Emit.OpCodes.Ret);
+        type.CreateType();
+
+        var semanticsType = module.DefineType(
+            "SemanticsFixture",
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
+        var getter = semanticsType.DefineMethod(
+            "get_Value",
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+            typeof(int),
+            Type.EmptyTypes);
+        getter.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ldc_I4_1);
+        getter.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+        var otherProperty = DefineVoidMethod(semanticsType, "OtherProperty", Type.EmptyTypes);
+        var property = semanticsType.DefineProperty(
+            "Value",
+            PropertyAttributes.None,
+            typeof(int),
+            null);
+        property.SetGetMethod(getter);
+        property.AddOtherMethod(otherProperty);
+        var adder = DefineVoidMethod(semanticsType, "add_Changed", [typeof(Action)]);
+        var remover = DefineVoidMethod(semanticsType, "remove_Changed", [typeof(Action)]);
+        var raiser = DefineVoidMethod(semanticsType, "RaiseChanged", Type.EmptyTypes);
+        var otherEvent = DefineVoidMethod(semanticsType, "OtherEvent", Type.EmptyTypes);
+        var @event = semanticsType.DefineEvent(
+            "Changed",
+            EventAttributes.None,
+            typeof(Action));
+        @event.SetAddOnMethod(adder);
+        @event.SetRemoveOnMethod(remover);
+        @event.SetRaiseMethod(raiser);
+        @event.AddOtherMethod(otherEvent);
+        semanticsType.CreateType();
+
+        assembly.Save(path);
+        return path;
+
+        static System.Reflection.Emit.MethodBuilder DefineVoidMethod(
+            System.Reflection.Emit.TypeBuilder type,
+            string name,
+            Type[] parameters)
+        {
+            var method = type.DefineMethod(
+                name,
+                MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+                typeof(void),
+                parameters);
+            method.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+            return method;
+        }
+    }
+
+    static string EmitTypeNameCollisionFixture()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"return-to-sender-type-name-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "fixture.dll");
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new AssemblyName("fixture"),
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("fixture");
+
+        var outer = module.DefineType("N", TypeAttributes.Public | TypeAttributes.Class);
+        var nested = outer.DefineNestedType("C", TypeAttributes.NestedPublic | TypeAttributes.Class);
+        DefineConstantMethod(nested, "Nested", 2);
+        DefineConstantMethod(nested, "Shared", 3);
+        DefineConstantMethod(nested, "SignatureShared", 6, typeof(string));
+        nested.CreateType();
+        outer.CreateType();
+
+        var dotted = module.DefineType("N.C", TypeAttributes.Public | TypeAttributes.Class);
+        DefineConstantMethod(dotted, "Top", 1);
+        DefineConstantMethod(dotted, "Shared", 4);
+        DefineConstantMethod(dotted, "SignatureShared", 7, typeof(int));
+        dotted.CreateType();
+
+        var target = module.DefineType(
+            "Target",
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
+        DefineConstantMethod(target, "Run", 5);
+        target.CreateType();
+
+        assembly.Save(path);
+        return path;
+
+        static void DefineConstantMethod(
+            System.Reflection.Emit.TypeBuilder type,
+            string name,
+            int value,
+            params Type[] parameterTypes)
+        {
+            var method = type.DefineMethod(
+                name,
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(int),
+                parameterTypes);
+            var il = method.GetILGenerator();
+            il.Emit(System.Reflection.Emit.OpCodes.Ldc_I4, value);
+            il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        }
+    }
+
+    static void CorruptMethodBody(
+        string assemblyPath,
+        string typeName,
+        string methodName)
+    {
+        var image = File.ReadAllBytes(assemblyPath);
+        using var pe = new PEReader(new MemoryStream(image, writable: false));
+        var reader = pe.GetMetadataReader();
+        var typeHandle = Assert.Single(
+            reader.TypeDefinitions,
+            handle =>
+            {
+                var definition = reader.GetTypeDefinition(handle);
+                return reader.GetFullTypeName(definition) == typeName
+                    && definition.GetDeclaringType().IsNil
+                    && definition.GetMethods().Any(methodHandle =>
+                        reader.GetString(reader.GetMethodDefinition(methodHandle).Name) == methodName);
+            });
+        var methodHandle = Assert.Single(
+            reader.GetTypeDefinition(typeHandle).GetMethods(),
+            handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == methodName);
+        int rva = reader.GetMethodDefinition(methodHandle).RelativeVirtualAddress;
+        var section = pe.PEHeaders.SectionHeaders.Single(section =>
+            rva >= section.VirtualAddress
+            && rva < section.VirtualAddress + Math.Max(section.VirtualSize, section.SizeOfRawData));
+        int bodyOffset = section.PointerToRawData + rva - section.VirtualAddress;
+        image[bodyOffset] = 0;
+        File.WriteAllBytes(assemblyPath, image);
+    }
+
+    static string EmitDuplicateTypeDefinitionFixture()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"return-to-sender-duplicate-typedef-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "fixture.dll");
+
+        var metadata = new MetadataBuilder();
+        metadata.AddAssembly(
+            metadata.GetOrAddString("fixture"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            AssemblyHashAlgorithm.Sha1);
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("fixture.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        var corlib = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            metadata.GetOrAddBlob(
+                new byte[] { 0xB0, 0x3F, 0x5F, 0x7F, 0x11, 0xD5, 0x0A, 0x3A }),
+            default,
+            default);
+        var systemObject = metadata.AddTypeReference(
+            corlib,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+
+        var constructorSignature = new BlobBuilder();
+        new BlobEncoder(constructorSignature)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(0, returnType => returnType.Void(), _ => { });
+        var constructorSignatureHandle = metadata.GetOrAddBlob(constructorSignature);
+        var objectConstructor = metadata.AddMemberReference(
+            systemObject,
+            metadata.GetOrAddString(".ctor"),
+            constructorSignatureHandle);
+        var intSignature = new BlobBuilder();
+        new BlobEncoder(intSignature)
+            .MethodSignature()
+            .Parameters(0, returnType => returnType.Type().Int32(), _ => { });
+        var intSignatureHandle = metadata.GetOrAddBlob(intSignature);
+
+        var methodBodies = new BlobBuilder();
+        var bodies = new MethodBodyStreamEncoder(methodBodies);
+        var decoyBody = new InstructionEncoder(new BlobBuilder());
+        decoyBody.LoadConstantI4(7);
+        decoyBody.OpCode(ILOpCode.Ret);
+        var decoy = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Decoy"),
+            intSignatureHandle,
+            bodies.AddMethodBody(decoyBody),
+            default);
+        var constructorBody = new InstructionEncoder(new BlobBuilder());
+        constructorBody.OpCode(ILOpCode.Ldarg_0);
+        constructorBody.Call(objectConstructor);
+        constructorBody.OpCode(ILOpCode.Ret);
+        var constructor = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.HideBySig
+                | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(".ctor"),
+            constructorSignatureHandle,
+            bodies.AddMethodBody(constructorBody),
+            default);
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            decoy);
+        var first = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.BeforeFieldInit,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("C"),
+            systemObject,
+            MetadataTokens.FieldDefinitionHandle(1),
+            decoy);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.BeforeFieldInit,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("C"),
+            systemObject,
+            MetadataTokens.FieldDefinitionHandle(1),
+            constructor);
+        var marker = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic | TypeAttributes.Class | TypeAttributes.BeforeFieldInit,
+            default,
+            metadata.GetOrAddString("MarkerFromRowA"),
+            systemObject,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(3));
+        metadata.AddNestedType(marker, first);
+
+        var peBuilder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            methodBodies);
+        var image = new BlobBuilder();
+        peBuilder.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
+        return path;
+    }
+
+    static string EmitUnrepresentableOperatorFixture(bool staticZeroParameter)
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"return-to-sender-unrepresentable-operator-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "fixture.dll");
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new AssemblyName("fixture"),
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("fixture");
+
+        var poison = module.DefineType("Poison", TypeAttributes.Public | TypeAttributes.Class);
+        var constructor = poison.DefineDefaultConstructor(MethodAttributes.Public);
+        var op = poison.DefineMethod(
+            "op_Addition",
+            staticZeroParameter
+                ? MethodAttributes.Public | MethodAttributes.Static
+                    | MethodAttributes.SpecialName | MethodAttributes.HideBySig
+                : MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+            typeof(int),
+            staticZeroParameter ? Type.EmptyTypes : [typeof(int), typeof(int)]);
+        var opIl = op.GetILGenerator();
+        opIl.Emit(System.Reflection.Emit.OpCodes.Ldc_I4_0);
+        opIl.Emit(System.Reflection.Emit.OpCodes.Ret);
+        poison.CreateType();
+
+        var target = module.DefineType(
+            "Target",
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
+        var run = target.DefineMethod(
+            "Run",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(int),
+            Type.EmptyTypes);
+        var runIl = run.GetILGenerator();
+        if (staticZeroParameter)
+        {
+            runIl.Emit(System.Reflection.Emit.OpCodes.Call, op);
+        }
+        else
+        {
+            runIl.Emit(System.Reflection.Emit.OpCodes.Newobj, constructor);
+            runIl.Emit(System.Reflection.Emit.OpCodes.Ldc_I4_1);
+            runIl.Emit(System.Reflection.Emit.OpCodes.Ldc_I4_2);
+            runIl.Emit(System.Reflection.Emit.OpCodes.Call, op);
+        }
+        runIl.Emit(System.Reflection.Emit.OpCodes.Ret);
+        target.CreateType();
+
+        assembly.Save(path);
+        return path;
+    }
+
+    static string EmitUnpairedOperatorFixture(bool checkedAddition)
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"return-to-sender-unpaired-operator-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "fixture.dll");
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new AssemblyName("fixture"),
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("fixture");
+        var number = module.DefineType(
+            "Number",
+            TypeAttributes.Public | TypeAttributes.Class);
+        number.DefineDefaultConstructor(MethodAttributes.Public);
+        var method = number.DefineMethod(
+            checkedAddition ? "op_CheckedAddition" : "op_Equality",
+            MethodAttributes.Public | MethodAttributes.Static
+                | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+            checkedAddition ? number : typeof(bool),
+            [number, number]);
+        var il = method.GetILGenerator();
+        if (checkedAddition)
+            il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0);
+        else
+            il.Emit(System.Reflection.Emit.OpCodes.Ldc_I4_1);
+        il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        number.CreateType();
+        assembly.Save(path);
+        return path;
+    }
+
+    static string EmitNonDestructorFinalizerFixture()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"return-to-sender-suppressed-finalizer-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "fixture.dll");
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new AssemblyName("fixture"),
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("fixture");
+
+        var type = module.DefineType("Target", TypeAttributes.Public | TypeAttributes.Class);
+        var cleanup = type.DefineMethod(
+            "Cleanup",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(void),
+            Type.EmptyTypes);
+        cleanup.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+        var finalizer = type.DefineMethod(
+            "Finalize",
+            MethodAttributes.Family | MethodAttributes.Virtual | MethodAttributes.HideBySig,
+            typeof(void),
+            Type.EmptyTypes);
+        var finalizerIl = finalizer.GetILGenerator();
+        finalizerIl.Emit(System.Reflection.Emit.OpCodes.Call, cleanup);
+        finalizerIl.Emit(System.Reflection.Emit.OpCodes.Ret);
+        type.CreateType();
+
+        assembly.Save(path);
         return path;
     }
 

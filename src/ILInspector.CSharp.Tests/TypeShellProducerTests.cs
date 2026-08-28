@@ -197,6 +197,71 @@ public sealed class TypeShellProducerTests
     }
 
     [Fact]
+    public void MemberShellProducer_PreservesCustomIndexerMetadataName()
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "Custom",
+            Kind: CSharpShellMemberKind.PropertySet,
+            IsStatic: false,
+            Parameters: [new CSharpShellParameter("index", "int")],
+            ReturnType: "int",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.TargetBody,
+            Body: "return;",
+            Attributes: ["Contoso.NotIndexerName"],
+            MetadataName: "Custom"));
+
+        Assert.Contains("Contoso.NotIndexerName", policy.Member.Attributes);
+        Assert.Contains(
+            "System.Runtime.CompilerServices.IndexerNameAttribute(\"Custom\")",
+            policy.Member.Attributes);
+
+        var ordinary = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "Item",
+            Kind: CSharpShellMemberKind.PropertyGet,
+            IsStatic: false,
+            Parameters: [new CSharpShellParameter("index", "int")],
+            ReturnType: "int",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.Throw,
+            Body: null));
+        var explicitImplementation = CSharpMemberShellProducer.BuildPolicy(
+            new CSharpMemberShellSpec(
+                Name: "Custom",
+                Kind: CSharpShellMemberKind.PropertyGet,
+                IsStatic: false,
+                Parameters: [new CSharpShellParameter("index", "int")],
+                ReturnType: "int",
+                TypeParameters: [],
+                BodyKind: CSharpShellBodyKind.Throw,
+                Body: null,
+                ExplicitInterfaceMemberName: "IValues.Custom",
+                MetadataName: "Custom"));
+
+        Assert.DoesNotContain(
+            ordinary.Member.Attributes,
+            attribute => attribute.Contains("IndexerName", StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            explicitImplementation.Member.Attributes,
+            attribute => attribute.Contains("IndexerName", StringComparison.Ordinal));
+
+        var keyword = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "@class",
+            Kind: CSharpShellMemberKind.PropertyGet,
+            IsStatic: false,
+            Parameters: [new CSharpShellParameter("index", "int")],
+            ReturnType: "int",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.Throw,
+            Body: null,
+            MetadataName: "class"));
+
+        Assert.Contains(
+            "System.Runtime.CompilerServices.IndexerNameAttribute(\"class\")",
+            keyword.Member.Attributes);
+    }
+
+    [Fact]
     public void MemberShellProducer_ComposesExplicitInterfaceEventWithSiblingBody()
     {
         var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
@@ -379,7 +444,10 @@ public sealed class TypeShellProducerTests
             ReturnType: "bool",
             TypeParameters: [],
             BodyKind: CSharpShellBodyKind.TargetBody,
-            Body: "return true;"));
+            Body: "return true;",
+            CSharpOperatorDeclaration: true,
+            OperatorPairingKey: "pairing-key",
+            HasOperatorPairingKey: true));
         var inequality = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
             Name: "op_Inequality",
             Kind: CSharpShellMemberKind.Operator,
@@ -392,9 +460,18 @@ public sealed class TypeShellProducerTests
             ReturnType: "bool",
             TypeParameters: [],
             BodyKind: CSharpShellBodyKind.Throw,
-            Body: null));
+            Body: null,
+            CSharpOperatorDeclaration: true,
+            OperatorPairingKey: "pairing-key",
+            HasOperatorPairingKey: true));
 
         Assert.Equal("operator", equality.Member.Kind);
+        Assert.True(equality.Member.CSharpOperatorDeclaration);
+        Assert.True(inequality.Member.CSharpOperatorDeclaration);
+        Assert.True(equality.Member.HasOperatorPairingKey);
+        Assert.Equal("pairing-key", equality.Member.OperatorPairingKey);
+        Assert.True(inequality.Member.HasOperatorPairingKey);
+        Assert.Equal("pairing-key", inequality.Member.OperatorPairingKey);
         var type = new ApiType
         {
             Name = "Row",
@@ -413,6 +490,66 @@ public sealed class TypeShellProducerTests
             "public static bool operator !=(Row left, Row right)",
             Assert.Single(result.Units).Source,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MemberShellProducer_PreservesNegativeTypedOperatorProof()
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "op_Increment",
+            Kind: CSharpShellMemberKind.Operator,
+            IsStatic: true,
+            Parameters: [new CSharpShellParameter("value", "Counter")],
+            ReturnType: "string",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.Throw,
+            Body: null,
+            CSharpOperatorDeclaration: false));
+
+        Assert.False(policy.Member.CSharpOperatorDeclaration);
+        var type = new ApiType
+        {
+            Name = "Counter",
+            Kind = "class",
+            Members = [policy.Member],
+        };
+        var result = new CSharpTypePrinter().Print(new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides: [policy]));
+        string source = Assert.Single(result.Units).Source;
+
+        Assert.Contains("string op_Increment(Counter value)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("operator ++", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MemberShellProducer_PreservesFinalizerDeclaratorWhenDestructorSyntaxIsSuppressed()
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "Finalize",
+            Kind: CSharpShellMemberKind.Finalizer,
+            IsStatic: false,
+            Parameters: [],
+            ReturnType: "void",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.TargetBody,
+            Body: "return;",
+            SuppressDestructorSyntax: true));
+
+        Assert.Equal("void Finalize()", policy.Member.Signature);
+        var type = new ApiType
+        {
+            Name = "Target",
+            Kind = "class",
+            Members = [policy.Member],
+        };
+        var result = new CSharpTypePrinter().Print(new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides: [policy]));
+        string source = Assert.Single(result.Units).Source;
+
+        Assert.Contains("void Finalize()", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("~Target()", source, StringComparison.Ordinal);
     }
 
     [Theory]

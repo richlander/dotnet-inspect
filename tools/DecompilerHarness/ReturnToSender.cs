@@ -460,9 +460,13 @@ static class ReturnToSender
         using var metadata = CorpusMetadata.Create([assemblyPath]);
         using var source = MetadataSource.Open(assemblyPath, context: metadata);
         var sourceIndex = ReturnToSenderSourceIndex.TryCreate(assemblyPath);
-        var memberAnchors = MemberAnchorsByMethodToken(pe);
         CompilationClosure compilationClosure =
             CreateCompilationClosure(assemblyPath);
+        var memberSurface = ExtractMemberSurface(
+            reader,
+            compilationClosure);
+        var memberSurfaceIndex = CompileBackSourceComposer.CreateMemberSurfaceIndex(memberSurface);
+        var memberAnchors = MemberAnchorsByMethodToken(memberSurface);
 
         foreach (var typeHandle in reader.TypeDefinitions)
         {
@@ -514,7 +518,8 @@ static class ReturnToSender
                     propertyHandle,
                     accessors.Getter,
                     MemberAnchorFor(memberAnchors, accessors.Getter),
-                    sourceIndex));
+                    sourceIndex,
+                    memberSurfaceIndex));
                 if (results.Count >= maxTargets)
                     return applyCompileBackFloor ? ApplyCompileBackFloor(assemblyPath, results) : results;
             }
@@ -647,6 +652,7 @@ static class ReturnToSender
             {
                 RequiresAsyncModifier = finalRequest.TargetBody.RequiresAsyncModifier,
                 RequiresUnsafeModifier = finalRequest.TargetBody.RequiresUnsafeModifier,
+                SuppressDestructorSyntax = finalRequest.TargetBody.SuppressDestructorSyntax,
             });
         return RoundTripRequest.Create(
             RoundTripArtifactIdentity.FromFile(assemblyPath, "return-to-sender"),
@@ -761,28 +767,66 @@ static class ReturnToSender
         var reader = pe.GetMetadataReader();
         using var metadata = CorpusMetadata.Create([assemblyPath]);
         using var source = MetadataSource.Open(assemblyPath, context: metadata);
-        var memberAnchors = MemberAnchorsByMethodToken(pe);
         compilationClosure ??=
             CreateCompilationClosure(assemblyPath);
+        var memberSurface = ExtractMemberSurface(
+            reader,
+            compilationClosure);
+        var memberSurfaceIndex = CompileBackSourceComposer.CreateMemberSurfaceIndex(memberSurface);
+        var memberAnchors = MemberAnchorsByMethodToken(memberSurface);
         var typeHandles = reader.TypeDefinitions
             .Select(handle => (Handle: handle, Definition: reader.GetTypeDefinition(handle)))
             .Where(item => reader.GetFullTypeName(item.Definition) is { } fullName
                 && fullName.Length != 0)
-            .ToDictionary(item => reader.GetFullTypeName(item.Definition), item => item.Handle, StringComparer.Ordinal);
+            .GroupBy(
+                item => reader.GetFullTypeName(item.Definition),
+                StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(item => item.Handle).ToArray(),
+                StringComparer.Ordinal);
 
         foreach (var target in targets)
         {
-            if (!typeHandles.TryGetValue(target.Type, out var typeHandle))
+            if (!typeHandles.TryGetValue(target.Type, out var candidates))
                 continue;
 
-            var typeDef = reader.GetTypeDefinition(typeHandle);
-            string typeName = reader.GetString(typeDef.Name);
-            if (typeName == "<Module>"
-                || typeName.Contains('<', StringComparison.Ordinal)
-                || !IsSupportedTargetType(source, typeHandle))
+            var matchingTypes = candidates
+                .Where(handle =>
+                {
+                    var definition = reader.GetTypeDefinition(handle);
+                    string name = reader.GetString(definition.Name);
+                    return name != "<Module>"
+                        && !name.Contains('<', StringComparison.Ordinal)
+                        && IsSupportedTargetType(source, handle);
+                })
+                .Where(handle => TryFindMethod(
+                    reader,
+                    reader.GetTypeDefinition(handle),
+                    target) is not null)
+                .ToArray();
+            if (matchingTypes.Length > 1 && target.Signature is { } signature)
             {
-                continue;
+                var exactSignatureMatches = matchingTypes
+                    .Where(handle => TryFindMethodBySignature(
+                        reader,
+                        reader.GetTypeDefinition(handle),
+                        target.Method,
+                        signature) is not null)
+                    .ToArray();
+                if (exactSignatureMatches.Length != 0)
+                    matchingTypes = exactSignatureMatches;
             }
+            if (matchingTypes.Length > 1)
+            {
+                throw new AmbiguousMatchException(
+                    $"Target '{target.Type}.{target.Method}' is ambiguous across {matchingTypes.Length} metadata types.");
+            }
+            if (matchingTypes.Length == 0)
+                continue;
+
+            var typeHandle = matchingTypes[0];
+            var typeDef = reader.GetTypeDefinition(typeHandle);
 
             if (TryFindPropertyGetter(reader, typeDef, target) is { } propertyTarget)
             {
@@ -797,6 +841,7 @@ static class ReturnToSender
                     propertyTarget.Getter,
                     MemberAnchorFor(memberAnchors, propertyTarget.Getter),
                     sourceIndex,
+                    memberSurfaceIndex,
                     scope,
                     bodyPolicy));
                 continue;
@@ -815,6 +860,7 @@ static class ReturnToSender
                     setterTarget.Setter,
                     MemberAnchorFor(memberAnchors, setterTarget.Setter),
                     sourceIndex,
+                    memberSurfaceIndex,
                     scope,
                     bodyPolicy));
                 continue;
@@ -833,6 +879,7 @@ static class ReturnToSender
                     eventTarget.Accessor,
                     MemberAnchorFor(memberAnchors, eventTarget.Accessor),
                     sourceIndex,
+                    memberSurfaceIndex,
                     scope,
                     bodyPolicy));
                 continue;
@@ -850,6 +897,7 @@ static class ReturnToSender
                     methodHandle,
                     MemberAnchorFor(memberAnchors, methodHandle),
                     sourceIndex,
+                    memberSurfaceIndex,
                     scope,
                     bodyPolicy));
             }
@@ -1227,12 +1275,26 @@ static class ReturnToSender
         MethodDefinitionHandle getterHandle,
         MemberAnchor? memberAnchor,
         ReturnToSenderSourceIndex? sourceIndex,
+        CompileBackMemberSurfaceIndex memberSurface,
         RoundTripScope scope = RoundTripScope.Cluster,
         RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected)
     {
         try
         {
-            return CompileBackPropertyGetter(assemblyPath, compilationClosure, pe, reader, source, typeHandle, propertyHandle, getterHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
+            return CompileBackPropertyGetter(
+                assemblyPath,
+                compilationClosure,
+                pe,
+                reader,
+                source,
+                typeHandle,
+                propertyHandle,
+                getterHandle,
+                memberAnchor,
+                sourceIndex,
+                memberSurface,
+                scope,
+                bodyPolicy);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
@@ -1250,12 +1312,25 @@ static class ReturnToSender
         MethodDefinitionHandle methodHandle,
         MemberAnchor? memberAnchor,
         ReturnToSenderSourceIndex? sourceIndex,
+        CompileBackMemberSurfaceIndex memberSurface,
         RoundTripScope scope = RoundTripScope.Cluster,
         RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected)
     {
         try
         {
-            return CompileBackMethod(assemblyPath, compilationClosure, pe, reader, source, typeHandle, methodHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
+            return CompileBackMethod(
+                assemblyPath,
+                compilationClosure,
+                pe,
+                reader,
+                source,
+                typeHandle,
+                methodHandle,
+                memberAnchor,
+                sourceIndex,
+                memberSurface,
+                scope,
+                bodyPolicy);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
@@ -1274,6 +1349,7 @@ static class ReturnToSender
         MethodDefinitionHandle accessorHandle,
         MemberAnchor? memberAnchor,
         ReturnToSenderSourceIndex? sourceIndex,
+        CompileBackMemberSurfaceIndex memberSurface,
         RoundTripScope scope = RoundTripScope.Cluster,
         RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected)
     {
@@ -1290,6 +1366,7 @@ static class ReturnToSender
                 accessorHandle,
                 memberAnchor,
                 sourceIndex,
+                memberSurface,
                 scope,
                 bodyPolicy);
         }
@@ -1316,12 +1393,26 @@ static class ReturnToSender
         MethodDefinitionHandle setterHandle,
         MemberAnchor? memberAnchor,
         ReturnToSenderSourceIndex? sourceIndex,
+        CompileBackMemberSurfaceIndex memberSurface,
         RoundTripScope scope = RoundTripScope.Cluster,
         RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected)
     {
         try
         {
-            return CompileBackPropertySetter(assemblyPath, compilationClosure, pe, reader, source, typeHandle, propertyHandle, setterHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
+            return CompileBackPropertySetter(
+                assemblyPath,
+                compilationClosure,
+                pe,
+                reader,
+                source,
+                typeHandle,
+                propertyHandle,
+                setterHandle,
+                memberAnchor,
+                sourceIndex,
+                memberSurface,
+                scope,
+                bodyPolicy);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
@@ -1340,6 +1431,7 @@ static class ReturnToSender
         MethodDefinitionHandle getterHandle,
         MemberAnchor? memberAnchor,
         ReturnToSenderSourceIndex? sourceIndex,
+        CompileBackMemberSurfaceIndex memberSurface,
         RoundTripScope scope,
         RoundTripBodyPolicy bodyPolicy)
     {
@@ -1387,6 +1479,7 @@ static class ReturnToSender
             {
                 BodyPolicy = bodyPolicy,
                 BodySource = source,
+                MemberSurfaceByDefinitionName = memberSurface,
             },
             scope: scope,
             bodyPolicy: bodyPolicy);
@@ -1402,6 +1495,7 @@ static class ReturnToSender
         MethodDefinitionHandle methodHandle,
         MemberAnchor? memberAnchor,
         ReturnToSenderSourceIndex? sourceIndex,
+        CompileBackMemberSurfaceIndex memberSurface,
         RoundTripScope scope,
         RoundTripBodyPolicy bodyPolicy)
     {
@@ -1448,6 +1542,7 @@ static class ReturnToSender
             {
                 BodyPolicy = bodyPolicy,
                 BodySource = source,
+                MemberSurfaceByDefinitionName = memberSurface,
             },
             scope: scope,
             bodyPolicy: bodyPolicy);
@@ -1464,6 +1559,7 @@ static class ReturnToSender
         MethodDefinitionHandle accessorHandle,
         MemberAnchor? memberAnchor,
         ReturnToSenderSourceIndex? sourceIndex,
+        CompileBackMemberSurfaceIndex memberSurface,
         RoundTripScope scope,
         RoundTripBodyPolicy bodyPolicy)
     {
@@ -1543,6 +1639,7 @@ static class ReturnToSender
             {
                 BodyPolicy = bodyPolicy,
                 BodySource = source,
+                MemberSurfaceByDefinitionName = memberSurface,
             },
             siblingMethodName is not null && siblingOriginalOps is not null
                 ? (siblingMethodName, siblingOriginalOps)
@@ -1562,6 +1659,7 @@ static class ReturnToSender
         MethodDefinitionHandle setterHandle,
         MemberAnchor? memberAnchor,
         ReturnToSenderSourceIndex? sourceIndex,
+        CompileBackMemberSurfaceIndex memberSurface,
         RoundTripScope scope,
         RoundTripBodyPolicy bodyPolicy)
     {
@@ -1609,6 +1707,7 @@ static class ReturnToSender
             {
                 BodyPolicy = bodyPolicy,
                 BodySource = source,
+                MemberSurfaceByDefinitionName = memberSurface,
             },
             scope: scope,
             bodyPolicy: bodyPolicy);
@@ -1677,25 +1776,6 @@ static class ReturnToSender
         }
 
         var firstArtifact = Compose();
-        if (firstArtifact.Plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } initialIdentityDiagnostic)
-        {
-            return new Result(
-                firstArtifact.Plan,
-                firstArtifact.Source,
-                FidelityCheck.CompileBackStatus.ContextFail,
-                originalOpcodes,
-                "",
-                $"{initialIdentityDiagnostic.Reason}: {initialIdentityDiagnostic.Detail}",
-                TargetBody: targetBody.Source,
-                MemberAnchor: memberAnchor,
-                Decisions: targetBody.Decisions)
-            {
-                FinalRequest = firstArtifact.Request,
-                BodyPolicy = bodyPolicy,
-                FullBodies = firstArtifact.FullBodies,
-            };
-        }
-
         bool firstArtifactPending = true;
         CompileBackPlanningDiagnostic? identityFailure = null;
         var compilationResult = RoundTripCompilationEngine.Compile(
@@ -1714,12 +1794,6 @@ static class ReturnToSender
             compileOptions,
             grow: (artifact, errors, semanticModel) =>
             {
-                if (artifact.Plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } identity)
-                {
-                    identityFailure = identity;
-                    return RoundTripGrowthResult.Stop("type-identity");
-                }
-
                 var growth = AddClosureRoots(
                     errors,
                     semanticModel,
@@ -1729,16 +1803,22 @@ static class ReturnToSender
                     closureRoots,
                     closureFacts);
                 int effectiveRootCount = EffectiveClosureRootCount(artifact, closureRoots);
-                string? reason = effectiveRootCount > maxRoots
-                    ? "closure-root-budget"
-                    : !growth.Grew
-                        ? ClosureDiagnosticEvidence.FailureReason(
+                if (effectiveRootCount > maxRoots)
+                    return RoundTripGrowthResult.Stop("closure-root-budget");
+                if (growth.Grew)
+                    return RoundTripGrowthResult.Continue;
+
+                if (artifact.Plan.Diagnostics.FirstOrDefault(
+                        diagnostic => diagnostic.Layer == "type identity") is { } identity)
+                {
+                    identityFailure = identity;
+                    return RoundTripGrowthResult.Stop("type-identity");
+                }
+
+                return RoundTripGrowthResult.Stop(
+                    ClosureDiagnosticEvidence.FailureReason(
                         "closure-stalled",
-                            growth.UnextractedDiagnosticIds)
-                        : null;
-                return reason is null
-                    ? RoundTripGrowthResult.Continue
-                    : RoundTripGrowthResult.Stop(reason);
+                        growth.UnextractedDiagnosticIds));
             },
             new RoundTripCompilationOptions
             {
@@ -1749,6 +1829,28 @@ static class ReturnToSender
         var sourceResult = compilationResult.Artifact;
         var plan = sourceResult.Plan;
         string unit = sourceResult.Source;
+        if (compilationResult.Succeeded
+            && compilationResult.PeImage is not null
+            && plan.Diagnostics.FirstOrDefault(
+                diagnostic => diagnostic.Layer == "type identity") is { } finalIdentityDiagnostic)
+        {
+            return new Result(
+                plan,
+                unit,
+                FidelityCheck.CompileBackStatus.ContextFail,
+                originalOpcodes,
+                "",
+                $"{finalIdentityDiagnostic.Reason}: {finalIdentityDiagnostic.Detail}",
+                TargetBody: targetBody.Source,
+                MemberAnchor: memberAnchor,
+                Decisions: targetBody.Decisions)
+            {
+                FinalRequest = sourceResult.Request,
+                Compilation = compilationResult.Provenance,
+                BodyPolicy = bodyPolicy,
+                FullBodies = sourceResult.FullBodies,
+            };
+        }
         if (!compilationResult.Succeeded || compilationResult.PeImage is null)
         {
             if (identityFailure is { } identityDiagnostic)
@@ -2007,8 +2109,10 @@ static class ReturnToSender
     }
 
     static IReadOnlyDictionary<int, MemberAnchor> MemberAnchorsByMethodToken(PEReader pe)
+        => MemberAnchorsByMethodToken(ApiSurfaceExtractor.Extract(pe, includeAll: true));
+
+    static IReadOnlyDictionary<int, MemberAnchor> MemberAnchorsByMethodToken(ApiSurface surface)
     {
-        var surface = ApiSurfaceExtractor.Extract(pe, includeAll: true);
         var result = new Dictionary<int, MemberAnchor>();
         foreach (var type in surface.Types)
         {
@@ -2245,6 +2349,24 @@ static class ReturnToSender
             resolver,
             targetAssembly,
             CompilationReferences(resolver).ToArray());
+    }
+
+    static ApiSurface ExtractMemberSurface(
+        MetadataReader reader,
+        CompilationClosure compilationClosure)
+    {
+        using var metadataContext = new MetadataContext(
+            (IAssemblyReferenceResolver)compilationClosure.Resolver);
+        var typeResolver = new CrossAssemblyTypeResolver(
+            reader,
+            compilationClosure.TargetAssembly,
+            metadataContext);
+        return ApiSurfaceExtractor.Extract(
+            reader,
+            includeAll: true,
+            includeCompilerGenerated: true,
+            operatorRelationshipResolver:
+                typeResolver.CreateOperatorRelationshipResolver());
     }
 
     static IEnumerable<MetadataReference> CompilationReferences(
