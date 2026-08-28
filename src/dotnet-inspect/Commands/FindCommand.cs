@@ -45,7 +45,7 @@ public class FindCommand
                         sectionCostAnnotations:
                             pipeline.GetCostAnnotations(),
                         sectionCategories:
-                            pipeline.GetCategoryMap(),
+                            catalog.Sections.SelectionCategoryMap,
                         projection: options);
                 }
 
@@ -199,13 +199,14 @@ public class FindCommand
             PackageProfileSections.CreateCatalog();
         HashSet<string> includeSections =
             [PackageProfileSections.Packages];
-        HashSet<InspectionQueryDefinition> requestedQueries =
-            catalog.Pipeline.GetRequiredQueries(
+        SectionQueryPlan sectionPlan =
+            catalog.Sections.PlanQueries(
                 Verbosity.Normal,
                 includeSections);
+        InspectionQueryPlan<PackageProfileQueryContext> queryPlan =
+            catalog.QueryCatalog.Plan(sectionPlan.Queries[0]);
         InspectionQueryResults queryResults =
-            await catalog.QueryRegistry.RunAsync(
-                requestedQueries,
+            await queryPlan.RunAsync(
                 new PackageProfileQueryContext(source, request),
                 cancellationToken: cancellationToken).ConfigureAwait(false);
         var events = queryResults.Get(PackageProfileQuery.Definition);
@@ -247,7 +248,7 @@ public class FindCommand
         FindOptions options)
     {
         SectionPipeline<PackageProfileView> pipeline =
-            PackageProfileSections.CreatePipeline();
+            PackageProfileSections.CreateCatalog().Pipeline;
         HashSet<string> includeSections =
             pipeline.GetCandidateSections(
                 Verbosity.Normal,

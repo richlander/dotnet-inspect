@@ -2343,6 +2343,15 @@ public sealed class Call : IrExpression
     public IReadOnlyList<IrExpression> Arguments => Children.Cast<IrExpression>().ToList();
 
     /// <summary>
+    /// Whether a same-named member in the receiver hierarchy makes reduced
+    /// extension syntax unsafe without full C# binding.
+    /// </summary>
+    /// <remarks>
+    /// Gated by the conflict cases in <c>ExtensionMethodCallTests</c>.
+    /// </remarks>
+    public MetadataFactState ExtensionSyntaxConflict { get; init; }
+
+    /// <summary>
     /// A by-ref argument is forwarded against an unknown call-site ref-kind —
     /// the printer spells a keyword it cannot verify. Lowers fidelity. See
     /// <see cref="MethodRef.HasUnverifiableByRefArgument"/>.

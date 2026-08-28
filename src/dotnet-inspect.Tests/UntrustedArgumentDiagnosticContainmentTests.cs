@@ -1,6 +1,8 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 
 namespace DotnetInspector.Tests;
@@ -39,6 +41,10 @@ namespace DotnetInspector.Tests;
 [Collection("Console")]
 public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
 {
+    private const int ChildExitTimeoutMilliseconds = 120_000;
+    private const int OutputCaptureTimeoutMilliseconds = 10_000;
+    private const int CapturedOutputHeadCharacters = 32 * 1024;
+    private const int CapturedOutputTailCharacters = 32 * 1024;
     private const string Bidi = "\u202E";
     private const string VerticalTab = "\u000B";
     private const string Escape = "\u001B";
@@ -161,6 +167,129 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
         const string InjectedSeverity = "Error: INJECTEDARG";
         HostileOutputAssert.MarkersRendered(injected, "message-line-injection", InjectedSeverity);
         HostileOutputAssert.NoLineSplit(injected, InjectedSeverity);
+    }
+
+    [Fact]
+    public void ChildTimeoutDiagnostic_ReportsStateWithoutRenderingCapturedText()
+    {
+        var snapshot = new ChildProcessSnapshot(
+            42,
+            TimeSpan.FromSeconds(120),
+            TimeSpan.FromSeconds(3),
+            16_384,
+            32_768,
+            7,
+            null);
+
+        string diagnostic = CreateChildFailureDiagnostic(
+            "did not exit after 120 seconds",
+            "dotnet-inspect",
+            ["depends", $"HOSTILE{"\n"}Error: INJECTEDARG"],
+            snapshot,
+            $"progress{"\n"}Error: FORGEDOUTPUT",
+            $"warning{"\n"}Error: FORGEDERROR",
+            "diagnostic-containment-cache");
+
+        Assert.Contains("\"ProcessId\":42", diagnostic, StringComparison.Ordinal);
+        Assert.Contains(@"HOSTILE\nError: INJECTEDARG", diagnostic, StringComparison.Ordinal);
+        Assert.Contains(@"progress\nError: FORGEDOUTPUT", diagnostic, StringComparison.Ordinal);
+        Assert.Contains(@"warning\nError: FORGEDERROR", diagnostic, StringComparison.Ordinal);
+        Assert.DoesNotContain("HOSTILE\nError: INJECTEDARG", diagnostic, StringComparison.Ordinal);
+        Assert.DoesNotContain("progress\nError: FORGEDOUTPUT", diagnostic, StringComparison.Ordinal);
+        Assert.DoesNotContain("warning\nError: FORGEDERROR", diagnostic, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ChildTimeoutDiagnostic_IsWiredToTheProcessTimeout()
+    {
+        try
+        {
+            var exception = Assert.Throws<TimeoutException>(() => RunCli(
+                ["type", "System.Strng", "--platform", "System.Runtime"],
+                childExitTimeoutMilliseconds: 0));
+
+            Assert.Contains(
+                "Arguments: [\"type\",\"System.Strng\",\"--platform\",\"System.Runtime\"]",
+                exception.Message,
+                StringComparison.Ordinal);
+            Assert.Contains("Process state before termination:", exception.Message, StringComparison.Ordinal);
+            Assert.Contains("Captured stdout:", exception.Message, StringComparison.Ordinal);
+            Assert.Contains("Captured stderr:", exception.Message, StringComparison.Ordinal);
+            Assert.Contains("Preserved test cache:", exception.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            _deleteCacheOnDispose = true;
+        }
+    }
+
+    [Fact]
+    public async Task ChildOutputCapture_DrainsWhileRetainingBoundedHeadAndTail()
+    {
+        string head = new('H', CapturedOutputHeadCharacters);
+        string omitted = new('O', 100);
+        string tail = new('T', CapturedOutputTailCharacters);
+
+        var capture = await CaptureTextAsync(new StringReader(head + omitted + tail));
+
+        Assert.Equal(100, capture.OmittedCharacterCount);
+        Assert.StartsWith(head, capture.Text, StringComparison.Ordinal);
+        Assert.EndsWith(tail, capture.Text, StringComparison.Ordinal);
+        Assert.Contains("<100 characters omitted>", capture.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(omitted, capture.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ChildOutputCapture_DoesNotSplitUnicodeAtRetainedBoundaries()
+    {
+        string scalar = char.ConvertFromUtf32(0x1F600);
+        string headSplit =
+            new string('H', CapturedOutputHeadCharacters - 1) +
+            scalar +
+            new string('T', CapturedOutputTailCharacters);
+        string tailSplit =
+            new string('H', CapturedOutputHeadCharacters) +
+            "O" +
+            scalar +
+            new string('T', CapturedOutputTailCharacters - 1);
+
+        var headCapture = await CaptureTextAsync(new StringReader(headSplit));
+        var tailCapture = await CaptureTextAsync(new StringReader(tailSplit));
+
+        Assert.Equal(2, headCapture.OmittedCharacterCount);
+        Assert.Equal(3, tailCapture.OmittedCharacterCount);
+        Assert.DoesNotContain('\uD83D', headCapture.Text);
+        Assert.DoesNotContain('\uDE00', tailCapture.Text);
+        JsonSerializer.Serialize(headCapture.Text);
+        JsonSerializer.Serialize(tailCapture.Text);
+    }
+
+    [Fact]
+    public void ChildOutputCapture_FailureIsReportedWithoutEscapingTheDiagnosticPath()
+    {
+        Task<BoundedTextCapture> stdout =
+            Task.FromException<BoundedTextCapture>(new IOException("pipe failed"));
+        Task<BoundedTextCapture> stderr =
+            Task.FromResult(new BoundedTextCapture("", 0));
+
+        _ = WaitForOutputCapture(Task.WhenAll(stdout, stderr));
+
+        Assert.Equal("<capture failed: pipe failed>", CapturedText(stdout));
+    }
+
+    [Fact]
+    public async Task ChildOutputCapture_LateFailureIsObserved()
+    {
+        var source = new TaskCompletionSource<BoundedTextCapture>();
+        Task allCaptures = Task.WhenAll(
+            source.Task,
+            Task.FromResult(new BoundedTextCapture("", 0)));
+
+        Task observation = WaitForOutputCapture(allCaptures, timeoutMilliseconds: 0);
+        source.SetException(new IOException("late pipe failure"));
+
+        await observation;
+        Assert.True(allCaptures.IsFaulted);
     }
 
     /// <summary>
@@ -409,7 +538,9 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
         writer.Write(content);
     }
 
-    private (string Output, string Error) RunCli(string[] args)
+    private (string Output, string Error) RunCli(
+        string[] args,
+        int childExitTimeoutMilliseconds = ChildExitTimeoutMilliseconds)
     {
         string executable = Path.Combine(
             Path.GetDirectoryName(ProductAssemblyPath())!,
@@ -434,22 +565,230 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
 
         using var process = Process.Start(psi)
             ?? throw new InvalidOperationException($"Could not start {executable}.");
+        var elapsed = Stopwatch.StartNew();
 
         // Drain both pipes before waiting; a synchronous read of one blocks
         // until EOF and lets the child deadlock filling the other.
-        var stdout = process.StandardOutput.ReadToEndAsync();
-        var stderr = process.StandardError.ReadToEndAsync();
-        if (!process.WaitForExit(120_000))
+        using var stdoutReader = process.StandardOutput;
+        using var stderrReader = process.StandardError;
+        var stdout = CaptureTextAsync(stdoutReader);
+        var stderr = CaptureTextAsync(stderrReader);
+        Task allCaptures = Task.WhenAll(stdout, stderr);
+        if (!process.WaitForExit(childExitTimeoutMilliseconds))
         {
             _deleteCacheOnDispose = false;
-            OutOfProcessCliProcess.KillAndWaitForExit(process, TimeSpan.FromSeconds(10));
-            throw new TimeoutException(
-                $"{executable} did not exit; preserved its test cache at {_cacheDirectory}.");
+            var snapshot = CaptureProcessSnapshot(process, elapsed.Elapsed);
+            OutOfProcessCliProcess.KillAndWaitForExit(
+                process,
+                TimeSpan.FromMilliseconds(OutputCaptureTimeoutMilliseconds));
+            _ = WaitForOutputCapture(allCaptures);
+            throw new TimeoutException(CreateChildFailureDiagnostic(
+                $"did not exit after {childExitTimeoutMilliseconds / 1000} seconds",
+                executable,
+                args,
+                snapshot,
+                CapturedText(stdout),
+                CapturedText(stderr),
+                _cacheDirectory));
         }
 
-        Task.WaitAll([stdout, stderr], 10_000);
-        return (stdout.Result, stderr.Result);
+        _ = WaitForOutputCapture(allCaptures);
+        if (!stdout.IsCompletedSuccessfully || !stderr.IsCompletedSuccessfully)
+        {
+            _deleteCacheOnDispose = false;
+            throw new TimeoutException(CreateChildFailureDiagnostic(
+                "exited but its redirected output did not close after 10 seconds",
+                executable,
+                args,
+                CaptureProcessSnapshot(process, elapsed.Elapsed),
+                CapturedText(stdout),
+                CapturedText(stderr),
+                _cacheDirectory));
+        }
+
+        return (stdout.Result.Text, stderr.Result.Text);
     }
+
+    private static ChildProcessSnapshot CaptureProcessSnapshot(Process process, TimeSpan elapsed)
+    {
+        try
+        {
+            process.Refresh();
+            return new ChildProcessSnapshot(
+                process.Id,
+                elapsed,
+                process.TotalProcessorTime,
+                process.WorkingSet64,
+                process.PrivateMemorySize64,
+                process.Threads.Count,
+                null);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return SnapshotCaptureFailure(process.Id, elapsed, ex);
+        }
+        catch (Win32Exception ex)
+        {
+            return SnapshotCaptureFailure(process.Id, elapsed, ex);
+        }
+    }
+
+    private static ChildProcessSnapshot SnapshotCaptureFailure(
+        int processId,
+        TimeSpan elapsed,
+        Exception exception)
+        => new(
+            processId,
+            elapsed,
+            null,
+            null,
+            null,
+            null,
+            $"{exception.GetType().Name}: {exception.Message}");
+
+    private static async Task<BoundedTextCapture> CaptureTextAsync(TextReader reader)
+    {
+        var head = new StringBuilder(CapturedOutputHeadCharacters);
+        var tail = new char[CapturedOutputTailCharacters];
+        var buffer = new char[4096];
+        int tailCount = 0;
+        int tailWriteIndex = 0;
+        long totalCharacters = 0;
+
+        while (true)
+        {
+            int read = await reader.ReadAsync(buffer);
+            if (read == 0)
+            {
+                break;
+            }
+
+            totalCharacters += read;
+            int offset = 0;
+            if (head.Length < CapturedOutputHeadCharacters)
+            {
+                int headCount = Math.Min(read, CapturedOutputHeadCharacters - head.Length);
+                head.Append(buffer, 0, headCount);
+                offset = headCount;
+            }
+
+            int remaining = read - offset;
+            if (remaining >= tail.Length)
+            {
+                Array.Copy(buffer, offset + remaining - tail.Length, tail, 0, tail.Length);
+                tailCount = tail.Length;
+                tailWriteIndex = 0;
+            }
+            else if (remaining > 0)
+            {
+                int firstCount = Math.Min(remaining, tail.Length - tailWriteIndex);
+                Array.Copy(buffer, offset, tail, tailWriteIndex, firstCount);
+                Array.Copy(buffer, offset + firstCount, tail, 0, remaining - firstCount);
+                tailWriteIndex = (tailWriteIndex + remaining) % tail.Length;
+                tailCount = Math.Min(tailCount + remaining, tail.Length);
+            }
+        }
+
+        int tailStart = tailCount == tail.Length ? tailWriteIndex : 0;
+        if (totalCharacters > head.Length + tailCount)
+        {
+            if (head.Length > 0 && char.IsHighSurrogate(head[^1]))
+            {
+                head.Length--;
+            }
+
+            if (tailCount > 0 && char.IsLowSurrogate(tail[tailStart]))
+            {
+                tailStart = (tailStart + 1) % tail.Length;
+                tailCount--;
+            }
+        }
+
+        long omittedCharacters = totalCharacters - head.Length - tailCount;
+        var text = new StringBuilder(head.Length + tailCount + 64);
+        text.Append(head);
+        if (omittedCharacters > 0)
+        {
+            text.Append($"\n<{omittedCharacters} characters omitted>\n");
+        }
+
+        if (tailCount > 0)
+        {
+            int firstCount = Math.Min(tailCount, tail.Length - tailStart);
+            text.Append(tail, tailStart, firstCount);
+            text.Append(tail, 0, tailCount - firstCount);
+        }
+
+        return new BoundedTextCapture(text.ToString(), omittedCharacters);
+    }
+
+    private static Task WaitForOutputCapture(
+        Task allCaptures,
+        int timeoutMilliseconds = OutputCaptureTimeoutMilliseconds)
+    {
+        Task completed = Task.WhenAny(
+                allCaptures,
+                Task.Delay(timeoutMilliseconds))
+            .GetAwaiter()
+            .GetResult();
+        if (completed == allCaptures)
+        {
+            _ = allCaptures.Exception;
+            return Task.CompletedTask;
+        }
+
+        return allCaptures.ContinueWith(
+            static capture => _ = capture.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private static string CapturedText(Task<BoundedTextCapture> capture)
+    {
+        if (capture.IsCompletedSuccessfully)
+        {
+            return capture.Result.Text;
+        }
+
+        if (capture.IsFaulted)
+        {
+            return $"<capture failed: {capture.Exception.GetBaseException().Message}>";
+        }
+
+        return $"<capture incomplete: {capture.Status}>";
+    }
+
+    private static string CreateChildFailureDiagnostic(
+        string failure,
+        string executable,
+        string[] args,
+        ChildProcessSnapshot snapshot,
+        string stdout,
+        string stderr,
+        string cacheDirectory)
+        => $"""
+            Child CLI {failure}.
+            Executable: {JsonSerializer.Serialize(executable)}
+            Arguments: {JsonSerializer.Serialize(args)}
+            Process state before termination: {JsonSerializer.Serialize(snapshot)}
+            Captured stdout: {JsonSerializer.Serialize(stdout)}
+            Captured stderr: {JsonSerializer.Serialize(stderr)}
+            Preserved test cache: {JsonSerializer.Serialize(cacheDirectory)}
+            """;
+
+    private sealed record ChildProcessSnapshot(
+        int ProcessId,
+        TimeSpan Elapsed,
+        TimeSpan? TotalProcessorTime,
+        long? WorkingSetBytes,
+        long? PrivateMemoryBytes,
+        int? ThreadCount,
+        string? CaptureError);
+
+    private sealed record BoundedTextCapture(
+        string Text,
+        long OmittedCharacterCount);
 
     private static string ProductAssemblyPath()
     {

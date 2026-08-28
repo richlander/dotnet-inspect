@@ -16,6 +16,32 @@ using MethodReferenceKeyComparer =
 
 namespace ILInspector.Analysis;
 
+internal readonly record struct AuthenticatedSourceOwner(
+    MethodIdentity Method,
+    bool HasGeneratedCode,
+    bool IsCompilerGenerated,
+    bool IsAuthenticatedTopLevelEntryPoint)
+{
+    internal bool SuppressesOpportunities =>
+        HasGeneratedCode
+        || IsCompilerGenerated
+            && !IsAuthenticatedTopLevelEntryPoint;
+
+    internal bool HasMalformedGeneratedLiftedName =>
+        CompilerGeneratedNames.HasLiftedMethodMarker(
+            Method.Name)
+        && !CompilerGeneratedNames.IsLocalFunctionOrLambda(
+            Method.Name)
+        && IsCompilerGenerated;
+}
+
+internal enum LiftedSourceOwnerResolution
+{
+    None,
+    Resolved,
+    Rejected,
+}
+
 /// <summary>
 /// Owns assembly-scoped lifted-method source-owner correlation, including
 /// top-level execution and async state-machine authentication.
@@ -77,18 +103,39 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         MethodDefinitionHandle liftedHandle,
         MethodDefinition liftedMethod,
         MethodIdentity liftedIdentity,
-        out MethodIdentity? sourceOwner,
-        out bool sourceGenerated,
+        out AuthenticatedSourceOwner sourceOwner,
+        IReadOnlySet<int>? ownerMethodScope = null,
+        Func<TypeRef, bool>? ownerTypeScope = null,
+        bool directlySelectedBody = false) =>
+        Resolve(
+            liftedHandle,
+            liftedMethod,
+            liftedIdentity,
+            out sourceOwner,
+            ownerMethodScope,
+            ownerTypeScope,
+            directlySelectedBody)
+            == LiftedSourceOwnerResolution.Resolved;
+
+    internal LiftedSourceOwnerResolution Resolve(
+        MethodDefinitionHandle liftedHandle,
+        MethodDefinition liftedMethod,
+        MethodIdentity liftedIdentity,
+        out AuthenticatedSourceOwner sourceOwner,
         IReadOnlySet<int>? ownerMethodScope = null,
         Func<TypeRef, bool>? ownerTypeScope = null,
         bool directlySelectedBody = false)
     {
-        sourceOwner = null;
-        sourceGenerated = false;
+        sourceOwner = default;
         if (!TryGetLiftedOwnerGroup(
                 liftedMethod,
-                out LiftedOwnerGroupKey group))
-            return false;
+                out LiftedOwnerGroupKey group,
+                out bool rejected))
+        {
+            return rejected
+                ? LiftedSourceOwnerResolution.Rejected
+                : LiftedSourceOwnerResolution.None;
+        }
 
         TypeDefinitionHandle ownerType = group.OwnerType;
         TypeDefinition ownerDefinition = _reader.GetTypeDefinition(ownerType);
@@ -104,7 +151,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                     ownerMethodScope.Contains(
                         MetadataTokens.GetToken(handle)))))
         {
-            return false;
+            return LiftedSourceOwnerResolution.None;
         }
         if (ownerTypeScope is not null
             && !directlySelectedBody
@@ -114,7 +161,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                     ownerType,
                     0)))
         {
-            return false;
+            return LiftedSourceOwnerResolution.None;
         }
         MethodReferenceKey member =
             _methodReferenceResolver.CreateIdentity(
@@ -128,30 +175,126 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 directlySelectedBody
                     ? null
                     : ownerMethodScope);
-        if (!ownerGroup.TryResolve(
+        LiftedSourceOwnerResolution resolution =
+            ownerGroup.Resolve(
                 liftedToken,
                 member,
                 out MethodDefinitionHandle ownerHandle,
-                out bool ownerIsTopLevelEntryPoint))
+                out bool ownerIsTopLevelEntryPoint);
+        if (resolution != LiftedSourceOwnerResolution.Resolved)
         {
-            return false;
+            return resolution;
         }
         var definition = _reader.GetMethodDefinition(ownerHandle);
-        sourceGenerated =
+        CustomAttributeHandleCollection attributes =
+            definition.GetCustomAttributes();
+        sourceOwner = new AuthenticatedSourceOwner(
+            _primaryMetadataResolver.CreateMethodIdentity(
+                ownerType,
+                ownerHandle,
+                definition,
+                _primaryMetadataResolver.CreateScope(
+                    ownerDefinition,
+                    definition)),
             _primaryMetadataResolver.HasGeneratedCodeAttribute(
-                definition.GetCustomAttributes())
-            || !ownerIsTopLevelEntryPoint
-                && (_primaryMetadataResolver.HasCompilerGeneratedAttribute(
-                        definition.GetCustomAttributes())
-                    || IsCompilerGeneratedSourceTypeOrEnclosing(ownerType));
-        sourceOwner = _primaryMetadataResolver.CreateMethodIdentity(
-            ownerType,
-            ownerHandle,
-            definition,
-            _primaryMetadataResolver.CreateScope(
-                ownerDefinition,
-                definition));
-        return true;
+                attributes),
+            _primaryMetadataResolver
+                .HasCompilerGeneratedAttribute(
+                    attributes)
+                || _primaryMetadataResolver
+                .IsCompilerGeneratedTypeOrEnclosing(
+                    ownerType),
+            ownerIsTopLevelEntryPoint);
+        return LiftedSourceOwnerResolution.Resolved;
+    }
+
+    internal bool IsAuthenticatedTopLevelEntryPoint(
+        MethodIdentity method)
+    {
+        if (method.Name != "<Main>$")
+            return false;
+
+        EntityHandle handle = MetadataTokens.EntityHandle(
+            method.MetadataToken);
+        return handle.Kind == HandleKind.MethodDefinition
+            && TryGetTopLevelExecutionMethod(
+                (MethodDefinitionHandle)handle,
+                out _);
+    }
+
+    internal bool HasMalformedPotentialOwnerChain(
+        MethodIdentity source)
+    {
+        EntityHandle sourceHandle = MetadataTokens.EntityHandle(
+            source.MetadataToken);
+        if (sourceHandle.Kind != HandleKind.MethodDefinition)
+            return false;
+
+        var pending = new Queue<MethodDefinitionHandle>();
+        var visited = new HashSet<MethodDefinitionHandle>();
+        pending.Enqueue((MethodDefinitionHandle)sourceHandle);
+        while (pending.TryDequeue(
+            out MethodDefinitionHandle currentHandle))
+        {
+            if (!visited.Add(currentHandle))
+                continue;
+            if (visited.Count
+                > MetadataSafetyPolicy.MaxRelationshipNodes)
+            {
+                return true;
+            }
+
+            MethodDefinition current =
+                _reader.GetMethodDefinition(currentHandle);
+            if (!TryGetLiftedOwnerGroup(
+                    current,
+                    out LiftedOwnerGroupKey group)
+                || !MethodsByName(group.OwnerType).TryGetValue(
+                    group.OwnerName,
+                    out ImmutableArray<MethodDefinitionHandle>
+                        candidates))
+            {
+                continue;
+            }
+
+            foreach (MethodDefinitionHandle candidate
+                in candidates)
+            {
+                MethodDefinition definition =
+                    _reader.GetMethodDefinition(candidate);
+                CustomAttributeHandleCollection attributes =
+                    definition.GetCustomAttributes();
+                var owner = new AuthenticatedSourceOwner(
+                    _primaryMetadataResolver
+                        .CreateMethodIdentity(
+                            group.OwnerType,
+                            candidate,
+                            definition,
+                            _primaryMetadataResolver.CreateScope(
+                                _reader.GetTypeDefinition(
+                                    group.OwnerType),
+                                definition)),
+                    _primaryMetadataResolver
+                        .HasGeneratedCodeAttribute(attributes),
+                    _primaryMetadataResolver
+                        .HasCompilerGeneratedAttribute(
+                            attributes)
+                        || _primaryMetadataResolver
+                            .IsCompilerGeneratedTypeOrEnclosing(
+                                group.OwnerType),
+                    IsAuthenticatedTopLevelEntryPoint: false);
+                if (owner.HasMalformedGeneratedLiftedName)
+                    return true;
+                if (CompilerGeneratedNames
+                    .IsLocalFunctionOrLambda(
+                        owner.Method.Name))
+                {
+                    pending.Enqueue(candidate);
+                }
+            }
+        }
+
+        return false;
     }
 
     LiftedOwnerGroupEvidence LiftedOwnerGroup(
@@ -541,22 +684,25 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
 
     bool TryGetLiftedOwnerGroup(
         MethodDefinition method,
-        out LiftedOwnerGroupKey group)
+        out LiftedOwnerGroupKey group) =>
+        TryGetLiftedOwnerGroup(
+            method,
+            out group,
+            out _);
+
+    bool TryGetLiftedOwnerGroup(
+        MethodDefinition method,
+        out LiftedOwnerGroupKey group,
+        out bool rejected)
     {
         group = default;
         string name = _reader.GetString(method.Name);
-        int close = Math.Max(
-            name.LastIndexOf(
-                ">g__",
-                StringComparison.Ordinal),
-            name.LastIndexOf(
-                ">b__",
-                StringComparison.Ordinal));
-        if (name.Length < 4
-            || name[0] != '<'
-            || close <= 1
-            || close + 4 >= name.Length)
+        if (!CompilerGeneratedNames.TryGetLiftedOwnerName(
+                name,
+                out string ownerName))
         {
+            rejected =
+                CompilerGeneratedNames.HasLiftedMethodMarker(name);
             return false;
         }
 
@@ -571,6 +717,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 out _,
                 out _))
         {
+            rejected = true;
             return false;
         }
 
@@ -583,7 +730,8 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             ownerIndex--;
         }
 
-        group = new(chain[ownerIndex], name[1..close]);
+        group = new(chain[ownerIndex], ownerName);
+        rejected = false;
         return true;
     }
 
@@ -892,35 +1040,6 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             referenceFailure);
     }
 
-    bool IsCompilerGeneratedSourceTypeOrEnclosing(
-        TypeDefinitionHandle handle)
-    {
-        Span<TypeDefinitionHandle> chain =
-            stackalloc TypeDefinitionHandle[
-                MetadataSafetyPolicy.MaxRelationshipNodes];
-        if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
-                _reader,
-                handle,
-                chain,
-                out int count,
-                out _,
-                out _))
-        {
-            return true;
-        }
-
-        for (int i = 0; i < count; i++)
-        {
-            if (_primaryMetadataResolver.HasCompilerGeneratedAttribute(
-                    _reader.GetTypeDefinition(
-                        chain[i]).GetCustomAttributes()))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
     int PeelToDefinitionToken(int token)
     {
         var handle = MetadataTokens.EntityHandle(token);
@@ -1066,7 +1185,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             Add(_memberOwners, candidate.Member, owner);
         }
 
-        public bool TryResolve(
+        public LiftedSourceOwnerResolution Resolve(
             int definitionToken,
             MethodReferenceKey member,
             out MethodDefinitionHandle owner,
@@ -1080,7 +1199,9 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                     out LiftedOwnerReference definition))
             {
                 if (definition.Ambiguous)
-                    return false;
+                {
+                    return LiftedSourceOwnerResolution.Rejected;
+                }
                 owner = definition.Owner;
                 found = true;
             }
@@ -1091,13 +1212,16 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 if (memberReference.Ambiguous
                     || found && owner != memberReference.Owner)
                 {
-                    return false;
+                    return LiftedSourceOwnerResolution.Rejected;
                 }
                 owner = memberReference.Owner;
                 found = true;
             }
-            return found
-                && _topLevelOwners.TryGetValue(owner, out topLevel);
+            if (!found)
+                return LiftedSourceOwnerResolution.None;
+            return _topLevelOwners.TryGetValue(owner, out topLevel)
+                ? LiftedSourceOwnerResolution.Resolved
+                : LiftedSourceOwnerResolution.Rejected;
         }
 
         static void Add<TKey>(
