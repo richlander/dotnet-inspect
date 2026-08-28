@@ -478,6 +478,18 @@ const markupLinters: readonly MarkupLinter[] = [
           + "</head><body></body></html>",
         rule: "allowed-links",
       },
+      // The right CDN, but a floating version. `@latest` resolves to whatever the CDN
+      // is serving today, so the bytes are not pinned by the URL. Subresource integrity
+      // does not rescue this in general: it does not apply to `<img>` at all, so for
+      // some elements the URL is the only pin available. This specimen is what holds
+      // the version half of the allow-list pattern in place -- a host-only pattern
+      // passes it.
+      {
+        markup: '<!DOCTYPE html><html lang="en"><head><title>t</title></head><body>'
+          + '<img src="https://cdn.jsdelivr.net/npm/prismjs@latest/x.png" alt="x" />'
+          + "</body></html>",
+        rule: "allowed-links",
+      },
     ],
   },
   {

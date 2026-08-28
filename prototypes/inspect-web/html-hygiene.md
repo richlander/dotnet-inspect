@@ -140,15 +140,25 @@ SHA-512 -- because length is what distinguishes a real digest from a truncated p
 a truncated digest fails closed in the browser at runtime.
 
 `allowed-links` then restricts external references to the CDN allow list in
-`.htmlvalidate.json`.
+`.htmlvalidate.json`. That pattern pins the *version*, not just the host: it matches
+`cdn.jsdelivr.net/npm/<package>@<major>.<minor>.<patch>/`, so `@latest`, a major-only
+`@1`, a bare package name with no version, and `/gh/<user>/<repo>@<branch>/` are all
+rejected.
+
+Pinning the version there is not redundant with SRI. SRI does not apply to every element
+that loads bytes -- `<img>` has no `integrity` -- so for those the URL is the only pin
+available, and a floating URL serves whatever the CDN has today. Where SRI does apply, a
+floating URL at least fails closed once the digest stops matching, which is a broken page
+rather than unreviewed code. An exact version avoids both.
 
 These are real: a CDN can change the bytes it serves, and this is the one boundary in this
 project where an actor outside the machine is in scope.
 
 The tools enforce the mechanics, so what is left for review is the judgement:
 
-**In review, check:** adding a host to the `allowExternal` allow list is a deliberate
-decision about whose bytes we run, not a lint fix.
+**In review, check:** widening `allowExternal` -- adding a host, or loosening the version
+pattern -- is a deliberate decision about whose bytes we run, not a lint fix. Bumping a
+pinned dependency means a new version *and* a new digest, together.
 
 ### Link relations that `require-sri` does not recognise
 
