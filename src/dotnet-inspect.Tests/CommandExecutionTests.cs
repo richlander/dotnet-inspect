@@ -28916,6 +28916,10 @@ public partial class CommandExecutionTests
                     ["-S", "Package skill files", "--paths", "-n", "1", "--tail"],
                     "skills/beta/SKILL.md\n"),
                 (
+                    "paths-tail-inline",
+                    ["-S", "Package skill files", "--paths", "-n1", "--tail=true"],
+                    "skills/beta/SKILL.md\n"),
+                (
                     "print-head",
                     ["-S", "Package README file", "--print", "--body", "-n", "2"],
                     "first\nsecond\n"),
@@ -29008,6 +29012,34 @@ public partial class CommandExecutionTests
                 Assert.False(File.Exists(absentPath));
                 Assert.Equal(sentinel, File.ReadAllBytes(existingPath));
             }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageExactTransfer_NShapedOutputNameIsNotALineWindow()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Projection.NShapedOutput",
+            "README.md",
+            "first\nsecond");
+        var outputPath = Path.Combine(tempDir, "-n1");
+        try
+        {
+            var result = await RunAppInDirectoryAsync(
+                tempDir,
+                "package", packagePath,
+                "-S", "Package README file",
+                "--print", "--out", "-n1",
+                "--tips", "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Empty(result.Error);
+            Assert.Equal("first\nsecond", File.ReadAllText(outputPath));
         }
         finally
         {

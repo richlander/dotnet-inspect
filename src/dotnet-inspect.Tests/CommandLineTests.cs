@@ -633,6 +633,40 @@ public class CommandLineTests
         Assert.Equal(5, CommandLineBuilder.TailLines);
     }
 
+    [Theory]
+    [InlineData("--tail=true", true)]
+    [InlineData("--tail:true", true)]
+    [InlineData("--tail=false", false)]
+    [InlineData("--tail:false", false)]
+    public void PreprocessArgs_InlineTailValueSetsDirection(
+        string tail,
+        bool fromEnd)
+    {
+        string[] args = ["package", "Foo", "-n1", tail];
+
+        CommandLineBuilder.PreprocessArgs(args);
+
+        Assert.Equal(fromEnd ? null : 1, CommandLineBuilder.HeadLines);
+        Assert.Equal(fromEnd ? 1 : null, CommandLineBuilder.TailLines);
+    }
+
+    [Theory]
+    [InlineData("--out", "-n1")]
+    [InlineData("--out", "-n:1")]
+    [InlineData("--", "-n1")]
+    [InlineData("--", "-n:1")]
+    public void PreprocessArgs_AttachedLineLimitOutsideOptionScopeIsIgnored(
+        string preceding,
+        string token)
+    {
+        string[] args = ["package", "Foo", preceding, token];
+
+        CommandLineBuilder.PreprocessArgs(args);
+
+        Assert.Null(CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
+    }
+
     [Fact]
     public void PreprocessArgs_WithUnknownFirstArg_PrependsRouter()
     {

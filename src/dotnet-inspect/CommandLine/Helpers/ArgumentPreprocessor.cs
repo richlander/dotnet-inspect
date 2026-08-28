@@ -142,6 +142,9 @@ public static class ArgumentPreprocessor
         // Expand -NN shorthand (e.g., -30) into -n 30, like head -30
         for (int i = 0; i < args.Length; i++)
         {
+            if (args[i] == "--")
+                break;
+
             if (args[i].Length >= 2 && args[i][0] == '-' && char.IsDigit(args[i][1])
                 && !IsFollowingOptionValue(args, i)
                 && int.TryParse(args[i].AsSpan(1), out var headN))
@@ -157,6 +160,12 @@ public static class ArgumentPreprocessor
         {
             for (int i = 0; i < args.Length; i++)
             {
+                if (args[i] == "--")
+                    break;
+
+                if (IsFollowingOptionValue(args, i))
+                    continue;
+
                 if (args[i] == "-n"
                     && i + 1 < args.Length
                     && int.TryParse(args[i + 1], out var separated))
@@ -183,7 +192,7 @@ public static class ArgumentPreprocessor
 
         // --tail names the direction; the count comes from -n/-NN. Move the count
         // across so the tail writer gets it and the head writer does not.
-        if (args.Any(static a => a == "--tail"))
+        if (HasEnabledTailOption(args))
         {
             TailLines = HeadLines;
             HeadLines = null;
@@ -231,6 +240,32 @@ public static class ArgumentPreprocessor
         }
 
         return args;
+    }
+
+    private static bool HasEnabledTailOption(string[] args)
+    {
+        bool? enabled = null;
+        for (int i = 0; i < args.Length; i++)
+        {
+            string token = args[i];
+            if (token == "--")
+                break;
+
+            if (token == "--tail")
+            {
+                enabled = true;
+                continue;
+            }
+
+            if (token.StartsWith("--tail=", StringComparison.Ordinal)
+                || token.StartsWith("--tail:", StringComparison.Ordinal))
+            {
+                if (bool.TryParse(token.AsSpan("--tail=".Length), out var value))
+                    enabled = value;
+            }
+        }
+
+        return enabled == true;
     }
 
     private static bool IsFollowingOptionValue(string[] args, int index)
