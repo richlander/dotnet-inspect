@@ -815,6 +815,11 @@ public class IlToolsActivationTests
             "        with:\n" +
             "          ref: ${{ inputs.target_ref }}",
             workflow);
+        Assert.Equal(
+            1,
+            workflow.Split(
+                "uses: actions/checkout@v6",
+                StringSplitOptions.None).Length - 1);
         Assert.DoesNotContain("\n  schedule:", workflow);
         Assert.DoesNotContain("platform-test", workflow);
         Assert.Contains(
@@ -895,6 +900,9 @@ public class IlToolsActivationTests
                     StringSplitOptions.None).Length - 1);
         }
 
+        int checkout = workflow.IndexOf(
+            "- uses: actions/checkout@v6",
+            StringComparison.Ordinal);
         int build = workflow.IndexOf("- name: Build", StringComparison.Ordinal);
         int install = workflow.IndexOf(
             "- name: Install ilasm/ildasm/mdv",
@@ -908,7 +916,9 @@ public class IlToolsActivationTests
         int terminalCheck = workflow.IndexOf(
             "- name: Check ilasm/ildasm/mdv result",
             StringComparison.Ordinal);
+        Assert.True(checkout >= 0);
         Assert.True(build >= 0);
+        Assert.True(checkout < build);
         Assert.True(build < install);
         Assert.True(install < firstSuite);
         Assert.True(firstSuite < lastSuite);
@@ -935,6 +945,12 @@ public class IlToolsActivationTests
             .. installStep.Split('\n').Select(line => line.Trim()),
         ];
         Assert.Contains(
+            "        if: >-\n" +
+            "          inputs.suite == 'cli' ||\n" +
+            "          inputs.suite == 'metadata'\n" +
+            "        continue-on-error: true",
+            installStep);
+        Assert.Contains(
             """printf 'ILTOOLS_BASH=%s\n' "$(cygpath -w "$(command -v bash)")" >> "$GITHUB_ENV"""",
             installLines);
         Assert.Contains(
@@ -944,6 +960,11 @@ public class IlToolsActivationTests
             1,
             workflow.Split(
                 "eng/restore-iltools.sh --rid win-x64 --mdv --native-paths",
+                StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            1,
+            workflow.Split(
+                "continue-on-error:",
                 StringSplitOptions.None).Length - 1);
 
         string checkStep = workflow[terminalCheck..];
