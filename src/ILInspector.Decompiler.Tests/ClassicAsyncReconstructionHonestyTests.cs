@@ -14,6 +14,8 @@ public class ClassicAsyncReconstructionHonestyTests
     [InlineData("SequentialWithFieldStore")]
     [InlineData("SequentialWithChainedFieldStores")]
     [InlineData("SequentialWithNullCoalescingFieldStore")]
+    [InlineData("SequentialWithPropertyStore")]
+    [InlineData("SequentialWithInitObjectStore")]
     [InlineData("LoopWithFieldStore")]
     public void UnconsumedUserStoreDeclinesAtPartialFidelity(
         string methodName)
@@ -85,6 +87,9 @@ public class ClassicAsyncReconstructionHonestyTests
     [Theory]
     [InlineData("TwoSequentialAwaits", "GC.KeepAlive((x, y));")]
     [InlineData("AwaitInLoop", "foreach (Task<int> task in tasks)")]
+    [InlineData(
+        "AwaitOrdinarySetMethod",
+        "return await set_GetTask(task);")]
     public void FaithfulLegacyRecipeRemainsFullyReconstructed(
         string methodName,
         string expectedOutput)

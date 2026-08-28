@@ -235,11 +235,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 case StoreElement:
                 case StoreIndirect:
                 case StoreArgument:
+                case CopyBlock:
                 case ChainedAssignment:
+                case InitObject init
+                    when !IsMachineStorageAddress(init.Address, machine):
                 case Call call
-                    when call.Callee.Name.StartsWith(
-                        "set_",
-                        StringComparison.Ordinal):
+                    when IsPotentialPropertySetter(call.Callee):
                     return true;
             }
         }
@@ -247,12 +248,35 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         return false;
     }
 
+    static bool IsMachineStorageAddress(
+        IrExpression address,
+        TypeRef machine)
+        => address is LoadFieldAddress field
+            && IsMachineField(field.Field, machine);
+
+    static bool IsPotentialPropertySetter(MethodRef method)
+        => method.AccessorKind == AccessorKind.PropertySet
+            || (method.AccessorKind == AccessorKind.Unknown
+                && method.Name.StartsWith("set_", StringComparison.Ordinal)
+                && method.Name.Length > "set_".Length
+                && method.ParameterTypes.Length >= 1
+                && method.ReturnType is
+                    { Namespace: "System", Name: "Void" }
+                && method.TypeArguments.IsEmpty
+                && (method.HasThis
+                    || method.ParameterTypes.Length == 1));
+
     internal static bool IsMachineFieldStore(
         StoreField store,
         TypeRef machine)
+        => IsMachineField(store.Field, machine);
+
+    static bool IsMachineField(
+        FieldRef field,
+        TypeRef machine)
     {
         TypeRef declaringType =
-            DefinitionType(store.Field.DeclaringType);
+            DefinitionType(field.DeclaringType);
         machine = DefinitionType(machine);
         return !declaringType.DefinitionHandle.IsNil
             && declaringType.DefinitionHandle

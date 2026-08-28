@@ -15,9 +15,16 @@ namespace ILInspector.Decompiler.Fixtures.ClassicAsync;
 /// </summary>
 public static class AsyncFixtures
 {
+    public struct Observation
+    {
+        public int Value;
+    }
+
     public static int Observed;
     public static int Observed2;
     public static int? ObservedNullable;
+    public static int ObservedProperty { get; set; }
+    public static Observation ObservedStruct;
 
     public static async Task<int> AwaitValue(Task<int> a, int b) => await a + b;
 
@@ -68,6 +75,31 @@ public static class AsyncFixtures
         int beta = await b;
         GC.KeepAlive((alpha, beta));
     }
+
+    public static async Task SequentialWithPropertyStore(
+        Task<int> a,
+        Task<int> b)
+    {
+        int alpha = await a;
+        ObservedProperty = alpha;
+        int beta = await b;
+        GC.KeepAlive((alpha, beta));
+    }
+
+    public static async Task SequentialWithInitObjectStore(
+        Task<int> a,
+        Task<int> b)
+    {
+        int alpha = await a;
+        ObservedStruct = default;
+        int beta = await b;
+        GC.KeepAlive((alpha, beta));
+    }
+
+    public static async Task<int> AwaitOrdinarySetMethod(Task<int> task)
+        => await set_GetTask(task);
+
+    public static Task<int> set_GetTask(Task<int> task) => task;
 
     public static async ValueTask<int> AwaitValueTask(ValueTask<int> a) => await a;
 
