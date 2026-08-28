@@ -402,7 +402,8 @@ resolved with `Boolean` before `Union` and `Union` before `EnumLiteral`:
 TypeScript represents `boolean` as the union of its literal values and marks a
 whole enum as both union and enum-literal, while an enum member remains an
 `EnumLiteral`. The focused type-characterization gate enforces all three
-outcomes.
+outcomes and proves that raw TypeScript overlap does not make a normalized
+`Boolean` fact applicable to the union-only constituent query.
 
 ### Signatures and overloads
 

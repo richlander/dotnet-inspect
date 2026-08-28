@@ -2724,10 +2724,17 @@ class SemanticFactsSession implements TypeScriptSemanticFactsSession {
   getUnionConstituents(type: SemanticHandle): QueryResult<readonly TypeFact[]> {
     return this.#run("getUnionConstituents", () => {
       const rawType = this.#requireType(type);
-      if (!rawType.isUnionType()) {
+      const category = typeCategory(rawType);
+      if (category !== TypeCategory.Union) {
         return notApplicable(
           queryApplicability.getUnionConstituents,
-          typeCategory(rawType),
+          category,
+        );
+      }
+      if (!rawType.isUnionType()) {
+        throw new CompatibilityFailure(
+          "UnsupportedResponseShape",
+          "a repository union type is not a TypeScript union type",
         );
       }
       return resolved(Object.freeze(rawType.getTypes().map(member => this.#typeFact(member))));
@@ -2737,10 +2744,17 @@ class SemanticFactsSession implements TypeScriptSemanticFactsSession {
   getIntersectionConstituents(type: SemanticHandle): QueryResult<readonly TypeFact[]> {
     return this.#run("getIntersectionConstituents", () => {
       const rawType = this.#requireType(type);
-      if (!rawType.isIntersectionType()) {
+      const category = typeCategory(rawType);
+      if (category !== TypeCategory.Intersection) {
         return notApplicable(
           queryApplicability.getIntersectionConstituents,
-          typeCategory(rawType),
+          category,
+        );
+      }
+      if (!rawType.isIntersectionType()) {
+        throw new CompatibilityFailure(
+          "UnsupportedResponseShape",
+          "a repository intersection type is not a TypeScript intersection type",
         );
       }
       return resolved(Object.freeze(rawType.getTypes().map(member => this.#typeFact(member))));
