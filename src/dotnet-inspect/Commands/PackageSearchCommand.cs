@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Views;
@@ -13,6 +14,8 @@ namespace DotnetInspector.Commands;
 public class PackageSearchCommand
 {
     public const string Name = "search";
+    private static readonly string[] ResultColumns =
+        ["Package", "Version", "Downloads", "Description"];
 
     public static async Task<int> ExecuteAsync(PackageSearchOptions options)
     {
@@ -21,6 +24,45 @@ public class PackageSearchCommand
 
         try
         {
+            if (options.Count)
+            {
+                if (!LensProjection.TryResolveColumns(
+                        options,
+                        "package search",
+                        ResultColumns,
+                        out _))
+                {
+                    return 1;
+                }
+            }
+            else if (LensProjection.TryProject(
+                    options,
+                    "package search",
+                    rowCount: 0,
+                    out var preflightExitCode,
+                    ResultColumns))
+            {
+                return preflightExitCode;
+            }
+
+            if (!options.Count
+                && (options.Fields is { Length: > 0 }
+                    || options.Columns is { Length: > 0 }))
+            {
+                CommandError.Write(
+                    "--fields/--columns are not available with package search unless "
+                    + "--count is projecting the search rows.");
+                return 1;
+            }
+
+            if (!options.Count && options.OutputPath is not null)
+            {
+                CommandError.Write(
+                    "--out is not available with package search unless --count is "
+                    + "writing the count payload.");
+                return 1;
+            }
+
             var outcome = await NuGetSearchService.SearchAsync(
                 context.HttpClient,
                 options.Query,
@@ -31,7 +73,7 @@ public class PackageSearchCommand
                 NuGetFetchOptions.FromRequestTimeout(
                     context.HttpClient.Timeout));
 
-            var results = outcome.Results;
+            var results = RowWindow.Apply(options.Rows, outcome.Results);
 
             // Sources that could not be searched are reported even when other sources
             // succeeded: a partial answer must not read like a complete one.
@@ -48,7 +90,20 @@ public class PackageSearchCommand
             // with the full unprojected result set.
             if (options.Count)
             {
-                CountOutput.WriteCount(results.Count);
+                CountOutput.WriteCount(
+                    results.Count,
+                    options.OutputPath,
+                    options.Rows);
+                return exitCode;
+            }
+
+            if (!options.JsonOutput && results.Count == 0)
+            {
+                if (outcome.Results.Count == 0)
+                    CommandError.WriteLine($"No packages found for \"{options.Query}\".");
+                else
+                    CommandError.WriteLine(
+                        $"No packages are in the requested row window for \"{options.Query}\".");
                 return exitCode;
             }
 
@@ -59,12 +114,6 @@ public class PackageSearchCommand
                     Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(
                         result, PackageSearchJsonlContext.Default.NuGetSearchResult));
                 }
-                return exitCode;
-            }
-
-            if (results.Count == 0)
-            {
-                CommandError.WriteLine($"No packages found for \"{options.Query}\".");
                 return exitCode;
             }
 
@@ -92,7 +141,7 @@ public class PackageSearchCommand
 /// <summary>
 /// Options for the package search command.
 /// </summary>
-public record PackageSearchOptions
+public record PackageSearchOptions : IProjectionOptions
 {
     /// <summary>Search query (keyword or package name prefix).</summary>
     public string Query { get; init; } = "";
@@ -114,6 +163,30 @@ public record PackageSearchOptions
 
     /// <summary>Reduce the result table to a single row count.</summary>
     public bool Count { get; init; }
+
+    /// <summary>Inherited printable-payload projection.</summary>
+    public bool Print { get; init; }
+
+    /// <summary>Inherited scalar-value projection.</summary>
+    public bool Value { get; init; }
+
+    /// <summary>Inherited URL projection.</summary>
+    public bool Urls { get; init; }
+
+    /// <summary>Inherited path projection.</summary>
+    public bool Paths { get; init; }
+
+    /// <summary>Inherited output destination.</summary>
+    public string? OutputPath { get; init; }
+
+    /// <summary>Inherited result-row window.</summary>
+    public RowWindow? Rows { get; init; }
+
+    /// <summary>Field projection inherited from the package command.</summary>
+    public string[]? Fields { get; init; }
+
+    /// <summary>Column projection inherited from the package command.</summary>
+    public string[]? Columns { get; init; }
 
     /// <summary>NuGet sources to search. Defaults to nuget.org when unset.</summary>
     public NuGetSourceOptions? SourceOptions { get; init; }

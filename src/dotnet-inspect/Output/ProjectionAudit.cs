@@ -56,6 +56,32 @@ public static class ProjectionAudit
     private static readonly AsyncLocal<Request?> Current = new();
 
     /// <summary>
+    /// Rejects a field or column projection that has reached an unadopted typed-document JSON
+    /// serializer. Callers must invoke this only after command-owned lenses and payload
+    /// projections have had the opportunity to handle the request.
+    /// </summary>
+    public static bool RejectUnloweredJson(IProjectionOptions options, bool jsonOutput)
+    {
+        if (!jsonOutput
+            || options.Count
+            || options.Print
+            || options.Value
+            || options.Urls
+            || options.Paths
+            || options.Fields is not { Length: > 0 }
+                && options.Columns is not { Length: > 0 })
+        {
+            return false;
+        }
+
+        CommandError.Write(
+            "--fields/--columns with --json requires lowered JSON, which this command "
+            + "does not support yet. Use --table, --tsv, or --jsonl for projected rows, "
+            + "or omit --fields/--columns to keep the typed JSON document.");
+        return true;
+    }
+
+    /// <summary>
     /// Rejects more than one payload projection in a single invocation. Two projections cannot
     /// both shape one payload, so honoring either one silently discards the other. Commands
     /// already enforced this among <c>--value</c>/<c>--urls</c>/<c>--paths</c> individually;
