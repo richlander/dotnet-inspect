@@ -319,7 +319,7 @@ surface group when no implementation participant exists.
 | `QueryMemberAnnotatedSource` | one package/version/framework | `AssemblyContextMemberProjectionQuery.ExecuteParticipant(...)` |
 | `QueryMemberSource`, `QueryTypeSource`, `QueryTypeMemberSource` | one package/version/framework | `AssemblyContextSourceQuery.ExecuteMemberAsync(...)` / `ExecuteTypeAsync(...)` |
 | `QueryPackageDependencies` | one package/version/framework | `PackageDependencyGroupsQuery.ExecuteAsync(content, ...)` and `AssemblyContextReferencesQuery.ExecuteParticipant(...)` |
-| `QueryPackageIntegrations` | one package/version/framework | `AssemblyContextIntegrationsQuery.Execute(group)` |
+| `QueryPackageIntegrations` | one package/version/framework | `PackageWorkspaceIntegrationsQuery.Execute(realization)` |
 | `QueryPackageOpportunities` | one package/version/framework | `AssemblyContextIntegrationOpportunitiesQuery.Execute(group, prerequisites)` |
 | `QueryPackagePerformance` | one package/version/framework, implementation group | `AssemblyContextOptimizationOpportunitiesQuery.Execute(group)` |
 | `QueryMemberCallGraph` | every open package coordinate, implementation group | `MemberCallGraphSession` |
@@ -569,9 +569,14 @@ rather than fixture results or success-shaped empty output.
 
 | Unsupported export | Missing product query |
 | --- | --- |
-| `QueryPackageMetadata`, `QueryPackageMetadataTable`, `QueryPackageHeapEntries` | metadata image, table, and heap projections over a group (`MetadataImageQuery` binds to a host-opened session today) |
-| `QueryPlatformMetadata`, `QueryPlatformMetadataTable`, `QueryPlatformHeapEntries` | the same missing group-scoped metadata image, table, and heap projections as the package exports |
 | `QueryPlatformPerformance` | assembly-wide Analysis ranking over a platform group |
+
+Package and Platform Metadata use
+`AssemblyContextMetadataImageQuery`, `AssemblyContextMetadataTableQuery`, and
+`AssemblyContextMetadataHeapQuery`. The host selects a workspace participant;
+the product query owns session access and returns typed availability, rejection,
+or failure. Table windows and heap listings retain their bounds, coverage, and
+truncation instead of presenting partial data as complete.
 
 Package-backed type Metadata/Source and member Source/Annotated Source exports
 do not accept platform coordinates. The Platform UI therefore withholds those
