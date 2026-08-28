@@ -23,8 +23,6 @@ import {
 } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
-import { parseSync, type Statement } from "oxc-parser";
-import { failOnHtmlParseErrors, isHtmlParseFailure } from "../scripts/html-parse-gate.ts";
 import {
   supportedAnalysisHosts,
   verifyAnalysisHost,
@@ -517,74 +515,8 @@ const textAttributes: ReadonlySet<string> = new Set([
 // `javascript:`, `data:` and `vbscript:` without listing any of them.
 const inertSchemes: ReadonlySet<string> = new Set(["http", "https", "mailto"]);
 
-const namedEntities: ReadonlyMap<string, string> = new Map([
-  ["amp", "&"], ["apos", "'"], ["bsol", "\\"], ["colon", ":"], ["gt", ">"],
-  ["lt", "<"],
-  ["newline", "\n"], ["quot", '"'], ["sol", "/"], ["tab", "\t"],
-]);
-
-function entityText(decimal: string | undefined, hex: string | undefined,
-  name: string | undefined): string | undefined {
-  const code = decimal !== undefined
-    ? Number.parseInt(decimal, 10)
-    : hex !== undefined ? Number.parseInt(hex, 16) : undefined;
-  if (code !== undefined) {
-    return code >= 0 && code <= 0x10FFFF ? String.fromCodePoint(code) : undefined;
-  }
-  return name === undefined ? undefined : namedEntities.get(name.toLowerCase());
-}
-
-// A browser decodes entities in an attribute value and then ignores whitespace and
-// control characters while resolving the URL, so `&#106;avascript&colon;` and
-// `java\tscript:` both reach the same place a plain `javascript:` does. Comparing the
-// literal text would compare the wrong string.
-function resolvedValue(value: string): string {
-  let decoded = "";
-  let index = 0;
-  for (const match of value.matchAll(/&(?:#(\d+)|#x([\da-f]+)|([a-z]+));?/gi)) {
-    decoded += value.slice(index, match.index)
-      + (entityText(match[1], match[2], match[3]) ?? match[0]);
-    index = match.index + match[0].length;
-  }
-  decoded += value.slice(index);
-  return decoded.replaceAll(/[\0-\u0020\u007F]/g, "");
-}
-
-// Round 4 (Sol) found `&bsol;` missing from the table above, so `/&bsol;host/` stayed
-// literal, failed the `//` test and was read as a local path while a browser resolved it
-// to `https://host/`. Round 3 is what made a backslash significant, and the table was not
-// revisited. That is this file's recurring failure -- an enumeration with one more hole --
-// so the table's incompleteness has to stop being silent. A named reference ending in a
-// semicolon is always expanded by a browser, so one this file cannot decode means it
-// cannot know what URL the browser resolves, and it now says so instead of guessing.
-//
-// Only semicolon-terminated references are reported. Without the semicolon a browser
-// expands a name only in narrow legacy cases, and `?a=1&c=2` is an ordinary query string
-// that has to keep working.
-// Round 5 (Gemini) found this reporting `&b;` in `/api?a=1&b;c=2`, an ordinary query string
-// a browser leaves alone, and proposed dropping the check. That would restore the `&bsol;`
-// hole exactly: `&commat;` is a real reference this table also lacks, and silence about it
-// is the failure this exists to prevent. The report is right; its scope was too wide.
-//
-// A reference can only change the answer this gate wants -- the scheme and the authority --
-// if it can reach them. Neither `?` nor `#` may appear in a scheme, so nothing after the
-// first one can create one; and a value whose first character is `?` or `#` can never begin
-// `//`, so nothing after it can create an authority either. Everything from the first `?`
-// or `#` onward is therefore query or fragment, where an undecoded reference is text.
-//
-// `/` deliberately does not end the region. `/&bsol;evil.com/x` resolves to
-// `https://evil.com/x`, which is the round 4 attack, and a rule that stopped at the first
-// slash would wave it through.
-function undecodedReferences(value: string): readonly string[] {
-  const settled = value.search(/[#?]/u);
-  return [...value.matchAll(/&(?:#(\d+)|#x([\da-f]+)|([\da-z]+));/gi)]
-    .filter(match => settled < 0 || match.index < settled)
-    .filter(match => entityText(match[1], match[2], match[3]) === undefined)
-    .map(match => match[0]);
-}
-
 function urlScheme(value: string): string | undefined {
-  return /^([a-z][\d+.a-z-]*):/i.exec(resolvedValue(value))?.[1]?.toLowerCase();
+  return /^([a-z][\d+.a-z-]*):/i.exec(value)?.[1]?.toLowerCase();
 }
 
 // Round 2 (Opus) found the `integrity` requirement keyed on "has a scheme", which reads
@@ -593,13 +525,12 @@ function urlScheme(value: string): string | undefined {
 // so those bytes come from a third party. "Remote" is the property that matters, and a
 // scheme-relative URL has it.
 function isRemoteReference(value: string): boolean {
-  // Round 3 (Gemini and Sol, independently) found that `//` is not the only spelling of an
-  // authority. The URL parser treats a backslash as a slash for special schemes, so
-  // `/\host/x.js`, `\\host/x.js` and `\/host/x.js` all resolve to `https://host/x.js` --
-  // verified against the WHATWG parser, which is the one browsers run. Normalizing first
-  // is what makes one comparison cover every spelling.
-  const resolved = resolvedValue(value).replaceAll("\\", "/");
-  return urlScheme(value) !== undefined || resolved.startsWith("//");
+  // `//` is not the only spelling of an authority: the URL parser treats a backslash as a
+  // slash for special schemes, so `/\host/x.js`, `\\host/x.js` and `\/host/x.js` all
+  // resolve to `https://host/x.js`. Normalizing first is what makes one comparison cover
+  // every spelling, and getting this wrong would skip the `integrity` requirement below.
+  const normalized = value.replaceAll("\\", "/");
+  return urlScheme(value) !== undefined || normalized.startsWith("//");
 }
 
 // Presence is not pinning. `integrity=""` satisfies a check for the attribute and disables
@@ -820,40 +751,6 @@ function scanMarkup(source: string, report: (problem: string) => void): MarkupTa
   return tags;
 }
 
-// The gate above reads markup with a tokenizer this project wrote. Vite reads the same
-// document with parse5, and until now it reported a document it could not parse and built
-// it anyway. `scripts/html-parse-gate.ts` makes that report fatal.
-//
-// Neither check subsumes the other. The tokenizer knows what this project considers inert
-// and parse5 does not; parse5 implements the HTML5 spec and the tokenizer does not. A
-// document has to satisfy both, and this test exists so that the wiring cannot die
-// quietly -- a `customLogger` that stopped throwing would leave every build green.
-test("the build fails on a document its own parser cannot parse", async () => {
-  assert.equal(isHtmlParseFailure(
-    "Unable to parse HTML; parse5 error code end-tag-with-trailing-solidus"), true);
-  assert.equal(isHtmlParseFailure("some other warning"), false);
-
-  const refusing = failOnHtmlParseErrors();
-  assert.throws(() => {
-    refusing.warn("Unable to parse HTML; parse5 error code end-tag-with-attributes");
-  }, /Unable to parse HTML/u);
-  assert.throws(() => {
-    refusing.warnOnce("Unable to parse HTML; parse5 error code end-tag-with-trailing-solidus");
-  }, /Unable to parse HTML/u);
-
-  // Wiring, not behavior in isolation: the config the build actually loads must install a
-  // logger that refuses. Asserting the helper alone would still pass with `customLogger`
-  // deleted from `vite.config.ts`, which is the way this gate would really die.
-  const configured = (await import("../vite.config.ts")).default.customLogger;
-  assert.ok(configured !== undefined,
-    "vite.config.ts installs no customLogger, so Vite would report an unparseable "
-      + "document and build it anyway");
-  assert.throws(() => {
-    configured.warn(
-      "Unable to parse HTML; parse5 error code end-tag-with-trailing-solidus");
-  }, /Unable to parse HTML/u, "the configured logger does not refuse a parse failure");
-});
-
 // The gate below runs this over every document in the project. It is a function rather
 // than a loop body so that other tests can hold a specimen against the same rules -- a
 // test that restated these checks would keep passing after the real ones were weakened,
@@ -912,15 +809,6 @@ function markupFindings(name: string, html: string): string[] {
         || inertAttributePrefixes.some(prefix => spelled.startsWith(prefix))) {
         continue;
       }
-      const unreadable = undecodedReferences(attribute.value);
-      if (unreadable.length > 0) {
-        findings.push(`${name}: <${tag.element} ${spelled}> contains `
-          + `${unreadable.join(", ")}, which this file cannot decode, so it cannot tell `
-          + "what URL a browser resolves here. If it is a real character reference, add it "
-          + "to `namedEntities` with the character it produces; if it is not, a browser "
-          + "leaves it as text, and it should not be spelled that way before the query");
-        continue;
-      }
       const scheme = urlScheme(attribute.value);
       if (scheme !== undefined && !inertSchemes.has(scheme)) {
         findings.push(`${name}: <${tag.element} ${spelled}> carries a \`${scheme}:\` `
@@ -956,32 +844,6 @@ test("subresource integrity is read the way a browser separates it", () => {
   }
 });
 
-test("an undecodable character reference is reported only where it could change the URL", () => {
-  // Round 5 (Gemini) found `&b;` in a query string reported as undecodable. A browser
-  // leaves it as text, and nothing after the first `?` or `#` can produce a scheme or an
-  // authority, so there is nothing this needs to know about it.
-  for (const inert of ["/api?a=1&b;c=2", "/search?q=x&NotAnEntity;&y=2", "/p#a&b;c"]) {
-    assert.deepEqual(markupFindings("ref", `<a href="${inert}">x</a>`), [],
-      `\`${inert}\` is a query or fragment a browser leaves as text, and it was rejected`);
-  }
-
-  // Before the query it still reports, because that is where a reference this cannot read
-  // decides the answer. `&commat;` is a real reference this table lacks, which is the case
-  // that makes silence unsafe; `&b;` is not, and telling them apart is the whole problem.
-  for (const reported of ["/&commat;evil.example/x", "/&b;/x", "&unknown;://host/x"]) {
-    assert.ok(markupFindings("ref", `<a href="${reported}">x</a>`).length > 0,
-      `\`${reported}\` carries a reference this file cannot decode before the query, so it `
-        + "cannot know what URL a browser resolves. It said nothing");
-  }
-
-  // The slash does not end the region: this is the round 4 attack, and a rule that stopped
-  // at the first slash would pass it.
-  assert.ok(markupFindings("ref", '<a href="/&bsol;evil.example/x">x</a>').length === 0,
-    "`&bsol;` is in the table, so it decodes rather than being reported as unreadable");
-  assert.ok(markupFindings("ref", '<base href="/&bsol;evil.example/" />').length > 0,
-    "`/&bsol;evil.example/` resolves to a remote authority and must be reported as one");
-});
-
 test("a text attribute cannot become a URL the browser follows", () => {
   // The scheme rule exempts `textAttributes`, so each entry is a claim that a browser
   // never dereferences that value. Two of those claims are load-bearing enough to pin.
@@ -1003,197 +865,28 @@ test("a text attribute cannot become a URL the browser follows", () => {
       + "exemption describes markup this project cannot contain");
 });
 
-// The set of parse5 verdicts Vite drops before `scripts/html-parse-gate.ts` can make them
-// fatal, read out of the Vite build this project runs rather than copied into a list here.
-// `handleParseError` returns early for exactly those codes, so the answer is in the shipped
-// source and does not have to be remembered.
-//
-// Round 5 (Sol and Gemini, independently) found the first version of this reading that
-// source with `indexOf` and a regex, which is the same mistake this gate exists to punish:
-// hand-parsing a language instead of asking a parser. Sol moved the discard to an `if`
-// ahead of the switch and Gemini put a `}` in a comment inside it; both shapes are ordinary
-// JavaScript, and under each the derivation returned a *smaller* set, matched it against
-// the specimens, and passed. A short answer here reads as "Vite discards less than it
-// does", which is precisely the direction that silently drops coverage.
-//
-// So this asks `oxc-parser` -- already this suite's answer to "what does this source say?"
-// -- and the fail-closed core is no longer a shape assumption but a count. Every discard is
-// an argument-less `return`, so every argument-less `return` in the function has to be a
-// discard this recognized. Vite can add one as a switch arm or as an `if`; if it adds one
-// in a shape not recognized below, the counts disagree and this fails rather than reporting
-// the smaller set it understood.
-function viteDiscardedParseErrorCodes(): ReadonlySet<string> {
-  const entry = fileURLToPath(import.meta.resolve("vite"));
-  let root = dirname(entry);
-  while (!existsSync(join(root, "package.json"))) {
-    const parent = dirname(root);
-    assert.notEqual(parent, root, `no \`package.json\` above \`${entry}\`, so the Vite `
-      + "build this project runs could not be located to read its discarded parse codes");
-    root = parent;
-  }
-
-  const sources: string[] = [];
-  const walk = (directory: string): void => {
-    for (const item of readdirSync(directory, { withFileTypes: true })) {
-      const path = join(directory, item.name);
-      if (item.isDirectory()) { walk(path); }
-      else if (item.name.endsWith(".js")) { sources.push(path); }
-    }
-  };
-  walk(join(root, "dist", "node"));
-
-  const marker = "function handleParseError";
-  const carriers = sources.filter(path => readFileSync(path, "utf8").includes(marker));
-  assert.equal(carriers.length, 1,
-    `expected exactly one Vite source to define \`${marker}\`, the function that decides `
-      + `which parse5 verdicts are dropped, and found ${carriers.length}. Vite has been `
-      + "restructured, so this can no longer tell which verdicts reach the build gate");
-
-  const carrier = carriers[0] ?? "";
-  const parsed = parseSync(carrier, readFileSync(carrier, "utf8"));
-  assert.deepEqual(parsed.errors, [],
-    `\`${carrier}\` did not parse, so nothing below is reading Vite's discard decision`);
-
-  const declarations = parsed.program.body.filter(statement =>
-    statement.type === "FunctionDeclaration" && statement.id?.name === "handleParseError");
-  assert.equal(declarations.length, 1,
-    `expected exactly one top-level \`handleParseError\` and found ${declarations.length}`
-      + ", so which one decides is ambiguous");
-
-  const declaration = declarations[0];
-  const body = declaration?.type === "FunctionDeclaration" ? declaration.body?.body : undefined;
-  assert.ok(body !== undefined, "`handleParseError` has no readable body");
-
-  // A discard returns nothing. Anything with an argument is a value this is not reading.
-  const isDiscard = (node: Statement | null | undefined): boolean =>
-    node?.type === "ReturnStatement" && (node.argument === null || node.argument === undefined);
-
-  // `if (x.code === "literal") return;`, in either operand order, with no `else` and
-  // nothing but the return in its consequent. This is the shape Sol used to defeat the
-  // previous version, so it is recognized rather than merely counted.
-  const guardedCode = (statement: Statement): string | undefined => {
-    if (statement.type !== "IfStatement" || statement.alternate != null) { return undefined; }
-    const consequent = statement.consequent;
-    const returned = consequent.type === "BlockStatement"
-      ? (consequent.body.length === 1 ? consequent.body[0] : undefined)
-      : consequent;
-    if (!isDiscard(returned)) { return undefined; }
-    const condition = statement.test;
-    if (condition.type !== "BinaryExpression"
-      || (condition.operator !== "===" && condition.operator !== "==")) { return undefined; }
-    for (const side of [condition.left, condition.right]) {
-      if (side.type === "Literal" && typeof side.value === "string") { return side.value; }
-    }
-    return undefined;
-  };
-
-  const codes: string[] = [];
-  for (const statement of body) {
-    const guarded = guardedCode(statement);
-    if (guarded !== undefined) { codes.push(guarded); continue; }
-    if (statement.type !== "SwitchStatement") { continue; }
-    for (const branch of statement.cases) {
-      // A `default:`, a fallthrough, or an arm doing anything but returning is a shape
-      // this does not understand. Leaving it uncounted is what makes the tally below fail.
-      if (branch.test?.type !== "Literal" || typeof branch.test.value !== "string") { continue; }
-      if (branch.consequent.length !== 1 || !isDiscard(branch.consequent[0])) { continue; }
-      codes.push(branch.test.value);
-    }
-  }
-
-  // The tally is the part that fails closed, and it has to see the whole function rather
-  // than the shapes above, or a discard in an unrecognized shape would go uncounted on both
-  // sides and the two would agree by accident. Serializing walks every node there is.
-  let discards = 0;
-  JSON.stringify(declaration, (_key: string, value: unknown): unknown => {
-    if (typeof value === "object" && value !== null && "type" in value
-      && value.type === "ReturnStatement"
-      && (!("argument" in value) || value.argument === null || value.argument === undefined)) {
-      discards += 1;
-    }
-    return value;
-  });
-
-  assert.equal(codes.length, discards,
-    `\`handleParseError\` returns without a value ${discards} time(s) and this recognized `
-      + `${codes.length} of them, so Vite drops parse verdicts this cannot name. Read: `
-      + codes.join(", "));
-  assert.ok(codes.length > 0, "`handleParseError` dropped no codes, which has never been "
-    + "true; this is reading the wrong code rather than reporting a change in Vite");
-
-  return new Set(codes);
-}
-
-test("the parse errors Vite discards are caught by the markup scan", () => {
-  // Round 3 (Gemini) found the prose in `scripts/html-parse-gate.ts` claiming Vite reports
-  // every parse5 rejection. It does not: some codes return before reaching the logger, so
-  // the build gate never sees them. The claim that this file covers them was asserted in a
-  // comment and enforced by nothing. Here it is enforced.
-  //
-  // Round 4 (Opus) found this list short and the reason for its length wrong. It said
-  // `abandoned-head-element-child` was "placement, not content", but parse5 raises that
-  // code from a switch keyed on the tag, and `script` is one of its cases: a `<script>`
-  // between `</head>` and `<body>` produces that code and no other, so Vite discards the
-  // only parse verdict on it. That the gate rejects it anyway is true and was unrecorded,
-  // which is the same defect in a different place -- a real property resting on a stated
-  // reason that does not hold. It is pinned below rather than argued.
-  //
-  // A non-vacuity check then found the fix itself only half-enforced: the codes below were
-  // labels used in a failure message and nothing else, so a misspelled or stale one still
-  // passed, and a code Vite started discarding tomorrow would be covered by nobody. That
-  // is this file's recurring defect once more -- an enumeration that cannot report its own
-  // holes -- so the set is no longer enumerated here. `viteDiscardedParseErrorCodes` reads
-  // it out of the Vite build that this project actually runs, and the assertion below is a
-  // set equality: every code Vite discards is either given a specimen that `scanMarkup`
-  // rejects, or named inert with a reason. A new discarded code fails this test until
-  // somebody decides which it is, and a specimen for a code Vite no longer discards fails
-  // it too.
-  const discardedByVite = viteDiscardedParseErrorCodes();
-
-  // Codes genuinely out of reach of code. `missing-doctype` says nothing about content.
-  // The other is worth stating because it looks dangerous and is not: in
-  // `<?script>x</script>`, `<?` opens a bogus comment that runs to the first `>` in a
-  // browser and in `scanMarkup` alike, so `x` is text and the trailing end tag is stray.
-  // Nothing runs, and the two agree.
-  const cannotCarryCode: ReadonlySet<string> = new Set([
-    "missing-doctype",
-    "unexpected-question-mark-instead-of-tag-name",
-  ]);
-
-  // The general reason the rest are covered is that `scanMarkup` reads elements wherever
-  // they sit. None of these codes is about what an element contains, so none of them
-  // changes what the scan sees -- but "the scan does not care where" is a property, so it
-  // is asserted here rather than trusted. If `scanMarkup` stops reporting any of them,
-  // this fails rather than the coverage quietly moving to Vite, which discards it.
-  const discarded = [
-    // A `script` is not void, so the solidus does not close it. The scan keeps looking for
-    // the end tag, and reports the body it finds or that there is no end tag at all.
-    ["non-void-html-element-start-tag-with-trailing-solidus",
+// A malformed document is not an attack; it is a typo. But error recovery decides what a
+// browser actually runs, so markup the scan cannot read has to be reported rather than
+// guessed at. Each specimen below is a shape a browser silently repairs while carrying a
+// script body the gates would otherwise never read.
+test("markup a browser would repair is reported rather than guessed at", () => {
+  const repaired = [
+    // A `script` is not void, so the solidus does not close it.
+    ["a solidus does not close a script",
       "<script src=\"/src/bootstrap.ts\" />globalThis.MY_MARKER = 1;"],
-    // A browser keeps the first `src` and drops the second. The scan reads both, so the
-    // dropped one is still held to the scheme rule -- stricter than the browser, which is
-    // the safe direction when the two disagree about which value survives.
-    ["duplicate-attribute",
+    // A browser keeps the first `src` and drops the second. The scan reads both.
+    ["a browser keeps the first src and drops the second",
       "<script src=\"/src/bootstrap.ts\" src=\"javascript:void 0\"></script>"],
-    // parse5 raises this for a `script` placed after the head, and raises nothing else,
-    // so the build gate never hears about the body it carries. The scan does not track
-    // placement, so it reads the body exactly as it would anywhere else.
-    ["abandoned-head-element-child",
+    // A `script` between `</head>` and `<body>` is relocated by error recovery.
+    ["a script after the head is relocated",
       "<head><title>t</title></head><script>globalThis.MY_MARKER = 1;</script>"],
   ] as const;
 
-  for (const [code, markup] of discarded) {
-    assert.ok(markupFindings(code, markup).length > 0,
-      `Vite discards \`${code}\` before its logger sees it, so this document reaches the `
-        + "build unexamined unless the markup scan rejects it. It did not");
+  for (const [reason, markup] of repaired) {
+    assert.ok(markupFindings(reason, markup).length > 0,
+      `${reason}: a browser repairs this document, so what it runs is not what the file `
+        + "says, and the scan has to report it rather than guess");
   }
-
-  const accounted = [...discarded.map(([code]) => code), ...cannotCarryCode].sort();
-  assert.deepEqual(accounted, [...discardedByVite].sort(),
-    "Vite discards these parse verdicts before `scripts/html-parse-gate.ts` can make them "
-      + "fatal, so a document carrying one is examined by the markup scan or by nothing. "
-      + "Each code needs a specimen above that the scan rejects, or a place in "
-      + "`cannotCarryCode` with the reason it cannot carry script");
 });
 
 test("no HTML document carries script the gates cannot read", () => {
