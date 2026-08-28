@@ -163,19 +163,22 @@ still needs, recompiling until the unit binds or the closure stops growing. It
 runs in **escalation** order — the cheap whole-module compile first, and only the
 rows it could not check are escalated to the closure path, which reaches the same
 checkable population as attempting the closure everywhere at a fraction of the
-cost. A row falls back to its whole-module result when the closure cannot be
-closed within budget, so it never regresses below the baseline — it only rescues
-targets the all-or-nothing skeleton failed for unrelated sibling reasons. A
-persistent bail is a principled *not-safely-capturable* classification rather than
-a fidelity verdict, and the changed-method report prints the segmented
-**safely-capturable bands** (checkable whole-module, checkable cluster-rescued,
-not-safely-capturable) from each row's capture provenance. The current gain is
-modest and library-shaped, and improves lever by lever as the closure learns to
-resolve more of what the compiler names: namespace-segment inclusion (the
-dominant `CS0234` bail, ~81% on Newtonsoft.Json), a synthetic parameterless
-constructor stub for reconstructed classes whose base lacks one (the `CS1729`/`CS7036`
-implicit-`base()` bail), and reconstructing sibling properties as property syntax
-(the `CS1061` `obj.X` bail) together took Newtonsoft.Json exact-match from 7.9% to
+cost under the shipping comparison contract.
+
+Issue #4810's target compile-context contract does not let a failed closure
+attempt borrow the whole-module result. A separately labelled whole-module
+control may remain visible, but a post-attempt stall or budget exhaustion is
+*not-safely-capturable*, not a fidelity verdict, and cannot inherit `Exact`
+without its own complete receipt. The changed-method report prints the
+segmented **safely-capturable bands** (checkable whole-module, checkable
+cluster-rescued, not-safely-capturable) from each row's capture provenance. The
+current gain is modest and library-shaped, and improves lever by lever as the
+closure learns to resolve more of what the compiler names: namespace-segment
+inclusion (the dominant `CS0234` bail, ~81% on Newtonsoft.Json), a synthetic
+parameterless constructor stub for reconstructed classes whose base lacks one
+(the `CS1729`/`CS7036` implicit-`base()` bail), and reconstructing sibling
+properties as property syntax (the `CS1061` `obj.X` bail) together took
+Newtonsoft.Json exact-match from 7.9% to
 43.4%; inherited/extension members (the rest of `CS1061`) are the next measured
 lever. The point is the
 inverse of cheating: a good cluster system lets honest changed-method fidelity
