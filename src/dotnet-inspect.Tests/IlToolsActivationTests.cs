@@ -801,7 +801,19 @@ public class IlToolsActivationTests
         Assert.Contains("default: queries", workflow);
         Assert.Contains("runs-on: windows-latest", workflow);
         Assert.Contains(
-            "group: windows-pr-${{ github.ref }}-${{ inputs.suite }}",
+            "      target_ref:\n" +
+            "        description: 'Branch, tag, SHA, or " +
+            "refs/pull/<number>/head to validate'\n" +
+            "        required: true\n" +
+            "        type: string",
+            workflow);
+        Assert.Contains(
+            "group: windows-pr-${{ inputs.target_ref }}-${{ inputs.suite }}",
+            workflow);
+        Assert.Contains(
+            "      - uses: actions/checkout@v6\n" +
+            "        with:\n" +
+            "          ref: ${{ inputs.target_ref }}",
             workflow);
         Assert.DoesNotContain("\n  schedule:", workflow);
         Assert.DoesNotContain("platform-test", workflow);
@@ -836,6 +848,16 @@ public class IlToolsActivationTests
                 "dotnet run --project tests/ILInspector.Metadata.Tests " +
                 "-c Release"),
         ];
+        Assert.Contains(
+            "        options:\n" +
+            "          - queries\n" +
+            "          - cli\n" +
+            "          - services\n" +
+            "          - analysis\n" +
+            "          - decompiler\n" +
+            "          - metadata\n\n" +
+            "permissions:",
+            workflow);
 
         foreach ((string suite, string command) in suites)
         {
@@ -848,7 +870,6 @@ public class IlToolsActivationTests
         foreach (string suite in new[]
         {
             "cli",
-            "decompiler",
             "metadata",
         })
         {
@@ -859,7 +880,13 @@ public class IlToolsActivationTests
                     StringSplitOptions.None).Length - 1);
         }
 
-        foreach (string suite in new[] { "queries", "services", "analysis" })
+        foreach (string suite in new[]
+        {
+            "queries",
+            "services",
+            "analysis",
+            "decompiler",
+        })
         {
             Assert.Equal(
                 1,
@@ -868,11 +895,55 @@ public class IlToolsActivationTests
                     StringSplitOptions.None).Length - 1);
         }
 
-        Assert.Contains("ILTOOLS_BASH=", workflow);
+        int build = workflow.IndexOf("- name: Build", StringComparison.Ordinal);
+        int install = workflow.IndexOf(
+            "- name: Install ilasm/ildasm/mdv",
+            StringComparison.Ordinal);
+        int firstSuite = workflow.IndexOf(
+            "- name: Run query tests",
+            StringComparison.Ordinal);
+        int lastSuite = workflow.IndexOf(
+            "- name: Run metadata tests",
+            StringComparison.Ordinal);
+        int terminalCheck = workflow.IndexOf(
+            "- name: Check ilasm/ildasm/mdv result",
+            StringComparison.Ordinal);
+        Assert.True(build >= 0);
+        Assert.True(build < install);
+        Assert.True(install < firstSuite);
+        Assert.True(firstSuite < lastSuite);
+        Assert.True(lastSuite < terminalCheck);
+
+        int nextStep = workflow.IndexOf(
+            "\n      - ",
+            install + 1,
+            StringComparison.Ordinal);
+        string installStep = workflow[install..nextStep];
+        string[] installLines =
+        [
+            .. installStep.Split('\n').Select(line => line.Trim()),
+        ];
         Assert.Contains(
-            "restore-iltools.sh --rid win-x64 --mdv --native-paths",
-            workflow);
-        Assert.Contains("steps.iltools.outcome != 'success'", workflow);
+            """printf 'ILTOOLS_BASH=%s\n' "$(cygpath -w "$(command -v bash)")" >> "$GITHUB_ENV"""",
+            installLines);
+        Assert.Contains(
+            """eng/restore-iltools.sh --rid win-x64 --mdv --native-paths >> "$GITHUB_PATH"""",
+            installLines);
+        Assert.Equal(
+            1,
+            workflow.Split(
+                "eng/restore-iltools.sh --rid win-x64 --mdv --native-paths",
+                StringSplitOptions.None).Length - 1);
+
+        string checkStep = workflow[terminalCheck..];
+        Assert.Contains("steps.build.outcome == 'success' &&", checkStep);
+        Assert.Contains("steps.iltools.outcome != 'success' &&", checkStep);
+        Assert.Contains(
+            "inputs.suite == 'cli' ||\n" +
+            "            inputs.suite == 'metadata'",
+            checkStep);
+        Assert.Contains("exit 1", checkStep.Split('\n').Select(line => line.Trim()));
+        Assert.DoesNotContain("\n      - ", checkStep);
     }
 
     [Fact]

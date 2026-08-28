@@ -3,6 +3,10 @@ name: Windows PR Validation
 on:
   workflow_dispatch:
     inputs:
+      target_ref:
+        description: 'Branch, tag, SHA, or refs/pull/<number>/head to validate'
+        required: true
+        type: string
       suite:
         description: 'Focused test suite to run'
         required: true
@@ -25,16 +29,18 @@ env:
   DOTNET_INSPECT_TIPS: q
 
 concurrency:
-  group: windows-pr-${{ github.ref }}-${{ inputs.suite }}
+  group: windows-pr-${{ inputs.target_ref }}-${{ inputs.suite }}
   cancel-in-progress: true
 
 jobs:
   test:
-    name: Windows ${{ inputs.suite }}
+    name: Windows ${{ inputs.suite }} (${{ inputs.target_ref }})
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.target_ref }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -51,13 +57,13 @@ jobs:
             nuget-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build
+        id: build
         run: dotnet build dotnet-inspect.slnx -c Release
 
       - name: Install ilasm/ildasm/mdv
         id: iltools
         if: >-
           inputs.suite == 'cli' ||
-          inputs.suite == 'decompiler' ||
           inputs.suite == 'metadata'
         continue-on-error: true
         timeout-minutes: 5
@@ -93,10 +99,10 @@ jobs:
       - name: Check ilasm/ildasm/mdv result
         if: >-
           !cancelled() &&
+          steps.build.outcome == 'success' &&
           steps.iltools.outcome != 'success' &&
           (
             inputs.suite == 'cli' ||
-            inputs.suite == 'decompiler' ||
             inputs.suite == 'metadata'
           )
         shell: bash
