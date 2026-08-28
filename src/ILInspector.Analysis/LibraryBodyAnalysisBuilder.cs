@@ -273,6 +273,15 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             methodDefinition,
             typeSourceGenerated);
 
+    bool ILibraryMethodAnalysisInfrastructure
+        .IsAuthenticatedAsyncStateMachineExecutionMethod(
+            MethodDefinitionHandle methodHandle,
+            MethodDefinition methodDefinition) =>
+        _asyncSourceResolver
+            .IsAuthenticatedAsyncStateMachineExecutionMethod(
+                methodHandle,
+                methodDefinition);
+
     ImmutableArray<OptimizationOpportunity>
         ILibraryMethodAnalysisInfrastructure
             .CollectAsyncSiblingOpportunities(
@@ -299,8 +308,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         MethodDefinitionHandle liftedHandle,
         MethodDefinition liftedMethod,
         MethodIdentity liftedIdentity,
-        out MethodIdentity? sourceOwner,
-        out bool sourceGenerated,
+        out AuthenticatedSourceOwner sourceOwner,
         IReadOnlySet<int>? ownerMethodScope,
         Func<TypeRef, bool>? ownerTypeScope,
         bool directlySelectedBody) =>
@@ -309,7 +317,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             liftedMethod,
             liftedIdentity,
             out sourceOwner,
-            out sourceGenerated,
             ownerMethodScope,
             ownerTypeScope,
             directlySelectedBody);
@@ -340,12 +347,14 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             MethodDefinition methodDefinition,
             MethodIdentity method,
             bool typeSourceGenerated,
-            out MethodIdentity? ultimateOwner)
+            out AuthenticatedSourceOwner? immediateOwner,
+            out AuthenticatedSourceOwner? ultimateOwner)
         => _declaredSourceResolver.ResolveUltimateDeclaredMethod(
             methodHandle,
             methodDefinition,
             method,
             typeSourceGenerated,
+            out immediateOwner,
             out ultimateOwner);
 
     bool ILibraryMethodAnalysisInfrastructure.DispatchCanTargetOverride(
@@ -525,7 +534,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         if (!includeMethodEvidence)
             return analysis;
         return _declaredSourceResolver
-            .PublishDeclaredSources(analysis);
+            .PublishDeclaredSources(
+                analysis,
+                plan);
     }
 
     internal bool HasUnsafeEvidence()

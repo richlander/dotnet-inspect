@@ -295,6 +295,36 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     internal bool HasCompilerGeneratedAttribute(CustomAttributeHandleCollection attributes)
         => HasAttributeNamed(attributes, "CompilerGeneratedAttribute", "System.Runtime.CompilerServices");
 
+    internal bool IsCompilerGeneratedTypeOrEnclosing(
+        TypeDefinitionHandle handle)
+    {
+        Span<TypeDefinitionHandle> chain =
+            stackalloc TypeDefinitionHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal
+            .TryWalkTypeDefinitionDeclaringChain(
+                _reader,
+                handle,
+                chain,
+                out int count,
+                out _,
+                out _))
+        {
+            return true;
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            if (HasCompilerGeneratedAttribute(
+                    _reader.GetTypeDefinition(
+                        chain[i]).GetCustomAttributes()))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     (string Namespace, string Name) AttributeTypeName(EntityHandle constructor)
     {
         if (constructor.Kind == HandleKind.MemberReference

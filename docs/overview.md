@@ -150,9 +150,16 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Item and line limits](design/item-and-line-limits.md): target `-n`,
   range-only `--rows`, ranked `--top`, line windows, and multi-item printable
   payload behavior.
+- [Semantic row selection](design/semantic-row-selection.md): dependency-free
+  ordered-stage, strict-window, reindexing, and all-or-failure sequence
+  component.
 - [Command transitions](design/command-transition-model.md): when source, focus, operation arity, lens, traversal, or rendering changes should switch commands versus stay within one command.
 - [Row query and ordering](design/row-query-order.md): proposed field-scoped row predicates, ordering, `--top`, and schema-discoverable defaults.
 - [Product vocabulary](design/vocabulary.md): sectioned, host-neutral legal query values shared by CLI and browser/WASM.
+- [Inspection subject navigation](design/inspection-subject-navigation.md):
+  host-neutral root, Library, Type, and Member descriptors, availability,
+  initial recommendations, transitions, reconciliation, and model-checked
+  retained-session authority.
 - [Inspect Web UI](design/inspect-web-ui.md): shared website control states,
   interaction grammar, and visual composition rules.
 - [Analysis UX scopes](design/analysis-ux-scopes.md): shared analysis vocabulary across offset, member, type, and library scopes.

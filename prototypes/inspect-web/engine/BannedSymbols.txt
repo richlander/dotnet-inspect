@@ -22,6 +22,7 @@ T:ILInspector.Metadata.AssemblySurfaceClassifier;Assembly surface classification
 T:ILInspector.Metadata.AssemblyInspector;Assembly metadata extraction belongs to product queries, not transitive path or descriptor openers in the browser host.
 T:ILInspector.Metadata.TypeResolutionCatalog;Resolution-aware inspection belongs to product queries, not transitive descriptor openers in the browser host.
 T:ILInspector.Metadata.TypeResolutionContext;Type-resolution inspection belongs to product queries, not the browser host.
+T:ILInspector.Metadata.TypeResolutionEnumWidth;Enum-width resolution enters TypeResolutionContext and belongs to product queries, not the browser host.
 T:ILInspector.Metadata.SignatureSpellability;Signature inspection and its transitive assembly opens belong to product queries, not the browser host.
 T:ILInspector.Decompiler.MemberBodyProducer;Member-body projection opens descriptors transitively and belongs to product queries, not the browser host.
 T:ILInspector.Decompiler.Pipeline.MetadataSource;Research projections open their own source inside DotnetInspector.ResearchQueries.
