@@ -196,7 +196,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         {
             return DeclineDecision(
                 ClassicAsyncDeclineReason.UnrecognizedAwaiterProtocol,
-                kickoff.IsNarrow);
+                narrowHandoff: false);
         }
 
         var machine = new ClassicAsyncMachine(

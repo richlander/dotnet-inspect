@@ -167,20 +167,18 @@ public class ClassicAsyncReconstructionPassTests
             ClassicAsyncDeclineReason.UnrecognizedAwaiterProtocol,
             outcome.Reason);
         Assert.Equal(
-            ClassicAsyncKickoffDisposition.ReplacedNarrowHandoff,
+            ClassicAsyncKickoffDisposition.PreservedOriginal,
             outcome.KickoffDisposition);
         Assert.Equal(
             ClassicAsyncDeclarationDisposition.OmitAsync,
             function.ClassicAsyncDeclarationDisposition);
         Assert.Single(function.Body.Blocks);
-        Assert.Single(function.Body.Blocks[0].Children);
-        Assert.Empty(function.Locals);
-        Assert.DoesNotContain(
+        Assert.Equal(
             originalStatements,
-            statement => function.Body.Blocks[0]
+            function.Body.Blocks[0]
                 .Children
-                .Select(SubtreeSignature)
-                .Contains(statement));
+                .Skip(1)
+                .Select(SubtreeSignature));
     }
 
     [Fact]
