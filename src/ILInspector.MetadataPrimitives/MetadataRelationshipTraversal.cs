@@ -98,6 +98,36 @@ public static class MetadataSafetyPolicy
     public const int MaxRelationshipNodes = 256;
 
     /// <summary>
+    /// Maximum constructed interface candidates followed while determining
+    /// whether a MethodImpl declaration is an implemented interface. A visited
+    /// key includes constructed arguments, so a self-referential interface such
+    /// as <c>I&lt;T&gt; : I&lt;I&lt;T&gt;&gt;</c> cannot rely on handle identity to
+    /// terminate. Gated by
+    /// <c>Extract_MalformedRecursiveConstructedInterfaceInheritanceIsBoundedAndVisible</c>.
+    /// </summary>
+    public const int MaxConstructedInterfaceImplementationCandidates =
+        MaxRelationshipNodes;
+
+    /// <summary>
+    /// Maximum nesting depth of one constructed interface identity produced
+    /// while following InterfaceImpl substitutions. This is below the
+    /// signature-decoder ceiling because substitution creates a new in-memory
+    /// shape for every relationship edge. Gated by
+    /// <c>Extract_MalformedRecursiveConstructedInterfaceInheritanceIsBoundedAndVisible</c>.
+    /// </summary>
+    public const int MaxConstructedInterfaceImplementationDepth =
+        MaxRelationshipNodes;
+
+    /// <summary>
+    /// Maximum aggregate structural nodes charged by one MethodImpl
+    /// constructed-interface traversal. The limit shares the signature-node
+    /// policy because both bound artifact-derived tree work. Gated by
+    /// <c>Extract_MalformedRecursiveConstructedInterfaceInheritanceIsBoundedAndVisible</c>.
+    /// </summary>
+    public const int MaxConstructedInterfaceImplementationWorkNodes =
+        MaxSignatureTypeNodes;
+
+    /// <summary>
     /// Maximum characters in one structured type name: its namespace plus every root-to-leaf
     /// segment, plus one delimiter per segment boundary.
     /// </summary>

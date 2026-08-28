@@ -127,6 +127,99 @@ public class ImplicitFinalizerDetectionTests
         Assert.False(member.IsFinalizer);
     }
 
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void ExplicitObjectFinalizeOverride_RequiresExactBodyAndDeclarationSignatures(
+        bool malformedBody,
+        bool malformedDeclaration)
+    {
+        byte[] image = BuildImage(
+            new TypeSpec(
+                "Handle",
+                BaseKind.Object,
+                new MethodSpec(
+                    "Finalize",
+                    malformedDeclaration ? NewSlot : ReuseSlot,
+                    malformedBody ? VoidOneParam : VoidNullary),
+                OverrideDeclarationSignature:
+                    malformedDeclaration ? VoidOneParam : VoidNullary));
+
+        Assert.False(ExtractMember(image, "Handle", "Finalize").IsFinalizer);
+    }
+
+    [Fact]
+    public void ExplicitObjectFinalizeOverride_WithExactSignatures_IsClassifiedAsFinalizer()
+    {
+        byte[] image = BuildImage(
+            new TypeSpec(
+                "Handle",
+                BaseKind.Object,
+                new MethodSpec("Finalize", ReuseSlot, VoidNullary),
+                OverrideDeclarationSignature: VoidNullary));
+
+        Assert.True(ExtractMember(image, "Handle", "Finalize").IsFinalizer);
+    }
+
+    [Fact]
+    public void InterfaceMethodImplTargetingObjectFinalize_IsNotRetainedAsFinalizer()
+    {
+        byte[] image = BuildImage(
+            new TypeSpec(
+                "IHandle",
+                BaseKind.Nil,
+                new MethodSpec("Finalize", ReuseSlot, VoidNullary),
+                Attributes: TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                OverrideDeclarationSignature: VoidNullary));
+
+        using var fullStream = new MemoryStream(image);
+        using var fullReader = new PEReader(fullStream);
+        var full = ApiSurfaceExtractor.Extract(fullReader);
+        Assert.Empty(Assert.Single(full.Types, type => type.Name == "IHandle").Members);
+
+        using var summaryStream = new MemoryStream(image);
+        using var summaryReader = new PEReader(summaryStream);
+        var summary = ApiSurfaceExtractor.ExtractSummary(summaryReader);
+        Assert.Equal(0, summary.PublicMethodCount);
+    }
+
+    [Fact]
+    public void MalformedValueTypeAndDelegateOwnersAreNotFinalizers()
+    {
+        foreach (var (name, baseKind) in new[]
+                 {
+                     ("ValueLike", BaseKind.ValueType),
+                     ("DelegateLike", BaseKind.MulticastDelegate),
+                 })
+        {
+            byte[] image = BuildImage(
+                new TypeSpec(
+                    name,
+                    baseKind,
+                    new MethodSpec("Finalize", ReuseSlot, VoidNullary),
+                    OverrideDeclarationSignature: VoidNullary));
+            using var stream = new MemoryStream(image);
+            using var reader = new PEReader(stream);
+            var metadata = reader.GetMetadataReader();
+            MethodDefinitionHandle finalizer = metadata
+                .GetTypeDefinition(
+                    metadata.TypeDefinitions.Single(
+                        handle => metadata.StringComparer.Equals(
+                            metadata.GetTypeDefinition(handle).Name,
+                            name)))
+                .GetMethods()
+                .Single();
+
+            // PDB projection calls IsFinalizerMethod directly, while API
+            // extraction already has a class-kind gate. Both must reject the
+            // malformed finalizer-shaped MethodImpl owner.
+            Assert.False(ApiSurfaceExtractor.IsFinalizerMethod(metadata, finalizer));
+            Assert.False(ExtractMember(image, name, "Finalize").IsFinalizer);
+        }
+    }
+
     [Fact]
     public void InAssemblyObjectRoot_DerivedFinalize_IsClassifiedAsFinalizer()
     {
@@ -142,6 +235,71 @@ public class ImplicitFinalizerDetectionTests
         Assert.True(ExtractMember(image, "Derived", "Finalize").IsFinalizer);
     }
 
+    [Fact]
+    public void ModuleScopedLocalBase_IsFollowedToObjectFinalizeSlot()
+    {
+        byte[] image = BuildImage(
+            new TypeSpec(
+                "VbBase",
+                BaseKind.Object,
+                new MethodSpec("Finalize", ReuseSlot, VoidNullary)),
+            new TypeSpec(
+                "Derived",
+                BaseKind.ModuleRef("VbBase"),
+                new MethodSpec("Finalize", ReuseSlot, VoidNullary)));
+
+        using (var stream = new MemoryStream(image))
+        using (var pe = new PEReader(stream))
+        {
+            var reader = pe.GetMetadataReader();
+            TypeDefinitionHandle derived = reader.TypeDefinitions.Single(
+                handle => reader.StringComparer.Equals(
+                    reader.GetTypeDefinition(handle).Name,
+                    "Derived"));
+            MethodDefinitionHandle finalizer = reader
+                .GetTypeDefinition(derived)
+                .GetMethods()
+                .Single(handle => reader.StringComparer.Equals(
+                    reader.GetMethodDefinition(handle).Name,
+                    "Finalize"));
+            Assert.True(
+                ApiSurfaceExtractor.IsFinalizerMethod(reader, finalizer));
+        }
+        Assert.True(ExtractMember(image, "Derived", "Finalize").IsFinalizer);
+    }
+
+    [Fact]
+    public void CyclicModuleScopedBaseReference_IsRejectedVisibly()
+    {
+        byte[] image = BuildImage(
+            new TypeSpec(
+                "Derived",
+                BaseKind.MalformedModuleRef("Cycle"),
+                new MethodSpec("Finalize", ReuseSlot, VoidNullary)));
+        using var stream = new MemoryStream(image);
+        using var pe = new PEReader(stream);
+
+        var reader = pe.GetMetadataReader();
+        TypeDefinitionHandle derived = reader.TypeDefinitions.Single(
+            handle => reader.StringComparer.Equals(
+                reader.GetTypeDefinition(handle).Name,
+                "Derived"));
+        MethodDefinitionHandle finalizer = reader
+            .GetTypeDefinition(derived)
+            .GetMethods()
+            .Single();
+        Assert.False(
+            ApiSurfaceExtractor.IsFinalizerMethod(reader, finalizer));
+        var surface = ApiSurfaceExtractor.Extract(pe, includeAll: true);
+
+        Assert.DoesNotContain(
+            surface.Types,
+            type => type.Name == "Derived");
+        Assert.Contains(
+            surface.InspectionFailures,
+            failure => failure.Operation == "type name");
+    }
+
     static ApiMember ExtractMember(byte[] image, string typeName, string memberName)
     {
         using var stream = new MemoryStream(image);
@@ -151,24 +309,47 @@ public class ImplicitFinalizerDetectionTests
         return Assert.Single(type.Members, m => m.Name == memberName);
     }
 
-    enum BaseTag { Object, Exception, Def, Nil }
+    enum BaseTag
+    {
+        Object,
+        Exception,
+        ValueType,
+        MulticastDelegate,
+        Def,
+        ModuleRef,
+        MalformedModuleRef,
+        Nil
+    }
 
     readonly record struct BaseKind(BaseTag Tag, string? DefName)
     {
         public static readonly BaseKind Object = new(BaseTag.Object, null);
         public static readonly BaseKind Exception = new(BaseTag.Exception, null);
+        public static readonly BaseKind ValueType = new(BaseTag.ValueType, null);
+        public static readonly BaseKind MulticastDelegate =
+            new(BaseTag.MulticastDelegate, null);
         public static readonly BaseKind Nil = new(BaseTag.Nil, null);
         public static BaseKind Def(string name) => new(BaseTag.Def, name);
+        public static BaseKind ModuleRef(string name) =>
+            new(BaseTag.ModuleRef, name);
+        public static BaseKind MalformedModuleRef(string name) =>
+            new(BaseTag.MalformedModuleRef, name);
     }
 
     sealed record MethodSpec(string Name, MethodAttributes Attributes, byte[] Signature);
 
-    sealed record TypeSpec(string Name, BaseKind Base, MethodSpec Method, string? Namespace = null);
+    sealed record TypeSpec(
+        string Name,
+        BaseKind Base,
+        MethodSpec Method,
+        string? Namespace = null,
+        TypeAttributes Attributes = TypeAttributes.Public | TypeAttributes.Class,
+        byte[]? OverrideDeclarationSignature = null);
 
     static byte[] BuildImage(params TypeSpec[] types)
     {
         var metadata = new MetadataBuilder();
-        metadata.AddModule(
+        ModuleDefinitionHandle module = metadata.AddModule(
             generation: 0,
             moduleName: metadata.GetOrAddString("Synthetic.dll"),
             mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
@@ -184,9 +365,16 @@ public class ImplicitFinalizerDetectionTests
 
         EntityHandle objectRef = default;
         EntityHandle exceptionRef = default;
+        EntityHandle valueTypeRef = default;
+        EntityHandle multicastDelegateRef = default;
         if (Array.Exists(
                 types,
-                static type => type.Base.Tag is BaseTag.Object or BaseTag.Exception))
+                static type => type.Base.Tag is
+                    BaseTag.Object
+                    or BaseTag.Exception
+                    or BaseTag.ValueType
+                    or BaseTag.MulticastDelegate
+                    || type.OverrideDeclarationSignature is not null))
         {
             // Cross-assembly fixtures use the real core-library identity. The
             // in-assembly System.Object fixture stays reference-free like a corelib.
@@ -206,6 +394,14 @@ public class ImplicitFinalizerDetectionTests
                 coreLib,
                 metadata.GetOrAddString("System"),
                 metadata.GetOrAddString("Exception"));
+            valueTypeRef = metadata.AddTypeReference(
+                coreLib,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("ValueType"));
+            multicastDelegateRef = metadata.AddTypeReference(
+                coreLib,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("MulticastDelegate"));
         }
 
         // Shared trivial `ret` body; the extractor never reads method bodies.
@@ -231,11 +427,21 @@ public class ImplicitFinalizerDetectionTests
             {
                 BaseTag.Object => objectRef,
                 BaseTag.Exception => exceptionRef,
+                BaseTag.ValueType => valueTypeRef,
+                BaseTag.MulticastDelegate => multicastDelegateRef,
                 BaseTag.Def => defHandles[types[i].Base.DefName!],
+                BaseTag.ModuleRef => metadata.AddTypeReference(
+                    module,
+                    default,
+                    metadata.GetOrAddString(types[i].Base.DefName!)),
+                BaseTag.MalformedModuleRef => metadata.AddTypeReference(
+                    MetadataTokens.TypeReferenceHandle(1),
+                    default,
+                    metadata.GetOrAddString(types[i].Base.DefName!)),
                 _ => default,
             };
             var handle = metadata.AddTypeDefinition(
-                TypeAttributes.Public | TypeAttributes.Class,
+                types[i].Attributes,
                 types[i].Namespace is { } ns ? metadata.GetOrAddString(ns) : default,
                 metadata.GetOrAddString(types[i].Name),
                 baseHandle,
@@ -245,16 +451,32 @@ public class ImplicitFinalizerDetectionTests
             methodRow++;
         }
 
+        var methodHandles = new List<MethodDefinitionHandle>(types.Length);
         foreach (var type in types)
         {
             var spec = type.Method;
-            metadata.AddMethodDefinition(
+            methodHandles.Add(metadata.AddMethodDefinition(
                 spec.Attributes,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString(spec.Name),
                 metadata.GetOrAddBlob(spec.Signature),
                 bodyOffset,
-                parameterList: MetadataTokens.ParameterHandle(1));
+                parameterList: MetadataTokens.ParameterHandle(1)));
+        }
+
+        for (int i = 0; i < types.Length; i++)
+        {
+            if (types[i].OverrideDeclarationSignature is not { } declarationSignature)
+                continue;
+
+            var declaration = metadata.AddMemberReference(
+                objectRef,
+                metadata.GetOrAddString("Finalize"),
+                metadata.GetOrAddBlob(declarationSignature));
+            metadata.AddMethodImplementation(
+                defHandles[types[i].Name],
+                methodHandles[i],
+                declaration);
         }
 
         var pe = new ManagedPEBuilder(
