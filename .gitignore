@@ -493,9 +493,9 @@ $RECYCLE.BIN/
 .worktrees/
 
 # TLA+ model-checker state
-models/**/states/
-models/**/*_TTrace_*.bin
-models/**/*_TTrace_*.tla
+docs/design/models/**/states/
+docs/design/models/**/*_TTrace_*.bin
+docs/design/models/**/*_TTrace_*.tla
 
 # Vendored ILAssembler worktree (restore with eng/restore-ilassembler.sh)
 external/

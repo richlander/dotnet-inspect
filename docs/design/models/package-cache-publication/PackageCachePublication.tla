@@ -1,6 +1,7 @@
 ----------------------- MODULE PackageCachePublication -----------------------
 EXTENDS Integers, FiniteSets, TLC
 
+\* Owned by docs/design/cache-concurrency.md.
 \* One exact package coordinate is shared within each process and published
 \* independently across processes. The model deliberately separates protocol
 \* observations from filesystem publication so TLC can explore the races

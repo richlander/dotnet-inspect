@@ -1,7 +1,7 @@
 # Package cache publication model
 
 This TLA+ model is the executable interaction companion to
-[Cache concurrency and publication](../../docs/design/cache-concurrency.md).
+[Cache concurrency and publication](../../cache-concurrency.md).
 It explores one exact package coordinate across process-local single-flight
 registries and independent cross-process publishers.
 
@@ -103,28 +103,32 @@ failure, crash, atomic rename, unrelated rename failure, and loser convergence.
 
 ## Running TLC
 
-Set `TLA2TOOLS_JAR` to a local `tla2tools.jar`, then run from this directory:
-Create the ignored metadata parent first with `mkdir -p states` in a POSIX shell
-or `New-Item -ItemType Directory -Force states` in PowerShell.
+Follow the repository
+[TLA+ setup runbook](../../../runbooks/tla-plus-setup.md) for the pinned
+toolchain. The recorded run used Eclipse Temurin OpenJDK 25.0.4.1 and TLA+
+tools 1.8.0 (`TLC2 2026.08.21.155922`, revision `9787e65`). The checked
+`tla2tools.jar` has SHA-256
+`eabd140a70f49eb9305a3bd3f3df944eddf87e5a90d329789085f8953a80533a`.
+
 The recorded runs added `-coverage 1` to capture action coverage; omit it for a
-quieter and faster routine check.
+quieter and faster routine check. Run these commands sequentially because
+concurrent TLC processes using `-cleanup` can remove one another's metadata.
 
 ```bash
-java -XX:+UseParallelGC -cp "$TLA2TOOLS_JAR" tlc2.TLC \
+TLA_TOOLS_JAR=/path/to/tla2tools.jar
+cd docs/design/models/package-cache-publication
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
   -workers auto -cleanup \
-  -metadir states/safety \
   -config PackageCachePublicationSafety.cfg \
   PackageCachePublication.tla
 
-java -XX:+UseParallelGC -cp "$TLA2TOOLS_JAR" tlc2.TLC \
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
   -workers auto -cleanup \
-  -metadir states/liveness \
   -config PackageCachePublicationLiveness.cfg \
   PackageCachePublication.tla
 
-java -XX:+UseParallelGC -cp "$TLA2TOOLS_JAR" tlc2.TLC \
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
   -workers auto -cleanup \
-  -metadir states/adversarial-liveness \
   -config PackageCachePublicationAdversarialLiveness.cfg \
   PackageCachePublication.tla
 ```
@@ -132,15 +136,13 @@ java -XX:+UseParallelGC -cp "$TLA2TOOLS_JAR" tlc2.TLC \
 The negative controls are expected to exit unsuccessfully:
 
 ```bash
-java -XX:+UseParallelGC -cp "$TLA2TOOLS_JAR" tlc2.TLC \
-  -workers auto -cleanup \
-  -metadir states/broken-atomic \
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+  -workers 1 -cleanup -noGenerateSpecTE \
   -config PackageCachePublicationBrokenAtomic.cfg \
   PackageCachePublication.tla
 
-java -XX:+UseParallelGC -cp "$TLA2TOOLS_JAR" tlc2.TLC \
-  -workers auto -cleanup \
-  -metadir states/broken-eviction \
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+  -workers 1 -cleanup -noGenerateSpecTE \
   -config PackageCachePublicationBrokenEviction.cfg \
   PackageCachePublication.tla
 ```
@@ -149,26 +151,19 @@ The completion-overlap reachability witness is also expected to exit
 unsuccessfully because its invariant denies a state the model must reach:
 
 ```bash
-java -XX:+UseParallelGC -cp "$TLA2TOOLS_JAR" tlc2.TLC \
-  -workers auto -cleanup \
-  -metadir states/completion-overlap \
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+  -workers 1 -cleanup -noGenerateSpecTE \
   -config PackageCachePublicationCompletionOverlap.cfg \
   PackageCachePublication.tla
 ```
 
 ## Recorded result
 
-The first full run used TLA+ tools v1.7.4 (TLC2 2.19) and OpenJDK 21.0.12 on
-2026-08-27.
-
-| Configuration | Generated states | Distinct states | Depth | Result |
+| Configuration | Generated states | Distinct states | Maximum depth | Result |
 | --- | ---: | ---: | ---: | --- |
-| Safety | 709,513,146 | 55,523,669 | 35 | No error |
-| Quiet liveness | 1,291,289 | 319,168 | 33 | No error |
-| Adversarial liveness | 1,848,013 | 257,277 | 31 | No error |
-| Completion-overlap witness | 1,905 | 735 | 16 | Expected `NoReplacementCompletionOverlap` violation |
-| Broken atomic publication | 721 | 294 | 12 | Expected `FinalPathIsAtomic` violation |
-| Broken failed-task eviction | 3,598 | 961 | 17 | Expected temporal-property violation |
+| `PackageCachePublicationSafety.cfg` | 709,513,146 | 55,523,669 | 35 | No error |
+| `PackageCachePublicationLiveness.cfg` | 1,291,289 | 319,168 | 33 | No error |
+| `PackageCachePublicationAdversarialLiveness.cfg` | 1,848,013 | 257,277 | 31 | No error |
 
 The atomic-publication counterexample reaches a marked staging tree and then
 exposes the final path as `Partial` before direct copying completes. The
@@ -180,9 +175,10 @@ The completion-overlap witness finds attempt 2 registered while attempt 1 is
 still in `Completing`, proving the model preserves old waiter identity across
 the removal/completion window.
 
-The witness and failed configurations stop at the first counterexample, so
-their generated and distinct state counts can vary with worker scheduling.
-Their traces and violated properties are the evidence that matters.
+The witness and mutation configurations were run with one worker and produced
+their named violations. Their state counts are intentionally not recorded:
+they stop at the first counterexample, so the concrete trace and violated
+property are the stable evidence.
 
 These are negative controls, not product defects. No unexpected counterexample
 was found in the checked current-protocol configurations.

@@ -100,7 +100,7 @@ power-loss-durable filesystem transaction.
 ### Executable interaction model
 
 The
-[package cache publication TLA+ model](../../models/package-cache-publication/README.md)
+[package cache publication TLA+ model](models/package-cache-publication/README.md)
 is the executable companion to this design. It models one exact acquisition
 key, process-local task joining and eviction, independent cross-process
 publishers, validity probe and recheck races, staging, atomic rename, loser
