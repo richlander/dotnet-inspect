@@ -752,6 +752,7 @@ the existing compile-back status buckets.
 | artifact compiles and IL/body diff is exact | `Exact` |
 | artifact compiles, opcode names differ | `OpcodeDiff` |
 | artifact compiles, opcode names match but operands differ | `OperandDiff` |
+| artifact compiles below `Full` fidelity and IL/body diff differs | `NotFull` |
 | artifact compiles, but the comparison or target receipt is unavailable | `FidelityUnavailable` |
 | artifact compiles, API/body-signal/C# diff mismatches requested scope | retain the mismatch in its owner-specific field; do not synthesize an IL status |
 | product artifact cannot be produced | `ContextFail` |
@@ -794,21 +795,22 @@ semantic opcode deltas, invalid rows, and unclassified frontiers. Shared JSON
 uses source file names, not absolute local paths, in the finding projection.
 
 The existing corpus sensor gates on `Exact`, `OpcodeDiff`, `OperandDiff`,
-`FidelityUnavailable`, `RecompileFail`, and `ContextFail`. ReturnToSender
-planning reasons should be structured details underneath those statuses, not
-replacement top-level metrics.
+`NotFull`, `FidelityUnavailable`, `RecompileFail`, and `ContextFail`.
+ReturnToSender planning reasons should be structured details underneath those
+statuses, not replacement top-level metrics.
 
 Example report:
 
 ```text
 ReturnToSender over N targets
 
-  Exact         : X
-  OpcodeDiff    : Y
-  OperandDiff   : Z
-  FidelityUnavailable : A
-  RecompileFail : B
-  ContextFail   : C
+  Exact               : X
+  OpcodeDiff          : Y
+  OperandDiff         : Z
+  NotFull             : A
+  FidelityUnavailable : B
+  RecompileFail       : C
+  ContextFail         : D
 
 Plan layers:
   artifact request      : resolved / failed
