@@ -381,6 +381,7 @@ The target implementation is unverified until these named gates land:
 - `AnalysisCapability_RejectsUnsupportedProjectionBeforeProducerExecution`
 - `AnalysisCapability_AllDeclaredRejectionsPrecedeProducerExecution`
 - `AnalysisCapability_RejectionDoesNotUseFindingInspectionState`
+- `AnalysisPlan_RetainsExactRequestFieldsAndDescriptorRequirements`
 - `AnalysisPlan_RetainsUniverseCompletenessAndFailureInputs`
 - `AnalysisProjection_RowsAndGraphRetainOneAnalysisIdentity`
 - `AnalysisUniverseProviderKindDoesNotChangeRequestFieldSemantics`
