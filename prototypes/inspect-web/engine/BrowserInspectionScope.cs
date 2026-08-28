@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Runtime.ExceptionServices;
 using System.Runtime.Versioning;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
@@ -148,6 +149,13 @@ internal sealed class BrowserInspectionScope : IDisposable
     public TResult UseImplementationOrSurface<TResult>(
         Func<AssemblyContextGroup, TResult> query) =>
         (_implementation ?? _surface).Use(query);
+
+    /// <summary>
+    /// Runs the product-owned Integration roll-up across the complete realized
+    /// package workspace.
+    /// </summary>
+    public PackageWorkspaceIntegrationsResult QueryIntegrations() =>
+        PackageWorkspaceIntegrationsQuery.Execute(_realization);
 
     /// <summary>
     /// Hands one implementation participant to a metadata query, or its compile participant when
