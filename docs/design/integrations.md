@@ -769,7 +769,7 @@ The target implementation is unverified until these named gates land:
 - `IntegrationCandidate_RemovingSoleSourceRemovesCandidate`
 - `IntegrationInventory_RowsRetainTypedSourcePeerAndProvenance`
 - `IntegrationInventory_PeerLookupRetainsEveryTypeReferenceScopeArm`
-- `IntegrationInventory_ForwardedOutRetainsTerminalDefinitionProvenanceAndHops`
+- `IntegrationInventory_ForwardedInAndOutRetainTerminalDefinitionProvenanceAndHops`
 - `IntegrationInventory_ForwardedOutUsesTerminalParentForHandoff`
 - `IntegrationInventory_KnownParentUsesAuthoritativeCoordinate`
 - `IntegrationInventory_UnknownParentNeverGuessesFromAssemblyName`
