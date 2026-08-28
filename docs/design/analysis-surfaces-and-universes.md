@@ -238,10 +238,10 @@ inspection, a successful empty result, or a Finding state. Validation must not
 execute the producer merely to decide whether the producer is supported.
 
 The request owner declares a closed set of rejection reasons covering invalid
-mode, descriptor-unsupported mode, unsupported surface, unsatisfied or
-unbounded universe, missing structural prerequisite, and unsupported
-projection. Every rejection is decided before producer execution. User-gesture
-provenance, capability authorization, and cost enforcement remain
+mode, descriptor-unsupported mode, unsupported surface, unsupported target
+role, unsatisfied or unbounded universe, missing structural prerequisite, and
+unsupported projection. Every rejection is decided before producer execution.
+User-gesture provenance, capability authorization, and cost enforcement remain
 host-preflight responsibilities under
 [Progressive disclosure](progressive-disclosure.md).
 
@@ -318,6 +318,7 @@ The request owner must distinguish:
 | Census mode with a privileged contained anchor | Invalid request |
 | Structurally valid mode unsupported by the descriptor | Typed capability rejection before execution |
 | Unsupported report surface | Typed capability rejection before execution |
+| Supported surface with an unsupported target role | Typed capability rejection before execution |
 | Missing or unbounded universe description | Typed capability rejection before execution |
 | Universe lacking required subject/evidence capability | Typed capability rejection before execution |
 | Missing structural producer or query prerequisite | Typed capability rejection before execution |
@@ -369,6 +370,7 @@ The target implementation is unverified until these named gates land:
 - `AnalysisCapability_ListsConfiguredUnobservedIntegrationDescriptors`
 - `AnalysisCapability_RejectsUnsupportedModeBeforeProducerExecution`
 - `AnalysisCapability_RejectsUnsupportedSurfaceBeforeProducerExecution`
+- `AnalysisCapability_RejectsUnsupportedTargetRoleBeforeProducerExecution`
 - `AnalysisCapability_RejectsUnsatisfiedUniverseBeforeProducerExecution`
 - `AnalysisCapability_RejectsMissingStructuralPrerequisiteBeforeProducerExecution`
 - `AnalysisCapability_RejectsUnsupportedProjectionBeforeProducerExecution`
