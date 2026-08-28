@@ -447,6 +447,38 @@ provider that cannot perform exact peer resolution or report completeness is
 rejected before execution rather than allowed to manufacture `Out` or empty
 results.
 
+### Producer-policy attempt accounting
+
+Passing capability validation does not prove that each required producer policy
+executed. The producer derives an expected
+`IntegrationProducerPolicyAttemptAddress` set from the validated plan before
+execution. One address combines a required source-participant identity with one
+applicable producer-policy requirement identity. Producer evidence is issued
+before peer binding, so binding context is not part of this address; completed
+evidence is evaluated later in every declared binding context.
+
+Every expected address has exactly one terminal
+`IntegrationProducerPolicyAttempt`:
+
+| Outcome | Meaning |
+| --- | --- |
+| `Completed` | The policy returned an ordered structured-evidence set, which may be empty. |
+| `Unavailable` | A typed participant or policy prerequisite prevented execution and makes the affected domain incomplete. |
+| `Failed` | Policy execution failed with a typed cause and makes the affected domain incomplete. |
+
+Missing, duplicate, and extraneous producer-policy attempts reject Census
+construction. Only `Completed` evidence contributes to the candidate frontier.
+An empty `Completed` result is positive execution evidence; a missing receipt,
+`Unavailable`, or `Failed` result cannot manufacture a zero concept count,
+empty cell, `Out`, or absence claim.
+
+When multiple completed policies emit equal candidate coordinates, the Census
+creates one `IntegrationCandidateIdentity` and retains ordered correspondence
+to every issuing producer-policy attempt. Producer-policy identity is evidence
+provenance, not candidate or candidate-attempt identity. The coalesced candidate
+is evaluated once in each binding context, while distinct binding contexts
+continue to produce distinct candidate-attempt addresses.
+
 ### Evidence-visible frontier
 
 The Census begins with structured Integration evidence from source Types
@@ -462,6 +494,11 @@ Every Census candidate therefore has one configured Integration concept.
 fulfillment, and graph context, but they are not independent Census candidates.
 Display-only signal rows, legacy presence flags, and rendered graph failures
 cannot create candidates.
+
+Every candidate retains correspondence to the completed producer-policy
+attempts that supplied its structured evidence. The frontier is the coalesced
+candidate-identity set from those receipts, not one candidate per evidence row
+or policy execution.
 
 The frontier is intentionally not a global catalog. A candidate remains visible
 while its evidence-bearing source is admitted even when its peer is outside the
@@ -525,15 +562,15 @@ exactly one outcome:
 | `Suppressed` | Typed Integration policy proved that another retained observation in the same binding context fulfills or supersedes this candidate. |
 | `Failed` | Binding, validation, or candidate policy could not produce a trustworthy classification. |
 
-The expected attempt-address set derives from the structured producer evidence
-and every context in which that source evidence is evaluated, before peer
-admission, suppression, or graph projection. Missing, duplicate, and extraneous
-attempts reject Census construction. A fulfilled raw opportunity is the
-required suppression canary: it remains accounted for by address but does not
-become an inventory row, graph failure, or incomplete outcome.
+The expected attempt-address set derives from the coalesced structured producer
+evidence and every context in which that source evidence is evaluated, before
+peer admission, suppression, or graph projection. Missing, duplicate, and
+extraneous attempts reject Census construction. A fulfilled raw opportunity is
+the required suppression canary: it remains accounted for by address but does
+not become an inventory row, graph failure, or incomplete outcome.
 
 One candidate identity may therefore correspond to multiple attempts. The same
-portable source and peer can bind under two policies and correctly produce
+portable source and peer can bind in two contexts and correctly produce
 different outcomes without splitting the candidate identity or collapsing the
 contexts. Attempt identity, disposition, and binding context do not become
 candidate identity.
@@ -596,6 +633,8 @@ result. It contains:
 - the descriptor-issued producer requirements used to validate those shared
   inputs;
 - one ordered attempt for every required source participant;
+- one ordered attempt for every expected source-participant and producer-policy
+  requirement address;
 - one ordered attempt for every pre-binding candidate evaluation address;
 - the classified candidates, policy suppressions, and typed failures;
 - exact universe completeness and rejected-member inputs; and
@@ -611,11 +650,11 @@ another.
 
 The existing `AssemblyIntegrationsEntry.Available`, `Rejected`, and `Failed`
 topology is the starting point for participant attempts. A Census is complete
-only when every required source participant produced healthy structured
-evidence and every required candidate attempt is `Classified` or `Suppressed`.
-Available rows may survive beside failures, but incomplete execution cannot
-manufacture zero concept counts, empty cells, `Out` rows, or absence claims for
-the failed domain.
+only when every required source participant is healthy, every expected
+producer-policy attempt is `Completed`, and every required candidate attempt is
+`Classified` or `Suppressed`. Available rows may survive beside failures, but
+incomplete execution cannot manufacture zero concept counts, empty cells,
+`Out` rows, or absence claims for the failed domain.
 
 A complete Census with no candidates is a successful empty Integration result.
 It does not use Finding `Absent`. `In` and `Out` remain Integration-owned
@@ -629,6 +668,7 @@ candidate attempt and retains:
 
 - candidate identity;
 - binding-context attempt identity;
+- issuing producer-policy attempt correspondence;
 - concept and relationship descriptor identities;
 - typed source member or Type identity;
 - source assembly and authoritative package or platform provenance when
@@ -662,11 +702,14 @@ attempt and candidate identities and separate `In` and `Out` counts. The
 browser renders that typed projection; it does not rescan metadata or infer
 support from labels.
 
-Zero is displayable only for a complete source-participant attempt in that
-binding context. An unavailable or failed attempt has an explicit incomplete
-cell state and is never rendered as zero or omitted as if no Integration were
-observed. Matrix ordering derives from workspace participant and context order
-plus concept-catalog order, not discovery timing.
+Zero is displayable only when the source-participant attempt is healthy, every
+applicable producer-policy attempt is `Completed`, and every candidate attempt
+for that binding context is complete. An unavailable or failed attempt has an
+explicit incomplete cell state and is never rendered as zero or omitted as if
+no Integration were observed. Matrix ordering derives from workspace
+participant and context order plus concept-catalog order, not discovery timing.
+The ordering gate uses discovery order that deliberately differs from all three
+declared orders and includes one participant repeated across binding contexts.
 
 ### Graph projection
 
@@ -764,6 +807,8 @@ Integration graph behavior until its replacement path has parity gates.
 | Universe provider lacks exact peer-resolution capability | Typed unsatisfied-universe rejection before execution |
 | Provider supplies peer binding but no stable binding-context identity | Typed unsatisfied-universe rejection before execution |
 | Provider supplies observed but not opportunity evidence | Rejection names the unmet policy requirement and affected concepts |
+| Advertised producer policy omits its execution receipt | Census construction rejects the missing attempt; no zero or `Out` |
+| Two policies emit equal candidate coordinates | One candidate per context retains both producer-policy correspondences |
 | Capable provider cannot resolve one discovered peer | Failed incomplete attempt; request capability remains unchanged |
 | Peer assembly unavailable or ambiguous | Typed failure; never `Out` |
 | Selected peer assembly lacks the exact Type | Typed failure; never `Out` |
@@ -779,6 +824,7 @@ Integration graph behavior until its replacement path has parity gates.
 | Same portable candidate evaluated in two binding contexts | Two addressed attempts; outcomes remain distinct |
 | Sole source evidence removed | Candidate disappears |
 | Multiple candidates collapse to one edge | Distinct candidate rows share edge correspondence |
+| Discovery order differs from participant, context, and catalog order | Matrix follows the three declared orders |
 | Rows and matrix requested independently | Exact plans share one compatible snapshot and candidate counts |
 | Graph requested independently | Exact plan projects only `In` candidate occurrences |
 
@@ -797,6 +843,9 @@ The target implementation is unverified until these named gates land:
 - `IntegrationCapability_PartialProducerPolicyEvidenceNamesAffectedConcepts`
 - `IntegrationCapability_EveryDeclaredUniverseRequirementHasPositiveAndNegativeCoverage`
 - `IntegrationCensus_AccountsForEveryRequiredSourceParticipant`
+- `IntegrationCensus_AccountsForEveryRequiredProducerPolicyAttempt`
+- `IntegrationCensus_RejectsMissingDuplicateOrExtraneousProducerPolicyAttempts`
+- `IntegrationCensus_OmittedProducerPolicyCannotManufactureZeroOrOut`
 - `IntegrationCensus_AccountsForEveryDiscoveredCandidateAttempt`
 - `IntegrationCensus_RejectsMissingDuplicateOrExtraneousCandidateAttempts`
 - `IntegrationCensus_AttemptsAreAddressedByCandidateAndBindingContext`
@@ -813,6 +862,7 @@ The target implementation is unverified until these named gates land:
 - `IntegrationCandidate_EmbeddedCoordinateRetainsPortableSourceIdentity`
 - `IntegrationCandidate_WorkspaceIdentityDoesNotCrossRegistrationGeneration`
 - `IntegrationCandidate_RawExtensionWithoutConceptIsNotCandidate`
+- `IntegrationCandidate_EqualEvidenceAcrossPoliciesCoalescesAndRetainsCorrespondence`
 - `IntegrationCandidate_FulfilledOpportunityIsAccountedAndSuppressed`
 - `IntegrationCandidate_SuppressionRequiresSameBindingContext`
 - `IntegrationCandidate_ResolvedUnselectedPeerIsOut`
@@ -836,6 +886,7 @@ The target implementation is unverified until these named gates land:
 - `IntegrationMatrix_RetainsCandidateIdentityAndDispositionCounts`
 - `IntegrationMatrix_RepeatedLibraryAcrossContextsRemainsDistinct`
 - `IntegrationMatrix_IncompleteLibraryDoesNotRenderAsZero`
+- `IntegrationMatrix_OrdersByDeclaredParticipantContextAndConceptOrder`
 - `IntegrationGraph_OnlyInCandidatesContributeOccurrences`
 - `IntegrationGraph_OutCandidatesAreNeitherEdgesNorFailures`
 - `IntegrationGraph_CandidateInventoryPrecedesInducedSetProjection`
