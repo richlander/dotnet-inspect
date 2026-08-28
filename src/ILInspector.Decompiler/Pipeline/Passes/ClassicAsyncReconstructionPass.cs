@@ -245,7 +245,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 case StoreArgument:
                 case CopyBlock:
                 case ChainedAssignment:
+                case DeconstructionAssignment:
                 case EventSubscription:
+                case NullCoalescingAssignment:
+                case NullCoalescingFieldAssignment:
+                case NullCoalescingFieldAssignmentExpression:
+                case NullCoalescingPropertyAssignment:
                 case InitObject init
                     when !IsMachineStorageAddress(init.Address, machine):
                 case Call call
@@ -676,11 +681,11 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         if (accumulatorStore is null)
             return false;
         var initialAccumulatorStore = moveNext.Descendants.OfType<StoreLocal>()
-            .SingleOrDefault(store =>
+            .FirstOrDefault(store =>
                 store.Index == accumulatorStore.Index
                 && store.Value is Constant { Value: 0 });
         var finalResultStore = moveNext.Descendants.OfType<StoreLocal>()
-            .SingleOrDefault(store =>
+            .FirstOrDefault(store =>
                 store.Index == finalResult.Index
                 && store.Value is LoadLocal load
                 && load.Index == accumulatorStore.Index);

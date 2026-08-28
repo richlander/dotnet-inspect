@@ -19,9 +19,13 @@ public class ClassicAsyncReconstructionHonestyTests
     [InlineData("SequentialWithEventSubscription")]
     [InlineData("SequentialWithParameterWrite")]
     [InlineData("SequentialWithHoistedLocalWrite")]
+    [InlineData("SequentialWithHoistedLocalIncrement")]
     [InlineData("SequentialWithStructParameterReset")]
+    [InlineData("SequentialWithDeconstructionWrite")]
+    [InlineData("SequentialWithCapturedNullCoalescingWrite")]
     [InlineData("LoopWithFieldStore")]
     [InlineData("LoopWithAccumulatorWrite")]
+    [InlineData("LoopWithClamp")]
     public void UnconsumedUserStoreDeclinesAtPartialFidelity(
         string methodName)
     {
