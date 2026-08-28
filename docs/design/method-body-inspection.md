@@ -321,7 +321,12 @@ gates partial-result accumulation.
 `LibraryBodyPrimaryMetadataResolver` owns primary-image method identity,
 unsafe/generated attribute judgments, token/member/type/field/calli/value-type
 and delegate facts, async-state-machine caching, and the narrow resolver
-adapters. `LibraryBodyMethodReferenceResolver` owns the acquisition-scoped
+adapters. `LibraryBodyStableReceiverGetterClassifier` owns the narrow
+PE-backed readonly-field getter judgment and its acquisition-scoped cache;
+`OptimizationOpportunities_StableReceiverGetter_IsClassifiedOnce` gates that
+the optimization adapter shares one classification. The classifier does not
+own optimization policy or general method-body scheduling.
+`LibraryBodyMethodReferenceResolver` owns the acquisition-scoped
 structural signature and generic-scope identities, canonical
 `MemberRef`/`MethodSpec` resolution caches, and their shared assembly work
 budgets. The primary resolver adapters and

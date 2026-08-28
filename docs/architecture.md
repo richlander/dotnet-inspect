@@ -823,6 +823,12 @@ Research overlay bridge, and the application layer:
   primary-image method identity, unsafe/generated attribute judgments,
   token/member/type/field/calli/value-type/delegate facts, async-state-machine
   caching, and the allocation/optimization/call resolver adapters.
+  `LibraryBodyStableReceiverGetterClassifier` owns the acquisition-scoped,
+  PE-backed readonly-field getter judgment and its exactly-once cache. The
+  primary resolver's optimization adapter consumes that judgment without
+  acquiring method bodies itself;
+  `OptimizationOpportunities_StableReceiverGetter_IsClassifiedOnce` gates the
+  shared cache.
   `CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn`,
   `OptimizationOpportunities_AsyncStateMachine_IsAmortized`, and
   `Allocations_ClassifiesCrossAndInAssemblyValueTypeNewobj_ByShape` gate
