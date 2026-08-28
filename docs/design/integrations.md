@@ -224,8 +224,13 @@ Repeated producer observations collapse by each relationship's declared
 occurrence identity before document construction. Successfully bound
 metadata-reference rows normalize by semantic ECMA assembly identity, while
 failed rows retain each exact metadata spelling. Missing out-of-context
-references remain outside the selected graph, while unavailable, ambiguous,
-rejected, or selected-outside-context bindings remain visible as failures.
+references remain outside the selected graph. Explicit induced sets apply the
+same rule to missing extension and Integration endpoints: `BindingMissing`
+details cannot prove that an absent endpoint belongs to the requested subject
+closure, so projection removes those details before deciding which failure
+targets survive. Other details on the same target remain visible. Unavailable,
+ambiguous, rejected, or selected-outside-context bindings remain visible as
+failures.
 Named signature scopes use the same semantic assembly-identity equivalence for
 occurrence identity, so case and neutral-culture spelling variants do not
 fabricate distinct extension or Integration observations.
@@ -241,6 +246,10 @@ gates the locked topology and the absence of a fabricated call;
 dual-lens receipts; and
 `Execute_DoesNotJoinAmbiguousMatchingAssemblyIdentities` gates the close
 acquisition-identity case.
+`Execute_ExplicitInducedSetOmitsOutOfContextBindingMissing`,
+`Execute_ExplicitInducedSetRetainsActionableMixedFailureDetail`, and
+`Execute_ExplicitInducedSetRetainsUnavailableSelectedBinding` gate the explicit
+failure-boundary rule.
 
 Package `--all-libraries` creates one binding-consistent group per package asset
 directory, preserving non-`net*` framework and runtime contexts, so `--tfm all`

@@ -34,14 +34,19 @@ consumer picks a depth instead of re-deriving a rule.
 ## The layers
 
 ```text
-dotnet-inspect                      L3  argument parsing, console, formats
+dotnet-inspect L3 ---------+
+  |                        |
+  v                        |
+DotnetInspector.Sections --+----> DotnetInspector.RowSelection
+  L2                       |       shared dependency-free leaf
+  |                        |
+  v                        |
+DotnetInspector.Queries ---+
+  L1
   |
-  +-- DotnetInspector.Sections      L2  sections, categories, shape ladder
-        |
-        +-- DotnetInspector.Queries L1  typed inspection requests -> results
-              |
-              +-- DotnetInspector.*     packages, services, core
-                  ILInspector.*         metadata, analysis, decompiler, research
+  v
+DotnetInspector.* / ILInspector.*
+packages, services, metadata, analysis, decompiler, research
 ```
 
 Each layer is a separate component. A consumer decides how far up it comes:
@@ -53,6 +58,11 @@ Each layer is a separate component. A consumer decides how far up it comes:
 
 A layer may be more than one project. The rule is the dependency direction and
 the ownership boundaries below, not the project count.
+
+`DotnetInspector.RowSelection` is an orthogonal leaf utility rather than a new
+layer. L3 constructs plans, L2 binds generic values to declared row sets, and
+L1 or source owners may analyze the same plan for equivalent pushdown. None
+takes a dependency on another consumer merely to reach the leaf.
 
 ## Implementation status
 
@@ -214,6 +224,38 @@ the oracle dependency enters a product, NativeAOT, or Browser path. The pinned
 coordinates, hashes, baseline, and maintenance procedure are recorded in
 [`eng/package-manifest-corpus.md`](../../eng/package-manifest-corpus.md).
 
+The manifest-facts path has two consumer and resource canaries.
+`BrowserEngineBoundaryTests.PackageManifestFacts_FromInMemoryBytesRemainBrowserCompatible`
+executes the query from exact in-memory bytes in the inspect-web consumer test
+surface. The CI inspect-web lane publishes the Browser/Wasm engine, where the
+exported `QueryPackageDependencies` operation roots the same query through
+`PackageDependencyGroupsQuery`; the
+`PackageManifestFactsQuery.cs` change-detection canary ensures changes to that
+path cannot skip the lane.
+`PackageManifestFactsQueryTests.Execute_AcceptsManifestAtExactByteLimit`,
+`Execute_AcceptsManifestAtExactDecodedCharacterLimit`,
+`Execute_EnforcesManifestByteLimit`, and
+`Execute_RejectsManifestBeyondDecodedCharacterLimit` gate the byte and
+decoded-character boundaries. The existing
+`Execute_AcceptsScalarAndCollectionLimits`,
+`Execute_RejectsOversizedScalarFact`,
+`Execute_RejectsExcessivePackageTypeCardinality`,
+`Execute_RejectsExcessiveDependencyGroupCardinality`, and
+`Execute_RejectsExcessiveDependencyCardinality` tests gate the remaining exact
+boundaries.
+
+`FindCommandTests.PackageProfileDefaultScale_AcquiresEachManifestOnceAndBoundsProjectedRows`
+is the deterministic operation-count canary. Its pinned input is the default
+100-coordinate profile, with 64 dependencies per manifest and a 25-row output
+window. The recorded baseline is one search, exactly one manifest request per
+coordinate, no package archive requests, one registry materialization reused by
+subsequent reads, and exactly 25 projected rows. Run it with:
+
+```bash
+dotnet run --project src/dotnet-inspect.Tests -c Release -- \
+  -method '*PackageProfileDefaultScale*'
+```
+
 L1 does not reference Markout.
 
 ### L2 — `DotnetInspector.Sections`
@@ -222,6 +264,14 @@ Owns the named, selectable unit (the **section**), the topical **categories**
 that surface it, the disclosure ladder that decides when it appears, and the
 **shape ladder** that narrows a result to what was asked for. L2 is where results
 are integrated with Markout serialization.
+
+L2 binds declared typed row sets to the consumer-neutral
+`DotnetInspector.RowSelection` leaf component.
+[Semantic row selection](semantic-row-selection.md) defines that component's
+ordered stage plan, strictness, stage-local positions, and pure output. L3
+lowers CLI gestures into the plan; source owners may optimize its execution but
+cannot redefine it; L2 reconnects selected values to their row-set identity
+before Markout receives them.
 
 Categories are consumer-neutral. `@Surface`, `@Performance`, `@Audit`,
 `@Integrations`, and `@SourceLink` are topical groupings, not terminal
@@ -302,6 +352,9 @@ the L1 noun:
 - **schema query** — `-D` catalog discovery, see [schema-query.md](schema-query.md). L2.
 - **row query** — field predicates within a section, see
   [row-query-order.md](row-query-order.md). L2.
+- **row selection** — ordered semantic stages over one or more complete logical
+  sequences, see [semantic-row-selection.md](semantic-row-selection.md).
+  Shared leaf component, bound to declared row sets by L2.
 - **a user's search string** — CLI option names such as `OriginalTypeQuery` and
   `PlatformPrefixQuery` in `ApiOptions`, and the `ILOffsetQuery` helper. These
   are inputs typed by a user, not typed requests. L3.

@@ -42,13 +42,21 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
         if (asyncSource is null)
             return false;
         if (CompilerGeneratedNames
-                .IsLocalFunctionOrLambda(asyncSource.Name)
-            && !TryResolveUltimateLiftedOwner(
-                asyncSource,
-                out _))
+                .IsLocalFunctionOrLambda(asyncSource.Name))
         {
-            return false;
+            AuthenticatedSourceOwner sourceOwner =
+                CreateAuthenticatedSourceOwner(asyncSource);
+            if (!TryResolveUltimateLiftedOwner(
+                    sourceOwner,
+                    out AuthenticatedSourceOwner ultimateOwner)
+                || ultimateOwner.SuppressesOpportunities)
+            {
+                return false;
+            }
         }
+        else if (CreateAuthenticatedSourceOwner(
+                asyncSource).SuppressesOpportunities)
+            return false;
         return true;
     }
 
@@ -56,8 +64,7 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
         MethodDefinitionHandle liftedHandle,
         MethodDefinition liftedMethod,
         MethodIdentity liftedIdentity,
-        out MethodIdentity? sourceOwner,
-        out bool sourceGenerated,
+        out AuthenticatedSourceOwner sourceOwner,
         IReadOnlySet<int>? ownerMethodScope,
         Func<TypeRef, bool>? ownerTypeScope,
         bool directlySelectedBody) =>
@@ -66,7 +73,6 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
             liftedMethod,
             liftedIdentity,
             out sourceOwner,
-            out sourceGenerated,
             ownerMethodScope,
             ownerTypeScope,
             directlySelectedBody);
@@ -85,13 +91,14 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
                 methodHandle,
                 methodDefinition,
                 method,
-                out MethodIdentity? sourceOwner,
-                out _,
+                out AuthenticatedSourceOwner sourceOwner,
                 ownerMethodScope,
                 ownerTypeScope,
                 directlySelectedBody))
         {
-            return sourceOwner;
+            return IsMalformedGeneratedLiftedOwner(sourceOwner)
+                ? null
+                : sourceOwner.Method;
         }
 
         MethodIdentity? asyncSource =
@@ -120,7 +127,6 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
                     (MethodDefinitionHandle)asyncSourceHandle),
                 asyncSource,
                 out sourceOwner,
-                out _,
                 ownerMethodScope,
                 ownerTypeScope,
                 directlySelectedBody
@@ -128,13 +134,15 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
                         asyncSource.MetadataToken)
                         == true))
         {
-            return sourceOwner;
+            return IsMalformedGeneratedLiftedOwner(sourceOwner)
+                ? null
+                : sourceOwner.Method;
         }
 
         return TryResolveUltimateLiftedOwner(
-            asyncSource,
+            CreateAuthenticatedSourceOwner(asyncSource),
             out sourceOwner)
-            ? sourceOwner
+            ? sourceOwner.Method
             : null;
     }
 
@@ -143,24 +151,38 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
         MethodDefinition methodDefinition,
         MethodIdentity method,
         bool typeSourceGenerated,
-        out MethodIdentity? ultimateOwner)
+        out AuthenticatedSourceOwner? immediateOwner,
+        out AuthenticatedSourceOwner? ultimateOwner)
     {
-        if (_liftedSourceOwnerResolver.TryResolve(
+        immediateOwner = null;
+        LiftedSourceOwnerResolution liftedResolution =
+            _liftedSourceOwnerResolver.Resolve(
                 methodHandle,
                 methodDefinition,
                 method,
-                out MethodIdentity? liftedOwner,
-                out _,
+                out AuthenticatedSourceOwner liftedOwner,
                 ownerMethodScope: null,
                 ownerTypeScope: null,
-                directlySelectedBody: false)
-            && liftedOwner is not null)
+                directlySelectedBody: false);
+        if (liftedResolution
+            == LiftedSourceOwnerResolution.Resolved)
         {
-            return TryResolveUltimateLiftedOwner(
+            immediateOwner = liftedOwner;
+            DeclaredOwnerResolution resolution =
+                ResolveUltimateLiftedOwner(
                 liftedOwner,
-                out ultimateOwner)
-                ? DeclaredOwnerResolution.Resolved
-                : DeclaredOwnerResolution.Unresolved;
+                out AuthenticatedSourceOwner resolvedOwner);
+            ultimateOwner =
+                resolution == DeclaredOwnerResolution.Resolved
+                    ? resolvedOwner
+                    : null;
+            return resolution;
+        }
+        if (liftedResolution
+            == LiftedSourceOwnerResolution.Rejected)
+        {
+            ultimateOwner = null;
+            return DeclaredOwnerResolution.Rejected;
         }
 
         AsyncSourceResolution asyncResolution =
@@ -172,27 +194,55 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
         if (asyncResolution == AsyncSourceResolution.Unresolved)
         {
             ultimateOwner = null;
-            return DeclaredOwnerResolution.Unresolved;
+            return DeclaredOwnerResolution.Rejected;
         }
         if (asyncResolution == AsyncSourceResolution.None
             || asyncSource is null
             || asyncSource == method)
         {
             ultimateOwner = null;
-            return DeclaredOwnerResolution.None;
+            bool stateMachineExecutionBody =
+                _asyncSourceResolver
+                    .IsAsyncStateMachineExecutionMethod(
+                        methodHandle,
+                        methodDefinition);
+            if (stateMachineExecutionBody
+                && CompilerGeneratedNames
+                    .IsMalformedLiftedStateMachineLeaf(
+                        method.DeclaringType))
+            {
+                return DeclaredOwnerResolution.Rejected;
+            }
+            bool canonicalOwnerRequiredBody =
+                CompilerGeneratedNames
+                    .IsLocalFunctionOrLambda(method.Name)
+                || stateMachineExecutionBody;
+            return canonicalOwnerRequiredBody
+                ? DeclaredOwnerResolution.Unresolved
+                : DeclaredOwnerResolution.None;
         }
 
         if (CompilerGeneratedNames
                 .IsLocalFunctionOrLambda(asyncSource.Name))
         {
-            return TryResolveUltimateLiftedOwner(
-                asyncSource,
-                out ultimateOwner)
-                ? DeclaredOwnerResolution.Resolved
-                : DeclaredOwnerResolution.Unresolved;
+            AuthenticatedSourceOwner asyncSourceOwner =
+                CreateAuthenticatedSourceOwner(asyncSource);
+            immediateOwner = asyncSourceOwner;
+            DeclaredOwnerResolution resolution =
+                ResolveUltimateLiftedOwner(
+                    asyncSourceOwner,
+                    out AuthenticatedSourceOwner resolvedOwner);
+            ultimateOwner =
+                resolution == DeclaredOwnerResolution.Resolved
+                    ? resolvedOwner
+                    : null;
+            return resolution;
         }
 
-        ultimateOwner = asyncSource;
+        AuthenticatedSourceOwner sourceOwner =
+            CreateAuthenticatedSourceOwner(asyncSource);
+        immediateOwner = sourceOwner;
+        ultimateOwner = sourceOwner;
         return DeclaredOwnerResolution.Resolved;
     }
 
@@ -201,9 +251,13 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
     {
         // A lifted source method can itself be async, so expand source owners
         // before asking the async resolver for the resulting state-machine body.
-        plan = _asyncSourceResolver.ExpandEvidenceScope(plan);
+        plan = _asyncSourceResolver.ExpandEvidenceScope(
+            plan,
+            IsAsyncScopeSourceAdmissible);
         plan = ExpandLiftedEvidenceScope(plan);
-        return _asyncSourceResolver.ExpandEvidenceScope(plan);
+        return _asyncSourceResolver.ExpandEvidenceScope(
+            plan,
+            IsAsyncScopeSourceAdmissible);
     }
 
     internal LibraryBodyAnalysisResult MergeScopeExpansionDiagnostics(
@@ -223,7 +277,8 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
     }
 
     internal LibraryBodyAnalysisResult PublishDeclaredSources(
-        LibraryBodyAnalysisResult analysis)
+        LibraryBodyAnalysisResult analysis,
+        LibraryBodyAnalysisPlan plan)
     {
         IReadOnlyDictionary<int, MethodIdentity> asyncSources =
             _asyncSourceResolver
@@ -239,15 +294,27 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
         {
             try
             {
-                if (!declaredSources.ContainsKey(token)
-                    && TryResolveUltimateLiftedOwner(
-                        source,
-                        out MethodIdentity? ultimateOwner)
-                    && ultimateOwner is not null)
+                if (!declaredSources.ContainsKey(token))
                 {
-                    declaredSources.Add(
-                        token,
-                        ultimateOwner);
+                    AuthenticatedSourceOwner sourceOwner =
+                        _asyncSourceResolver
+                            .CreateAuthenticatedSourceOwner(
+                                source);
+                    if (TryResolveUltimateLiftedOwner(
+                            sourceOwner,
+                            out AuthenticatedSourceOwner
+                                ultimateOwner))
+                    {
+                        declaredSources.Add(
+                            token,
+                            ultimateOwner.Method);
+                    }
+                    else if (!plan.IsScoped
+                        && !IsMalformedGeneratedLiftedOwner(
+                            sourceOwner))
+                    {
+                        declaredSources.Add(token, source);
+                    }
                 }
             }
             catch (Exception ex)
@@ -285,64 +352,115 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
         };
     }
 
-    bool TryResolveUltimateLiftedOwner(
-        MethodIdentity source,
-        out MethodIdentity? ultimateOwner)
+    bool IsAsyncScopeSourceAdmissible(
+        MethodIdentity source)
     {
-        MethodIdentity current = source;
+        AuthenticatedSourceOwner sourceOwner =
+            _asyncSourceResolver
+                .CreateAuthenticatedSourceOwner(source);
+        if (IsMalformedGeneratedLiftedOwner(sourceOwner))
+            return false;
+
+        return !_liftedSourceOwnerResolver
+            .HasMalformedPotentialOwnerChain(source);
+    }
+
+    bool TryResolveUltimateLiftedOwner(
+        AuthenticatedSourceOwner source,
+        out AuthenticatedSourceOwner ultimateOwner) =>
+        ResolveUltimateLiftedOwner(
+            source,
+            out ultimateOwner)
+            == DeclaredOwnerResolution.Resolved;
+
+    DeclaredOwnerResolution ResolveUltimateLiftedOwner(
+        AuthenticatedSourceOwner source,
+        out AuthenticatedSourceOwner ultimateOwner)
+    {
+        AuthenticatedSourceOwner current = source;
         Span<int> visited =
             stackalloc int[
                 MetadataSafetyPolicy.MaxRelationshipNodes];
         int count = 0;
         while (CompilerGeneratedNames
-            .IsLocalFunctionOrLambda(current.Name))
+            .IsLocalFunctionOrLambda(
+                current.Method.Name))
         {
             if (count == visited.Length)
             {
-                ultimateOwner = null;
-                return false;
+                ultimateOwner = default;
+                return DeclaredOwnerResolution.Rejected;
             }
             for (int i = 0; i < count; i++)
             {
                 if (visited[i]
-                    == current.MetadataToken)
+                    == current.Method.MetadataToken)
                 {
-                    ultimateOwner = null;
-                    return false;
+                    ultimateOwner = default;
+                    return DeclaredOwnerResolution.Rejected;
                 }
             }
-            visited[count++] = current.MetadataToken;
+            visited[count++] =
+                current.Method.MetadataToken;
             EntityHandle currentHandle =
                 MetadataTokens.EntityHandle(
-                    current.MetadataToken);
+                    current.Method.MetadataToken);
             if (currentHandle.Kind
                     != HandleKind.MethodDefinition)
             {
-                ultimateOwner = null;
-                return false;
+                ultimateOwner = default;
+                return DeclaredOwnerResolution.Rejected;
             }
             MethodDefinition currentDefinition =
                 _reader.GetMethodDefinition(
                     (MethodDefinitionHandle)currentHandle);
-            if (!_liftedSourceOwnerResolver.TryResolve(
+            LiftedSourceOwnerResolution resolution =
+                _liftedSourceOwnerResolver.Resolve(
                     (MethodDefinitionHandle)currentHandle,
                     currentDefinition,
-                    current,
-                    out MethodIdentity? sourceOwner,
-                    out _,
+                    current.Method,
+                    out AuthenticatedSourceOwner sourceOwner,
                     ownerMethodScope: null,
                     ownerTypeScope: null,
-                    directlySelectedBody: false)
-                || sourceOwner is null)
+                    directlySelectedBody: false);
+            if (resolution != LiftedSourceOwnerResolution.Resolved)
             {
-                ultimateOwner = null;
-                return false;
+                ultimateOwner = default;
+                return resolution
+                    == LiftedSourceOwnerResolution.Rejected
+                        ? DeclaredOwnerResolution.Rejected
+                        : DeclaredOwnerResolution.Unresolved;
             }
             current = sourceOwner;
         }
 
+        if (IsMalformedGeneratedLiftedOwner(current))
+        {
+            ultimateOwner = default;
+            return DeclaredOwnerResolution.Rejected;
+        }
+
         ultimateOwner = current;
-        return true;
+        return DeclaredOwnerResolution.Resolved;
+    }
+
+    bool IsMalformedGeneratedLiftedOwner(
+        AuthenticatedSourceOwner source) =>
+        _asyncSourceResolver
+            .HasMalformedCompilerGeneratedLiftedName(source);
+
+    AuthenticatedSourceOwner CreateAuthenticatedSourceOwner(
+        MethodIdentity source)
+    {
+        AuthenticatedSourceOwner owner =
+            _asyncSourceResolver
+                .CreateAuthenticatedSourceOwner(source);
+        return owner with
+        {
+            IsAuthenticatedTopLevelEntryPoint =
+                _liftedSourceOwnerResolver
+                    .IsAuthenticatedTopLevelEntryPoint(source),
+        };
     }
 
     LibraryBodyAnalysisPlan ExpandLiftedEvidenceScope(
@@ -407,14 +525,18 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
                             methodHandle,
                             methodDefinition,
                             method,
-                            out MethodIdentity? sourceOwner,
-                            out _,
+                            out AuthenticatedSourceOwner sourceOwner,
                             plan.MethodScope,
                             plan.TypeScope,
-                            directlySelectedBody)
-                        && sourceOwner is not null)
+                            directlySelectedBody))
                     {
-                        ownersByBody[method] = sourceOwner;
+                        if (IsMalformedGeneratedLiftedOwner(
+                                sourceOwner))
+                        {
+                            continue;
+                        }
+                        ownersByBody[method] =
+                            sourceOwner.Method;
                     }
                 }
                 catch (Exception ex)

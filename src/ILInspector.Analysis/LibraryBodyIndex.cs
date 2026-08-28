@@ -361,7 +361,8 @@ public sealed class LibraryBodyIndex
                                 Path,
                                 _physicalDirectCalls,
                                 Methods),
-                            _allocationOccurrences)
+                            _allocationOccurrences,
+                            _scopeExcludedOpportunityTokens)
                         .Where(summary =>
                             !_scopeExcludedOpportunityTokens
                                 .Contains(
@@ -905,12 +906,13 @@ public sealed class LibraryBodyIndex
 
     /// <summary>
     /// Maps a compiler-generated body — an async state-machine <c>MoveNext</c>,
-    /// or a lifted local-function/lambda method — to the declared source method
-    /// the existing Analysis resolvers already own. Returns null when
-    /// <paramref name="caller"/> is not such a body.
+    /// or a lifted local-function/lambda method — to an authenticated declared
+    /// source identity. An unscoped index may return the immediate lifted
+    /// source when the ultimate owner is unresolved; scoped indexes fail closed.
+    /// Returns null when <paramref name="caller"/> is not such a body.
     /// <c>ResolveDeclaredMethod_MapsClassicAsyncMoveNextToSource</c> and
-    /// <c>ResolveDeclaredMethod_MapsLiftedLocalFunctionToOwner</c> gate this
-    /// contract.
+    /// <c>OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes</c>
+    /// gate this contract.
     /// </summary>
     /// <remarks>
     /// <see cref="DirectCalls"/>, <see cref="FindCalls"/>, and

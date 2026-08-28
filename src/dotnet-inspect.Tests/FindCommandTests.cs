@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text;
 using System.Text.Json;
 using DotnetInspector.Queries;
 using DotnetInspector.Commands;
@@ -271,7 +272,7 @@ public class FindCommandTests
         Assert.Same(PackageProfileQuery.Definition, binding.Query);
         Assert.Same(
             PackageProfileQuery.Definition,
-            Assert.Single(catalog.QueryRegistry.RegisteredQueries));
+            Assert.Single(catalog.QueryCatalog.RegisteredQueries));
 
         PackageProfileView view = PackageProfileSections.CreateDocument(
             "Contoso.",
@@ -409,9 +410,47 @@ public class FindCommandTests
     }
 
     [Fact]
-    public async Task PackageProfileRegistry_MaterializesSourceExecutionOnce()
+    public async Task PackageProfileCatalog_MaterializesSourceExecutionOnce()
     {
         var source = new CountingPackageSource();
+        PackageProfileSectionCatalog catalog =
+            PackageProfileSections.CreateCatalog();
+        SectionQueryPlan sectionPlan =
+            catalog.Sections.PlanQueries(
+                Verbosity.Normal,
+                [PackageProfileSections.Packages]);
+
+        InspectionQueryResults results =
+            await catalog.QueryCatalog
+                .Plan(sectionPlan.Queries[0])
+                .RunAsync(
+                    new PackageProfileQueryContext(
+                        source,
+                        new PackagePrefixProfileRequest("Contoso.")),
+                    cancellationToken:
+                        TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, source.SearchRequests);
+        ImmutableArray<PackageProfileEvent> first =
+            results.Get(PackageProfileQuery.Definition);
+        ImmutableArray<PackageProfileEvent> second =
+            results.Get(PackageProfileQuery.Definition);
+        Assert.Equal(first, second);
+        Assert.Equal(1, source.SearchRequests);
+        Assert.IsType<PackageProfileEvent.Failure>(first[0]);
+        Assert.IsType<PackageProfileEvent.Completed>(first[1]);
+    }
+
+    [Fact]
+    public async Task
+        PackageProfileDefaultScale_AcquiresEachManifestOnceAndBoundsProjectedRows()
+    {
+        const int candidateCount = 100;
+        const int dependenciesPerManifest = 64;
+        const int projectedRowLimit = 25;
+        var source = new DefaultScalePackageSource(
+            candidateCount,
+            dependenciesPerManifest);
         PackageProfileSectionCatalog catalog =
             PackageProfileSections.CreateCatalog();
         HashSet<InspectionQueryDefinition> requested =
@@ -427,16 +466,37 @@ public class FindCommandTests
                     new PackagePrefixProfileRequest("Contoso.")),
                 cancellationToken:
                     TestContext.Current.CancellationToken);
+        ImmutableArray<PackageProfileEvent> events =
+            results.Get(PackageProfileQuery.Definition);
+        PackageProfileView view =
+            PackageProfileSections.CreateDocument(
+                "Contoso.",
+                events,
+                RowWindow.Head(projectedRowLimit));
+        ImmutableArray<PackageProfileEvent> secondRead =
+            results.Get(PackageProfileQuery.Definition);
 
-        Assert.Equal(1, source.SearchRequests);
-        ImmutableArray<PackageProfileEvent> first =
-            results.Get(PackageProfileQuery.Definition);
-        ImmutableArray<PackageProfileEvent> second =
-            results.Get(PackageProfileQuery.Definition);
-        Assert.Equal(first, second);
-        Assert.Equal(1, source.SearchRequests);
-        Assert.IsType<PackageProfileEvent.Failure>(first[0]);
-        Assert.IsType<PackageProfileEvent.Completed>(first[1]);
+        Assert.Equal(
+            [
+                (
+                    Prefix: "Contoso.",
+                    Take: candidateCount,
+                    Prerelease: false),
+            ],
+            source.SearchRequests);
+        Assert.Equal(
+            source.CandidateCoordinates,
+            source.ManifestRequests);
+        Assert.Equal(0, source.PackageRequests);
+        Assert.Equal(events, secondRead);
+        Assert.Equal(
+            candidateCount,
+            events.Count(profileEvent =>
+                profileEvent is PackageProfileEvent.Match));
+        Assert.Equal(
+            projectedRowLimit,
+            PackageProfileSections.CountRows(view));
+        Assert.Equal(projectedRowLimit, view.Results!.Count);
     }
 
     [Fact]
@@ -866,6 +926,145 @@ public class FindCommandTests
                 string version,
                 CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>>
+            TryGetSymbolsAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public void Dispose()
+        {
+        }
+    }
+
+    private sealed class DefaultScalePackageSource(
+        int candidateCount,
+        int dependenciesPerManifest)
+        : IPackageSourceClient
+    {
+        public PackageSourceCoordinate[] CandidateCoordinates { get; } =
+        [
+            .. Enumerable.Range(0, candidateCount)
+                .Select(index =>
+                    PackageSourceCoordinate.Create(
+                        $"Contoso.Package{index:D3}",
+                        "1.0.0")),
+        ];
+        public List<(string Prefix, int Take, bool Prerelease)>
+            SearchRequests
+        { get; } = [];
+        public List<PackageSourceCoordinate> ManifestRequests { get; } = [];
+        public int PackageRequests { get; private set; }
+        public PackageSourceIdentity Identity =>
+            PackageSourceIdentity.NuGetOrg;
+        public PackageSourceKind Kind =>
+            PackageSourceKind.NuGetGallery;
+        public PackageSourceCapabilities Capabilities =>
+            PackageSourceCapabilities.Search
+            | PackageSourceCapabilities.Manifest;
+
+        public Task<PackageSourceOperationResult<PackageSearchResult>>
+            SearchByPrefixAsync(
+                string prefix,
+                int take = 100,
+                bool prerelease = false,
+                CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            SearchRequests.Add((prefix, take, prerelease));
+            PackageSearchMatch[] matches =
+            [
+                .. CandidateCoordinates.Select(coordinate =>
+                        new PackageSearchMatch(
+                            new SearchResult(
+                                coordinate.PackageId,
+                                coordinate.Version),
+                            new PackageCandidateObservation(
+                                coordinate,
+                                Identity,
+                                PackageDiscoveryContract.KeywordSearch,
+                                PackageListingState.Listed))),
+            ];
+            return Task.FromResult<
+                PackageSourceOperationResult<PackageSearchResult>>(
+                    new PackageSourceOperationResult<PackageSearchResult>
+                        .Succeeded(
+                            new PackageSearchResult(
+                                matches,
+                                PackageSearchTruncationReason.None)));
+        }
+
+        public Task<PackageSourceOperationResult<PackageSourceManifest>>
+            GetManifestAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            PackageSourceCoordinate coordinate =
+                PackageSourceCoordinate.Create(packageId, version);
+            if (!CandidateCoordinates.Contains(coordinate))
+            {
+                throw new InvalidOperationException(
+                    "The query requested a coordinate outside the search result.");
+            }
+            if (ManifestRequests.Contains(coordinate))
+            {
+                throw new InvalidOperationException(
+                    "The query requested one manifest more than once.");
+            }
+
+            ManifestRequests.Add(coordinate);
+            string dependencies = string.Concat(
+                Enumerable.Range(0, dependenciesPerManifest)
+                    .Select(index =>
+                        $"""<dependency id="Dependency.{index:D3}" version="1.0.0" />"""));
+            byte[] content = Encoding.UTF8.GetBytes(
+                $$"""
+                <package>
+                  <metadata>
+                    <id>{{coordinate.PackageId}}</id>
+                    <version>{{coordinate.Version}}</version>
+                    <dependencies>{{dependencies}}</dependencies>
+                  </metadata>
+                </package>
+                """);
+            return Task.FromResult<
+                PackageSourceOperationResult<PackageSourceManifest>>(
+                    new PackageSourceOperationResult<PackageSourceManifest>
+                        .Succeeded(
+                            new PackageSourceManifest(
+                                coordinate,
+                                Identity,
+                                Kind,
+                                content)));
+        }
+
+        public Task<PackageSourceOperationResult<PackageSearchResult>>
+            SearchAsync(
+                string query,
+                int take = 20,
+                bool prerelease = false,
+                CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageVersionResult>>
+            GetVersionsAsync(
+                string packageId,
+                CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>>
+            GetPackageAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default)
+        {
+            PackageRequests++;
+            throw new NotSupportedException();
+        }
 
         public Task<PackageSourceOperationResult<PackageSourcePayload>>
             TryGetSymbolsAsync(

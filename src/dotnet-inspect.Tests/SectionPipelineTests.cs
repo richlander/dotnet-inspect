@@ -3863,6 +3863,11 @@ public class SectionPipelineTests
         => AssertSectionCatalogQueryPlansMatch(
             DiffSections.CreateCatalog().Sections);
 
+    [Fact]
+    public void PackageProfileSectionCatalog_QueryPlansMatchMutablePipeline()
+        => AssertSectionCatalogQueryPlansMatch(
+            PackageProfileSections.CreateCatalog().Sections);
+
     private static void AssertSectionCatalogQueryPlansMatch<TModel>(
         SectionCatalog<TModel> catalog)
     {
@@ -4080,6 +4085,62 @@ public class SectionPipelineTests
             {
                 throw new InvalidOperationException(
                     "The Diff catalog or a precomputed plan changed identity.");
+            }
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
+    public void PackageProfileCatalog_RepeatedAcquisitionAndCommonPlanningAllocateNothing()
+    {
+        PackageProfileSectionCatalog profileCatalog =
+            PackageProfileSections.CreateCatalog();
+        SectionCatalog<PackageProfileView> sectionCatalog =
+            profileCatalog.Sections;
+        InspectionQueryCatalog<PackageProfileQueryContext> queryCatalog =
+            profileCatalog.QueryCatalog;
+        SectionQueryPlan automaticPlan =
+            sectionCatalog.PlanQueries(Verbosity.Normal);
+        HashSet<string> packageSelection =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                PackageProfileSections.Packages,
+            };
+        SectionQueryPlan packageSectionPlan =
+            sectionCatalog.PlanQueries(
+                Verbosity.Normal,
+                packageSelection);
+        InspectionQueryPlan<PackageProfileQueryContext> packageQueryPlan =
+            queryCatalog.Plan(packageSectionPlan.Queries[0]);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 1_000; iteration++)
+        {
+            if (!ReferenceEquals(
+                    profileCatalog,
+                    PackageProfileSections.CreateCatalog())
+                || !ReferenceEquals(
+                    sectionCatalog,
+                    PackageProfileSections.SectionCatalog)
+                || !ReferenceEquals(
+                    queryCatalog,
+                    PackageProfileSections.QueryCatalog)
+                || !ReferenceEquals(
+                    automaticPlan,
+                    sectionCatalog.PlanQueries(Verbosity.Normal))
+                || !ReferenceEquals(
+                    packageSectionPlan,
+                    sectionCatalog.PlanQueries(
+                        Verbosity.Normal,
+                        packageSelection))
+                || !ReferenceEquals(
+                    packageQueryPlan,
+                    queryCatalog.Plan(packageSectionPlan.Queries[0])))
+            {
+                throw new InvalidOperationException(
+                    "The package-profile catalog or a precomputed plan changed identity.");
             }
         }
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
