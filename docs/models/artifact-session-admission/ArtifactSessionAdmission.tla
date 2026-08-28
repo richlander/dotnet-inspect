@@ -4,15 +4,18 @@
 (* `docs/design/artifact-acquisition-and-workspaces.md`.                   *)
 (*                                                                         *)
 (* The model checks single-flight admission across concurrent demands,     *)
-(* voluntary and disposal-forced cancellation, and the rule that a late    *)
-(* adapter result never publishes a session or group once disposal has     *)
-(* begun. It says nothing about which adapter runs, budget arithmetic,     *)
-(* content identity, assembly projection, or query-lease authorization.    *)
+(* an incompatible-generation demand's inability to join or start          *)
+(* duplicate work while a prior admission is active, voluntary and         *)
+(* disposal-forced cancellation, and the rule that a late adapter result   *)
+(* never publishes a session or group once disposal has begun. It says     *)
+(* nothing about which adapter runs, budget arithmetic, content identity,  *)
+(* assembly projection, or query-lease authorization.                     *)
 (*                                                                         *)
 (* Product concept                          Model variable                 *)
 (*   admission operation lifecycle           admission                    *)
 (*   admitted context+policy generation      generation                   *)
 (*   demands attached to the operation       waiters                      *)
+(*   a demand's requested generation         pendingGeneration             *)
 (*   reserved admission budget                reserved                    *)
 (*   workspace disposal begun                disposed                    *)
 (*   per-demand delivered outcome            outcomeOf                    *)
@@ -20,18 +23,24 @@
 (*   dependent group reports quiescent       groupQuiescent               *)
 (*   artifact leases released                leaseReleased                *)
 (*                                                                         *)
-(* Guard witnesses. `publishSafetyWitness` and `leaseSafetyWitness` are    *)
-(* latching booleans. The step that publishes a group, or that releases    *)
-(* its leases, independently re-derives the exact condition the design     *)
-(* requires and conjoins it into the witness. The paired invariant then    *)
-(* fails if a future weakening of an action's own guard lets the step      *)
-(* happen without that condition.                                         *)
+(* Guard witnesses. `publishSafetyWitness`, `leaseSafetyWitness`, and      *)
+(* `authorizedOutcomeWitness` are latching booleans. The step that         *)
+(* publishes a group, releases its leases, or delivers a terminal outcome  *)
+(* independently re-derives the exact condition the design requires from  *)
+(* the pre-step state and conjoins it into the witness. The paired         *)
+(* invariant then fails if a future weakening of an action's own guard     *)
+(* lets the step happen without that condition -- a plain invariant over   *)
+(* only post-step state cannot detect this, because the post-step state    *)
+(* the action itself just built already looks self-consistent.             *)
 (*                                                                         *)
 (* Modeling simplification. Only one published group's lease lifecycle is *)
 (* tracked at a time: a fresh admission cannot publish while the previous  *)
 (* group is still awaiting lease release. The product does not serialize   *)
 (* real groups this way; this bounds the state space for a check that is  *)
 (* about one admission's publish-vs-disposal race, not concurrent groups.  *)
+(* A demand's requested generation is fixed once it arrives; the model     *)
+(* does not represent a caller re-deriving a different generation when it *)
+(* replans after an incompatible admission terminates.                    *)
 (***************************************************************************)
 EXTENDS Naturals, FiniteSets, TLC
 
@@ -46,6 +55,7 @@ VARIABLES
   admission,
   generation,
   waiters,
+  pendingGeneration,
   reserved,
   disposed,
   outcomeOf,
@@ -54,16 +64,24 @@ VARIABLES
   leaseReleased,
   publishSafetyWitness,
   leaseSafetyWitness,
-  outcomeStableWitness
+  outcomeStableWitness,
+  authorizedOutcomeWitness
 
-vars == << admission, generation, waiters, reserved, disposed, outcomeOf,
-           groupActive, groupQuiescent, leaseReleased,
-           publishSafetyWitness, leaseSafetyWitness, outcomeStableWitness >>
+vars == << admission, generation, waiters, pendingGeneration, reserved,
+           disposed, outcomeOf, groupActive, groupQuiescent, leaseReleased,
+           publishSafetyWitness, leaseSafetyWitness, outcomeStableWitness,
+           authorizedOutcomeWitness >>
 
 \* A demand's outcome may change only away from "none"; once terminal it
 \* never changes again. Re-derived on every step that touches outcomeOf.
 OutcomeChangeIsGuarded(before, after) ==
   \A d \in Demands : after[d] # before[d] => before[d] = "none"
+
+\* Every demand that a step just resolved to a terminal outcome must have
+\* been attached to the admission (in preWaiters) immediately beforehand.
+\* Re-derived from pre-step state on every step that resolves outcomes.
+ResolvedOnlyAttachedDemands(preWaiters, before, after) ==
+  \A d \in Demands : (after[d] # before[d]) => d \in preWaiters
 
 AdmissionStates == {"Idle", "InFlight", "Draining"}
 Outcomes == {"none", "published", "failed", "rejected", "stale", "cancelled"}
@@ -73,6 +91,7 @@ TypeOK ==
   /\ admission \in AdmissionStates
   /\ generation \in Generations \cup {NoGeneration}
   /\ waiters \subseteq Demands
+  /\ pendingGeneration \in [Demands -> Generations \cup {NoGeneration}]
   /\ reserved \in BOOLEAN
   /\ disposed \in BOOLEAN
   /\ outcomeOf \in [Demands -> Outcomes]
@@ -82,6 +101,7 @@ TypeOK ==
   /\ publishSafetyWitness \in BOOLEAN
   /\ leaseSafetyWitness \in BOOLEAN
   /\ outcomeStableWitness \in BOOLEAN
+  /\ authorizedOutcomeWitness \in BOOLEAN
 
 \* Idle admission holds no generation, no waiters, and no reservation; any
 \* active admission holds exactly a reservation and a real generation.
@@ -90,10 +110,16 @@ AdmissionCoherence ==
   /\ (admission = "Idle") => (waiters = {})
   /\ reserved <=> (admission # "Idle")
 
+\* A demand can only be attached to the admission if it requested exactly
+\* the admitted generation; an incompatible generation never joins.
+WaiterGenerationMatches ==
+  \A d \in Demands : (d \in waiters) => (pendingGeneration[d] = generation)
+
 Init ==
   /\ admission = "Idle"
   /\ generation = NoGeneration
   /\ waiters = {}
+  /\ pendingGeneration = [d \in Demands |-> NoGeneration]
   /\ reserved = FALSE
   /\ disposed = FALSE
   /\ outcomeOf = [d \in Demands |-> "none"]
@@ -103,9 +129,25 @@ Init ==
   /\ publishSafetyWitness = TRUE
   /\ leaseSafetyWitness = TRUE
   /\ outcomeStableWitness = TRUE
+  /\ authorizedOutcomeWitness = TRUE
 
 (***************************************************************************)
-(* Demand arrival.                                                        *)
+(* Demand arrival. A demand fixes the generation it requests once, before  *)
+(* it can start or join any admission. This is what lets an incompatible   *)
+(* generation persist as a genuinely blocked, waiting demand instead of    *)
+(* being reinterpreted as a fresh, freely-choosable request every step.    *)
+(***************************************************************************)
+DemandArrives(d, g) ==
+  /\ pendingGeneration[d] = NoGeneration
+  /\ outcomeOf[d] = "none"
+  /\ pendingGeneration' = [pendingGeneration EXCEPT ![d] = g]
+  /\ UNCHANGED << admission, generation, waiters, reserved, disposed,
+                  outcomeOf, groupActive, groupQuiescent, leaseReleased,
+                  publishSafetyWitness, leaseSafetyWitness,
+                  outcomeStableWitness, authorizedOutcomeWitness >>
+
+(***************************************************************************)
+(* Demand admission.                                                      *)
 (*                                                                         *)
 (* The first authorized demand for an idle, non-disposed session starts    *)
 (* the admission and reserves budget. A compatible concurrent demand joins *)
@@ -115,28 +157,30 @@ Init ==
 (* replans by racing to start the next admission. Disposal rejects a new   *)
 (* demand outright.                                                       *)
 (***************************************************************************)
-DemandStartsAdmission(d, g) ==
+DemandStartsAdmission(d) ==
   /\ disposed = FALSE
   /\ admission = "Idle"
+  /\ pendingGeneration[d] # NoGeneration
   /\ outcomeOf[d] = "none"
   /\ admission' = "InFlight"
-  /\ generation' = g
+  /\ generation' = pendingGeneration[d]
   /\ waiters' = {d}
   /\ reserved' = TRUE
-  /\ UNCHANGED << disposed, outcomeOf, groupActive, groupQuiescent,
-                  leaseReleased, publishSafetyWitness, leaseSafetyWitness,
-                  outcomeStableWitness >>
+  /\ UNCHANGED << pendingGeneration, disposed, outcomeOf, groupActive,
+                  groupQuiescent, leaseReleased, publishSafetyWitness,
+                  leaseSafetyWitness, outcomeStableWitness,
+                  authorizedOutcomeWitness >>
 
-DemandJoinsAdmission(d, g) ==
+DemandJoinsAdmission(d) ==
   /\ admission = "InFlight"
-  /\ generation = g
+  /\ pendingGeneration[d] = generation
   /\ outcomeOf[d] = "none"
   /\ d \notin waiters
   /\ waiters' = waiters \cup {d}
-  /\ UNCHANGED << admission, generation, reserved, disposed, outcomeOf,
-                  groupActive, groupQuiescent, leaseReleased,
-                  publishSafetyWitness, leaseSafetyWitness,
-                  outcomeStableWitness >>
+  /\ UNCHANGED << admission, generation, pendingGeneration, reserved,
+                  disposed, outcomeOf, groupActive, groupQuiescent,
+                  leaseReleased, publishSafetyWitness, leaseSafetyWitness,
+                  outcomeStableWitness, authorizedOutcomeWitness >>
 
 DemandRejectedWhileDisposed(d) ==
   /\ disposed = TRUE
@@ -144,9 +188,10 @@ DemandRejectedWhileDisposed(d) ==
   /\ outcomeOf[d] = "none"
   /\ outcomeOf' = [outcomeOf EXCEPT ![d] = "rejected"]
   /\ outcomeStableWitness' = outcomeStableWitness /\ OutcomeChangeIsGuarded(outcomeOf, outcomeOf')
-  /\ UNCHANGED << admission, generation, waiters, reserved, disposed,
-                  groupActive, groupQuiescent, leaseReleased,
-                  publishSafetyWitness, leaseSafetyWitness >>
+  /\ UNCHANGED << admission, generation, waiters, pendingGeneration, reserved,
+                  disposed, groupActive, groupQuiescent, leaseReleased,
+                  publishSafetyWitness, leaseSafetyWitness,
+                  authorizedOutcomeWitness >>
 
 (***************************************************************************)
 (* Voluntary cancellation. Detaching the last waiter asks the owner to     *)
@@ -159,8 +204,10 @@ WaiterCancels(d) ==
   /\ admission' = IF waiters \ {d} = {} THEN "Draining" ELSE "InFlight"
   /\ outcomeOf' = [outcomeOf EXCEPT ![d] = "cancelled"]
   /\ outcomeStableWitness' = outcomeStableWitness /\ OutcomeChangeIsGuarded(outcomeOf, outcomeOf')
-  /\ UNCHANGED << generation, reserved, disposed, groupActive, groupQuiescent,
-                  leaseReleased, publishSafetyWitness, leaseSafetyWitness >>
+  /\ UNCHANGED << generation, pendingGeneration, reserved, disposed,
+                  groupActive, groupQuiescent, leaseReleased,
+                  publishSafetyWitness, leaseSafetyWitness,
+                  authorizedOutcomeWitness >>
 
 (***************************************************************************)
 (* Disposal closes admission to new demands and forces any in-flight       *)
@@ -170,9 +217,10 @@ DisposalBegins ==
   /\ disposed = FALSE
   /\ disposed' = TRUE
   /\ admission' = IF admission = "InFlight" THEN "Draining" ELSE admission
-  /\ UNCHANGED << generation, waiters, reserved, outcomeOf, groupActive,
-                  groupQuiescent, leaseReleased, publishSafetyWitness,
-                  leaseSafetyWitness, outcomeStableWitness >>
+  /\ UNCHANGED << generation, waiters, pendingGeneration, reserved, outcomeOf,
+                  groupActive, groupQuiescent, leaseReleased,
+                  publishSafetyWitness, leaseSafetyWitness,
+                  outcomeStableWitness, authorizedOutcomeWitness >>
 
 (***************************************************************************)
 (* Adapter completion. A successful result publishes only from "InFlight", *)
@@ -180,6 +228,8 @@ DisposalBegins ==
 (* DisposalBegins together rule out "InFlight" while disposed). Draining   *)
 (* covers both voluntary drain and disposal-forced drain, and never        *)
 (* publishes: its result is discarded as a late/cancelled outcome instead. *)
+(* Each action re-derives, from the pre-step `waiters`, that only demands  *)
+(* attached to the admission receive its outcome.                         *)
 (***************************************************************************)
 AdapterSucceeds ==
   /\ admission = "InFlight"
@@ -189,12 +239,13 @@ AdapterSucceeds ==
   /\ reserved' = FALSE
   /\ outcomeOf' = [d \in Demands |-> IF d \in waiters THEN "published" ELSE outcomeOf[d]]
   /\ outcomeStableWitness' = outcomeStableWitness /\ OutcomeChangeIsGuarded(outcomeOf, outcomeOf')
+  /\ authorizedOutcomeWitness' = authorizedOutcomeWitness /\ ResolvedOnlyAttachedDemands(waiters, outcomeOf, outcomeOf')
   /\ waiters' = {}
   /\ groupActive' = TRUE
   /\ groupQuiescent' = FALSE
   /\ leaseReleased' = FALSE
   /\ publishSafetyWitness' = publishSafetyWitness /\ (disposed = FALSE)
-  /\ UNCHANGED << disposed, leaseSafetyWitness >>
+  /\ UNCHANGED << pendingGeneration, disposed, leaseSafetyWitness >>
 
 AdapterFails ==
   /\ admission = "InFlight"
@@ -203,9 +254,10 @@ AdapterFails ==
   /\ reserved' = FALSE
   /\ outcomeOf' = [d \in Demands |-> IF d \in waiters THEN "failed" ELSE outcomeOf[d]]
   /\ outcomeStableWitness' = outcomeStableWitness /\ OutcomeChangeIsGuarded(outcomeOf, outcomeOf')
+  /\ authorizedOutcomeWitness' = authorizedOutcomeWitness /\ ResolvedOnlyAttachedDemands(waiters, outcomeOf, outcomeOf')
   /\ waiters' = {}
-  /\ UNCHANGED << disposed, groupActive, groupQuiescent, leaseReleased,
-                  publishSafetyWitness, leaseSafetyWitness >>
+  /\ UNCHANGED << pendingGeneration, disposed, groupActive, groupQuiescent,
+                  leaseReleased, publishSafetyWitness, leaseSafetyWitness >>
 
 AdapterDrains ==
   /\ admission = "Draining"
@@ -214,36 +266,42 @@ AdapterDrains ==
   /\ reserved' = FALSE
   /\ outcomeOf' = [d \in Demands |-> IF d \in waiters THEN "stale" ELSE outcomeOf[d]]
   /\ outcomeStableWitness' = outcomeStableWitness /\ OutcomeChangeIsGuarded(outcomeOf, outcomeOf')
+  /\ authorizedOutcomeWitness' = authorizedOutcomeWitness /\ ResolvedOnlyAttachedDemands(waiters, outcomeOf, outcomeOf')
   /\ waiters' = {}
-  /\ UNCHANGED << disposed, groupActive, groupQuiescent, leaseReleased,
-                  publishSafetyWitness, leaseSafetyWitness >>
+  /\ UNCHANGED << pendingGeneration, disposed, groupActive, groupQuiescent,
+                  leaseReleased, publishSafetyWitness, leaseSafetyWitness >>
 
 (***************************************************************************)
-(* Group quiescence and lease release. Artifact leases outlive disposal    *)
-(* and release only once the dependent group reports quiescence.           *)
+(* Group quiescence and lease release. Disposal disposes published groups; *)
+(* their artifact leases outlive `Dispose()` and release only once the     *)
+(* dependent group reports quiescence, so release is part of the disposal  *)
+(* cleanup path, not an ordinary-operation event. `ReleaseLeases` is       *)
+(* therefore gated on disposal having begun as well as on quiescence.      *)
 (***************************************************************************)
 GroupBecomesQuiescent ==
   /\ groupActive = TRUE
   /\ groupQuiescent = FALSE
   /\ groupQuiescent' = TRUE
-  /\ UNCHANGED << admission, generation, waiters, reserved, disposed,
-                  outcomeOf, groupActive, leaseReleased,
+  /\ UNCHANGED << admission, generation, waiters, pendingGeneration, reserved,
+                  disposed, outcomeOf, groupActive, leaseReleased,
                   publishSafetyWitness, leaseSafetyWitness,
-                  outcomeStableWitness >>
+                  outcomeStableWitness, authorizedOutcomeWitness >>
 
 ReleaseLeases ==
   /\ groupActive = TRUE
   /\ groupQuiescent = TRUE
+  /\ disposed = TRUE
   /\ leaseReleased' = TRUE
   /\ groupActive' = FALSE
-  /\ leaseSafetyWitness' = leaseSafetyWitness /\ (groupQuiescent = TRUE)
-  /\ UNCHANGED << admission, generation, waiters, reserved, disposed,
-                  outcomeOf, groupQuiescent, publishSafetyWitness,
-                  outcomeStableWitness >>
+  /\ leaseSafetyWitness' = leaseSafetyWitness /\ (groupQuiescent = TRUE) /\ (disposed = TRUE)
+  /\ UNCHANGED << admission, generation, waiters, pendingGeneration, reserved,
+                  disposed, outcomeOf, groupQuiescent, publishSafetyWitness,
+                  outcomeStableWitness, authorizedOutcomeWitness >>
 
 Next ==
-  \/ \E d \in Demands, g \in Generations : DemandStartsAdmission(d, g)
-  \/ \E d \in Demands, g \in Generations : DemandJoinsAdmission(d, g)
+  \/ \E d \in Demands, g \in Generations : DemandArrives(d, g)
+  \/ \E d \in Demands : DemandStartsAdmission(d)
+  \/ \E d \in Demands : DemandJoinsAdmission(d)
   \/ \E d \in Demands : DemandRejectedWhileDisposed(d)
   \/ \E d \in Demands : WaiterCancels(d)
   \/ DisposalBegins
@@ -253,12 +311,19 @@ Next ==
   \/ GroupBecomesQuiescent
   \/ ReleaseLeases
 
+\* Per-demand fairness on admission start/join/rejection avoids one demand
+\* starving another when several are perpetually eligible to act, and
+\* ensures a demand pending under disposal is eventually rejected rather
+\* than left unresolved.
 Fairness ==
   /\ WF_vars(AdapterSucceeds)
   /\ WF_vars(AdapterFails)
   /\ WF_vars(AdapterDrains)
   /\ WF_vars(GroupBecomesQuiescent)
   /\ WF_vars(ReleaseLeases)
+  /\ \A d \in Demands : WF_vars(DemandStartsAdmission(d))
+  /\ \A d \in Demands : WF_vars(DemandJoinsAdmission(d))
+  /\ \A d \in Demands : WF_vars(DemandRejectedWhileDisposed(d))
 
 Spec == Init /\ [][Next]_vars /\ Fairness
 
@@ -281,11 +346,13 @@ LeaseSafetyWitnessHolds == leaseSafetyWitness
 \* action ever overwrites a demand's already-terminal outcome.
 OutcomeStableWitnessHolds == outcomeStableWitness
 
-\* Only demands that were attached to the admission when it resolved can
-\* have been told published, failed, or stale; a demand's outcome always
-\* matches the path that produced it.
-NoUnauthorizedPublication ==
-  \A d \in Demands : outcomeOf[d] = "published" => d \notin waiters
+\* Re-derived independently of AdapterSucceeds/Fails/Drains: only a demand
+\* attached to the admission immediately beforehand can be told published,
+\* failed, or stale.
+AuthorizedOutcomeWitnessHolds == authorizedOutcomeWitness
+
+\* An attached demand always requested the admitted generation.
+WaiterGenerationInvariant == WaiterGenerationMatches
 
 (***************************************************************************)
 (* Liveness.                                                               *)
@@ -300,7 +367,15 @@ EveryAdmissionEventuallyTerminates == (admission # "Idle") ~> (admission = "Idle
 WaitingDemandsEventuallyResolve ==
   \A d \in Demands : (d \in waiters) ~> (outcomeOf[d] # "none")
 
-\* A published group's leases are eventually released.
-LeasesEventuallyRelease == groupActive ~> leaseReleased
+\* A demand blocked on an incompatible generation (or a draining operation)
+\* eventually either attaches to a later-compatible admission or resolves.
+PendingDemandsEventuallyAttachOrResolve ==
+  \A d \in Demands :
+    (pendingGeneration[d] # NoGeneration /\ outcomeOf[d] = "none")
+      ~> (d \in waiters \/ outcomeOf[d] # "none")
+
+\* Once disposal begins and a group is still active, its leases eventually
+\* release; lease release is scoped to the disposal cleanup path.
+DisposalEventuallyReleasesLeases == (disposed /\ groupActive) ~> leaseReleased
 
 =============================================================================

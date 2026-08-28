@@ -299,25 +299,31 @@ with, and never replace, the active operation failure.
 
 [`docs/models/artifact-session-admission/ArtifactSessionAdmission.tla`](../models/artifact-session-admission/ArtifactSessionAdmission.tla)
 model-checks the admission lifecycle described above: single-flight admission
-across concurrent demands, voluntary cancellation draining, disposal-forced
-draining, and the rule that a late adapter result must never publish a session
-or group. It abstracts away budget arithmetic, adapter identity, content
-digests, and query-lease authorization, and it bounds the state space to one
-outstanding published group's lease lifecycle at a time (a fresh admission
-cannot publish while the previous group awaits lease release); this is a
-scope-bounding simplification of the model, not a claim about real concurrent
-groups.
+across concurrent demands, an incompatible-generation demand's inability to
+join or start duplicate work while a prior admission is active, voluntary
+cancellation draining, disposal-forced draining, the rule that a late adapter
+result must never publish a session or group, and that a published group's
+artifact leases release only as part of the disposal cleanup path once the
+group is quiescent. It abstracts away budget arithmetic, adapter identity,
+content digests, and query-lease authorization, and it bounds the state space
+to one outstanding published group's lease lifecycle at a time (a fresh
+admission cannot publish while the previous group awaits lease release); this
+is a scope-bounding simplification of the model, not a claim about real
+concurrent groups. A demand's requested generation is also fixed once it
+arrives; the model does not represent a caller re-deriving a different
+generation when it replans after an incompatible admission terminates.
 
 TLC 2026.08.21.155922 (rev `9787e65`, from the pinned `tla2tools.jar` v1.8.0 —
 see [`docs/runbooks/tla-plus-setup.md`](../../runbooks/tla-plus-setup.md))
-checked the model with 3 demands and 2 admission generations: 1,420 distinct
-states, no invariant violations, and no counterexamples for the checked
-liveness properties. The invariants include the headline
-`DisposalPreventsPublication` (`disposed => admission # "InFlight"`, since only
-`"InFlight"` can transition to a published outcome) and independent
-guard-witness invariants that re-derive, at the point of action, the exact
-condition each of `DisposalPreventsPublication` and the lease-release ordering
-depends on.
+checked the model with 3 demands and 2 admission generations: 19,322 states
+generated, 9,487 distinct states, no invariant violations, and no
+counterexamples for the checked liveness properties. The invariants include
+the headline `DisposalPreventsPublication` (`disposed => admission #
+"InFlight"`, since only `"InFlight"` can transition to a published outcome)
+and independent guard-witness invariants that re-derive, at the point of
+action, the exact condition each of `DisposalPreventsPublication`, the
+lease-release ordering, and outcome authorization (only a demand attached to
+the admission immediately beforehand may receive its outcome) depends on.
 
 Retaining content does not retain authority. The artifact owner issues two
 different source-neutral access leases:
