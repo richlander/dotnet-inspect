@@ -337,13 +337,20 @@ FailuresRespectTraversal ==
                     failure.key,
                     failure.stage)
 
-RangeFailureIsStrict ==
+ExpectedRangeEndpoint(rowRange) ==
+    IF rowRange.upper = 0 THEN rowRange.start ELSE rowRange.upper
+
+RangeFailureMatchesCurrentStage ==
     status = "RangeFailure" =>
+        /\ stagePosition <= Len(plan)
+        /\ plan[stagePosition].kind = "Range"
         /\ failure.kind = "RangeFailure"
-        /\ plan[failure.stage].kind = "Range"
+        /\ failure.key = keyPosition
+        /\ failure.stage = stagePosition
         /\ failure.required =
-            RequiredPosition(plan[failure.stage])
-        /\ failure.required > failure.available
+            ExpectedRangeEndpoint(plan[stagePosition])
+        /\ failure.available = Len(currentRows)
+        /\ ExpectedRangeEndpoint(plan[stagePosition]) > Len(currentRows)
 
 StageInputsFollowDeclaredOrder ==
     \A index \in 1..Len(history):
@@ -356,30 +363,74 @@ StageInputsFollowDeclaredOrder ==
                    /\ history[index - 1].stage = entry.stage - 1
                    /\ entry.inputRows = history[index - 1].rows
 
+ExpectedCount(count, rows) ==
+    IF count < Len(rows) THEN count ELSE Len(rows)
+
+MatchesHead(inputRows, actualRows, count) ==
+    /\ Len(actualRows) = ExpectedCount(count, inputRows)
+    /\ \A index \in 1..Len(actualRows):
+        actualRows[index] = inputRows[index]
+
+MatchesTail(inputRows, actualRows, count) ==
+    /\ Len(actualRows) = ExpectedCount(count, inputRows)
+    /\ \A index \in 1..Len(actualRows):
+        actualRows[index] =
+            inputRows[Len(inputRows) - Len(actualRows) + index]
+
+MatchesRange(inputRows, actualRows, rowRange) ==
+    /\ ExpectedRangeEndpoint(rowRange) <= Len(inputRows)
+    /\ Len(actualRows) =
+        IF rowRange.upper = 0
+        THEN Len(inputRows) - rowRange.start + 1
+        ELSE rowRange.upper - rowRange.start + 1
+    /\ \A index \in 1..Len(actualRows):
+        actualRows[index] = inputRows[rowRange.start + index - 1]
+
+ContainsRow(rows, value) ==
+    \E index \in 1..Len(rows): rows[index] = value
+
+MatchesTop(inputRows, actualRows, count, order) ==
+    /\ Len(actualRows) = ExpectedCount(count, inputRows)
+    /\ \A index \in 1..Len(actualRows):
+        ContainsRow(inputRows, actualRows[index])
+    /\ \A left, right \in 1..Len(actualRows):
+        left < right =>
+            IF order = "Ascending"
+            THEN actualRows[left] < actualRows[right]
+            ELSE actualRows[left] > actualRows[right]
+    /\ \A selected \in 1..Len(actualRows):
+        \A candidate \in 1..Len(inputRows):
+            ~ContainsRow(actualRows, inputRows[candidate]) =>
+                IF order = "Ascending"
+                THEN actualRows[selected] < inputRows[candidate]
+                ELSE actualRows[selected] > inputRows[candidate]
+
 StageOutputsMatchSemantics ==
     \A index \in 1..Len(history):
         LET entry == history[index]
             stage == plan[entry.stage]
         IN CASE stage.kind = "Head" ->
-                    entry.rows = Take(entry.inputRows, stage.count)
+                    MatchesHead(
+                        entry.inputRows,
+                        entry.rows,
+                        stage.count)
              [] stage.kind = "Tail" ->
-                    entry.rows = TakeTail(entry.inputRows, stage.count)
+                    MatchesTail(
+                        entry.inputRows,
+                        entry.rows,
+                        stage.count)
              [] stage.kind = "Range" ->
-                    /\ RequiredPosition(stage) <= Len(entry.inputRows)
-                    /\ entry.rows = ApplyRange(entry.inputRows, stage)
+                    MatchesRange(
+                        entry.inputRows,
+                        entry.rows,
+                        stage)
              [] stage.kind = "Top" ->
-                    entry.rows =
-                        Take(
-                            Rank(entry.inputRows, stage.order),
-                            stage.count)
+                    MatchesTop(
+                        entry.inputRows,
+                        entry.rows,
+                        stage.count,
+                        stage.order)
              [] OTHER -> FALSE
-
-TopOutputsAreRanked ==
-    \A index \in 1..Len(history):
-        history[index].kind = "Top" =>
-            IsRanked(
-                history[index].rows,
-                plan[history[index].stage].order)
 
 TopResolutionCoversEveryOutput ==
     \A index \in 1..Len(history):
