@@ -3,10 +3,9 @@ import { execFileSync } from "node:child_process";
 import {
   existsSync,
   mkdtempSync,
+  mkdirSync,
   readFileSync,
-  readdirSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -65,6 +64,11 @@ import {
   type TypeFact,
   type TypeScriptSemanticFactsSession,
 } from "../scripts/typescript-semantic-facts.ts";
+import {
+  javaScriptSourceExtensions,
+  projectSourceFiles,
+  typeScriptSourceExtensions,
+} from "./project-source-inventory.ts";
 import { auditedBuild } from "./vite-audit.ts";
 
 const inspectWebRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -72,6 +76,7 @@ const realTsconfig = join(inspectWebRoot, "tsconfig.json");
 const fixtureRoot = mkdtempSync(join(tmpdir(), "dotnet-inspect-semantic-facts-"));
 const fixtureTsconfig = join(fixtureRoot, "tsconfig.json");
 const badTsconfig = join(fixtureRoot, "bad.tsconfig.json");
+const unstablePackagePrefix = "typescript/unstable/";
 
 const coordinateSource
   = "// 😀 leading trivia\r\n"
@@ -426,6 +431,61 @@ test("opens the real inspect-web project and preserves DOM overload provenance",
     assert.equal(selected.parameters.length, 1);
   } finally {
     assert.equal(session.dispose().kind, "Disposed");
+  }
+});
+
+test("all nodes in a real type-importing source remain safe semantic subjects", () => {
+  const session = expectOpened(openTypeScriptSemanticFacts(realTsconfig));
+  try {
+    const source = sourceByPath(session, "src/annotated-source-view.ts");
+    const text = readFileSync(
+      join(inspectWebRoot, "src", "annotated-source-view.ts"),
+      "utf8",
+    );
+    const nodes = nodesFor(session, source);
+    const typeOnlyClause = nodes.find(node =>
+      node.kind === NodeKind.Other
+      && nodeText(node, text).startsWith("type {"));
+    assert.ok(typeOnlyClause !== undefined);
+    assert.deepEqual(session.getTypeAtNode(typeOnlyClause.handle), {
+      kind: "Unavailable",
+      reason: "MissingApiFact",
+      detail: "TypeScript 7.0.2 cannot type a type-only import clause",
+    });
+
+    for (const node of nodes) {
+      const symbol = session.getSymbolAtNode(node.handle);
+      assert.notEqual(
+        symbol.kind,
+        "SessionFailure",
+        `symbol query poisoned at ${node.kind} ${node.location.start}`,
+      );
+      const type = session.getTypeAtNode(node.handle);
+      assert.notEqual(
+        type.kind,
+        "SessionFailure",
+        `type query poisoned at ${node.kind} ${node.location.start}`,
+      );
+    }
+
+    const lineStart = text.indexOf(".map(line =>")
+      + ".map(".length;
+    const lineName = nodes.find(node =>
+      node.kind === NodeKind.Identifier
+      && node.location.start === lineStart);
+    assert.ok(lineName !== undefined);
+    const lineSymbol = symbolAt(session, lineName);
+    const lineDeclaration = expectResolved(session.getDeclaration(
+      lineSymbol.declarations[0]
+        ?? assert.fail("line parameter symbol had no declaration"),
+    ));
+    const arrowContainer = expectResolved(session.getDeclaration(
+      lineDeclaration.containingDeclarations[0]
+        ?? assert.fail("line parameter had no containing declaration"),
+    ));
+    assert.equal(arrowContainer.kind, NodeKind.ArrowFunction);
+  } finally {
+    session.dispose();
   }
 });
 
@@ -1263,10 +1323,10 @@ test("resolves module symbols, exports, source symbols, and exact constant outco
       "Choice.Two",
     );
     assert.equal(session.getConstantValue(importedEnumAccess.handle).kind, "Absent");
-    assert.equal(
-      expectResolved(session.getTypeAtNode(importedEnumAccess.handle)).category,
-      TypeCategory.EnumLiteral,
-    );
+    const enumType = expectResolved(session.getTypeAtNode(importedEnumAccess.handle));
+    assert.equal(enumType.category, TypeCategory.EnumLiteral);
+    assert.ok(isLiteralTypeFact(enumType));
+    assert.equal(session.getLiteralBaseType(enumType.handle).kind, "Resolved");
     const nonConstant = oneNode(
       nodes,
       text,
@@ -1462,35 +1522,11 @@ test("unknown symbols, error types, unsupported values, and poisoned sessions st
   });
 });
 
-function projectFiles(root: string): string[] {
-  const files: string[] = [];
-  const visit = (directory: string): void => {
-    for (const name of readdirSync(directory)) {
-      if (name === "node_modules" || name === "dist" || name.startsWith(".")) {
-        continue;
-      }
-      const path = join(directory, name);
-      if (statSync(path).isDirectory()) {
-        visit(path);
-      } else if (
-        path.endsWith(".ts")
-        || path.endsWith(".tsx")
-        || path.endsWith(".js")
-        || path.endsWith(".mjs")
-      ) {
-        files.push(path);
-      }
-    }
-  };
-  visit(root);
-  return files;
-}
-
 function unstableImports(
   files: Readonly<Record<string, string>>,
 ): readonly string[] {
   const unstablePattern
-    = /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?)["']typescript\/unstable\/(?:sync|ast)["']/u;
+    = /["']typescript\/unstable\/(?:sync|ast)["']/u;
   return Object.entries(files)
     .filter(([, content]) => unstablePattern.test(content))
     .map(([path]) => path)
@@ -1498,22 +1534,57 @@ function unstableImports(
 }
 
 test("only the adapter imports unstable TypeScript packages and the scan is non-vacuous", () => {
-  const unstablePackage = "typescript/unstable/";
-  const unstableSync = `"${unstablePackage}sync"`;
+  const unstableSync = `"${unstablePackagePrefix}sync"`;
   assert.deepEqual(unstableImports({
     "ordinary.ts": 'import { value } from "./value.js";',
     "first-forbidden.ts": `import { API } from ${unstableSync};`,
     "second-forbidden.ts": `import{API}from${unstableSync};`,
     "side-effect-forbidden.ts": `import ${unstableSync};`,
     "dynamic-forbidden.ts": `void import(${unstableSync});`,
+    "require-forbidden.cjs": `require(${unstableSync});`,
+    "create-require-forbidden.mts":
+      `createRequire(import.meta.url)(${unstableSync});`,
   }), [
+    "create-require-forbidden.mts",
     "dynamic-forbidden.ts",
     "first-forbidden.ts",
+    "require-forbidden.cjs",
     "second-forbidden.ts",
     "side-effect-forbidden.ts",
   ]);
 
-  const files = Object.fromEntries(projectFiles(inspectWebRoot).map(path => [
+  const inventoryRoot = mkdtempSync(join(tmpdir(), "dotnet-inspect-source-inventory-"));
+  try {
+    const scripts = join(inventoryRoot, "scripts");
+    mkdirSync(scripts);
+    const names = [
+      "probe.ts",
+      "probe.mts",
+      "probe.cts",
+      "probe.tsx",
+      "probe.js",
+      "probe.mjs",
+      "probe.cjs",
+      "probe.jsx",
+      "probe.TS",
+    ];
+    for (const name of names) {
+      writeFileSync(join(scripts, name), "", "utf8");
+    }
+    assert.equal(projectSourceFiles(
+      inventoryRoot,
+      [...typeScriptSourceExtensions, ...javaScriptSourceExtensions],
+      ["scripts"],
+    ).length, names.length);
+  } finally {
+    rmSync(inventoryRoot, { recursive: true, force: true });
+  }
+
+  const files = Object.fromEntries(projectSourceFiles(
+    inspectWebRoot,
+    [...typeScriptSourceExtensions, ...javaScriptSourceExtensions],
+    ["public", "src", "test", "scripts"],
+  ).map(path => [
     relative(inspectWebRoot, path).split(sep).join("/"),
     readFileSync(path, "utf8"),
   ]));
@@ -1554,8 +1625,8 @@ test("the real Vite graph excludes semantic tooling, tests, and TypeScript packa
     file.includes(`${sep}node_modules${sep}typescript${sep}`)));
   assert.ok(!audited.chunks.some(chunk =>
     chunk.includes("TypeScriptSemanticFactsHandle")
-    || chunk.includes("typescript/unstable/sync")
-    || chunk.includes("typescript/unstable/ast")));
+    || chunk.includes(`${unstablePackagePrefix}sync`)
+    || chunk.includes(`${unstablePackagePrefix}ast`)));
 });
 
 test("public facts expose opaque repository handles rather than upstream values", () => {

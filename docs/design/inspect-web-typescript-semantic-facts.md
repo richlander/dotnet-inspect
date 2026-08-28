@@ -298,6 +298,13 @@ fact returns `Unavailable(MissingApiFact)`.
 | Module symbol | Static string-literal module reference | Missing symbol is `Absent` |
 | Constant value | Enum member, property access, or element access | `Absent` |
 
+The pinned TypeScript 7.0.2 checker panics when asked for the type of a
+type-only import-clause node. That node remains a valid syntax subject, but the
+adapter recognizes it before invoking the checker and returns
+`Unavailable(MissingApiFact)`. The implementation gate sweeps every node in a
+real type-importing source through the symbol and type queries so this upstream
+failure cannot poison the session.
+
 Calling a category-specific query with any other subject returns
 `NotApplicable` without invoking TypeScript. The implementation gate derives
 this table from the facade declarations so missing and stale query mappings
@@ -495,11 +502,13 @@ script. Its gate contains:
    undifferentiated unavailable result. It also proves disposal takes
    precedence over a prior poisoned state and that handle validation runs only
    for a healthy active session.
-9. **Import isolation:** a named non-vacuity test fails if any tooling or test
-   module other than the one adapter imports either unstable TypeScript API.
-10. **Artifact isolation:** runs the production build and proves the adapter,
-   TypeScript API packages, and semantic fact code are absent from the Vite
-   artifact graph.
+9. **Import isolation:** a named non-vacuity test uses the toolchain gate's
+   shared, case-insensitive TypeScript and JavaScript source inventory and fails
+   if any module other than the one adapter references either unstable
+   TypeScript API.
+10. **Artifact isolation:** audits the Vite graph, runs the production build,
+    requires its shipped chunks to equal the audited chunks, and proves the
+    adapter, TypeScript API packages, and semantic fact code are absent.
 
 The implementation gate is:
 
@@ -510,9 +519,11 @@ npx --yes node@24 --run build
 ```
 
 The focused gate is implemented by
-`prototypes/inspect-web/test/typescript-semantic-facts.test.ts`. It opens the
-real inspect-web project and compiled fixtures, exercises the public facade and
-failure seams, scans unstable-package imports, and audits the real Vite graph.
+`prototypes/inspect-web/test/typescript-semantic-facts.test.ts` plus the shipped
+chunk equivalence owner in `prototypes/inspect-web/test/toolchain.test.ts`. It
+opens the real inspect-web project and compiled fixtures, exercises the public
+facade and failure seams, scans unstable-package references, audits the Vite
+graph, and proves that audit describes the production build.
 
 This gate proves the adapter contract only. It does not prove a semantic
 consumer's rules, coverage, or behavior.

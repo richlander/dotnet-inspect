@@ -43,6 +43,7 @@ import {
   isExternalModuleReference,
   isFunctionDeclaration,
   isImportDeclaration,
+  isImportClause,
   isImportSpecifier,
   isImportTypeNode,
   isInterfaceDeclaration,
@@ -719,7 +720,8 @@ export function isErrorTypeFact(
 }
 
 export function isLiteralTypeFact(fact: TypeFact): boolean {
-  return fact.category === TypeCategory.StringLiteral
+  return fact.category === TypeCategory.EnumLiteral
+    || fact.category === TypeCategory.StringLiteral
     || fact.category === TypeCategory.NumberLiteral
     || fact.category === TypeCategory.BigIntLiteral
     || fact.category === TypeCategory.BooleanLiteral;
@@ -1467,6 +1469,7 @@ function isDeclarationNode(node: TypeScriptNode): boolean {
     || isShorthandPropertyAssignment(node)
     || isEnumDeclaration(node)
     || isEnumMember(node)
+    || node.kind === SyntaxKind.ArrowFunction
     || node.kind === SyntaxKind.PropertyDeclaration
     || node.kind === SyntaxKind.PropertySignature
     || node.kind === SyntaxKind.MethodSignature
@@ -2459,7 +2462,17 @@ class SemanticFactsSession implements TypeScriptSemanticFactsSession {
 
   getTypeAtNode(node: SemanticHandle): QueryResult<TypeFact> {
     return this.#run("getTypeAtNode", () => {
-      const type = this.#checker.getTypeAtLocation(this.#requireNode(node));
+      const rawNode = this.#requireNode(node);
+      if (
+        isImportClause(rawNode)
+        && rawNode.phaseModifier === SyntaxKind.TypeKeyword
+      ) {
+        return unavailable(
+          "MissingApiFact",
+          "TypeScript 7.0.2 cannot type a type-only import clause",
+        );
+      }
+      const type = this.#checker.getTypeAtLocation(rawNode);
       return type === undefined
         ? absent("TypeScript reports no type at this syntax")
         : resolved(this.#typeFact(type));
