@@ -14,7 +14,9 @@ are identified explicitly under [Current mismatches](#current-mismatches).
 See [inspection-space.md](../inspection-space.md) for workspace and query
 planning, [inspection-layers.md](inspection-layers.md) for consumer layers, and
 [assembly-inspection-query.md](assembly-inspection-query.md) for the
-`ResolvedAssemblyReference` and `AssemblyInspectionSession` seam.
+`ResolvedAssemblyReference` and `AssemblyInspectionSession` seam, and
+[assembly-image-lifetime.md](assembly-image-lifetime.md) for the focused
+single-image and MVID correctness contract.
 [workspace-definitions.md](workspace-definitions.md) owns static context
 coordinates, while
 [inspection-graph-document.md](inspection-graph-document.md) owns graph
@@ -107,7 +109,7 @@ package dependency closure.
 | Workspace | Logical inspection composition | artifact sessions, contexts, roles, query plans, aggregate admission budgets | feed or archive mechanics |
 | Assembly context group | One binding-consistent universe | participants, binding policy, retained assembly snapshots | package acquisition |
 | Resolved assembly reference | Neutral handle for one selected managed assembly | assembly identity and guarded repeatable content access | package coordinate parsing or storage implementation |
-| Assembly inspection session | One opened PE inspection lifetime | reader/image lifetime and session-scoped operations | artifact acquisition |
+| Assembly inspection session | One opened PE inspection lifetime | [reader/image lifetime and session-scoped operations](assembly-image-lifetime.md) | artifact acquisition |
 | Inspection producer | Computes one family of facts | metadata, IL, source, or comparison evidence | source discovery |
 
 An artifact is broader than an assembly. An artifact set may contain assemblies,
@@ -327,6 +329,13 @@ opening that path grants no designation or core-library trust; those remain
 separate workspace admission roles. This is a target change from the current
 parameterless
 `ResolvedAssemblyReference.OpenRead` and public readable `Path`.
+
+`ArtifactContentReference` is the query-time input to a downstream content
+consumer. The artifact owner issues it for one identity in a sealed generation
+and binds that artifact's descriptor and acquisition registration. Role
+and registration observations and retained-content opens revalidate the query
+lease supplied when the reference was issued. The type makes no claim that the
+content is a managed assembly; Metadata owns that decode and identity.
 
 It does not:
 
@@ -843,6 +852,7 @@ The target is complete only when tests equivalent to these exist:
 - `DefinitionLoadAndScenarioResolution_PerformNoAcquisition`
 - `ArtifactDescriptor_ExposesNoUnguardedContentRoute`
 - `ArtifactOpen_RejectsContentSubstitutionAfterAdmission`
+- `ArtifactContentReference_BindsIdentityRegistrationRoleAndContent`
 - `LocalArtifactSnapshot_MutationCannotChangeInspectionBytes`
 - `ArtifactAcquisition_CancellationRemainsCancellation`
 - `RequiredMember_EmptyOrNonProjectableAcquisitionFailsContext`
@@ -889,13 +899,15 @@ immutability, bounded owner-private materialization, read-only retained streams,
 visible required-acquisition and cleanup failures, acquisition-lease disposal,
 owner-held state release, late-outcome lease disposal, seal exclusion during
 acquisition and disposal, shared termination completion, query revocation,
-non-masking disposal, and role assignment separate from provenance.
+non-masking disposal, role assignment separate from provenance, and
+owner-bound content references that cannot mix descriptor, registration, role,
+or bytes across artifacts or generations.
 `LocalArtifactSourceTests` enforce pre-registration local snapshots, typed
 missing/limit diagnostics, mutation and deletion resistance, and cancellation
 remaining cancellation. `LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`
-deletes its temporary source after publication, then passes the guarded
-published snapshot to Metadata, so a source-path fallback cannot satisfy the
-gate.
+deletes its temporary source after publication, then passes an
+`ArtifactContentReference`'s guarded published snapshot opener to Metadata, so
+a source-path fallback cannot satisfy the gate.
 
 Workspace-wide admission budgets, single-flight/reentrancy, directory
 acquisition, content digests, dependent-group quiescence, and Metadata

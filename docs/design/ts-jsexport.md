@@ -319,6 +319,14 @@ instance. A facade whose local acquisition or validation fails never exits or
 disposes the potentially shared runtime. Cross-module coordination,
 configuration, and runtime lifetime remain consumer and runtime policy.
 
+The focused
+[lifecycle model](models/ts-jsexport-lifecycle/README.md) model-checks those
+per-facade and shared-runtime interactions for two facades and two callers per
+facade. It states its abstraction boundary, fairness assumptions, checked
+bounds, safety and progress properties, and counterexample mutations. The model
+establishes evidence about the lifecycle design, not the generated
+implementation; the runtime and browser gates below remain required.
+
 Managed operations and `runEntryPoint()` fail visibly until initialization has
 fulfilled, using one consistent module-owned not-initialized error across all
 entry points. After terminal failure they preserve that initialization failure
