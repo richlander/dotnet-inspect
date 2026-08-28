@@ -475,13 +475,17 @@ public class FindCommandTests
         ImmutableArray<PackageProfileEvent> secondRead =
             results.Get(PackageProfileQuery.Definition);
 
-        Assert.Equal(1, source.SearchRequests);
-        Assert.Equal(candidateCount, source.ManifestRequests.Count);
         Assert.Equal(
-            candidateCount,
-            source.ManifestRequests
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Count());
+            [
+                (
+                    Prefix: "Contoso.",
+                    Take: candidateCount,
+                    Prerelease: false),
+            ],
+            source.SearchRequests);
+        Assert.Equal(
+            source.CandidateCoordinates,
+            source.ManifestRequests);
         Assert.Equal(0, source.PackageRequests);
         Assert.Equal(events, secondRead);
         Assert.Equal(
@@ -939,8 +943,18 @@ public class FindCommandTests
         int dependenciesPerManifest)
         : IPackageSourceClient
     {
-        public int SearchRequests { get; private set; }
-        public List<string> ManifestRequests { get; } = [];
+        public PackageSourceCoordinate[] CandidateCoordinates { get; } =
+        [
+            .. Enumerable.Range(0, candidateCount)
+                .Select(index =>
+                    PackageSourceCoordinate.Create(
+                        $"Contoso.Package{index:D3}",
+                        "1.0.0")),
+        ];
+        public List<(string Prefix, int Take, bool Prerelease)>
+            SearchRequests
+        { get; } = [];
+        public List<PackageSourceCoordinate> ManifestRequests { get; } = [];
         public int PackageRequests { get; private set; }
         public PackageSourceIdentity Identity =>
             PackageSourceIdentity.NuGetOrg;
@@ -958,28 +972,19 @@ public class FindCommandTests
                 CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            SearchRequests++;
+            SearchRequests.Add((prefix, take, prerelease));
             PackageSearchMatch[] matches =
             [
-                .. Enumerable.Range(0, candidateCount)
-                    .Select(index =>
-                    {
-                        string packageId =
-                            $"Contoso.Package{index:D3}";
-                        PackageSourceCoordinate coordinate =
-                            PackageSourceCoordinate.Create(
-                                packageId,
-                                "1.0.0");
-                        return new PackageSearchMatch(
+                .. CandidateCoordinates.Select(coordinate =>
+                        new PackageSearchMatch(
                             new SearchResult(
-                                packageId,
-                                "1.0.0"),
+                                coordinate.PackageId,
+                                coordinate.Version),
                             new PackageCandidateObservation(
                                 coordinate,
                                 Identity,
                                 PackageDiscoveryContract.KeywordSearch,
-                                PackageListingState.Listed));
-                    }),
+                                PackageListingState.Listed))),
             ];
             return Task.FromResult<
                 PackageSourceOperationResult<PackageSearchResult>>(
@@ -999,8 +1004,18 @@ public class FindCommandTests
             cancellationToken.ThrowIfCancellationRequested();
             PackageSourceCoordinate coordinate =
                 PackageSourceCoordinate.Create(packageId, version);
-            ManifestRequests.Add(
-                $"{coordinate.PackageId}@{coordinate.Version}");
+            if (!CandidateCoordinates.Contains(coordinate))
+            {
+                throw new InvalidOperationException(
+                    "The query requested a coordinate outside the search result.");
+            }
+            if (ManifestRequests.Contains(coordinate))
+            {
+                throw new InvalidOperationException(
+                    "The query requested one manifest more than once.");
+            }
+
+            ManifestRequests.Add(coordinate);
             string dependencies = string.Concat(
                 Enumerable.Range(0, dependenciesPerManifest)
                     .Select(index =>
