@@ -26780,6 +26780,52 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_SourceFilesSection_Bare_AppliesLineAndRowWindowsToOutput()
+    {
+        var tempDirectory = Directory.CreateTempSubdirectory("package-bare-urls-");
+        try
+        {
+            var lineWindowPath = Path.Combine(tempDirectory.FullName, "line-window.txt");
+            var rowWindowPath = Path.Combine(tempDirectory.FullName, "row-window.txt");
+            string[] args =
+            [
+                "package", "Newtonsoft.Json@13.0.3",
+                "-S", "Source Files", "-t", "JsonReader",
+                "--bare", "--raw",
+            ];
+
+            var stdout = await RunAppInDirectoryAsync(
+                tempDirectory.FullName,
+                [.. args, "-n1", "--tips", "q"]);
+            var redirected = await RunAppInDirectoryAsync(
+                tempDirectory.FullName,
+                [.. args, "-n1", "--out", lineWindowPath, "--tips", "q"]);
+            var rowWindow = await RunAppInDirectoryAsync(
+                tempDirectory.FullName,
+                [.. args, "--rows", "1", "--out", rowWindowPath, "--tips", "q"]);
+
+            Assert.Equal(0, stdout.Exit);
+            Assert.Equal(0, redirected.Exit);
+            Assert.Equal(0, rowWindow.Exit);
+            Assert.Empty(stdout.Error);
+            Assert.Empty(redirected.Output);
+            Assert.Empty(redirected.Error);
+            Assert.Empty(rowWindow.Output);
+            Assert.Empty(rowWindow.Error);
+            Assert.Equal(stdout.Output, File.ReadAllText(lineWindowPath));
+            Assert.Equal(stdout.Output, File.ReadAllText(rowWindowPath));
+            Assert.Single(
+                stdout.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+        }
+        finally
+        {
+            tempDirectory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_LibrarySourceFilesSection_PreservesTypeFilterAndBlobUrls()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -28923,6 +28969,12 @@ public partial class CommandExecutionTests
                     "print-inline",
                     ["-S", "Package README file", "--print", "--bare", "-n=1"]),
                 (
+                    "print-attached",
+                    ["-S", "Package README file", "--print", "--bare", "-n1"]),
+                (
+                    "print-colon",
+                    ["-S", "Package README file", "--print", "--bare", "-n:1"]),
+                (
                     "bare",
                     ["-S", "Package README file", "--bare", "-n", "1"]),
                 (
@@ -28981,6 +29033,33 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Equal("Verified", output.Trim());
+    }
+
+    [Fact]
+    public async Task PackageContentCountWithLineWindowAndOutput_IsNotExactTransfer()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Projection.ContentCount",
+            "README.md",
+            "first\nsecond");
+        var outputPath = Path.Combine(tempDir, "count.txt");
+        try
+        {
+            var result = await RunAppAsync(
+                "package", packagePath,
+                "--content", "--path", "README.md",
+                "--count", "-n", "1",
+                "--out", outputPath, "--tips", "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Empty(result.Error);
+            Assert.Equal("1\n", File.ReadAllText(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Theory]
@@ -33353,7 +33432,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task PackageContentOutput_MultiplePackagesHydrateOneGlobalMatch()
+    public async Task PackageContentOutput_MultiplePackagesPreflightThenHydrateOneGlobalMatch()
     {
         var (firstPackage, firstDir) =
             CreateLocalReadmePackage(
@@ -33367,8 +33446,29 @@ public partial class CommandExecutionTests
                 "second",
                 "agents payload");
         string outputPath = Path.Combine(firstDir, "agents.txt");
+        byte[] sentinel = [0xEF, 0xBB, 0xBF, 0x73, 0x61, 0x66, 0x65];
         try
         {
+            File.WriteAllBytes(outputPath, sentinel);
+            var refused = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "--path",
+                "@agents",
+                "--content",
+                "-n",
+                "1",
+                "--out",
+                outputPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, refused.Exit);
+            Assert.Empty(refused.Output);
+            Assert.Contains("line limit", refused.Error, StringComparison.Ordinal);
+            Assert.Equal(sentinel, File.ReadAllBytes(outputPath));
+
             var result = await RunAppAsync(
                 "package",
                 firstPackage,

@@ -604,15 +604,33 @@ public class CommandLineTests
             CommandLineBuilder.HeadLines);
     }
 
-    [Fact]
-    public void PreprocessArgs_InlineLineLimitSetsHeadLines()
+    [Theory]
+    [InlineData("-n=5")]
+    [InlineData("-n5")]
+    [InlineData("-n:5")]
+    public void PreprocessArgs_AttachedLineLimitSetsHeadLines(string option)
     {
-        string[] args = ["package", "Foo", "-n=5"];
+        string[] args = ["package", "Foo", option];
 
         string[] result = CommandLineBuilder.PreprocessArgs(args);
 
         Assert.Same(args, result);
         Assert.Equal(5, CommandLineBuilder.HeadLines);
+    }
+
+    [Theory]
+    [InlineData("-n=5")]
+    [InlineData("-n5")]
+    [InlineData("-n:5")]
+    public void PreprocessArgs_AttachedTailLineLimitSetsTailLines(string option)
+    {
+        string[] args = ["package", "Foo", option, "--tail"];
+
+        string[] result = CommandLineBuilder.PreprocessArgs(args);
+
+        Assert.Same(args, result);
+        Assert.Null(CommandLineBuilder.HeadLines);
+        Assert.Equal(5, CommandLineBuilder.TailLines);
     }
 
     [Fact]

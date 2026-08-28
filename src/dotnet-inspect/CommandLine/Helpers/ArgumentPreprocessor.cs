@@ -152,7 +152,7 @@ public static class ArgumentPreprocessor
             }
         }
 
-        // Set HeadLines for explicit -n N or -n=N (so -n 6 behaves like -6)
+        // Set HeadLines for every accepted -n value form (so -n 6 behaves like -6).
         if (HeadLines == null)
         {
             for (int i = 0; i < args.Length; i++)
@@ -165,11 +165,18 @@ public static class ArgumentPreprocessor
                     break;
                 }
 
-                if (args[i].StartsWith("-n=", StringComparison.Ordinal)
-                    && int.TryParse(args[i].AsSpan(3), out var inline))
+                if (args[i].StartsWith("-n", StringComparison.Ordinal)
+                    && args[i].Length > 2)
                 {
-                    HeadLines = inline;
-                    break;
+                    var value = args[i].AsSpan(2);
+                    if (value[0] is '=' or ':')
+                        value = value[1..];
+
+                    if (int.TryParse(value, out var attached))
+                    {
+                        HeadLines = attached;
+                        break;
+                    }
                 }
             }
         }

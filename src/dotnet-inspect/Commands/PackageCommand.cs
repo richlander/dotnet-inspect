@@ -2528,6 +2528,10 @@ public class PackageCommand
             targets.Add(target);
         }
 
+        var destination = PackagePayloadDestination(options);
+        if (!ProjectionDestinationWriter.ValidateBeforeAcquisition(destination))
+            return 1;
+
         var results = new List<PackageFileContentSet>();
         bool unaryPayload = RequiresUnaryPackageContent(options);
         if (!unaryPayload)
@@ -3331,7 +3335,8 @@ public class PackageCommand
         => new(
             options.OutputPath,
             options.Rows,
-            ExactTransfer: HasUnstructuredOutputPath(options)
+            ExactTransfer: (options.Print || RequiresUnaryPackageContent(options))
+                && HasUnstructuredOutputPath(options)
                 && options.ContentScope == PackageFileContentScope.Full);
 
     /// <summary>
@@ -3540,7 +3545,7 @@ public class PackageCommand
             return 0;
         }
 
-        return WriteBarePackageText(found[0].Content, outputPath: null);
+        return WriteBarePackageText(found[0].Content, new ProjectionDestination(null));
     }
 
     private static IEnumerable<PackageFileContent> FlattenPackageFileContentRows(
@@ -3790,8 +3795,12 @@ public class PackageCommand
 
         if (section.Equals(PackageSections.SourceLinkFiles, StringComparison.OrdinalIgnoreCase))
         {
-            var urls = result.SourceFiles?.Select(row => row.Url);
-            return PrintBarePackageUrlColumn(urls, section, options.OutputPath);
+            var sourceFiles = RowWindow.Apply(options.Rows, result.SourceFiles ?? []);
+            var urls = sourceFiles.Select(row => row.Url);
+            return PrintBarePackageUrlColumn(
+                urls,
+                section,
+                new ProjectionDestination(options.OutputPath, options.Rows));
         }
 
         CommandError.Write($"--bare does not support section '{section}'. Select a text section or a single URL section.");
@@ -3832,10 +3841,13 @@ public class PackageCommand
             return 0;
         }
 
-        return WriteBarePackageText(content.Content, outputPath: null);
+        return WriteBarePackageText(content.Content, new ProjectionDestination(null));
     }
 
-    private static int PrintBarePackageUrlColumn(IEnumerable<string?>? urls, string section, string? outputPath)
+    private static int PrintBarePackageUrlColumn(
+        IEnumerable<string?>? urls,
+        string section,
+        ProjectionDestination destination)
     {
         var values = urls?
             .Where(url => !string.IsNullOrWhiteSpace(url))
@@ -3843,19 +3855,21 @@ public class PackageCommand
             .ToList() ?? [];
 
         if (values.Count > 0)
-            return WriteBarePackageText(string.Join('\n', values), outputPath);
+            return WriteBarePackageText(string.Join('\n', values), destination);
 
         CommandError.Write($"--bare found no URL in section '{section}'.");
         return 1;
     }
 
-    private static int WriteBarePackageText(string content, string? outputPath)
+    private static int WriteBarePackageText(
+        string content,
+        ProjectionDestination destination)
     {
         var output = content.EndsWith('\n') ? content : content + '\n';
-        if (!string.IsNullOrEmpty(outputPath))
-            File.WriteAllText(outputPath, output);
-        else
-            Console.Write(new InertString(TextPolicy.Prose, output));
+        var rendered = ProjectionDestinationWriter.IsFile(destination)
+            ? output
+            : new InertString(TextPolicy.Prose, output).ToString();
+        ProjectionDestinationWriter.WriteText(destination, rendered);
         return 0;
     }
 
