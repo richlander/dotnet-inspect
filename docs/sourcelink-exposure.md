@@ -222,19 +222,24 @@ into the cache by a prior render therefore makes the family discoverable on the
 next `-D`; the effective-section cache keys on this availability so warming or
 clearing the PDB busts a stale catalog. See
 `docs/design/section-model.md#symbol-dependent-discovery-sourcelink-family`.
-For package and platform routes, this is the library-only persistent
-compatibility catalog described under
+The target metadata-format cutover retains this library-only persistent
+compatibility catalog for package and platform routes, as described under
 [`Existing library effective catalog`](design/section-model.md#existing-library-effective-catalog);
 it is not an authorization-bearing outcome cache for the planned type/member
 executor. A direct local-file route performs the same bounded discovery from a
 fresh retained image each run without persistent catalog lookup or
-publication. At the metadata-format admission cutover, the bounded assembly
-gate runs over acquisition-retained bytes before this probe or any permitted
-catalog lookup, and the persistent catalog category also bumps. The assembly
-debug-directory read consumes those retained bytes rather than reopening a
-mutable assembly path. Portable PDB parsing after assembly admission may
-construct a PDB `MetadataReader`; it is not assembly metadata projection and
-remains governed by the existing embedded-PDB and expansion budgets.
+publication. This direct-file target is unverified pending
+`LocalAssemblyFacts_DoNotEnterACrossRunCache`; shipping `effective-v28` still
+persists direct-file catalogs as recorded under
+[Current mismatch](design/assembly-image-lifetime.md#current-mismatch).
+
+At that cutover, the bounded assembly gate runs over acquisition-retained bytes
+before this probe or any permitted catalog lookup, and the persistent catalog
+category also bumps. The assembly debug-directory read consumes those retained
+bytes rather than reopening a mutable assembly path. Portable PDB parsing after
+assembly admission may construct a PDB `MetadataReader`; it is not assembly
+metadata projection and remains governed by the existing embedded-PDB and
+expansion budgets.
 
 The successor catalog key replaces the predecessor `sl0`/`sl1` Boolean with
 typed `LocalSymbolDiscoveryEvidence`: `None`, or an owner-minted identity for

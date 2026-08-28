@@ -211,9 +211,16 @@ An inspection fails rather than:
 - treating an MVID as proof that different acquisition generations contain
   equal bytes.
 
-## Consequences for current work
+## Consequences for successor work
 
-### PR #4623
+### Acquisition registration successors
+
+PR [#4623](https://github.com/richlander/dotnet-inspect/pull/4623)
+historically surfaced the acquisition and collision question, then closed
+without merge in favor of the focused sequence tracked by
+[#4867](https://github.com/richlander/dotnet-inspect/issues/4867).
+[#4606](https://github.com/richlander/dotnet-inspect/issues/4606) owns the
+first acquisition defect in that sequence.
 
 Acquisition registration needs to retain one immutable image for the consuming
 session. It does not need collision-resistant content identity solely to defend
@@ -225,11 +232,17 @@ per-run snapshot provides the scope and derived results do not survive the run.
 If either path publishes a persistent derived result, the existing cache owner
 still requires a digest computed over the retained snapshot.
 
-This narrows the collision requirement raised in PR #4623: correctness requires
-generation-scoped bytes and addresses, not treating arbitrary inspected
-metadata as hostile identity material.
+This narrows the collision requirement inherited from the superseded broad PR:
+correctness requires generation-scoped bytes and addresses, not treating
+arbitrary inspected metadata as hostile identity material.
 
-### PR #4627
+### Cross-image PDB composition successor
+
+PR [#4627](https://github.com/richlander/dotnet-inspect/pull/4627)
+historically surfaced the raw-token reopen defect, then closed without merge in
+favor of focused prerequisites. Issue
+[#4603](https://github.com/richlander/dotnet-inspect/issues/4603) owns the thin
+CLI/PDB composition outcome after those prerequisites.
 
 Reference-to-runtime method correspondence must not reduce its target to a raw
 MethodDef token and then reopen the runtime path for source lookup. The runtime
