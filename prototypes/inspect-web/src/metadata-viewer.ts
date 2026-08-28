@@ -48,10 +48,10 @@ export interface MetadataHeaders {
   machine?: string;
   isPE32Plus?: boolean;
   subsystem?: string;
-  corFlags?: string;
-  majorRuntimeVersion?: number;
-  minorRuntimeVersion?: number;
-  entryPointToken?: number;
+  corFlags?: string | null;
+  majorRuntimeVersion?: number | null;
+  minorRuntimeVersion?: number | null;
+  entryPointToken?: number | null;
 }
 
 export interface MetadataAssembly {
@@ -60,6 +60,7 @@ export interface MetadataAssembly {
   isAssembly: boolean;
   metadataSize: number;
   metadataVersion: string;
+  metadataVersionTruncated: boolean;
   projectedTableTotal: number;
   heaps?: readonly MetadataHeapSummary[];
   tables?: readonly MetadataTableSummary[];
@@ -68,7 +69,7 @@ export interface MetadataAssembly {
 
 export interface PackageMetadata {
   assemblies?: readonly MetadataAssembly[];
-  inspectionError?: string;
+  inspectionError?: string | null;
 }
 
 // -- Metadata Explorer data shapes ---------------------------------------------------------
@@ -99,21 +100,21 @@ export interface ExplorerColumn {
  */
 export interface ExplorerCell {
   kind: string;
-  display?: string;
-  raw?: number | string;
-  decoded?: string;
-  heap?: string;
-  text?: string;
-  preview?: string;
-  offset?: number;
-  length?: number;
-  truncated?: boolean;
-  targetTable?: number;
-  targetRowId?: number;
-  startRowId?: number;
-  endRowId?: number;
-  count?: number;
-  detail?: string;
+  display?: string | null;
+  raw?: number | string | null;
+  decoded?: string | null;
+  heap?: string | null;
+  text?: string | null;
+  preview?: string | null;
+  offset?: number | null;
+  length?: number | null;
+  truncated?: boolean | null;
+  targetTable?: number | null;
+  targetRowId?: number | null;
+  startRowId?: number | null;
+  endRowId?: number | null;
+  count?: number | null;
+  detail?: string | null;
 }
 
 export interface ExplorerRow {
@@ -129,7 +130,7 @@ export interface ExplorerTableData {
   startRowId: number;
   columns?: readonly ExplorerColumn[];
   rows?: readonly ExplorerRow[];
-  error?: string;
+  error?: string | null;
 }
 
 export interface ExplorerWindow {
@@ -153,6 +154,7 @@ export interface HeapListingData {
   entries?: readonly HeapListingEntry[];
   rowsTruncated?: boolean;
   entriesTruncated?: boolean;
+  error?: string | null;
 }
 
 export interface HeapWindow {
@@ -206,6 +208,7 @@ export interface MetadataExplorerBindingActions {
   onOpenHeap: (assembly: string, heap: string) => void;
   onOpenTable: (assembly: string, index: number) => void;
   onPage: (index: number, startRowId: number) => void;
+  onRetryPackageMetadata: () => void;
   onRowFocus: (index: number, rowId: number) => void;
   onShowOverview: () => void;
   onTableFocus: (index: number, rowId: number) => void;
@@ -232,6 +235,8 @@ export function bindMetadataExplorer(
   explorer: Pick<ExplorerState, "overview"> | null,
   actions: MetadataExplorerBindingActions,
 ) {
+  root.querySelector("[data-package-metadata-retry]")
+    ?.addEventListener("click", actions.onRetryPackageMetadata);
   root.querySelector("#mde-exit")?.addEventListener("click", actions.onClose);
   root.querySelector("#mde-hist-back")?.addEventListener(
     "click",
@@ -419,7 +424,7 @@ export function renderPackageMetadata(options: PackageMetadataOptions): string {
     return `${picker}<section class="document-section source-progress"><span class="loader"></span><h2>Reading metadata…</h2><p>Describing the metadata image — heaps, tables, and headers.</p></section>`;
   }
   if (fresh && error) {
-    return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Metadata read failed</h2><p>${escapeHtml(error)}</p></section>`;
+    return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Metadata read failed</h2><p>${escapeHtml(error)}</p><button type="button" data-package-metadata-retry>retry</button></section>`;
   }
   const data = fresh ? metadata : null;
   if (!data) {
@@ -427,14 +432,15 @@ export function renderPackageMetadata(options: PackageMetadataOptions): string {
   }
 
   const assemblies = data.assemblies || [];
+  if (!assemblies.length) {
+    return data.inspectionError
+      ? `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Metadata read failed</h2><p>${escapeHtml(data.inspectionError)}</p></section>`
+      : `${picker}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No metadata images</h2><p>None of the assemblies in ${scanScope} carry ECMA-335 metadata (they may be native or resource-only).</p></section>`;
+  }
+
   const warning = data.inspectionError
     ? `<section class="document-section metadata-warning"><strong>⚠ Some assemblies could not be read</strong><ul><li><code>${escapeHtml(data.inspectionError)}</code></li></ul></section>`
     : "";
-
-  if (!assemblies.length) {
-    return `${picker}${warning}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No metadata images</h2><p>None of the assemblies in ${scanScope} carry ECMA-335 metadata (they may be native or resource-only).</p></section>`;
-  }
-
   const blocks = assemblies
     .map(asm => renderAssemblyMetadataBlock(asm, { escapeHtml, fmtBytes }))
     .join("");
@@ -479,7 +485,7 @@ export function renderAssemblyMetadataBlock(asm: MetadataAssembly, helpers: Meta
     <section class="document-section meta-assembly">
       <div class="section-title"><h2>${escapeHtml(asm.assembly)}</h2><span>${escapeHtml(asm.kind)}${asm.isAssembly ? " · assembly manifest" : " · module"} · metadata ${fmtBytes(asm.metadataSize)}</span></div>
       <div class="meta-facts">
-        <span class="meta-fact"><span class="meta-fact-k">Format</span><span class="meta-fact-v">${escapeHtml(asm.metadataVersion)}</span></span>
+        <span class="meta-fact"><span class="meta-fact-k">Format</span><span class="meta-fact-v">${escapeHtml(asm.metadataVersion)}${asm.metadataVersionTruncated ? "…" : ""}</span></span>
         <span class="meta-fact"><span class="meta-fact-k">Machine</span><span class="meta-fact-v">${escapeHtml(h.machine || "—")}${h.isPE32Plus ? " · PE32+" : " · PE32"}</span></span>
         <span class="meta-fact"><span class="meta-fact-k">Subsystem</span><span class="meta-fact-v">${escapeHtml(h.subsystem || "—")}</span></span>
         <span class="meta-fact"><span class="meta-fact-k">Tables</span><span class="meta-fact-v">${asm.projectedTableTotal}/${tables.length} populated</span></span>
@@ -708,10 +714,11 @@ export function renderExplorerCard(t: ExplorerDirectoryEntry, context: ExplorerR
         const to = win2.startRowId + rows.length - 1;
         const hasPrev = from > 1;
         const hasNext = to < win2.rowCount;
+        const pageSize = Math.max(1, win?.maxRows ?? rows.length);
         return `<div class="mde-pager">
           <span>rows ${from.toLocaleString()}–${to.toLocaleString()} of ${win2.rowCount.toLocaleString()}</span>
           <span class="mde-pager-btns">
-            <button type="button" data-mde-page="${t.index}:${Math.max(1, from - rows.length)}" ${hasPrev ? "" : "disabled"}>‹ prev</button>
+            <button type="button" data-mde-page="${t.index}:${Math.max(1, from - pageSize)}" ${hasPrev ? "" : "disabled"}>‹ prev</button>
             <button type="button" data-mde-page="${t.index}:${to + 1}" ${hasNext ? "" : "disabled"}>next ›</button>
           </span>
         </div>`;
@@ -750,7 +757,8 @@ export function renderExplorerCell(
   context: ExplorerRenderContext,
 ): string {
   const { explorer: ex, escapeHtml } = context;
-  const tableName = (index: number | undefined) => explorerTableName(ex.directory, Number(index));
+  const tableName = (index: number | null | undefined) =>
+    explorerTableName(ex.directory, Number(index ?? undefined));
   if (!cell) return "";
   switch (cell.kind) {
     case "nil":
@@ -771,7 +779,8 @@ export function renderExplorerCell(
     }
     case "range": {
       if (!cell.count) return `<span class="mde-nil">empty</span>`;
-      return `<button type="button" class="mde-ref mde-ref-range" data-mde-jump="${cell.targetTable}:${cell.startRowId}" title="→ ${escapeHtml(tableName(cell.targetTable))} rows ${cell.startRowId}‥${cell.endRowId}">${escapeHtml(tableName(cell.targetTable))} #${cell.startRowId}‥${cell.endRowId} <span class="mde-ref-count">${cell.count}</span></button>`;
+      const lastRowId = Number(cell.endRowId) - 1;
+      return `<button type="button" class="mde-ref mde-ref-range" data-mde-jump="${cell.targetTable}:${cell.startRowId}" title="→ ${escapeHtml(tableName(cell.targetTable))} rows ${cell.startRowId}‥${lastRowId}">${escapeHtml(tableName(cell.targetTable))} #${cell.startRowId}‥${lastRowId} <span class="mde-ref-count">${cell.count}</span></button>`;
     }
     case "malformed":
       return `<span class="mde-cell-malformed" title="${escapeHtml(cell.detail || "")}">malformed</span>`;

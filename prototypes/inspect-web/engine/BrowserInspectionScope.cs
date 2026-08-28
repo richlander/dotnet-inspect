@@ -149,6 +149,26 @@ internal sealed class BrowserInspectionScope : IDisposable
         Func<AssemblyContextGroup, TResult> query) =>
         (_implementation ?? _surface).Use(query);
 
+    /// <summary>
+    /// Hands one implementation participant to a metadata query, or its compile participant when
+    /// that assembly is reference-only.
+    /// </summary>
+    public TResult UseMetadataParticipant<TResult>(
+        BrowserWorkspaceParticipant participant,
+        Func<AssemblyContextGroup, AssemblyContextParticipant, TResult> query)
+    {
+        ArgumentNullException.ThrowIfNull(participant);
+        ArgumentNullException.ThrowIfNull(query);
+        if (_implementation?.Participants.Contains(participant) is true)
+            return _implementation.UseParticipant(participant, query);
+        if (ReferenceOnlySurfaceParticipants.Contains(participant))
+            return _surface.UseParticipant(participant, query);
+
+        throw new ArgumentException(
+            "The participant does not belong to a metadata workspace role.",
+            nameof(participant));
+    }
+
     /// <summary>Hands one implementation participant to a body-backed product query.</summary>
     public TResult UseImplementationParticipant<TResult>(
         BrowserWorkspaceParticipant participant,

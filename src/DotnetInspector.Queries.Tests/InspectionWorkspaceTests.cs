@@ -155,7 +155,7 @@ public sealed class InspectionWorkspaceTests
         CancellationToken cancellationToken =
             TestContext.Current.CancellationToken;
 
-        Task<AssemblyImageAccessResult<byte>> access = Task.Run(
+        Task<AssemblyImageAccessResult<byte>> access = StartConcurrent(
             () => group.UseAssemblyImage(
                 source.Assembly,
                 image =>
@@ -212,7 +212,7 @@ public sealed class InspectionWorkspaceTests
             resume.Wait(cancellationToken);
         };
 
-        Task<AssemblyImageAccessResult<int>> first = Task.Run(
+        Task<AssemblyImageAccessResult<int>> first = StartConcurrent(
             () => group.UseAssemblyImage(
                 blocked.Assembly,
                 static image => image.Content.Length));
@@ -221,7 +221,7 @@ public sealed class InspectionWorkspaceTests
             entered.Wait(
                 TimeSpan.FromSeconds(10),
                 cancellationToken));
-        Task<AssemblyImageAccessResult<int>> second = Task.Run(
+        Task<AssemblyImageAccessResult<int>> second = StartConcurrent(
             () => group.UseAssemblyImage(
                 available.Assembly,
                 static image => image.Content.Length));
@@ -475,9 +475,9 @@ public sealed class InspectionWorkspaceTests
         second.BeforeOpen = WaitForBoth;
 
         Task<AssemblyImageAccessResult<int>> firstAccess =
-            Task.Run(() => Access(first));
+            StartConcurrent(() => Access(first));
         Task<AssemblyImageAccessResult<int>> secondAccess =
-            Task.Run(() => Access(second));
+            StartConcurrent(() => Access(second));
         Assert.True(
             entered.Wait(
                 TimeSpan.FromSeconds(10),
@@ -785,6 +785,15 @@ public sealed class InspectionWorkspaceTests
                 $"AssemblyContextGroup.{methodName} was not found.");
         return method.Invoke(group, arguments);
     }
+
+    // These operations intentionally block on test gates. Dedicated workers
+    // keep ThreadPool injection timing from consuming loaded-CI readiness budgets.
+    static Task<T> StartConcurrent<T>(Func<T> action) =>
+        Task.Factory.StartNew(
+            action,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
 
     sealed class TestAssembly
     {
