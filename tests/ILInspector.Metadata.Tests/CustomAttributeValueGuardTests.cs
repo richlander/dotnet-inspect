@@ -2294,6 +2294,49 @@ public sealed class CustomAttributeValueGuardTests
     }
 
     [Fact]
+    public void ExternalReferenceCollidingWithNestedName_IsRefusedNotDecoded()
+    {
+        // The reference names Kind in namespace Samples.E of another assembly,
+        // so it matches no definition here: the only local candidate is nested,
+        // and a nested definition cannot answer a top-level reference. The
+        // reference still renders to "Samples.E.Kind", which is exactly how the
+        // nested Int64 enum is spelled once assembly qualification is stripped,
+        // so both sides reach that definition through the shared name index and
+        // agree on eight bytes.
+        //
+        // Agreement is the whole property. The decode path hands the guard the
+        // same provider it decodes with, so the guard resolves the width the
+        // way the decode will and sees the 100M count hiding behind the wider
+        // enum. The blob is refused rather than approved, and SRM never runs.
+        using var image = Open(
+            BuildExternalReferenceNestedCollisionImage(elementCount: 100_000_000));
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+
+        int maxCharge = 0;
+        var decoded = AttributeDecoder.TryDecode(
+            image.Reader,
+            attribute,
+            count => maxCharge = Math.Max(maxCharge, count),
+            (Func<string, PrimitiveTypeCode>?)null);
+
+        Assert.Null(decoded);
+
+        // The refusal is the guard's, reached at the width the decode uses, not
+        // an incidental failure further along.
+        int charged = 0;
+        Assert.False(
+            CustomAttributeValueGuard.IsSafeToDecode(
+                image.Reader,
+                attribute,
+                count => charged = Math.Max(charged, count),
+                _ => PrimitiveTypeCode.Int64));
+        Assert.Equal(
+            100_000_000 * CustomAttributeValueGuard.DeclaredSlotCharge,
+            charged);
+        Assert.Equal(charged, maxCharge);
+    }
+
+    [Fact]
     public void EnumArrayElements_ResolveTheWidthOncePerName()
     {
         // Every element of a typed enum array carries the same enum name. The
@@ -2497,6 +2540,107 @@ public sealed class CustomAttributeValueGuardTests
             EnumUnderlyingPrimitive.FromDefinition(image.Reader, nested),
             nestedWidth);
         Assert.NotEqual(decoyWidth, nestedWidth);
+    }
+
+    static byte[] BuildExternalReferenceNestedCollisionImage(int elementCount)
+    {
+        var metadata = CreateMetadata("ExternalNestedCollision");
+        AssemblyReferenceHandle other = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle systemEnum = metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Enum"));
+        TypeReferenceHandle attributeType = metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("SampleAttribute"));
+
+        // Top-level, and scoped to another assembly. There is no local
+        // top-level Kind in namespace Samples.E, so this resolves to nothing
+        // here -- yet it renders to the same string as the local nested Kind.
+        TypeReferenceHandle externalKind = metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("Samples.E"),
+            metadata.GetOrAddString("Kind"));
+
+        var constructorSignature = new BlobBuilder();
+        new BlobEncoder(constructorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                2,
+                returnType => returnType.Void(),
+                parameters =>
+                {
+                    parameters.AddParameter().Type()
+                        .Type(externalKind, isValueType: true);
+                    parameters.AddParameter().Type().SZArray().Int32();
+                });
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            attributeType,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+
+        var int64Field = new BlobBuilder();
+        new BlobEncoder(int64Field).FieldSignature().Int64();
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName,
+            metadata.GetOrAddString("value__"),
+            metadata.GetOrAddBlob(int64Field));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle declaring = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("E"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle nested = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic | TypeAttributes.Sealed,
+            default,
+            metadata.GetOrAddString("Kind"),
+            systemEnum,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle attributed = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Attributed"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(2),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddNestedType(nested, declaring);
+
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        // Four bytes of enum for a guard that resolves nothing, then a benign
+        // count of one. A decode that reaches the nested Int64 through the
+        // flattened name swallows both as the enum and takes the element below
+        // as the count instead.
+        value.WriteInt32(0);
+        value.WriteInt32(1);
+        value.WriteInt32(elementCount);
+        value.WriteUInt16(0);
+
+        metadata.AddCustomAttribute(
+            attributed,
+            constructor,
+            metadata.GetOrAddBlob(value));
+
+        return Serialize(metadata);
     }
 
     static byte[] BuildNestedNameCollisionDesyncImage(bool viaTypeReference = false)

@@ -81,8 +81,15 @@ the width from the definition it returns;
 `NestedTypeNameCollision_GuardSkipMatchesDecodeWidth` gates both handle forms
 and `CollidingTypeDefNames_EachResolveTheirOwnWidth` gates the premise. A
 supplied name resolver never overrides a definition the signature already
-named, on either side. A reference to a type this reader does not define has no
-local definition and resolves by name as before.
+named, on either side. Structural matching walks a reference's nested scope
+chain but does not consult its terminal assembly or module scope, so a
+reference whose chain matches a definition in this reader resolves to that
+definition even when it nominally denotes another assembly. That is
+long-standing behavior, gated by
+`TypeRefEnumMatchingLocalInt64_SeesFollowingArrayCount`, and it is what keeps
+this side aligned with a decode that would otherwise reach the same local
+definition through its rendered name. A reference whose chain matches no
+definition here resolves by name as before.
 
 A name that has no pending handle -- a reference to a type this reader does not define, or a name the blob
 authored -- is looked up by spelling, and that lookup depends on where the name
