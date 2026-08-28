@@ -103,13 +103,13 @@ The current wrapper indexes that path by the bare managed method name. It also
 traverses each declaring-type segment through ordinary JavaScript property
 lookup, so an inherited segment can escape the assembly export root.
 `JsExportSurfaceBuilder` authenticates each generated registration's signature
-hash but does not retain the exact runtime member key on `JsExportFunction`, so
-the emitter cannot select overloads exactly. Issue
-[#4791](https://github.com/richlander/dotnet-inspect/issues/4791) owns the
-target-language-neutral input fact; `ts-jsexport` will consume that opaque key
-instead of inferring dispatch from a TypeScript or managed display name, and
-will validate the complete path through own data-property descriptors before
-publishing initialized state.
+hash and retains the exact runtime member key as
+`JsExportFunction.RuntimeDispatchKey`, but the current emitter does not consume
+it and therefore cannot select overloads exactly. The replacement
+`ts-jsexport` emitter will consume that target-language-neutral input instead of
+inferring dispatch from a TypeScript or managed display name, and will validate
+the complete path through own data-property descriptors before publishing
+initialized state.
 
 The inspect-web bootstrap convention automatically invokes only an exact
 `static void ConfigureHost(string)` export with `window.location.origin`.
