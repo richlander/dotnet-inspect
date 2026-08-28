@@ -410,12 +410,22 @@ capability. The Workspace Census requires:
 
 - finite selected-Type population membership with owner-issued Type identity;
 - ordered source participants with typed outcomes and authoritative provenance;
-- structured Integration evidence for the producer policies attached to each
-  configured concept;
-- structured peer-reference binding in an explicit binding context;
+- one structured Integration evidence capability requirement for each producer
+  policy attached to a configured concept;
+- owner-issued stable, comparable binding-context identity and deterministic
+  context order for every context in which source evidence is evaluated;
+- structured peer-reference binding within each declared binding context;
 - exact peer resolution, including terminal forwarding outcomes, over one
   finite owner-issued binding/comparison domain; and
 - retained completeness limits plus rejected, unavailable, and failed members.
+
+Producer-policy requirements remain distinct even when several policies emit
+the same evidence kind. Each requirement names exactly the concepts that policy
+can inform, so a provider that supplies `integration.observed` but not
+`integration.opportunity` evidence satisfies only the corresponding
+requirements. Binding capability likewise does not imply binding-context
+identity: the latter must be owner-issued, stable and comparable for attempt
+addressing, and ordered for deterministic Census and matrix projection.
 
 The universe provider declares which of those capabilities its description
 supplies without scanning the population. Generic request-capability validation
@@ -752,6 +762,8 @@ Integration graph behavior until its replacement path has parity gates.
 | Raw opportunity fulfilled by an observed adapter | Accounted `Suppressed` attempt |
 | Fulfilling adapter exists only in another binding context | Current-context attempt is not suppressed |
 | Universe provider lacks exact peer-resolution capability | Typed unsatisfied-universe rejection before execution |
+| Provider supplies peer binding but no stable binding-context identity | Typed unsatisfied-universe rejection before execution |
+| Provider supplies observed but not opportunity evidence | Rejection names the unmet policy requirement and affected concepts |
 | Capable provider cannot resolve one discovered peer | Failed incomplete attempt; request capability remains unchanged |
 | Peer assembly unavailable or ambiguous | Typed failure; never `Out` |
 | Selected peer assembly lacks the exact Type | Typed failure; never `Out` |
@@ -781,6 +793,9 @@ The target implementation is unverified until these named gates land:
 - `IntegrationCapability_UnsatisfiedUniverseNamesRequirementsAndConcepts`
 - `IntegrationCapability_ValidatedUniverseRetainsExactRequirementIdentities`
 - `IntegrationCapability_CandidateFailureDoesNotChangeRequestCapability`
+- `IntegrationCapability_RequiresStableOrderedBindingContextIdentity`
+- `IntegrationCapability_PartialProducerPolicyEvidenceNamesAffectedConcepts`
+- `IntegrationCapability_EveryDeclaredUniverseRequirementHasPositiveAndNegativeCoverage`
 - `IntegrationCensus_AccountsForEveryRequiredSourceParticipant`
 - `IntegrationCensus_AccountsForEveryDiscoveredCandidateAttempt`
 - `IntegrationCensus_RejectsMissingDuplicateOrExtraneousCandidateAttempts`
@@ -831,11 +846,15 @@ The target implementation is unverified until these named gates land:
 - `IntegrationProjection_RowsMatrixAndGraphShareOneAnalysisAndSnapshot`
 - `IntegrationWasmDemo_RendersSharedProjectionWithoutDetectionPolicy`
 
-The configured concept set, candidate-identity component set, peer-scope arm
-set, and close-negative disposition set should derive from their declarations
-so missing and stale entries fail together. The add/remove demo is the
-non-vacuity gate for candidate identity: removing candidate identity or deriving
-it after admission must make the gate fail.
+The configured concept set, universe-requirement set and per-requirement
+concept mapping, candidate-identity component set, peer-scope arm set, and
+close-negative case sets should derive from their declarations so missing and
+stale entries fail together. Every declared universe requirement has one
+provider-satisfies positive case and one provider-omits negative case; adding a
+requirement without those cases must fail
+`IntegrationCapability_EveryDeclaredUniverseRequirementHasPositiveAndNegativeCoverage`.
+The add/remove demo is the non-vacuity gate for candidate identity: removing
+candidate identity or deriving it after admission must make the gate fail.
 
 ### Workspace Census non-claims
 
