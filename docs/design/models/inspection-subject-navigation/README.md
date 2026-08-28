@@ -89,7 +89,8 @@ a consumer holding authority that has since stopped being current.
 | `ExactCurrentAuthority` | Unconsumed authority matches the session identity, installed revision, current intent, and current epoch exactly |
 | `MaintenanceAdmissionDiscipline` | No maintenance was admitted while explicit work was unresolved or an effect was unconsumed |
 | `MaintenanceRequestOrder` | Maintenance was admitted in owner-issued request order, never fact-completion order, and the queue stays ordered and outstanding |
-| `NoStaleVisibleEffect` | Every render, focus, or outcome effect executed under exactly the session's current unconsumed authority |
+| `NoStaleVisibleEffect` | Every consumer-visible effect executed under exactly the session's current unconsumed authority |
+| `MaintenanceRegatherDiscipline` | A stale request cannot become ready or admit until rebuilding requires and gathering completes a re-gather |
 | `UnavailableRevisionMatchesSnapshotChange` | An unavailable result advances revision exactly when the complete returned snapshot changed |
 
 Progress is stated per request and per intent token rather than only for the
@@ -106,7 +107,7 @@ discharge it.
 | `EveryQueuedRequestIsAdmitted` | Every queued request is eventually admitted, so the head advances and that request leaves the queue |
 | `BlockedMaintenanceResumes` | A request blocked by unresolved explicit work or an unconsumed effect is still admitted once that work resolves and that effect is released |
 | `MaintenanceResumesAfterAbort` | A request blocked behind an external prerequisite abort is admitted after that abort effect is acknowledged or abandoned |
-| `StaleBasisMaintenanceResumes` | A request whose basis a newer snapshot invalidated rebuilds, re-gathers, and is admitted |
+| `StaleBasisMaintenanceResumes` | The same request whose basis a newer snapshot invalidated rebuilds, re-gathers, and is admitted in original request order |
 
 Liveness uses weak fairness on explicit resolution, discarding superseded
 results, per-request fact gathering and rebuilding, maintenance admission, and
@@ -231,8 +232,8 @@ remaining differences are deliberate abstractions rather than disagreements:
 Some claims are about a step rather than a state: "no maintenance was admitted
 while an effect was unconsumed" is not visible in any single state after the
 fact. Those claims use latching boolean witness variables, named
-`admissionWitness`, `orderWitness`, `visibleWitness`, `readinessWitness`,
-`payloadWitness`, `basisWitness`,
+`admissionWitness`, `regatherWitness`, `revisionWitness`, `orderWitness`,
+`visibleWitness`, `readinessWitness`, `payloadWitness`, `basisWitness`,
 `snapshotStabilityWitness`, `rejectionAuthorityWitness`, and `executeWitness`.
 
 A witness re-derives, in the pre-state and independently of the action's own
@@ -298,14 +299,15 @@ report `Model checking completed. No error has been found.`
 
 | Model | States generated | Distinct states | Search depth |
 | --- | --- | --- | --- |
-| `NavigationSession.tla` | 25,337 | 4,088 | 15 |
+| `NavigationSession.tla` | 31,586 | 5,114 | 15 |
 | `AtomicRestoration.tla` | 8,081 | 2,333 | 9 |
 | `SnapshotAuthority.tla` | 36,755 | 13,790 | 9 |
 
 The additional state records semantic unavailable outcomes independently from
 their apply/retain execution class, retains canonical request payloads
 independently from prepared results, and retains each operation's requested
-lens independently from its result.
+lens independently from its result. Stale maintenance also records whether the
+same request still owes a re-gather before admission.
 
 Deadlock checking is disabled in all three configs. A behaviour that has issued
 every intent, drained its queue, and consumed its last effect has nothing left
@@ -349,6 +351,8 @@ records how to reproduce them.
 | NS13 | Let a superseded operation stay outstanding forever | `EveryExplicitIntentSettles` | violated |
 | NS14 | Keep the revision unchanged for a changed-snapshot unavailable result | `UnavailableRevisionMatchesSnapshotChange` | violated |
 | NS15 | Advance the revision for an unchanged-snapshot unavailable result | `UnavailableRevisionMatchesSnapshotChange` | violated |
+| NS16 | Install an unavailable result at a revision different from its recorded result revision | `UnavailableRevisionMatchesSnapshotChange` | violated |
+| NS17 | Mark a stale request ready and clear its re-gather debt during rebuild | `MaintenanceRegatherDiscipline` | violated |
 | AR1 | Drop the current-intent requirement from preparation publication | `PreparationRequiresReadyPairAndCurrentIntent` | violated |
 | AR2 | Publish a different subject than the independently retained request | `PreparedPairEqualsRequestedPayload` | violated |
 | AR3 | Allow a superseded preparation to publish | `NoSupersededPreparationResult` | violated |
@@ -375,18 +379,20 @@ records how to reproduce them.
 | SA17 | Return a result that does not record its operation ID | `OperationAndResultAreCorrelated` | violated |
 | SA18 | Install and return another admissible session lens instead of the exact requested lens | `AppliedResultEqualsExactRequest` | violated |
 
-Forty probes, thirty-nine expected violations and one expected pass. `SA6`
+Forty-two probes, forty-one expected violations and one expected pass. `SA6`
 is the one probe expected not to fire: it applies the same mutation as `SA5`
 and checks the revision-arithmetic invariant instead, which does not notice a
 snapshot rewritten in place. That pair is why
 `NonApplyStepsPreserveInstalledSnapshot` compares the record.
 
-Four probes exist specifically because a claim used to be satisfiable by the
-wrong thing. `AR2` publishes a payload that differs from the retained request,
-`SA14` applies a later supplied-prior operation after an earlier one was
-rejected, `SA15` adopts only the stale same-session supplied snapshot whose
-origin and lens resemble session data, and `SA18` returns another admissible
-session lens under the correct operation ID.
+Six probes exist specifically because a claim used to be satisfiable by the
+wrong thing. `NS16` separates installed revision from a self-consistent result,
+`NS17` admits stale work without re-gathering, `AR2` publishes a payload that
+differs from the retained request, `SA14` applies a later supplied-prior
+operation after an earlier one was rejected, `SA15` adopts only the stale
+same-session supplied snapshot whose origin and lens resemble session data,
+and `SA18` returns another admissible session lens under the correct operation
+ID.
 
 ## Changing a model
 

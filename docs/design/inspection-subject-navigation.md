@@ -360,8 +360,9 @@ The model establishes these design guarantees:
 - every explicit subject, lens, coordinate, or restoration request receives a
   product-issued monotonic intent token;
 - a newer explicit intent supersedes older explicit results and in-flight
-  maintenance results, while queued maintenance rebuilds from the replacement
-  snapshot;
+  maintenance results, while each same queued maintenance request survives,
+  rebuilds from the replacement revision, re-gathers its facts, and remains in
+  its original admission order;
 - standalone maintenance is admitted in request order, not completion order;
 - maintenance cannot install during unresolved explicit work or unconsumed
   visible effects;
@@ -369,14 +370,15 @@ The model establishes these design guarantees:
   effect-epoch authority;
 - every semantically changed snapshot advances the state revision regardless
   of its outcome label;
-- stale or foreign authority cannot install state or move focus;
+- stale or foreign authority cannot authorize a consumer-visible effect;
 - prerequisite failure terminates the explicit operation without inventing a
   navigation result; and
 - acknowledgement or abandonment releases queued maintenance.
 
-The host treats tokens and authority as opaque. It validates authority through
-the session before rendering a returned snapshot and again before deferred
-focus or outcome work. Installation alone is not continuing authority.
+A retained consumer treats tokens and authority as opaque. It validates
+authority through the session before applying a returned result and again
+before each deferred consumer-visible effect. Earlier validation is not
+continuing authority.
 
 Retained operations read the session's installed snapshot. The separate
 stateless variant may consume an explicit prior snapshot and has no implicit
@@ -402,22 +404,17 @@ remain outside this owner.
 
 ## Consumer contract
 
-### Inspect Web
+### Retained consumers
 
-Inspect Web:
+A retained consumer submits subject action IDs with their issuing generation
+and submits lens identities through Inspection Subject Navigation. It treats
+intent tokens and effect authority as opaque, applies no effect without current
+authority, and performs no subject or lens fallback after a non-applied
+outcome. It acknowledges completed effects and abandons authority it can no
+longer consume so queued maintenance can proceed.
 
-- renders snapshot identity, order, labels, availability, reasons, and
-  diagnostics verbatim;
-- submits subject action IDs with their issuing generation;
-- submits lens identities through Inspection Subject Navigation;
-- obtains opaque intent and effect authority from the retained session;
-- installs no snapshot and moves no focus under stale authority;
-- renders the active subject consistently across command, hierarchy, Library
-  selector, lens strip, and content; and
-- performs no subject or lens fallback after a non-applied outcome.
-
-The UI owns menu, listbox, tab, focus, responsive, history, and visible failure
-behavior. It does not own the product state machine.
+Inspect Web presentation, accessibility, focus, acknowledgement timing, and
+surface-destruction behavior belong to the UI owner and issue #4917.
 
 ### Canonical state
 
@@ -455,6 +452,7 @@ The eventual subject-navigation implementation must include named gates for:
 - `ExplicitUnavailableTransition_DoesNotApplyFallback`
 - `UnavailableReplacement_AdvancesStateRevision`
 - `UnavailableUnchangedSnapshot_RetainsStateRevision`
+- `UnavailableResult_InstalledRevisionMatchesRecordedResultRevision`
 - `SameCoordinateReconciliation_FollowsSubjectTable`
 - `CoordinateVariation_UsesTypedCorrespondence`
 - `LensReconciliation_PreservesExactSubjectScopedIdentity`
