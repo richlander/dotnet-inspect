@@ -557,9 +557,10 @@ to an optional candidate-source coordinate, not a shortened batch: there was no
 selected entry to omit and no contribution was registered. It must not be
 passed to `ArtifactSetSession.AddRequiredAcquisitionAsync`, which deliberately
 turns an empty acquired batch into a required-member failure. The workspace
-adoption tracked by #2896 must provide an optional acquisition path before it
-can compose these candidate batches; this local-owner design does not define
-that adjacent workspace API.
+adoption tracked by
+[#5010](https://github.com/richlander/dotnet-inspect/issues/5010) must provide
+a supplemental acquisition path before it can compose these candidate batches;
+this local-owner design does not define that adjacent workspace API.
 `LocalDirectoryAcquisition_NoMatchesReturnsEmptyBatchWithoutRegistration`
 gates the empty adapter outcome and proves that it mints no contribution.
 
@@ -572,6 +573,7 @@ stable code and non-artifact summary:
 | --- | --- | --- |
 | Root does not exist | `Unavailable` | `local.directory.missing` |
 | Root is not a directory | `Rejected` | `local.directory.invalid-root` |
+| Host cannot classify local file kinds | `Failed` | `local.directory.platform-unsupported` |
 | Root or selected entry is a link/reparse point | `Rejected` | `local.directory.link` |
 | Selected name is not an ordinary file | `Rejected` | `local.directory.unsupported-entry` |
 | Observed entry count exceeds the limit | `Rejected` | `local.directory.entry-limit` |
@@ -613,11 +615,25 @@ attributes and zero length, then block during open. A stable FIFO or other
 non-regular selected entry must therefore be rejected promptly before that
 ordinary open. On Unix, an `lstat`-style mode probe can establish regular-file
 kind without opening the path; Windows uses its file attributes and reparse
-metadata. A supported host that cannot establish regular-file kind rejects the
-entry rather than opening it to discover the answer.
+metadata.
+
+The first slice supports Windows, Linux, and macOS local filesystems without a
+new package dependency. Unix classification uses a local private
+`LibraryImport("libSystem.Native")` binding to the runtime's normalized
+`SystemNative_LStat` result, not a raw libc `struct stat` layout. This is the
+NativeAOT-compatible runtime-shim pattern already used by
+`PhysicalFileIdentityProvider` for `SystemNative_FStat`; the local adapter owns
+its private binding rather than depending on the CLI implementation. Browser
+and Wasm hosts have no local-directory coordinate to invoke. Another host
+returns `local.directory.platform-unsupported` before opening a selected entry
+rather than treating every file as regular.
 `LocalDirectoryAcquisition_StableNonRegularEntryRejectsBeforeOpen` gates this
 with a stable Unix FIFO under an outer process deadline and asserts typed
 rejection with no registered contribution.
+`NativeAotLocalDirectoryProbe_AcquiresRegularFileAndRejectsNonRegularEntry`
+publishes and runs a package-free local-adapter fixture for the current
+NativeAOT RID; Unix exercises a regular file and FIFO, while Windows exercises
+a regular file and reparse point.
 
 This is not a hostile-local-mutation guarantee. Portable .NET APIs do not
 provide an atomic cross-platform "enumerate, classify, and open this child
@@ -636,7 +652,7 @@ composition differs:
 
 | Scenario | Local artifact acquisitions | Boundary left to the workspace |
 | --- | --- | --- |
-| One DLL requested; its directory supplies candidates | Acquire the exact DLL once, then optionally acquire its directory with that top-level name excluded. Zero remaining DLLs is a successful empty candidate batch. | Optional workspace acquisition from [#2896](https://github.com/richlander/dotnet-inspect/issues/2896) contributes discovered candidates without making the batch a required context member; the exact-file registration alone may receive caller designation. |
+| One DLL requested; its directory supplies candidates | Acquire the exact DLL once, then optionally acquire its directory with that top-level name excluded. Zero remaining DLLs is a successful empty candidate batch. | Supplemental workspace acquisition from [#5010](https://github.com/richlander/dotnet-inspect/issues/5010) contributes discovered candidates without making the batch a required context member; the exact-file registration alone may receive caller designation. |
 | Several DLLs requested from one directory | Acquire each exact requested file, then optionally acquire the directory once with all of their names excluded. | Optional workspace acquisition contributes remaining candidates; context planning decides whether the requested roots share a group. |
 | Several DLLs requested from different directories | Acquire each exact file and optionally acquire at most one bounded candidate batch per explicitly authorized directory. | Optional workspace acquisition contributes candidates; binding policy, not directory order, handles collisions and precedence. |
 | Directory configured as a NuGet source | Do not use this adapter unless loose-file acquisition was separately requested. | The package adapter and #3759 own folder-feed identity, package enumeration, and asset selection. |
@@ -656,8 +672,8 @@ The implementation successor is one local-adapter PR: add this API, options,
 provenance, diagnostics, and its focused tests without changing
 `AssemblySetResolver`, CLI defaults, assembly projection, or binding policy.
 Adopting the API in those callers is a later owner-crossing migration after
-[#2896](https://github.com/richlander/dotnet-inspect/issues/2896) provides
-optional workspace acquisition and the artifact-to-assembly projection can
+[#5010](https://github.com/richlander/dotnet-inspect/issues/5010) provides
+supplemental workspace acquisition and the artifact-to-assembly projection can
 consume the batch. That migration may choose which directories a scenario
 authorizes; it may not weaken this adapter's bounds or reinterpret directory
 provenance as caller designation.
@@ -1111,6 +1127,7 @@ The target is complete only when tests equivalent to these exist:
 - `LocalDirectoryAcquisition_ByteLimitsRejectWithoutPublishingAPartialBatch`
 - `LocalDirectoryAcquisition_NoMatchesReturnsEmptyBatchWithoutRegistration`
 - `LocalDirectoryAcquisition_StableNonRegularEntryRejectsBeforeOpen`
+- `NativeAotLocalDirectoryProbe_AcquiresRegularFileAndRejectsNonRegularEntry`
 - `LocalDirectoryAcquisition_LinkOrEntryFailureCannotShortenTheBatch`
 - `LocalDirectoryAcquisition_ExcludesExplicitNamesWithoutGrantingDesignation`
 - `LocalDirectoryAcquisition_ProvenancePreservesRootNameAndSnapshotObservation`
@@ -1170,8 +1187,9 @@ unverified. Together they require bounded top-level enumeration, ordinal
 publication order, source-neutral files, exclusion without designation,
 directory-specific provenance, immutable snapshots, empty success without
 registration when no names match, prompt rejection of stable non-regular
-entries, rejection without partial publication for links or limits, visible
-entry failure, and cancellation preservation.
+entries in managed and NativeAOT hosts, typed unsupported-platform failure,
+rejection without partial publication for links or limits, visible entry
+failure, and cancellation preservation.
 `LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`
 deletes its temporary source after publication, then passes an
 `ArtifactContentReference`'s guarded published snapshot opener to Metadata, so
