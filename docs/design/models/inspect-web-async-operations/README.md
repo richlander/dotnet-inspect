@@ -25,12 +25,14 @@ The model keeps these values abstract:
 - TypeScript implementation and DOM rendering;
 - managed cancellation checkpoints and interop proxy mechanics;
 - worker epochs, crashes, and restart transport;
+- multiple feature sessions and epoch-wide operation-ID allocation;
 - feature retry, caching, and shared-work policy; and
 - arbitrary operation cardinality.
 
 The publication properties therefore apply within one worker epoch. Epoch
-isolation and stale messages from a terminated realm remain implementation
-requirements of the owning design's worker-protocol gate.
+isolation, cross-session ID uniqueness, and stale messages from a terminated
+realm remain implementation requirements of the owning design's
+worker-protocol gate.
 
 ## Assumptions
 

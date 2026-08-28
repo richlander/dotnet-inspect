@@ -163,8 +163,10 @@ generic workflow.
 ## Logical operation contract
 
 One feature owner creates one operation session for each independently
-replaceable view. Starting work mints a session-local opaque operation ID. IDs
-are never reconstructed from request text, package identity, or display state.
+replaceable view. The main-thread worker owner holds one epoch-wide allocator;
+every feature session requests its next opaque operation ID from that owner.
+IDs are never allocated independently by feature sessions or reconstructed
+from request text, package identity, or display state.
 
 The target TypeScript shapes are:
 
@@ -197,10 +199,12 @@ interface OperationHandle<TValue, TError> {
 }
 ```
 
-`OperationId` is a branded, session-issued value. A caller cannot manufacture
-one from a string or number. The wire representation includes the worker epoch
-plus a monotonic session counter so a message from a terminated worker realm
-cannot acquire authority in its replacement.
+`OperationId` is a branded, worker-owner-issued value. A feature caller cannot
+manufacture one from a string or number. Its wire representation combines the
+main-thread-assigned worker epoch with an epoch-wide monotonic sequence. The
+pair is serialized as opaque text for managed interop. Concurrent feature
+sessions therefore cannot collide, and a message from a terminated worker
+realm cannot acquire authority in its replacement.
 
 ### Start and authority
 
@@ -235,9 +239,9 @@ suppression must not become silent error suppression.
 the logical outcome, revokes publication authority, aborts main-thread work,
 and sends one worker cancellation request. Later calls change nothing.
 
-The worker acknowledges whether the operation was queued, running, or already
-terminal. An acknowledgment is not proof that managed work stopped. C# owns
-the terminal physical result and reports quiescence in `finally`.
+The worker acknowledges whether it observed the operation as queued, running,
+or not active. An acknowledgment is not proof that managed work stopped. C#
+owns the terminal physical result and reports quiescence in `finally`.
 
 If cancellation is observed before managed invocation begins, the worker does
 not call the export. Once managed code is running, responsiveness and
@@ -296,10 +300,10 @@ Messages are closed, versioned records. Every operation message carries
 Main to worker:
   Start(kind, operationId, payload)
   Cancel(operationId, reason)
-  Dispose(operationId)
 
 Worker to main:
   Accepted(operationId)
+  CancelAcknowledged(operationId, queued | running | not-active)
   Progress(operationId, payload)
   Terminal(operationId, success | failure | canceled)
   Quiesced(operationId)
@@ -307,8 +311,20 @@ Worker to main:
 ```
 
 Unknown versions, message kinds, operation IDs, duplicate starts, invalid
-payloads, and repeated terminal messages are explicit protocol failures. They
-must not be ignored or converted into empty results.
+payloads, and repeated terminal messages are explicit protocol failures. A
+`Cancel` race is the sole operation-ID exception: `not-active` says that no
+queued or running producer received the request. The main thread accepts that
+acknowledgment only when it has observed, or subsequently observes, the
+operation's terminal/quiesced messages or closes the epoch. Otherwise the
+missing operation becomes a visible protocol failure. It is never interpreted
+as successful physical cancellation.
+
+The worker retains active records only while an operation is queued or running.
+After posting `Terminal` and `Quiesced`, it removes the operation record; no
+terminal tombstone is retained. Main-thread feature disposal uses the ordinary
+idempotent `Cancel` path and detaches feature observers, while the worker owner
+continues consuming terminal and quiescence messages until it can remove its
+internal record. There is no separate worker-side dispose message.
 
 The worker validates and narrows `MessageEvent.data` from `unknown` before
 dispatch. Payloads use structured-clone-compatible immutable data. Existing
@@ -358,16 +374,20 @@ not hold its runtime, managed exports, JS proxies, or callbacks.
 ### Operation identity and cancellation
 
 There is no general `AbortSignal`/`CancellationToken` interop mapping.
-Long-running cancellable exports take the operation's wire ID. A worker-owned
-managed operation registry creates and removes the corresponding
-`CancellationTokenSource`; one cancellation export requests cancellation by
-ID. The existing singleton `CancelSourceQuery` becomes an incremental migration
-source, not the general contract.
+Long-running cancellable exports take the operation's wire ID. The worker owns
+queued-operation state. On managed invocation, a managed operation registry
+creates and removes the corresponding `CancellationTokenSource`; one
+cancellation export requests cancellation by ID. The existing singleton
+`CancelSourceQuery` becomes an incremental migration source, not the general
+contract.
 
 Registration occurs synchronously before the exported method reaches its first
-incomplete await. Removal occurs in `finally`. Duplicate active IDs fail, and
-canceling an absent or terminal ID returns a typed acknowledgment rather than
-pretending that work was canceled.
+incomplete await. Removal occurs in `finally`, before the worker posts
+`Quiesced`. Duplicate active IDs fail. The worker maps cancellation of queued
+work to `CancelAcknowledged(queued)`, a managed cancellation request to
+`CancelAcknowledged(running)`, and a completion race or absent managed entry to
+`CancelAcknowledged(not-active)`. None of these acknowledgments claims that a
+running producer has stopped.
 
 ### C#-to-JavaScript progress
 
@@ -525,7 +545,9 @@ These gates are design requirements and do not yet exist:
   authority, outcomes, cancellation, supersession, disposal, diagnostics, and
   quiescence;
 - `inspect-web-async-worker-protocol`: closed-message parsing, epoch isolation,
-  duplicate/unknown IDs, crash, restart, and stale-message tests;
+  concurrent feature-session ID uniqueness, duplicate/unknown IDs,
+  cancellation acknowledgment races, record release, crash, restart, and
+  stale-message tests;
 - `inspect-web-async-interop`: compiled and browser-executed Task/Promise,
   synchronous delegate, delegate-release, cancellation-registry, and
   `Func<Task>` negative characterizations;
