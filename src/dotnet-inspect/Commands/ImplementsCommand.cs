@@ -93,6 +93,9 @@ public class ImplementsCommand
             }
             else if (options.JsonOutput)
             {
+                if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                    return 1;
+
                 WriteJsonOutput(results, options.CompactJson);
             }
             else

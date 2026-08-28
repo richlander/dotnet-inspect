@@ -1,4 +1,5 @@
 using DotnetInspector;
+using DotnetInspector.Commands;
 using DotnetInspector.Core;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
@@ -188,22 +189,31 @@ try
         return 1;
     }
 
-    // Line/tail windows apply only outside --rows mode; in --rows mode the count is a
-    // per-table data-row window rendered by the commands, not an output-line window.
+    // Parse before installing a global line writer so commands that own -n as a typed
+    // item limit can keep complete records rather than clipping rendered output.
+    var rootCommand = CommandLineBuilder.CreateRootCommand();
+    var result = rootCommand.Parse(args);
+    bool packageSearchItemLimit =
+        CommandLineBuilder.UsesTypedItemLimit(result);
+
+    // Line/tail windows apply only outside row and package-search item modes.
     if (!rowLimitMode && CommandLineBuilder.HeadLines is int headLines)
-        Console.SetOut(new LineLimitingTextWriter(Console.Out, headLines));
+    {
+        if (!packageSearchItemLimit)
+            Console.SetOut(new LineLimitingTextWriter(Console.Out, headLines));
+    }
 
     // Install tail writer when --tail N was used
     TailLineLimitingTextWriter? tailWriter = null;
     if (!rowLimitMode && CommandLineBuilder.TailLines is int tailLines)
     {
-        tailWriter = new TailLineLimitingTextWriter(Console.Out, tailLines);
-        Console.SetOut(tailWriter);
+        if (!packageSearchItemLimit)
+        {
+            tailWriter = new TailLineLimitingTextWriter(Console.Out, tailLines);
+            Console.SetOut(tailWriter);
+        }
     }
 
-    // Create and invoke command
-    var rootCommand = CommandLineBuilder.CreateRootCommand();
-    var result = rootCommand.Parse(args);
     int exitCode = await CommandLineBuilder.InvokeAsync(result);
 
     // Flush tail writer to emit only the last N lines
