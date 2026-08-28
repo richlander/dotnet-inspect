@@ -10,6 +10,7 @@ CONSTANTS
     AllowRejectedRetention,
     AllowSuccessfulPolicyViolation,
     AllowReleasedAsRejected,
+    AllowPreReservationFailureCaching,
     AllowExceptionalFailureCaching
 
 ASSUME /\ ParticipantCount \in Nat \ {0}
@@ -20,6 +21,7 @@ ASSUME /\ ParticipantCount \in Nat \ {0}
        /\ AllowRejectedRetention \in BOOLEAN
        /\ AllowSuccessfulPolicyViolation \in BOOLEAN
        /\ AllowReleasedAsRejected \in BOOLEAN
+       /\ AllowPreReservationFailureCaching \in BOOLEAN
        /\ AllowExceptionalFailureCaching \in BOOLEAN
 
 Participants == 1..ParticipantCount
@@ -165,6 +167,38 @@ RejectForBudget(participant) ==
           resourceOrderWitness, activeViewWitness,
           completionPolicyWitness, releasedAccessWitness,
           exceptionalRollbackWitness>>
+
+FailBeforeReservation(participant) ==
+    /\ participantState[participant] = "Opening"
+    /\ openingCallback[participant] \in Callbacks
+    /\ callbackState' =
+        [callbackState EXCEPT
+            ![openingCallback[participant]] = "Finalizing"]
+    /\ callbackOutcome' =
+        [callbackOutcome EXCEPT
+            ![openingCallback[participant]] = "OpenFailure"]
+    /\ participantState' =
+        [participantState EXCEPT
+            ![participant] =
+                (IF /\ AllowPreReservationFailureCaching
+                    /\ retainedImages = MaxRetainedImages
+                 THEN "Rejected"
+                 ELSE "Cold")]
+    /\ openingCallback' =
+        [openingCallback EXCEPT ![participant] = 0]
+    /\ retainedImages' = retainedImages
+    /\ exceptionalRollbackWitness' =
+        (exceptionalRollbackWitness
+         /\ callbackState'[openingCallback[participant]] = "Finalizing"
+         /\ callbackOutcome'[openingCallback[participant]] = "OpenFailure"
+         /\ participantState'[participant] = "Cold"
+         /\ openingCallback'[participant] = 0
+         /\ retainedImages' = retainedImages)
+    /\ UNCHANGED
+        <<callbackHasView, releaseOnExit, groupState, releasePhase,
+          resourceState, releaseCount, admissionWitness,
+          quiescenceWitness, resourceOrderWitness, activeViewWitness,
+          completionPolicyWitness, releasedAccessWitness>>
 
 PublishImage(participant) ==
     /\ participantState[participant] = "Reserved"
@@ -487,6 +521,8 @@ Next ==
     \/ \E participant \in Participants:
         RejectForBudget(participant)
     \/ \E participant \in Participants:
+        FailBeforeReservation(participant)
+    \/ \E participant \in Participants:
         PublishImage(participant)
     \/ \E participant \in Participants:
         RejectReservedImage(participant)
@@ -523,6 +559,7 @@ Fairness ==
     /\ \A participant \in Participants:
         /\ WF_vars(ReserveImage(participant))
         /\ WF_vars(RejectForBudget(participant))
+        /\ WF_vars(FailBeforeReservation(participant))
         /\ WF_vars(PublishImage(participant))
         /\ WF_vars(RejectReservedImage(participant))
         /\ WF_vars(FailReservedOpen(participant))

@@ -16,8 +16,8 @@ The modeled interactions are:
 
 - callback admission before disposal;
 - participant-local lazy opening, including budget rejection, typed rejection
-  after reservation, and exceptional rollback that leaves ordinary access
-  retryable;
+  after reservation, and exceptional failure before or after reservation that
+  leaves ordinary access retryable;
 - cached ready or rejected outcomes, distinct exceptional open and
   already-released failures, and callback ownership of each in-flight open;
 - a separate finalizing phase after result publication or exceptional rollback,
@@ -65,7 +65,7 @@ rules are consistent over its bounded state space.
 | `RejectedReleaseAfterUseIsTerminal` | A one-shot callback that observes a cached rejection releases that participant before completing while the group remains open. |
 | `CompletionHonorsReleasePolicy` | Ordinary completion retains the participant while one-shot completion releases it after acquiring the participant gate while the group remains open. |
 | `ReleasedParticipantAccessFails` | Access that reaches an already-released participant records a terminal failure rather than a cached typed rejection. |
-| `ExceptionalFailureRollsBackForRetry` | Exceptional post-reservation failure releases the image charge, records the opening callback's failure, and returns the participant to a retryable state before finalization. |
+| `ExceptionalFailureRollsBackForRetry` | Exceptional failure records the opening callback's failure and returns the participant to a retryable state before finalization, preserving an unreserved charge or releasing a reservation. |
 | `ActiveViewsSurviveGroupRelease` | Full-group snapshot release never reaches a participant still used by an active callback. |
 | `GroupReleaseBeginsExactlyOnce` | Disposal claims the full-group release path at most once. |
 | `GroupReleaseRequiresDisposal` | Full-group release cannot begin while the group remains open. |
@@ -94,7 +94,8 @@ one-shot callbacks and has its own retention mutation.
 | `BrokenRejectedRetention.cfg` | Retains a rejected participant after unavailable one-shot completion; TLC must report the terminal-release violation. |
 | `BrokenSuccessfulPolicy.cfg` | Inverts successful ordinary and one-shot release policy; TLC must report the completion-policy violation. |
 | `BrokenReleasedAccess.cfg` | Reports access to an already-released participant as cached rejection; TLC must report the outcome violation. |
-| `BrokenExceptionalRollback.cfg` | Caches exceptional post-reservation failure as rejection; TLC must report the rollback violation. |
+| `BrokenPreReservationFailure.cfg` | Caches exceptional pre-reservation failure as rejection while another participant saturates the budget; TLC must report the retryability violation without a charge change. |
+| `BrokenExceptionalRollback.cfg` | Caches exceptional post-reservation failure as rejection; TLC must report the retryability violation after releasing the charge. |
 
 ## Running TLC
 
@@ -110,7 +111,7 @@ java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC \
   AssemblyContextGroupLifecycle.tla
 for config in BrokenEarlyRelease BrokenActiveView BrokenResourceOrder \
   BrokenRejectedRetention BrokenSuccessfulPolicy BrokenReleasedAccess \
-  BrokenExceptionalRollback; do
+  BrokenPreReservationFailure BrokenExceptionalRollback; do
   java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC \
     -cleanup -noGenerateSpecTE -config "$config.cfg" \
     AssemblyContextGroupLifecycle.tla
@@ -128,8 +129,9 @@ must fail `GroupReleaseWaitsForQuiescence`,
 `RejectedReleaseAfterUseIsTerminal`,
 `CompletionHonorsReleasePolicy`,
 `ReleasedParticipantAccessFails`, and
-`ExceptionalFailureRollsBackForRetry`, respectively. A successful mutation
-run would mean its probe no longer exercises the intended rule.
+`ExceptionalFailureRollsBackForRetry` for both exceptional-failure probes,
+respectively. A successful mutation run would mean its probe no longer
+exercises the intended rule.
 
 ## TLC evidence
 
@@ -140,15 +142,16 @@ repository-pinned TLA+ `v1.8.0` prerelease (`TLC2 2026.08.21.155922`, rev
 
 | Configuration | Result | Generated states | Distinct states | Maximum depth |
 | --- | --- | ---: | ---: | ---: |
-| `Safety.cfg` | No error | 41,773 | 18,450 | 23 |
-| `Liveness.cfg` | No error | 41,773 | 18,450 | 23 |
-| `BrokenEarlyRelease.cfg` | `GroupReleaseWaitsForQuiescence` violated | 52 | 46 | 4 |
-| `BrokenActiveView.cfg` | `ActiveViewsSurviveGroupRelease` violated | 2,485 | 1,309 | 10 |
-| `BrokenResourceOrder.cfg` | `OwnedResourcesPrecedeGroupSnapshots` violated | 57 | 49 | 4 |
-| `BrokenRejectedRetention.cfg` | `RejectedReleaseAfterUseIsTerminal` violated | 259 | 173 | 6 |
-| `BrokenSuccessfulPolicy.cfg` | `CompletionHonorsReleasePolicy` violated | 195 | 140 | 6 |
-| `BrokenReleasedAccess.cfg` | `ReleasedParticipantAccessFails` violated | 3,806 | 1,920 | 8 |
-| `BrokenExceptionalRollback.cfg` | `ExceptionalFailureRollsBackForRetry` violated | 395 | 272 | 5 |
+| `Safety.cfg` | No error | 44,447 | 18,450 | 21 |
+| `Liveness.cfg` | No error | 44,447 | 18,450 | 21 |
+| `BrokenEarlyRelease.cfg` | `GroupReleaseWaitsForQuiescence` violated | 53 | 47 | 4 |
+| `BrokenActiveView.cfg` | `ActiveViewsSurviveGroupRelease` violated | 3,066 | 1,466 | 10 |
+| `BrokenResourceOrder.cfg` | `OwnedResourcesPrecedeGroupSnapshots` violated | 59 | 51 | 4 |
+| `BrokenRejectedRetention.cfg` | `RejectedReleaseAfterUseIsTerminal` violated | 334 | 202 | 6 |
+| `BrokenSuccessfulPolicy.cfg` | `CompletionHonorsReleasePolicy` violated | 259 | 168 | 6 |
+| `BrokenReleasedAccess.cfg` | `ReleasedParticipantAccessFails` violated | 2,667 | 1,348 | 7 |
+| `BrokenPreReservationFailure.cfg` | `ExceptionalFailureRollsBackForRetry` violated | 2,298 | 1,201 | 7 |
+| `BrokenExceptionalRollback.cfg` | `ExceptionalFailureRollsBackForRetry` violated | 423 | 300 | 5 |
 
 The normal configurations explored their complete bounded state graphs. The
 broken configurations stopped at their first expected counterexamples:
@@ -156,5 +159,5 @@ full-group release began while a callback was still live, an active local view
 was released by that mutation, snapshot release began before resource release,
 unavailable one-shot completion retained its rejected participant, successful
 completion inverted its release policy, already-released access returned cached
-rejection, and exceptional rollback cached a terminal rejection instead of
-returning the participant to retryable state.
+rejection, and exceptional failure before or after reservation cached a
+terminal rejection instead of returning the participant to retryable state.
