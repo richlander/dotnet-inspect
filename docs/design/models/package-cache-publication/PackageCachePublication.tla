@@ -25,6 +25,7 @@ CONSTANTS
     AllowAttemptFailure,
     AllowFactoryCancellation,
     AllowCallerCancellation,
+    PropagateCallerCancellation,
     AllowCrash,
     AllowRenameFailure
 
@@ -57,6 +58,7 @@ ASSUME
     /\ AllowAttemptFailure \in BOOLEAN
     /\ AllowFactoryCancellation \in BOOLEAN
     /\ AllowCallerCancellation \in BOOLEAN
+    /\ PropagateCallerCancellation \in BOOLEAN
     /\ AllowCrash \in BOOLEAN
     /\ AllowRenameFailure \in BOOLEAN
 
@@ -98,11 +100,18 @@ VARIABLES
     alive,
     targetState,
     targetOwner,
-    publishers
+    publishers,
+    callerCancellationViolation
 
-vars ==
+coreVars ==
     <<callerState, joined, attemptCount, registry, phase, outcome,
       pendingResult, staging, alive, targetState, targetOwner, publishers>>
+
+vars == <<coreVars, callerCancellationViolation>>
+
+sharedProtocolState ==
+    <<joined, attemptCount, registry, phase, outcome, pendingResult, staging,
+      alive, targetState, targetOwner, publishers>>
 
 CurrentAttempt(p) == <<p, registry[p]>>
 
@@ -125,6 +134,7 @@ Init ==
     /\ targetState \in InitialTargetStates
     /\ targetOwner = NoOwner
     /\ publishers = {}
+    /\ callerCancellationViolation = FALSE
 
 StartLeader(c) ==
     LET p == Owner(c)
@@ -174,12 +184,36 @@ Observe(c) ==
           staging, alive, targetState, targetOwner, publishers>>
 
 CancelCallerWait(c) ==
+    LET p == Owner(c)
+        a == CurrentAttempt(p)
+        peerWaits ==
+            \E other \in Callers \ {c} :
+                /\ callerState[other] = "Waiting"
+                /\ joined[other] = a
+    IN
     /\ AllowCallerCancellation
     /\ callerState[c] = "Waiting"
-    /\ callerState' = [callerState EXCEPT ![c] = "CallerCancelled"]
-    /\ UNCHANGED
-        <<joined, attemptCount, registry, phase, outcome, pendingResult,
-          staging, alive, targetState, targetOwner, publishers>>
+    /\ IF PropagateCallerCancellation
+          /\ Active(p)
+          /\ joined[c] = a
+          /\ phase[p] = "Probe"
+          /\ peerWaits
+       THEN
+           /\ callerState' =
+               [other \in Callers |->
+                   IF callerState[other] = "Waiting" /\ joined[other] = a
+                   THEN "CallerCancelled"
+                   ELSE callerState[other]]
+           /\ phase' = [phase EXCEPT ![p] = "Resolving"]
+           /\ pendingResult' =
+               [pendingResult EXCEPT ![a] = "FactoryCancelled"]
+           /\ UNCHANGED
+               <<joined, attemptCount, registry, outcome, staging, alive,
+                 targetState, targetOwner, publishers>>
+       ELSE
+           /\ callerState' =
+               [callerState EXCEPT ![c] = "CallerCancelled"]
+           /\ UNCHANGED sharedProtocolState
 
 BoundExhausted(c) ==
     LET p == Owner(c)
@@ -496,9 +530,9 @@ Quiescent ==
 
 Quiesce ==
     /\ Quiescent
-    /\ UNCHANGED vars
+    /\ UNCHANGED coreVars
 
-Next ==
+CoreNext ==
     \/ \E c \in Callers : RequiredCallerStep(c)
     \/ \E c \in Callers : CancelCallerWait(c)
     \/ \E p \in Processes : ProtocolStep(p)
@@ -506,10 +540,29 @@ Next ==
     \/ \E p \in Processes : EnvironmentStep(p)
     \/ Quiesce
 
+CallerCancellationTransition(c) ==
+    /\ callerState[c] = "Waiting"
+    /\ callerState'[c] = "CallerCancelled"
+
+CallerCancellationEffectIsLocal(c) ==
+    /\ callerState' = [callerState EXCEPT ![c] = "CallerCancelled"]
+    /\ UNCHANGED sharedProtocolState
+
+CallerCancellationChangedSharedStateOrPeer ==
+    \E c \in Callers :
+        /\ CallerCancellationTransition(c)
+        /\ ~CallerCancellationEffectIsLocal(c)
+
+Next ==
+    /\ CoreNext
+    /\ callerCancellationViolation' =
+        (callerCancellationViolation
+            \/ CallerCancellationChangedSharedStateOrPeer)
+
 Fairness ==
-    /\ \A c \in Callers : WF_vars(RequiredCallerStep(c))
-    /\ \A p \in Processes : WF_vars(ProtocolStep(p))
-    /\ \A a \in AttemptIds : WF_vars(CompletionStep(a))
+    /\ \A c \in Callers : WF_coreVars(RequiredCallerStep(c))
+    /\ \A p \in Processes : WF_coreVars(ProtocolStep(p))
+    /\ \A a \in AttemptIds : WF_coreVars(CompletionStep(a))
 
 Spec ==
     /\ Init
@@ -529,6 +582,10 @@ TypeOK ==
     /\ targetState \in TargetStates
     /\ targetOwner \in Processes \cup {NoOwner}
     /\ publishers \subseteq Processes
+    /\ callerCancellationViolation \in BOOLEAN
+
+CallerCancellationIsLocal ==
+    ~callerCancellationViolation
 
 FinalPathIsAtomic ==
     targetState # "Partial"

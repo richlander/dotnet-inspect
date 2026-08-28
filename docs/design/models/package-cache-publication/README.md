@@ -40,6 +40,11 @@ outer `AsyncCache.ResolveAsync` task remains pending and registered.
 callers. A replacement attempt can start between those actions while old
 waiters continue to reference their original task.
 
+`callerCancellationViolation` is a transition monitor. It records whether a
+step that moves one waiting caller to `CallerCancelled` also changes shared
+protocol state or another caller. `CallerCancellationIsLocal` requires that
+monitor to remain false.
+
 ## Assumptions and non-claims
 
 The checked model assumes:
@@ -73,11 +78,12 @@ cancellation, so both retry paths are explored exactly one level deep.
 
 | Configuration | Purpose |
 | --- | --- |
-| `PackageCachePublicationSafety.cfg` | Explores absent and already-invalid target slots, caller cancellation, shared failure and cancellation, rename failure, process crash, retry, and competing publishers. Checks type safety, atomic final-path visibility, target ownership, at most one winning publisher, one registry-selected acquisition per process, joined-outcome consistency, and complete-target return. |
+| `PackageCachePublicationSafety.cfg` | Explores absent and already-invalid target slots, caller cancellation, shared failure and cancellation, rename failure, process crash, retry, and competing publishers. Checks type safety, atomic final-path visibility, target ownership, at most one winning publisher, one registry-selected acquisition per process, joined-outcome consistency, local caller cancellation, and complete-target return. |
 | `PackageCachePublicationLiveness.cfg` | Scripts the first attempt in each process to fail or receive factory cancellation; disables other injected failure, cancellation, crash, and unrelated rename failure; and checks retry success, waiter completion, and exact losing-attempt success under weak fairness. |
 | `PackageCachePublicationAdversarialLiveness.cfg` | Uses two callers per process and enables injected failure, factory and caller cancellation, crash, rename failure, and an initially invalid target. Checks waiter settlement and exact losing-attempt convergence under weak fairness while leaving disruptive environment actions unfair. |
 | `PackageCachePublicationCompletionOverlap.cfg` | Reachability witness that negates the real remove-before-observable-completion window. It must find attempt 2 registered while attempt 1 is still completing. |
 | `PackageCachePublicationBrokenAtomic.cfg` | Negative control that replaces atomic rename with direct final-path copy. It must violate `FinalPathIsAtomic`. |
+| `PackageCachePublicationBrokenCallerCancellation.cfg` | Negative control that propagates one caller's cancellation into its shared task and peer waiters. It must violate `CallerCancellationIsLocal`. |
 | `PackageCachePublicationBrokenEviction.cfg` | Negative control that retains failed registry entries. It must violate `NonSuccessAttemptEventuallySucceeds`. |
 
 `BoundedOut` is a model-checking terminal state for a request that arrives after
@@ -95,7 +101,8 @@ negative control demonstrates why it is load-bearing.
 The remaining safety invariants and temporal properties are protocol
 consequences checked across the encoded interleavings: one registry-selected
 acquisition per process, joined callers observing their own task's shared
-outcome, successful callers requiring a complete target, eventual removal and
+outcome, caller-only cancellation preserving shared protocol state and peer
+waiters, successful callers requiring a complete target, eventual removal and
 retry after a shared non-success, waiter settlement, and exact-attempt loser
 convergence. TLC action coverage was nonzero for task joining, the
 factory-settled/removal window, caller and factory cancellation, injected
@@ -143,6 +150,11 @@ java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
 
 java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
   -workers 1 -cleanup -noGenerateSpecTE \
+  -config PackageCachePublicationBrokenCallerCancellation.cfg \
+  PackageCachePublication.tla
+
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+  -workers 1 -cleanup -noGenerateSpecTE \
   -config PackageCachePublicationBrokenEviction.cfg \
   PackageCachePublication.tla
 ```
@@ -170,6 +182,10 @@ exposes the final path as `Partial` before direct copying completes. The
 failed-eviction counterexample retains attempt 1 in each process-local registry;
 retry callers join that completed failed task instead of allocating attempt 2,
 so no caller can reach a successful retry.
+
+The caller-cancellation counterexample starts two waiters on one active task,
+then lets one caller's cancellation resolve that shared task as cancelled and
+move its peer to `CallerCancelled`.
 
 The completion-overlap witness finds attempt 2 registered while attempt 1 is
 still in `Completing`, proving the model preserves old waiter identity across
