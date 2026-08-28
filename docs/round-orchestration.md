@@ -28,48 +28,9 @@ applies the round transition below.
 ### Apply the result
 
 Handle lifecycle, head mismatch, and conflict outcomes in the order defined by
-[GitHub status queries](github-status-queries.md). Clear status predicates and
-the retained schedule when the workflow leaves that wait. Preserve unrelated
-members such as `review`.
-
-A pending snapshot is not permission to poll. Keep its unresolved predicates
-visible in `waiting` and end the run. This is a passive wait unless a schedule
-is present: GitHub does not wake the agent when state changes. A later user or
-workflow turn may query again or arm one new keyed run when status once again
-gates an action.
-
-### Schedule at most one delayed run
-
-Do not arm a status check while independent work can continue. When status
-actually gates the next action, publish `rec=wait`, the unresolved predicates
-in `waiting`, and `goal=advance` for round progress or `goal=merge` for a
-readiness statement or merge attempt.
-
-Run immediately when a decision is already due. Otherwise schedule one check at
-the expected completion time: normally 10 minutes after a documentation push,
-35 minutes after another push, or five minutes later when current-head CI is
-green and mergeability alone remains unresolved. These are timing defaults, not
-a retry sequence. A rate-limited result instead uses the query classification's
-retry-not-before time; a transient result may use its conservative retry
-recommendation.
-
-Key the schedule to its own ID plus the expected `head`, complete `waiting` set,
-and `goal`. Cancel it when any key changes or the workflow leaves that wait. A
-stale run stops itself, removes its retained ID only when that ID still points
-to the stale run, and exits before querying GitHub. A current run stops itself
-and clears its retained ID before obtaining one snapshot.
-
-An immediate snapshot may arm the one delayed run when the result is pending,
-rate-limited, or transient. A scheduled run never schedules another run. If its
-result remains unresolved, it preserves the predicates and becomes a passive
-wait. A later user or workflow turn may explicitly re-enter status discovery.
-This structural bound replaces retry counters and prevents one-shot scheduling
-from becoming polling under another name.
-
-Leaving a status wait clears `schedule` and `goal`, removes the resolved status
-predicates, and replaces `rec=wait` with the transition's current
-recommendation. A pending result is the exception: it preserves `goal`,
-`rec=wait`, and the unresolved predicates, while `schedule` remains empty.
+[GitHub status queries](github-status-queries.md). Clear status predicates,
+`schedule`, `status-deadline`, and `goal` when the workflow leaves that wait.
+Preserve unrelated members such as `review`.
 
 Evaluate `waiting` as a set, not an exact string. Normalize new CI waits to
 `check:ci-required`, remove only predicates the result resolves, and preserve
@@ -81,19 +42,79 @@ unrelated members such as `review`. In the table, **status members** means
 | PR is merged | Leave the status wait, relinquish ownership, and end. |
 | PR is closed or draft | Leave the status wait, publish the human action or stopped state, and end. |
 | Head changed | Leave the status wait; route the returned head through candidate formation without inheriting fixed-head evidence. |
-| `mergeable: false` | Leave the status wait; apply conflict recovery before considering CI. |
+| REST `mergeable: false` or GraphQL `mergeable: CONFLICTING` | Leave the status wait; apply conflict recovery before considering CI. |
 | `ci-required` completed without `success` | Leave the status wait; classify the result and apply the applicable recovery transition. |
-| Green, conflict-free, `mergeable_state: "behind"`, `goal=merge` | Leave the status wait; apply carry-forward before reporting readiness or merging. |
-| Green, conflict-free, `mergeable_state: "blocked"` | For `goal=advance`, leave the status wait and continue when no other predicate remains. For `goal=merge`, leave the status wait, publish `blocked=<pr-number> rec=wait`, and end. |
-| Green and conflict-free at the expected head | Leave the status wait and continue when no other predicate remains. |
-| CI or mergeability is pending or missing | Preserve the unresolved status members. An immediate snapshot may arm the one keyed delayed run; a scheduled snapshot clears `schedule` and becomes a passive wait. |
-| Rate-limited or transient query failure | Preserve the unresolved status members and surface the failure. An immediate snapshot may arm the one keyed delayed run using the query classification's timing; a scheduled snapshot clears `schedule` and becomes a passive wait. |
+| GraphQL `mergeStateStatus: BLOCKED`, `goal=merge` | Leave the status wait, publish `blocked=<pr-number> rec=wait`, and end. |
+| Green `ci-required` and positive mergeability at the expected head | Leave the status wait and continue when no other predicate remains. |
+| CI or mergeability is pending or missing | Preserve the unresolved status members and apply the round cadence below. |
+| Rate-limited or transient query failure | Record the concrete failure and retry-not-before time, preserve the unresolved status members, and apply the round cadence below. |
 | Terminal query failure | Leave the status wait with `rec=stop`, surface the failure, and end. |
 
 Read the table top-down. Conflict recovery outranks CI, terminal non-green CI
-outranks the remaining merge states, and carry-forward outranks a generic green
-exit for a merge goal. Do not use `gh run watch`, `gh pr checks --watch`,
-fixed-rate schedules, synchronous sleeps, or repeated ad hoc status turns.
+outranks the remaining merge states, and a documented GraphQL block prevents a
+merge goal. Carry-forward remains a separate pre-merge obligation driven by the
+fetched base tip, not by undocumented REST `mergeable_state` values.
+
+### Bounded status waiting
+
+*This section defines repository policy, not GitHub timing guarantees.*
+
+Every round attempts one current-head snapshot. At an ordinary round, a
+pending, rate-limited, or transient result is recorded and the next round
+continues. A known conflict, non-green `ci-required`, or terminal query failure
+still takes its transition.
+
+Every third round spends up to a 60-minute status budget before it may advance;
+a merge or readiness goal may use the same bound. Every sixth round uses that
+budget, but fresh green current-head `ci-required` and positive mergeability
+remain prerequisites for the next-block approval prompt. Measure the budget
+from the first scheduled wait and publish `status-deadline=<UTC>`.
+
+Arm at most one schedule at a time. Key it to its own ID plus the expected
+`head`, complete `waiting` set, `goal`, and deadline. A stale run stops itself
+and exits before querying GitHub. A current run stops itself, clears the
+retained ID, obtains one snapshot, and may arm one successor only when the
+deadline still permits it.
+
+For rate limits, never schedule before the query classification's
+retry-not-before time. GitHub documents `Retry-After` as authoritative,
+`x-ratelimit-reset` when the primary remaining count is zero, and at least a
+one-minute exponentially increasing delay for a secondary limit without
+either header. For pending or transient status without an authoritative time,
+choose a conservative delay and never schedule beyond the deadline. Do not use
+`gh run watch`, `gh pr checks --watch`, fixed-rate schedules, synchronous
+sleeps, or concurrent status requests.
+
+When the budget expires with status unresolved, clear `schedule`, keep the
+unresolved predicates, publish the report below, set `rec=stop`, and end. This
+is an informational stop: it ends observation only and neither closes nor
+abandons the PR.
+
+### Status budget report
+
+Emit this report as visible session output, never inside an approval prompt:
+
+```text
+Status not observed for PR <number> at round <n> after <mm> minutes.
+- Head: <40-character SHA>
+- Unresolved: <waiting predicates>
+- Last observation: ci-required=<state|not-observed>,
+  mergeable=<true|false|null|not-observed> at <datetime>.
+- Cause: <rate-limit evidence, transient failure, or still running/queued>.
+- Snapshots: <count>, last at <datetime>.
+- This is not a CI result. No failing check was observed. GitHub documents
+  hosted-job execution limits up to 6 hours and self-hosted queue limits up to
+  24 hours, so this repository's 60-minute budget can expire first.
+- Effect: <next round not started | boundary approval withheld>.
+- Next: <what a later user or workflow turn should re-check>.
+Recommendation: stop (status budget exhausted); nothing is closed or abandoned.
+```
+
+Never describe an unobserved result as failure, red, or blocked. Cite the
+observed HTTP status and rate-limit headers rather than guessing the cause. At
+a six-round boundary, withhold the approval prompt until a later current-head
+snapshot satisfies the prerequisite. The duration context comes from
+[GitHub Actions limits](https://docs.github.com/en/actions/reference/limits).
 
 ## Running a round
 
@@ -231,9 +252,12 @@ a blocker, and it clears only when every listed predicate clears.
   missing, use `Waiting: check:ci-required` and `Recommendation: wait`. Use
   `Waiting: check:ci-required,merge` when live mergeability is also unresolved.
   An intermediate or fix-producing round reports `continue` without waiting for
-  CI only when the next round remains inside the current authorized block. At a
-  six-round boundary, use the applicable approval, split, or stop recommendation
-  without waiting for CI.
+  CI only when the next round remains inside the current authorized block and
+  the status cadence permits it. At a six-round boundary, fresh green
+  current-head `ci-required` and positive mergeability are prerequisites for
+  an `approve next rounds` recommendation. If the status budget expires first,
+  publish the status budget report and withhold that approval prompt; the
+  checkpoint may still recommend split or judgment-stop on its own evidence.
 - `split into focused successors` is valid at round 12 and later six-round
   boundaries after the required checkpoint. It requests the user's split
   decision and follows the transition in
@@ -241,8 +265,10 @@ a blocker, and it clears only when every listed predicate clears.
 - `approve next rounds` is valid only after rounds 6, 12, 18, and so on, after
   the required architectural checkpoint. Never use it for an earlier round in
   the current block.
-- `merge`, `split into focused successors`, `approve next rounds`, and `stop`
-  request a user decision; `stop` does not close anything until approved.
+- `merge`, `split into focused successors`, `approve next rounds`, and a
+  judgment `stop` request a user decision; judgment `stop` does not close
+  anything until approved. `stop (status budget exhausted)` is informational:
+  it requests no decision and leaves the PR and round state unchanged.
 
 When the recommendation needs approval, render the complete report first as
 normal session output. Then open a separate prompt containing only the concise
@@ -268,8 +294,9 @@ the procedure once it does.
    non-mutating, resolve its remote-tracking ref to an exact SHA, and compare
    that SHA with the candidate's recorded base tip. Do not spend GraphQL solely
    to read the live base tip. If a graph-shaped query is already justified,
-   `baseRef.target.oid` provides the same live value; `baseRefOid` is only the
-   base commit recorded for the PR.
+   the documented `baseRef.target.oid` identifies the object currently pointed
+   to by the base ref. Do not rely on undocumented assumptions about
+   `baseRefOid` freshness.
 2. **Inspect without integrating.** Read the exact landed range between the
    recorded and fetched tips.
 3. **Classify and report.** As normal session output, report which commits

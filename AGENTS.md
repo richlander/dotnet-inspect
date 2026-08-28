@@ -147,16 +147,15 @@ act on them**:
   and nothing is openable — a check that has not reported yet is not a defect
   and does not deserve an issue.
 
-When GitHub status gates the next action, publish `goal=advance|merge` and the
-unresolved status predicates in `waiting`. A delayed check is one cancellable,
-one-shot run keyed to the recorded `head`, `waiting`, and `goal`; publish its
-`schedule=<id>`, cancel it when those values change, and clear it before the
-run queries GitHub. It must not schedule a successor. Follow
+When GitHub status is being acquired, publish `goal=advance|merge` and the
+unresolved status predicates in `waiting`. During a bounded wait, also publish
+`status-deadline=<UTC>` and at most one active `schedule=<id>`. Key that
+schedule to the recorded `head`, `waiting`, `goal`, and deadline; cancel stale
+runs and clear the ID before querying GitHub. Follow
 [GitHub status queries](docs/github-status-queries.md) for the request and
 response contract and
 [Status discovery](docs/round-orchestration.md#status-discovery) for round
-transitions. A wait without `schedule` is passive and resumes only after a
-later user or workflow turn explicitly re-enters status discovery.
+transitions and the 60-minute budget.
 
 `rec=wait` is coherent when either is populated. `blocked=ci` is the specific
 error this split exists to remove: it names nothing a person can open and
@@ -727,13 +726,13 @@ driving the loop is
 5. **Never claim merge readiness from label state alone.** Confirm current-head
    CI and GitHub's live mergeability immediately before every merge attempt,
    even when `review-clean` is present.
-6. **A round closes only when reconciled and green.** Both: the feedback is
-   publicly reconciled, and every required current-head check and post-push gate
-   has succeeded. For a documentation-only PR, the pre-commit `markdownlint`
-   result is the per-round green gate; `ci-required` may remain pending until
-   final merge readiness. Until the applicable gate is green the round number
-   does not advance — a check that goes red first makes the next push a
-   failed-gate restart at the *same* number, not the next round.
+6. **A round closes only when reconciled and its applicable gates are green.**
+   Feedback must be publicly reconciled and every focused or post-push local
+   gate must succeed. A known-red current-head `ci-required` still blocks; an
+   unavailable or pending status follows
+   [Status acquisition cadence](#status-acquisition-cadence). For a
+   documentation-only PR, pre-commit `markdownlint` is the per-round local
+   gate. A failure requiring an author change restarts the *same* round.
 7. **Six rounds, then stop** and ask for another block.
 8. **Never merge without explicit user authorization** for that specific PR.
    Auto-merge armed at the user's direction is that authorization; see
@@ -758,29 +757,57 @@ recovery transition supersedes it.
 7. Satisfy the applicable eligibility row below.
 8. Dispatch every required reviewer at the exact candidate head.
 9. Reconcile all feedback publicly.
-10. Close only when reconciliation and every current-head gate are green. The
-    lock ends, the round number is spent, and the visible
+10. Close only when reconciliation, the applicable local gates, and the status
+    acquisition cadence are satisfied. The lock ends, the round number is
+    spent, and the visible
     [round report](docs/round-orchestration.md#the-round-report) is required.
 
 Both integrations happen before the push. Base movement after the push does not
 reopen the locked candidate.
 
+#### Status acquisition cadence
+
+*This cadence is repository policy; GitHub has no concept of review rounds or
+approval blocks.*
+
+- **Every round:** attempt one current-head snapshot of `ci-required`, failed
+  leaf checks, and mergeability. The round transition justifies the read; it is
+  not a time-triggered poll.
+- **Ordinary rounds:** if status remains pending or a rate limit or transient
+  GitHub failure prevents an accurate snapshot, record the observation and
+  continue to the next round. Unavailable status is not green, red, or evidence
+  of anything; a known conflict or non-green `ci-required` still takes its
+  recovery transition.
+- **Every third round:** spend up to 60 minutes acquiring status before the
+  round may advance. If the budget expires without a definitive result, publish
+  the
+  [status budget report](docs/round-orchestration.md#status-budget-report), set
+  `rec=stop`, and end the turn without starting the next round. A later user or
+  workflow turn re-enters status discovery. Rounds divisible by six also
+  follow the stronger boundary rule below.
+- **Every sixth round:** fresh green current-head `ci-required` and definite
+  positive mergeability are prerequisites before requesting approval for
+  another block. The 60-minute budget applies, but expiry produces a status
+  report, not an approval prompt. This rule supersedes the ordinary-round
+  continue behavior and the documentation-only CI allowance.
+
 | Attempt | Required before reviewer dispatch | May remain pending |
 | --- | --- | --- |
 | First attempt at round 1 | Pushed settled head, recorded effective base, focused gate | CI and mergeability |
-| Ordinary subsequent round | First-attempt requirements, zero conflicts, green current-head `ci-required` | Nothing required |
+| Ordinary subsequent round | First-attempt requirements, one status attempt, and no observed conflict or non-green `ci-required` | Pending or unavailable CI and mergeability, subject to the cadence above |
 | Conflict-recovery attempt | Resolution head pushed, round number authorized | Post-push local gates, CI, mergeability |
-| Failed-gate restart | Required fix pushed, zero conflicts, green current-head `ci-required` | Nothing required |
+| Failed-gate restart | Required fix pushed, one status attempt, and no observed conflict or non-green `ci-required` | Pending or unavailable CI and mergeability, subject to the cadence above |
+| Six-round boundary approval | Fresh green current-head `ci-required` and definite positive mergeability | Nothing |
 
 Documentation-only candidates do not wait for CI before review. Read the
 applicable attempt row with only two substitutions: `markdownlint` must pass
 before commit and replaces any requirement for green current-head
-`ci-required`, and `ci-required` may remain pending. Every other requirement
-still applies, including the settled push, recorded effective base, zero
-conflicts where required, and round authorization. A documentation-only round
-may close after reconciliation and the local lint gate; `ci-required` remains
-mandatory for final merge readiness. The user may authorize review in parallel
-with CI for other changes.
+`ci-required`, and `ci-required` may remain pending at a non-boundary round.
+Every other requirement still applies, including the settled push, recorded
+effective base, status cadence, and round authorization. A documentation-only
+round may close after reconciliation and the local lint gate; `ci-required`
+remains mandatory at every six-round boundary and for final merge readiness.
+The user may authorize review in parallel with CI for other changes.
 
 #### Review-clean, and what it gates
 
@@ -836,10 +863,11 @@ a resume and for the carry-forward analysis below.
 
 Before merge, re-read GitHub state and confirm the expected head, non-draft
 status, positive mergeability, and successful current-head `ci-required`.
-REST `mergeable_state: "blocked"` (GraphQL `mergeStateStatus: BLOCKED`), a true
-REST or GraphQL draft flag, REST `mergeable: null` (GraphQL
-`mergeable: UNKNOWN`), a missing check, or a check from another head is not
-ready. Follow [GitHub status queries](docs/github-status-queries.md).
+A true draft flag, REST `mergeable: null` or GraphQL `mergeable: UNKNOWN`, a
+missing gate, or a gate from another head is not ready. A merge or readiness
+goal uses a GraphQL snapshot so documented `mergeStateStatus: BLOCKED` can also
+block the action; do not infer that enum from the undocumented values of REST
+`mergeable_state`. Follow [GitHub status queries](docs/github-status-queries.md).
 
 For stacks, every open layer must meet its applicable eligibility row. A
 known-red or conflicted parent blocks upper slices; a pending parent does not
@@ -948,7 +976,14 @@ candidate cycle; do not ask for approval, set `HELP`, or wait for user input.
 Approval is required only before rounds 7, 13, 19, and so on. Each approval
 allows at most six more rounds; stop sooner when review converges. At a block
 boundary, conflict recovery may resolve and push immediately, but reviewers
-still wait for approval, unless an immutable split decision hold is active.
+still wait for approval, unless an immutable split decision hold is active. A
+boundary push resets the status prerequisite; checks from the previous head do
+not satisfy it.
+
+Before offering `approve next rounds`, acquire fresh green current-head
+`ci-required` and definite positive mergeability under the 60-minute status
+budget. If the budget expires, publish the status budget report and stop
+observation without opening an approval prompt.
 
 Before requesting another block, answer:
 
@@ -1049,16 +1084,18 @@ Put it under `## Demo` above validation in the PR body.
   Verify the resulting metadata after the REST update.
 - Treat CI as confirmation: run the focused local gate, then push promptly.
   Run eligible local suites, CI, and review concurrently.
-- Treat GitHub API capacity as shared and scarce. Follow
+- Treat GitHub API capacity as shared and scarce repository capacity. Follow
   [GitHub status queries](docs/github-status-queries.md): query only when the
-  result gates the next action, use REST for routine status, never probe quota,
-  and use at most one keyed delayed run instead of polling.
+  round cadence or next action requires it, use response headers instead of
+  quota probes, and obey the bounded waiting rules instead of polling.
 - A settled candidate should spend wall-clock time in parallel. If an hour
   passes without an authored change while an independent gate has not started,
   fix the sequencing or record the blocker.
-- `ci-required` is the only merge-gating check. It passes when all jobs that ran
-  succeeded or skipped; a missing aggregate is not green. Never require a
-  path-gated job directly, and do not broaden CI without measured need.
+- `ci-required` is this repository's aggregate merge gate, defined in
+  `.github/workflows/ci.yml`. It passes when all jobs that ran succeeded or
+  skipped; repository policy requires the aggregate itself to conclude
+  `success`, and a missing aggregate is not green. Never require a path-gated
+  job directly, and do not broaden CI without measured need.
 - Keep PR summaries conclusion-first: claim, evidence, compatibility or
   non-action boundary, and exact validation.
 - `review-clean` records clean reviews as of a head SHA; it is advisory, not a
