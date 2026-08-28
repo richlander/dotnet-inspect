@@ -411,13 +411,17 @@ and `PackageVersionVectorTests.ResolveAsync_FallsThroughFailedHttpSource`.
 
 `--versions-with-feed` keeps provenance that the merged views discard. It shows
 which feeds carry each coordinate, including a coordinate published by more than
-one feed. Its declared row is one `(version, feed)` observation. The pending L3
-and source-pushdown designs own how future semantic selection composes with
-those rows; this document chooses no replacement count syntax or cutoff rule.
-The primary version order is the containing Vector's order: newest-first for a
-bare package and caller direction for `Package@A..B`. Equal-version rows then
-sort by the credential-free canonical producer key in ordinal order.
-Presentation labels do not define this tie-breaker.
+one feed. Its rendered row is one `(version, feed)` observation. The released
+count-valued `--versions-with-feed N` option limits the result to N distinct
+versions and then emits every feed carrying each selected version;
+`SourcePrecedenceTests.GetVersionListingsWithSource_LimitCountsVersionsNotRows`
+gates that cutoff. The pending L3 and source-pushdown designs own how future
+semantic selection composes with the rendered rows; this document chooses no
+replacement count syntax or cutoff rule. The primary version order is the
+containing Vector's order: newest-first for a bare package and caller direction
+for `Package@A..B`. Equal-version rows then sort by the credential-free
+canonical producer key in ordinal order. Presentation labels do not define
+this tie-breaker.
 
 ### Listing status across sources
 

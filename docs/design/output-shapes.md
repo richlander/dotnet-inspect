@@ -65,7 +65,9 @@ logical relationship. Its package groups and finer member/type nodes are
 presentation context. Every format must receive the same selected logical
 edges. Isolated explicit packages remain node/group context in graph and JSON
 views, but never become empty data rows in the default Markdown edge table.
-The pending L2 integration design must name the common-handoff gate.
+`OutputModes_UseTheSameWindowedLogicalEdges` gates current Markdown, table,
+JSON, JSONL, and count parity over the same `--rows`-selected edges. The pending
+L2 integration design must name the gate for its future common handoff.
 
 The `graph integrations --json` failure array preserves both presentation and
 typed addressing: each failure carries its rendered target plus
@@ -93,8 +95,8 @@ evidence rather than exposing
 document-local occurrence ids without the occurrence collection that owns
 them. `ProductionShapedEndpoints_RetainPackageOwnership`,
 `AcquiredEndpoints_RetainAssemblyWithinOnePackage`,
-`AcquiredFailureTargets_RetainAssemblyWithinOnePackage`, and
-`OutputModes_UseTheSameWindowedLogicalEdges` gate these contracts.
+and `AcquiredFailureTargets_RetainAssemblyWithinOnePackage` gate these
+contracts.
 
 ## Flag families
 
@@ -288,9 +290,31 @@ rather than reconstructing it from rendered position.
 
 The focused payload design listed in
 [Item and line selection composition](item-and-line-limits.md) owns future
-print cardinality, preflight, framing, structured results, failures, Markdown
-scoping, line selection, acquisition, and destination publication. This shape
-document chooses none of those behaviors or their CLI spellings.
+print cardinality, framing, structured results, failures, line selection,
+acquisition, and destination publication. This shape document chooses none of
+those future behaviors or their CLI spellings.
+
+Released Markdown scoping remains command-owned until an explicit migration.
+`--frontmatter`/`--yaml-header` and `--body` apply only to Markdown documents,
+and Markdown link rewriting changes GitHub `blob` targets to fetchable `raw`
+targets. `Package_ReadmeFrontmatter_PrintsOnlyYamlHeader`,
+`Package_ReadmeBody_PrintsContentAfterYamlHeader`, and
+`Package_Readme_DefaultNormalizesGithubBlobLinksToRaw` gate those
+transformations. A package README's kind comes from its manifest role when its
+file name has no dot; otherwise the name decides. Any dot counts as naming a
+kind, including in `logo.png.`, `.png`, or `.README`, so a manifest role never
+makes those names Markdown.
+`Package_ExtensionlessReadme_IsStillTreatedAsMarkdown`,
+`Package_DeclaredReadme_KeepsItsRoleWhenTheConventionalNameAlsoExists`, and
+`Package_DeclaredNonMarkdownReadme_IsStillNotMarkdown` gate those rules.
+
+The current `--print` and `--content` paths resolve row selection before
+Markdown-scope validation and payload acquisition. If any selected document is
+not Markdown, the request rejects and names the first such document rather than
+silently returning the whole document or dropping that row.
+`Package_NuspecPrint_RefusesMarkdownScopes` gates the refusal for a selected
+non-Markdown document. Mixed-selection atomicity and the pre-acquisition
+ordering are implemented but currently unverified.
 
 A projection may consume only capabilities and payloads declared on already
 selected rows. It does not reinterpret an address as an artifact, evaluate an
