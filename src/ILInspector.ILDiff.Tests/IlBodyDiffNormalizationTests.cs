@@ -159,6 +159,17 @@ public class IlBodyDiffNormalizationTests
         AssertArrayOperandDiff(
             ArrayParameterSignature(33, oldSizes, lowerBounds),
             ArrayParameterSignature(33, newSizes, lowerBounds));
+
+        AssertNestedArrayOperandDiff(
+            [ArrayTypeSignature(6)],
+            [ArrayTypeSignature(7)]);
+        AssertNestedArrayOperandDiff(
+            [ModifiedTypeSpecSignature(2), ArrayTypeSignature(6)],
+            [ModifiedTypeSpecSignature(2), ArrayTypeSignature(7)]);
+        AssertNestedArrayOperandDiff(
+            [RepresentableArrayTypeSignature(6)],
+            [RepresentableArrayTypeSignature(7)],
+            RejectedArrayAndModifiedTypeSpecParameterSignature());
     }
 
     [Fact]
@@ -171,6 +182,30 @@ public class IlBodyDiffNormalizationTests
         using var newStream = new MemoryStream(BuildCallImage(
             "Shapes",
             methodSignature: ArrayParameterSignature(33, [7], []),
+            emitCall: false));
+
+        var result = IlAssemblyDiff.CompareStreams(
+            oldStream,
+            "old.dll",
+            newStream,
+            "new.dll").Diff;
+
+        Assert.Equal(0, result.ComparedBodyCount);
+        Assert.Equal(0, result.PairExactCount);
+    }
+
+    [Fact]
+    public void CompareStreams_DoesNotAlignMethodsWithDifferentNestedRejectedArraySignatures()
+    {
+        using var oldStream = new MemoryStream(BuildCallImage(
+            "Shapes",
+            methodSignature: ModifiedTypeSpecParameterSignature(),
+            typeSpecifications: [ArrayTypeSignature(6)],
+            emitCall: false));
+        using var newStream = new MemoryStream(BuildCallImage(
+            "Shapes",
+            methodSignature: ModifiedTypeSpecParameterSignature(),
+            typeSpecifications: [ArrayTypeSignature(7)],
             emitCall: false));
 
         var result = IlAssemblyDiff.CompareStreams(
@@ -329,6 +364,29 @@ public class IlBodyDiffNormalizationTests
         Assert.False(diff.IsExact);
     }
 
+    static void AssertNestedArrayOperandDiff(
+        byte[][] oldTypeSpecifications,
+        byte[][] newTypeSpecifications,
+        byte[]? signature = null)
+    {
+        signature ??= ModifiedTypeSpecParameterSignature();
+        var oldImage = BuildCallImage(
+            "Shapes",
+            "Library",
+            targetSignature: signature,
+            typeSpecifications: oldTypeSpecifications);
+        var newImage = BuildCallImage(
+            "Shapes",
+            "Library",
+            targetSignature: signature,
+            typeSpecifications: newTypeSpecifications);
+
+        var diff = CompareImages(oldImage, newImage);
+
+        Assert.Equal(IlBodyDiffOutcome.OperandDiff, diff.Outcome);
+        Assert.False(diff.IsExact);
+    }
+
     static byte[] BuildCallImage(
         string assemblyName,
         string? referenceAssemblyName = null,
@@ -336,6 +394,7 @@ public class IlBodyDiffNormalizationTests
         string? typeName = null,
         byte[]? targetSignature = null,
         byte[]? methodSignature = null,
+        byte[][]? typeSpecifications = null,
         bool emitCall = true)
     {
         var metadata = new MetadataBuilder();
@@ -352,6 +411,11 @@ public class IlBodyDiffNormalizationTests
             default,
             default,
             default);
+        if (typeSpecifications is not null)
+        {
+            foreach (byte[] signature in typeSpecifications)
+                metadata.AddTypeSpecification(metadata.GetOrAddBlob(signature));
+        }
         EntityHandle target;
         if (referenceAssemblyName is null)
         {
@@ -436,6 +500,62 @@ public class IlBodyDiffNormalizationTests
         signature.WriteCompressedInteger(lowerBounds.Length);
         foreach (int lowerBound in lowerBounds)
             signature.WriteCompressedSignedInteger(lowerBound);
+        return signature.ToArray();
+    }
+
+    static byte[] ArrayTypeSignature(int size) =>
+    [
+        0x14, // ARRAY
+        0x08, // int32 element type
+        0x01, // rank 1
+        0x01, // one size
+        (byte)size,
+        0x00, // no lower bounds
+    ];
+
+    static byte[] RepresentableArrayTypeSignature(int size) =>
+    [
+        0x14, // ARRAY
+        0x08, // int32 element type
+        0x01, // rank 1
+        0x01, // one size
+        (byte)size,
+        0x01, // one lower bound
+        0x00, // zero lower bound
+    ];
+
+    static byte[] ModifiedTypeSpecParameterSignature() =>
+    [
+        0x00, // default method signature
+        0x01, // one parameter
+        0x01, // void return type
+        0x1f, // required modifier
+        0x06, // TypeSpec row 1
+        0x08, // int32 parameter type
+    ];
+
+    static byte[] RejectedArrayAndModifiedTypeSpecParameterSignature() =>
+    [
+        0x00, // default method signature
+        0x02, // two parameters
+        0x01, // void return type
+        0x14, // ARRAY
+        0x08, // int32 element type
+        0x01, // rank 1
+        0x01, // one size
+        0x06, // size 6
+        0x00, // no lower bounds
+        0x1f, // required modifier
+        0x06, // TypeSpec row 1
+        0x08, // int32 parameter type
+    ];
+
+    static byte[] ModifiedTypeSpecSignature(int row)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x1f); // required modifier
+        signature.WriteCompressedInteger((row << 2) | 2);
+        signature.WriteByte(0x08); // int32
         return signature.ToArray();
     }
 

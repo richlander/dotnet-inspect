@@ -219,56 +219,56 @@ public static partial class IlBodyDiff
                 provider,
                 null,
                 out var decoded)
-                && !provider.HasUnrenderableArrayShape
+                && !provider.HasArrayShapeRejection
                 ? decoded
-                : GuardedProviderDecode.RejectedIdentity(reader, specification.Signature);
+                : provider.RejectedIdentity(reader, specification.Signature);
         }
 
         MethodSignature<string> DecodeMethod(MethodDefinition method)
         {
             var provider = new SignatureIdentityProvider();
             return GuardedProviderDecode.TryMethod(reader, method, provider, null, out var decoded)
-                && !provider.HasUnrenderableArrayShape
+                && !provider.HasArrayShapeRejection
                 ? decoded
                 : GuardedProviderDecode.FallbackSignature(
-                    GuardedProviderDecode.RejectedIdentity(reader, method.Signature));
+                    provider.RejectedIdentity(reader, method.Signature));
         }
 
         MethodSignature<string> DecodeMemberReferenceMethod(MemberReference member)
         {
             var provider = new SignatureIdentityProvider();
             return GuardedProviderDecode.TryMemberRefMethod(reader, member, provider, null, out var decoded)
-                && !provider.HasUnrenderableArrayShape
+                && !provider.HasArrayShapeRejection
                 ? decoded
                 : GuardedProviderDecode.FallbackSignature(
-                    GuardedProviderDecode.RejectedIdentity(reader, member.Signature));
+                    provider.RejectedIdentity(reader, member.Signature));
         }
 
         ImmutableArray<string> DecodeMethodSpecification(MethodSpecification specification)
         {
             var provider = new SignatureIdentityProvider();
             return GuardedProviderDecode.TryMethodSpec(reader, specification, provider, null, out var decoded)
-                && !provider.HasUnrenderableArrayShape
+                && !provider.HasArrayShapeRejection
                 ? decoded
-                : [GuardedProviderDecode.RejectedIdentity(reader, specification.Signature)];
+                : [provider.RejectedIdentity(reader, specification.Signature)];
         }
 
         string DecodeField(FieldDefinition field)
         {
             var provider = new SignatureIdentityProvider();
             return GuardedProviderDecode.TryField(reader, field, provider, null, out var decoded)
-                && !provider.HasUnrenderableArrayShape
+                && !provider.HasArrayShapeRejection
                 ? decoded
-                : GuardedProviderDecode.RejectedIdentity(reader, field.Signature);
+                : provider.RejectedIdentity(reader, field.Signature);
         }
 
         string DecodeMemberReferenceField(MemberReference member)
         {
             var provider = new SignatureIdentityProvider();
             return GuardedProviderDecode.TryMemberRefField(reader, member, provider, null, out var decoded)
-                && !provider.HasUnrenderableArrayShape
+                && !provider.HasArrayShapeRejection
                 ? decoded
-                : GuardedProviderDecode.RejectedIdentity(reader, member.Signature);
+                : provider.RejectedIdentity(reader, member.Signature);
         }
 
         string FormatTypeDefinition(TypeDefinitionHandle handle)
@@ -397,13 +397,18 @@ public static partial class IlBodyDiff
     {
         // Malformed metadata can make a declaring type or resolution-scope chain cyclic, so
         // the TypeName climbs below would recurse until an uncatchable StackOverflowException.
-        // Cap the climb ([ThreadStatic] so the shared Instance stays thread-safe) and degrade
+        // Cap the climb ([ThreadStatic] so concurrent decodes stay independent) and degrade
         // to the leaf name past the cap.
         [ThreadStatic]
         static int s_climbDepth;
         const int MaxClimbDepth = 256;
 
-        public bool HasUnrenderableArrayShape { get; private set; }
+        readonly ArrayShapeIdentityRejections _arrayShapeRejections = new();
+
+        public bool HasArrayShapeRejection => _arrayShapeRejections.HasRejection;
+
+        public string RejectedIdentity(MetadataReader reader, BlobHandle signature)
+            => _arrayShapeRejections.Identity(reader, signature);
 
         public string GetPrimitiveType(PrimitiveTypeCode typeCode)
             => typeCode switch
@@ -438,13 +443,17 @@ public static partial class IlBodyDiff
         public string GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
         {
             var specification = reader.GetTypeSpecification(handle);
-            return GuardedProviderDecode.TryTypeSpec(
+            bool decoded = GuardedProviderDecode.TryTypeSpec(
                 reader,
                 handle,
                 this,
                 genericContext,
-                out var decoded)
-                ? decoded
+                out var type);
+            _arrayShapeRejections.RecordTypeSpecification(
+                reader,
+                specification.Signature);
+            return decoded
+                ? type
                 : GuardedProviderDecode.RejectedIdentity(reader, specification.Signature);
         }
 
@@ -454,7 +463,7 @@ public static partial class IlBodyDiff
             if (ArrayShapeText.TryFormat(elementType, shape, out string text))
                 return text;
 
-            HasUnrenderableArrayShape = true;
+            _arrayShapeRejections.Reject();
             return text;
         }
         public string GetByReferenceType(string elementType) => $"{elementType}&";
