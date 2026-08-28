@@ -5,10 +5,15 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.AssemblyOnlyHost.Fixture;
 
+public sealed record AssemblyOnlyInspectionResult(
+    string AssemblyName,
+    ArtifactAcquisitionRegistration ArtifactRegistration,
+    AssemblyAcquisitionRegistration AssemblyRegistration);
+
 public static class AssemblyOnlyInspector
 {
-    public static async ValueTask<string>
-        ReadAssemblyNameAfterDeletingSourceAsync(
+    public static async ValueTask<AssemblyOnlyInspectionResult>
+        InspectAfterDeletingSourceAsync(
         string assemblyPath,
         CancellationToken cancellationToken = default)
     {
@@ -52,8 +57,11 @@ public static class AssemblyOnlyInspector
                 "The local artifact lacks caller-designation authority.");
         }
 
+        ArtifactAcquisitionRegistration artifactRegistration =
+            content.Registration;
         ResolvedAssemblyReference assembly =
-            ResolvedAssemblyReference.CreateFromStreamIfManaged(
+            ResolvedAssemblyReference.CreateFromArtifactIfManaged(
+                artifactRegistration,
                 content.OpenRead,
                 AssemblyResolutionProvenance.Local(
                     "artifact-session"))
@@ -61,9 +69,12 @@ public static class AssemblyOnlyInspector
                 "The local artifact has no managed metadata.");
         using AssemblyInspectionSession session =
             AssemblyInspectionSession.Open(assembly);
-        return session.AssemblyInfo().AssemblyName
-            ?? throw new InvalidDataException(
-                $"{assemblyPath} has no assembly name.");
+        return new AssemblyOnlyInspectionResult(
+            session.AssemblyInfo().AssemblyName
+                ?? throw new InvalidDataException(
+                    $"{assemblyPath} has no assembly name."),
+            artifactRegistration,
+            assembly.Registration);
     }
 
     private static T AssertSingle<T>(IReadOnlyList<T> values) =>
