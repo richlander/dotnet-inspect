@@ -170,6 +170,30 @@ public sealed class PackageManifestFactsQueryTests
     }
 
     [Fact]
+    public void Execute_ReportsIncompatibleMetadataNamespaceAsUnsupportedDocumentShape()
+    {
+        PackageManifestFactsResult.Failed failure = Assert.IsType<
+            PackageManifestFactsResult.Failed>(
+                PackageManifestFactsQuery.Execute(
+                    Encoding.UTF8.GetBytes(
+                        """
+                        <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+                          <metadata xmlns="http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd">
+                            <id>Example.Package</id>
+                            <version>1.0.0</version>
+                          </metadata>
+                        </package>
+                        """),
+                    PackageSourceCoordinate.Create(
+                        "Example.Package",
+                        "1.0.0")));
+
+        Assert.Equal(
+            PackageManifestFailureReason.UnsupportedDocumentShape,
+            failure.Failure.Reason);
+    }
+
+    [Fact]
     public void Execute_RejectsInvalidDependencyContract()
     {
         PackageManifestFactsResult.Failed failure = Assert.IsType<

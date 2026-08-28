@@ -5374,19 +5374,6 @@ public class CfgSampleClass
     }
 }
 
-public sealed class RefKindBox<T>
-{
-    T _value = default!;
-
-    public bool TryGet(out T value)
-    {
-        value = _value;
-        return true;
-    }
-
-    public void Put(in T value) => _value = value;
-}
-
 public interface IJoinShape
 {
     string Shape();
@@ -5409,17 +5396,6 @@ public sealed class JoinDerived : JoinBase
 public sealed class JoinImpl : IJoinShape
 {
     public string Shape() => "impl";
-}
-
-public sealed class SlotReuseSection
-{
-    public string Status { get; set; } = "";
-    public int Missing { get; set; }
-}
-
-public sealed class JoinTypeProvider
-{
-    public System.Type ResolvedType => typeof(string);
 }
 
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }
