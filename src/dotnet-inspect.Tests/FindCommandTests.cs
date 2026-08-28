@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text;
 using System.Text.Json;
 using DotnetInspector.Queries;
 using DotnetInspector.Commands;
@@ -440,6 +441,60 @@ public class FindCommandTests
     }
 
     [Fact]
+    public async Task
+        PackageProfileDefaultScale_AcquiresEachManifestOnceAndBoundsProjectedRows()
+    {
+        const int candidateCount = 100;
+        const int dependenciesPerManifest = 64;
+        const int projectedRowLimit = 25;
+        var source = new DefaultScalePackageSource(
+            candidateCount,
+            dependenciesPerManifest);
+        PackageProfileSectionCatalog catalog =
+            PackageProfileSections.CreateCatalog();
+        HashSet<InspectionQueryDefinition> requested =
+            catalog.Pipeline.GetRequiredQueries(
+                Verbosity.Normal,
+                [PackageProfileSections.Packages]);
+
+        InspectionQueryResults results =
+            await catalog.QueryRegistry.RunAsync(
+                requested,
+                new PackageProfileQueryContext(
+                    source,
+                    new PackagePrefixProfileRequest("Contoso.")),
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        ImmutableArray<PackageProfileEvent> events =
+            results.Get(PackageProfileQuery.Definition);
+        PackageProfileView view =
+            PackageProfileSections.CreateDocument(
+                "Contoso.",
+                events,
+                RowWindow.Head(projectedRowLimit));
+        ImmutableArray<PackageProfileEvent> secondRead =
+            results.Get(PackageProfileQuery.Definition);
+
+        Assert.Equal(1, source.SearchRequests);
+        Assert.Equal(candidateCount, source.ManifestRequests.Count);
+        Assert.Equal(
+            candidateCount,
+            source.ManifestRequests
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count());
+        Assert.Equal(0, source.PackageRequests);
+        Assert.Equal(events, secondRead);
+        Assert.Equal(
+            candidateCount,
+            events.Count(profileEvent =>
+                profileEvent is PackageProfileEvent.Match));
+        Assert.Equal(
+            projectedRowLimit,
+            PackageProfileSections.CountRows(view));
+        Assert.Equal(projectedRowLimit, view.Results!.Count);
+    }
+
+    [Fact]
     public void PackageProfileSection_ReusesContainedPackageCells()
     {
         const int dependencyCount = 1000;
@@ -866,6 +921,134 @@ public class FindCommandTests
                 string version,
                 CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>>
+            TryGetSymbolsAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public void Dispose()
+        {
+        }
+    }
+
+    private sealed class DefaultScalePackageSource(
+        int candidateCount,
+        int dependenciesPerManifest)
+        : IPackageSourceClient
+    {
+        public int SearchRequests { get; private set; }
+        public List<string> ManifestRequests { get; } = [];
+        public int PackageRequests { get; private set; }
+        public PackageSourceIdentity Identity =>
+            PackageSourceIdentity.NuGetOrg;
+        public PackageSourceKind Kind =>
+            PackageSourceKind.NuGetGallery;
+        public PackageSourceCapabilities Capabilities =>
+            PackageSourceCapabilities.Search
+            | PackageSourceCapabilities.Manifest;
+
+        public Task<PackageSourceOperationResult<PackageSearchResult>>
+            SearchByPrefixAsync(
+                string prefix,
+                int take = 100,
+                bool prerelease = false,
+                CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            SearchRequests++;
+            PackageSearchMatch[] matches =
+            [
+                .. Enumerable.Range(0, candidateCount)
+                    .Select(index =>
+                    {
+                        string packageId =
+                            $"Contoso.Package{index:D3}";
+                        PackageSourceCoordinate coordinate =
+                            PackageSourceCoordinate.Create(
+                                packageId,
+                                "1.0.0");
+                        return new PackageSearchMatch(
+                            new SearchResult(
+                                packageId,
+                                "1.0.0"),
+                            new PackageCandidateObservation(
+                                coordinate,
+                                Identity,
+                                PackageDiscoveryContract.KeywordSearch,
+                                PackageListingState.Listed));
+                    }),
+            ];
+            return Task.FromResult<
+                PackageSourceOperationResult<PackageSearchResult>>(
+                    new PackageSourceOperationResult<PackageSearchResult>
+                        .Succeeded(
+                            new PackageSearchResult(
+                                matches,
+                                PackageSearchTruncationReason.None)));
+        }
+
+        public Task<PackageSourceOperationResult<PackageSourceManifest>>
+            GetManifestAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            PackageSourceCoordinate coordinate =
+                PackageSourceCoordinate.Create(packageId, version);
+            ManifestRequests.Add(
+                $"{coordinate.PackageId}@{coordinate.Version}");
+            string dependencies = string.Concat(
+                Enumerable.Range(0, dependenciesPerManifest)
+                    .Select(index =>
+                        $"""<dependency id="Dependency.{index:D3}" version="1.0.0" />"""));
+            byte[] content = Encoding.UTF8.GetBytes(
+                $$"""
+                <package>
+                  <metadata>
+                    <id>{{coordinate.PackageId}}</id>
+                    <version>{{coordinate.Version}}</version>
+                    <dependencies>{{dependencies}}</dependencies>
+                  </metadata>
+                </package>
+                """);
+            return Task.FromResult<
+                PackageSourceOperationResult<PackageSourceManifest>>(
+                    new PackageSourceOperationResult<PackageSourceManifest>
+                        .Succeeded(
+                            new PackageSourceManifest(
+                                coordinate,
+                                Identity,
+                                Kind,
+                                content)));
+        }
+
+        public Task<PackageSourceOperationResult<PackageSearchResult>>
+            SearchAsync(
+                string query,
+                int take = 20,
+                bool prerelease = false,
+                CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageVersionResult>>
+            GetVersionsAsync(
+                string packageId,
+                CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PackageSourceOperationResult<PackageSourcePayload>>
+            GetPackageAsync(
+                string packageId,
+                string version,
+                CancellationToken cancellationToken = default)
+        {
+            PackageRequests++;
+            throw new NotSupportedException();
+        }
 
         public Task<PackageSourceOperationResult<PackageSourcePayload>>
             TryGetSymbolsAsync(
