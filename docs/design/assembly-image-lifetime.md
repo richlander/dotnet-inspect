@@ -12,10 +12,13 @@ workspace composition owns admission and binding, and Metadata owns facts
 decoded from the retained image. This document owns only the image lifetime
 between those boundaries.
 
-Persistent derived-result cache keys remain owned by
-[inspection-space.md](../inspection-space.md#corecache) and
-[artifact acquisition](artifact-acquisition-and-workspaces.md#artifactsetsession).
-This document neither replaces nor weakens their owner-computed digest rule.
+Persistent derived-result ownership remains split. Each result's cache owner
+defines its complete semantic key and reuse policy;
+[artifact acquisition](artifact-acquisition-and-workspaces.md#artifactsetsession)
+supplies any content digest from retained bytes; and
+[CoreCache](../inspection-space.md#corecache) supplies infrastructure plus the
+repository-wide cutover constraints. This document neither replaces nor
+weakens those contracts.
 
 The target contract is **unverified** until the gates under
 [Required gates](#required-gates) exist. Existing snapshot gates establish
@@ -190,12 +193,13 @@ correspondence between artifacts.
 Reader-local and session-local caches end with their image generation.
 
 Persistent derived-result caches follow the contract in
-[inspection-space.md](../inspection-space.md#corecache): the
-acquisition owner computes the content digest over retained immutable bytes,
-and the cold gate, producer, and publication use that same snapshot. The
-immutable nuget.org coordinate scopes reacquisition and provenance; it does not
-replace the digest in the current derived-cache contract. Dynamic authorization
-and policy are still checked for the current operation.
+[inspection-space.md](../inspection-space.md#corecache): the result owner
+defines the semantic key, acquisition computes any content digest over retained
+immutable bytes, and the cold gate, producer, and publication use that same
+snapshot. The immutable nuget.org coordinate scopes reacquisition and
+provenance; it does not replace the digest in the current derived-cache
+contract. Dynamic authorization and policy are still checked for the current
+operation.
 
 This design adds a stricter source-lifetime decision for local assemblies:
 their derived facts are recomputed in each tool run even when a digest could
@@ -206,7 +210,8 @@ make a persistent entry content-correct.
 An inspection fails rather than:
 
 - reopening a mutable path after its retained image is unavailable;
-- falling back from a rejected scoped address to overload ordinal or raw token;
+- falling back from a rejected scoped address to a raw token,
+  name/signature/selector lookup, or overload ordinal;
 - reusing a local result from another tool run;
 - treating an MVID as proof that different acquisition generations contain
   equal bytes.
@@ -229,8 +234,9 @@ against deliberately duplicated MVIDs.
 For nuget.org, immutable package coordinate plus selected asset path provides
 the outer reacquisition and provenance scope. For local content, the retained
 per-run snapshot provides the scope and derived results do not survive the run.
-If either path publishes a persistent derived result, the existing cache owner
-still requires a digest computed over the retained snapshot.
+If the nuget.org path publishes a persistent derived result, the existing cache
+owner still requires a digest computed over the retained snapshot. The local
+path does not perform persistent lookup or publication.
 
 This narrows the collision requirement inherited from the superseded broad PR:
 correctness requires generation-scoped bytes and addresses, not treating
@@ -308,6 +314,7 @@ The complete contract remains unverified until equivalent gates exist for:
 - `AssemblyInspectionSession_OneImageFeedsEveryProducer`;
 - `MemberSourceCorrespondence_UsesTheSessionRuntimeImage`;
 - `MetadataAddress_RebindingRequiresOwnerAndMvidValidation`;
+- `ScopedAddressRejection_CannotInvokeAlternateLocator`;
 - `LocalAssemblyFacts_DoNotEnterACrossRunCache`;
 - `NuGetOrgReacquisition_PreservesCoordinateAndAssetPath`;
 - `MutablePackageSource_DefaultsToRunLocalImageLifetime`.

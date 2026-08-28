@@ -353,7 +353,9 @@ compatibility cache of successful section catalogs and schemas for platform,
 package, and direct-file routes. The target retains that persistent cache only
 for platform and package routes. A direct local-file route captures a fresh
 image, derives its catalog inside the current tool run, and bypasses both
-persistent lookup and publication.
+persistent lookup and publication. This target is unverified pending
+`LocalAssemblyFacts_DoNotEnterACrossRunCache` in the
+[assembly image lifetime](assembly-image-lifetime.md) contract.
 
 At the slice-5 cutover a persistent platform or package key includes the
 resolved path, the digest of an acquisition-owned immutable artifact-content

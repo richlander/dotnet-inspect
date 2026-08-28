@@ -327,16 +327,20 @@ network requests.
   the provenance grammar establishes an immutable commit-pinned GitHub or Azure
   DevOps URL. Other availability results retain a TTL; integrity results for
   unknown hosts and moving or ambiguous selectors are not cached.
-- The existing bare-library effective catalog may persist successful section
-  summaries under its versioned semantic key. The slice-5 successor keys on
-  retained assembly content plus complete typed local-symbol discovery
-  evidence, not the predecessor `sl0`/`sl1` Boolean. Input-admission changes
-  bump the category before lookup so prior successful catalogs cannot bypass
-  the new gate; this cutover also runs bounded assembly-format admission before
-  every lookup. Assembly and PDB digest, admission, discovery, and publication
-  each use their owner-retained immutable content; bracketing hashes over a
-  mutable path are insufficient. Planned type/member authorization-dependent
-  outcomes remain operation-local and never consume that catalog.
+- The target bare-library effective catalog may persist successful
+  package/platform section summaries under its versioned semantic key. The
+  slice-5 successor keys on retained assembly content plus complete typed
+  local-symbol discovery evidence, not the predecessor `sl0`/`sl1` Boolean.
+  Input-admission changes bump the category before lookup so prior successful
+  catalogs cannot bypass the new gate; this cutover also runs bounded
+  assembly-format admission before every permitted lookup. Assembly and PDB
+  digest, admission, discovery, and publication each use their owner-retained
+  immutable content; bracketing hashes over a mutable path are insufficient.
+  Direct local-file discovery performs neither persistent lookup nor
+  publication, unverified pending
+  `LocalAssemblyFacts_DoNotEnterACrossRunCache`. Planned type/member
+  authorization-dependent outcomes remain operation-local and never consume
+  that catalog.
 
 Cache reuse must never bypass PDB identity validation.
 
