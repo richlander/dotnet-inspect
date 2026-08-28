@@ -476,7 +476,7 @@ exactly one outcome:
 | Outcome | Meaning |
 | --- | --- |
 | `Classified` | Peer resolution and Integration policy completed; carries one `In` or `Out` candidate. |
-| `Suppressed` | Typed Integration policy proved that another retained observation fulfills or supersedes this candidate. |
+| `Suppressed` | Typed Integration policy proved that another retained observation in the same binding context fulfills or supersedes this candidate. |
 | `Failed` | Binding, validation, or candidate policy could not produce a trustworthy classification. |
 
 The expected attempt-address set derives from the structured producer evidence
@@ -493,9 +493,11 @@ contexts. Attempt identity, disposition, and binding context do not become
 candidate identity.
 
 `Suppressed` is a completed policy decision with a closed Integration-owned
-reason and correspondence to the fulfilling observation. `Failed` retains its
-typed cause and makes the affected Census incomplete. Only `Classified`
-attempts contribute candidate inventory.
+reason and correspondence to the fulfilling observation. The observation and
+its successful resolution must use the attempt address's exact binding-context
+identity; evidence from another context cannot suppress this attempt. `Failed`
+retains its typed cause and makes the affected Census incomplete. Only
+`Classified` attempts contribute candidate inventory.
 
 ### Candidate disposition
 
@@ -586,7 +588,8 @@ candidate attempt and retains:
 - source assembly and authoritative package or platform provenance when
   available;
 - typed peer lookup currency;
-- resolved peer subject and provenance when `In`;
+- terminal resolved peer definition, authoritative provenance, and ordered
+  forwarding hops for every successfully resolved `In` or `Out` attempt;
 - `In` or `Out` plus the typed `Out` reason; and
 - admitted relationship identity when `In`.
 
@@ -652,6 +655,11 @@ force rediscovery of already known ownership. When the parent is unknown, the
 typed lookup plus an owner-issued search scope is the only permitted handoff;
 assembly-name-to-package guessing is forbidden.
 
+For a forwarded peer, parent handoff uses the terminal resolved definition's
+authoritative provenance, not the forwarding facade. The original peer lookup
+and ordered forwarding hops remain beside that terminal result so the
+classification and navigation path are auditable.
+
 The Integration owner does not make `find` search an unbounded package feed.
 If the current search owner cannot accept the typed lookup and a finite scope
 that can discover an unknown parent, that gap is the separately owned
@@ -706,10 +714,12 @@ Integration graph behavior until its replacement path has parity gates.
 | Exact peer admitted and candidate accepted | `In` with occurrence correspondence |
 | Raw extension observation has no Integration concept | Supporting evidence; no candidate |
 | Raw opportunity fulfilled by an observed adapter | Accounted `Suppressed` attempt |
+| Fulfilling adapter exists only in another binding context | Current-context attempt is not suppressed |
 | Peer assembly unavailable or ambiguous | Typed failure; never `Out` |
 | Selected peer assembly lacks the exact Type | Typed failure; never `Out` |
 | Forwarder resolves to selected terminal Type | `In` with forwarding evidence |
 | Forwarder resolves to healthy unselected terminal Type | `Out` with forwarding evidence |
+| Forwarded `Out` terminal parent is known | Terminal parent coordinate is the handoff |
 | Forwarder cycle or failed terminal resolution | Typed failure; never `Out` |
 | Source participant rejected or malformed | Incomplete attempt beside healthy rows |
 | Parent package provenance known | Authoritative coordinate rendered directly |
@@ -747,6 +757,7 @@ The target implementation is unverified until these named gates land:
 - `IntegrationCandidate_WorkspaceIdentityDoesNotCrossRegistrationGeneration`
 - `IntegrationCandidate_RawExtensionWithoutConceptIsNotCandidate`
 - `IntegrationCandidate_FulfilledOpportunityIsAccountedAndSuppressed`
+- `IntegrationCandidate_SuppressionRequiresSameBindingContext`
 - `IntegrationCandidate_ResolvedUnselectedPeerIsOut`
 - `IntegrationCandidate_UnacquiredPeerCannotBeOut`
 - `IntegrationCandidate_UnavailableAmbiguousOrMissingSelectedPeerIsFailure`
@@ -758,6 +769,8 @@ The target implementation is unverified until these named gates land:
 - `IntegrationCandidate_RemovingSoleSourceRemovesCandidate`
 - `IntegrationInventory_RowsRetainTypedSourcePeerAndProvenance`
 - `IntegrationInventory_PeerLookupRetainsEveryTypeReferenceScopeArm`
+- `IntegrationInventory_ForwardedOutRetainsTerminalDefinitionProvenanceAndHops`
+- `IntegrationInventory_ForwardedOutUsesTerminalParentForHandoff`
 - `IntegrationInventory_KnownParentUsesAuthoritativeCoordinate`
 - `IntegrationInventory_UnknownParentNeverGuessesFromAssemblyName`
 - `IntegrationInventory_FindPatternUsesTypeLookupGrammarUnchanged`
