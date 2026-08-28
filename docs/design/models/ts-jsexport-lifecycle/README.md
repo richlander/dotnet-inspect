@@ -88,40 +88,39 @@ runtime without starting another one.
 
 ## Running TLC
 
-The recorded run used OpenJDK 21 and TLA+ tools 1.7.4 (`TLC2 2.19`,
-revision `5a47802`). The checked `tla2tools.jar` has SHA-256
-`936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88`.
+Follow the repository
+[TLA+ setup runbook](../../../runbooks/tla-plus-setup.md) for the pinned
+toolchain. The recorded run used OpenJDK 25.0.4 and TLA+ tools 1.8.0
+(`TLC2 2026.08.21.155922`, revision `9787e65`). The checked
+`tla2tools.jar` has SHA-256
+`eabd140a70f49eb9305a3bd3f3df944eddf87e5a90d329789085f8953a80533a`.
 
 ```bash
-curl -fsSL \
-  https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar \
-  -o /tmp/tla2tools.jar
-echo "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88  /tmp/tla2tools.jar" \
-  | sha256sum -c -
+TLA_TOOLS_JAR=/path/to/tla2tools.jar
 cd docs/design/models/ts-jsexport-lifecycle
-java -XX:+UseParallelGC -cp /tmp/tla2tools.jar tlc2.TLC \
-  -workers auto -cleanup \
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+  -workers 1 -cleanup \
   -config TsJsExportLifecycleShared.cfg TsJsExportLifecycle.tla
-java -XX:+UseParallelGC -cp /tmp/tla2tools.jar tlc2.TLC \
-  -workers auto -cleanup \
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+  -workers 1 -cleanup \
   -config TsJsExportLifecycleSharedSuccess.cfg TsJsExportLifecycle.tla
-java -XX:+UseParallelGC -cp /tmp/tla2tools.jar tlc2.TLC \
-  -workers auto -cleanup \
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+  -workers 1 -cleanup \
   -config TsJsExportLifecycleSerialized.cfg TsJsExportLifecycle.tla
-java -XX:+UseParallelGC -cp /tmp/tla2tools.jar tlc2.TLC \
-  -workers auto -cleanup \
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+  -workers 1 -cleanup \
   -config TsJsExportLifecycleSerializedSuccess.cfg TsJsExportLifecycle.tla
 ```
 
 All configurations use two facades, two callers per facade, two distinct
 assembly roots, and at most one realm restart:
 
-| Configuration | Runtime/local failures | Generated states | Distinct states | Result |
-| --- | --- | ---: | ---: | --- |
-| `TsJsExportLifecycleShared.cfg` | Enabled | 28,686 | 4,940 | No error |
-| `TsJsExportLifecycleSharedSuccess.cfg` | Disabled | 22,045 | 3,751 | No error |
-| `TsJsExportLifecycleSerialized.cfg` | Enabled | 11,409 | 2,180 | No error |
-| `TsJsExportLifecycleSerializedSuccess.cfg` | Disabled | 9,371 | 1,631 | No error |
+| Configuration | Runtime/local failures | Generated states | Distinct states | Maximum depth | Result |
+| --- | --- | ---: | ---: | ---: | --- |
+| `TsJsExportLifecycleShared.cfg` | Enabled | 28,686 | 4,940 | 24 | No error |
+| `TsJsExportLifecycleSharedSuccess.cfg` | Disabled | 22,045 | 3,751 | 28 | No error |
+| `TsJsExportLifecycleSerialized.cfg` | Enabled | 11,409 | 2,180 | 24 | No error |
+| `TsJsExportLifecycleSerializedSuccess.cfg` | Disabled | 9,371 | 1,631 | 28 | No error |
 
 Generic deadlock checking is disabled because reaching terminal facade states
 after the final permitted restart is an expected finite-model endpoint.
@@ -151,10 +150,13 @@ must fail with the named invariant:
 
 Run a mutation by substituting its configuration name in the TLC command. A
 successful mutation run is a TLC invariant violation with a concrete state
-trace; a clean exit means the mutation gate is vacuous or broken.
+trace; a clean exit means the mutation gate is vacuous or broken. With TLA+
+tools 1.8.0, pass `-noGenerateSpecTE` when the trace-exploration files are not
+needed.
+
 Mutation state counts are intentionally not recorded because parallel TLC
 workers can encounter the first violating state at different points. Every
-configuration was also run with `-workers 1` and produced its named violation.
+configuration was run with `-workers 1` and produced its named violation.
 These mutations target the lifecycle properties most likely to regress; they
 are non-vacuity evidence, not a requirement to manufacture one mutation per
 checked invariant.
