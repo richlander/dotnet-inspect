@@ -143,16 +143,17 @@ on `main`); links point at the PR branch.
 
 | Model(s) | PR | Description |
 | --- | --- | --- |
-| [`CompileBackAdmission.tla`](https://github.com/richlander/dotnet-inspect/blob/docs/4810-compileback-closure-provenance/docs/models/CompileBackAdmission.tla) ([`.cfg`](https://github.com/richlander/dotnet-inspect/blob/docs/4810-compileback-closure-provenance/docs/models/CompileBackAdmission.cfg)) | [#4838](https://github.com/richlander/dotnet-inspect/pull/4838) | Models the compile-back tool's planning → product-attempt → legacy-attempt → supersession → receipt/verdict transitions for [C# member recompilation](../design/csharp-member-recompilation.md). Checks termination, that `Exact` verdicts always trace to an admitted receipt, that a failed product attempt never crosses into legacy evidence, and that supersession clears the prior receipt. |
+| [`CompileBackAdmission.tla`](https://github.com/richlander/dotnet-inspect/blob/docs/4810-compileback-closure-provenance/docs/models/CompileBackAdmission.tla) ([`.cfg`](https://github.com/richlander/dotnet-inspect/blob/docs/4810-compileback-closure-provenance/docs/models/CompileBackAdmission.cfg)) | [#4838](https://github.com/richlander/dotnet-inspect/pull/4838) | Models the compile-back tool's planning → product-attempt → legacy-attempt → supersession → receipt/verdict transitions for [C# member recompilation](../design/csharp-member-recompilation.md). Checks termination, that `Exact` verdicts always trace to an admitted receipt, that a failed product attempt never crosses into legacy evidence, and that supersession clears attempt-bound coverage receipts and partial evidence. |
 | [`NavigationSession.tla`](https://github.com/richlander/dotnet-inspect/blob/design/inspection-subject-navigation/docs/design/models/inspection-subject-navigation/NavigationSession.tla), [`AtomicRestoration.tla`](https://github.com/richlander/dotnet-inspect/blob/design/inspection-subject-navigation/docs/design/models/inspection-subject-navigation/AtomicRestoration.tla), [`SnapshotAuthority.tla`](https://github.com/richlander/dotnet-inspect/blob/design/inspection-subject-navigation/docs/design/models/inspection-subject-navigation/SnapshotAuthority.tla) (plus matching `.cfg` files and a model [`README.md`](https://github.com/richlander/dotnet-inspect/blob/design/inspection-subject-navigation/docs/design/models/inspection-subject-navigation/README.md)) | [#4830](https://github.com/richlander/dotnet-inspect/pull/4830) | Three independent models backing [Inspection subject navigation](../design/inspection-subject-navigation.md): retained-session intent/supersession/maintenance ordering and effect authority (`NavigationSession`), one-transaction canonical subject+lens restoration (`AtomicRestoration`), and retained-versus-stateless execution and which prior state each may read (`SnapshotAuthority`). Each is scoped to one mechanism; none models identity ranking, availability semantics, UI accessibility, or implementation conformance. |
 | [`SemanticRowSelection.tla`](https://github.com/richlander/dotnet-inspect/blob/docs/4677-selection-planning/docs/models/SemanticRowSelection.tla) ([`.cfg`](https://github.com/richlander/dotnet-inspect/blob/docs/4677-selection-planning/docs/models/SemanticRowSelection.cfg)) | [#4815](https://github.com/richlander/dotnet-inspect/pull/4815) | Models one immutable row-selection plan applied to ordered named sequences for [Semantic row selection](../design/semantic-row-selection.md): sequence-major/stage-major traversal, strict `Range`, positional `Head`/`Tail`, ranked `Top`, resolver caching, callback failure, withheld publication, and atomic success. Checks type safety, atomic publication, at-most-once resolver invocation, sequence/stage failure precedence, and termination under weak fairness. |
 
 Each PR records its own TLC run (states generated, distinct states, max
-depth) inline next to its model description. [#4815](https://github.com/richlander/dotnet-inspect/pull/4815)
-records a run against the pinned `v1.8.0` prerelease `tla2tools.jar` exactly
-(TLC `2026.08.21.155922`, rev `9787e65`); the other two PRs' recorded TLC
-versions predate that pin and were not re-verified against it as part of
-writing this runbook.
+depth) inline next to its model description.
+[#4815](https://github.com/richlander/dotnet-inspect/pull/4815) and
+[#4838](https://github.com/richlander/dotnet-inspect/pull/4838) record runs
+against the pinned `v1.8.0` prerelease `tla2tools.jar` exactly (TLC
+`2026.08.21.155922`, rev `9787e65`); #4830's recorded TLC version predates that
+pin and was not re-verified against it as part of writing this runbook.
 
 ### Known in-progress work, not yet checked in
 

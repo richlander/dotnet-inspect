@@ -946,8 +946,9 @@ TLC checks:
 The model result is evidence about this interaction contract, not the
 implementation. The named Release gates below remain the implementation proof.
 
-TLC 2.19 checked the configuration with no errors: 85 states generated, 50
-distinct states, and a maximum depth of 10. Action coverage reached
+TLC `2026.08.21.155922` from pinned `tla2tools.jar` v1.8.0 (rev `9787e65`)
+under OpenJDK 25.0.4.1 checked the configuration with no errors: 85 states
+generated, 50 distinct states, and a maximum depth of 10. Action coverage reached
 `ProductCoverageReceipt`, `ProductAdmitUnavailable`, and
 `LegacyAdmitUnavailable` three times each and `ProductExpand` twice. A mutation
 that preserves the earlier coverage receipt across `ProductExpand` violates
