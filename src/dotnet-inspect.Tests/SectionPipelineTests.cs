@@ -1822,16 +1822,16 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void DiffQueryRegistry_RegistrationMatchesDeclaration()
+    public void DiffQueryCatalog_RegistrationMatchesDeclaration()
     {
         DiffSectionCatalog catalog = DiffSections.CreateCatalog();
 
         HashSet<InspectionQueryDefinition> closure =
-            catalog.QueryRegistry.ExpandRequired(catalog.Pipeline.DeclaredQueries);
+            catalog.QueryCatalog.ExpandRequired(catalog.Sections.DeclaredQueries);
 
         Assert.Equal(
             closure.OrderBy(query => query.Name, StringComparer.Ordinal),
-            catalog.QueryRegistry.RegisteredQueries.OrderBy(
+            catalog.QueryCatalog.RegisteredQueries.OrderBy(
                 query => query.Name,
                 StringComparer.Ordinal));
         Assert.Equal(
@@ -1894,7 +1894,7 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void DiffQueryRegistry_RunsOnlySelectedSectionDemand()
+    public void DiffQueryCatalog_RunsOnlySelectedSectionDemand()
     {
         DiffSectionCatalog catalog = DiffSections.CreateCatalog();
         var analysis = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -1912,7 +1912,7 @@ public class SectionPipelineTests
             });
         List<InspectionQueryDefinition> analysisExecuted = [];
 
-        catalog.QueryRegistry.Run(
+        catalog.QueryCatalog.Run(
             catalog.Pipeline.GetRequiredQueries(Verbosity.Minimal, analysis),
             analysisContext,
             (query, _) => analysisExecuted.Add(query));
@@ -1928,7 +1928,7 @@ public class SectionPipelineTests
             () => throw new InvalidOperationException(
                 "Changes-only demand must not acquire Implementation inputs."));
         List<InspectionQueryDefinition> changesExecuted = [];
-        catalog.QueryRegistry.Run(
+        catalog.QueryCatalog.Run(
             catalog.Pipeline.GetRequiredQueries(
                 Verbosity.Minimal,
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -1950,7 +1950,7 @@ public class SectionPipelineTests
                 return new ImplementationComparisonInput([], []);
             });
         List<InspectionQueryDefinition> implementationExecuted = [];
-        catalog.QueryRegistry.Run(
+        catalog.QueryCatalog.Run(
             catalog.Pipeline.GetRequiredQueries(
                 Verbosity.Minimal,
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -1981,7 +1981,7 @@ public class SectionPipelineTests
                 return new ImplementationComparisonInput([], []);
             });
         List<InspectionQueryDefinition> composedExecuted = [];
-        catalog.QueryRegistry.Run(
+        catalog.QueryCatalog.Run(
             catalog.Pipeline.GetRequiredQueries(
                 Verbosity.Minimal,
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -2009,9 +2009,9 @@ public class SectionPipelineTests
     {
         DiffSectionCatalog catalog = DiffSections.CreateCatalog();
 
-        HashSet<InspectionQueryDefinition> singleSection =
-            DiffCommand.GetRequestedQueries(
-                catalog.Pipeline,
+        InspectionQueryPlan<DiffQueryContext> singleSection =
+            DiffCommand.GetRequestedQueryPlan(
+                catalog,
                 new DiffOptions
                 {
                     AllocRegressionsOnly = true,
@@ -2021,9 +2021,9 @@ public class SectionPipelineTests
                         DiffSections.Changes.Name,
                     },
                 });
-        HashSet<InspectionQueryDefinition> composedDocument =
-            DiffCommand.GetRequestedQueries(
-                catalog.Pipeline,
+        InspectionQueryPlan<DiffQueryContext> composedDocument =
+            DiffCommand.GetRequestedQueryPlan(
+                catalog,
                 new DiffOptions
                 {
                     AllocRegressionsOnly = true,
@@ -2034,9 +2034,9 @@ public class SectionPipelineTests
                         DiffSections.AnalysisDiff.Name,
                     },
                 });
-        HashSet<InspectionQueryDefinition> implementationSelection =
-            DiffCommand.GetRequestedQueries(
-                catalog.Pipeline,
+        InspectionQueryPlan<DiffQueryContext> implementationSelection =
+            DiffCommand.GetRequestedQueryPlan(
+                catalog,
                 new DiffOptions
                 {
                     AllocRegressionsOnly = true,
@@ -2046,9 +2046,9 @@ public class SectionPipelineTests
                         DiffSections.ImplementationDiff.Name,
                     },
                 });
-        HashSet<InspectionQueryDefinition> implementationOnly =
-            DiffCommand.GetRequestedQueries(
-                catalog.Pipeline,
+        InspectionQueryPlan<DiffQueryContext> implementationOnly =
+            DiffCommand.GetRequestedQueryPlan(
+                catalog,
                 new DiffOptions
                 {
                     IncludeSections = new HashSet<string>(
@@ -2060,19 +2060,19 @@ public class SectionPipelineTests
 
         Assert.Equal(
             [BodySignalComparisonQuery.Definition],
-            singleSection);
+            singleSection.Queries);
         Assert.Equal(
             [BodySignalComparisonQuery.Definition],
-            implementationSelection);
+            implementationSelection.Queries);
         Assert.Equal(
             [ImplementationComparisonQuery.Definition],
-            implementationOnly);
+            implementationOnly.Queries);
         Assert.Equal(
             [
                 ApiComparisonQuery.Definition,
                 BodySignalComparisonQuery.Definition,
             ],
-            composedDocument);
+            composedDocument.Queries);
     }
 
     [Fact]
@@ -3858,6 +3858,11 @@ public class SectionPipelineTests
         => AssertSectionCatalogQueryPlansMatch(
             PackageSectionDescriptors.CreateCatalog().Sections);
 
+    [Fact]
+    public void DiffSectionCatalog_QueryPlansMatchMutablePipeline()
+        => AssertSectionCatalogQueryPlansMatch(
+            DiffSections.CreateCatalog().Sections);
+
     private static void AssertSectionCatalogQueryPlansMatch<TModel>(
         SectionCatalog<TModel> catalog)
     {
@@ -4001,6 +4006,80 @@ public class SectionPipelineTests
             {
                 throw new InvalidOperationException(
                     "The package catalog or a precomputed plan changed identity.");
+            }
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
+    public void DiffCatalog_RepeatedAcquisitionAndCommonPlanningAllocateNothing()
+    {
+        DiffSectionCatalog diffCatalog = DiffSections.CreateCatalog();
+        SectionCatalog<DiffDiscoveryModel> sectionCatalog =
+            diffCatalog.Sections;
+        InspectionQueryCatalog<DiffQueryContext> queryCatalog =
+            diffCatalog.QueryCatalog;
+        SectionQueryPlan automaticPlan =
+            sectionCatalog.PlanQueries(Verbosity.Minimal);
+        HashSet<string> changesSelection =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                DiffSections.Changes.Name,
+            };
+        HashSet<string> analysisSelection =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                DiffSections.AnalysisDiff.Name,
+            };
+        SectionQueryPlan changesSectionPlan =
+            sectionCatalog.PlanQueries(
+                Verbosity.Minimal,
+                changesSelection);
+        SectionQueryPlan analysisSectionPlan =
+            sectionCatalog.PlanQueries(
+                Verbosity.Minimal,
+                analysisSelection);
+        InspectionQueryPlan<DiffQueryContext> changesQueryPlan =
+            queryCatalog.Plan(changesSectionPlan.Queries[0]);
+        InspectionQueryPlan<DiffQueryContext> analysisQueryPlan =
+            queryCatalog.Plan(analysisSectionPlan.Queries[0]);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 1_000; iteration++)
+        {
+            if (!ReferenceEquals(
+                    diffCatalog,
+                    DiffSections.CreateCatalog())
+                || !ReferenceEquals(
+                    sectionCatalog,
+                    DiffSections.SectionCatalog)
+                || !ReferenceEquals(
+                    queryCatalog,
+                    DiffSections.QueryCatalog)
+                || !ReferenceEquals(
+                    automaticPlan,
+                    sectionCatalog.PlanQueries(Verbosity.Minimal))
+                || !ReferenceEquals(
+                    changesSectionPlan,
+                    sectionCatalog.PlanQueries(
+                        Verbosity.Minimal,
+                        changesSelection))
+                || !ReferenceEquals(
+                    analysisSectionPlan,
+                    sectionCatalog.PlanQueries(
+                        Verbosity.Minimal,
+                        analysisSelection))
+                || !ReferenceEquals(
+                    changesQueryPlan,
+                    queryCatalog.Plan(changesSectionPlan.Queries[0]))
+                || !ReferenceEquals(
+                    analysisQueryPlan,
+                    queryCatalog.Plan(analysisSectionPlan.Queries[0])))
+            {
+                throw new InvalidOperationException(
+                    "The Diff catalog or a precomputed plan changed identity.");
             }
         }
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;

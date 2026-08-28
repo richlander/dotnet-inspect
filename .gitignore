@@ -492,10 +492,10 @@ $RECYCLE.BIN/
 # Local development worktrees (AGENTS.md: all work happens in worktrees)
 .worktrees/
 
-# TLA+ model-checker state
-docs/design/models/**/states/
-docs/design/models/**/*_TTrace_*.bin
-docs/design/models/**/*_TTrace_*.tla
-
 # Vendored ILAssembler worktree (restore with eng/restore-ilassembler.sh)
 external/
+
+# TLC model-checker runtime output (not source; regenerate by running TLC)
+**/models/**/states/
+*_TTrace_*.tla
+*_TTrace_*.bin
