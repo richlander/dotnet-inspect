@@ -202,9 +202,11 @@ interface OperationHandle<TValue, TError> {
 
 `OperationId` is a branded, operation-owner-issued value. A feature caller
 cannot manufacture one from a string or number. Its wire representation is
-opaque text derived from a page-wide monotonic sequence that never resets
-during that page lifetime. Concurrent feature sessions therefore cannot
-collide.
+opaque text. The owner atomically allocates it with an `operationSequence`, a
+page-wide monotonic safe integer that never resets or wraps during that page
+lifetime. Sequence exhaustion fails visibly and prevents another start.
+Concurrent feature sessions therefore cannot collide, while worker replay
+checks do not parse or compare the opaque ID.
 
 Logical operation identity is independent of worker identity. A worker-backed
 dispatch separately carries the current `workerEpoch`; main-thread work such as
@@ -254,7 +256,8 @@ suppression must not become silent error suppression.
 `cancel()` is idempotent. The first call records the typed reason, completes
 the logical outcome, revokes publication authority, aborts owned main-thread
 work, and sends one cancellation request when the operation is worker-backed.
-Later calls change nothing.
+An omitted reason is normalized to `"user"` before any state or transport
+transition. Later calls change nothing.
 
 The worker acknowledges whether it observed the operation as queued, running,
 or not active. An acknowledgment is not proof that managed work stopped. C#
@@ -313,16 +316,19 @@ newer operation's loading, error, result, or progress state.
 
 ## Worker protocol
 
-Messages are closed, versioned records. Every operation message carries
-`protocolVersion`, `workerEpoch`, and `operationId`.
+Messages are closed, versioned records.
 
 ```text
 Main to worker:
-  Start(kind, operationId, payload)
+  Start(kind, operationId, operationSequence, payload)
   Cancel(operationId, reason)
 
 Worker to main:
+  Ready(workerEpoch, idleHeartbeatInterval)
+  EpochWorkStarted(workId, bounded(maxSilentInterval) | unbounded)
+  EpochWorkFinished(workId)
   Accepted(operationId, bounded(maxSilentInterval) | unbounded)
+  Rejected(operationId, error, diagnostic)
   Heartbeat(workerEpoch)
   CancelAcknowledged(operationId, queued | running | not-active)
   Progress(operationId, payload)
@@ -334,30 +340,50 @@ Worker to main:
   WorkerFailure(workerEpoch, diagnostic)
 ```
 
-Unknown versions, message kinds, operation IDs, invalid payloads,
-non-increasing start sequences within an epoch, active duplicate IDs, and
-repeated terminal messages are explicit protocol failures. The operation owner
-gates the complementary cross-epoch property: one operation ID is assigned and
-dispatched at most once. A `Cancel` race is the sole operation-ID exception:
-`not-active` says that no queued or running producer received the request. The
-main thread accepts that acknowledgment only when it has observed, or
-subsequently observes, the operation's terminal and quiesced messages. It is
+Every message carries `protocolVersion` and `workerEpoch`; operation messages
+also carry `operationId`. The main thread sends no operation messages until it
+has received a matching `Ready`, which the worker emits only after runtime and
+facade initialization completes. A version or epoch mismatch is not safely
+operation-scoped. The main thread treats a mismatched `Ready` as startup
+failure; a worker that can parse an incompatible inbound envelope reports
+`WorkerFailure`. Both paths terminate the incompatible realm and close the
+epoch.
+
+After readiness, invalid operation IDs, unsafe or non-increasing
+`operationSequence` values, active duplicate IDs, unknown operation kinds, and
+invalid payloads produce `Rejected` without invoking managed code. A valid
+increasing sequence is consumed even when a later kind or payload check rejects
+the start, so retry requires a new operation. `Rejected` is the operation's
+pre-admission terminal path: it supplies a failed outcome and proves that no
+producer or operation-scoped worker resource exists, so `quiesced` resolves.
+The main-thread record remains only when it must still consume an
+acknowledgment for a `Cancel` sent before rejection arrived.
+
+For an accepted `Start`, the worker validates the operation ID, numeric
+sequence, kind, and payload; installs the queued record; advances its sequence
+high-water mark; and posts `Accepted` before invoking managed code. `Accepted`
+means queue admission, not producer start or completion. Progress, `Terminal`,
+or `Quiesced` before `Accepted` is a protocol failure; `Rejected` is the
+explicit alternative to acceptance. The main-thread owner records acceptance
+and the advertised maximum silent interval for worker-level liveness
+accounting, and rejects an interval that does not match the registered policy
+for that operation kind.
+
+Unknown message kinds and repeated terminal messages are explicit protocol
+failures. The operation owner gates the complementary cross-epoch property:
+one operation ID and sequence pair is assigned and dispatched at most once. A
+`Cancel` race is the sole unknown-operation exception: `not-active` says that
+no queued or running producer received the request. The main thread accepts
+that acknowledgment only when it has observed, or subsequently observes,
+either `Rejected` or the operation's terminal and quiesced messages. It is
 never interpreted as successful physical cancellation.
 
-On `Start`, the worker validates the version, epoch, increasing sequence, kind,
-and payload; installs the queued record; advances its sequence high-water mark;
-and posts `Accepted` before invoking managed code. `Accepted` means queue
-admission, not producer start or completion. Any progress, terminal, or
-quiescence message before acceptance is a protocol failure. The main-thread
-owner records acceptance and the advertised maximum silent interval for
-worker-level liveness accounting, and rejects an interval that does not match
-the registered policy for that operation kind.
-
 The main-thread owner records whether it sent `Cancel` and retains the protocol
-record until it has received both `Terminal` and `Quiesced` plus the one
-expected cancellation acknowledgment. An early `not-active` remains pending
-until terminal and quiescence validate the completion race. A per-operation
-settlement deadline can report a missing acknowledgment, terminal result, or
+record until it has received either `Rejected` or both `Terminal` and
+`Quiesced`, plus the one expected cancellation acknowledgment when it sent
+`Cancel`. An early `not-active` remains pending until rejection or terminal and
+quiescence validate the race. A per-operation settlement deadline can report a
+missing acceptance or rejection, acknowledgment, terminal result, or
 quiescence message as a visible protocol failure, but it does not infer
 physical completion, resolve `quiesced`, or terminate the shared worker. The
 record remains until the expected messages arrive or a separately justified
@@ -388,25 +414,45 @@ The worker initializes one generated facade and one .NET runtime. Concurrent
 operations reuse that runtime and its package/workspace caches. Feature owners
 or the operation session do not dispose the shared runtime.
 
-The worker posts `Heartbeat` from its event loop while it can process tasks.
-Before managed invocation, each operation kind declares through `Accepted`
-either a measured maximum interval during which it may legitimately prevent
-the worker from emitting any liveness message, or `unbounded`. Progress and
-other valid worker messages also prove liveness. The epoch watchdog permits the
-largest current bounded interval plus scheduling tolerance; a pending
-unaccepted start, canceled waiter, or shorter concurrent operation never
-shrinks that allowance. Each valid liveness message renews that epoch deadline
-from its receipt. Silence cannot justify automatic termination while any
-accepted operation is `unbounded`.
+Worker creation starts a measured startup allowance. `Ready` ends startup,
+establishes the validated idle heartbeat interval, and permits the first
+`Start`. The worker posts `Heartbeat` from its event loop while it can process
+tasks, including when no operation is accepted. Before managed invocation,
+each operation kind declares through `Accepted` either a measured maximum
+interval during which it may legitimately prevent the worker from emitting any
+liveness message, or `unbounded`. The idle allowance is the validated heartbeat
+interval plus scheduling tolerance.
 
-An epoch watchdog may terminate the worker only after every accepted
-operation's advertised allowance has expired without a valid liveness message.
-This is a worker-level lease violation, not an operation timeout. A bounded
-advertisement requires a real-browser gate measuring that operation kind's
-maximum silent worker occupancy in `inspect-web-async-browser`. Otherwise the
-operation must advertise `unbounded`, and hard termination remains an explicit
-whole-runtime recovery choice that reports the loss of in-flight work and
-worker-local caches.
+Physical work that can outlive all accepted operation wrappers acquires an
+epoch-owned lease through `EpochWorkStarted` before the last related operation
+quiesces and releases it through `EpochWorkFinished`. This includes a shared
+broker producer that can monopolize the event loop after its last waiter
+leaves. An async producer that continues to permit the idle heartbeat does not
+need a wider lease.
+
+Progress and other valid worker messages also prove liveness. After readiness,
+the epoch watchdog permits the largest of the idle allowance, current accepted
+operation allowances, and epoch-work allowances, plus scheduling tolerance. A
+pending unaccepted start, canceled waiter, or shorter concurrent operation
+never shrinks that allowance. Each valid liveness message renews that epoch
+deadline from its receipt. Silence cannot justify automatic termination while
+any accepted operation or epoch-work lease is `unbounded`.
+
+An epoch watchdog may terminate the worker only after the current epoch
+allowance expires without a valid liveness message. This is a worker-level
+lease violation, not an operation timeout. A bounded advertisement requires a
+real-browser gate measuring that operation kind's maximum silent worker
+occupancy in `inspect-web-async-browser`. Otherwise the operation must advertise
+`unbounded`, and hard termination remains an explicit whole-runtime recovery
+choice that reports the loss of in-flight work and worker-local caches.
+
+Watchdog time does not accrue while the document is hidden, frozen, in the
+back-forward cache, or otherwise lifecycle-suspended. The lifecycle handler
+suspends evaluation before background timer throttling can be mistaken for
+worker silence. On resume, it rebases the full current startup, idle, accepted,
+and epoch-work allowance from the resume time. Automatic termination is not
+eligible until that complete post-resume allowance elapses without a fresh
+valid liveness message.
 
 A worker startup failure is terminal for that worker epoch. The main thread
 fails every operation assigned to it, revokes the epoch, and may create a new
@@ -515,8 +561,10 @@ operation attaches its delegate as one broker subscription and removes it in
 its own `finally`. Its await uses the operation token to stop waiting and enter
 that `finally` without canceling the shared producer task. The wrapper can then
 return `Canceled` and quiesce independently while another authorized waiter
-continues. The broker may cancel physical work only after its last waiter
-leaves and the producer contract permits cancellation.
+continues. Before the last waiter quiesces, an outliving producer that can
+prevent idle heartbeats transfers its liveness allowance to an epoch-work
+lease. The broker may cancel physical work only after its last waiter leaves
+and the producer contract permits cancellation.
 
 ## Effects on C# API design
 
@@ -588,17 +636,24 @@ Adoption is incremental:
    latest-request-wins coordinator without changing execution placement.
 2. Build a dedicated-worker canary from the official .NET 11 template. Exercise
    one cached CPU-heavy query and one network acquisition through typed
-   messages, including the managed terminal-result envelope.
-3. Move generated facade initialization and engine invocation into one
-   long-lived worker. Keep package/workspace caches worker-local.
-4. Replace feature generation and request-ID checks with the shared authority
+   messages, including the managed terminal-result envelope. This temporary
+   canary does not become the production facade.
+3. Land the base `ts-jsexport` TypeScript module and its separately owned
+   inspect-web consumer migration from
+   [#4792](https://github.com/richlander/dotnet-inspect/issues/4792). Before
+   production worker adoption, that facade must avoid `window` and DOM state,
+   accept host configuration explicitly, keep entry-point execution explicit,
+   and publish neither the raw runtime nor raw exports.
+4. Move the worker-safe generated facade initialization and engine invocation
+   into one long-lived worker. Keep package/workspace caches worker-local.
+5. Replace feature generation and request-ID checks with the shared authority
    owner, preserving feature rendering, errors, retry, and queueing.
-5. Replace singleton source cancellation with operation IDs, the managed
+6. Replace singleton source cancellation with operation IDs, the managed
    registry, and explicit queued and invoked cancellation settlement.
-6. Land separately owned `ILInspector.JsExportSurface` and `ts-jsexport`
+7. Land separately owned `ILInspector.JsExportSurface` and `ts-jsexport`
    support for authenticated synchronous delegate parameters, then add coarse
    source progress as its first real-consumer canary.
-7. Add progress or cancellation checkpoints to other operations only with
+8. Add progress or cancellation checkpoints to other operations only with
    measured user value and focused gates.
 
 `spotlight-package-search.ts` may continue to use main-thread browser `fetch`;
@@ -644,13 +699,15 @@ These gates are design requirements and do not yet exist:
   quiescence;
 - `inspect-web-async-worker-protocol`: closed-message parsing, epoch isolation,
   concurrent feature-session ID uniqueness, worker-independent logical IDs,
-  at-most-once assignment, sequence replay after record removal,
-  duplicate/unknown IDs, acceptance ordering and semantics, payload-bearing
-  terminal variants, queued cancellation settlement,
+  at-most-once assignment, explicit safe-integer sequence ordering and
+  exhaustion, replay after record removal, duplicate/unknown IDs, readiness,
+  accepted-versus-rejected start closure, payload-bearing terminal variants,
+  queued cancellation settlement, bare-cancel reason normalization,
   outstanding-acknowledgment races, settlement deadlines that cannot terminate
-  an epoch, bounded and unbounded liveness leases, busy-versus-wedged
-  discrimination, shared-waiter quiescence, record release, crash, restart,
-  main-thread-operation isolation, and stale-message tests;
+  an epoch, startup, idle, accepted-operation, and epoch-work leases, bounded
+  and unbounded liveness, busy-versus-wedged discrimination, shared-waiter
+  quiescence, record release, crash, restart, main-thread-operation isolation,
+  and stale-message tests;
 - `inspect-web-async-interop`: compiled and browser-executed typed managed
   result classification before Task/Promise projection, Promise-rejection
   failure handling, authenticated synchronous delegates, delegate release,
@@ -659,8 +716,9 @@ These gates are design requirements and do not yet exist:
 - `inspect-web-async-browser`: a real browser heartbeat and paint canary while
   a pinned managed CPU operation runs, measured maximum silent occupancy for
   every bounded operation kind, a shorter sibling that cannot terminate a
-  healthy busy worker, plus progress, cancellation, supersession, and
-  worker-restart scenarios; and
+  healthy busy worker, cold and warm readiness, idle and broker-owned work,
+  hide, freeze, resume, and back-forward-cache transitions, plus progress,
+  cancellation, supersession, and worker-restart scenarios; and
 - `inspect-web-async-performance`: pinned interpreter and AOT measurements for
   worker startup, first operation, cached operation, message payload transfer,
   and peak memory.
