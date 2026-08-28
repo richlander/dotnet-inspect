@@ -5398,12 +5398,6 @@ public sealed class JoinImpl : IJoinShape
     public string Shape() => "impl";
 }
 
-public sealed class SlotReuseSection
-{
-    public string Status { get; set; } = "";
-    public int Missing { get; set; }
-}
-
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }
 
 public interface CfgDimFace
@@ -5440,15 +5434,6 @@ public enum CfgTiny : byte { A = 1, B = 2 }
 // pointee's shape and member names for the int constant to name `Gamma`.
 [System.Flags]
 public enum CfgStyles { None = 0, Alpha = 1, Beta = 2, Gamma = 16 }
-
-// A value-type instance method whose `this` value is read directly: returning
-// `this` by value compiles to `ldarg.0; ldobj` (a load-indirect of the `this`
-// managed pointer), which must render as `this`, not the CS0193 `*this`.
-public struct CfgSelf
-{
-    public int Value;
-    public CfgSelf Identity() => this;
-}
 
 // A value-type Equals(object) that reads a field off the unboxed argument:
 // `((CfgBoxed)other).Value` compiles to `unbox` (a managed pointer into the

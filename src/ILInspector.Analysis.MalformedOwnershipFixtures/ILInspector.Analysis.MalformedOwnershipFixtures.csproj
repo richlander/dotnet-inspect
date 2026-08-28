@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Compiler-produced intrinsic allocation shapes carrying deliberately invalid
+    async ownership metadata. Kept isolated because analysis must surface the
+    malformed metadata as diagnostics.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+</Project>

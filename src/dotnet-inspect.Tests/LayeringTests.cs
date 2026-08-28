@@ -248,6 +248,83 @@ public sealed class LayeringTests
     }
 
     [Fact]
+    public void MetadataPrimitives_RemainsLeaf()
+    {
+        string root = CommandErrorOwnershipTests.RepositoryRoot();
+        string project = Path.Combine(
+            root,
+            "src",
+            "ILInspector.MetadataPrimitives",
+            "ILInspector.MetadataPrimitives.csproj");
+        HashSet<string> closure =
+            CommandErrorOwnershipTests.EvaluatedProjectClosure(project);
+
+        Assert.Equal(
+            [Path.GetFullPath(project)],
+            closure.Order(StringComparer.Ordinal));
+        Assert.Equal(
+            [
+                "Microsoft.CodeAnalysis.BannedApiAnalyzers",
+                "Microsoft.NET.ILLink.Tasks",
+            ],
+            CommandErrorOwnershipTests.ProjectPackageDependencies(project)
+                .Order(StringComparer.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void MetadataPrimitives_MetadataRootClassifierIsIsolated()
+    {
+        string projectDirectory = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "src",
+            "ILInspector.MetadataPrimitives");
+        var sources = Directory.EnumerateFiles(
+                projectDirectory,
+                "*.cs",
+                SearchOption.TopDirectoryOnly)
+            .Select(path => (
+                Name: Path.GetFileName(path),
+                Source: File.ReadAllText(path)))
+            .ToArray();
+        string[] metadataBlockReaders = sources
+            .Where(file => file.Source.Contains(
+                ".GetMetadata()",
+                StringComparison.Ordinal))
+            .Select(file => file.Name)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        string[] markerReaders = sources
+            .Where(file => file.Source.Contains(
+                "WindowsRuntime",
+                StringComparison.Ordinal))
+            .Select(file => file.Name)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        string classifier = Assert.Single(
+            sources,
+            file => file.Name
+                == $"{nameof(MetadataImageFormatClassifier)}.cs").Source;
+
+        Assert.Equal(
+            [$"{nameof(MetadataImageFormatClassifier)}.cs"],
+            markerReaders);
+        Assert.All(
+            metadataBlockReaders,
+            name => Assert.Contains(
+                name,
+                new[]
+                {
+                    $"{nameof(MetadataImageFormatClassifier)}.cs",
+                    "MethodSemanticsRowReader.cs",
+                }));
+        Assert.DoesNotContain("GetMetadataReader", classifier);
+        Assert.DoesNotContain("TableIndex", classifier);
+        Assert.DoesNotContain("MetadataTokens", classifier);
+        Assert.DoesNotContain("ReadSerializedString", classifier);
+        Assert.DoesNotContain("ReadUTF8", classifier);
+    }
+
+    [Fact]
     public void InstructionDiff_DoesNotExpandInstructionSubstrate()
     {
         Assert.Equal(
