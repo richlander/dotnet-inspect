@@ -134,22 +134,6 @@ Always target `"${TMUX_PANE:?}"`. The state must include
 is `continue`, `wait`, `merge`, `split`, `approve`, or `stop`. Clear both
 options when the window no longer owns the work.
 
-Publish `goal=advance|merge` whenever status gates the next action, whether the
-status run is immediate or delayed. `advance` means status gates round
-completion or reviewer dispatch; `merge` means it gates a readiness statement
-or merge attempt. Add `schedule=<id>` when a delayed run is armed, and remove it
-when the schedule is cancelled or fires. A schedule is valid only for the
-recorded `head`, `waiting`, `goal`, `attempt`, and `attempt-for` values.
-
-Add `attempt=<n>` and `attempt-for=<predicate>` for each automated successor
-while that status component remains unresolved by pending or missing CI, null
-mergeability, rate limiting, or a transient GitHub failure. Reset them when
-`head` or `goal` changes, or when that component clears or is replaced; changing
-an unrelated member of a composite `waiting` value does not reset its budget.
-At most three successors may run for one component. Follow
-[Status discovery](docs/round-orchestration.md#status-discovery) for the
-one-shot scheduling protocol.
-
 `blocked` and `waiting` are both things you are waiting on, split by **who can
 act on them**:
 
@@ -163,16 +147,16 @@ act on them**:
   and nothing is openable — a check that has not reported yet is not a defect
   and does not deserve an issue.
 
-A standalone `waiting=merge` is valid only after current-head `ci-required` is
-confirmed green. The `merge` member may coexist with `check:ci-required` in a
-composite wait before CI is green. Status runs evaluate membership, not exact
-string equality, and remove only predicates they resolve.
-
-A standalone merge wait retains fixed-head green-CI evidence while mergeability
-remains unresolved, so a scheduled successor initially reads only PR lifecycle
-and mergeability. Once mergeability becomes definite, re-read `ci-required`
-before advancing, claiming readiness, or merging because a same-head rerun can
-change check state. A head change invalidates the evidence.
+When GitHub status gates the next action, publish `goal=advance|merge` and the
+unresolved status predicates in `waiting`. A delayed check is one cancellable,
+one-shot run keyed to the recorded `head`, `waiting`, and `goal`; publish its
+`schedule=<id>`, cancel it when those values change, and clear it before the
+run queries GitHub. It must not schedule a successor. Follow
+[GitHub status queries](docs/github-status-queries.md) for the request and
+response contract and
+[Status discovery](docs/round-orchestration.md#status-discovery) for round
+transitions. A wait without `schedule` is passive and resumes only after a
+later user or workflow turn explicitly re-enters status discovery.
 
 `rec=wait` is coherent when either is populated. `blocked=ci` is the specific
 error this split exists to remove: it names nothing a person can open and
@@ -275,7 +259,8 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
 | Decompiler harness-only behavior | `docs/decompiler-correctness-pipeline.md`, then the owning harness README |
 | Skills | `taste/skill-guidance.md` |
 | Stacked PRs and restacking | `docs/stacked-prs.md` |
-| Running a review round, or checking PR status | `docs/round-orchestration.md` |
+| Running a review round | `docs/round-orchestration.md` |
+| Querying GitHub PR and CI status | `docs/github-status-queries.md` |
 | Hosting a network-accessible inspect-web demo | `docs/runbooks/inspect-web-demo-hosting.md` |
 | Installing and pinning TLA+ and Java, or the TLA+ model inventory | `docs/runbooks/tla-plus-setup.md` |
 | Release and publishing | `docs/release-workflow.md` |
@@ -854,8 +839,7 @@ status, positive mergeability, and successful current-head `ci-required`.
 REST `mergeable_state: "blocked"` (GraphQL `mergeStateStatus: BLOCKED`), a true
 REST or GraphQL draft flag, REST `mergeable: null` (GraphQL
 `mergeable: UNKNOWN`), a missing check, or a check from another head is not
-ready. Follow
-[status discovery](docs/round-orchestration.md#status-discovery).
+ready. Follow [GitHub status queries](docs/github-status-queries.md).
 
 For stacks, every open layer must meet its applicable eligibility row. A
 known-red or conflicted parent blocks upper slices; a pending parent does not
@@ -1066,10 +1050,9 @@ Put it under `## Demo` above validation in the PR body.
 - Treat CI as confirmation: run the focused local gate, then push promptly.
   Run eligible local suites, CI, and review concurrently.
 - Treat GitHub API capacity as shared and scarce. Follow
-  [status discovery](docs/round-orchestration.md#status-discovery): use REST
-  only when the result gates the next action, never probe quota or use GraphQL
-  for routine status, and schedule exactly one cancellable run instead of
-  polling or waiting for the user to report CI.
+  [GitHub status queries](docs/github-status-queries.md): query only when the
+  result gates the next action, use REST for routine status, never probe quota,
+  and use at most one keyed delayed run instead of polling.
 - A settled candidate should spend wall-clock time in parallel. If an hour
   passes without an authored change while an independent gate has not started,
   fix the sequencing or record the blocker.
