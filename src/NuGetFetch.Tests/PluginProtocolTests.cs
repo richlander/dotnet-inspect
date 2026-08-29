@@ -200,18 +200,56 @@ public sealed class PluginProtocolTests : IDisposable
     [Fact]
     public async Task AClosedCachedPluginConnectionIsRestartedOnTheNextRequest()
     {
+        var credentialLineWritten = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var connectionClosed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseLineWriter = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var hooksEnabled = new ManualResetEventSlim();
+        var hooks = new PluginConnection.PluginConnectionTestHooks
+        {
+            RequestLineWritten = method =>
+            {
+                if (hooksEnabled.IsSet
+                    && method == MessageMethods.GetAuthenticationCredentials)
+                {
+                    credentialLineWritten.TrySetResult();
+                    releaseLineWriter.Task
+                        .WaitAsync(
+                            TimeSpan.FromSeconds(2),
+                            TestContext.Current.CancellationToken)
+                        .GetAwaiter()
+                        .GetResult();
+                }
+            },
+            ConnectionAdmissionClosed = _ => connectionClosed.TrySetResult(),
+        };
         FakePlugin plugin = CreatePlugin(
             "restarts-after-death",
             username: "right",
             password: "token",
             exitOnFirstCredentialRequest: true);
 
-        await using var provider = new PluginCredentialProvider(null, [plugin.Executable]);
+        await using var provider = new PluginCredentialProvider(null, [plugin.Executable], hooks);
 
-        PackageSourceCredential? first = await provider.GetCredentialsAsync(
-            new Uri("https://first.example/v3/index.json"),
-            false,
+        hooksEnabled.Set();
+        Task<PackageSourceCredential?> firstRequest = Task.Run(
+            () => provider.GetCredentialsAsync(
+                new Uri("https://first.example/v3/index.json"),
+                false,
+                TestContext.Current.CancellationToken),
             TestContext.Current.CancellationToken);
+
+        await credentialLineWritten.Task.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+        await connectionClosed.Task.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+        releaseLineWriter.TrySetResult();
+
+        PackageSourceCredential? first = await firstRequest;
         PackageSourceCredential? second = await provider.GetCredentialsAsync(
             new Uri("https://second.example/v3/index.json"),
             false,
@@ -220,6 +258,97 @@ public sealed class PluginProtocolTests : IDisposable
         Assert.Null(first);
         Assert.NotNull(second);
         Assert.Equal("right", second.Username);
+    }
+
+    [Fact]
+    public async Task ARequestRacingTerminalPublicationRetriesOnAReplacementConnection()
+    {
+        var admissionClosed = new TaskCompletionSource<(bool ClosedPublished, bool GateHeld)>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var publicationStarting = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondAdmissionAttempted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseClosure = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var trackSecondAdmission = new ManualResetEventSlim();
+        int blockNextClosure = 1;
+        var hooks = new PluginConnection.PluginConnectionTestHooks
+        {
+            TerminalPublicationStarting = () =>
+            {
+                if (Interlocked.Exchange(ref blockNextClosure, 0) == 1)
+                {
+                    publicationStarting.TrySetResult();
+                    releaseClosure.Task
+                        .WaitAsync(
+                            TimeSpan.FromSeconds(2),
+                            TestContext.Current.CancellationToken)
+                        .GetAwaiter()
+                        .GetResult();
+                }
+            },
+            ConnectionAdmissionClosed = observation =>
+            {
+                admissionClosed.TrySetResult(observation);
+            },
+            RequestAdmissionAttempted = () =>
+            {
+                if (trackSecondAdmission.IsSet)
+                {
+                    secondAdmissionAttempted.TrySetResult();
+                }
+            },
+        };
+        FakePlugin plugin = CreatePlugin(
+            "retry-terminal-publication",
+            username: "right",
+            password: "token",
+            exitOnFirstCredentialRequest: true);
+
+        await using var provider = new PluginCredentialProvider(null, [plugin.Executable], hooks);
+        Task<PackageSourceCredential?> first = Task.Run(
+            () => provider.GetCredentialsAsync(
+                new Uri("https://first.example/v3/index.json"),
+                false,
+                TestContext.Current.CancellationToken),
+            TestContext.Current.CancellationToken);
+
+        await publicationStarting.Task.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+
+        trackSecondAdmission.Set();
+        Task<PackageSourceCredential?> second = Task.Run(
+            () => provider.GetCredentialsAsync(
+                new Uri("https://second.example/v3/index.json"),
+                false,
+                TestContext.Current.CancellationToken),
+            TestContext.Current.CancellationToken);
+
+        try
+        {
+            await secondAdmissionAttempted.Task.WaitAsync(
+                TimeSpan.FromSeconds(2),
+                TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            releaseClosure.TrySetResult();
+        }
+
+        (bool closedPublished, bool gateHeld) = await admissionClosed.Task.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+        Assert.True(closedPublished);
+        Assert.True(gateHeld);
+
+        Assert.Null(await first);
+        PackageSourceCredential? credential = await second.WaitAsync(
+            TimeSpan.FromSeconds(5),
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(credential);
+        Assert.Equal("right", credential.Username);
     }
 
     [Fact]
@@ -940,6 +1069,333 @@ public sealed class PluginProtocolTests : IDisposable
     }
 
     [Fact]
+    public async Task AResponseCannotLeaveItsRequestWriterStalled()
+    {
+        using var timeout = new EnvironmentVariable(
+            "NUGET_PLUGIN_REQUEST_TIMEOUT_IN_SECONDS",
+            "10");
+        FakePlugin plugin = CreatePlugin(
+            "response-before-complete-write",
+            username: "right",
+            password: "token",
+            respondBeforeCredentialLineCompletes: true);
+        PluginConnection connection = Assert.IsType<PluginConnection>(
+            await PluginConnection.StartAsync(
+                plugin.Executable,
+                log: null,
+                TestContext.Current.CancellationToken));
+        await using (connection)
+        {
+            GetAuthenticationCredentialsResponse? response = await connection
+                .GetCredentialsAsync(
+                    CreateLargeFeedUri(),
+                    isRetry: false,
+                    isNonInteractive: true,
+                    canShowDialog: false,
+                    TestContext.Current.CancellationToken)
+                .WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+
+            Assert.NotNull(response);
+            Assert.Equal("right", response.Username);
+            await connection.Closed.WaitAsync(
+                TimeSpan.FromSeconds(1),
+                TestContext.Current.CancellationToken);
+        }
+    }
+
+    [Fact]
+    public async Task CallerCancellationWinsAConcurrentWriteFailure()
+    {
+        using var timeout = new EnvironmentVariable(
+            "NUGET_PLUGIN_REQUEST_TIMEOUT_IN_SECONDS",
+            "10");
+        var writeFailed = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var writeStarting = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseWrite = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFailure = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var hooksEnabled = new ManualResetEventSlim();
+        var hooks = new PluginConnection.PluginConnectionTestHooks
+        {
+            RequestWriteStarting = () =>
+            {
+                if (hooksEnabled.IsSet)
+                {
+                    writeStarting.TrySetResult();
+                    releaseWrite.Task
+                        .WaitAsync(
+                            TimeSpan.FromSeconds(2),
+                            TestContext.Current.CancellationToken)
+                        .GetAwaiter()
+                        .GetResult();
+                    throw new IOException("Injected write failure.");
+                }
+            },
+            RequestWriteFailed = () =>
+            {
+                if (hooksEnabled.IsSet)
+                {
+                    writeFailed.TrySetResult();
+                    releaseFailure.Task
+                        .WaitAsync(
+                            TimeSpan.FromSeconds(2),
+                            TestContext.Current.CancellationToken)
+                        .GetAwaiter()
+                        .GetResult();
+                }
+            },
+        };
+        FakePlugin plugin = CreatePlugin(
+            "write-failure-cancellation",
+            username: "u",
+            password: "p");
+        PluginConnection connection = Assert.IsType<PluginConnection>(
+            await PluginConnection.StartAsync(
+                plugin.Executable,
+                log: null,
+                TestContext.Current.CancellationToken,
+                hooks));
+        await using (connection)
+        {
+            using var cancellation = new CancellationTokenSource();
+            hooksEnabled.Set();
+            Task<GetAuthenticationCredentialsResponse?> request = Task.Run(
+                () => connection.GetCredentialsAsync(
+                    CreateLargeFeedUri(),
+                    isRetry: false,
+                    isNonInteractive: true,
+                    canShowDialog: false,
+                    cancellation.Token),
+                TestContext.Current.CancellationToken);
+
+            await writeStarting.Task.WaitAsync(
+                TimeSpan.FromSeconds(2),
+                TestContext.Current.CancellationToken);
+            releaseWrite.TrySetResult();
+
+            await writeFailed.Task.WaitAsync(
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+            cancellation.Cancel();
+            releaseFailure.TrySetResult();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+                await request.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken));
+        }
+    }
+
+    [Fact]
+    public async Task ConnectionResourcesWaitForInterruptedRequestsToQuiesce()
+    {
+        using var timeout = new EnvironmentVariable(
+            "NUGET_PLUGIN_REQUEST_TIMEOUT_IN_SECONDS",
+            "10");
+        var writeInterrupted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseInterruption = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var resourcesDisposing = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var hooks = new PluginConnection.PluginConnectionTestHooks
+        {
+            RequestWriteInterrupted = () =>
+            {
+                writeInterrupted.TrySetResult();
+                releaseInterruption.Task
+                    .WaitAsync(
+                        TimeSpan.FromSeconds(2),
+                        TestContext.Current.CancellationToken)
+                    .GetAwaiter()
+                    .GetResult();
+            },
+            ConnectionResourcesDisposing = value => resourcesDisposing.TrySetResult(value),
+        };
+        FakePlugin plugin = CreatePlugin(
+            "quiesce-before-dispose",
+            username: "u",
+            password: "p",
+            afterSetLogLevel: "sleep 30");
+        PluginConnection connection = Assert.IsType<PluginConnection>(
+            await PluginConnection.StartAsync(
+                plugin.Executable,
+                log: null,
+                TestContext.Current.CancellationToken,
+                hooks));
+        using var cancellation = new CancellationTokenSource();
+        Task<GetAuthenticationCredentialsResponse?> request = connection.GetCredentialsAsync(
+            CreateLargeFeedUri(),
+            isRetry: false,
+            isNonInteractive: true,
+            canShowDialog: false,
+            cancellation.Token);
+
+        cancellation.Cancel();
+        await writeInterrupted.Task.WaitAsync(
+            TimeSpan.FromSeconds(5),
+            TestContext.Current.CancellationToken);
+
+        Task disposal = connection.DisposeAsync().AsTask();
+
+        try
+        {
+            await Assert.ThrowsAsync<TimeoutException>(async () =>
+                await resourcesDisposing.Task.WaitAsync(
+                    TimeSpan.FromMilliseconds(200),
+                    TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            releaseInterruption.TrySetResult();
+        }
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await request.WaitAsync(
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken));
+        await disposal.WaitAsync(
+            TimeSpan.FromSeconds(5),
+            TestContext.Current.CancellationToken);
+        Assert.True(await resourcesDisposing.Task);
+    }
+
+    [Fact]
+    public async Task ConnectionResourcesWaitForInboundResponseWritersToQuiesce()
+    {
+        var responseWriteStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseResponseWrite = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var resourcesDisposing = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var hooksEnabled = new ManualResetEventSlim();
+        var hooks = new PluginConnection.PluginConnectionTestHooks
+        {
+            ResponseWriteStarted = () =>
+            {
+                if (hooksEnabled.IsSet)
+                {
+                    responseWriteStarted.TrySetResult();
+                    releaseResponseWrite.Task
+                        .WaitAsync(
+                            TimeSpan.FromSeconds(2),
+                            TestContext.Current.CancellationToken)
+                        .GetAwaiter()
+                        .GetResult();
+                }
+            },
+            ConnectionResourcesDisposing = value => resourcesDisposing.TrySetResult(value),
+        };
+        FakePlugin plugin = CreatePlugin(
+            "quiesce-inbound-response",
+            username: "u",
+            password: "p",
+            afterSetLogLevel:
+                """
+                while [ ! -f "$RECORD.log" ]; do sleep 0.01; done
+                emit '{"RequestId":"quiesce-log","Type":"Request","Method":"Log","Payload":{"LogLevel":"Information","Message":"hello"}}'
+                sleep 30
+                """);
+        PluginConnection connection = Assert.IsType<PluginConnection>(
+            await PluginConnection.StartAsync(
+                plugin.Executable,
+                log: null,
+                TestContext.Current.CancellationToken,
+                hooks));
+
+        hooksEnabled.Set();
+        File.WriteAllText(plugin.RecordPath + ".log", string.Empty);
+        await responseWriteStarted.Task.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+
+        Task disposal = connection.DisposeAsync().AsTask();
+
+        try
+        {
+            await Assert.ThrowsAsync<TimeoutException>(async () =>
+                await resourcesDisposing.Task.WaitAsync(
+                    TimeSpan.FromMilliseconds(200),
+                    TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            releaseResponseWrite.TrySetResult();
+        }
+
+        await disposal.WaitAsync(
+            TimeSpan.FromSeconds(5),
+            TestContext.Current.CancellationToken);
+        Assert.True(await resourcesDisposing.Task);
+    }
+
+    [Fact]
+    public async Task AnUnfinishedInterruptedWriteRetainsConnectionResources()
+    {
+        using var timeout = new EnvironmentVariable(
+            "NUGET_PLUGIN_REQUEST_TIMEOUT_IN_SECONDS",
+            "10");
+        var neverCompletes = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var writeStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var resourcesDisposing = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var hooksEnabled = new ManualResetEventSlim();
+        var hooks = new PluginConnection.PluginConnectionTestHooks
+        {
+            RequestWriteOverride = () => hooksEnabled.IsSet ? neverCompletes.Task : null,
+            RequestWriteStarted = () =>
+            {
+                if (hooksEnabled.IsSet)
+                {
+                    writeStarted.TrySetResult();
+                }
+            },
+            ConnectionResourcesDisposing = value => resourcesDisposing.TrySetResult(value),
+        };
+        FakePlugin plugin = CreatePlugin(
+            "retain-unfinished-write-resources",
+            username: "u",
+            password: "p");
+        PluginConnection connection = Assert.IsType<PluginConnection>(
+            await PluginConnection.StartAsync(
+                plugin.Executable,
+                log: null,
+                TestContext.Current.CancellationToken,
+                hooks));
+        using var cancellation = new CancellationTokenSource();
+        hooksEnabled.Set();
+        Task<GetAuthenticationCredentialsResponse?> request = connection.GetCredentialsAsync(
+            new Uri("https://feed.example/v3/index.json"),
+            isRetry: false,
+            isNonInteractive: true,
+            canShowDialog: false,
+            cancellation.Token);
+
+        await writeStarted.Task.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await request.WaitAsync(
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken));
+        await connection.DisposeAsync().AsTask().WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+        Assert.False(await resourcesDisposing.Task);
+    }
+
+    [Fact]
     public async Task CallerCancellationContinuesToPropagate()
     {
         FakePlugin plugin = CreatePlugin("cancelled-request", username: "u", password: "p");
@@ -997,6 +1453,7 @@ public sealed class PluginProtocolTests : IDisposable
         string? inboundHandshakePayload = null,
         string? outboundHandshakePayload = null,
         string? afterSetLogLevel = null,
+        bool respondBeforeCredentialLineCompletes = false,
         bool closeOutputOnCredentialRequest = false,
         bool exitOnFirstCredentialRequest = false,
         bool exitOnCredentialRequest = false)
@@ -1033,6 +1490,17 @@ public sealed class PluginProtocolTests : IDisposable
             : exitOnCredentialRequest
                 ? "exit 0"
                 : credentialResponse;
+        string afterSetLogLevelAction = respondBeforeCredentialLineCompletes
+            ? """
+              IFS= read -r -n 256 prefix
+              id=$(field "$prefix" RequestId)
+              __CREDENTIAL_RESPONSE__
+              sleep 30
+              exit 0
+              """
+                .Replace("__CREDENTIAL_RESPONSE__", credentialResponse)
+                .Replace("__CREDENTIAL__", credentialPayload)
+            : afterSetLogLevel ?? string.Empty;
 
         // A non-interpolated raw string with tokens: the script is dense with braces, and
         // interpolation holes would be indistinguishable from JSON.
@@ -1077,7 +1545,7 @@ public sealed class PluginProtocolTests : IDisposable
                 (outboundHandshakePayload
                     ?? """{"ResponseCode":"Success","ProtocolVersion":"2.0.0"}""")
                     .Replace("\"", "\\\"", StringComparison.Ordinal))
-            .Replace("__AFTER_SET_LOG_LEVEL__", afterSetLogLevel ?? string.Empty)
+            .Replace("__AFTER_SET_LOG_LEVEL__", afterSetLogLevelAction)
             .Replace("__PREAMBLE__", preamble ?? string.Empty);
 
         return CreateRawPlugin(name, body);

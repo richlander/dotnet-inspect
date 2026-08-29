@@ -167,10 +167,18 @@ closes request admission before the read loop collects and settles pending reque
 `RequestAdmissionHasLiveReceiver` and `ShutdownSettlementIsComplete`. A malformed
 plugin-originated request receives an error response or the connection terminates; it never becomes
 abandoned work, checked by `InboundFailureIsContained` and
-`MalformedInboundEventuallySettles`. Active-writer timeout and cancellation containment are
-enforced by `PluginProtocolTests.AStalledWriterTimeoutTerminatesTheConnectionAndSettlesQueuedRequests`
-and `PluginProtocolTests.CallerCancellationOfAStalledWriterRemainsCancellation`. Terminal
-admission and pending settlement are enforced by
+`MalformedInboundEventuallySettles`. Active-writer timeout, cancellation, response, and write-fault
+containment are enforced by
+`PluginProtocolTests.AStalledWriterTimeoutTerminatesTheConnectionAndSettlesQueuedRequests`,
+`PluginProtocolTests.CallerCancellationOfAStalledWriterRemainsCancellation`,
+`PluginProtocolTests.AResponseCannotLeaveItsRequestWriterStalled`, and
+`PluginProtocolTests.CallerCancellationWinsAConcurrentWriteFailure`. Connection resources remain
+alive until admitted requests and inbound response writers have unwound, enforced by
+`PluginProtocolTests.ConnectionResourcesWaitForInterruptedRequestsToQuiesce` and
+`PluginProtocolTests.ConnectionResourcesWaitForInboundResponseWritersToQuiesce`; if a terminated
+transport write cannot be observed completing, its resources remain retained, enforced by
+`PluginProtocolTests.AnUnfinishedInterruptedWriteRetainsConnectionResources`. Terminal admission
+and pending settlement are enforced by
 `PluginProtocolTests.ARequestAfterReceiverLossIsRejectedWithoutWaitingForItsTimeout` and
 `PluginProtocolTests.ReceiverLossSettlesARequestAdmittedBeforeThePendingSnapshot`, with the
 atomic overlap enforced by
@@ -188,8 +196,10 @@ renewal and concurrent correlation remains unverified. Writer preemption, termin
 pending settlement are enforced by the gates named above.
 
 Plugins are started lazily and kept until their connection closes, because a launch costs a process
-start plus five round trips. A later request restarts a plugin whose prior live connection
-terminated, enforced by
+start plus five round trips. A request that loses a race with terminal publication retries once on
+a replacement connection, and later requests likewise replace a cached terminal connection. These
+rules are enforced by
+`PluginProtocolTests.ARequestRacingTerminalPublicationRetriesOnAReplacementConnection` and
 `PluginProtocolTests.AClosedCachedPluginConnectionIsRestartedOnTheNextRequest`. A plugin that fails
 to start, or that does not claim the `Authentication` operation, is remembered as unusable rather
 than retried.

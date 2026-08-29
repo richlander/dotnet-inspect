@@ -135,7 +135,11 @@ product behavior:
 | Concurrent request-ID correlation and out-of-order replies | Unverified. |
 | Progress renews the matching implementation timer | Unverified; the design previously described this as tested, but no matching test exists. |
 | Pipe loss closes admission before pending requests are collected | `PluginProtocolTests.ARequestAfterReceiverLossIsRejectedWithoutWaitingForItsTimeout`, `PluginProtocolTests.ReceiverLossSettlesARequestAdmittedBeforeThePendingSnapshot`, and `PluginProtocolTests.AdmissionCannotRegisterDuringTheTerminalPendingSnapshot` |
-| A stalled in-progress write is bounded by terminating the connection | `PluginProtocolTests.AStalledWriterTimeoutTerminatesTheConnectionAndSettlesQueuedRequests` and `PluginProtocolTests.CallerCancellationOfAStalledWriterRemainsCancellation` |
+| A stalled in-progress write is bounded by terminating the connection | `PluginProtocolTests.AStalledWriterTimeoutTerminatesTheConnectionAndSettlesQueuedRequests`, `PluginProtocolTests.CallerCancellationOfAStalledWriterRemainsCancellation`, and `PluginProtocolTests.AResponseCannotLeaveItsRequestWriterStalled` |
+| Concurrent write-fault and caller-cancellation outcomes are arbitrated once | `PluginProtocolTests.CallerCancellationWinsAConcurrentWriteFailure` |
+| Terminal connections quiesce before synchronization resources are disposed | `PluginProtocolTests.ConnectionResourcesWaitForInterruptedRequestsToQuiesce` and `PluginProtocolTests.ConnectionResourcesWaitForInboundResponseWritersToQuiesce` |
+| An interrupted write that remains unobservable cannot race disposed connection resources | `PluginProtocolTests.AnUnfinishedInterruptedWriteRetainsConnectionResources` |
+| A request racing terminal publication retries on a replacement connection | `PluginProtocolTests.ARequestRacingTerminalPublicationRetriesOnAReplacementConnection` |
 | Malformed plugin-originated payloads settle inbound work | `PluginProtocolTests.InvalidOrUnsupportedInboundHandshakeReceivesAnErrorResponse` and `PluginProtocolTests.MalformedInboundLogReceivesAnErrorResponse` |
 
 Formal model-to-implementation correspondence is unverified. In particular,
