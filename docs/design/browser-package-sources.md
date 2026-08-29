@@ -258,7 +258,19 @@ have equal producer, association, and transport values. Each
 `PackageSourceResultFactory` therefore creates one private issuer reference and
 stamps it on every result, observation, failure, and operation outcome. The
 issuer is not a fourth public identity role. It has no public accessor, text,
-serialization value, or caller-controlled construction path.
+serialization value, or successful caller-controlled construction path.
+
+Owner-controlled construction is stronger than C# `internal` accessibility.
+NuGetFetch owns one private, unforgeable construction-capability reference.
+Every internal constructor in the identity, result-factory, result, failure,
+and outcome graph requires that exact reference and rejects a null or foreign
+reference before retaining caller data or publishing an instance. Runtime
+client creation supplies the capability to a bound result factory, which
+retains it privately for its finite public construction methods. The
+capability is not the per-factory issuer, crosses no public API, and is not
+available through an internal member. Existing production
+`InternalsVisibleTo` grants therefore do not let adjacent owners mint a
+producer, identity, factory, issuer-bearing value, failure, or outcome.
 
 `PackageSourceKind` remains the retained transport distinction. NuGetFetch does
 not expose a second opaque transport identity. Resource failover and individual
@@ -444,10 +456,16 @@ the callback's responsibility.
 
 Successful source validation transfers the callback client to a
 NuGetFetch-owned `IPackageSourceClient` adapter. The adapter exposes the exact
-bound factory `Source`, forwards capabilities and operations, and owns the
-callback client. `CreateCustom` returns the adapter, not the callback client.
-The caller owns and disposes the adapter, which disposes the callback client
-exactly once. The callback client is not disposed before adapter disposal.
+bound factory `Source` and owns the callback client. Every `Capabilities` read
+delegates to and returns the exact inner value. Each operation invokes the
+corresponding inner operation exactly once with the original string, numeric,
+boolean, and cancellation-token arguments unchanged. In particular, the
+adapter does not substitute its normalized coordinate inputs for the raw
+package ID or version strings passed to the inner client; it normalizes those
+same invocation strings separately when validating the returned outcome.
+`CreateCustom` returns the adapter, not the callback client. The caller owns and
+disposes the adapter, which disposes the callback client exactly once. The
+callback client is not disposed before adapter disposal.
 
 The adapter retains the bound result factory and uses its internal validation
 methods on each non-null operation outcome before returning it. Validation
@@ -458,9 +476,21 @@ complete outcome constructed by another factory is rejected even when its
 public producer, association, and transport values are equal and the callback
 client's own `Source` was valid. An invalid or null custom outcome is not
 returned as a source failure; it is a custom-client contract violation surfaced
-as `InvalidOperationException`. The adapter remains caller-owned for disposal.
-The callback has no issuer accessor and no generic result or outcome
-construction path.
+as `InvalidOperationException`.
+
+Once an inner package or symbol operation returns a successful payload outcome,
+the adapter owns the payload stream provisionally until validation succeeds.
+Validation success transfers the stream to the adapter's caller unchanged. On
+foreign-factory, wrong-capability, wrong-payload-kind, wrong-coordinate, or
+otherwise invalid payload success, the adapter awaits `DisposeAsync` on the
+stream exactly once before rejecting the outcome. The contract violation
+remains primary: if asynchronous stream disposal also fails, an
+`AggregateException` exposes the `InvalidOperationException` first and the
+disposal failure second. The callback client remains owned by the adapter and
+is not disposed as a consequence of one invalid outcome.
+
+The adapter remains caller-owned for disposal. The callback has no issuer
+accessor and no generic result or outcome construction path.
 
 The same closed-construction rule applies after publication: every
 issuer-bearing observation, result, outcome, and failure type, including
@@ -556,12 +586,14 @@ storage. Mutating the original buffer, a destination, or a returned array
 cannot alter a published manifest. Unsafe or reflection-based private-storage
 corruption is outside the trusted-layer contract.
 
-The caller-owned payload stream remains the explicit exception: its content is
-consumed after the result returns and is not snapshotted into memory. Its
-deadline and failure boundary remains #4770. Projection helpers take the bound
-factory rather than independent producer, association, transport, or issuer
-arguments. Mixed identity or foreign-factory provenance is a construction
-error, and empty success and failure remain equally attributable.
+The caller-owned payload stream remains the explicit snapshot exception: after
+a valid result returns, its content is consumed by the caller rather than
+snapshotted into memory. A rejected custom result instead follows the adapter's
+provisional-ownership cleanup above. Post-return stream deadline and failure
+identity remains #4770. Projection helpers take the bound factory rather than
+independent producer, association, transport, or issuer arguments. Mixed
+identity or foreign-factory provenance is a construction error, and empty
+success and failure remain equally attributable.
 
 Multi-source aggregation remains above NuGetFetch. It retains producer identity
 as provenance but does not use producer equality alone to collapse configured
@@ -748,6 +780,14 @@ Implementation is not complete until Release gates establish:
 - `SourceResultFactoryBindsIssuingIdentity` proves built-in clients construct
   every result through their bound factory; two factories with value-equal
   public source identities reject each other's candidates by issuer reference;
+- `SourceConstructionRequiresOwnerCapability` invokes every internal
+  constructor in the identity, result-factory, result, failure, and outcome
+  graph from both production friend assemblies. Null and foreign capability
+  references fail before caller data is retained or an instance is published,
+  while every runtime-client path and every finite bound-factory method
+  succeeds with NuGetFetch's one private capability. Reflection proves that
+  capability crosses no public or internal member and is distinct from each
+  factory's issuer;
 - `RuntimeClientFactoriesRequireCallerAssociation` derives every production
   client-creation path, including transport-injection paths, and proves each
   requires a non-null caller association, passes that exact reference to the
@@ -776,9 +816,20 @@ Implementation is not complete until Release gates establish:
   prefix-search, version, manifest, package, and symbol success and failure
   from one factory is rejected by the other adapter. Same-factory negative
   vectors cover null outcomes, wrong failure capability, package-versus-symbol
-  payload substitution, and another normalized invocation coordinate. Valid
-  same-factory outcomes pass unchanged, and adapter `Source` is the exact bound
-  factory reference;
+  payload substitution, and another normalized invocation coordinate. For
+  foreign-factory, wrong-kind, and wrong-coordinate payload successes,
+  disposal-counting streams prove each rejected stream is asynchronously
+  disposed exactly once. A disposal failure produces validation-first
+  `AggregateException` ordering without disposing the callback client. Valid
+  same-factory outcomes and their payload streams pass unchanged, and adapter
+  `Source` is the exact bound factory reference;
+- `CustomClientAdapterForwardsOperationsExactly` uses a recording external
+  client to prove each adapter `Capabilities` read returns the exact inner
+  flags and each of the six operations invokes only its corresponding inner
+  method, exactly once, with the original strings, `take`, `prerelease`, and
+  cancellation token unchanged. Exact-operation vectors use raw spellings that
+  normalize to the returned coordinate, proving normalization is used for
+  validation but never substituted into the forwarded call;
 - `SourceOperationFactoryMatchesClientOperations` derives the complete client
   operation and finite failure-factory surfaces and pins the mapping from
   search and prefix search, version enumeration, manifest, package, and symbol
