@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DotnetInspector.Fixtures;
 
 namespace DotnetInspector.Tests;
 
@@ -278,6 +279,14 @@ public partial class CommandExecutionTests
             "-n", "2",
             "--lines",
             "--tips", "q");
+        var concatenated = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "References",
+            "--table",
+            "--rows", "1..3",
+            "-n2",
+            "--lines",
+            "--tips", "q");
         var tail = await RunAppAsync(
             "library", TestAssemblyPath,
             "-S", "References",
@@ -302,7 +311,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.All(
-            new[] { full, head, tail, rankedFull, rankedHead },
+            new[] { full, head, concatenated, tail, rankedFull, rankedHead },
             result =>
             {
                 Assert.Equal(0, result.Exit);
@@ -310,6 +319,7 @@ public partial class CommandExecutionTests
             });
 
         Assert.Equal(TakeRenderedLines(full.Output, 2, tail: false), head.Output);
+        Assert.Equal(head.Output, concatenated.Output);
         Assert.Equal(TakeRenderedLines(full.Output, 1, tail: true), tail.Output);
         Assert.Equal(TakeRenderedLines(rankedFull.Output, 2, tail: false), rankedHead.Output);
     }
@@ -332,6 +342,25 @@ public partial class CommandExecutionTests
             rejected.Error,
             StringComparison.Ordinal);
 
+        var falseJson = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "References",
+            "--json=false",
+            "-n", "2",
+            "--lines",
+            "--tips", "q");
+        var plainLineWindow = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "References",
+            "-n", "2",
+            "--lines",
+            "--tips", "q");
+        Assert.Equal(0, falseJson.Exit);
+        Assert.Equal(0, plainLineWindow.Exit);
+        Assert.Equal(plainLineWindow.Output, falseJson.Output);
+        Assert.Empty(falseJson.Error);
+        Assert.Empty(plainLineWindow.Error);
+
         var (packagePath, tempDir) = CreateLocalReadmePackage(
             "Test.PrintJsonLines",
             "README.md",
@@ -353,11 +382,70 @@ public partial class CommandExecutionTests
             Assert.Equal(
                 "alpha\nbeta\n",
                 document.RootElement.GetProperty("content").GetString());
+
+            var falseJsonl = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Package README file",
+                "--print",
+                "--jsonl=false",
+                "-n", "2",
+                "--lines",
+                "--tips", "q");
+            Assert.Equal(0, falseJsonl.Exit);
+            Assert.Equal("alpha\nbeta\n", falseJsonl.Output);
+            Assert.Empty(falseJsonl.Error);
+
+            var unsupportedDocumentJson = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Files",
+                "--json",
+                "-n", "1",
+                "--tips", "q");
+            Assert.Equal(1, unsupportedDocumentJson.Exit);
+            Assert.Empty(unsupportedDocumentJson.Output);
+            Assert.Contains(
+                "Use --jsonl for row-shaped JSON output.",
+                unsupportedDocumentJson.Error,
+                StringComparison.Ordinal);
         }
         finally
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task DirectOutputPathsApplyOrRejectItemWindows()
+    {
+        var libraryJson = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "References",
+            "--json",
+            "-n", "1",
+            "--tips", "q");
+        Assert.Equal(1, libraryJson.Exit);
+        Assert.Empty(libraryJson.Output);
+        Assert.Contains(
+            "Use --jsonl for row-shaped JSON output.",
+            libraryJson.Error,
+            StringComparison.Ordinal);
+
+        var nameOnly = await RunAppAsync(
+            "diff",
+            "--library",
+            $"{FixtureCatalog.DiffPair.OldAssemblyPath()}..{FixtureCatalog.DiffPair.NewAssemblyPath()}",
+            "--name-only",
+            "-n", "1",
+            "--tips", "q");
+        Assert.Equal(0, nameOnly.Exit);
+        Assert.Empty(nameOnly.Error);
+        Assert.Collection(
+            SplitOutputLines(nameOnly.Output),
+            line => Assert.Equal("first 1", line),
+            line => Assert.StartsWith(
+                "DiffFixtureSample.",
+                line,
+                StringComparison.Ordinal));
     }
 
     private static string[] FirstMarkdownTableRow(string output) =>

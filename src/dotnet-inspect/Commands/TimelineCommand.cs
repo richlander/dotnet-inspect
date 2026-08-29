@@ -1363,7 +1363,7 @@ public static class TimelineCommand
                 return 1;
 
             Console.WriteLine(JsonSerializer.Serialize(
-                view,
+                ApplyRowWindow(view, options.Rows),
                 TimelineJsonContext.Default.TimelineDocumentView));
             return 0;
         }
@@ -1420,6 +1420,25 @@ public static class TimelineCommand
             : rendered);
         return 0;
     }
+
+    private static TimelineDocumentView ApplyRowWindow(
+        TimelineDocumentView view,
+        RowWindow? rows) =>
+        new()
+        {
+            Title = view.Title,
+            Range = view.Range,
+            Type = view.Type,
+            Member = view.Member,
+            Finding = view.Finding,
+            Recommendation = view.Recommendation,
+            Evaluations = view.Evaluations is null
+                ? null
+                : RowWindow.Apply(rows, view.Evaluations).ToList(),
+            Transitions = view.Transitions is null
+                ? null
+                : RowWindow.Apply(rows, view.Transitions).ToList(),
+        };
 
     internal sealed record TimelineEvaluation(
         PackageVersionAddress Address,

@@ -81,6 +81,20 @@ public static class ProjectionAudit
         return true;
     }
 
+    public static bool RejectUnsupportedDocumentJsonRowWindow(
+        IProjectionOptions options,
+        bool jsonOutput,
+        string commandName)
+    {
+        if (!jsonOutput || options.Rows is null)
+            return false;
+
+        CommandError.Write(
+            $"Document --json item windows are not yet supported by '{commandName}'. "
+            + "Use --jsonl for row-shaped JSON output.");
+        return true;
+    }
+
     /// <summary>
     /// Rejects more than one payload projection in a single invocation. Two projections cannot
     /// both shape one payload, so honoring either one silently discards the other. Commands

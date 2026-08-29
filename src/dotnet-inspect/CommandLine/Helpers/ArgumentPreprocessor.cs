@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.CommandLine.Parsing;
 using DotnetInspector.Commands;
 using DotnetInspector.Core;
 using ILInspector.Metadata;
@@ -49,7 +50,9 @@ public static class ArgumentPreprocessor
 
         for (var i = 0; i < end - 1; i++)
         {
-            if (args[i] is not ("--head" or "--tail") || !int.TryParse(args[i + 1], out _))
+            if (args[i] is not ("--head" or "--tail")
+                || CommandLineModel.IsLimitShorthand(args[i + 1])
+                || !int.TryParse(args[i + 1], out _))
                 continue;
 
             var flag = args[i];
@@ -195,8 +198,7 @@ public static class ArgumentPreprocessor
         string[] args,
         RootCommand rootCommand)
     {
-        Command command =
-            rootCommand.Parse(args).CommandResult.Command;
+        Command command = rootCommand.Parse(args).CommandResult.Command;
         int endOfOptions = Array.IndexOf(args, "--");
         if (endOfOptions < 0)
             endOfOptions = args.Length;
@@ -222,57 +224,62 @@ public static class ArgumentPreprocessor
             }
         }
 
-        CaptureLineWindow(args, endOfOptions);
+        if (args.Take(endOfOptions).Any(static token =>
+                IsLineModeFlagSet(token, "--lines")
+                || IsLineModeFlagSet(token, "--tail-lines")))
+        {
+            CaptureLineWindow(rootCommand.Parse(args), rootCommand);
+        }
         return args;
     }
 
     private static void CaptureLineWindow(
-        string[] args,
-        int endOfOptions)
+        ParseResult parseResult,
+        RootCommand rootCommand)
     {
-        bool lineModeRequested = args.Take(endOfOptions)
-            .Any(static a =>
-                IsLineModeFlagSet(a, "--lines")
-                || IsLineModeFlagSet(a, "--tail-lines"));
-        if (lineModeRequested)
+        Command command = parseResult.CommandResult.Command;
+        bool linesRequested =
+            GetBooleanOptionValue(parseResult, rootCommand, command, "--lines");
+        bool tailLinesRequested =
+            GetBooleanOptionValue(parseResult, rootCommand, command, "--tail-lines");
+        if (!linesRequested && !tailLinesRequested)
+            return;
+
+        int? count = CommandLineModel.FindOption(
+            rootCommand,
+            command,
+            "-n") is Option<int?> limitOption
+            ? parseResult.GetValue(limitOption)
+            : null;
+        bool tailRequested =
+            tailLinesRequested
+            || GetBooleanOptionValue(
+                parseResult,
+                rootCommand,
+                command,
+                "--tail");
+        if (tailRequested)
         {
-            int? count = null;
-            for (int i = 0; i < endOfOptions; i++)
-            {
-                var (name, attachedValue) = SplitAttachedOptionValue(args[i]);
-                if (!string.Equals(name, "-n", StringComparison.Ordinal))
-                    continue;
-
-                if (attachedValue != null)
-                {
-                    if (int.TryParse(attachedValue, out var inline) && inline > 0)
-                        count = inline;
-                    break;
-                }
-
-                if (i + 1 < endOfOptions
-                    && int.TryParse(args[i + 1], out var separate)
-                    && separate > 0)
-                {
-                    count = separate;
-                }
-                break;
-            }
-
-            bool tailLinesRequested = args.Take(endOfOptions)
-                .Any(static a => IsLineModeFlagSet(a, "--tail") || IsLineModeFlagSet(a, "--tail-lines"));
-            if (tailLinesRequested)
-            {
-                TailLines = count;
-                HeadLines = null;
-            }
-            else
-            {
-                HeadLines = count;
-                TailLines = null;
-            }
+            TailLines = count;
+            HeadLines = null;
+        }
+        else
+        {
+            HeadLines = count;
+            TailLines = null;
         }
     }
+
+    private static bool GetBooleanOptionValue(
+        ParseResult parseResult,
+        RootCommand rootCommand,
+        Command command,
+        string optionName) =>
+        CommandLineModel.FindOption(
+            rootCommand,
+            command,
+            optionName) is Option<bool> option
+        && parseResult.GetValue(option);
 
     private static bool IsFollowingRequiredOptionValue(
         string[] args,

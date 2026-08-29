@@ -129,6 +129,11 @@ public class CommandLineLimitSlice4677Tests
             ["router", "System.Text.Json", "--platform", "--version", "-5"],
             CommandLineBuilder.PreprocessArgs(["System.Text.Json", "--platform", "--version", "-5"]));
 
+        Assert.False(
+            CommandLineBuilder.TryGetStaleArgumentError(
+                ["System.Text.Json", "--versions", "--tail", "-2"],
+                out _));
+
         Assert.Equal(
             ["router", "System.Collections.Generic.List<T>", "--library", "-2"],
             CommandLineBuilder.PreprocessArgs(["System.Collections.Generic.List<T>", "--library", "-2"]));
@@ -287,6 +292,9 @@ public class CommandLineLimitSlice4677Tests
         Assert.Equal(5, CommandLineBuilder.HeadLines);
 
         CommandLineBuilder.PreprocessArgs(["package", "System.Text.Json", "-n:5", "--lines"]);
+        Assert.Equal(5, CommandLineBuilder.HeadLines);
+
+        CommandLineBuilder.PreprocessArgs(["package", "System.Text.Json", "-n5", "--lines"]);
         Assert.Equal(5, CommandLineBuilder.HeadLines);
 
         CommandLineBuilder.PreprocessArgs(["package", "System.Text.Json", "-n", "5", "--tail-lines=true"]);

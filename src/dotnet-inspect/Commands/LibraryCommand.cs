@@ -702,7 +702,11 @@ public class LibraryCommand
                     return 1;
                 WarnEmptySections(inspection, options, pipeline);
                 ExtractResourcesIfRequested(resolvedPath!, options);
-                if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                if (ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+                        options,
+                        options.JsonOutput,
+                        "library")
+                    || ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
                     return 1;
 
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
@@ -865,7 +869,11 @@ public class LibraryCommand
                 if (assemblyPaths.Count > 0)
                     ExtractResourcesIfRequested(assemblyPaths[0], options);
 
-                if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                if (ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+                        options,
+                        options.JsonOutput,
+                        "library")
+                    || ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
                     return 1;
 
                 if (inspections.Count == 1 && !IsAllTfmPackageSelection(options))
@@ -979,7 +987,11 @@ public class LibraryCommand
                     return 1;
                 WarnEmptySections(inspection, options, pipeline);
                 ExtractResourcesIfRequested(assemblyPath!, options);
-                if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                if (ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+                        options,
+                        options.JsonOutput,
+                        "library")
+                    || ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
                     return 1;
 
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);

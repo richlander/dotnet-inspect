@@ -1516,18 +1516,20 @@ public class DiffCommand
     internal static string RenderDiff(string name, ApiDiff diff, string fromVersion, string toVersion, DiffOptions options, out bool hasContent)
     {
         var typeDiffs = ApplyFilters(diff, options);
-        hasContent = options.NameOnly ? typeDiffs.Count > 0 : typeDiffs.Any(td => td.Changes.Any());
 
         if (options.NameOnly)
         {
+            var visibleTypeDiffs = RowWindow.Apply(options.Rows, typeDiffs);
+            hasContent = visibleTypeDiffs.Count > 0;
             return OutputFormatter.RenderTable(showHeader: false, (writer, formatter) =>
             {
                 var nameWriter = new Markout.MarkoutWriter(writer, formatter, OutputFormatter.CreateTableWriterOptions(options.Tsv, options.Jsonl));
-                DiffOutputFormatter.RenderNameOnly(nameWriter, typeDiffs);
+                DiffOutputFormatter.RenderNameOnly(nameWriter, visibleTypeDiffs);
                 nameWriter.Flush();
             });
         }
 
+        hasContent = typeDiffs.Any(td => td.Changes.Any());
         return DiffOutputFormatter.RenderFullMarkdown(
             name,
             typeDiffs,

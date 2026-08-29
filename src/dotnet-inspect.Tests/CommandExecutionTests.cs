@@ -30162,6 +30162,13 @@ public partial class CommandExecutionTests
             using var emptyDocument = JsonDocument.Parse(lines.Single(line => line.Contains("Test.Project.NoAgents")));
             Assert.Equal("", emptyDocument.RootElement.GetProperty("name").GetString());
             Assert.Equal("", emptyDocument.RootElement.GetProperty("description").GetString());
+
+            var windowed = await RunProjectFixtureAsync(
+                projectPath, "--agents-index", "-n", "1", "--json");
+            Assert.Equal(0, windowed.Exit);
+            Assert.Empty(windowed.Error);
+            using var windowedDocument = JsonDocument.Parse(windowed.Output);
+            Assert.Equal(1, windowedDocument.RootElement.GetArrayLength());
         }
         finally
         {

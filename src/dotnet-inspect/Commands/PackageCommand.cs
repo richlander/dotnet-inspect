@@ -1114,7 +1114,11 @@ public class PackageCommand
             }
             else
             {
-                if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                if (ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+                        options,
+                        options.JsonOutput,
+                        "package")
+                    || ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
                     return 1;
 
                 var output = OutputFormatter.FormatResult(result, options, pipeline);

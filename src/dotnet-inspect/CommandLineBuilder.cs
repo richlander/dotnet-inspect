@@ -206,19 +206,42 @@ public static class CommandLineBuilder
     }
 
     private static bool IsNonPrintJson(ParseResult parseResult)
-        => HasOptionToken(parseResult, "--json")
-           && !HasOptionToken(parseResult, "--print");
+        => GetBooleanOptionValue(parseResult, "--json")
+           && !GetBooleanOptionValue(parseResult, "--print");
 
     private static bool IsStructuredPrintProjection(ParseResult parseResult)
-        => HasOptionToken(parseResult, "--print")
-           && (HasOptionToken(parseResult, "--json")
-               || HasOptionToken(parseResult, "--jsonl")
-               || HasOptionToken(parseResult, "--json-array"));
+        => GetBooleanOptionValue(parseResult, "--print")
+           && (GetBooleanOptionValue(parseResult, "--json")
+               || GetBooleanOptionValue(parseResult, "--jsonl")
+               || GetBooleanOptionValue(parseResult, "--json-array"));
 
-    private static bool HasOptionToken(ParseResult parseResult, string optionName)
-        => parseResult.Tokens.Any(token =>
-            token.Type == System.CommandLine.Parsing.TokenType.Option
-            && string.Equals(token.Value.Split('=', 2)[0], optionName, StringComparison.Ordinal));
+    private static bool GetBooleanOptionValue(
+        ParseResult parseResult,
+        string optionName)
+    {
+        for (System.CommandLine.Parsing.SymbolResult? scope = parseResult.CommandResult;
+             scope is not null;
+             scope = scope.Parent)
+        {
+            if (scope is not System.CommandLine.Parsing.CommandResult commandResult)
+                continue;
+
+            var option = commandResult.Command.Options
+                .OfType<Option<bool>>()
+                .FirstOrDefault(candidate =>
+                    string.Equals(
+                        candidate.Name,
+                        optionName,
+                        StringComparison.Ordinal)
+                    || candidate.Aliases.Contains(
+                        optionName,
+                        StringComparer.Ordinal));
+            if (option is not null)
+                return parseResult.GetValue(option);
+        }
+
+        return false;
+    }
 
     private static bool WriteParseErrors(ParseResult parseResult)
     {
