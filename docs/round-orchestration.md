@@ -25,6 +25,13 @@ it or a recovery transition supersedes it. Both integrations (steps 1 and 4)
 happen before the push — base movement after the push does not reopen the
 locked candidate.
 
+Before step 1 for new work, visibly state `Design basis:`. Name exactly one
+normative owner with its exact document section and owned claim, then identify
+supporting models, adjacent contracts, consumed constraints, and consumer
+boundaries by role rather than presenting them as co-owners. Apply the
+[design-scope rules](design-scope.md) before starting if ownership is unclear
+or the work appears to need multiple normative owners.
+
 1. Integrate the effective base.
 2. Make the initial or review-driven change.
 3. Run the focused gate.
@@ -42,16 +49,18 @@ locked candidate.
 
 | Attempt | Required before reviewer dispatch | May remain pending |
 | --- | --- | --- |
-| First attempt at round 1 | Pushed settled head, recorded effective base, focused gate | CI and mergeability |
-| Ordinary subsequent round | First-attempt requirements, one status attempt, and no observed conflict or non-green `ci-required` | Pending or unavailable CI and mergeability, subject to [Bounded status waiting](#bounded-status-waiting) |
+| First attempt at round 1 | Pushed settled head, recorded effective base, focused gate, applicable CI rule below | Mergeability; eligible pending CI |
+| Ordinary subsequent round | First-attempt requirements, one status attempt, and no observed conflict | Mergeability; eligible pending CI subject to [Bounded status waiting](#bounded-status-waiting) |
 | Conflict-recovery attempt | Resolution head pushed, round number authorized | Post-push local gates, CI, mergeability |
-| Failed-gate restart | Required fix pushed, one status attempt, and no observed conflict or non-green `ci-required` | Pending or unavailable CI and mergeability, subject to [Bounded status waiting](#bounded-status-waiting) |
+| Failed-gate restart | Required fix pushed, one status attempt, applicable CI rule below, and no observed conflict | Mergeability; eligible pending CI subject to [Bounded status waiting](#bounded-status-waiting) |
 | Six-round boundary approval | Fresh green current-head `ci-required` and definite positive mergeability | Nothing |
 
-A documentation-only candidate substitutes pre-commit `markdownlint` for green
-`ci-required` at non-boundary rounds; `ci-required` is still mandatory at every
-six-round boundary and for final merge readiness. The user may authorize review
-in parallel with CI for other changes.
+A non-Markdown candidate requires green current-head `ci-required` before
+reviewer dispatch unless the user authorized parallel review or conflict
+recovery applies. A Markdown-only candidate (every changed file is `*.md`)
+substitutes pre-commit `markdownlint` at non-boundary rounds. Only these
+exceptions make pending CI eligible; `ci-required` remains mandatory at
+six-round boundaries and final merge.
 
 ### Review-clean, and recovery
 
@@ -80,10 +89,11 @@ Recovery transitions, applied without waiting for CI:
   unchanged head; repeat only with concrete transient evidence, otherwise treat
   it as an author change.
 
-A final-gate `ci-required` regression discovered after a documentation-only
-round closes does not reopen that round: retry the unchanged head only with
-concrete transient evidence, otherwise remove `review-clean` and form a
-candidate at the next round number. Never close with a required check red. A
+A final-gate `ci-required` failure observed during or after a non-boundary
+Markdown-only round does not interrupt or reopen that round. Finish its review
+path; afterward, retry the unchanged head only with concrete transient evidence,
+otherwise remove `review-clean` and form a candidate at the next round number.
+Never close a round or goal while one of its applicable required checks is red. A
 superseded attempt spends no round and gets no completion report; let its
 reviewers finish or acknowledge cancellation, and carry every returned finding
 forward.
@@ -134,32 +144,37 @@ unrelated members such as `review`. In the table, **status members** means
 | PR is closed or draft | Leave the status wait, publish the human action or stopped state, and end. |
 | Head changed | Leave the status wait; route the returned head through candidate formation without inheriting fixed-head evidence. |
 | REST `mergeable: false` or GraphQL `mergeable: CONFLICTING` | Leave the status wait; apply conflict recovery before considering CI. |
-| `ci-required` completed without `success` | Leave the status wait; classify the result and apply the applicable recovery transition. |
+| `ci-required` completed without `success` while required for the current round or goal | Leave the status wait; classify the result and apply the applicable recovery transition. |
+| `ci-required` completed without `success` while not required for the current round or goal | Record the final-readiness failure and continue the current review path. |
 | GraphQL `mergeStateStatus: BLOCKED`, `goal=merge` | Leave the status wait, publish `blocked=<pr-number> rec=wait`, and end. |
 | Green `ci-required` and positive mergeability at the expected head | Leave the status wait and continue when no other predicate remains. |
 | CI or mergeability is pending or missing | Preserve the unresolved status members and apply the round cadence below. |
 | Rate-limited or transient query failure | Record the concrete failure and retry-not-before time, preserve the unresolved status members, and apply the round cadence below. |
 | Terminal query failure | Leave the status wait with `rec=stop`, surface the failure, and end. |
 
-Read the table top-down. Conflict recovery outranks CI, terminal non-green CI
-outranks the remaining merge states, and a documented GraphQL block prevents a
-merge goal. Carry-forward remains a separate pre-merge obligation driven by the
-fetched base tip, not by undocumented REST `mergeable_state` values.
+Read the table top-down. Conflict recovery outranks CI, terminal non-green
+required CI outranks the remaining merge states, and a documented GraphQL block
+prevents a merge goal. Carry-forward remains a separate pre-merge obligation
+driven by the fetched base tip, not by undocumented REST `mergeable_state`
+values.
 
 ### Bounded status waiting
 
 *This section defines repository policy, not GitHub timing guarantees.*
 
-Every round attempts one current-head snapshot. At an ordinary round, a
-pending, rate-limited, or transient result is recorded and the next round
-continues. A known conflict, non-green `ci-required`, or terminal query failure
-still takes its transition.
+Every round attempts one current-head snapshot. When CI is a reviewer-dispatch
+prerequisite, pending, missing, rate-limited, or transient status enters the
+60-minute budget below; expiry publishes the status report and stops without
+dispatch. When CI may remain pending, record that status and continue the
+current review path. A known conflict, required CI completed without success,
+or terminal query failure still takes its transition.
 
-Every third round spends up to a 60-minute status budget before it may advance;
-a merge or readiness goal may use the same bound. Every sixth round uses that
-budget, but fresh green current-head `ci-required` and positive mergeability
-remain prerequisites for the next-block approval prompt. Measure the budget
-from the first scheduled wait and publish `status-deadline=<UTC>`.
+A reviewer-dispatch CI prerequisite spends up to a 60-minute status budget
+before dispatch. Every third round, and any merge or readiness goal, may use the
+same bound. Every sixth round uses that budget, but fresh green current-head
+`ci-required` and positive mergeability remain prerequisites for the next-block
+approval prompt. Measure the budget from the first scheduled wait and publish
+`status-deadline=<UTC>`.
 
 Arm at most one schedule at a time. Key it to its own ID plus the expected
 `head`, complete `waiting` set, `goal`, and deadline. A stale run stops itself
@@ -320,6 +335,8 @@ prompt:
 ```text
 Round <n> is complete for PR <number>.
 - Review models <model-a> and <model-b> were used for adversarial review.
+- Design basis: normative owner <path#section> — <owned claim>; supporting
+  <path and role for each model, adjacent contract, constraint, or consumer>.
 - Review feedback is: [converging, diverging, neutral, clean].
 - Round start: <datetime>.
 - Round end: <datetime>.
@@ -338,7 +355,9 @@ Use `Fix description` to state the concrete review-driven changes.
 Classification must match the reviewer outcomes:
 
 - If every required reviewer returned no findings and the locked head remained
-  unchanged, use `clean`. Do not use `converging` as a generic positive label.
+  unchanged, use `clean`. The report's `Design basis` must restate the normative
+  owner and supporting-role map, confirming that review did not reveal ownership
+  drift. Do not use `converging` as a generic positive label.
 - If any reviewer returned a finding, use `converging`, `diverging`, or
   `neutral`, even when every finding was dismissed and the head stayed
   unchanged. Explain dismissals in the public reconciliation.
@@ -355,10 +374,13 @@ a blocker, and it clears only when every listed predicate clears.
 - `wait` requires a non-empty `Blocked` or `Waiting` field. A retained
   `schedule` means the agent will check automatically; without one, the wait is
   passive and resumes only when a later user or workflow turn re-enters it.
-- When a completed documentation-only round is review-clean and no further
+- When a completed Markdown-only round is review-clean and no further
   author or review round is needed, but `ci-required` remains pending or
   missing, use `Waiting: check:ci-required` and `Recommendation: wait`. Use
   `Waiting: check:ci-required,merge` when live mergeability is also unresolved.
+  A completed failure finishes the current round, then follows the final-gate
+  transition above; use `Recommendation: continue` only when the next round is
+  inside the authorized block.
   An intermediate or fix-producing round reports `continue` without waiting for
   CI only when the next round remains inside the current authorized block and
   the status cadence permits it. At a six-round boundary, fresh green
