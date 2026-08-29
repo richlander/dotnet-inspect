@@ -372,6 +372,7 @@ The runtime implementation is verified by these named gates:
 - `AnalysisRequest_UniverseBreadthCannotWidenReportSurface`
 - `AnalysisRequest_TargetedRequiresAcceptedAnchor`
 - `AnalysisRequest_CensusRejectsPrivilegedContainedAnchor`
+- `AnalysisRequest_CensusRequiresAcceptedReportDomain`
 - `AnalysisRequest_ModeValidationDerivesFromDeclaredTargetFunctions`
 - `AnalysisRequest_RejectsMissingOrUnboundedUniverseBeforeProducerExecution`
 - `AnalysisCapability_StructuralDiscoveryDoesNotResolveContentExecuteProducersOrProbeEffectiveness`
@@ -389,6 +390,7 @@ The runtime implementation is verified by these named gates:
 - `AnalysisCapability_ModeScopesUniverseRequirementsAndProjections`
 - `AnalysisCapability_RejectsTargetRoleCardinalityMismatch`
 - `AnalysisDescriptor_RejectsModeWithoutSatisfiableSurfaceOrProjection`
+- `AnalysisDescriptor_RejectsOverlappingCapabilityIdentityCollision`
 - `AnalysisPlan_RetainsExactRequestFieldsAndDescriptorRequirements`
 - `AnalysisPlan_CostIsMaximumOfAnalysisAndTransitiveQueries`
 - `AnalysisPlan_RetainsUniverseCompletenessAndFailureInputs`

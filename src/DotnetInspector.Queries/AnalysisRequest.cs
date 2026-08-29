@@ -408,6 +408,7 @@ public sealed class AnalysisDescriptor
         ValidateSurfaceDeclarations();
         ValidateProjectionDeclarations();
         ValidateRequirementModes();
+        ValidateRequirementCapabilities();
         ValidateModeCoherence();
     }
 
@@ -469,6 +470,33 @@ public sealed class AnalysisDescriptor
             throw new ArgumentException(
                 "Every universe-requirement mode must be supported by the analysis.",
                 nameof(UniverseRequirements));
+        }
+    }
+
+    void ValidateRequirementCapabilities()
+    {
+        foreach (IGrouping<
+            AnalysisDeclarationId,
+            AnalysisUniverseRequirementDescriptor> group in
+            UniverseRequirements.GroupBy(requirement => requirement.Capability.Id))
+        {
+            AnalysisUniverseRequirementDescriptor[] requirements = [.. group];
+            for (int left = 0; left < requirements.Length; left++)
+            {
+                for (int right = left + 1; right < requirements.Length; right++)
+                {
+                    if (!ReferenceEquals(
+                            requirements[left].Capability,
+                            requirements[right].Capability)
+                        && requirements[left].Modes.Intersect(
+                            requirements[right].Modes).Any())
+                    {
+                        throw new ArgumentException(
+                            "Overlapping requirements with one capability identifier must share its exact descriptor.",
+                            nameof(UniverseRequirements));
+                    }
+                }
+            }
         }
     }
 

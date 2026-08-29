@@ -175,6 +175,22 @@ public sealed class AnalysisRequestTests
     }
 
     [Fact]
+    public void AnalysisRequest_CensusRequiresAcceptedReportDomain()
+    {
+        Fixture fixture = new(workspaceDomainMinimumCount: 0);
+        AnalysisReportSurface surface = new(
+            AnalysisReportSurfaceKind.Workspace,
+            new SurfaceIdentity("workspace"),
+            []);
+
+        AnalysisRequestRejection rejection = fixture.Rejected(
+            fixture.Request(surface: surface));
+
+        Assert.Equal(AnalysisRequestRejectionReason.InvalidMode, rejection.Reason);
+        Assert.Empty(rejection.TargetRoles);
+    }
+
+    [Fact]
     public void AnalysisRequest_ModeValidationDerivesFromDeclaredTargetFunctions()
     {
         Fixture anchor = new(
@@ -345,6 +361,48 @@ public sealed class AnalysisRequestTests
                     rows,
                     [AnalysisQuestionMode.Targeted]),
             ]));
+    }
+
+    [Fact]
+    public void AnalysisDescriptor_RejectsOverlappingCapabilityIdentityCollision()
+    {
+        Fixture fixture = new();
+        var capability = new AnalysisUniverseCapabilityDescriptor(
+            new AnalysisDeclarationId("capability.shared"),
+            "shared capability");
+        var first = new AnalysisUniverseRequirementDescriptor(
+            new AnalysisDeclarationId("requirement.first"),
+            capability,
+            [AnalysisQuestionMode.Census]);
+        var second = new AnalysisUniverseRequirementDescriptor(
+            new AnalysisDeclarationId("requirement.second"),
+            capability,
+            [AnalysisQuestionMode.Census]);
+        AnalysisDescriptor shared = fixture.WithUniverseRequirements(first, second);
+        AnalysisUniverseDescription universe = fixture.Universe(
+            new UniverseIdentity("shared"),
+            new Boundary("selected types"),
+            capabilities: [capability]);
+
+        AnalysisRequestPlan plan = Assert.IsType<
+            AnalysisRequestPlanResult.Accepted>(
+                new AnalysisCapabilityCatalog([shared]).Plan(
+                    fixture.Request(
+                        analysis: shared,
+                        universe: universe),
+                    fixture.Environment)).Plan;
+
+        Assert.Equal([first, second], plan.UniverseRequirements);
+
+        var lookalike = new AnalysisUniverseCapabilityDescriptor(
+            capability.Id,
+            "lookalike capability");
+        var collision = new AnalysisUniverseRequirementDescriptor(
+            new AnalysisDeclarationId("requirement.collision"),
+            lookalike,
+            [AnalysisQuestionMode.Census]);
+        Assert.Throws<ArgumentException>(() =>
+            fixture.WithUniverseRequirements(first, collision));
     }
 
     [Fact]
@@ -750,7 +808,8 @@ public sealed class AnalysisRequestTests
             IEnumerable<AnalysisQuestionMode>? observedRequirementModes = null,
             IEnumerable<AnalysisQuestionMode>? graphProjectionModes = null,
             InspectionCost analysisCost = InspectionCost.NetworkFree,
-            InspectionCost queryDependencyCost = InspectionCost.Unbounded)
+            InspectionCost queryDependencyCost = InspectionCost.Unbounded,
+            int workspaceDomainMinimumCount = 1)
         {
             AnalysisQuestionMode[] modes =
                 supportedModes?.ToArray()
@@ -784,7 +843,7 @@ public sealed class AnalysisRequestTests
             WorkspaceDomain = new AnalysisTargetRoleDescriptor(
                 new AnalysisDeclarationId("target.workspace-domain"),
                 AnalysisTargetFunction.ReportDomain,
-                1,
+                workspaceDomainMinimumCount,
                 1);
             MemberAnchor = new AnalysisTargetRoleDescriptor(
                 new AnalysisDeclarationId("target.member"),
@@ -933,6 +992,19 @@ public sealed class AnalysisRequestTests
                         [MemberAnchor, FallbackAnchor]),
                 ],
                 Analysis.UniverseRequirements,
+                Analysis.StructuralPrerequisites,
+                Analysis.HostRequirements,
+                Analysis.Projections);
+
+        public AnalysisDescriptor WithUniverseRequirements(
+            params AnalysisUniverseRequirementDescriptor[] requirements) =>
+            new(
+                Analysis.Id,
+                Analysis.Revision,
+                Analysis.Cost,
+                Analysis.Modes,
+                Analysis.ReportSurfaces,
+                requirements,
                 Analysis.StructuralPrerequisites,
                 Analysis.HostRequirements,
                 Analysis.Projections);
