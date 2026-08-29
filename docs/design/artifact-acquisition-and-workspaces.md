@@ -566,8 +566,9 @@ Acquisition follows this order:
    then copy it into an adapter-private snapshot while enforcing
    `MaxFileBytes` and the remaining `MaxTotalBytes`.
 7. Register the complete batch in one contribution scope only after every
-   selected snapshot succeeds. Any selected-entry, limit, registration, or
-   outcome-construction failure publishes no contribution from the batch.
+   selected snapshot succeeds. Any enumeration, selected-entry, limit,
+   registration, or outcome-construction failure publishes no contribution
+   from the batch.
 
 Copying stops before retaining a byte that would exceed either bound. The bound
 that would be exceeded first determines the rejection; when the same byte would
@@ -617,9 +618,10 @@ snapshot.
 The implementation is complete when focused gates prove:
 
 - bounded top-level selection is deterministic and source-neutral;
-- empty selection registers nothing, while entry admission, per-file and
-  aggregate overflow with their defined precedence, read failure, and
-  registration failure cannot publish a partial batch; and
+- empty selection registers nothing, while enumeration failure remains failed
+  rather than becoming empty success, and neither it nor entry admission,
+  per-file and aggregate overflow with their defined precedence, read failure,
+  or registration failure can publish a partial batch; and
 - directory provenance, immutable batch snapshots, and cancellation are
   preserved.
 
