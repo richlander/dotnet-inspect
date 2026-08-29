@@ -128,7 +128,7 @@ product behavior:
 | Model rule | Implementation evidence |
 | --- | --- |
 | Initialization follows the required wire sequence | `PluginProtocolTests.InitializationFollowsTheProtocolSequence` |
-| The host answers the plugin-originated handshake | `PluginProtocolTests.CompatibleInboundHandshakeUsesProtocolTwo` and `PluginProtocolTests.InvalidOrUnsupportedInboundHandshakeReceivesAnErrorResponse` |
+| The symmetric handshake accepts only protocol 2.0.0 | `PluginProtocolTests.CompatibleInboundHandshakeUsesProtocolTwo`, `PluginProtocolTests.InvalidOrUnsupportedInboundHandshakeReceivesAnErrorResponse`, and `PluginProtocolTests.InvalidOrUnsupportedOutboundHandshakeStopsInitialization` |
 | A dying process settles the current request as plugin failure | `PluginProtocolTests.WhenOnePluginDiesDuringTheRequest_TheNextIsTried` |
 | Caller cancellation remains caller cancellation | `PluginProtocolTests.CallerCancellationContinuesToPropagate` |
 | A malformed response header does not end the read loop | `PluginProtocolTests.AProtocolMessageWithNonStringHeadersIsIgnoredRatherThanEndingTheConversation` |

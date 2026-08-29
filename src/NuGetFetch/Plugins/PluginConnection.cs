@@ -139,7 +139,8 @@ internal sealed class PluginConnection : IAsyncDisposable
             PluginJsonContext.Default.HandshakeResponse,
             cancellationToken).ConfigureAwait(false);
 
-        if (handshake?.ResponseCode != ResponseCodes.Success)
+        if (handshake?.ResponseCode != ResponseCodes.Success
+            || !string.Equals(handshake.ProtocolVersion, ProtocolVersion, StringComparison.Ordinal))
         {
             _log?.Invoke("Credential plugin declined the protocol handshake.");
             return false;

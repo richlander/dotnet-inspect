@@ -346,6 +346,41 @@ public sealed class PluginProtocolTests : IDisposable
 
     [Theory]
     [InlineData(
+        "unsupported-version",
+        """{"ResponseCode":"Success","ProtocolVersion":"1.0.0"}""")]
+    [InlineData(
+        "missing-version",
+        """{"ResponseCode":"Success"}""")]
+    [InlineData(
+        "invalid-version",
+        """{"ResponseCode":"Success","ProtocolVersion":"current"}""")]
+    public async Task InvalidOrUnsupportedOutboundHandshakeStopsInitialization(
+        string name,
+        string payload)
+    {
+        FakePlugin plugin = CreatePlugin(
+            $"invalid-outbound-handshake-{name}",
+            username: "u",
+            password: "p",
+            outboundHandshakePayload: payload);
+
+        await using var provider = new PluginCredentialProvider(null, [plugin.Executable]);
+        PackageSourceCredential? credential = await provider.GetCredentialsAsync(
+            new Uri("https://feed.example/v3/index.json"),
+            isRetry: false,
+            TestContext.Current.CancellationToken);
+
+        Assert.Null(credential);
+        Assert.Contains(
+            plugin.ReceivedRequests(),
+            request => request.Method == MessageMethods.Handshake);
+        Assert.DoesNotContain(
+            plugin.ReceivedRequests(),
+            request => request.Method is not MessageMethods.Handshake and not MessageMethods.Close);
+    }
+
+    [Theory]
+    [InlineData(
         "mistyped-level",
         """{"LogLevel":123,"Message":"ignored"}""")]
     [InlineData(
@@ -491,6 +526,7 @@ public sealed class PluginProtocolTests : IDisposable
         string? authenticationTypes = null,
         string? preamble = null,
         string? inboundHandshakePayload = null,
+        string? outboundHandshakePayload = null,
         string? afterSetLogLevel = null,
         bool exitOnCredentialRequest = false)
     {
@@ -527,7 +563,7 @@ public sealed class PluginProtocolTests : IDisposable
               method=$(field "$line" Method)
               case "$method" in
                 Handshake)
-                  emit "{\"RequestId\":\"$id\",\"Type\":\"Response\",\"Method\":\"Handshake\",\"Payload\":{\"ResponseCode\":\"Success\",\"ProtocolVersion\":\"2.0.0\"}}" ;;
+                  emit "{\"RequestId\":\"$id\",\"Type\":\"Response\",\"Method\":\"Handshake\",\"Payload\":__OUTBOUND_HANDSHAKE__}" ;;
                 MonitorNuGetProcessExit|Initialize)
                   emit "{\"RequestId\":\"$id\",\"Type\":\"Response\",\"Method\":\"$method\",\"Payload\":{\"ResponseCode\":\"Success\"}}" ;;
                 SetLogLevel)
@@ -549,6 +585,11 @@ public sealed class PluginProtocolTests : IDisposable
                 "__INBOUND_HANDSHAKE__",
                 inboundHandshakePayload
                     ?? """{"ProtocolVersion":"2.0.0","MinimumProtocolVersion":"1.0.0"}""")
+            .Replace(
+                "__OUTBOUND_HANDSHAKE__",
+                (outboundHandshakePayload
+                    ?? """{"ResponseCode":"Success","ProtocolVersion":"2.0.0"}""")
+                    .Replace("\"", "\\\"", StringComparison.Ordinal))
             .Replace("__AFTER_SET_LOG_LEVEL__", afterSetLogLevel ?? string.Empty)
             .Replace("__PREAMBLE__", preamble ?? string.Empty);
 

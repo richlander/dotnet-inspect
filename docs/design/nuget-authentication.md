@@ -150,7 +150,9 @@ Two details are easy to get wrong:
   `ReadyRequiresSymmetricHandshake` checks the design interaction;
   `PluginProtocolTests.CompatibleInboundHandshakeUsesProtocolTwo` and
   `PluginProtocolTests.InvalidOrUnsupportedInboundHandshakeReceivesAnErrorResponse` enforce the
-  implementation response.
+  inbound response, while
+  `PluginProtocolTests.InvalidOrUnsupportedOutboundHandshakeStopsInitialization` enforces the
+  plugin response.
 - **`Progress` messages restart the request timer.** They are the plugin saying "still working"
   during a slow sign-in. A host that ignores them times out a request that is progressing fine.
   `ProgressRenewsOnlyItsRequest` checks the design interaction; implementation correspondence is
