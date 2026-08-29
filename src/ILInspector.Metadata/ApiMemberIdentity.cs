@@ -340,42 +340,66 @@ public static class ApiMemberIdentity
     }
 
     /// <summary>
-    /// Cumulative work budget for one member-anchor signature construction.
-    /// Mirrors <c>StructuralSignatureWorkBudget</c>: charge every materialized
-    /// type-name occurrence and every composite type node so repeated long
-    /// names and nested compositions cannot amplify past
-    /// <see cref="MetadataSafetyPolicy.MaxAnchorSignatureWorkChars"/> before
-    /// rejection. Gated by
+    /// Cumulative work budget for one member-anchor construction. Signature
+    /// providers always charge materialized type-name occurrences and composite
+    /// nodes; the caller-owned overload additionally charges the complete
+    /// projection through fingerprint and selector construction. Gated by
     /// <c>CreateMethodAnchor_RepeatedTypeNamesFailBeforeLargeAllocation</c>
-    /// and
-    /// <c>CreateMethodAnchor_NestedArrayModoptsFailBeforeLargeAllocation</c>.
+    /// <c>CreateMethodAnchor_NestedArrayModoptsFailBeforeLargeAllocation</c>,
+    /// <c>CreateMethodAnchorInfo_RepeatedLongNamesExhaustSharedProjectionBudget</c>,
+    /// <c>CreateMethodAnchorInfo_BoundedProjectionPreservesIdentity</c>, and the
+    /// three <c>CreateMethodAnchorInfo_*ProjectionHasANonVacuousBudgetGate</c>
+    /// tests.
     /// </summary>
     sealed class AnchorSignatureWorkBudget
     {
+        const int MinimumProjectionNodeWork = 64;
         int _remaining;
         bool _exhausted;
+        readonly bool _chargeProjectionWork;
 
         internal AnchorSignatureWorkBudget()
             : this(MetadataSafetyPolicy.MaxAnchorSignatureWorkChars)
         {
         }
 
-        internal AnchorSignatureWorkBudget(int remaining)
+        internal AnchorSignatureWorkBudget(
+            int remaining,
+            bool chargeProjectionWork = false)
         {
             _remaining = remaining;
+            _chargeProjectionWork = chargeProjectionWork;
         }
 
         internal int Remaining => _exhausted ? 0 : _remaining;
 
-        internal void Charge(int characters)
+        internal void ChargeProjection(int work)
+            => ChargeProjection((long)work);
+
+        internal void ChargeProjectionNodes(long count)
+            => ChargeProjection(count * MinimumProjectionNodeWork);
+
+        internal void ChargeProjection(
+            long work,
+            string? stage = null)
+        {
+            if (_chargeProjectionWork)
+                Charge(work, stage);
+        }
+
+        internal void Charge(
+            long characters,
+            string? stage = null)
         {
             if (_exhausted || characters < 0 || characters > _remaining)
             {
                 _exhausted = true;
                 throw new BadImageFormatException(
-                    "The member anchor signature exceeds the cumulative work budget.");
+                    stage is null
+                        ? "The member anchor signature exceeds the cumulative work budget."
+                        : $"The member anchor {stage} exceeds the cumulative work budget.");
             }
-            _remaining -= characters;
+            _remaining -= (int)characters;
         }
     }
 
@@ -960,9 +984,11 @@ public static class ApiMemberIdentity
 
     /// <summary>
     /// Creates a method anchor while drawing from a caller-owned cumulative
-    /// work remaining counter (classification scans). Each call is still capped
-    /// by <see cref="MetadataSafetyPolicy.MaxAnchorSignatureWorkChars"/>, and
-    /// spent units are subtracted from <paramref name="scanWorkRemaining"/>.
+    /// work remaining counter. Metadata names, signature trees, rendered
+    /// signatures, canonical identity, fingerprint input, and selector output
+    /// all draw from the same counter. Each call is still capped by
+    /// <see cref="MetadataSafetyPolicy.MaxAnchorSignatureWorkChars"/>, and spent
+    /// units are subtracted from <paramref name="scanWorkRemaining"/>.
     /// </summary>
     public static MethodAnchorInfo CreateMethodAnchorInfo(
         MetadataReader reader,
@@ -981,7 +1007,9 @@ public static class ApiMemberIdentity
         if (anchorAllowance > MetadataSafetyPolicy.MaxAnchorSignatureWorkChars)
             anchorAllowance = MetadataSafetyPolicy.MaxAnchorSignatureWorkChars;
 
-        var workBudget = new AnchorSignatureWorkBudget(anchorAllowance);
+        var workBudget = new AnchorSignatureWorkBudget(
+            anchorAllowance,
+            chargeProjectionWork: true);
         try
         {
             var shape = CreateMethodAnchorShape(
@@ -1109,12 +1137,28 @@ public static class ApiMemberIdentity
         AnchorSignatureWorkBudget? workBudget = null)
     {
         var type = reader.GetTypeDefinition(typeHandle);
-        string methodName =
-            MetadataSafetyPolicy.ReadStructuralString(
+        string methodName = ReadProjectionString(
+            reader,
+            method.Name,
+            workBudget);
+        workBudget?.ChargeProjectionNodes(
+            type.GetGenericParameters().Count
+                + (long)method.GetGenericParameters().Count);
+        Action<int>? beforeGenericNameMaterialize =
+            workBudget is null
+                ? null
+                : workBudget.ChargeProjection;
+        GenericContext typeContext =
+            GenericContext.ForType(
                 reader,
-                method.Name);
+                type,
+                beforeGenericNameMaterialize);
         GenericContext context =
-            GenericContext.ForMethod(reader, type, method);
+            GenericContext.ForMethod(
+                reader,
+                typeContext,
+                method,
+                beforeGenericNameMaterialize);
         workBudget ??= new AnchorSignatureWorkBudget();
         var provider = new AnchorSignatureTypeProvider(workBudget);
         var decoded = GuardedProviderDecode.MethodResult(
@@ -1133,27 +1177,63 @@ public static class ApiMemberIdentity
         EnsureAnchorSignatureBudget(
             signature.ReturnType,
             signature.ParameterTypes);
-        string typeFullName = FormatDefinitionName(reader, typeHandle);
+        string typeFullName =
+            FormatDefinitionName(reader, typeHandle, workBudget);
         string memberName = MethodMemberName(
             methodName,
-            context.MethodParameters);
-        string returnType = signature.ReturnType.Render();
+            context.MethodParameters,
+            workBudget);
+        string returnType = Render(signature.ReturnType, workBudget);
         ImmutableArray<string> parameterTypes =
-            Render(signature.ParameterTypes);
+            Render(signature.ParameterTypes, workBudget);
         // Route the SRM-direct producer through the single full-name grammar core so it
         // cannot drift from other producers. Conversion operators overload on return type,
         // so pass the return type for their disambiguation suffix only.
+        string? conversionReturnType =
+            IsConversionOperator(methodName) ? returnType : null;
+        ChargeCanonicalSignatureProjection(
+            workBudget,
+            typeFullName,
+            memberName,
+            parameterTypes,
+            conversionReturnType);
         string canonicalSignature = MemberCanonicalSignature.Build(
             "M",
             typeFullName,
             memberName,
             parameterTypes,
-            IsConversionOperator(methodName) ? returnType : null);
+            conversionReturnType);
+        ChargeSelectorProjection(
+            workBudget,
+            methodName);
         string selectorName = GetMemberSelectorName(methodName, isExtensionMethod);
         return (
-            CreateAnchor(typeFullName, selectorName, memberName, canonicalSignature),
+            CreateAnchor(
+                typeFullName,
+                selectorName,
+                memberName,
+                canonicalSignature,
+                workBudget),
             returnType,
             parameterTypes);
+    }
+
+    static string ReadProjectionString(
+        MetadataReader reader,
+        StringHandle handle,
+        AnchorSignatureWorkBudget? workBudget)
+    {
+        workBudget?.ChargeProjection(
+            reader.GetBlobReader(handle).Length);
+        return MetadataSafetyPolicy.ReadStructuralString(reader, handle);
+    }
+
+    static string Render(
+        AnchorSignatureType type,
+        AnchorSignatureWorkBudget workBudget)
+    {
+        workBudget.ChargeProjection(2L * type.Length);
+        return type.Render();
     }
 
     static ImmutableArray<string> Render(
@@ -1163,6 +1243,52 @@ public static class ApiMemberIdentity
         foreach (AnchorSignatureType type in types)
             builder.Add(type.Render());
         return builder.MoveToImmutable();
+    }
+
+    static ImmutableArray<string> Render(
+        ImmutableArray<AnchorSignatureType> types,
+        AnchorSignatureWorkBudget workBudget)
+    {
+        workBudget.ChargeProjection(types.Length);
+        var builder = ImmutableArray.CreateBuilder<string>(types.Length);
+        foreach (AnchorSignatureType type in types)
+            builder.Add(Render(type, workBudget));
+        return builder.MoveToImmutable();
+    }
+
+    static void ChargeCanonicalSignatureProjection(
+        AnchorSignatureWorkBudget workBudget,
+        string typeFullName,
+        string memberName,
+        ImmutableArray<string> parameterTypes,
+        string? conversionReturnType)
+    {
+        long joinedParameterLength =
+            Math.Max(0, parameterTypes.Length - 1);
+        foreach (string parameterType in parameterTypes)
+            joinedParameterLength += parameterType.Length;
+
+        long canonicalLength =
+            2L
+            + typeFullName.Length
+            + 1
+            + memberName.Length
+            + 2
+            + joinedParameterLength;
+        if (conversionReturnType is not null)
+            canonicalLength += 1L + conversionReturnType.Length;
+
+        workBudget.ChargeProjection(
+            joinedParameterLength + canonicalLength);
+    }
+
+    static void ChargeSelectorProjection(
+        AnchorSignatureWorkBudget workBudget,
+        string methodName)
+    {
+        workBudget.ChargeProjection(
+            "extension:".Length + (long)methodName.Length,
+            "selector projection");
     }
 
     static void EnsureAnchorSignatureBudget(
@@ -1209,9 +1335,25 @@ public static class ApiMemberIdentity
         string typeFullName,
         string selectorName,
         string memberName,
-        string canonicalSignature)
+        string canonicalSignature,
+        AnchorSignatureWorkBudget? workBudget = null)
     {
+        int fingerprintInputByteCount =
+            Encoding.UTF8.GetByteCount(MemberAnchor.FingerprintPrefix)
+            + Encoding.UTF8.GetByteCount(canonicalSignature);
+        workBudget?.ChargeProjection(
+            MemberAnchor.FingerprintPrefix.Length
+                + (long)canonicalSignature.Length
+                + fingerprintInputByteCount
+                + 32
+                + 64
+                + 64
+                + 10,
+            "fingerprint projection");
         var fingerprint = MemberAnchor.ComputeFingerprint(canonicalSignature);
+        workBudget?.ChargeProjection(
+            selectorName.Length + 1L + fingerprint.Length,
+            "stable selector projection");
         return new MemberAnchor(
             $"{selectorName}~{fingerprint}",
             canonicalSignature,
@@ -1220,7 +1362,10 @@ public static class ApiMemberIdentity
             memberName);
     }
 
-    static string FormatDefinitionName(MetadataReader reader, TypeDefinitionHandle handle)
+    static string FormatDefinitionName(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        AnchorSignatureWorkBudget? workBudget = null)
     {
         Span<TypeDefinitionHandle> chain =
             stackalloc TypeDefinitionHandle[
@@ -1243,9 +1388,13 @@ public static class ApiMemberIdentity
         var builder = new StringBuilder();
         int remainingTypeNameCharacters =
             MetadataSafetyPolicy.MaxTypeNameCharacters;
+        StringHandle namespaceHandle =
+            reader.GetTypeDefinition(chain[0]).Namespace;
+        workBudget?.ChargeProjection(
+            reader.GetBlobReader(namespaceHandle).Length);
         if (!MetadataSafetyPolicy.TryReadTypeNameComponent(
                 reader,
-                reader.GetTypeDefinition(chain[0]).Namespace,
+                namespaceHandle,
                 ref remainingTypeNameCharacters,
                 out string @namespace))
         {
@@ -1253,6 +1402,12 @@ public static class ApiMemberIdentity
         }
         if (!string.IsNullOrEmpty(@namespace))
         {
+            workBudget?.ChargeProjection(
+                EscapedAnchorNameLength(
+                    @namespace,
+                    @namespace.Length,
+                    escapeDot: false)
+                + 1L);
             AppendEscapedAnchorName(
                 builder,
                 @namespace,
@@ -1265,13 +1420,18 @@ public static class ApiMemberIdentity
         for (int i = 0; i < consumed; i++)
         {
             if (i > 0)
+            {
+                workBudget?.ChargeProjection(1);
                 AppendAnchorName(builder, '+');
+            }
 
             if (remainingTypeNameCharacters == 0)
                 throw TypeNameBudgetExceeded();
             remainingTypeNameCharacters--;
 
             var type = reader.GetTypeDefinition(chain[i]);
+            workBudget?.ChargeProjection(
+                reader.GetBlobReader(type.Name).Length);
             if (!MetadataSafetyPolicy.TryReadTypeNameComponent(
                     reader,
                     type.Name,
@@ -1307,13 +1467,21 @@ public static class ApiMemberIdentity
             {
                 simpleNameLength = name.Length;
             }
+            workBudget?.ChargeProjection(
+                EscapedAnchorNameLength(
+                    name,
+                    simpleNameLength,
+                    escapeDot: true));
             AppendEscapedAnchorName(
                 builder,
                 name,
                 simpleNameLength,
                 escapeDot: true);
             if (!hasDeclaredArity && introducedGenericCount > 0)
+            {
+                workBudget?.ChargeProjection(2);
                 AppendAnchorName(builder, ":0");
+            }
 
             if (introducedGenericCount == 0)
             {
@@ -1321,17 +1489,27 @@ public static class ApiMemberIdentity
                 continue;
             }
 
+            workBudget?.ChargeProjection(2);
             AppendAnchorName(builder, "<");
             int index = 0;
             foreach (GenericParameterHandle parameter in
                 genericParameters.Skip(enclosingGenericCount))
             {
                 if (index++ > 0)
+                {
+                    workBudget?.ChargeProjection(1);
                     AppendAnchorName(builder, ",");
+                }
                 string parameterName =
-                    MetadataSafetyPolicy.ReadStructuralString(
+                    ReadProjectionString(
                         reader,
-                        reader.GetGenericParameter(parameter).Name);
+                        reader.GetGenericParameter(parameter).Name,
+                        workBudget);
+                workBudget?.ChargeProjection(
+                    EscapedAnchorNameLength(
+                        parameterName,
+                        parameterName.Length,
+                        escapeDot: true));
                 AppendEscapedAnchorName(
                     builder,
                     parameterName,
@@ -1342,6 +1520,7 @@ public static class ApiMemberIdentity
             enclosingGenericCount = cumulativeGenericCount;
         }
 
+        workBudget?.ChargeProjection(builder.Length);
         return builder.ToString();
     }
 
@@ -1460,9 +1639,7 @@ public static class ApiMemberIdentity
         for (int i = 0; i < count; i++)
         {
             char c = value[i];
-            if (char.IsLetterOrDigit(c)
-                || c is '_' or '`'
-                || c == '.' && !escapeDot)
+            if (IsUnescapedAnchorNameCharacter(c, escapeDot))
             {
                 AppendAnchorName(builder, c);
             }
@@ -1473,6 +1650,29 @@ public static class ApiMemberIdentity
             }
         }
     }
+
+    static long EscapedAnchorNameLength(
+        string value,
+        int count,
+        bool escapeDot)
+    {
+        long length = 0;
+        for (int i = 0; i < count; i++)
+        {
+            char c = value[i];
+            length += IsUnescapedAnchorNameCharacter(c, escapeDot)
+                    ? 1
+                    : 2;
+        }
+        return length;
+    }
+
+    static bool IsUnescapedAnchorNameCharacter(
+        char value,
+        bool escapeDot)
+        => char.IsLetterOrDigit(value)
+            || value is '_' or '`'
+            || value == '.' && !escapeDot;
 
     static void AppendAnchorName(
         StringBuilder builder,
@@ -1509,13 +1709,19 @@ public static class ApiMemberIdentity
 
     static string MethodMemberName(
         string methodName,
-        IReadOnlyList<string> genericNames)
+        IReadOnlyList<string> genericNames,
+        AnchorSignatureWorkBudget? workBudget = null)
     {
         if (methodName == ".ctor")
             return "#ctor";
         if (genericNames.Count == 0)
             return methodName;
 
+        long memberNameLength =
+            methodName.Length + 2L + Math.Max(0, genericNames.Count - 1);
+        foreach (string genericName in genericNames)
+            memberNameLength += genericName.Length;
+        workBudget?.ChargeProjection(2L * memberNameLength);
         var builder = new StringBuilder();
         AppendAnchorName(builder, methodName);
         AppendAnchorName(builder, "<");
