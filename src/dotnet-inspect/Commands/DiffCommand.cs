@@ -157,7 +157,7 @@ public class DiffCommand
             }
         }
 
-        InspectionQueryPlan<DiffQueryContext> queryPlan =
+        CompiledInspectionPlan<DiffQueryContext> queryPlan =
             GetRequestedQueryPlan(catalog, options);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
@@ -804,7 +804,7 @@ public class DiffCommand
     private static bool SelectsDetailedChanges(DiffOptions options)
         => options.IncludeSections?.Contains(DiffSections.Changes.Name) == true;
 
-    internal static InspectionQueryPlan<DiffQueryContext> GetRequestedQueryPlan(
+    internal static CompiledInspectionPlan<DiffQueryContext> GetRequestedQueryPlan(
         DiffSectionCatalog catalog,
         DiffOptions options)
     {
@@ -825,8 +825,11 @@ public class DiffCommand
         }
         else if (SelectsFindingTransitions(options))
         {
-            return catalog.QueryCatalog.Plan(
-                Array.Empty<InspectionQueryDefinition>());
+            querySections = new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                DiffSections.FindingTransitions.Name,
+            };
         }
         else if (SelectsImplementationDiff(options)
             && !SelectsAnalysisDiff(options))
@@ -845,18 +848,9 @@ public class DiffCommand
             };
         }
 
-        SectionQueryPlan sectionPlan = catalog.Sections.PlanQueries(
+        return catalog.Lens.Plan(
             Verbosity.Minimal,
             querySections);
-        // The IEnumerable overload boxes ImmutableArray; use the direct common-plan overloads
-        // and reserve general compilation for uncommon multi-query demand.
-        return sectionPlan.Queries.Length switch
-        {
-            0 => catalog.QueryCatalog.Plan(
-                Array.Empty<InspectionQueryDefinition>()),
-            1 => catalog.QueryCatalog.Plan(sectionPlan.Queries[0]),
-            _ => catalog.QueryCatalog.Plan(sectionPlan.Queries),
-        };
     }
 
     private static async Task<bool> WriteSelectedDocumentAsync(

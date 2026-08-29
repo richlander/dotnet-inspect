@@ -4251,15 +4251,21 @@ public class PackageCommand
             libraryOptions.Verbosity,
             libraryOptions.IncludeSections,
             libraryOptions.FixedOverview);
-        List<(string Reason, InspectionQueryDefinition Query)> commandQueryDemand = [];
+        List<HostQueryDemand> commandQueryDemand = [];
         if (libraryOptions.CollectReferenceTree)
-            commandQueryDemand.Add(("reference tree", AssemblyReferencesQuery.Definition));
+        {
+            commandQueryDemand.Add(
+                new HostQueryDemand(
+                    "reference tree",
+                    AssemblyReferencesQuery.Definition));
+        }
         if (sectionPlan.Queries.Contains(BodyShapesQuery.Definition)
             && libraryOptions.BodyKindQuery.HasFilter
             && libraryOptions.PerformanceTriage.HasCandidateFilters)
         {
             commandQueryDemand.Add(
-                ("Body Shapes performance predicates",
+                new HostQueryDemand(
+                    "Body Shapes performance predicates",
                     OptimizationOpportunitiesQuery.Definition));
         }
         HashSet<InspectionQueryDefinition> queries =

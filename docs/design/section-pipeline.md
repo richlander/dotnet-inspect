@@ -271,13 +271,35 @@ creates the query owner's fresh `InspectionQueryResults`, accepts a
 caller-supplied request or workspace context, and forwards synchronous timing
 or asynchronous cancellation callbacks. The plan stores no context, owns no
 acquisition or disposal, catches no producer failure, and does not transform
-typed payloads.
+typed payloads. It is a readonly value containing the immutable section and
+query plans, so repeatedly lowering a precomputed empty or single-query
+selection adds no allocation.
 
-The Diff catalog is the first production canary. Its request-owned
-`DiffQueryContext`, multiple independently selectable producers, explicit empty
-plan, and pre-existing allocation gates exercise the seam without introducing
+`HostQueryDemand` is the shared neutral attribution value used by compiled
+plans, mutable-pipeline compatibility, and `InspectionTrace` projection.
+Composition snapshots host demand and de-duplicates only the requested query
+set; repeated reasons and overlap with section demand remain valid attribution.
+
+The Diff catalog is the first production canary and now exposes one
+`CompiledInspectionDomain<DiffQueryContext>` and one compiled section lens.
+`DiffCommand` obtains and runs its query plan through that lens. Its request-owned
+`DiffQueryContext`, multiple independently selectable producers, a queryless
+Finding Transitions selection that lowers to the empty plan, and pre-existing
+allocation gates exercise the seam without introducing
 assembly or workspace lifetime. API, Type, and Member migration remains
 follow-up work.
+
+Release conformance is enforced by
+`CompiledDomain_MultipleLensesShareOneQueryCatalog`,
+`CompiledLens_RejectsQueryOutsideProducerDomain`,
+`CompiledLens_InstallsPrerequisiteAwareCostsBeforeRegistration`,
+`CompiledLens_LowersEmptySingleAndMultiQueryDemand`,
+`CompiledExecution_DoesNotTransformTypedQueryResults`,
+`CompiledExecution_ForwardsAsyncCancellation`,
+`CompiledExecution_DoesNotRetainOrDisposeSuppliedContext`,
+`DiffQueryCatalog_RunsOnlySelectedSectionDemand`, and
+`DiffCatalog_RepeatedAcquisitionAndCommonPlanningAllocateNothing` in
+`dotnet-inspect.Tests`.
 
 The executable
 [compiled inspection domain model](models/compiled-inspection-domain/README.md)
