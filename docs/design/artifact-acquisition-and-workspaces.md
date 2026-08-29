@@ -482,10 +482,11 @@ It returns artifacts and leases; it does not create an assembly session.
 
 ### Local adapter
 
-The local adapter accepts explicit files under host policy. It opens local
-content without acquiring package or remote-storage dependencies. Directory
-enumeration, containment, symlink policy, and bounded entry selection remain a
-later local-adapter slice.
+The local adapter accepts explicit file and bounded directory coordinates under
+host policy. It opens local content without acquiring package or remote-storage
+dependencies. The explicit-file implementation exists; the directory contract
+below is target design tracked by
+[#4999](https://github.com/richlander/dotnet-inspect/issues/4999).
 
 Before registration, `DotnetInspector.Artifacts.Local` opens an explicit file
 once, copies it under a loop-enforced byte limit, and records path, exact copied
@@ -499,6 +500,165 @@ snapshot.
 
 The ordinary retained snapshot does not compute a digest eagerly. The target
 owner-mediated on-demand digest remains unverified.
+
+Shared local-path admission is tracked by
+[#5096](https://github.com/richlander/dotnet-inspect/issues/5096). It owns
+expected entry kind, path normalization, link and reparse-point policy,
+non-regular entries, supported-host behavior, and pre-open classification for
+both explicit-file and directory coordinates. The directory contract below
+consumes admitted directory roots and regular-file entries; it does not
+define a second path classifier.
+
+#### Bounded directory coordinate
+
+A directory coordinate contributes opaque artifacts from one explicit local
+root. It does not decide which artifact is an inspection target, decode managed
+metadata, resolve dependencies, assign workspace roles, or establish binding
+precedence. A directory is an artifact source, not an assembly context.
+
+The target peer API is
+`LocalArtifactSource.AcquireDirectoryAsync(scope, path, options,
+cancellationToken)`. `LocalDirectoryArtifactAcquisitionOptions` contains:
+
+- `ExcludedFileNames`, an `IReadOnlyCollection<string>` copied before the first
+  await;
+- `IncludedFileExtensions`, an `IReadOnlyCollection<string>` copied before the
+  first await and defaulting to `.dll`;
+- `MaxObservedEntries`, defaulting to 1,024 observed top-level entries;
+- `MaxSelectedFiles`, defaulting to 1,024 selected files;
+- `MaxFileBytes`, defaulting to 512 MiB; and
+- `MaxTotalBytes`, defaulting to 512 MiB across selected files.
+
+The limits are standalone adapter ceilings, not workspace reservations, and
+the package-free local project does not depend on `ArtifactSetSessionLimits`.
+Each limit is positive and each byte limit fits the array-backed snapshot
+implementation. A workspace host passes stricter selected-file and byte limits
+when required by the supplemental capacity obtained through
+[#5010](https://github.com/richlander/dotnet-inspect/issues/5010), then passes
+them to this adapter. #5010 owns reservation and session behavior.
+
+Selection is top-level and source-neutral. Each included extension is a
+non-empty extension such as `.dll`, not a glob or path; extension matching is
+ordinal-ignore-case on every platform. Each exclusion is one non-rooted file
+name with no separator or parent traversal and is also matched
+ordinal-ignore-case, preventing a lexical case difference from reacquiring an
+explicit file on a case-insensitive volume. On a case-sensitive volume that
+conservatively excludes case-only aliases; callers needing both acquire them
+explicitly. Selection never establishes semantic kind or artifact identity,
+and physical aliases are not collapsed. Recursion or richer selection requires
+a later contract.
+
+Acquisition follows this order:
+
+1. Validate and copy options before filesystem work.
+2. Admit the requested root as a directory through #5096. Preserve its visible
+   unavailable, rejected, failed, and cancellation outcomes.
+3. Enumerate top-level entries incrementally. Count every observed entry before
+   classifying it and stop with a typed rejection as soon as
+   `MaxObservedEntries` is exceeded.
+4. Derive one direct-child relative name per observed entry and sort by that
+   name with `StringComparer.Ordinal`. Filesystem enumeration order is never
+   publication order.
+5. Ignore ordinary directories before filename selection, apply the extension
+   allow list and exclusions, and reject the batch if `MaxSelectedFiles` is
+   exceeded.
+6. In sorted order, admit each selected entry as a regular file through #5096,
+   then copy it into an adapter-private snapshot while enforcing
+   `MaxFileBytes` and the remaining `MaxTotalBytes`.
+7. Register the complete batch in one contribution scope only after every
+   selected snapshot succeeds. Any enumeration, selected-entry, limit,
+   registration, or outcome-construction failure publishes no contribution
+   from the batch.
+
+Copying stops before retaining a byte that would exceed either bound. The bound
+that would be exceeded first determines the rejection; when the same byte would
+exceed both, the per-file limit takes precedence. A read failure after admission
+is a failed directory acquisition, not a path-admission outcome.
+
+An existing directory with no selected files returns `Acquired` with an empty
+artifact list and `ArtifactAcquisitionLeases.None`. That is a successful answer
+to an optional source coordinate, not a shortened successful batch. Required
+workspace acquisition retains its existing empty-batch failure; #5010 owns the
+supplemental path that can compose this result.
+
+Root and selected-entry admission outcomes remain those of #5096.
+Directory-specific enumeration and snapshot-copy diagnostics use the canonical
+root and, when applicable, the observed relative name:
+
+| Condition | Outcome | Diagnostic code |
+| --- | --- | --- |
+| Observed entry count exceeds the limit | `Rejected` | `local.directory.entry-limit` |
+| Selected file count exceeds the limit | `Rejected` | `local.directory.selected-file-limit` |
+| Selected file exceeds the per-file limit | `Rejected` | `local.directory.file-size-limit` |
+| Selected files exceed the aggregate limit | `Rejected` | `local.directory.total-size-limit` |
+| Selected file cannot be read after admission | `Failed` | `local.directory.read-failed` |
+| Directory enumeration fails | `Failed` | `local.directory.enumeration-failed` |
+
+Cancellation remains `OperationCanceledException` and is never translated into
+a diagnostic arm.
+
+Each contribution records a `LocalDirectoryArtifactProvenance`:
+
+- the canonical requested root;
+- the direct-child relative name as observed;
+- the full observed entry path;
+- the exact copied length; and
+- the last-write observation from the same open file used to copy the snapshot.
+
+The artifact kind is `local-directory-entry`; the entry name, matched extension,
+and bytes do not establish media or semantic kind.
+
+The adapter establishes an immutable batch of the bytes it actually copied,
+not a transactional filesystem snapshot. A file created after enumeration is
+outside that acquisition. Any selected-entry failure rejects the whole batch
+rather than shortening it. #5096 owns the residual local-path race and
+classification guarantees; mutation after copying cannot change the retained
+snapshot.
+
+The implementation is complete when focused gates prove:
+
+- bounded top-level selection is deterministic and source-neutral;
+- empty selection registers nothing, while enumeration failure remains failed
+  rather than becoming empty success, and neither it nor entry admission,
+  per-file and aggregate overflow with their defined precedence, read failure,
+  or registration failure can publish a partial batch; and
+- directory provenance, immutable batch snapshots, and cancellation are
+  preserved.
+
+These properties are represented by
+`LocalDirectoryAcquisition_BoundedDeterministicSelection`,
+`LocalDirectoryAcquisition_EmptyOrFailedBatchPublishesNothing`, and
+`LocalDirectoryAcquisition_ProvenanceSnapshotAndCancellationArePreserved`.
+
+#### Directory composition scenarios
+
+The adapter contract has the same meaning in each scenario; only host
+composition differs:
+
+| Scenario | Local artifact acquisitions | Boundary left to the workspace |
+| --- | --- | --- |
+| One DLL requested; its directory supplies candidates | Acquire the exact DLL once, then optionally acquire its directory with that top-level name excluded. Zero remaining DLLs is a successful empty candidate batch. | Supplemental workspace acquisition from [#5010](https://github.com/richlander/dotnet-inspect/issues/5010) contributes discovered candidates without making the batch a required context member; the exact-file registration alone may receive caller designation. |
+| Several DLLs requested from one directory | Acquire each exact requested file, then optionally acquire the directory once with all of their names excluded. | Optional workspace acquisition contributes remaining candidates; context planning decides whether the requested roots share a group. |
+| Several DLLs requested from different directories | Acquire each exact file and optionally acquire at most one bounded candidate batch per explicitly authorized directory. | Optional workspace acquisition contributes candidates; binding policy, not directory order, handles collisions and precedence. |
+| Directory configured as a NuGet source | Do not use this adapter unless loose-file acquisition was separately requested. | The package adapter and #3759 own folder-feed identity, package enumeration, and asset selection. |
+
+The same physical directory can be authorized separately as a loose-artifact
+source and as a NuGet folder feed. Those coordinates share no provenance,
+roles, selection policy, or cache identity.
+
+This sequential adapter design adds no concurrency or publication state
+machine. `ArtifactSetSession` retains ownership of admission, cancellation,
+materialization, and publication interleavings, so a new TLA+ model would
+duplicate that owner without checking a new interaction. Parallel directory
+copying, directory-level single-flight, or independent partial publication
+would reopen that decision and require a focused interaction model.
+
+After #5096 defines shared local-path admission, one local-adapter PR adds this
+API, options, provenance, directory-specific diagnostics, and outcome-level
+gates without changing `AssemblySetResolver`, CLI defaults, assembly
+projection, workspace admission, or binding policy. Adoption follows #5010 and
+may choose which directories a scenario authorizes; it may not weaken adapter
+bounds or reinterpret directory provenance as caller designation.
 
 This adapter is the proof that the abstraction is independently useful. The
 package-free fixture composes:
@@ -986,6 +1146,9 @@ The target is complete only when tests equivalent to these exist:
 - `ArtifactOpen_RejectsContentSubstitutionAfterAdmission`
 - `ArtifactContentReference_BindsIdentityRegistrationRoleAndContent`
 - `LocalArtifactSnapshot_MutationCannotChangeInspectionBytes`
+- `LocalDirectoryAcquisition_BoundedDeterministicSelection`
+- `LocalDirectoryAcquisition_EmptyOrFailedBatchPublishesNothing`
+- `LocalDirectoryAcquisition_ProvenanceSnapshotAndCancellationArePreserved`
 - `ArtifactAcquisition_CancellationRemainsCancellation`
 - `RequiredMember_EmptyOrNonProjectableAcquisitionFailsContext`
 - `RequiredAcquisitionFailure_DoesNotShortenWorkspaceContext`
@@ -1054,7 +1217,13 @@ owner-bound content references that cannot mix descriptor, registration, role,
 or bytes across artifacts or generations.
 `LocalArtifactSourceTests` enforce pre-registration local snapshots, typed
 missing/limit diagnostics, mutation and deletion resistance, and cancellation
-remaining cancellation. `LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`
+remaining cancellation. The three named `LocalDirectoryAcquisition_*` gates
+remain unverified. Together they require bounded deterministic top-level
+selection, source-neutral exclusions, atomic empty and failure outcomes,
+directory provenance, immutable batch snapshots, and cancellation
+preservation. Shared local-path admission remains with #5096 rather than these
+directory gates.
+`LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`
 deletes its temporary source after publication, then passes an
 `ArtifactContentReference`'s guarded published snapshot opener to Metadata, so
 a source-path fallback cannot satisfy the gate.
