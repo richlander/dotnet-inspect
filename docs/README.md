@@ -124,9 +124,9 @@ skeleton, or ReturnToSender coverage).
 
 Some files under `docs/design/` and `docs/backlog*.md` were written during
 ideation. They are useful design history, but may not describe current
-behavior. When current behavior matters, start with Overview, Implementation
-Architecture, the relevant host architecture, Progressive Disclosure, the
-embedded skill, and tests.
+behavior. When current behavior matters, start with Overview, the Architecture
+map, the relevant host architecture guide, Progressive Disclosure, the embedded
+skill, and tests.
 
 ## Getting Started
 
