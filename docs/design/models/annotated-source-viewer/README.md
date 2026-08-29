@@ -38,6 +38,9 @@ The safety invariants check:
 - exact chip-or-inspector focus restoration from historical detail evidence;
 - stable control focus plus exact annotation membership, primary, and detail
   outcomes derived from pre-toggle state;
+- exact **Default**, **All**, **Clear**, medium, and coordinate outcomes
+  derived from pre-control state, including orthogonal-state preservation and
+  final-medium rejection;
 - fresh modal initialization and transfer of a representable embedded primary;
 - exact dismissal, embedded-primary derivation, and **Explore** focus; and
 - the rule that Escape cannot dismiss the modal while Finding detail is open.
@@ -51,7 +54,8 @@ modal exercises both eligible and ineligible primary derivation.
 `Next` includes embedded chip inspection, modal opening, pointer and Escape
 dismissal, chip and inspector Finding detail, node selection, detail closure,
 embedded Escape fall-through, **Default**, **All**, **Clear**, annotation
-toggle, and media toggle. The action-coverage run reached every action.
+toggle, media toggle, and coordinate toggle. The action-coverage run reached
+every action.
 
 This is a safety model only. It makes no liveness claim: users may stop after
 any gesture, and asynchronous navigation progress belongs to another owner.
@@ -77,19 +81,20 @@ error:
 
 | Result | Value |
 | --- | ---: |
-| Generated states | 87,078 |
-| Distinct states | 6,524 |
-| Search depth | 11 |
+| Generated states | 371,646 |
+| Distinct states | 24,752 |
+| Search depth | 12 |
 
 The coverage run reported nonzero distinct transitions for every top-level
 action. The smallest count was four for `OpenEmbeddedChip`; representative
 transition counts were 12 for `OpenModal`, 40 each for the two dismissal
-actions, 652 for `CloseCurrentDetail`, 2,736 for `ToggleAnnotation`, and 1,824
-for `ToggleMedium`.
+actions, 1,300 for `CloseCurrentDetail`, 5,472 each for `ToggleAnnotation` and
+`ToggleMedium`, and 2,736 for `ToggleCoordinates`.
 
 ## Mutation evidence
 
-Eleven deliberate one-line mutations were run against the same configuration.
+Twenty-two deliberate one-line mutations were run against the same
+configuration.
 Each produced a concrete counterexample:
 
 | Mutation | Violated invariant |
@@ -105,6 +110,17 @@ Each produced a concrete counterexample:
 | Preserve a stale embedded primary through dismissal | `ModalDismissalIsExact` |
 | Clear an unrelated primary while toggling another Finding | `AnnotationToggleOutcomeIsExact` |
 | Make annotation membership toggle a no-op | `AnnotationToggleOutcomeIsExact` |
+| Make **Default** membership a no-op | `ControlOutcomeIsExact` |
+| Make **All** membership a no-op | `ControlOutcomeIsExact` |
+| Let **Clear** preserve primary and detail | `ControlOutcomeIsExact` |
+| Let **All** reset visible media | `ControlOutcomeIsExact` |
+| Focus **Clear** after activating **Default** | `ControlOutcomeIsExact` |
+| Make a medium toggle a no-op | `ControlOutcomeIsExact` |
+| Let a medium toggle close Finding detail | `ControlOutcomeIsExact` |
+| Focus the modal heading after a medium toggle | `ControlOutcomeIsExact` |
+| Make the coordinate toggle a no-op | `ControlOutcomeIsExact` |
+| Let **All** reset coordinate visibility | `ControlOutcomeIsExact` |
+| Focus the modal heading after a coordinate toggle | `ControlOutcomeIsExact` |
 
 The mutations are evidence that these properties are observed by the checked
 invariants rather than restatements that TLC cannot falsify.
@@ -119,7 +135,8 @@ The model does not represent:
 - pointer geometry, drag selection, DOM ordering, or rendering;
 - declaration construction;
 - Finding census construction or cross-projection identity;
-- source, IL, Finding, node, target, or coordinate production; or
+- source, IL, Finding, node, target, or coordinate production (coordinate
+  visibility itself is modeled); or
 - performance and production-scale cardinality.
 
 Those boundaries remain prose and implementation-test obligations in the

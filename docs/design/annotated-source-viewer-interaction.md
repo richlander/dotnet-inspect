@@ -85,6 +85,8 @@ destinations appear interchangeable.
 | Finding toggle chip | No | Every annotatable Finding | Adds or removes one active annotation |
 | Finding inspector action | No | Every Finding | Makes that Finding primary and opens detail |
 | Node selection chip | No | Selected/related nodes | Selects or focuses that exact node |
+| Medium toggle | No | C# and IL | Shows or hides that medium; rejects hiding the last visible medium |
+| Coordinate toggle | No | Product coordinates available | Shows or hides offsets and source ranges |
 | Named destination | No | Product capability only | Requests that exact destination |
 | **Explore** | Yes | No | Opens a fresh modal session |
 | **Close** | No | Yes | Dismisses the modal and any viewer detail |
@@ -149,7 +151,7 @@ Modal dismissal destroys modal-local state. It derives the embedded primary
 from the modal primary using the same default-and-C# eligibility rule, closes
 detail, and leaves the embedded reader at its fixed presentation. A later
 **Explore** starts fresh; it does not resurrect the dismissed modal's
-annotation, media, node, or detail state.
+annotation, media, coordinate, node, or detail state.
 
 The modal is opened and dismissed through the Inspect Web UI owner. Those
 operations do not push or replace browser-history entries. Ordinary dismissal
@@ -184,14 +186,14 @@ The modal exposes:
 
 - **Default**, which restores the default set and clears primary and detail;
 - **All**, which activates the entire annotation universe without changing
-  primary, detail, media, or offsets; and
+  primary, detail, media, or coordinate visibility; and
 - **Clear**, which empties the active set and clears primary and detail without
   hiding source or resetting presentation.
 
-Each command leaves focus on its activated control. Annotation and media
-toggles likewise retain focus on the activated toggle, including when that
-transition removes a chip or closes Finding detail. The open modal therefore
-always retains a concrete focus target.
+Each command leaves focus on its activated control. Annotation, media, and
+coordinate toggles likewise retain focus on the activated toggle, including
+when that transition removes a chip or closes Finding detail. The open modal
+therefore always retains a concrete focus target.
 
 The reported state is derived in this precedence order:
 
@@ -213,17 +215,22 @@ without removing the Finding from the active set or changing the reported
 annotation state.
 
 At least one source medium is always visible. Activating the control for the
-last visible medium is rejected without changing state. A document with no
-visible medium would look like a successful empty result.
+last visible medium leaves media, annotations, selection, detail, and
+coordinates unchanged, with focus on that control. A document with no visible
+medium would look like a successful empty result.
 
 Hiding a medium does not clear primary or close detail. If it removes the
 detail's exact annotation chip, closing detail focuses the same Finding's
 persistent inspector action. A sibling chip on another medium is not a
 semantically equivalent opener and must not receive focus.
 
-Coordinates are off by default. A modal control reveals offsets and source
-ranges wherever the product supplies them. Its label names the coordinate
-system; unexplained hexadecimal values do not appear in the embedded reader.
+Coordinates are off by default. A modal toggle reveals offsets and source
+ranges wherever the product supplies them and retains focus when activated.
+It changes no annotation, medium, primary, or detail state. Annotation-set and
+medium controls preserve coordinate visibility. Dismissal destroys the
+preference, so a later modal session starts with coordinates hidden. The
+toggle's label names the coordinate system; unexplained hexadecimal values do
+not appear in the embedded reader.
 
 ## Finding detail and focus
 
@@ -321,7 +328,9 @@ bounded executable design model for viewer-local interaction. It checks:
 - exact chip versus persistent-inspector detail openers;
 - primary selection, active annotations, rendered annotations, and derived
   reported state;
-- C#/IL visibility with at least one medium;
+- exact **Default**, **All**, **Clear**, medium, and coordinate control
+  outcomes, including preserved orthogonal state;
+- C#/IL visibility with at least one medium and coordinate visibility;
 - layered Escape and pointer dismissal; and
 - focus validity after explicit and indirect detail closure.
 
@@ -348,13 +357,16 @@ Conformance requires:
 - media tests proving membership is orthogonal, a hidden opener falls back to
   the exact Finding's inspector action, a sibling chip is not substituted,
   toggles retain focus, and the final visible medium cannot be disabled;
+- coordinate tests proving hidden fresh state, exact toggling and focus,
+  annotation-set and media preservation, dismissal destruction, and hidden
+  state on reopening;
 - primary tests proving Finding and node transitions are explicit and toggles
   do not select;
 - layered Escape tests distinguishing detail closure, modal dismissal, and
   embedded fall-through;
-- focus tests for direct close, annotation-set controls, annotation and media
-  toggles, pointer dismissal, rejected navigation, and successful destination
-  handoff;
+- focus tests for direct close, annotation-set controls, annotation, media, and
+  coordinate toggles, pointer dismissal, rejected navigation, and successful
+  destination handoff;
 - hit tests covering pointer coordinates, keyboard activation, invocation
   precedence, discontinuous spans, deterministic tightest-node selection, and
   drag-selection non-activation;
