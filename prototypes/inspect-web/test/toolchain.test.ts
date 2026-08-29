@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import {
   basename,
   dirname,
+  extname,
   isAbsolute,
   join,
   resolve,
@@ -1617,6 +1618,12 @@ function severityOf(entry: string | readonly unknown[] | undefined): unknown {
   return Array.isArray(entry) ? entry[0] : entry;
 }
 
+// Everything after the severity. A rule left at `deny` stops reporting when its options
+// exempt the code it was enabled for, and severity is all the reads above can see.
+function optionsOf(entry: string | readonly unknown[] | undefined): readonly unknown[] {
+  return Array.isArray(entry) ? entry.slice(1) : [];
+}
+
 // oxlint normalises severities to its own `deny`/`allow` spelling rather than echoing the
 // `error` and `off` written in the config, so everything below compares those.
 function enabledOxlintRuleFamilies(printed: PrintedOxlintConfig): Map<string, number> {
@@ -1728,6 +1735,29 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
     ]],
   ], "an override is the other place a rule can be turned off, and the top-level list "
     + "above cannot see it");
+
+  // Off is not the only way down. Round 3 (Sol, seat A) left `eslint/no-unused-vars` at
+  // `deny` and gave it `argsIgnorePattern: ".*"`, which reported nothing while every
+  // severity read above -- the category map, the family counts, the two lists here --
+  // was unchanged. Options are pinned as one set for the same reason the relaxations
+  // are: an assertion naming today's option-bearing rules says nothing about options
+  // added to a rule beside them.
+  const configuredOptions = Object.fromEntries([
+    ...Object.entries(printed.rules).map(([rule, entry]) => [rule, entry] as const),
+    ...(printed.overrides ?? []).flatMap(override =>
+      Object.entries(override.rules ?? {})
+        .map(([rule, entry]) => [`${override.files.join(", ")} :: ${rule}`, entry] as const)),
+  ].filter(([, entry]) => optionsOf(entry).length > 0));
+
+  // The one exception this project configures: `node:test` returns a promise nobody is
+  // expected to await, so `test(...)` at the top level of a test file is not a floating
+  // promise. Nothing else narrows a rule by option.
+  assert.deepEqual(configuredOptions, {
+    "typescript/no-floating-promises": ["deny", [{
+      allowForKnownSafeCalls: [{ from: "package", name: "test", package: "node:test" }],
+    }]],
+  }, "an option that exempts code from an enabled rule is the same loss of coverage as "
+    + "turning it off, and leaves every severity in this file reading exactly as before");
 });
 
 // Documents are the one kind of authored file every gate above is blind to: the compiler
@@ -1886,13 +1916,64 @@ test("html-validate reads one configuration and one ignore file for the whole tr
 // where it starts rather than trying to widen a glob to match a walk.
 test("no authored document sits where the lint glob cannot reach it", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
-  const unreachable = projectSourceFiles(root, htmlDocumentExtensions, unprunedRoots)
-    .map(file => projectRelative(root, file))
+  const documents = projectSourceFiles(root, htmlDocumentExtensions, unprunedRoots)
+    .map(file => projectRelative(root, file));
+
+  const unreachable = documents
     .filter(document => document.split("/").some(segment => segment.startsWith(".")));
 
   assert.deepEqual(unreachable, [],
     "`**` does not descend into dotted directories, so this document is linted by "
       + "nothing while the inventory walk still reports it as covered");
+
+  // The same disagreement, reached by case rather than by placement. Node matches glob
+  // patterns case-insensitively on macOS and Windows and case-sensitively everywhere
+  // else -- `nocase: isWindows || isMacOS` in `lib/internal/fs/glob.js`, which is what
+  // `html-validate`'s CLI calls -- while the walk above lowercases before comparing
+  // extensions. So `probe.HTML` is counted as covered here and linted on a developer's
+  // Mac, and is silently skipped on the Ubuntu runners that gate merges and deploy the
+  // site. Round 3 (Sol, seat A) found this; the extension is normalised at the source
+  // rather than the glob widened to spell every case variant.
+  const misCased = documents
+    .filter(document => extname(document) !== extname(document).toLowerCase());
+
+  assert.deepEqual(misCased, [],
+    "this document's name is not lowercase, so the lint glob reaches it on macOS and "
+      + "Windows but not on the Linux runners, where it would be checked by nothing");
+});
+
+// The configuration gates above all read files. A directive reads nothing: it is written
+// in the document itself, and it turns a rule off exactly where that rule was about to
+// report. Round 3 (Sol, both seats) used both halves of the gap -- widening this project's
+// one directive from `disable-next` to file-wide `disable`, which silences the rule for
+// every element below it, and adding a second directive next to a fresh violation.
+// Neither is visible to `no-unused-disable`, because both suppressions are genuinely used.
+//
+// So the directives are inventoried and pinned as a set, action included. This project
+// needs exactly one, for one element, for one rule.
+test("authored documents carry only the one suppression this project explains", () => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const documents = projectSourceFiles(root, htmlDocumentExtensions, unprunedRoots);
+  assert.ok(documents.length > 0,
+    "this project owns no documents, so the inventory below proves nothing");
+
+  const directive
+    = /html-validate-(?<action>disable-next|disable-block|disable|enable)(?<rules>[^\]\r\n]*)/gu;
+  const found = documents.flatMap((file) => {
+    const document = projectRelative(root, file);
+    return [...readFileSync(file, "utf8").matchAll(directive)].map((match) => {
+      const { action = "", rules = "" } = match.groups ?? {};
+      // Everything before `--` is the rule list; the rest is the required explanation.
+      const named = (rules.split("--")[0] ?? "").trim();
+      return `${document}: ${action} ${named}`.trimEnd();
+    });
+  }).sort();
+
+  assert.deepEqual(found, [
+    "index.html: disable-next element-required-attributes",
+  ], "a directive is stock analysis switched off for the markup underneath it; a second "
+    + "one, a different rule, or a wider action than `disable-next` is a rule this "
+      + "project stopped running with nothing else here reporting the change");
 });
 
 test("the committed html-validate configuration rejects what it is kept for", () => {
@@ -1947,6 +2028,18 @@ test("html-validate still demands a digest on third-party bytes", () => {
   assert.equal(htmlValidateConfig.root, true,
     "without this html-validate walks up and merges configuration from outside the "
       + "project, so the committed file is not the one that runs");
+
+  // Rules are not the only way this file weakens the presets. Round 3 (Sol, both seats)
+  // added an `elements` entry that dropped `<button>`'s `type` metadata: the presets
+  // still resolved, every rule above was still on, and `attribute-allowed-values` simply
+  // had nothing left to check that element against. `plugins`, `transform` and `aria`
+  // reach the same place by other routes, so the key set is pinned rather than the three
+  // keys that happen to be interesting.
+  assert.deepEqual(Object.keys(htmlValidateConfig).sort(),
+    ["$schema", "extends", "root", "rules"],
+    "a key here that is not one of these -- `elements`, `plugins`, `transform`, `aria` "
+      + "-- changes what the stock presets are checking against without changing any "
+      + "rule, preset or severity the assertions above read");
 });
 
 // html-validate drops an ignored file silently when other targets remain, so an authored

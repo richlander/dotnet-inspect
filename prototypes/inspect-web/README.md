@@ -721,10 +721,14 @@ narrowed category set, a named rule switched off, or an `overrides` entry that
 replaces the plugin list for product sources all fail there instead of reading
 as an adoption. Overrides need reading separately because Oxlint keeps them as
 their own array rather than folding them into the top-level rules.
-`promise/always-return` is enabled and pinned by name: the two side-effect
-continuations handed to `observeAsync` return explicitly, because their promises
-are consumed rather than terminal and so fall outside the upstream
-`ignoreLastCallback` option.
+That resolved read pins rule *options* as one set alongside the severities: a
+rule left enabled but given options that exempt the code it was enabled for
+reports nothing while every severity reads exactly as before. The `node:test`
+`test` call is the only option-borne exemption in the project, so any second one
+fails there. `promise/always-return` is enabled and pinned by name: the two
+side-effect continuations handed to `observeAsync` return explicitly, because
+their promises are consumed rather than terminal and so fall outside the
+upstream `ignoreLastCallback` option.
 
 `npm run lint` also runs [html-validate](https://html-validate.org) over
 `**/*.{html,htm,xhtml}` with `--config .htmlvalidate.json`. Documents are
@@ -740,26 +744,33 @@ carry a digest while same-origin files Vite emits are not asked for one.
 the project inventory prunes: `dist` is generated at the project root only, so
 an unanchored entry would also exclude an authored `src/dist`.
 
-Six toolchain tests hold that wiring honest. They pin the preset list, the
+Seven toolchain tests hold that wiring honest. They pin the preset list, the
 `root: true` setting, and the *whole* `rules` object — `require-sri` is the only
 entry, so a second rule relaxed beside it fails rather than slipping past an
-assertion aimed at one key. They require the lint glob to reach a document of
-each covered extension, both nested and under `src/dist`; require the committed
-configuration to reject a specimen *by the name of the rule that must reject it*
-(`close-order`, `element-required-attributes`, `wcag/h37`, `require-sri`,
-`attribute-allowed-values`); and require every document the project owns to sit
-outside the ignore file.
+assertion aimed at one key. They also pin the file's whole *key set*, because
+rules are not the only way the presets get weaker: an `elements` entry changes
+the HTML metadata the stock rules check against, so a rule can stay on and
+simply have nothing left to say about an element. They require the lint glob to
+reach a document of each covered extension, both nested and under `src/dist`;
+require the committed configuration to reject a specimen *by the name of the
+rule that must reject it* (`close-order`, `element-required-attributes`,
+`wcag/h37`, `require-sri`, `attribute-allowed-values`); and require every
+document the project owns to sit outside the ignore file.
 
-Two of the six close the gap between "the linter ran" and "the linter saw this
+Two of the seven close the gap between "the linter ran" and "the linter saw this
 file", because html-validate resolves both configuration and exclusions per
 directory. A descendant `.htmlvalidate.json` replaces the committed rules for
 its own subtree and a descendant `.htmlvalidateignore` drops documents from the
 run outright, so a walk requires the tree to hold exactly one of each, at the
 root. Separately, `**` does not descend into dotted directories, so a second
-walk requires no authored document to sit under one; that keeps the set the glob
-reaches equal to the set the inventory reports. A linter that stops running,
-loses a preset, or is never handed a document fails there rather than going
-quietly green.
+walk requires no authored document to sit under one. That walk also requires
+document extensions to be lowercase: Node matches glob patterns
+case-insensitively on macOS and Windows and case-sensitively everywhere else, so
+a `probe.HTML` would be linted on a developer's Mac and skipped on the Ubuntu
+runners that gate merges and deploy the site. Together those keep the set the
+glob reaches equal to the set the inventory reports. A linter that stops
+running, loses a preset, or is never handed a document fails there rather than
+going quietly green.
 
 The `<link rel="preload" id="webassembly">` element in `index.html` carries a
 scoped `html-validate-disable-next` directive for `element-required-attributes`.
@@ -767,6 +778,16 @@ It is a genuinely incomplete element on purpose: the .NET Wasm publish step
 rewrites it to inject the runtime `href`, and three workflows plus
 `PromotionWorkflowContract.cs` pin it by id. The directive names that one rule
 on that one element.
+
+That directive is the whole suppression budget, and the last toolchain test pins
+it as such. A directive is written in the document rather than in a config file,
+so none of the reads above can see one, and `no-unused-disable` cannot help when
+the suppression is genuinely used: widening this one from `disable-next` to a
+file-wide `disable` silences the rule for every element below it, and a second
+directive next to a fresh violation is equally invisible. So the test
+inventories every directive in every authored document and pins the set,
+including the action — a different rule, a second entry, or a wider action all
+fail.
 
 CSS is not linted. Adopting Stylelint is tracked separately.
 
