@@ -17,6 +17,10 @@ public enum CSharpStructuralSide
 /// <param name="Change">Explicit structural outcome or outcomes.</param>
 /// <param name="Structure">Stable-kind display transition.</param>
 /// <param name="Region">Enclosing-region transition.</param>
+/// <param name="Detail">
+/// One-line before/after text transition, empty when no single-span inline
+/// text is available or the selected text did not change.
+/// </param>
 /// <param name="BeforeSpans">Before absolute UTF-16 spans.</param>
 /// <param name="AfterSpans">After absolute UTF-16 spans.</param>
 /// <param name="Fidelity">Independent compile-back transition and optional note.</param>
@@ -24,6 +28,7 @@ public sealed record CSharpStructuralDiffDisplayRow(
     string Change,
     string Structure,
     string Region,
+    string Detail,
     string BeforeSpans,
     string AfterSpans,
     string Fidelity);
@@ -46,6 +51,7 @@ public static class CSharpStructuralDiffPrinter
                 FormatChange(row.Change),
                 FormatTransition(Contain(row.BeforeLabel), Contain(row.AfterLabel)),
                 FormatTransition(row.BeforeRegion?.ToString(), row.AfterRegion?.ToString()),
+                FormatDetail(comparison, row),
                 FormatSpans(row.BeforeSpans),
                 FormatSpans(row.AfterSpans),
                 FormatFidelity(comparison.Fidelity)))
@@ -199,6 +205,53 @@ public static class CSharpStructuralDiffPrinter
             _ => "",
         };
 
+    /// <summary>
+    /// One-line before/after text transition for the <c>Detail</c> column,
+    /// reusing the same single-span, length, and well-formedness guards as
+    /// the inline "changed to/from" caret suffix. Empty when the selected
+    /// text is not eligible for inline display or did not change. When the
+    /// row matches the item-3 qualifier/argument role transition (see
+    /// <see cref="TryDescribeQualifierArgumentRoleTransition"/>), the semantic
+    /// summary replaces the literal before/after text dump.
+    /// </summary>
+    static string FormatDetail(CSharpStructuralComparison comparison, CSharpStructuralDiffRow row)
+    {
+        bool textChanged = row.Change.HasFlag(CSharpStructuralChangeKind.Changed)
+            && !CSharpBodyDiff.SelectedTextEqual(
+                comparison.Before,
+                row.BeforeSpans,
+                comparison.After,
+                row.AfterSpans);
+        bool added = row.Change.HasFlag(CSharpStructuralChangeKind.Added);
+        bool removed = row.Change.HasFlag(CSharpStructuralChangeKind.Removed);
+        if (!textChanged && !added && !removed)
+            return "";
+
+        string? beforeText = InlineText(comparison.Before, row.BeforeSpans);
+        string? afterText = InlineText(comparison.After, row.AfterSpans);
+        if (textChanged
+            && IsInvocationRoleCandidate(row)
+            && beforeText is not null
+            && afterText is not null
+            && TryDescribeQualifierArgumentRoleTransition(beforeText, afterText, out var transition))
+        {
+            return transition.DetailSummary;
+        }
+
+        return beforeText is null && afterText is null
+            ? ""
+            : FormatTransition(beforeText, afterText);
+    }
+
+    static string? InlineText(AnnotatedSourceDocument document, ImmutableArray<AnnotatedSourceSpan> spans)
+    {
+        if (spans.Length != 1 || spans[0].Length > MaximumInlineTransitionLength)
+            return null;
+
+        string text = SelectText(document, spans[0]);
+        return CanRenderExactInline(text) ? Contain(text) : null;
+    }
+
     static string TextTransitionSuffix(
         CSharpStructuralComparison comparison,
         CSharpStructuralDiffRow row,
@@ -228,6 +281,17 @@ public static class CSharpStructuralDiffPrinter
         if (!CanRenderExactInline(beforeText) || !CanRenderExactInline(afterText))
             return "; text changed";
 
+        if (IsInvocationRoleCandidate(row)
+            && TryDescribeQualifierArgumentRoleTransition(
+                Contain(beforeText)!,
+                Contain(afterText)!,
+                out var transition))
+        {
+            return side == CSharpStructuralSide.Before
+                ? $"; {transition.BeforeDescription}"
+                : $"; {transition.AfterDescription}";
+        }
+
         string counterpart = side == CSharpStructuralSide.Before
             ? afterText
             : beforeText;
@@ -235,6 +299,243 @@ public static class CSharpStructuralDiffPrinter
         return side == CSharpStructuralSide.Before
             ? $"; changed to {Contain(counterpart)}"
             : $"; changed from {Contain(counterpart)}";
+    }
+
+    static bool IsInvocationRoleCandidate(CSharpStructuralDiffRow row)
+        => string.Equals(row.BeforeKind, "InvocationExpression", StringComparison.Ordinal)
+            && string.Equals(row.AfterKind, "InvocationExpression", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Item 3 (issue #5022): a side-local role description for the narrow,
+    /// well-evidenced "receiver becomes an argument" call-rewrite shape --
+    /// <c>q.Callee(args)</c> (extension/instance-style) rewritten to
+    /// <c>Callee(q, args)</c> (static-style) with the same callee name, or the
+    /// reverse -- derived purely from each side's own selected text. This is a
+    /// textual role classification, not a semantic-model lookup: it never
+    /// asserts anything the two sides' literal text does not already show,
+    /// and it recognizes nothing outside this one shape.
+    /// </summary>
+    readonly record struct QualifierArgumentRoleTransition(
+        string BeforeDescription,
+        string AfterDescription,
+        string DetailSummary);
+
+    static bool TryDescribeQualifierArgumentRoleTransition(
+        string beforeText,
+        string afterText,
+        out QualifierArgumentRoleTransition transition)
+    {
+        transition = default;
+        if (!TryParseQualifiedCall(beforeText, out string? beforeQualifier, out string beforeCallee, out var beforeArgs)
+            || !TryParseQualifiedCall(afterText, out string? afterQualifier, out string afterCallee, out var afterArgs))
+        {
+            return false;
+        }
+
+        if (beforeCallee.Length == 0
+            || !string.Equals(beforeCallee, afterCallee, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (beforeQualifier is { } qualifier && afterQualifier is null)
+        {
+            int argIndex = afterArgs.IndexOf(qualifier);
+            if (argIndex < 0)
+                return false;
+
+            transition = new QualifierArgumentRoleTransition(
+                $"{qualifier}: used as extension-call qualifier",
+                $"{qualifier}: moved to argument {argIndex + 1} (static call)",
+                $"{qualifier}: qualifier -> argument {argIndex + 1} (extension -> static call)");
+            return true;
+        }
+
+        if (afterQualifier is { } movedQualifier && beforeQualifier is null)
+        {
+            int argIndex = beforeArgs.IndexOf(movedQualifier);
+            if (argIndex < 0)
+                return false;
+
+            transition = new QualifierArgumentRoleTransition(
+                $"{movedQualifier}: argument {argIndex + 1} (static call)",
+                $"{movedQualifier}: moved to extension-call qualifier",
+                $"{movedQualifier}: argument {argIndex + 1} -> qualifier (static -> extension call)");
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Splits <paramref name="text"/> as <c>[qualifier.]callee(arguments)</c>
+    /// when it is exactly one call expression (no trailing text after the
+    /// closing paren beyond an optional statement-terminating <c>;</c>).
+    /// <paramref name="qualifier"/> is <see langword="null"/> for a static
+    /// (unqualified) call. Returns <see langword="false"/> for any shape this
+    /// narrow heuristic does not recognize -- callers must treat that as "no
+    /// opinion", not as evidence the shape does not exist.
+    /// </summary>
+    static bool TryParseQualifiedCall(
+        string text,
+        out string? qualifier,
+        out string callee,
+        out ImmutableArray<string> arguments)
+    {
+        qualifier = null;
+        callee = "";
+        arguments = [];
+
+        int openParen = FindUnquotedIndexOf(text, '(', 0);
+        if (openParen < 0)
+            return false;
+
+        int closeParen = FindMatchingClose(text, openParen);
+        if (closeParen < 0)
+            return false;
+
+        if (text.AsSpan(closeParen + 1).TrimEnd(';').TrimEnd().Length > 0)
+            return false;
+
+        int dotIndex = -1;
+        for (int index = openParen - 1; index >= 0; index--)
+        {
+            char character = text[index];
+            if (character == '.')
+            {
+                dotIndex = index;
+                break;
+            }
+            if (!char.IsLetterOrDigit(character) && character != '_')
+                break;
+        }
+
+        callee = text[(dotIndex + 1)..openParen];
+        if (callee.Length == 0)
+            return false;
+
+        if (dotIndex > 0)
+        {
+            string candidateQualifier = text[..dotIndex];
+            if (!IsSimpleIdentifierPath(candidateQualifier))
+                return false;
+            qualifier = candidateQualifier;
+        }
+
+        arguments = SplitTopLevelArguments(text[(openParen + 1)..closeParen]);
+        return true;
+    }
+
+    static bool IsSimpleIdentifierPath(string text)
+    {
+        if (text.Length == 0 || (!char.IsLetter(text[0]) && text[0] != '_'))
+            return false;
+
+        foreach (char character in text)
+        {
+            if (!char.IsLetterOrDigit(character) && character != '_' && character != '.')
+                return false;
+        }
+        return true;
+    }
+
+    static int FindUnquotedIndexOf(string text, char target, int start)
+    {
+        bool inString = false;
+        bool inChar = false;
+        for (int index = start; index < text.Length; index++)
+        {
+            char character = text[index];
+            if (inString)
+            {
+                if (character == '\\') { index++; continue; }
+                if (character == '"') inString = false;
+                continue;
+            }
+            if (inChar)
+            {
+                if (character == '\\') { index++; continue; }
+                if (character == '\'') inChar = false;
+                continue;
+            }
+            if (character == '"') { inString = true; continue; }
+            if (character == '\'') { inChar = true; continue; }
+            if (character == target)
+                return index;
+        }
+        return -1;
+    }
+
+    static int FindMatchingClose(string text, int openIndex)
+    {
+        int depth = 0;
+        bool inString = false;
+        bool inChar = false;
+        for (int index = openIndex; index < text.Length; index++)
+        {
+            char character = text[index];
+            if (inString)
+            {
+                if (character == '\\') { index++; continue; }
+                if (character == '"') inString = false;
+                continue;
+            }
+            if (inChar)
+            {
+                if (character == '\\') { index++; continue; }
+                if (character == '\'') inChar = false;
+                continue;
+            }
+            if (character == '"') { inString = true; continue; }
+            if (character == '\'') { inChar = true; continue; }
+            if (character == '(') depth++;
+            else if (character == ')')
+            {
+                depth--;
+                if (depth == 0)
+                    return index;
+            }
+        }
+        return -1;
+    }
+
+    static ImmutableArray<string> SplitTopLevelArguments(string argsText)
+    {
+        if (argsText.Trim().Length == 0)
+            return [];
+
+        var results = ImmutableArray.CreateBuilder<string>();
+        int depth = 0;
+        bool inString = false;
+        bool inChar = false;
+        int start = 0;
+        for (int index = 0; index < argsText.Length; index++)
+        {
+            char character = argsText[index];
+            if (inString)
+            {
+                if (character == '\\') { index++; continue; }
+                if (character == '"') inString = false;
+                continue;
+            }
+            if (inChar)
+            {
+                if (character == '\\') { index++; continue; }
+                if (character == '\'') inChar = false;
+                continue;
+            }
+            if (character == '"') { inString = true; continue; }
+            if (character == '\'') { inChar = true; continue; }
+            if (character is '(' or '[' or '{') depth++;
+            else if (character is ')' or ']' or '}') depth--;
+            else if (character == ',' && depth == 0)
+            {
+                results.Add(argsText[start..index].Trim());
+                start = index + 1;
+            }
+        }
+        results.Add(argsText[start..].Trim());
+        return results.ToImmutable();
     }
 
     static bool CanRenderExactInline(string text)
