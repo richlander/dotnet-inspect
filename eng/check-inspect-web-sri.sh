@@ -29,13 +29,40 @@ test -f "$index"
 # leave this script verifying a resource the site no longer loads.
 pins="$(node --input-type=module -e '
   import { readFile } from "node:fs/promises";
-  const html = await readFile(process.argv[1], "utf8");
-  const tags = html.match(/<(?:script|link)\b[^>]*>/gsu) ?? [];
+  const raw = await readFile(process.argv[1], "utf8");
+
+  // A commented-out tag is not loaded, so tracking it would mean this check fails when a
+  // CDN drops a resource the site stopped requesting.
+  const html = raw.replace(/<!--[\s\S]*?-->/gu, "");
+
+  // HTML allows double-quoted, single-quoted and unquoted attribute values, and tag and
+  // attribute names are case-insensitive. html-validate accepts all of those -- verified,
+  // rather than assumed -- so a pattern that only understands lowercase double-quoted
+  // markup would drop real subresources out of this check and still report success.
+  //
+  // \x27 is an apostrophe. It is spelled that way because this whole program is inside a
+  // single-quoted shell string, so a literal apostrophe would end it.
+  const attribute = (tag, name) => {
+    const pattern = new RegExp(
+      String.raw`\b${name}\s*=\s*(?:"([^"]*)"|\x27([^\x27]*)\x27|([^\s"\x27>]+))`,
+      "iu",
+    );
+    const match = pattern.exec(tag);
+    return match === null ? undefined : (match[1] ?? match[2] ?? match[3]);
+  };
+
+  // Subresource Integrity is defined for `script` and `link` only, so those two elements
+  // are the complete set here rather than a sample of it.
+  const tags = html.match(/<(?:script|link)\b[^>]*>/giu) ?? [];
   for (const tag of tags) {
-    const url = /\b(?:src|href)\s*=\s*"(https?:\/\/[^"]+)"/u.exec(tag)?.[1];
-    if (url === undefined) continue;
-    const integrity = /\bintegrity\s*=\s*"([^"]+)"/u.exec(tag)?.[1];
-    console.log(`${url}\t${integrity ?? ""}`);
+    const url = attribute(tag, "src") ?? attribute(tag, "href");
+    // Protocol-relative URLs are cross-origin too, and need a digest just as much.
+    if (url === undefined || !/^(?:https?:)?\/\//iu.test(url)) continue;
+    // curl rejects a protocol-relative URL outright ("No host part in the URL"), so one
+    // has to be resolved here or the pin would report as unfetchable rather than being
+    // checked. The site is served over HTTPS, which is the scheme a browser would pick.
+    const absolute = url.startsWith("//") ? `https:${url}` : url;
+    console.log(`${absolute}\t${attribute(tag, "integrity") ?? ""}`);
   }
 ' "$index")"
 
@@ -70,14 +97,21 @@ while IFS=$'\t' read -r url integrity; do
       ;;
   esac
 
-  if ! body="$(curl -sSfL --retry 3 --retry-delay 5 --max-time 60 "$url")"; then
+  # Hashing straight out of the pipe rather than through a shell variable. Command
+  # substitution strips every trailing newline (and drops NUL bytes), so buffering the
+  # body first would hash something other than what the CDN served and report DRIFT on a
+  # perfectly good pin. The three resources pinned today happen to end in `;`, which is
+  # the only reason that bug was invisible. `pipefail` is set, so a curl failure still
+  # fails the pipeline rather than hashing an empty stream.
+  if ! actual="$(curl -sSfL --retry 3 --retry-delay 5 --max-time 60 "$url" \
+      | openssl dgst "-$algorithm" -binary \
+      | openssl base64 -A)"; then
     echo "FETCH    $url"
-    echo "         could not be retrieved"
+    echo "         could not be retrieved, or could not be hashed"
     status=1
     continue
   fi
 
-  actual="$(printf '%s' "$body" | openssl dgst "-$algorithm" -binary | openssl base64 -A)"
   if [ "$actual" = "$expected" ]; then
     echo "OK       $url"
   else

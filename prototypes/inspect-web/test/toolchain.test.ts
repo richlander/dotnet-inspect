@@ -2322,12 +2322,18 @@ test("static hosting serves credits links through the application entry point", 
   assert.match(siteIndexHtml, /<base href="\/" \/>/);
 });
 
-test("static hosting sends its security headers on every response", () => {
+test("static hosting sends its security headers on every static response", () => {
   // These are response-header protections, so nothing in the source tree can stand in for
   // them: a linter reads the markup this project ships, while these constrain what a
   // browser will do with it once shipped. `nosniff` stops content-type guessing on the
   // JSON, TSV and wasm this site serves, and the other three are the cheap defaults that
   // need no coordination with page content.
+  //
+  // "static" in this test's name is load-bearing. Azure Static Web Apps does not apply
+  // `globalHeaders` to responses produced by the managed functions under `/api/*`; those
+  // carry whatever headers the function itself sets. So this covers the static site and
+  // says nothing about the MSDL proxy's responses, which is why the name does not claim
+  // "every response".
   assert.deepEqual(staticWebAppConfig.globalHeaders, {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
@@ -2339,12 +2345,19 @@ test("static hosting sends its security headers on every response", () => {
   // `headers`, with the route winning per key. A route that names one of these keys
   // therefore replaces the global value for its own paths, and the response says nothing
   // about the substitution -- the file still reads as though the protection is global.
-  // Requiring the two key sets to stay disjoint is what keeps "on every response" in this
-  // test's name true, and it is a property of the config rather than an enumeration of
-  // the ways a route could weaken one.
+  // Requiring the two key sets to stay disjoint is what keeps "on every static response"
+  // in this test's name true, and it is a property of the config rather than an
+  // enumeration of the ways a route could weaken one.
+  // Compared case-insensitively because HTTP header names are. A route spelling
+  // `x-frame-options` overrides a global `X-Frame-Options` on the wire, so a
+  // case-sensitive comparison here would call that pair disjoint and miss the one thing
+  // this assertion exists to catch.
+  const globalKeys = new Set(
+    Object.keys(staticWebAppConfig.globalHeaders).map(header => header.toLowerCase()),
+  );
   const overriding = staticWebAppConfig.routes
     .filter(route => Object.keys(route.headers ?? {})
-      .some(header => Object.hasOwn(staticWebAppConfig.globalHeaders, header)))
+      .some(header => globalKeys.has(header.toLowerCase())))
     .map(route => route.route);
 
   assert.deepEqual(overriding, [],
