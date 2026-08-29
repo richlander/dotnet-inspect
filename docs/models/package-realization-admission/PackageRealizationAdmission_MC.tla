@@ -7,18 +7,37 @@
 (***************************************************************************)
 EXTENDS Naturals, TLC
 
-CONSTANTS c1, c2, d1, d2, d3, d4
+CONSTANTS
+    c1, c2, d1, d2, d3, d4,
+    AllowLeaseAfterClose,
+    AllowReleaseWithActiveLease,
+    AllowLatePublish,
+    AllowDoubleCleanup,
+    AllowResurrection
 
 VARIABLES
+    workspaceState,
     cacheState,
     cacheRealization,
     leader,
     demandState,
     demandResult,
     nextRealizationId,
+    cleanupStarts,
+    cleanupOutcome,
+    returnAttempts,
+    disposedWithLease,
+    drainedSuccess,
+    leaseSafetyWitness,
+    publishSafetyWitness,
+    cleanupSafetyWitness,
     joinWitness,
     retryAfterFailureWitness,
-    consistentOutcomeWitness
+    consistentOutcomeWitness,
+    zeroLeaseRetentionWitness,
+    disposalWaitWitness,
+    drainedSuccessWitness,
+    doubleReturnWitness
 
 CoordinateOfMC == (d1 :> c1) @@ (d2 :> c1) @@ (d3 :> c2) @@ (d4 :> c2)
 

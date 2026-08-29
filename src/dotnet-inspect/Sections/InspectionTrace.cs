@@ -24,7 +24,7 @@ public readonly record struct QueryExecution(InspectionQueryDefinition Query, Ti
 public sealed class InspectionTrace
 {
     private readonly List<(string Section, InspectionQueryDefinition Query)> _queryDemand = [];
-    private readonly List<(string Reason, InspectionQueryDefinition Query)> _commandQueryDemand = [];
+    private readonly List<HostQueryDemand> _commandQueryDemand = [];
     private readonly List<InspectionQueryDefinition> _requestedQueries = [];
     private readonly List<InspectionQueryDefinition> _queryClosure = [];
     private readonly List<QueryExecution> _queryExecutions = [];
@@ -44,7 +44,7 @@ public sealed class InspectionTrace
         => _queryDemand;
 
     /// <summary>Typed queries the command requested independently of a selected section.</summary>
-    public IReadOnlyList<(string Reason, InspectionQueryDefinition Query)> CommandQueryDemand
+    public IReadOnlyList<HostQueryDemand> CommandQueryDemand
         => _commandQueryDemand;
 
     /// <summary>Typed queries demanded directly by sections or the command.</summary>
@@ -83,7 +83,7 @@ public sealed class InspectionTrace
     /// <summary>Records a typed query requested directly by the command.</summary>
     public void RecordCommandQueryDemand(string reason, InspectionQueryDefinition query)
     {
-        _commandQueryDemand.Add((reason, query));
+        _commandQueryDemand.Add(new HostQueryDemand(reason, query));
         if (!_requestedQueries.Contains(query))
         {
             _requestedQueries.Add(query);
