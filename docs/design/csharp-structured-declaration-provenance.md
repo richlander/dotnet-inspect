@@ -151,8 +151,8 @@ CSharp consumes Metadata-issued declaration facts:
   compatibility signature;
 - `ApiSignature`, `ApiParameter`, `ApiAccessor`, `TypeParameter`, and typed
   type-reference or type-shape evidence; and
-- caller options that select qualification, imports, declaration abbreviation,
-  and declaration modifiers; and
+- caller options that select qualification, import context, declaration
+  abbreviation, attributes, punctuation, and declaration modifiers; and
 - a typed declaration context that says whether a type is a root or a child of
   one exact declaring-type identity.
 
@@ -202,6 +202,10 @@ string, and this design does not create another scalar policy.
 Existing string-returning formatter methods may remain compatibility adapters
 during migration. New consumers that require the structured guarantee consume
 `CSharpDeclarationResult`; they do not infer success or mode from text.
+`CSharpFormatter.FormatTypeUnit` is also a current compatibility surface; its
+complete-unit result does not acquire the target guarantee from this document.
+Issue #5142 owns its replacement or migration together with
+`CSharpTypePrinter` aggregation.
 
 ### Adjacent owners
 
@@ -256,7 +260,13 @@ enter composition without a catalog entry and handler.
 | --- | --- | --- |
 | Type declaration name | Type declaration name | `ApiType.DefinitionName`, `IntroducedTypeParameterCounts`, and `TypeParameters`; legacy flattened `Name` is compatibility input |
 | Type declaration placement | Closed syntax | caller-issued root or exact parent identity; never inferred by comparing `Name`, `MetadataName`, or rendered text |
-| Type kind, accessibility, and modifiers | Closed syntax | `ApiType.Kind`, accessibility, and modifier flags |
+| Type kind | Closed syntax | `ApiType.Kind` |
+| Type accessibility | Closed syntax | `ApiType.Accessibility` |
+| Static type modifier | Closed syntax | `ApiType.IsStatic` |
+| Abstract type modifier | Closed syntax | `ApiType.IsAbstract` |
+| Sealed type modifier | Closed syntax | `ApiType.IsSealed` |
+| Read-only type modifier | Closed syntax | `ApiType.IsReadOnly` |
+| By-ref-like type modifier | Closed syntax | `ApiType.IsByRefLike` |
 | Type generic-parameter name | Raw identifier | `ApiType.TypeParameters[].Name` |
 | Type generic-parameter variance | Closed syntax | `ApiType.TypeParameters[].Variance` |
 | Type-owned generic-parameter reference | Bound generic reference | owner/ordinal evidence within base, interface, constraint, and other type expressions |
@@ -268,19 +278,50 @@ enter composition without a catalog entry and handler.
 | Type constraint type | Type expression | type entries in `TypeParameter.StructuredConstraints`; unstructured constraints are compatibility input |
 | Type attribute | Rendered fragment | `ApiType.Attributes` |
 
+### Formatter option slots
+
+Each output-affecting option is an independent slot. A broad "formatter
+options" handler does not satisfy the catalog.
+
+| Slot | Value class | Current source |
+| --- | --- | --- |
+| Type-name qualification mode | Closed syntax | `CSharpFormatOptions.TypeNamePolicy` |
+| Type-name qualification context | Composite subplan | caller-supplied namespace/import context and CSharp-owned shadowing sets |
+| Signature abbreviation mode | Closed syntax | `CSharpFormatOptions.AbbreviateSignature` |
+| Member terminator mode | Closed syntax | `CSharpFormatOptions.TerminateMemberDeclaration` |
+| Forced `async` modifier | Closed syntax | `CSharpFormatOptions.ForceAsync` |
+| Forced `unsafe` modifier | Closed syntax | `CSharpFormatOptions.ForceUnsafe` |
+| Custom-attribute inclusion | Closed syntax | `CSharpFormatOptions.IncludeCustomAttributes` |
+| Signature-attribute inclusion | Closed syntax | `CSharpFormatOptions.IncludeSignatureAttributes` |
+| Synthesized-obsolete inclusion | Closed syntax | `CSharpFormatOptions.IncludeObsoleteAttribute` |
+| Interface-modifier omission | Closed syntax | `CSharpFormatOptions.OmitInterfaceMemberModifiers` |
+| Property-accessor omission | Closed syntax | `CSharpFormatOptions.OmitPropertyAccessors` |
+
 ### Common member slots
 
 | Slot | Value class | Current source |
 | --- | --- | --- |
 | Member attribute | Rendered fragment | `ApiMember.Attributes` |
 | Return attribute | Rendered fragment | `ApiSignature.ReturnAttributes` |
-| Accessibility and declaration modifier | Closed syntax | `ApiMember` flags and formatter options |
+| Member declaration kind | Closed syntax | `ApiMember.Kind`, constructor name, and exact finalizer discriminator |
+| Member accessibility | Closed syntax | `ApiMember.Accessibility` |
+| Constant modifier | Closed syntax | `ApiMember.IsConst` |
+| Static member modifier | Closed syntax | `ApiMember.IsStatic` |
+| Read-only member modifier | Closed syntax | `ApiMember.IsReadOnly` |
+| Sealed member modifier | Closed syntax | `ApiMember.IsSealed` |
+| Abstract member modifier | Closed syntax | `ApiMember.IsAbstract` |
+| Override member modifier | Closed syntax | `ApiMember.IsOverride` |
+| Virtual member modifier | Closed syntax | `ApiMember.IsVirtual` |
+| Unsafe member modifier | Closed syntax | `ApiMember.IsUnsafe` |
+| Async member modifier | Closed syntax | `ApiMember.IsAsync` |
+| Required-member modifier | Closed syntax | `ApiSignature.IsRequired` |
 | Return, field, property, or event type | Type expression | `ApiSignature.ReturnType` or `ApiMember.ReturnType`, with typed evidence when available |
 | Simple member name | Raw identifier | exact `ApiMember.Name` or a separately issued simple-name slot |
 | Explicit-interface qualifier | Type expression | requires an owner-issued qualifier separate from the simple name |
 | Method generic-parameter declaration | Raw identifier | `ApiSignature.TypeParameters` or an explicitly paired caller override |
 | Type- or method-owned generic-parameter reference | Bound generic reference | owner kind plus ordinal in member type-expression evidence; equal rendered text is insufficient |
 | Method special constraint | Closed syntax | non-type entries in `TypeParameter.StructuredConstraints`; inherited-restatement policy remains CSharp-owned |
+| Inherited method constraint restatement | Closed syntax | each method `TypeParameter.TypeKind`, mapped only to the closed `class`, `struct`, `default`, or omitted choices |
 | Method constraint type | Type expression | type entries in `TypeParameter.StructuredConstraints` |
 | Parameter | Composite subplan | ordered parameter child slots |
 | Parameter attribute | Rendered fragment | `ApiParameter.Attributes` |
@@ -290,8 +331,10 @@ enter composition without a catalog entry and handler.
 | Parameter default | Rendered fragment | `ApiParameter.DefaultValueText` |
 | Accessor | Composite subplan | ordered accessor child slots |
 | Accessor return attribute | Rendered fragment | `ApiAccessor.ReturnAttributes` |
-| Accessor accessibility and kind | Closed syntax | `ApiAccessor.Accessibility` and `ApiAccessor.Kind` |
+| Accessor accessibility | Closed syntax | `ApiAccessor.Accessibility` |
+| Accessor kind | Closed syntax | `ApiAccessor.Kind` |
 | Finalizer spelling mode | Closed syntax | `SuppressFinalizerSpelling` body-fidelity choice |
+| Synthesized-obsolete presence | Closed syntax | `ApiMember.IsObsolete` |
 | Obsolete message | Raw literal value | `ApiMember.ObsoleteMessage` |
 
 ### Declaration-form requirements
@@ -299,6 +342,7 @@ enter composition without a catalog entry and handler.
 | Form | Additional required structure |
 | --- | --- |
 | Class, struct, interface, record, or enum type | Exact type declaration name, typed root or parent/child placement, closed kind/modifiers, generic parameters, bases/interfaces, and constraints as applicable |
+| File-scoped namespace-wrapped type | One class/struct/interface/record/enum or delegate form plus qualified containing-namespace spelling and closed wrapper mode |
 | Constructor | Exact declaring-type leaf name and parameters |
 | Static constructor | Exact declaring-type leaf name and closed punctuation |
 | Finalizer with destructor spelling | Exact declaring-type leaf name and closed destructor marker |
@@ -306,17 +350,23 @@ enter composition without a catalog entry and handler.
 | Ordinary or extension method | Return type, simple name, method generic parameters, parameters, and constraints; extension `this` is closed syntax |
 | Explicit-interface method | Separate qualifier type expression and simple member name; pending #5114, a combined dotted string is compatibility input |
 | Property | Property type, simple name, and accessor list |
+| Property or indexer head with accessors omitted | The corresponding property/indexer head slots plus a closed omission choice; accessor child slots are deliberately absent |
 | Indexer | Property type, closed `this` token, index parameters, and accessor list |
 | Explicit-interface property or indexer | Separate qualifier, simple name or closed `this` token, parameters, and accessors; structured mode is pending #5114 |
 | Event | Event type, simple name, and optional explicit-interface qualifier; structured explicit forms are pending #5114 |
 | Field or constant | Field type and simple name |
 | Unary, binary, conversion, or checked operator | Metadata operator kind mapped through a closed catalog, typed return/conversion target, and parameters |
 | Delegate | Return type, exact type declaration name, typed root or parent/child placement, generic parameters, parameters, and constraints |
+| Standalone accessor head | Accessor return attributes, accessor-specific accessibility, and closed accessor kind |
+| Abbreviated member declaration | The selected member head plus a closed abbreviation choice; omitted parameter-name, default, and accessor child slots are not treated as consumed |
+| Terminated member declaration | The selected member form plus a closed terminator choice |
 
-This table covers the declaration forms `CSharpFormatter` emits. Compilation
-units, namespaces/imports, global attributes, enum-member and fixed-buffer
-special cases, initializers, bodies, and member grouping remain with #5142's
-complete-source composer.
+This table covers the target per-declaration planner, including public
+standalone accessor heads and deliberate declaration abbreviations. It does not
+claim every legacy convenience method currently located on `CSharpFormatter`.
+Compilation units, rendered imports, global attributes, enum-member and
+fixed-buffer special cases, initializers, bodies, and member grouping remain
+with #5142's complete-source composer.
 
 ## Composition rules
 
@@ -418,8 +468,8 @@ properties remain unverified:
 
 - `CSharpDeclarationSlotCatalogTests.DeclaredSlotsAndHandlersAgree` derives the
   complete slot-to-value-class map and handler set from the normative code
-  catalog and fails for undefined classes, compound entries, and missing or
-  stale slots and handlers.
+  catalog and fails for undefined classes, entries that mix value classes, and
+  missing or stale slots and handlers.
 - `CSharpDeclarationSlotCatalogTests.StructuredModeRequiresExactConsumedSlotSet`
   derives the expected slots for every form from that catalog, compares them
   with the slots actually consumed by the public composition path, and fails
@@ -440,8 +490,15 @@ properties remain unverified:
   derives every row of the form inventory and verifies its expected
   `Structured`, `Compatibility`, or `Unavailable` outcome, including
   every type kind and root/nested placement, constructors, properties, indexers,
-  events, operators, fields, both finalizer spellings, bases, interfaces, and
-  constraints.
+  events, operators, fields, both finalizer spellings, bases, interfaces,
+  constraints, standalone accessor heads, abbreviated/head-only declarations,
+  and terminated declarations.
+- `CSharpDeclarationProvenanceTests.ClosedSyntaxSelectorsHaveNeighborCoverage`
+  varies each formatter option and metadata discriminator independently,
+  including required-member presence, inherited `TypeParameter.TypeKind`,
+  synthesized-obsolete presence and inclusion, abbreviation, accessor omission,
+  attribute inclusion, forced modifiers, and termination;
+  each pair must change only its declared slot set and output syntax.
 - `CSharpDeclarationProvenanceTests.NestedTypePlacementDoesNotComeFromDisplayText`
   varies only legacy `Name`/`MetadataName` spellings and proves that the typed
   declaration context selects an exact child leaf while mismatched parent
