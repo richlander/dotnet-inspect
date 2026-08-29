@@ -1125,9 +1125,9 @@ public sealed class StateMachineCompletenessTests
     /// produced only through the precomputed outcome, and only for a No. It is
     /// not a claim that a No is correct. Round 10 built a COFF-only image -- no
     /// MZ signature at all, carrying real metadata in a .cormeta section -- that
-    /// SRM reads as managed with 761 type definitions while this reader answers
-    /// No. See TryMeasure_ZeroedCliDirectory_IsSkippedAsTheKnownBlindSpot for
-    /// what that costs and why it is accepted.
+    /// SRM reads as managed while this reader answers No. See
+    /// TryMeasure_ZeroedCliDirectory_IsSkippedAsTheKnownBlindSpot for what that
+    /// costs and why it is accepted.
     /// </summary>
     [Fact]
     public void ReadManagedClaim_SilentSkipSites_AreExactlyTheKnownSet()
@@ -1608,16 +1608,27 @@ public sealed class StateMachineCompletenessTests
     ///
     /// "Not fixable" would be too strong, and an earlier revision said it.
     /// Round 10 showed one of the three is fixable in principle by building a
-    /// COFF-only image: no MZ signature at all, with real metadata in a
-    /// .cormeta section. SRM reports IsCoffOnly with 761 type definitions,
-    /// while this reader answers No at the first signature byte. Recognising
-    /// SRM's COFF-only path would close that.
+    /// COFF-only image: no MZ signature at all, with the metadata blob reached
+    /// through a .cormeta section instead of a CLI directory. Construction is
+    /// mechanical -- lay a COFF file header with SizeOfOptionalHeader 0 and a
+    /// section table over an assembly's DOS and PE headers, keeping every
+    /// VirtualAddress and PointerToRawData, and add a .cormeta entry addressing
+    /// the existing metadata. Built that way from ILInspector.Metadata.dll, SRM
+    /// reports IsCoffOnly with 749 type definitions and 7,714 method
+    /// definitions, while this reader answers No at the first signature byte.
+    /// Recognising SRM's COFF-only path would close that.
     ///
     /// It is not closed here, on measured grounds rather than by assertion.
-    /// Incidence is 0 across 86,374 real PE files, COFF-only objects are a
-    /// C++/CLI intermediate rather than anything a corpus of assemblies holds,
-    /// and an intact one is measured normally rather than skipped -- only a
-    /// damaged COFF-only object is skipped, which narrows an already empty set.
+    /// Incidence is 0 across 86,374 real PE files, and COFF-only objects are a
+    /// C++/CLI intermediate rather than anything a corpus of assemblies holds.
+    /// Both halves of the exposure were measured on that specimen rather than
+    /// reasoned about: intact, it is measured normally, because SRM succeeds
+    /// and the No never reaches the precomputed outcome -- a corpus holding
+    /// only that file passes, and the same corpus with no measurable assembly
+    /// fails, so the pass is evidence it was counted. Truncated, it reports
+    /// "1 non-managed skipped" and vanishes in silence. So the live exposure is
+    /// a damaged COFF-only object, which narrows an already empty set.
+    ///
     /// Against that, the oracle's value is that it is short enough to check by
     /// reading, and teaching it a second container format is the kind of growth
     /// that ends with it needing its own oracle. The limit is recorded instead.
