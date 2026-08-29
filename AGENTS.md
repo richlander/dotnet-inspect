@@ -19,9 +19,14 @@ documentation.
 - **Design first.** Work must be covered by a design or reasonably extend one;
   ask the user when it is unclear whether a new design is needed. Finding
   defects in a design is always cheaper than finding them in code.
-- **Markdown-only PRs do not wait on CI before review.** When every changed
-  file is `*.md`, `markdownlint` is the only pre-review and per-round gate.
-  Dispatch review without checking or waiting for `ci-required`.
+- **Requested work hot-starts through PR and review.** Agents may branch,
+  commit, push, open a PR, and dispatch round 1 without separate approval.
+  Replacement rounds inside the current six-round block also dispatch
+  automatically; only a new block (rounds 7, 13, 19, ...) requires approval.
+  Merge remains separately authorized.
+- **Markdown-only PRs hot-start immediately.** When every changed file is
+  `*.md`, `markdownlint` is the only pre-review and per-round gate. Open the PR
+  and dispatch review without asking or waiting for `ci-required`.
 - **Complicated features need extraordinary evidence and pre-work** before
   code is written: corpus evidence, an established oracle, a TLA+ model, or a
   spec developed with close user input are examples of high-value levers.
@@ -507,25 +512,19 @@ follow-up work unless the operator explicitly approves it.
 
 ### Stop after six rounds
 
-Rounds 1-6 are the initial authorized block. Within an authorized block, a
-fix-producing round that requires replacement review continues automatically:
-report `Recommendation: continue` and begin the next candidate cycle without
-asking for approval, setting `HELP`, or waiting for user input.
+Review blocks hot-start. Rounds 1-6 begin automatically, and every fix-producing
+replacement within an authorized block dispatches without asking, setting
+`HELP`, or waiting for user input. Approval is required only before rounds 7,
+13, 19, and so on; each approval authorizes at most six more rounds.
 
-Approval is required only before rounds 7, 13, 19, and so on. Each approval
-allows at most six more rounds; stop sooner when review converges. At a block
-boundary, conflict recovery may resolve and push immediately, but reviewers
-still wait for approval unless an immutable split decision hold is active — a
-boundary push resets the status prerequisite, so checks from the previous head
-do not satisfy it. Before offering `approve next rounds`, acquire fresh green
-current-head `ci-required` and definite positive mergeability under the
-60-minute status budget; if it expires, publish the status budget report and
-stop observation without opening an approval prompt.
+At a block boundary, conflict recovery may push immediately, but reviewer
+dispatch waits for approval. Before asking, acquire fresh green current-head
+`ci-required` and definite positive mergeability under the 60-minute status
+budget; if it expires, publish its report and stop without asking.
 
-Round 12, and every six-round boundary after it, carries a presumption to
-split remaining work into focused successors rather than continue, unless a
-strong, user-approved reason keeps the PR intact. Checkpoint questions, the
-split exception, and execution mechanics:
+Round 12 and every later six-round boundary presume splitting into focused
+successors unless a strong, user-approved reason keeps the PR intact. Full
+checkpoint and split mechanics:
 [Block boundaries and splitting](docs/round-orchestration.md#block-boundaries-and-splitting).
 
 ## Lead with the demo
