@@ -150,6 +150,11 @@ Two details are easy to get wrong and are pinned by tests:
 
 Implementation: [`PluginConnection`](../../src/NuGetFetch/Plugins/PluginConnection.cs) and
 [`PluginCredentialProvider`](../../src/NuGetFetch/Plugins/PluginCredentialProvider.cs).
+The concurrent conversation and shutdown rules are checked by the
+[NuGet credential-plugin session lifecycle model](models/nuget-plugin-session-lifecycle/README.md).
+The model checks the design under finite bounds; implementation correspondence
+for progress renewal, concurrent correlation, and pipe-loss admission remains
+unverified.
 
 Plugins are started lazily and kept for the process lifetime, because a launch costs a process
 start plus five round trips. A plugin that fails to start, or that does not claim the
@@ -468,8 +473,10 @@ Two tiers, in `src/NuGetFetch.Tests`:
     Artifacts, redirect isolation from credential scope and returned content, 403 opt-in, and that
     an existing credential is not overwritten.
   - `PluginProtocolTests` runs a **real plugin process** — a shell script that genuinely speaks
-    the line protocol — so framing, the symmetric handshake, `Progress`-driven timeout extension,
-    and shutdown are exercised end to end rather than mocked.
+    the line protocol — so framing, the symmetric handshake, process death, selected shutdown
+    behavior, and caller-cancellation classification are exercised end to end rather than mocked.
+    Concurrent request correlation, `Progress`-driven timeout extension, and pipe-loss admission
+    remain unverified at the implementation boundary.
 - **Live**, tagged `[Trait("Network", "Live")]` and skipped unless a feed and token are supplied.
   `AzureDevOpsFeedTests` covers the config path; `AzureDevOpsCredentialProviderTests` covers the
   provider path against a genuinely installed provider. Only a real Azure DevOps feed exercises
