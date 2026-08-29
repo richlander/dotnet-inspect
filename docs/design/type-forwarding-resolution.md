@@ -3157,6 +3157,10 @@ provider-census gates named below live in `SignatureDecoderSafetyTests` and
   each decode only their own image, a context holding only the other
   registration returns `SourceUnavailable`, and a foreign-catalog subject is
   rejected outright.
+- `SignatureSpellability_CollectsFieldAndPropertyOccurrences` proves with
+  compiled field, property-return, and indexer-parameter signatures that every
+  named occurrence enters the request plan and an inaccessible external type
+  cannot produce `CanSpell: true`.
 - `SignatureSpellability_RetainsAuthorizedPlatformScope` proves that the
   authorized baseline derives from the source candidate's provenance and
   verified `AssemblyDef` identity, that a caller may tighten it to `Platform`
@@ -3188,10 +3192,10 @@ provider-census gates named below live in `SignatureDecoderSafetyTests` and
 - `SignatureSpellability_RequiresLocalArtifactProof` proves that a
   source-candidate definition remains `LocalRequirement` and that the
   compatibility projection fails closed without the adjacent owner's typed
-  inclusion/nameability proof.
+  inclusion/nameability proof, with an unrelated key, or with only a partial
+  set of the required local definitions.
 - `SignatureSpellability_RetainsUnsupportedModuleReference` proves that a
-  module-scoped occurrence retains `UnsupportedModuleReference` and cannot
-  produce `CanSpell: true`.
+  module-scoped occurrence retains `UnsupportedModuleReference`.
 - `SignatureSpellability_DerivesInitialScopePerReference` combines a platform
   reference and an ordinary package reference in one signature; the first is
   `Platform` and the second remains `Any`.
@@ -3209,13 +3213,15 @@ provider-census gates named below live in `SignatureDecoderSafetyTests` and
   `UnboundBinding` and cannot produce `CanSpell: true`.
 - `SignatureSpellability_RejectsForwarderTargetMissingType` distinguishes a
   bound target whose declaration probe returns `NotFound` from a valid
-  forwarded definition.
+  forwarded definition and proves the single unresolved entry cannot produce
+  `CanSpell: true`.
 - `SignatureSpellability_RejectsInaccessibleTerminalDefinition` proves that
-  terminal top-level and nested visibility, rather than the forwarding row,
-  controls external accessibility.
+  terminal top-level visibility and every nested declaring ancestor, rather
+  than the forwarding row, control external accessibility.
 - `SignatureSpellability_RejectsInvalidAccessibilityKey` proves that a
   cross-catalog or stale-generation definition key cannot borrow an
-  accessibility result.
+  accessibility result and that rejected accessibility cannot produce
+  `CanSpell: true`.
 - `SignatureSpellability_AccessibilityReusesResolvedSession` configures the
   terminal candidate opener to fail after resolution records its completed
   inventory and durable-session open count, then proves that accessibility

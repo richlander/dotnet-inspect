@@ -141,6 +141,61 @@ public sealed class SignatureSpellabilityAggregateTests
     }
 
     [Fact]
+    public void SignatureSpellability_CollectsFieldAndPropertyOccurrences()
+    {
+        string path = typeof(VisibleReferenceType).Assembly.Location;
+        ResolvedAssemblyReference target =
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local("compiled fixture"));
+
+        AssertHiddenMember(
+            target,
+            "HiddenField",
+            SignatureSpellabilityMemberKind.Field);
+        AssertHiddenMember(
+            target,
+            "HiddenProperty",
+            SignatureSpellabilityMemberKind.Property);
+        AssertHiddenMember(
+            target,
+            "Item",
+            SignatureSpellabilityMemberKind.Property);
+
+        static void AssertHiddenMember(
+            ResolvedAssemblyReference target,
+            string memberName,
+            SignatureSpellabilityMemberKind kind)
+        {
+            using CompiledMember fixture = Compiled(memberName, kind);
+            using var catalog = new TypeResolutionCatalog();
+            SignatureSpellabilityPlan plan = Plan(catalog, fixture);
+            Assert.Single(plan.Requests);
+            Assert.Contains(
+                plan.Occurrences,
+                occurrence =>
+                    occurrence.Reference.Type.ToMetadataFullName()
+                    == "ILInspector.Metadata.Tests.SpellabilityReference"
+                        + ".HiddenReferenceType");
+            using TypeResolutionContext context =
+                catalog.CreateSignatureSpellabilityContext(
+                    new MapPolicy(target),
+                    plan,
+                    [target]);
+
+            var aggregate =
+                Assert.IsType<SignatureSpellabilityAggregate.Complete>(
+                    context.EvaluateSignatureSpellability(plan));
+            var external = Assert.Single(
+                aggregate.Evidence.OfType<
+                    SignatureSpellabilityEvidence.ExternalDefinition>());
+            Assert.IsType<TypeDefinitionAccessibilityOutcome.Inaccessible>(
+                external.Accessibility);
+            Assert.False(aggregate.CanSpell());
+        }
+    }
+
+    [Fact]
     public void SignatureSpellability_CollectsEveryNamedChildOnce()
     {
         using CompiledMember fixture = Compiled("ComplexMethod");
@@ -253,7 +308,7 @@ public sealed class SignatureSpellabilityAggregateTests
     [Fact]
     public void SignatureSpellability_RequiresLocalArtifactProof()
     {
-        using CompiledMember fixture = Compiled("LocalMethod");
+        using CompiledMember fixture = Compiled("MultipleLocalMethod");
         using var catalog = new TypeResolutionCatalog();
         SignatureSpellabilityPlan plan = Plan(catalog, fixture);
         using TypeResolutionContext context =
@@ -265,14 +320,42 @@ public sealed class SignatureSpellabilityAggregateTests
         var aggregate =
             Assert.IsType<SignatureSpellabilityAggregate.Complete>(
                 context.EvaluateSignatureSpellability(plan));
-        var local = Assert.IsType<
+        SignatureSpellabilityEvidence.LocalRequirement[] locals =
+            aggregate.Evidence
+                .OfType<SignatureSpellabilityEvidence.LocalRequirement>()
+                .ToArray();
+        Assert.Equal(2, locals.Length);
+
+        using CompiledMember unrelatedFixture = Compiled("LocalMethod");
+        using var unrelatedCatalog = new TypeResolutionCatalog();
+        SignatureSpellabilityPlan unrelatedPlan =
+            Plan(unrelatedCatalog, unrelatedFixture);
+        using TypeResolutionContext unrelatedContext =
+            unrelatedCatalog.CreateSignatureSpellabilityContext(
+                new MapPolicy(),
+                unrelatedPlan,
+                []);
+        var unrelated = Assert.IsType<
             SignatureSpellabilityEvidence.LocalRequirement>(
-                Assert.Single(aggregate.Evidence));
+                Assert.Single(
+                    Assert.IsType<SignatureSpellabilityAggregate.Complete>(
+                        unrelatedContext.EvaluateSignatureSpellability(
+                            unrelatedPlan))
+                    .Evidence));
+
         Assert.False(aggregate.CanSpell());
+        Assert.False(
+            aggregate.CanSpell(
+                new SignatureLocalRequirementProof(
+                    [unrelated.Definition.Key])));
+        Assert.False(
+            aggregate.CanSpell(
+                new SignatureLocalRequirementProof(
+                    [locals[0].Definition.Key])));
         Assert.True(
             aggregate.CanSpell(
                 new SignatureLocalRequirementProof(
-                    [local.Definition.Key])));
+                    locals.Select(local => local.Definition.Key))));
     }
 
     [Fact]
@@ -464,14 +547,15 @@ public sealed class SignatureSpellabilityAggregateTests
                 plan,
                 []);
 
+        var aggregate =
+            Assert.IsType<SignatureSpellabilityAggregate.Complete>(
+                context.EvaluateSignatureSpellability(plan));
         var unresolved = Assert.IsType<
             SignatureSpellabilityEvidence.Unresolved>(
-                Assert.Single(
-                    Assert.IsType<SignatureSpellabilityAggregate.Complete>(
-                        context.EvaluateSignatureSpellability(plan))
-                    .Evidence));
+                Assert.Single(aggregate.Evidence));
         Assert.IsType<TypeResolutionOutcome.UnboundBinding>(
             unresolved.Outcome);
+        Assert.False(aggregate.CanSpell());
     }
 
     [Fact]
@@ -496,18 +580,23 @@ public sealed class SignatureSpellabilityAggregateTests
                 plan,
                 [target]);
 
+        var aggregate =
+            Assert.IsType<SignatureSpellabilityAggregate.Complete>(
+                context.EvaluateSignatureSpellability(plan));
         Assert.IsType<TypeResolutionOutcome.NotFound>(
             Assert.IsType<SignatureSpellabilityEvidence.Unresolved>(
-                Assert.Single(
-                    Assert.IsType<SignatureSpellabilityAggregate.Complete>(
-                        context.EvaluateSignatureSpellability(plan))
-                    .Evidence)).Outcome);
+                Assert.Single(aggregate.Evidence)).Outcome);
+        Assert.False(aggregate.CanSpell());
     }
 
     [Fact]
     public void SignatureSpellability_RejectsInaccessibleTerminalDefinition()
     {
         AssertNestedAccessibility(nestedPublic: false, expected: false);
+        AssertNestedAccessibility(
+            nestedPublic: true,
+            expected: false,
+            outerPublic: false);
 
         byte[] targetImage = BuildVisibilityTarget(
             "TopLevelTarget",
@@ -592,17 +681,18 @@ public sealed class SignatureSpellabilityAggregateTests
                 new MapPolicy(malformed),
                 malformedPlan,
                 [malformed]);
+        var malformedAggregate =
+            Assert.IsType<SignatureSpellabilityAggregate.Complete>(
+                malformedContext.EvaluateSignatureSpellability(
+                    malformedPlan));
         var external = Assert.IsType<
             SignatureSpellabilityEvidence.ExternalDefinition>(
-                Assert.Single(
-                    Assert.IsType<SignatureSpellabilityAggregate.Complete>(
-                        malformedContext.EvaluateSignatureSpellability(
-                            malformedPlan))
-                    .Evidence));
+                Assert.Single(malformedAggregate.Evidence));
         Assert.IsType<
             TypeDefinitionAccessibilityFailure.InvalidDeclaringChain>(
                 Assert.IsType<TypeDefinitionAccessibilityOutcome.Rejected>(
                     external.Accessibility).Failure);
+        Assert.False(malformedAggregate.CanSpell());
     }
 
     [Fact]
@@ -1323,11 +1413,15 @@ public sealed class SignatureSpellabilityAggregateTests
         Assert.NotEqual(0, complete);
     }
 
-    static void AssertNestedAccessibility(bool nestedPublic, bool expected)
+    static void AssertNestedAccessibility(
+        bool nestedPublic,
+        bool expected,
+        bool outerPublic = true)
     {
         byte[] targetImage = BuildNestedTarget(
             "Target",
-            nestedPublic);
+            nestedPublic,
+            outerPublic);
         SyntheticAssembly source = BuildReferenceSource(
             "Source",
             ReadIdentity(targetImage),
@@ -1897,11 +1991,12 @@ public sealed class SignatureSpellabilityAggregateTests
 
     static byte[] BuildNestedTarget(
         string assemblyName,
-        bool nestedPublic)
+        bool nestedPublic,
+        bool outerPublic = true)
     {
         var metadata = Base(assemblyName, out _);
         TypeDefinitionHandle outer = metadata.AddTypeDefinition(
-            TypeAttributes.Public,
+            outerPublic ? TypeAttributes.Public : TypeAttributes.NotPublic,
             metadata.GetOrAddString("N"),
             metadata.GetOrAddString("Outer"),
             default,

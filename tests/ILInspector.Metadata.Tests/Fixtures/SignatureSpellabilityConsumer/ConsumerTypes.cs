@@ -22,10 +22,19 @@ public sealed class SignatureSpellabilityConsumerFixtures
     internal ConstructedVisibleString LocalMethod(ConstructedVisibleString value)
         => value;
 
+    internal ConstructedVisibleString MultipleLocalMethod(
+        ConstructedVisibleString first,
+        AnotherConstructedVisibleString second)
+        => first;
+
     internal T GenericMethod<T>(T value) => value;
 }
 
 public class ConstructedVisibleString : VisibleGeneric<string>
+{
+}
+
+public class AnotherConstructedVisibleString : VisibleGeneric<string>
 {
 }
 
