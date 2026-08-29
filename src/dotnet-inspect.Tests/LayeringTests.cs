@@ -292,9 +292,11 @@ public sealed class LayeringTests
             "ILInspector.MetadataPrimitives",
             "ILInspector.MetadataPrimitives.csproj");
         var sources = EvaluatedSources(project);
-        string[] metadataBlockReaders = sources
-            .Where(file => CallsMethod(file.Source, "GetMetadata"))
-            .Select(file => file.Name)
+        MetadataApiReference[] metadataBlockReferences = MetadataApiReferences()
+            .Where(reference => reference.Api == "GetMetadata")
+            .ToArray();
+        string[] metadataBlockReaders = metadataBlockReferences
+            .Select(reference => reference.CallerType)
             .Order(StringComparer.Ordinal)
             .ToArray();
         string[] markerReaders = sources
@@ -310,17 +312,19 @@ public sealed class LayeringTests
                 == $"{nameof(MetadataImageFormatClassifier)}.cs").Source;
 
         Assert.Equal(
+            [
+                "ILInspector.Metadata.MetadataImageFormatClassifier",
+                "ILInspector.MetadataPrimitives.MethodSemanticsRowReader",
+            ],
+            metadataBlockReaders);
+        Assert.All(
+            metadataBlockReferences,
+            reference => Assert.Contains(
+                reference.OpCode,
+                new[] { ILOpCode.Call, ILOpCode.Callvirt }));
+        Assert.Equal(
             [$"{nameof(MetadataImageFormatClassifier)}.cs"],
             markerReaders);
-        Assert.All(
-            metadataBlockReaders,
-            name => Assert.Contains(
-                name,
-                new[]
-                {
-                    $"{nameof(MetadataImageFormatClassifier)}.cs",
-                    "MethodSemanticsRowReader.cs",
-                }));
         Assert.DoesNotContain("GetMetadataReader", classifier);
         Assert.DoesNotContain("TableIndex", classifier);
         Assert.DoesNotContain("MetadataTokens", classifier);
@@ -346,7 +350,11 @@ public sealed class LayeringTests
                 System.Reflection.BindingFlags.Public
                 | System.Reflection.BindingFlags.Static
                 | System.Reflection.BindingFlags.DeclaredOnly));
-        MetadataLayoutCall[] layoutCalls = MetadataLayoutCalls();
+        MetadataApiReference[] layoutCalls = MetadataApiReferences()
+            .Where(reference =>
+                reference.Api is "GetTableMetadataOffset"
+                    or "GetTableRowSize")
+            .ToArray();
 
         Assert.Equal(
             ["GetTableMetadataOffset", "GetTableRowSize"],
@@ -512,25 +520,19 @@ public sealed class LayeringTests
         ];
     }
 
-    private static bool CallsMethod(string source, string method) =>
-        System.Text.RegularExpressions.Regex.IsMatch(
-            source,
-            $@"\b{System.Text.RegularExpressions.Regex.Escape(method)}\s*\(",
-            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
-
-    private sealed record MetadataLayoutCall(
+    private sealed record MetadataApiReference(
         string CallerType,
         string Api,
         ILOpCode OpCode,
         TableIndex? Table);
 
-    private static MetadataLayoutCall[] MetadataLayoutCalls()
+    private static MetadataApiReference[] MetadataApiReferences()
     {
         using var stream = File.OpenRead(
             typeof(MethodSemanticsRowReader).Assembly.Location);
         using var peReader = new PEReader(stream);
         MetadataReader metadata = peReader.GetMetadataReader();
-        List<MetadataLayoutCall> calls = [];
+        List<MetadataApiReference> references = [];
 
         foreach (TypeDefinitionHandle typeHandle in metadata.TypeDefinitions)
         {
@@ -558,7 +560,7 @@ public sealed class LayeringTests
                 {
                     DecodedInstruction instruction = body.Instructions[index];
                     if (instruction.Operand != OperandKind.InlineMethod
-                        || LayoutApi(
+                        || MetadataApi(
                             metadata,
                             checked((int)instruction.OperandValue))
                             is not { } api)
@@ -566,15 +568,16 @@ public sealed class LayeringTests
                         continue;
                     }
 
-                    TableIndex? table = instruction.OpCode == ILOpCode.Call
+                    TableIndex? table = api != "GetMetadata"
+                        && instruction.OpCode == ILOpCode.Call
                         && index > 0
                         && TryGetInt32Constant(
                             body.Instructions[index - 1],
                             out int value)
                             ? (TableIndex)value
                             : null;
-                    calls.Add(
-                        new MetadataLayoutCall(
+                    references.Add(
+                        new MetadataApiReference(
                             qualifiedType,
                             api,
                             instruction.OpCode,
@@ -583,10 +586,10 @@ public sealed class LayeringTests
             }
         }
 
-        return [.. calls];
+        return [.. references];
     }
 
-    private static string? LayoutApi(
+    private static string? MetadataApi(
         MetadataReader metadata,
         int token)
     {
@@ -601,20 +604,88 @@ public sealed class LayeringTests
 
         TypeReference type = metadata.GetTypeReference(
             (TypeReferenceHandle)member.Parent);
-        if (!metadata.StringComparer.Equals(
-                type.Namespace,
-                "System.Reflection.Metadata.Ecma335")
-            || !metadata.StringComparer.Equals(
-                type.Name,
-                "MetadataReaderExtensions"))
+        string typeNamespace = metadata.GetString(type.Namespace);
+        string typeName = metadata.GetString(type.Name);
+        string name = metadata.GetString(member.Name);
+        bool isLayoutApi =
+            typeNamespace == "System.Reflection.Metadata.Ecma335"
+            && typeName == "MetadataReaderExtensions"
+            && name is "GetTableMetadataOffset" or "GetTableRowSize";
+        bool isMetadataAcquisition =
+            typeNamespace == "System.Reflection.PortableExecutable"
+            && typeName == nameof(PEReader)
+            && name == "GetMetadata";
+        if (!isLayoutApi && !isMetadataAcquisition)
         {
             return null;
         }
 
-        string name = metadata.GetString(member.Name);
-        return name is "GetTableMetadataOffset" or "GetTableRowSize"
-            ? name
-            : null;
+        Assert.True(
+            type.ResolutionScope.Kind == HandleKind.AssemblyReference,
+            $"{typeNamespace}.{typeName}.{name} is not assembly-scoped.");
+        System.Reflection.Metadata.AssemblyReference reference =
+            metadata.GetAssemblyReference(
+                (AssemblyReferenceHandle)type.ResolutionScope);
+        AssertSystemReflectionMetadataIdentity(metadata, reference);
+        string expectedAssemblyName =
+            typeof(MetadataReader).Assembly.GetName().Name!;
+        Assert.All(
+            metadata.AssemblyReferences
+                .Select(metadata.GetAssemblyReference)
+                .Where(candidate => metadata.StringComparer.Equals(
+                    candidate.Name,
+                    expectedAssemblyName)),
+            candidate => AssertSystemReflectionMetadataIdentity(
+                metadata,
+                candidate));
+
+        MethodSignature<string> signature = member.DecodeMethodSignature(
+            ILSignatureTypeProvider.Instance,
+            genericContext: null);
+        Assert.Equal(
+            SignatureCallingConvention.Default,
+            signature.Header.CallingConvention);
+        Assert.Equal(0, signature.GenericParameterCount);
+        if (isLayoutApi)
+        {
+            Assert.False(signature.Header.IsInstance);
+            Assert.Equal("int32", signature.ReturnType);
+            Assert.Equal(
+                [
+                    "class [System.Reflection.Metadata]"
+                        + "System.Reflection.Metadata.MetadataReader",
+                    "valuetype [System.Reflection.Metadata]"
+                        + "System.Reflection.Metadata.Ecma335.TableIndex",
+                ],
+                signature.ParameterTypes);
+        }
+        else
+        {
+            Assert.True(signature.Header.IsInstance);
+            Assert.Equal(
+                "valuetype [System.Reflection.Metadata]"
+                    + "System.Reflection.PortableExecutable.PEMemoryBlock",
+                signature.ReturnType);
+            Assert.Empty(signature.ParameterTypes);
+        }
+
+        return name;
+    }
+
+    private static void AssertSystemReflectionMetadataIdentity(
+        MetadataReader metadata,
+        System.Reflection.Metadata.AssemblyReference reference)
+    {
+        System.Reflection.AssemblyName expected =
+            typeof(MetadataReader).Assembly.GetName();
+        Assert.Equal(expected.Name, metadata.GetString(reference.Name));
+        Assert.Equal(expected.Version, reference.Version);
+        Assert.Equal(
+            expected.CultureName ?? string.Empty,
+            metadata.GetString(reference.Culture));
+        Assert.Equal(
+            expected.GetPublicKeyToken() ?? [],
+            metadata.GetBlobBytes(reference.PublicKeyOrToken));
     }
 
     private static bool TryGetInt32Constant(
@@ -746,6 +817,7 @@ public sealed class LayeringTests
     {
         if (type == typeof(IntPtr)
             || type == typeof(UIntPtr)
+            || type.IsByRef
             || type.IsPointer
             || type.IsFunctionPointer)
         {

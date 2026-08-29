@@ -498,7 +498,7 @@ public sealed class MethodSemanticsRowReaderTests
     }
 
     [Fact]
-    public void Mdp016_IlasmRowsEqualIldasmOrderedMultiset()
+    public async Task Mdp016_IlasmRowsEqualIldasmOrderedMultiset()
     {
         bool toolsAvailable =
             CanRunTool("ilasm", ["-?"])
@@ -533,7 +533,7 @@ public sealed class MethodSemanticsRowReaderTests
                 temporaryDirectory,
                 "probe.out.il");
             File.WriteAllText(sourcePath, IlasmOracleSource);
-            RunTool(
+            await RunToolAsync(
                 "ilasm",
                 [
                     sourcePath,
@@ -541,7 +541,7 @@ public sealed class MethodSemanticsRowReaderTests
                     $"-output={assemblyPath}",
                     "-quiet",
                 ]);
-            RunTool(
+            await RunToolAsync(
                 "ildasm",
                 [
                     assemblyPath,
@@ -1051,26 +1051,50 @@ public sealed class MethodSemanticsRowReaderTests
         }
     }
 
-    static void RunTool(
+    static async Task RunToolAsync(
         string fileName,
         IReadOnlyList<string> arguments)
     {
         using var process = StartTool(fileName, arguments);
-        string output = process.StandardOutput.ReadToEnd();
-        string error = process.StandardError.ReadToEnd();
-        if (!process.WaitForExit(TimeSpan.FromSeconds(30)))
+        Task<string> output = process.StandardOutput.ReadToEndAsync();
+        Task<string> error = process.StandardError.ReadToEndAsync();
+        CancellationToken testCancellation =
+            TestContext.Current.CancellationToken;
+        using var timeout = CancellationTokenSource
+            .CreateLinkedTokenSource(testCancellation);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        try
         {
-            process.Kill(entireProcessTree: true);
-            process.WaitForExit();
-            throw new TimeoutException($"{fileName} timed out.");
+            await process.WaitForExitAsync(timeout.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            if (!process.HasExited)
+            {
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                catch (InvalidOperationException) when (process.HasExited)
+                {
+                }
+            }
+            await process.WaitForExitAsync(CancellationToken.None);
+            await Task.WhenAll(output, error);
+
+            if (!testCancellation.IsCancellationRequested)
+                throw new TimeoutException($"{fileName} timed out.");
+            throw;
         }
 
         if (process.ExitCode != 0)
         {
             throw new InvalidOperationException(
                 $"{fileName} exited with code {process.ExitCode}: "
-                + $"{error}\nstdout: {output}");
+                + $"{await error}\nstdout: {await output}");
         }
+
+        await Task.WhenAll(output, error);
     }
 
     static Process StartTool(
