@@ -3723,7 +3723,7 @@ public class OutputFormatterTests
         Assert.Equal(target, api.TypeForwarders[0].TargetAssembly);
         Assert.True(InertString.IsPermitted(
             TextPolicy.Field,
-            row.TargetLibraryText));
+            row.TargetLibraryText.ToString()));
         Assert.DoesNotContain('\u202E', row.TargetLibrary);
         Assert.DoesNotContain('\n', row.TargetLibrary);
         Assert.DoesNotContain('\u202E', markdown);
