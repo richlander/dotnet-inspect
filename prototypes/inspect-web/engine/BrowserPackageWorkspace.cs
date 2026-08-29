@@ -897,24 +897,25 @@ internal static class BrowserPackageWorkspace
     static ImmutableHashSet<string> RetainCoordinatePackages(
         IReadOnlyList<BrowserPackageCoordinate> coordinates)
     {
-        Dictionary<string, BrowserPackage> packages = coordinates
-            .GroupBy(PackageKey, StringComparer.Ordinal)
-            .ToDictionary(
-                group => group.Key,
-                group => group.First().Package,
-                StringComparer.Ordinal);
-        if (packages.Count > MaxCachedPackages)
+        ImmutableHashSet<string> packageKeys = coordinates
+            .Select(PackageKey)
+            .ToImmutableHashSet(StringComparer.Ordinal);
+        if (packageKeys.Count > MaxCachedPackages)
         {
             throw new InvalidOperationException(
                 "The requested workspace's package count exceeds the browser package-cache limit.");
         }
 
-        ImmutableHashSet<string> packageKeys =
-            packages.Keys.ToImmutableHashSet(StringComparer.Ordinal);
-        foreach ((string packageKey, BrowserPackage package) in packages)
+        foreach (BrowserPackageCoordinate coordinate in coordinates)
         {
+            string packageKey = PackageKey(coordinate);
             if (!Cache.TryGetValue(packageKey, out CacheEntry? entry)
-                || !ReferenceEquals(entry.Bytes, package.RetainedBytes))
+                || !ReferenceEquals(
+                    entry.Bytes,
+                    coordinate.Package.RetainedBytes)
+                || !entry.ProducerKey.Equals(
+                    coordinate.Root.ProducerKey,
+                    StringComparison.Ordinal))
             {
                 throw new InvalidOperationException(
                     "A resolved browser package escaped aggregate cache accounting before its "

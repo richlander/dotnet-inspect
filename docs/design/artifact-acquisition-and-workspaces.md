@@ -965,6 +965,7 @@ The target is complete only when tests equivalent to these exist:
 - `PackageWorkspaceIntegrationsQuery_PreservesExactRootIdentity`
 - `PackageCoordinate_RejectsDifferentContentWithSameIdentity`
 - `PackageScope_DoesNotCollapseDifferentContentAtSameCoordinate`
+- `PackageScope_ValidatesEveryCoordinateAgainstCacheProvenance`
 - `MixedPackageScope_RealizesOnlySelectedCoordinates`
 - `PackageFrameworkUnavailability_DoesNotEmitArtifactFramework`
 - `QueryPackage_ToolsPointerRetainsRootAndManifestDependencies`

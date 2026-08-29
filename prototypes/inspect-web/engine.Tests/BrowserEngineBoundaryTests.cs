@@ -1543,6 +1543,77 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void PackageScope_ValidatesEveryCoordinateAgainstCacheProvenance()
+    {
+        string provenanceId = $"Exact.Provenance.{Guid.NewGuid():N}";
+        byte[] image =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] archive =
+            Package(image, $"lib/net11.0/{provenanceId}.dll");
+        var registered = new BrowserPackage(
+            provenanceId,
+            "1.0.0",
+            archive,
+            fromCache: false,
+            producerKey: "producer-a");
+        var unregisteredProducer = new BrowserPackage(
+            provenanceId,
+            "1.0.0",
+            archive,
+            fromCache: false,
+            producerKey: "producer-b");
+        BrowserPackageWorkspace.RegisterAcquiredPackage(registered);
+        var provenanceCoordinate = new BrowserPackageCoordinate(
+            unregisteredProducer,
+            new PackageRootRealization(
+                unregisteredProducer.Content,
+                provenanceId,
+                "1.0.0",
+                "net11.0"));
+
+        Assert.Throws<InvalidOperationException>(
+            () => BrowserPackageWorkspace.OpenScope(
+                [provenanceCoordinate]));
+
+        string frameworksId = $"Exact.Frameworks.{Guid.NewGuid():N}";
+        var cachedPackage = new BrowserPackage(
+            frameworksId,
+            "1.0.0",
+            Package(
+                image,
+                $"lib/net10.0/{frameworksId}.dll"),
+            fromCache: false,
+            producerKey: "producer-a");
+        var unregisteredFramework = new BrowserPackage(
+            frameworksId,
+            "1.0.0",
+            Package(
+                image,
+                $"lib/net11.0/{frameworksId}.dll"),
+            fromCache: false,
+            producerKey: "producer-a");
+        BrowserPackageWorkspace.RegisterAcquiredPackage(cachedPackage);
+        var cachedCoordinate = new BrowserPackageCoordinate(
+            cachedPackage,
+            new PackageRootRealization(
+                cachedPackage.Content,
+                frameworksId,
+                "1.0.0",
+                "net10.0"));
+        var unregisteredCoordinate = new BrowserPackageCoordinate(
+            unregisteredFramework,
+            new PackageRootRealization(
+                unregisteredFramework.Content,
+                frameworksId,
+                "1.0.0",
+                "net11.0"));
+
+        Assert.Throws<InvalidOperationException>(
+            () => BrowserPackageWorkspace.OpenScope(
+                [cachedCoordinate, unregisteredCoordinate]));
+    }
+
+    [Fact]
     public void MixedPackageScope_RealizesOnlySelectedCoordinates()
     {
         byte[] image =
