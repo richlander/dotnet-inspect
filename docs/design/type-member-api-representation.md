@@ -133,8 +133,11 @@ default syntax, renderers preserve that producer-contained signature rather
 than re-containing it; synthetic structured producers such as CLI accessor
 projection satisfy the same raw-slot boundary before composing their fallback.
 Accessor projection uses the recorded `ApiAccessor.Name` MethodDef identity,
-including explicit-interface spelling such as `I.get_P`; only older surfaces
-without that field use the conventional name synthesized from the owner.
+including explicit-interface spelling such as `I.get_P` and unusual non-null
+metadata names; only older surfaces without that field use the conventional
+name synthesized from the owner. Metadata declaration queries populate the
+same accessor identity so downstream call-graph correspondence does not
+reconstruct it from the property display name.
 Identifier substitution over structured declarations skips rendered string and
 character literals. Live legacy declarations retain their compatibility
 boundary for mixed-provenance producer text: raw spans are contained while
@@ -149,7 +152,9 @@ structured signatures preserve their typed raw slots and rendered default
 literals without this fallback.
 When a literal backslash in a structured raw slot requires disambiguation,
 document JSON prepares that declaration without mutating `ApiMember`; benign
-signatures stay byte-neutral. Generic-constraint JSON uses the metadata
+signatures stay byte-neutral. A selected-section projection uses the original
+declaring generic context during preparation while omitting unselected type
+parameters from the serialized schema. Generic-constraint JSON uses the metadata
 type-versus-keyword classification, so type-name entries cross the raw boundary
 without changing `class`, `struct`, `default`, or `new()` syntax.
 Adding trusted inline-code markup preserves the original containment evidence
@@ -173,7 +178,10 @@ rather than re-importing its visible spelling as clean text.
 `UntrustedMemberSignatureTests.StructuredMetadataDefaultFallback_PreservesContainedSignatureAndStatus`,
 `UntrustedMemberSignatureTests.SynthesizedAccessorFallback_ContainsRawSignatureSlotsInDecompiledSource`,
 `UntrustedMemberSignatureTests.SynthesizedExplicitInterfaceAccessor_UsesRecordedMethodDefName`,
+`UntrustedMemberSignatureTests.SynthesizedAccessor_NonNullWhitespaceNameDoesNotUseLegacyFallback`,
 `UntrustedMemberSignatureTests.SynthesizedAccessor_OlderSurfaceUsesConventionalNameFallback`,
+`CallGraphMemberResolverTests.Resolve_MatchesMetadataDeclarationQueryExplicitInterfaceAccessorAcrossProducers`,
+`CommandExecutionTests.TypeJson_SelectedMembersPreserveUnselectedDeclaringGenericContext`,
 `MetadataDeclarationQueryTests.TypeSurface_ContainsRawTypeSlotsInCompatibilitySignatures`,
 `DefaultValueRenderingTests.HostileEnumDefaults_ContainRawTypeAndMemberSlots`,
 `UntrustedLibraryViewContainmentTests.TypeJson_WithLiteralEscapeMetadataName_PreservesIdentity`,

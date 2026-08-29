@@ -450,6 +450,7 @@ public static class MetadataDeclarationQuery
             accessorModels.Add(new ApiAccessor
             {
                 Kind = "get",
+                Name = reader.GetString(getter.Name),
                 Accessibility = AccessorAccessibility(getterAccess, bestAccess),
                 ReturnAttributes = ReturnAttributes(reader, getter.GetParameters()).ToList(),
             });
@@ -460,6 +461,7 @@ public static class MetadataDeclarationQuery
             accessorModels.Add(new ApiAccessor
             {
                 Kind = "set",
+                Name = reader.GetString(setter.Name),
                 Accessibility = AccessorAccessibility(setter.Attributes & MethodAttributes.MemberAccessMask, bestAccess),
                 ReturnAttributes = ReturnAttributes(reader, setter.GetParameters()).ToList(),
             });

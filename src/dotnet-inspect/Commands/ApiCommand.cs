@@ -3622,7 +3622,9 @@ public class ApiCommand
             member.CanonicalSignature = anchor.CanonicalSignature;
         }
 
-        ApiArtifactJson.Prepare(outputType);
+        // Projected members retain their source objects, so prepare them against
+        // the unprojected declaring context without serializing omitted facets.
+        ApiArtifactJson.Prepare(type);
         if (options.CompactJson)
             Console.WriteLine(JsonSerializer.Serialize(
                 outputType,

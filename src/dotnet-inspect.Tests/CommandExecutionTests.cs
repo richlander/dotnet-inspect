@@ -9510,6 +9510,66 @@ public partial class CommandExecutionTests
         Assert.Empty(doc.RootElement.GetProperty("interfaces").EnumerateArray());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TypeJson_SelectedMembersPreserveUnselectedDeclaringGenericContext(
+        bool compact)
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "Generic`1",
+            Kind = "class",
+            TypeParameters =
+            [
+                new TypeParameter { Name = "int" },
+            ],
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = @"M\X",
+                    Kind = "method",
+                    Signature = @"@int M\\X()",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "int",
+                        MemberName = @"M\X",
+                    },
+                },
+            ],
+        };
+        var options = new TypeOptions
+        {
+            JsonOutput = true,
+            CompactJson = compact,
+            IncludeSections = [SectionNames.Methods],
+            TipLevel = TipLevel.Quiet,
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        JsonElement root = document.RootElement;
+        Assert.Empty(root.GetProperty("type_parameters").EnumerateArray());
+        Assert.Equal(
+            @"@int M\\X()",
+            root.GetProperty("members")[0]
+                .GetProperty("signature")
+                .GetString());
+    }
+
     [Fact]
     public async Task Type_SingleType_JsonWithSelectEmptySection_EmptyMembersAndNote()
     {

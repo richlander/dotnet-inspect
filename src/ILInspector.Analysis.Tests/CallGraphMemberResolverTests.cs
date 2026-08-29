@@ -449,6 +449,59 @@ public sealed class CallGraphMemberResolverTests
     }
 
     [Fact]
+    public void Resolve_MatchesMetadataDeclarationQueryExplicitInterfaceAccessorAcrossProducers()
+    {
+        using var stream = File.OpenRead(typeof(ExplicitAccessorFixtures).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle typeHandle = reader.TypeDefinitions.Single(
+            handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                == nameof(ExplicitAccessorFixtures));
+        ApiType type = MetadataDeclarationQuery.GetTypeSurface(
+            reader,
+            typeHandle,
+            includeNonPublicMembers: true);
+        ApiMember member = Assert.Single(
+            type.Members,
+            candidate => candidate.Kind == "property"
+                && candidate.Name.EndsWith(
+                    $".{nameof(IExplicitAccessor.Value)}",
+                    StringComparison.Ordinal));
+        CallGraphMemberBodySelector[] selectors =
+            [.. CallGraphMemberResolver.CreateBodySelectors(type, member)];
+        Assert.Equal(2, selectors.Length);
+
+        foreach (CallGraphMemberBodySelector selector in selectors)
+        {
+            string accessorKind = selector.BodyToken == member.GetterToken
+                ? "get"
+                : "set";
+            MemberRef reference = MemberResolver.ResolveMethod(
+                reader,
+                MetadataTokens.EntityHandle(selector.BodyToken),
+                GenericScope.Empty);
+            CallGraphMemberSelector graph =
+                CallGraphMemberResolver.CreateSelector(reference);
+            ApiAccessor accessor = Assert.Single(
+                member.SignatureModel!.Accessors,
+                candidate => candidate.Kind == accessorKind);
+
+            Assert.Equal(reference.Name, accessor.Name);
+            Assert.Equal(reference.Name, selector.MemberName);
+            Assert.NotEqual(
+                $"{accessorKind}_{member.Name}",
+                selector.MemberName);
+            Assert.Equal(graph.Key, selector.SelectorKey);
+            Assert.Equal(
+                selector.BodyToken,
+                CallGraphMemberResolver.Resolve(
+                    type,
+                    graph.Name,
+                    graph.Key)!.BodyToken);
+        }
+    }
+
+    [Fact]
     public void Resolve_MatchesCompiledNestedGenericAndByRefAcrossProducers()
     {
         using var stream = File.OpenRead(typeof(NestedGenericKeyFixtures).Assembly.Location);
@@ -1711,12 +1764,16 @@ public sealed class InitAccessorFixtures
 
 public interface IExplicitAccessor
 {
-    int Value { get; }
+    int Value { get; set; }
 }
 
 public sealed class ExplicitAccessorFixtures : IExplicitAccessor
 {
-    int IExplicitAccessor.Value => 1;
+    int IExplicitAccessor.Value
+    {
+        get => 1;
+        set { }
+    }
 }
 
 public sealed class NestedGenericKeyFixtures

@@ -518,6 +518,42 @@ public class UntrustedMemberSignatureTests
     }
 
     [Fact]
+    public void SynthesizedAccessor_NonNullWhitespaceNameDoesNotUseLegacyFallback()
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "Probe",
+            Kind = "class",
+        };
+        var property = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            GetterToken = 0x0600_0001,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "string",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "get", Name = "\n" },
+                ],
+            },
+        };
+
+        ApiMember accessor = Assert.Single(
+            ApiOutputFormatter.AccessorMethods(property, type));
+
+        Assert.Equal("\n", accessor.Name);
+        Assert.Equal("\n", accessor.SignatureModel!.MemberName);
+        Assert.DoesNotContain(
+            "get_Value",
+            accessor.Signature,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain('\n', accessor.Signature!);
+    }
+
+    [Fact]
     public void SynthesizedAccessor_OlderSurfaceUsesConventionalNameFallback()
     {
         var type = new ApiType
