@@ -168,8 +168,10 @@ closes request admission before the read loop collects and settles pending reque
 plugin-originated request receives an error response or the connection terminates; it never becomes
 abandoned work, checked by `InboundFailureIsContained` and
 `MalformedInboundEventuallySettles`. The current implementation does not yet enforce the
-stalled-write or shutdown-admission rules. Malformed inbound Handshake and Log payload handling is
-enforced by
+stalled-write rule. Terminal admission and pending settlement are enforced by
+`PluginProtocolTests.ARequestAfterReceiverLossIsRejectedWithoutWaitingForItsTimeout` and
+`PluginProtocolTests.ReceiverLossSettlesARequestAdmittedBeforeThePendingSnapshot`. Malformed
+inbound Handshake and Log payload handling is enforced by
 `PluginProtocolTests.InvalidOrUnsupportedInboundHandshakeReceivesAnErrorResponse` and
 `PluginProtocolTests.MalformedInboundLogReceivesAnErrorResponse`.
 
@@ -177,9 +179,9 @@ Implementation: [`PluginConnection`](../../src/NuGetFetch/Plugins/PluginConnecti
 [`PluginCredentialProvider`](../../src/NuGetFetch/Plugins/PluginCredentialProvider.cs).
 The concurrent conversation and shutdown rules are checked by the
 [NuGet credential-plugin session lifecycle model](models/nuget-plugin-session-lifecycle/README.md).
-The model checks the design under finite bounds; implementation correspondence
-for progress renewal, concurrent correlation, and pipe-loss admission remains
-unverified.
+The model checks the design under finite bounds; implementation correspondence for progress
+renewal and concurrent correlation remains unverified. Terminal admission and pending settlement
+are enforced by the gates named above.
 
 Plugins are started lazily and kept for the process lifetime, because a launch costs a process
 start plus five round trips. A plugin that fails to start, or that does not claim the

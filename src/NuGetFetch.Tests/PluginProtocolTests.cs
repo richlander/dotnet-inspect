@@ -474,6 +474,76 @@ public sealed class PluginProtocolTests : IDisposable
     }
 
     [Fact]
+    public async Task ARequestAfterReceiverLossIsRejectedWithoutWaitingForItsTimeout()
+    {
+        FakePlugin plugin = CreatePlugin(
+            "closed-admission",
+            username: "u",
+            password: "p",
+            afterSetLogLevel: "exec 1>&-");
+        PluginConnection connection = Assert.IsType<PluginConnection>(
+            await PluginConnection.StartAsync(
+                plugin.Executable,
+                log: null,
+                TestContext.Current.CancellationToken));
+        await using (connection)
+        {
+            await connection.Closed.WaitAsync(
+                TimeSpan.FromSeconds(2),
+                TestContext.Current.CancellationToken);
+
+            GetAuthenticationCredentialsResponse? response = await connection
+                .GetCredentialsAsync(
+                    new Uri("https://feed.example/v3/index.json"),
+                    isRetry: false,
+                    isNonInteractive: true,
+                    canShowDialog: false,
+                    TestContext.Current.CancellationToken)
+                .WaitAsync(
+                    TimeSpan.FromSeconds(1),
+                    TestContext.Current.CancellationToken);
+
+            Assert.Null(response);
+            Assert.DoesNotContain(
+                plugin.ReceivedRequests(),
+                request => request.Method == MessageMethods.GetAuthenticationCredentials);
+        }
+    }
+
+    [Fact]
+    public async Task ReceiverLossSettlesARequestAdmittedBeforeThePendingSnapshot()
+    {
+        FakePlugin plugin = CreatePlugin(
+            "closed-with-pending-request",
+            username: "u",
+            password: "p",
+            closeOutputOnCredentialRequest: true);
+        PluginConnection connection = Assert.IsType<PluginConnection>(
+            await PluginConnection.StartAsync(
+                plugin.Executable,
+                log: null,
+                TestContext.Current.CancellationToken));
+        await using (connection)
+        {
+            GetAuthenticationCredentialsResponse? response = await connection
+                .GetCredentialsAsync(
+                    new Uri("https://feed.example/v3/index.json"),
+                    isRetry: false,
+                    isNonInteractive: true,
+                    canShowDialog: false,
+                    TestContext.Current.CancellationToken)
+                .WaitAsync(
+                    TimeSpan.FromSeconds(1),
+                    TestContext.Current.CancellationToken);
+
+            Assert.Null(response);
+            Assert.Contains(
+                plugin.ReceivedRequests(),
+                request => request.Method == MessageMethods.GetAuthenticationCredentials);
+        }
+    }
+
+    [Fact]
     public async Task CallerCancellationContinuesToPropagate()
     {
         FakePlugin plugin = CreatePlugin("cancelled-request", username: "u", password: "p");
@@ -528,6 +598,7 @@ public sealed class PluginProtocolTests : IDisposable
         string? inboundHandshakePayload = null,
         string? outboundHandshakePayload = null,
         string? afterSetLogLevel = null,
+        bool closeOutputOnCredentialRequest = false,
         bool exitOnCredentialRequest = false)
     {
         // Values are embedded in a double-quoted bash string, so every JSON quote needs a
@@ -542,11 +613,13 @@ public sealed class PluginProtocolTests : IDisposable
                 + "," + Quoted("AuthenticationTypes") + ":" + types
                 + "," + Quoted("ResponseCode") + ":" + Quoted("Success") + "}"
             : "{" + Quoted("ResponseCode") + ":" + Quoted(responseCode) + "}";
-        string credentialAction = exitOnCredentialRequest
-            ? "exit 0"
-            : """
-              emit "{\"RequestId\":\"$id\",\"Type\":\"Response\",\"Method\":\"GetAuthenticationCredentials\",\"Payload\":__CREDENTIAL__}"
-              """;
+        string credentialAction = closeOutputOnCredentialRequest
+            ? "exec 1>&-"
+            : exitOnCredentialRequest
+                ? "exit 0"
+                : """
+                  emit "{\"RequestId\":\"$id\",\"Type\":\"Response\",\"Method\":\"GetAuthenticationCredentials\",\"Payload\":__CREDENTIAL__}"
+                  """;
 
         // A non-interpolated raw string with tokens: the script is dense with braces, and
         // interpolation holes would be indistinguishable from JSON.

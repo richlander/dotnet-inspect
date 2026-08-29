@@ -32,11 +32,15 @@ internal sealed class PluginConnection : IAsyncDisposable
 
     private readonly Process _process;
     private readonly ConcurrentDictionary<string, PendingRequest> _pending = new(StringComparer.Ordinal);
+    private readonly object _pendingGate = new();
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly CancellationTokenSource _shutdown = new();
+    private readonly TaskCompletionSource _closed =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TimeSpan _requestTimeout;
     private readonly Action<string>? _log;
     private Task? _readLoop;
+    private bool _acceptingRequests = true;
     private bool _disposed;
 
     private PluginConnection(Process process, TimeSpan requestTimeout, Action<string>? log)
@@ -212,6 +216,8 @@ internal sealed class PluginConnection : IAsyncDisposable
             PluginJsonContext.Default.GetAuthenticationCredentialsResponse,
             cancellationToken);
 
+    internal Task Closed => _closed.Task;
+
     private async Task<TResponse?> SendAsync<TRequest, TResponse>(
         string method,
         TRequest payload,
@@ -222,10 +228,19 @@ internal sealed class PluginConnection : IAsyncDisposable
     {
         string requestId = Guid.NewGuid().ToString();
         var pending = new PendingRequest(_requestTimeout);
-        _pending[requestId] = pending;
 
         try
         {
+            lock (_pendingGate)
+            {
+                if (!_acceptingRequests)
+                {
+                    throw new IOException("Credential plugin closed the connection.");
+                }
+
+                _pending[requestId] = pending;
+            }
+
             await WriteAsync(
                 new Envelope<TRequest>(requestId, MessageTypes.Request, method, payload),
                 requestType,
@@ -309,11 +324,27 @@ internal sealed class PluginConnection : IAsyncDisposable
         }
         finally
         {
-            // The pipe is gone, so nothing outstanding can ever be answered.
-            foreach (PendingRequest pending in _pending.Values)
-            {
-                pending.Completion.TrySetException(new IOException("Credential plugin closed the connection."));
-            }
+            SettleClosedConnection();
+        }
+    }
+
+    private void SettleClosedConnection()
+    {
+        PendingRequest[] pending;
+
+        lock (_pendingGate)
+        {
+            _acceptingRequests = false;
+            pending = [.. _pending.Values];
+            _pending.Clear();
+        }
+
+        _closed.TrySetResult();
+
+        foreach (PendingRequest request in pending)
+        {
+            request.Completion.TrySetException(
+                new IOException("Credential plugin closed the connection."));
         }
     }
 
@@ -534,6 +565,7 @@ internal sealed class PluginConnection : IAsyncDisposable
         }
 
         _disposed = true;
+        SettleClosedConnection();
 
         try
         {
