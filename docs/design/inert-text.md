@@ -223,23 +223,32 @@ is therefore the external actor, the package archive or restored package cache
 is the input path, and skill inventory or document output is the affected
 presentation boundary.
 
-The project skill inventory applies `TextPolicy.Field` to every parsed YAML
-`name` and `description`, then uses
+The project skill inventory folds a YAML description's ordinary line endings
+to the inventory's single-line shape, applies `TextPolicy.Field` to every parsed
+`name` and normalized `description`, then uses
 `InertString.ReplaceIfContainmentRequired` to represent a value carrying a
 `TextConcern` as `[Text omitted: required containment]` instead of sharing the
 package-authored field through the inventory. Structurally invalid Agent Skills
 metadata still fails visibly under the existing validation rules.
 
-Selected skill documents apply `TextPolicy.Prose` before any stdout, JSON, JSONL,
-or `--output` destination. A document carrying a `TextConcern` is replaced as a
-whole by `InertString.ContainmentRequiredPlaceholder`; otherwise its
+Every package-relative `skills/**/SKILL.md` document applies `TextPolicy.Prose`
+before link normalization and before any stdout, JSON, JSONL, or `--output`
+destination, whether reached through the skill section, `--content`, or a
+package README declaration. A document carrying a `TextConcern` is replaced as
+a whole by `InertString.ContainmentRequiredPlaceholder`; otherwise its
 `InertString` is preserved. The selected value is carried through the shared
-print projection so file output cannot bypass the same decision used for agent
-context. This behavior is gated by
+content and print projections, and exact package bytes are never retained for a
+skill document, so an alternate selection or file-output route cannot bypass
+the decision used for agent context. This behavior is gated by
 `Project_SkillsInventory_ReplacesContainedYamlFields`,
+`Project_SkillsInventory_FoldsLiteralBlockDescription`,
 `SkillDocuments_OmitPayloadsThatRequireContainment`, and
+`SkillDocuments_ClassifyRawContentBeforeNormalizingGitHubLinks`,
+`Package_SkillDocumentDeclaredAsReadmeUsesSkillContainment`, and
 `SkillDocuments_OutputAliasesWritePackageAndProjectPayloads` in the Release
-`dotnet-inspect.Tests` suite.
+`dotnet-inspect.Tests` suite. The close negative
+`Package_OrdinaryDocumentOutputStillPreservesExactBytes` keeps the exception
+limited to package skill paths.
 
 ### Why a structural boundary and not a rule
 

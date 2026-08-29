@@ -572,8 +572,9 @@ internal sealed class PackageFileContentText
         PathText = new InertString(TextPolicy.Field, value.Path);
         Size = value.Size;
         Found = value.Found;
-        Content = value.Content;
-        EncodedContent = new InertString(TextPolicy.Prose, value.Content);
+        Content = value.ContainedContent?.ToString() ?? value.Content;
+        EncodedContent = value.ContainedContent
+            ?? new InertString(TextPolicy.Prose, value.Content);
     }
 
     public static PackageFileContentText Create(PackageFileContent value) => new(value);

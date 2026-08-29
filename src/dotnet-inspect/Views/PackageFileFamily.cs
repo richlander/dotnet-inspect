@@ -59,7 +59,7 @@ public static class PackageFileFamily
     /// <c>skills/SKILL.md</c> or <c>skills/**/SKILL.md</c>, matching the globs the project
     /// command's skill discovery uses.
     /// </summary>
-    static bool IsSkillDocument(PackageFile file)
+    public static bool IsSkillDocument(PackageFile file)
         => HasRoot(file, "skills/")
            && (file.Path.EndsWith("/SKILL.md", StringComparison.OrdinalIgnoreCase)
                || file.Path.Equals("skills/SKILL.md", StringComparison.OrdinalIgnoreCase));

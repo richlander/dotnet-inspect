@@ -507,15 +507,18 @@ visually encode rendering hazards on stdout. Exact payload transfer is an
 explicit unary file operation: add `--out <path>` to a selection that resolves
 one payload. An unscoped file export preserves the package bytes exactly,
 including encoding, byte order mark, and line endings, except for package skill
-documents: skills are agent instructions, so `project -S Skills --print` and
-`package -S "Package skill files" --print` carry a `TextPolicy.Prose`
-`InertString` through stdout, structured output, and `--out`. A Markdown scope
-exports projected text. Terminal-facing output never emits a live control or
-bidi scalar from package content. Multi-item `--print --out` and multi-file or
-multi-package `--content --out` are refused unless a structured JSON shape owns
-the destination; global selection cardinality is resolved before any selected
-payload is read, and a unique exact payload is read from the same retained
-package acquisition that supplied its selection metadata. Narrow it with row
+documents: skills are agent instructions, so every route, including
+`project -S Skills --print`, `package -S "Package skill files" --print`,
+`--content`, and a package README declaration, carries a `TextPolicy.Prose`
+`InertString` through stdout, structured output, and `--out`. The raw scoped
+skill is classified before link normalization, and exact package bytes are not
+retained. A Markdown scope exports projected text. Terminal-facing output never
+emits a live control or bidi scalar from package content. Multi-item
+`--print --out` and multi-file or multi-package `--content --out` are refused
+unless a structured JSON shape owns the destination; global selection
+cardinality is resolved before any selected payload is read, and a unique exact
+payload is read from the same retained package acquisition that supplied its
+selection metadata. Narrow it with row
 or path selectors for exact transfer.
 Unstructured exact `--out` rejects line windows because clipping would no
 longer be exact. Every refused export is decided before opening its destination:

@@ -2270,7 +2270,6 @@ public class PackageCommand
         // so silently returning the whole document -- or an empty one -- would answer a question
         // they did not ask. Report that the scope does not apply to this document instead.
         var isReadmeSection = section.Equals(PackageSections.FilesReadme, StringComparison.OrdinalIgnoreCase);
-        var isSkillSection = section.Equals(PackageSections.FilesSkills, StringComparison.OrdinalIgnoreCase);
         int nonMarkdownIndex = options.ContentScope == PackageFileContentScope.Full
             ? -1
             : sourceRows.FindIndex(row => !IsMarkdownDocument(row.Path, isReadmeSection));
@@ -2306,14 +2305,10 @@ public class PackageCommand
                     sourceByRow[row],
                     options.ContentScope,
                     normalizeGithubLinksToRaw: !options.BrowsableUrls,
-                    includeExactContent: !isSkillSection
-                        && HasUnstructuredOutputPath(options)
+                    includeExactContent: HasUnstructuredOutputPath(options)
                         && options.ContentScope == PackageFileContentScope.Full);
-                return isSkillSection
-                    ? PrintableContent.FromInert(
-                        new InertString(TextPolicy.Prose, content.Content)
-                            .ReplaceIfContainmentRequired(
-                                InertString.ContainmentRequiredPlaceholder))
+                return content.ContainedContent is { } contained
+                    ? PrintableContent.FromInert(contained)
                     : new PrintableContent(content.Content, content.ExactContent);
             },
             new PrintProjectionOptions(
@@ -3408,6 +3403,23 @@ public class PackageCommand
         var content = MarkdownContent.ApplyScope(
             ReadText(exactContent),
             scope);
+        if (PackageFileFamily.IsSkillDocument(file))
+        {
+            InertString contained = AgentSkillDocument.PrepareForOutput(
+                content,
+                normalizeGithubLinksToRaw);
+            return new PackageFileContent(
+                packageName,
+                version,
+                file.Path,
+                file.Size,
+                Found: true,
+                contained.ToString(),
+                file.IsReadme,
+                ExactContent: null,
+                ContainedContent: contained);
+        }
+
         if (normalizeGithubLinksToRaw)
             content = GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(content);
 
@@ -3527,7 +3539,7 @@ public class PackageCommand
             return 0;
         }
 
-        return WriteBarePackageText(found[0].Content, outputPath: null);
+        return WriteBarePackageContent(found[0]);
     }
 
     private static IEnumerable<PackageFileContent> FlattenPackageFileContentRows(
@@ -3815,7 +3827,7 @@ public class PackageCommand
             return 0;
         }
 
-        return WriteBarePackageText(content.Content, outputPath: null);
+        return WriteBarePackageContent(content);
     }
 
     private static int PrintBarePackageUrlColumn(IEnumerable<string?>? urls, string section, string? outputPath)
@@ -3842,6 +3854,17 @@ public class PackageCommand
         return 0;
     }
 
+    private static int WriteBarePackageContent(PackageFileContent content)
+    {
+        if (content.ContainedContent is not { } contained)
+            return WriteBarePackageText(content.Content, outputPath: null);
+
+        Console.Write(contained);
+        if (!content.Content.EndsWith('\n'))
+            Console.WriteLine();
+        return 0;
+    }
+
     private static void WritePackageFileExport(
         PackageFileContent content,
         string outputPath)
@@ -3849,7 +3872,9 @@ public class PackageCommand
         if (content.ExactContent is { } exact)
             File.WriteAllBytes(outputPath, exact);
         else
-            File.WriteAllText(outputPath, content.Content);
+            File.WriteAllText(
+                outputPath,
+                content.ContainedContent?.ToString() ?? content.Content);
     }
 
     private static List<PackageFile> GetPackageFileRows(InspectionResult result, string section)

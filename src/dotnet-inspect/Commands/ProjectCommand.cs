@@ -411,7 +411,7 @@ public class ProjectCommand
             file.Path,
             new FileInfo(file.FullPath).Length,
             ContainSkillMetadata(name),
-            ContainSkillMetadata(description ?? ""),
+            ContainSkillMetadata((description ?? "").ReplaceLineEndings(" ")),
             file.FullPath);
         return ProjectSkillReadFailure.None;
     }
@@ -609,10 +609,9 @@ public class ProjectCommand
         if (row.FullPath == null || !File.Exists(row.FullPath))
             return null;
 
-        var content = GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(
-            MarkdownContent.ApplyScope(File.ReadAllText(row.FullPath), options.ContentScope));
-        var contained = new InertString(TextPolicy.Prose, content)
-            .ReplaceIfContainmentRequired(InertString.ContainmentRequiredPlaceholder);
+        var contained = AgentSkillDocument.PrepareForOutput(
+            MarkdownContent.ApplyScope(File.ReadAllText(row.FullPath), options.ContentScope),
+            normalizeGithubLinksToRaw: true);
         return new PrintableDocument(
             rowNumber,
             ProjectSkillsSection,
