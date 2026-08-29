@@ -962,6 +962,134 @@ public class AssemblyDependencyResolverTests
     }
 
     [Fact]
+    public void Select_RenamedDesignatedOverlayUsesMetadataIdentity()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-renamed-overlay-").FullName;
+        try
+        {
+            string platformPath = typeof(System.Runtime.GCSettings)
+                .Assembly.Location;
+            string designatedPath = Path.Combine(root, "overlay.dll");
+            File.Copy(platformPath, designatedPath);
+            using var stream = File.OpenRead(platformPath);
+            using var peReader = new PEReader(stream);
+            AssemblyReferenceIdentity platformIdentity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    peReader.GetMetadataReader());
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(platformPath)
+                {
+                    PackageRoots = [],
+                    CorpusAssemblyPaths = [designatedPath],
+                    IncludeSiblingAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                });
+            var request = new AssemblyBindingRequest(
+                AssemblyBindingTarget.Reference(platformIdentity),
+                AssemblyBindingOrigin.Global(),
+                AssemblyResolutionScope.Platform);
+
+            var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
+                resolver.Select(request));
+
+            Assert.Equal(designatedPath, selected.Assembly.Path);
+            Assert.IsType<AssemblyResolutionProvenance.DesignatedAsset>(
+                selected.Assembly.Provenance);
+            Assert.IsType<AssemblyResolutionProvenance.PlatformAsset>(
+                Assert.Single(selected.ShadowedAssemblies).Provenance);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Select_DesignatedOverlayRetainsInstalledPlatformShadow()
+    {
+        string platformPath = typeof(System.Runtime.GCSettings)
+            .Assembly.Location;
+        using var stream = File.OpenRead(platformPath);
+        using var peReader = new PEReader(stream);
+        AssemblyReferenceIdentity platformIdentity =
+            AssemblyReferenceIdentity.FromAssemblyDefinition(
+                peReader.GetMetadataReader());
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(platformPath)
+            {
+                PackageRoots = [],
+                CorpusAssemblyPaths = [platformPath],
+                IncludeSiblingAssemblies = false,
+                IncludeTrustedPlatformAssemblies = false,
+                IncludeAspNetCoreSharedFramework = false,
+                IncludeDepsJsonAssets = false,
+            });
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(platformIdentity),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Platform);
+
+        var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
+            resolver.Select(request));
+
+        Assert.IsType<AssemblyResolutionProvenance.DesignatedAsset>(
+            selected.Assembly.Provenance);
+        ResolvedAssemblyReference shadow =
+            Assert.Single(selected.ShadowedAssemblies);
+        Assert.Equal(platformPath, shadow.Path);
+        Assert.IsType<AssemblyResolutionProvenance.PlatformAsset>(
+            shadow.Provenance);
+    }
+
+    [Fact]
+    public void Select_UnreadableNonEligibleOverlayDoesNotVetoPlatform()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-unreadable-overlay-").FullName;
+        try
+        {
+            string platformPath = typeof(System.Runtime.GCSettings)
+                .Assembly.Location;
+            string designatedPath = Path.Combine(
+                root,
+                Path.GetFileName(platformPath));
+            File.WriteAllText(designatedPath, "not a managed assembly");
+            using var stream = File.OpenRead(platformPath);
+            using var peReader = new PEReader(stream);
+            AssemblyReferenceIdentity platformIdentity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    peReader.GetMetadataReader());
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(platformPath)
+                {
+                    PackageRoots = [],
+                    CorpusAssemblyPaths = [designatedPath],
+                    IncludeSiblingAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                });
+            var request = new AssemblyBindingRequest(
+                AssemblyBindingTarget.Reference(platformIdentity),
+                AssemblyBindingOrigin.Global(),
+                AssemblyResolutionScope.Platform);
+
+            var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
+                resolver.Select(request));
+
+            Assert.Equal(platformPath, selected.Assembly.Path);
+            Assert.IsType<AssemblyResolutionProvenance.PlatformAsset>(
+                selected.Assembly.Provenance);
+            Assert.Empty(selected.ShadowedAssemblies);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Select_MultipleDesignatedOverlaysAreAmbiguous()
     {
         string root = Directory.CreateTempSubdirectory(

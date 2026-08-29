@@ -1789,6 +1789,49 @@ public class TypeResolutionContextTests
     }
 
     [Fact]
+    public void BindingFailure_PreservesShadowsWithoutOpeningThem()
+    {
+        byte[] ownerImage = BuildAssembly("Owner", definesType: false);
+        byte[] targetImage = BuildAssembly("Target", definesType: true);
+        ResolvedAssemblyReference owner = Descriptor(ownerImage);
+        ResolvedAssemblyReference selected =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(targetImage),
+                path: null,
+                () => throw new IOException("unreadable"),
+                AssemblyResolutionProvenance.Designated(
+                    "unreadable selected assembly"));
+        int shadowOpens = 0;
+        ResolvedAssemblyReference shadow = Descriptor(
+            targetImage,
+            () => shadowOpens++,
+            AssemblyResolutionProvenance.Platform(
+                "test platform",
+                frameworkVersion: null,
+                "shadow test assembly"));
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(ReadIdentity(targetImage)),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Platform);
+        var policy = new RecordingPolicy(
+            _ => AssemblyBindingSelection.Found(selected, [shadow]));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            policy,
+            roots: [owner],
+            bindingRequests: [binding],
+            requests: []);
+
+        var unavailable = Assert.IsType<AssemblyBindingOutcome.Unavailable>(
+            context.Bind(binding));
+
+        Assert.Same(
+            shadow,
+            Assert.Single(unavailable.ShadowedAssemblies));
+        Assert.Equal(0, shadowOpens);
+    }
+
+    [Fact]
     public void SharedCatalog_ResolvesNewTypeThroughCachedBinding()
     {
         byte[] ownerImage = BuildAssembly("Owner", definesType: false);

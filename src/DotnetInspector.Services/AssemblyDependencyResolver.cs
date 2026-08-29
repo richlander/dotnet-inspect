@@ -370,21 +370,23 @@ public sealed partial class AssemblyDependencyResolver :
         AssemblyReferenceIdentity identity,
         AssemblyResolutionScope scope)
     {
+        static bool PathNameMatches(
+            ResolvedAssemblyDependency dependency,
+            AssemblyReferenceIdentity identity) =>
+            Path.GetFileNameWithoutExtension(dependency.Path).Equals(
+                identity.Name,
+                StringComparison.OrdinalIgnoreCase);
+
         ResolvedAssemblyDependency? nameOwner = candidates.FirstOrDefault(
             dependency =>
-                Path.GetFileNameWithoutExtension(dependency.Path).Equals(
-                    identity.Name,
-                    StringComparison.OrdinalIgnoreCase)
+                PathNameMatches(dependency, identity)
                 && (scope != AssemblyResolutionScope.Platform
                     || IsEntitled(dependency.Provenance)));
-        if (nameOwner is null
-            || !IsEntitled(nameOwner.Provenance)
+        if ((nameOwner is not null
+                && !IsEntitled(nameOwner.Provenance))
             || !candidates.Any(dependency =>
                 dependency.Provenance
-                    is AssemblyDependencyProvenance.CorpusAssembly
-                && Path.GetFileNameWithoutExtension(dependency.Path).Equals(
-                    identity.Name,
-                    StringComparison.OrdinalIgnoreCase)))
+                    is AssemblyDependencyProvenance.CorpusAssembly))
         {
             return null;
         }
@@ -393,10 +395,12 @@ public sealed partial class AssemblyDependencyResolver :
         CandidateOpenFailureKind? candidateFailure = null;
         foreach (ResolvedAssemblyDependency dependency in candidates)
         {
-            if (!IsEntitled(dependency.Provenance)
-                || !Path.GetFileNameWithoutExtension(dependency.Path).Equals(
-                    identity.Name,
-                    StringComparison.OrdinalIgnoreCase))
+            bool designated =
+                dependency.Provenance
+                    is AssemblyDependencyProvenance.CorpusAssembly;
+            if (!designated
+                && (!IsEntitled(dependency.Provenance)
+                    || !PathNameMatches(dependency, identity)))
             {
                 continue;
             }
@@ -408,7 +412,7 @@ public sealed partial class AssemblyDependencyResolver :
             {
                 entitled.Add(assembly);
             }
-            else
+            else if (PathNameMatches(dependency, identity))
             {
                 candidateFailure ??=
                     descriptor.FailureKind
@@ -416,6 +420,17 @@ public sealed partial class AssemblyDependencyResolver :
             }
         }
 
+        bool allowPlatformVersionRollForward =
+            scope == AssemblyResolutionScope.Platform
+            && _options.AllowPlatformAssemblyVersionRollForward;
+        AssemblyBindingSelection? selection =
+            DesignatedAssemblyBindingPrecedence.TrySelect(
+                identity,
+                entitled,
+                allowPlatformVersionRollForward,
+                _options.IgnoreAssemblyVersion);
+        if (selection is null)
+            return null;
         if (candidateFailure is not null)
         {
             return new AssemblyResolutionAttempt(
@@ -423,28 +438,71 @@ public sealed partial class AssemblyDependencyResolver :
                 candidateFailure);
         }
 
-        return DesignatedAssemblyBindingPrecedence.TrySelect(
-                identity,
-                entitled,
-                allowPlatformVersionRollForward:
-                    scope == AssemblyResolutionScope.Platform
-                    && _options.AllowPlatformAssemblyVersionRollForward,
-                ignorePlatformVersion:
-                    _options.IgnoreAssemblyVersion)
-            switch
+        bool useInstalledPlatformFallback =
+            scope == AssemblyResolutionScope.Platform
+            || scope == AssemblyResolutionScope.Any
+                && _options.IncludeInstalledPlatformFallback
+                && nameOwner is null;
+        bool hasEligiblePlatform = entitled.Any(candidate =>
+            candidate.Provenance
+                is AssemblyResolutionProvenance.PlatformAsset
+            && identity.MatchesCandidate(
+                candidate.Identity,
+                allowPlatformVersionRollForward,
+                _options.IgnoreAssemblyVersion));
+        if (useInstalledPlatformFallback
+            && !hasEligiblePlatform
+            && InstalledPlatformDescriptor(identity)
+                is { } installedPlatform)
+        {
+            if (installedPlatform.Assembly is { } assembly)
             {
-                AssemblyBindingSelection.Selected selected =>
-                    new AssemblyResolutionAttempt(
-                        selected.Assembly,
-                        CandidateFailure: null,
-                        selected.ShadowedAssemblies),
-                AssemblyBindingSelection.Ambiguous ambiguous =>
-                    new AssemblyResolutionAttempt(
-                        Assembly: null,
-                        CandidateFailure: null,
-                        AmbiguousAssemblies: ambiguous.Assemblies),
-                _ => null,
-            };
+                entitled.Add(assembly);
+                selection =
+                    DesignatedAssemblyBindingPrecedence.TrySelect(
+                        identity,
+                        entitled,
+                        allowPlatformVersionRollForward,
+                        _options.IgnoreAssemblyVersion)
+                    ?? selection;
+            }
+        }
+
+        return selection switch
+        {
+            AssemblyBindingSelection.Selected selected =>
+                new AssemblyResolutionAttempt(
+                    selected.Assembly,
+                    CandidateFailure: null,
+                    selected.ShadowedAssemblies),
+            AssemblyBindingSelection.Ambiguous ambiguous =>
+                new AssemblyResolutionAttempt(
+                    Assembly: null,
+                    CandidateFailure: null,
+                    AmbiguousAssemblies: ambiguous.Assemblies),
+            _ => null,
+        };
+    }
+
+    AssemblyDescriptorResolution? InstalledPlatformDescriptor(
+        AssemblyReferenceIdentity identity)
+    {
+        if (!PlatformResolver.IsPlatformCandidate(identity.Name))
+            return null;
+
+        var (path, framework, _, _) = PlatformResolver.ResolveAssembly(
+            identity.Name,
+            useRuntimeAssemblies: _options.PreferImplementationAssemblies);
+        return path is null
+            ? null
+            : DescriptorResult(
+                path,
+                AssemblyResolutionProvenance.Platform(
+                    framework ?? "InstalledPlatform",
+                    frameworkVersion: null,
+                    AssemblyDependencyProvenance
+                        .InstalledPlatformAssembly
+                        .ToString()));
     }
 
     static bool IsEntitled(

@@ -2495,7 +2495,8 @@ public sealed class TypeResolutionContext : IDisposable
                 return new(
                     new AssemblyBindingOutcome.Unavailable(
                         new AssemblyBindingFailure(
-                            AssemblyBindingFailureKind.CandidateUnavailable)),
+                            AssemblyBindingFailureKind.CandidateUnavailable),
+                        shadowedAssemblies),
                     assembly,
                     strictFailure,
                     [assembly]);
@@ -2516,7 +2517,8 @@ public sealed class TypeResolutionContext : IDisposable
             return new(
                 new AssemblyBindingOutcome.Unavailable(
                     new AssemblyBindingFailure(
-                        AssemblyBindingFailureKind.CandidateUnavailable)),
+                        AssemblyBindingFailureKind.CandidateUnavailable),
+                    shadowedAssemblies),
                 assembly,
                 failure,
                 [assembly]);

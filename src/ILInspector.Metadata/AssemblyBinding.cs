@@ -469,10 +469,22 @@ public abstract class AssemblyBindingOutcome
     /// </summary>
     public sealed class Unavailable : AssemblyBindingOutcome
     {
-        internal Unavailable(AssemblyBindingFailure failure) =>
+        internal Unavailable(
+            AssemblyBindingFailure failure,
+            ImmutableArray<ResolvedAssemblyReference> shadowedAssemblies =
+                default)
+        {
             Failure = failure;
+            ShadowedAssemblies = shadowedAssemblies.IsDefault
+                ? []
+                : shadowedAssemblies;
+        }
 
         public AssemblyBindingFailure Failure { get; }
+        public ImmutableArray<ResolvedAssemblyReference> ShadowedAssemblies
+        {
+            get;
+        }
     }
 
     /// <summary>Several catalog candidates remain plausible.</summary>
