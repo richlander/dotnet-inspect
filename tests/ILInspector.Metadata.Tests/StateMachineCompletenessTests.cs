@@ -93,8 +93,8 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
-    /// The same property, held over every assembly this test binds against
-    /// rather than two hand-picked ones.
+    /// The same property, held over every file in this test's own output
+    /// directory rather than two hand-picked assemblies.
     ///
     /// Round 11 is why this exists. The two specimens above are the only place
     /// <c>Absent</c> is asserted at all: the corpus sweep records it and
@@ -107,11 +107,25 @@ public sealed class StateMachineCompletenessTests
     /// to sit at one end of the size range.
     ///
     /// The set here is derived from the build rather than listed, so it widens
-    /// when dependencies do and cannot silently shrink to the convenient cases.
-    /// Today it is 35 assemblies carrying 464 structural machines. The
-    /// assertion that some neighbour exceeds the larger specimen is what keeps
-    /// the set reaching past them: it is derived from the specimens rather than
-    /// pinned to a number, so it stays meaningful if they grow.
+    /// when dependencies do. Today it is 35 assemblies carrying 464 structural
+    /// machines, two of which are the specimens themselves: this directory is
+    /// the test's own output, so ILInspector.Metadata.Tests and the fixtures
+    /// assembly sit in it and contribute 20 of those machines.
+    ///
+    /// Keeping it from quietly shrinking took three connected checks, and round
+    /// 12 found each one individually satisfiable. The structural count must
+    /// include machines found outside the two specimens, or emptying every
+    /// other report still passes. The width must be measured only over
+    /// neighbours that carry machines and are not specimens, or an unrelated
+    /// wide assembly with nothing in it answers on their behalf. And a skip
+    /// must be cross-checked against SRM, or routing all but one neighbour to
+    /// "not managed" leaves 463 of 464 machines unexamined under assertions
+    /// that only need one to survive.
+    ///
+    /// What the width assertion pins is image size, and only that. It is not a
+    /// coverage statement: the widest neighbour carries 1 machine, while
+    /// Microsoft.Testing.Platform, below the round-11 threshold at 868 rows,
+    /// carries 193 of the 464.
     ///
     /// Its margin is worth stating plainly, because an earlier revision of this
     /// comment called two neighbours "an order of magnitude larger" than the
@@ -143,18 +157,36 @@ public sealed class StateMachineCompletenessTests
         var offenders = new List<string>();
         int examined = 0;
         int structural = 0;
+        int beyondSpecimens = 0;
+        int notManaged = 0;
         int widest = 0;
 
         foreach (string path in
-            Directory.EnumerateFiles(directory, "*.dll").OrderBy(p => p))
+            Directory.EnumerateFiles(directory).OrderBy(p => p))
         {
             switch (TryMeasure(path, out CompletenessReport report, out string? detail))
             {
                 case CorpusOutcome.Measured:
                     break;
 
-                // A native dependency is legitimate here and carries no claim.
+                // A native dependency is legitimate here and carries no claim,
+                // but it is counted and cross-checked rather than dropped.
+                // Round 12 found this branch swallowing the outcome outright,
+                // which let a mutation route every neighbour but one here and
+                // still pass: 463 of 464 machines went unexamined under an
+                // assertion set that only required one to survive. SRM is the
+                // independent answer to "was that really not an assembly", the
+                // same oracle this file cross-checks everywhere else, so a
+                // disagreement is reported instead of trusted.
                 case CorpusOutcome.NotManaged:
+                    notManaged++;
+                    if (HasMetadataAccordingToSrm(path))
+                    {
+                        offenders.Add(
+                            $"{Path.GetFileName(path)}: skipped as not managed, "
+                                + "but SRM reads metadata in it");
+                    }
+
                     continue;
 
                 default:
@@ -164,7 +196,18 @@ public sealed class StateMachineCompletenessTests
 
             examined++;
             structural += report.Structural;
-            widest = Math.Max(widest, TypeRowCount(path));
+
+            // Width is measured only over neighbours that actually carry
+            // machines, and only over ones that are not the specimens. Round 12
+            // showed the two assertions were independent: an unrelated wide
+            // assembly with no state machines satisfied the width assertion
+            // while every real neighbour report was emptied, so the gate could
+            // shrink back to the two specimens and still pass.
+            if (report.Structural != 0 && !IsSpecimen(path))
+            {
+                beyondSpecimens += report.Structural;
+                widest = Math.Max(widest, TypeRowCount(path));
+            }
 
             if (report.Absent != 0 || report.Rejected != 0)
             {
@@ -185,15 +228,22 @@ public sealed class StateMachineCompletenessTests
             $"{examined} assemblies were measured and none carried a structural "
                 + "state machine, so this gate proves nothing.");
         Assert.True(
+            beyondSpecimens != 0,
+            $"{examined} assemblies were measured and the only structural state "
+                + "machines found were in the two specimens, so this gate adds "
+                + "nothing to OwnBuildOutputs_EveryStructuralAsyncStateMachineIsAuthenticated.");
+        Assert.True(
             widest > specimen,
-            $"the widest neighbour has {widest} type rows and the larger specimen "
-                + $"has {specimen}, so this gate no longer reaches past the two "
-                + "hand-picked assemblies that missed the round-11 mutation.");
+            $"the widest machine-bearing neighbour has {widest} type rows and the "
+                + $"larger specimen has {specimen}, so this gate no longer reaches "
+                + "past the two hand-picked assemblies that missed the round-11 "
+                + "mutation.");
         Assert.True(
             offenders.Count == 0,
             $"""
-            {offenders.Count} of {examined} assemblies beside this test did not
-            authenticate every structural state machine they carry.
+            {offenders.Count} of {examined} measured assemblies in this test's own
+            output directory did not authenticate every structural state machine
+            they carry ({notManaged} further file(s) were not managed assemblies).
 
             {Truncated(offenders)}
             """);
@@ -203,6 +253,82 @@ public sealed class StateMachineCompletenessTests
     /// Type rows in an image, used to show this gate reaches past the two
     /// hand-picked specimens rather than asserting a bare number.
     /// </summary>
+    /// <summary>
+    /// The two assemblies OwnBuildOutputs already covers, excluded from the
+    /// neighbour gate's own non-vacuity counts so that gate cannot pass on
+    /// evidence the other one already supplies.
+    /// </summary>
+    static bool IsSpecimen(string path) =>
+        string.Equals(
+            Path.GetFullPath(path),
+            Path.GetFullPath(typeof(Fixtures).Assembly.Location),
+            StringComparison.Ordinal)
+        || string.Equals(
+            Path.GetFullPath(path),
+            Path.GetFullPath(
+                typeof(StateMachineCompletenessTests).Assembly.Location),
+            StringComparison.Ordinal);
+
+    /// <summary>
+    /// The same property on the core library, which is the only assembly in
+    /// reach that declares the state-machine attributes in the module that uses
+    /// them.
+    ///
+    /// Round 12 is why this exists. Everywhere else, an async method's
+    /// attribute constructor is a MemberReference into another assembly, so the
+    /// index's MethodDefinition branch -- the same-module case -- was never
+    /// exercised end to end by any gate. A reviewer made that branch
+    /// unreachable and System.Private.CoreLib went from 71 resolved to 71
+    /// absent while the entire suite stayed green, including the runtime
+    /// corpus: the corpus sweep tolerates Absent by design, and the neighbour
+    /// gate only sees assemblies copied beside the test, all of which reference
+    /// their attributes.
+    ///
+    /// So this is not a widening for its own sake. It covers a distinct
+    /// metadata encoding that nothing else here could reach, and it is the
+    /// third and last place the Absent direction is held.
+    /// </summary>
+    [Fact]
+    public void CoreLibrary_EveryStructuralAsyncStateMachineIsAuthenticated()
+    {
+        string path = typeof(object).Assembly.Location;
+
+        Assert.True(
+            TryMeasure(path, out CompletenessReport report, out string? detail)
+                == CorpusOutcome.Measured,
+            $"the core library at {path} could not be measured: {detail}");
+
+        Assert.True(
+            report.Structural != 0,
+            "the core library carried no structural state machine, so this gate "
+                + "proves nothing about the same-module constructor path.");
+        Assert.Equal(0, report.Absent);
+        Assert.Equal(0, report.Rejected);
+        Assert.Equal(report.Structural, report.Resolved);
+    }
+
+    /// <summary>
+    /// SRM's own answer to whether a file carries metadata, used to cross-check
+    /// the hand-rolled claim reader's decision to skip a neighbour. Independent
+    /// of that reader by construction: it shares no code with it.
+    /// </summary>
+    static bool HasMetadataAccordingToSrm(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var reader = new PEReader(stream);
+            return reader.HasMetadata;
+        }
+        catch (Exception exception) when (
+            exception is BadImageFormatException
+                or IOException
+                or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     static int TypeRowCount(string path)
     {
         using var stream = File.OpenRead(path);
@@ -1586,10 +1712,12 @@ public sealed class StateMachineCompletenessTests
     /// terminate.
     ///
     /// That is a known limit, not a fixed one. Avoiding it needs the file's type
-    /// before opening, and .NET does not expose it -- a FIFO and an empty
+    /// before opening, and no managed API reports it -- a FIFO and an empty
     /// ordinary file report the same Attributes (Normal), the same
-    /// UnixFileMode, and the same zero Length, so only a P/Invoke to stat could
-    /// tell them apart. That is platform-specific machinery this harness should
+    /// UnixFileMode, and the same zero Length. An earlier revision said only a
+    /// P/Invoke to stat could separate them, which round 12 disproved with a
+    /// bounded open on a worker thread; the honest claim is about what the
+    /// managed surface exposes, not about what is possible. That is platform-specific machinery this harness should
     /// not carry for an entry no assembly corpus plausibly holds, and a hang is
     /// at least loud: unlike a silent skip, nobody mistakes it for a pass.
     /// </summary>
