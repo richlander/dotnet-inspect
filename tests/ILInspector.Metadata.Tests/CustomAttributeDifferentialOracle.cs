@@ -45,7 +45,8 @@ static class CustomAttributeDifferentialOracle
     internal sealed record Context(
         TypeDefinitionHandle EnumType,
         string EnumSerializedName,
-        PrimitiveTypeCode EnumUnderlying);
+        PrimitiveTypeCode EnumUnderlying,
+        TypeReferenceHandle SystemType);
 
     internal sealed record PrimitiveShape(PrimitiveTypeCode Code) : Shape
     {
@@ -105,6 +106,21 @@ static class CustomAttributeDifferentialOracle
         public override string ToString() => $"boxed({Inner})";
     }
 
+    /// <summary>
+    /// A <c>System.Type</c> argument: the value blob carries the serialized type
+    /// name, and the boxed spelling is <c>0x50</c>.
+    /// </summary>
+    internal sealed record SystemTypeShape(string TypeName) : Shape
+    {
+        public override void WriteSignature(SignatureTypeEncoder encoder, Context context)
+            => encoder.Type(context.SystemType, isValueType: false);
+
+        public override void WriteValue(BlobBuilder value, Context context)
+            => value.WriteSerializedString(TypeName);
+
+        public override string ToString() => $"Type(\"{TypeName}\")";
+    }
+
     /// <summary>An enum spelled as <c>VALUETYPE</c> plus a coded handle.</summary>
     internal sealed record EnumHandleShape : Shape
     {
@@ -127,6 +143,9 @@ static class CustomAttributeDifferentialOracle
                 break;
             case StringShape:
                 value.WriteByte(0x0e);
+                break;
+            case SystemTypeShape:
+                value.WriteByte(0x50);
                 break;
             case ArrayShape array:
                 value.WriteByte(0x1d);
@@ -243,12 +262,21 @@ static class CustomAttributeDifferentialOracle
 
     /// <summary>A scalar: the only thing an array element or boxed value may be.</summary>
     static Shape NextLeafShape(Random random, string prefix)
-        => random.Next(0, 3) switch
+        => random.Next(0, 4) switch
         {
             0 => new PrimitiveShape(s_primitives[random.Next(s_primitives.Length)]),
             1 => new StringShape(random.Next(4) == 0 ? null : $"{prefix}{random.Next(100)}"),
+            2 => new SystemTypeShape(s_typeNames[random.Next(s_typeNames.Length)]),
             _ => new EnumHandleShape(),
         };
+
+    static readonly string[] s_typeNames =
+    [
+        "System.Int32",
+        "System.String",
+        "Samples.E",
+        "System.Collections.Generic.List`1[[System.Int32]]",
+    ];
 
     /// <summary>An array of scalars; a negative count is the null-array encoding.</summary>
     static ArrayShape NextArrayShape(Random random, string prefix)
@@ -372,7 +400,12 @@ static class CustomAttributeDifferentialOracle
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
 
-        var context = new Context(enumType, "Samples.E", enumUnderlying);
+        TypeReferenceHandle systemType = metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Type"));
+
+        var context = new Context(enumType, "Samples.E", enumUnderlying, systemType);
 
         var constructorSignature = new BlobBuilder();
         new BlobEncoder(constructorSignature).MethodSignature(

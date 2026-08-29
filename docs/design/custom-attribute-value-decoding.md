@@ -297,11 +297,30 @@ that asserts only offset agreement passes both the unbounded and the expensive
 attack; a gate defined only over generated metadata cannot see gap 4 at all.
 
 `tests/ILInspector.Metadata.Tests/CustomAttributeDifferentialOracle.cs` is the
-first slice of that gate. It generates over the legal fixed-argument grammar —
-primitives, strings, `SZARRAY` of scalars, boxed values, and both enum
-spellings — and asserts I1 in both directions. It does **not** yet cover I2,
-I3, the observer axis, named arguments, generic substitution, custom modifiers,
-or the hostile shapes that live past the bounds; issue #5065 tracks the rest.
+first slice of that gate. It generates over a **named subset** of the legal
+fixed-argument grammar — primitives, strings, `System.Type` serialized names,
+`SZARRAY` of those scalars, boxed values, and both enum spellings — and asserts
+I1 in both directions. The subset is deliberately small enough that every
+member of it is well-formed by construction, which is what lets the generated
+length serve as ground truth.
+
+Everything else in the grammar below is outside this slice, and the omissions
+are load-bearing rather than incidental:
+
+- **Enum handles are only local `TypeDef` in `ELEMENT_TYPE_VALUETYPE` form.**
+  The `TypeRef`, `TypeSpec`, nil-handle, `ELEMENT_TYPE_CLASS`, and
+  cross-assembly variants are all legal encodings the guard and SRM resolve
+  differently, and none of them is generated yet.
+- **I2 and I3 are not asserted at all**, so neither the unbounded-work nor the
+  amplification axis is gated here.
+- **The observer axis is absent**, so gap 4 remains invisible to this slice by
+  construction.
+- **Named arguments, generic substitution, custom modifiers, nesting near
+  `MaxSerializedDepth`, and the malformed extensions** below are all
+  ungenerated.
+
+Issue #5065 tracks the rest. Do not read this slice's green result as evidence
+about anything in the list above.
 
 **This specification is itself partial.** Six of the seven known gaps were
 found by reading rather than by any gate, and five of them were found after
