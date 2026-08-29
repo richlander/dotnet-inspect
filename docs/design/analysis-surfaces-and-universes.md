@@ -14,8 +14,11 @@ Tracking: [#4967](https://github.com/richlander/dotnet-inspect/issues/4967).
 
 ## Status
 
-This is a target design. Runtime implementation and every property in
-[Verification](#verification) remain unverified until their named gates land.
+The host-neutral request model, structural capability catalog, planner, typed
+rejections, and retained validated plan are implemented in
+`src/DotnetInspector.Queries/AnalysisRequest.cs`. The properties in
+[Verification](#verification) are enforced by the named gates in
+`src/DotnetInspector.Queries.Tests/AnalysisRequestTests.cs`.
 
 The word *analysis* is generic here: it means a producer-backed inspection
 question such as Integrations, calls, metadata, API shape, or body analysis.
@@ -361,7 +364,7 @@ their inventories or reinterpret their outcomes.
 
 ## Verification
 
-The target implementation is unverified until these named gates land:
+The runtime implementation is verified by these named gates:
 
 - `AnalysisRequest_DeclaresCompleteClosedFieldSet`
 - `AnalysisRequest_ReportSurfaceAndUniverseAreIndependent`
