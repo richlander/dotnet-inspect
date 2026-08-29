@@ -2181,6 +2181,7 @@ kbd {
 .query-running .loader { width: 18px; height: 18px; }
 
 @media (max-width: 860px) {
+  body.package-query-route { min-width: 0; }
   .home-hero { grid-template-columns: 1fr; gap: 28px; }
   .home-art { order: -1; }
   .home-art-img { width: 210px; }

@@ -2744,7 +2744,10 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
   assert.doesNotMatch(route, /packageQueryController\.run/);
   assert.match(
     appSource,
-    /if \(state\.packageQueryOpen\s*&& state\.engineReady\s*&& !state\.loading\s*&& !state\.error\)/);
+    /function render\(\) \{\s*sourceInspection\.cancelHiddenRequest\(\);\s*document\.body\.classList\.remove\("package-query-route"\);[\s\S]*if \(state\.packageQueryOpen\s*&& state\.engineReady\s*&& !state\.loading\s*&& !state\.error\) \{\s*document\.body\.classList\.add\("package-query-route"\)/);
+  assert.match(
+    stylesSource,
+    /@media \(max-width: 860px\) \{\s*body\.package-query-route \{ min-width: 0; \}/);
   assert.match(
     handoff,
     /packageQueryController\.cancel\(\);\s*state\.packageQueryOpen = false;\s*const navigationSeq = navigationSequence\.begin\(\);\s*packageQueryHandoffNavigationSeq = navigationSeq;[\s\S]*await loadPackage\([\s\S]*\{ navigationSeq }\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) \{\s*if \(packageQueryHandoffNavigationSeq === navigationSeq\)\s*packageQueryHandoffNavigationSeq = null;\s*return;\s*\}[\s\S]*packageQueryHandoffNavigationSeq = null;\s*workspaceLocation\.push\(buildStateUrl\(\)\.toString\(\)\)/);

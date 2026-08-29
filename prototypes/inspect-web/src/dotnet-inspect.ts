@@ -2521,6 +2521,7 @@ function typeDisplayName(
 
 function render() {
   sourceInspection.cancelHiddenRequest();
+  document.body.classList.remove("package-query-route");
 
   // The Settings page is a modal-style full view layered over whatever the user came from
   // (home or a package). It owns no URL — it's a preferences panel, not shareable content —
@@ -2547,6 +2548,7 @@ function render() {
     && state.engineReady
     && !state.loading
     && !state.error) {
+    document.body.classList.add("package-query-route");
     loadingBotSrc = null;
     renderPackageQueryPage();
     return;
