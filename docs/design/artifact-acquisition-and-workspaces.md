@@ -336,6 +336,25 @@ action, the exact condition each of `DisposalPreventsPublication`, the
 lease-release ordering, and outcome authorization (only a demand attached to
 the admission immediately beforehand may receive its outcome) depends on.
 
+The companion model
+[`docs/design/models/artifact-generation-access/ArtifactGenerationAccess.tla`](models/artifact-generation-access/ArtifactGenerationAccess.tla)
+covers the layer the admission model treats as an abstract given: what "the
+dependent group reports quiescent" must mean for content access. It models
+admission-phase materialization reads through acquisition leases, query-phase
+opens of retained content, and the `EndGeneration`/lease-disposal sequence,
+in both the target design (opens admitted atomically with the
+ended/draining decision; termination releases leases only at content
+quiescence) and the current mechanics (flag rechecks outside the gate;
+immediate release). The target configurations pass safety and liveness;
+three committed current-mechanics configurations produce counterexamples
+showing an open can complete after `EndGeneration`, a disposal racing
+`SealAsync` disposes acquisition leases under an active materialization
+read, and the generation can end while a query stream is open. Its
+`README.md` records the checked bounds, results, assumptions, and the open
+design question it exposes: a quiescence-awaiting termination needs a stated
+policy for abandoned streams. These results establish evidence about the
+model, not the implementation.
+
 Retaining content does not retain authority. The artifact owner issues two
 different source-neutral access leases:
 
