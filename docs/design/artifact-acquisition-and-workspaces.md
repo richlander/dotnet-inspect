@@ -519,8 +519,13 @@ The realization outcome is one of:
 - `NotRealized`, carrying typed invalid-input, unavailable, rejected, failed,
   unsupported-capability, budget, projection, or role-conflict evidence.
 
-Caller cancellation throws `OperationCanceledException` after owner cleanup; it
-does not occupy `NotRealized` or become an acquisition failure.
+Caller cancellation safely detaches that waiter, then throws
+`OperationCanceledException`; it does not occupy `NotRealized` or become an
+acquisition failure. Other compatible waiters keep the shared admission alive.
+When the final waiter detaches, the workspace requests cancellation and enters
+draining, but the detached caller does not wait for that owner-managed cleanup
+to finish. Reservation release still waits for cleanup, and a new demand cannot
+join the draining operation.
 
 The root participant is reference-identical to exactly one member of the
 group. A successful outcome never asks a consumer to rediscover the root by
@@ -533,6 +538,11 @@ a disposable lease-bound context view that identifies the group and exact root
 and mediates their query operations. The caller never mints or supplies a raw
 `ArtifactQueryLease`. A changed, revoked, incompatible, or ended plan rejects
 view acquisition.
+
+Every operation on an existing view revalidates its current authorization
+before participant lookup, callback invocation, or returning a cached image or
+cached failure. Replaced or revoked authorization and view disposal therefore
+reject cached and cold paths alike without exposing participant or image facts.
 
 Before publication, the artifact owner issues one admission-scoped guarded
 content projection for each required artifact. The realizer passes that
@@ -552,8 +562,10 @@ context-specific `ExplicitAssemblyImageView` and
 `ExplicitAssemblyImageAccessResult<TResult>` types. The view is stack-only and
 contains only an opaque `AssemblyContextParticipantIdentity` and immutable
 content span. A rejected result contains that same opaque identity and a typed
-open failure. Neither type, including its complete public property and generic
-result closure, exposes an assembly descriptor or content capability.
+open failure. Owner-supplied members in the complete public property and result
+closure contain only that identity, span, and failure; the caller's generic
+result remains caller-owned. No public type exposes an assembly descriptor,
+artifact authorization or lease, opener delegate, or other content capability.
 
 The group opens retained content under the view's query lease, validates and
 snapshots the image, closes the internal stream, and only then invokes the
@@ -699,10 +711,12 @@ This design introduces no incremental admission, independently disposable
 context, cross-spelling convergence, mutable candidate set, or publication
 schedule beyond the existing workspace admission lifecycle. The existing
 [artifact-session admission model](../models/artifact-session-admission/ArtifactSessionAdmission.tla)
-covers one demand generation's multi-source atomic admission, cancellation,
-and publication, while the
+covers one demand generation's single-flight lifecycle, waiter cancellation,
+draining, and aggregate publication ordering, while the
 [generation-access model](models/artifact-generation-access/README.md) covers
 one generation's content-access and workspace-disposal handoff.
+`ExplicitAssemblyContext_FailurePublishesNoPartialGroup`, not the admission
+model, owns evidence that several source acquisitions publish all-or-nothing.
 Designated/platform selection remains covered by the
 [platform-overlay model](models/platform-overlay-resolution/README.md). A new
 TLA+ model is therefore not warranted for this composition; the lifecycle
@@ -755,6 +769,14 @@ These properties remain unverified until the named Release gates land:
 - `ExplicitAssemblyContext_QueryPlanIssuesLeaseBoundView` proves an authorized
   plan obtains the group/root view and absent, incompatible, revoked, or ended
   authorization cannot obtain one;
+- `ExplicitAssemblyContext_ContextViewRevalidatesEveryOperation` warms image
+  and failure caches, then replaces/revokes authorization or disposes the view
+  and proves later access rejects before participant lookup, cached-result
+  return, or callback invocation;
+- `ExplicitAssemblyContext_CancellationDetachesOneWaiter` proves a cancelling
+  joined waiter throws after detachment without stopping or waiting for the
+  shared admission, while final-waiter cancellation enters draining and blocks
+  a new join until owner cleanup releases the reservation;
 - `ExplicitAssemblyContext_SyntacticGenerationKeyIsSingleFlight` proves
   identical framed requests join one admission while different path spellings
   remain different generations even when #5096 later assigns equal canonical
@@ -801,8 +823,10 @@ These properties remain unverified until the named Release gates land:
 - `ExplicitAssemblyContext_ViewExposesOnlyBoundedImageAccess` proves the public
   context surface and the transitive public closure of its callback and result
   types return no `ArtifactContentReference`, `ResolvedAssemblyReference`,
-  descriptor-bearing `AssemblyImageView`, readable path, or `Stream`, and
-  closes its internal stream before invoking the image callback;
+  descriptor-bearing `AssemblyImageView`, `ArtifactAuthorization`,
+  `ArtifactAdmissionLease`, `ArtifactQueryLease`, opener delegate, readable
+  path, or `Stream`, and closes its internal stream before invoking the image
+  callback;
 - `ExplicitAssemblyContext_RetainedHandoffRejectsForeignAuthority` proves the
   participant-to-image operation rejects a foreign participant, query lease,
   or ended generation;
@@ -811,8 +835,9 @@ These properties remain unverified until the named Release gates land:
   session, or budget charge, while workspace disposal ends later access and
   joins the ordinary quiescent cleanup;
 - `ExplicitAssemblyContext_FailurePublishesNoPartialGroup` covers invalid
-  managed images, absent platform versions, role conflicts, and artifact and
-  group snapshot-budget exhaustion;
+  managed images, absent platform versions, role conflicts, artifact and group
+  snapshot-budget exhaustion, local success followed by platform failure, and
+  platform success followed by local failure;
 - `ExplicitAssemblyContext_UnsupportedHostIsTyped` proves a host without the
   two required adapters fails before admission rather than changing source
   kinds.
