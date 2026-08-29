@@ -453,7 +453,7 @@ public static partial class CSharpBodyDiff
 
         var matchedBefore = new HashSet<int>();
         var matchedAfter = new HashSet<int>();
-        var rows = ImmutableArray.CreateBuilder<CSharpStructuralDiffRow>();
+        var matchedRows = ImmutableArray.CreateBuilder<CSharpStructuralDiffRow>();
 
         foreach (var correspondence in input.Correspondences)
         {
@@ -495,13 +495,16 @@ public static partial class CSharpBodyDiff
             if (change == 0)
                 continue;
 
-            rows.Add(CreateRow(
+            matchedRows.Add(CreateRow(
                 change,
                 input.Before,
                 beforeNode,
                 input.After,
                 afterNode));
         }
+
+        var rows = ImmutableArray.CreateBuilder<CSharpStructuralDiffRow>();
+        rows.AddRange(SuppressSubsumedAncestorRows(matchedRows, input.Before, input.After));
 
         foreach (int nodeId in beforeSelection)
         {
@@ -737,4 +740,99 @@ public static partial class CSharpBodyDiff
         => row.BeforeSpans.IsEmpty
             ? row.AfterSpans[0].Start
             : row.BeforeSpans[0].Start;
+
+    // Item 1 (issue #5022): a stacked ancestor node (e.g. Return wrapping an
+    // InvocationExpression wrapping another InvocationExpression) re-quotes
+    // the entire statement as its own "changed" row even though every
+    // character it reports as different lives inside a more specific
+    // descendant row's own span. Drop an ancestor row exactly when some other
+    // row's span is strictly contained within it on both sides and the
+    // ancestor's text outside that contained range is identical between
+    // before and after -- i.e. the ancestor adds no information beyond the
+    // descendant it wraps. This is a plain text-containment check, not a
+    // parent/child pointer walk: the annotated-source model carries no
+    // explicit parent id, so span containment is the only honest signal
+    // available here.
+    static IEnumerable<CSharpStructuralDiffRow> SuppressSubsumedAncestorRows(
+        IReadOnlyList<CSharpStructuralDiffRow> rows,
+        AnnotatedSourceDocument before,
+        AnnotatedSourceDocument after)
+    {
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var candidate = rows[i];
+            bool subsumed = false;
+            for (int j = 0; j < rows.Count; j++)
+            {
+                if (i == j)
+                    continue;
+                if (IsSubsumedByDescendant(candidate, rows[j], before, after))
+                {
+                    subsumed = true;
+                    break;
+                }
+            }
+            if (!subsumed)
+                yield return candidate;
+        }
+    }
+
+    static bool IsSubsumedByDescendant(
+        CSharpStructuralDiffRow ancestor,
+        CSharpStructuralDiffRow descendant,
+        AnnotatedSourceDocument before,
+        AnnotatedSourceDocument after)
+    {
+        if (!ancestor.Change.HasFlag(CSharpStructuralChangeKind.Changed)
+            || !descendant.Change.HasFlag(CSharpStructuralChangeKind.Changed))
+        {
+            return false;
+        }
+
+        // Moved is owner-issued and independent of the text-containment check
+        // below: a nested descendant explains the ancestor's text difference,
+        // but it does not know about (and cannot vouch for) an independent
+        // movement result the ancestor's own correspondence carries. Suppress
+        // only when the ancestor's entire change is explained by text, i.e.
+        // its change kind is exactly Changed.
+        if (ancestor.Change != CSharpStructuralChangeKind.Changed)
+        {
+            return false;
+        }
+
+        // Only a single contiguous span per side is eligible: a discontinuous
+        // node's "outside the descendant" region is not a simple prefix/suffix
+        // pair, and widening this check to that shape is out of scope here.
+        if (ancestor.BeforeSpans.Length != 1 || ancestor.AfterSpans.Length != 1
+            || descendant.BeforeSpans.Length != 1 || descendant.AfterSpans.Length != 1)
+        {
+            return false;
+        }
+
+        var ancestorBefore = ancestor.BeforeSpans[0];
+        var ancestorAfter = ancestor.AfterSpans[0];
+        var descendantBefore = descendant.BeforeSpans[0];
+        var descendantAfter = descendant.AfterSpans[0];
+
+        if (!StrictlyContains(ancestorBefore, descendantBefore)
+            || !StrictlyContains(ancestorAfter, descendantAfter))
+        {
+            return false;
+        }
+
+        int beforePrefixLength = descendantBefore.Start - ancestorBefore.Start;
+        int afterPrefixLength = descendantAfter.Start - ancestorAfter.Start;
+        int beforeSuffixLength = (ancestorBefore.Start + ancestorBefore.Length) - (descendantBefore.Start + descendantBefore.Length);
+        int afterSuffixLength = (ancestorAfter.Start + ancestorAfter.Length) - (descendantAfter.Start + descendantAfter.Length);
+
+        return before.Text.AsSpan(ancestorBefore.Start, beforePrefixLength)
+                .SequenceEqual(after.Text.AsSpan(ancestorAfter.Start, afterPrefixLength))
+            && before.Text.AsSpan(descendantBefore.Start + descendantBefore.Length, beforeSuffixLength)
+                .SequenceEqual(after.Text.AsSpan(descendantAfter.Start + descendantAfter.Length, afterSuffixLength));
+    }
+
+    static bool StrictlyContains(AnnotatedSourceSpan outer, AnnotatedSourceSpan inner)
+        => inner.Start >= outer.Start
+            && inner.Start + inner.Length <= outer.Start + outer.Length
+            && inner.Length < outer.Length;
 }
