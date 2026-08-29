@@ -28,6 +28,7 @@ public static class DecompilerFindings
         if (function is null)
         {
             return new FindingInspection<DecompilerFidelityCause>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput,
                 "Method has no decompiler IR body.");
         }
 

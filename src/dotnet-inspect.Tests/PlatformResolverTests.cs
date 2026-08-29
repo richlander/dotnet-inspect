@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
+using DotnetInspector.Core;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 
@@ -1016,6 +1017,229 @@ public class PlatformResolverTests
             if (Directory.Exists(tempPacksDir))
                 Directory.Delete(tempPacksDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public void GetInstalledFrameworks_DefaultDiscoveryRefreshesAfterCoreCacheRootChanges()
+    {
+        const string SyntheticVersion = "999.0.0";
+        string temporaryCache = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-platform-cache-").FullName;
+        try
+        {
+            CoreCache.Initialize("dotnet-inspect-test", temporaryCache);
+            var (baselineRefPath, _, baselineError) =
+                PlatformResolver.ResolveFramework("runtime");
+            if (baselineRefPath is null)
+            {
+                Assert.Skip(
+                    $"Runtime reference pack not available: {baselineError}");
+                return;
+            }
+
+            string packsDirectory =
+                Assert.IsType<string>(PlatformPackService.GetPacksCachePath());
+            string syntheticRefPath = Path.Combine(
+                packsDirectory,
+                "Microsoft.NETCore.App.Ref",
+                SyntheticVersion,
+                "ref",
+                "net999.0");
+            Directory.CreateDirectory(syntheticRefPath);
+            File.Copy(
+                typeof(PlatformResolverTests).Assembly.Location,
+                Path.Combine(syntheticRefPath, "System.Runtime.dll"));
+
+            FrameworkInfo runtime = Assert.Single(
+                PlatformResolver.GetInstalledFrameworks(),
+                framework => framework.ShortName == "runtime");
+            Assert.Equal(SyntheticVersion, runtime.LatestVersion);
+            Assert.Equal(
+                Path.Combine(
+                    packsDirectory,
+                    "Microsoft.NETCore.App.Ref"),
+                runtime.Path);
+        }
+        finally
+        {
+            CoreCache.Initialize("dotnet-inspect-test");
+            Directory.Delete(temporaryCache, recursive: true);
+        }
+
+        var resolved = Assert.IsType<PlatformTypeLookupOutcome.Resolved>(
+            PlatformResolver.LookupType("System.String"));
+        Assert.NotNull(resolved.Candidate.Assembly.Path);
+        Assert.True(File.Exists(resolved.Candidate.Assembly.Path));
+        Assert.False(
+            resolved.Candidate.Assembly.Path.StartsWith(
+                temporaryCache,
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void AssemblyDependencyResolver_InstalledFallbackUsesOneFrameworkSnapshotPerResolver()
+    {
+        string? originalDotnetRoot =
+            Environment.GetEnvironmentVariable("DOTNET_ROOT");
+        string temporaryRoot = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-platform-snapshot-").FullName;
+        try
+        {
+            CoreCache.Initialize(
+                "dotnet-inspect-test",
+                Path.Combine(temporaryRoot, "cache"));
+            var (baselineRefPath, _, baselineError) =
+                PlatformResolver.ResolveFramework("runtime");
+            if (baselineRefPath is null)
+            {
+                Assert.Skip(
+                    $"Runtime reference pack not available: {baselineError}");
+                return;
+            }
+
+            string runtimeSource = Path.Combine(
+                baselineRefPath,
+                "System.Runtime.dll");
+            string consoleSource = Path.Combine(
+                baselineRefPath,
+                "System.Console.dll");
+            string coreLibrarySource = typeof(object).Assembly.Location;
+            if (!File.Exists(runtimeSource)
+                || !File.Exists(consoleSource)
+                || !File.Exists(coreLibrarySource))
+            {
+                Assert.Skip(
+                    $"Runtime installation is incomplete: {baselineRefPath}");
+                return;
+            }
+
+            string packsDirectory =
+                Assert.IsType<string>(PlatformPackService.GetPacksCachePath());
+            string firstRefPath = Path.Combine(
+                packsDirectory,
+                "Microsoft.NETCore.App.Ref",
+                "999.0.0",
+                "ref",
+                "net999.0");
+            Directory.CreateDirectory(firstRefPath);
+            File.Copy(
+                runtimeSource,
+                Path.Combine(firstRefPath, "System.Runtime.dll"));
+            File.Copy(
+                consoleSource,
+                Path.Combine(firstRefPath, "System.Console.dll"));
+
+            string firstDotnetRoot = Path.Combine(temporaryRoot, "first");
+            string firstRuntimePath = Path.Combine(
+                firstDotnetRoot,
+                "shared",
+                "Microsoft.NETCore.App",
+                "998.0.0");
+            Directory.CreateDirectory(firstRuntimePath);
+            File.Copy(
+                runtimeSource,
+                Path.Combine(firstRuntimePath, "System.Runtime.dll"));
+            File.Copy(
+                consoleSource,
+                Path.Combine(firstRuntimePath, "System.Console.dll"));
+            File.Copy(
+                coreLibrarySource,
+                Path.Combine(firstRuntimePath, "System.Private.CoreLib.dll"));
+            Environment.SetEnvironmentVariable(
+                "DOTNET_ROOT",
+                firstDotnetRoot);
+
+            AssemblyDependencyResolver resolver = CreateResolver();
+            Assert.Equal(
+                Path.Combine(firstRefPath, "System.Runtime.dll"),
+                Select(resolver, "System.Runtime").Assembly.Path);
+
+            string secondRefPath = Path.Combine(
+                packsDirectory,
+                "Microsoft.NETCore.App.Ref",
+                "1000.0.0",
+                "ref",
+                "net1000.0");
+            Directory.CreateDirectory(secondRefPath);
+            File.Copy(
+                runtimeSource,
+                Path.Combine(secondRefPath, "System.Runtime.dll"));
+
+            string secondDotnetRoot = Path.Combine(temporaryRoot, "second");
+            string secondRuntimePath = Path.Combine(
+                secondDotnetRoot,
+                "shared",
+                "Microsoft.NETCore.App",
+                "999.5.0");
+            Directory.CreateDirectory(secondRuntimePath);
+            File.Copy(
+                consoleSource,
+                Path.Combine(secondRuntimePath, "System.Console.dll"));
+            File.Copy(
+                coreLibrarySource,
+                Path.Combine(secondRuntimePath, "System.Private.CoreLib.dll"));
+            Environment.SetEnvironmentVariable(
+                "DOTNET_ROOT",
+                secondDotnetRoot);
+
+            Assert.Equal(
+                Path.Combine(firstRefPath, "System.Console.dll"),
+                Select(resolver, "System.Console").Assembly.Path);
+            Assert.Equal(
+                Path.Combine(
+                    firstRuntimePath,
+                    "System.Private.CoreLib.dll"),
+                Select(resolver, "System.Private.CoreLib").Assembly.Path);
+
+            AssemblyDependencyResolver refreshedResolver = CreateResolver();
+            Assert.Equal(
+                Path.Combine(secondRefPath, "System.Runtime.dll"),
+                Select(refreshedResolver, "System.Runtime").Assembly.Path);
+            Assert.Equal(
+                Path.Combine(
+                    secondRuntimePath,
+                    "System.Private.CoreLib.dll"),
+                Select(
+                    refreshedResolver,
+                    "System.Private.CoreLib").Assembly.Path);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_ROOT",
+                originalDotnetRoot);
+            CoreCache.Initialize("dotnet-inspect-test");
+            Directory.Delete(temporaryRoot, recursive: true);
+        }
+
+        AssemblyDependencyResolver CreateResolver() =>
+            new(
+                new AssemblyDependencyResolutionOptions(
+                    typeof(PlatformResolverTests).Assembly.Location)
+                {
+                    PackageRoots = [],
+                    IncludeSiblingAssemblies = false,
+                    IncludeTrustedPlatformAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                    IncludeInstalledPlatformFallback = true,
+                    IgnoreAssemblyVersion = true,
+                });
+
+        static AssemblyBindingSelection.Selected Select(
+            AssemblyDependencyResolver resolver,
+            string assemblyName) =>
+            Assert.IsType<AssemblyBindingSelection.Selected>(
+                resolver.Select(
+                    new AssemblyBindingRequest(
+                        AssemblyBindingTarget.Reference(
+                            new AssemblyReferenceIdentity(
+                                assemblyName,
+                                Version: null,
+                                Culture: null,
+                                PublicKeyToken: null)),
+                        AssemblyBindingOrigin.Global(),
+                        AssemblyResolutionScope.Any)));
     }
 
     /// <summary>
