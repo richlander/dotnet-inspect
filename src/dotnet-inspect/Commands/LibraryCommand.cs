@@ -340,7 +340,7 @@ public class LibraryCommand
                 || options.Paths
                 || options.Columns is { Length: > 0 }
                 || options.Fields is { Length: > 0 }
-                || options.Rows is not null
+                || options.Rows is { Kind: RowWindowKind.Range }
                 || options.JsonOutput
                 || options.PlainText
                 || options.TabularExplicitlySet)
@@ -425,9 +425,9 @@ public class LibraryCommand
                 CommandError.Write($"{optionName} cannot be combined with --count or --print.");
                 return 1;
             }
-            if (options.Rows is not null)
+            if (options.Rows is { Kind: RowWindowKind.Range })
             {
-                CommandError.Write($"--rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N|first|last to select a projected row.");
+                CommandError.Write($"--rows cannot be combined with {optionName}; use -n N to limit projected items or --row N|first|last to select a projected row.");
                 return 1;
             }
         }
@@ -1884,7 +1884,7 @@ public class LibraryCommand
             return 1;
 
         return ShapeProjectionOutput.Write(
-            rows,
+            RowWindow.Apply(options.Rows, rows),
             new ShapeProjectionOptions(kind, options.ProjectionRow, options.JsonOutput, options.Jsonl, options.JsonArray));
     }
 

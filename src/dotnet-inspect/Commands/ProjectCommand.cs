@@ -245,9 +245,11 @@ public class ProjectCommand
 
     private static int WriteAgentsIndex(IReadOnlyList<ProjectPackageReference> dependencies, ProjectOptions options)
     {
-        var rows = dependencies
-            .Select(CreateAgentsIndexRow)
-            .ToList();
+        var rows = RowWindow.Apply(
+            options.Rows,
+            dependencies
+                .Select(CreateAgentsIndexRow)
+                .ToList());
 
         var output = options.JsonOutput
             ? JsonSerializer.Serialize(rows.ToArray(), ProjectCommandJsonContext.Default.ProjectAgentsIndexRowArray)
@@ -384,7 +386,12 @@ public class ProjectCommand
                     ? RenderSkillTable(visibleRows, options)
                     : RenderSkillMarkdown(visibleRows);
 
-        WriteOutput(output, options.OutputPath);
+        bool suppressNote = options.JsonOutput || options.Jsonl || options.Tsv || rows.Count == 0;
+        WriteOutput(
+            suppressNote
+                ? output
+                : OutputFormatter.AddHumanRowWindowNote(output, options.HumanRowWindowNote),
+            options.OutputPath);
         return 0;
     }
 
@@ -756,12 +763,9 @@ public class ProjectCommand
     }
 
     private static void WriteOutput(string output, string? outputPath)
-    {
-        if (!string.IsNullOrWhiteSpace(outputPath))
-            File.WriteAllText(outputPath, output);
-        else
-            Console.Write(output);
-    }
+        => OutputDestination.Write(
+            outputPath,
+            writer => writer.Write(output));
 
     /// <summary>
     /// Escapes a table cell for Markdown. This handles the pipe and the line

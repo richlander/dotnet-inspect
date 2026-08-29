@@ -69,7 +69,6 @@ public class OutputFormatterTests
             var path = Path.Combine(tempDirectory.FullName, "output.txt");
             OutputDestination.Write(
                 path,
-                rowWindow: null,
                 writer => writer.Write("first\r\nsecond\rthird\n"));
             Assert.Equal("first\nsecond\nthird\n", File.ReadAllText(path));
 
@@ -83,6 +82,43 @@ public class OutputFormatterTests
         {
             tempDirectory.Delete(recursive: true);
         }
+    }
+
+    [Theory]
+    [InlineData("first\rsecond\rthird", 2, false, "first\rsecond\r")]
+    [InlineData("first\nsecond\nthird", 2, false, "first\nsecond\n")]
+    [InlineData("first\r\nsecond\r\nthird", 2, false, "first\r\nsecond\r\n")]
+    [InlineData("first\rsecond\nthird\r\nfourth", 2, true, "third\r\nfourth")]
+    public void StructuredLineWindowsRecognizeCrLfAndCrLfPairs(
+        string content,
+        int count,
+        bool tail,
+        string expected)
+    {
+        var actual = tail
+            ? TextLineWindow.Tail(content, count)
+            : TextLineWindow.Head(content, count);
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void ReferenceTreeItemWindowRetainsRequiredAncestors()
+    {
+        List<AssemblyReferenceNode> references =
+        [
+            new() { Name = "RootA", Depth = 0 },
+            new() { Name = "ChildA", Depth = 1 },
+            new() { Name = "GrandchildA", Depth = 2 },
+            new() { Name = "RootB", Depth = 0 },
+            new() { Name = "ChildB", Depth = 1 },
+        ];
+
+        var selected = OutputFormatter.SelectReferenceTreeNodes(
+            references,
+            RowWindow.Tail(1));
+
+        Assert.Equal(["RootB", "ChildB"], selected.Select(node => node.Name));
     }
 
     [Fact]

@@ -14100,6 +14100,27 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Library_SourceFiles_Urls_ItemLimitSelectsOneUrl()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "System.Text.Json",
+            "-S",
+            "Source Files",
+            "--urls",
+            "-n",
+            "1",
+            "--json-array",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(1, document.RootElement.GetArrayLength());
+    }
+
+    [Fact]
     public async Task Type_SourceFiles_UrlsRejectsRowsMode()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -31552,10 +31573,55 @@ public partial class CommandExecutionTests
                     Assert.Single(artifact.Split('\n', StringSplitOptions.RemoveEmptyEntries)));
             }
         }
+
         finally
         {
             Directory.Delete(projectTempDir, recursive: true);
             Directory.Delete(packageTempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProjectAgentsIndex_FileOutputAppliesRenderedLineWindow()
+    {
+        const string agents = """
+            ---
+            name: line-window
+            ---
+            agents body
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.LineWindow",
+                "1.0.0",
+                "README.md",
+                "readme",
+                agents,
+                [CompliantProjectSkill("skills/window/SKILL.md", "skill body")]));
+
+        try
+        {
+            var outputPath = Path.Combine(tempDir, "agents.jsonl");
+            var (exit, stdout, error) = await RunProjectFixtureAsync(
+                projectPath,
+                "--agents-index",
+                "--jsonl",
+                "-n",
+                "1",
+                "--lines",
+                "--out",
+                outputPath);
+
+            Assert.Equal(0, exit);
+            Assert.Empty(stdout);
+            Assert.Empty(error);
+            Assert.Single(
+                File.ReadAllText(outputPath)
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
         }
     }
 

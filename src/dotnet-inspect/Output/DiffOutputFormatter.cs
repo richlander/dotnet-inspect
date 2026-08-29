@@ -87,7 +87,7 @@ public static class DiffOutputFormatter
         };
     }
 
-    public static DiffDetailedChangesView BuildDetailedChangesView(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
+    public static DiffDetailedChangesView BuildDetailedChangesView(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion, RowWindow? rows = null)
     {
         int totalBreaking = 0, totalAdditive = 0, totalPotentiallyBreaking = 0;
         foreach (var td in typeDiffs)
@@ -97,10 +97,11 @@ public static class DiffOutputFormatter
             totalPotentiallyBreaking += td.PotentiallyBreakingCount;
         }
 
-        var rows = typeDiffs
+        var allRows = typeDiffs
             .OrderBy(td => td.TypeFullName, StringComparer.Ordinal)
             .SelectMany(td => td.Changes.Select(change => BuildDetailedRow(td.TypeFullName, change)))
             .ToList();
+        var windowedRows = RowWindow.Apply(rows, allRows);
 
         return new DiffDetailedChangesView(
             DiffViewText.Field($"API Diff: {name}"),
@@ -110,7 +111,7 @@ public static class DiffOutputFormatter
                 totalAdditive,
                 totalPotentiallyBreaking)))
         {
-            Rows = rows.Count > 0 ? rows : null
+            Rows = windowedRows.Count > 0 ? [.. windowedRows] : null
         };
     }
 
@@ -292,7 +293,8 @@ public static class DiffOutputFormatter
         string name,
         IReadOnlyList<FindingTransitionRow> rows,
         string fromVersion,
-        string toVersion)
+        string toVersion,
+        RowWindow? window = null)
         => new(
             DiffViewText.Field($"Finding Transitions: {name}"),
             DiffViewText.Field($"{fromVersion} -> {toVersion}"))
@@ -300,7 +302,7 @@ public static class DiffOutputFormatter
             Status = rows.Count == 0
                 ? new Callout(CalloutSeverity.Note, "No selected Finding exists at either endpoint.")
                 : new Callout(CalloutSeverity.Note, $"{rows.Count} selected Finding transition{(rows.Count == 1 ? "" : "s")}."),
-            Rows = rows.Count > 0 ? rows.ToList() : null
+            Rows = WindowRows(rows.Count > 0 ? rows.ToList() : null, window)
         };
 
     public static string RenderFindingTransitionsView(FindingTransitionsView view, MarkoutWriterOptions? options = null)
@@ -314,20 +316,23 @@ public static class DiffOutputFormatter
         string name,
         IReadOnlyList<TypeDiff> typeDiffs,
         string fromVersion,
-        string toVersion) =>
+        string toVersion,
+        RowWindow? rows = null) =>
         BuildFullView(
             name,
             typeDiffs,
             [],
             fromVersion,
-            toVersion);
+            toVersion,
+            rows);
 
     static DiffFullView BuildFullView(
         string name,
         IReadOnlyList<TypeDiff> typeDiffs,
         IReadOnlyList<ApiDiffInspectionFailure> inspectionFailures,
         string fromVersion,
-        string toVersion)
+        string toVersion,
+        RowWindow? rows = null)
     {
         var view = new DiffFullView(
             DiffViewText.Field($"API Diff: {name}"),
@@ -359,9 +364,13 @@ public static class DiffOutputFormatter
         view.SummaryText = DiffViewText.Field(
             $"**Summary:** {FormatSummaryCounts(totalBreaking, totalAdditive, totalPotentiallyBreaking)} across {typeDiffs.Count} types");
 
-        view.BreakingChanges = BuildChangeRows(ChangeClassification.Breaking, typeDiffs);
-        view.PotentiallyBreakingChanges = BuildChangeRows(ChangeClassification.PotentiallyBreaking, typeDiffs);
-        view.AdditiveChanges = BuildChangeRows(ChangeClassification.Additive, typeDiffs);
+        // -n/-N windows each classification group independently, matching the multi-section
+        // precedent elsewhere (e.g. `type -S "Constructors,Methods" -n 1`): the underlying
+        // Markout GroupBy-sectioned properties don't honor RowWindow, so the flat change list
+        // is windowed here, before grouping, rather than relying on the writer to do it.
+        view.BreakingChanges = WindowChangeRows(BuildChangeRows(ChangeClassification.Breaking, typeDiffs), rows);
+        view.PotentiallyBreakingChanges = WindowChangeRows(BuildChangeRows(ChangeClassification.PotentiallyBreaking, typeDiffs), rows);
+        view.AdditiveChanges = WindowChangeRows(BuildChangeRows(ChangeClassification.Additive, typeDiffs), rows);
         if (inspectionFailures.Count > 0)
         {
             view.Status = new Callout(
@@ -372,9 +381,9 @@ public static class DiffOutputFormatter
         return view;
     }
 
-    public static string RenderFullMarkdown(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion, MarkoutWriterOptions? options = null)
+    public static string RenderFullMarkdown(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion, MarkoutWriterOptions? options = null, RowWindow? rows = null)
     {
-        var view = BuildFullView(name, typeDiffs, fromVersion, toVersion);
+        var view = BuildFullView(name, typeDiffs, fromVersion, toVersion, rows);
         var writer = new MarkoutWriter(new MarkdownFormatter(), options);
         DiffViewContext.Default.Serialize(view, writer);
         return writer.ToString().TrimEnd();
@@ -386,14 +395,16 @@ public static class DiffOutputFormatter
         IReadOnlyList<ApiDiffInspectionFailure> inspectionFailures,
         string fromVersion,
         string toVersion,
-        MarkoutWriterOptions? options = null)
+        MarkoutWriterOptions? options = null,
+        RowWindow? rows = null)
     {
         var view = BuildFullView(
             name,
             typeDiffs,
             inspectionFailures,
             fromVersion,
-            toVersion);
+            toVersion,
+            rows);
         var writer =
             new MarkoutWriter(
                 new MarkdownFormatter(),
@@ -438,7 +449,8 @@ public static class DiffOutputFormatter
         string summary,
         string fromVersion,
         string toVersion,
-        bool decorateMember = true)
+        bool decorateMember = true,
+        RowWindow? window = null)
         => new(
             DiffViewText.Field($"Analysis Diff: {name}"),
             DiffViewText.Field($"{fromVersion} -> {toVersion}"),
@@ -447,11 +459,13 @@ public static class DiffOutputFormatter
             Status = rows.Count == 0
                 ? new Callout(CalloutSeverity.Note, summary)
                 : new Callout(CalloutSeverity.Note, "Analysis signal changes are body-level evidence, not public API compatibility changes."),
-            Rows = rows.Count > 0
-                ? rows.Select(row => decorateMember
-                    ? row with { MemberText = MarkoutInline.CodeText(row.MemberText) }
-                    : row).ToList()
-                : null
+            Rows = WindowRows(
+                rows.Count > 0
+                    ? rows.Select(row => decorateMember
+                        ? row with { MemberText = MarkoutInline.CodeText(row.MemberText) }
+                        : row).ToList()
+                    : null,
+                window)
         };
 
     /// <summary>
@@ -474,7 +488,8 @@ public static class DiffOutputFormatter
         string name,
         ImplementationDiffResult diff,
         string fromVersion,
-        string toVersion)
+        string toVersion,
+        RowWindow? window = null)
     {
         List<ImplementationDiffRow> rows = [];
         foreach (var member in diff.Members)
@@ -557,7 +572,7 @@ public static class DiffOutputFormatter
                     hasSourceLane
                         ? "C# is decompiled evidence; PDB Source is checksum-verified PDB-mapped evidence; IL is shipped body evidence. These peer lanes do not replace one another and are not public API compatibility."
                         : "C# and IL implementation evidence is body-level evidence, not public API compatibility."),
-            Rows = rows.Count > 0 ? rows : null
+            Rows = WindowRows(rows.Count > 0 ? rows : null, window)
         };
     }
 
@@ -598,6 +613,23 @@ public static class DiffOutputFormatter
         if (additive > 0) parts.Add($"{additive} additive");
         if (potentiallyBreaking > 0) parts.Add($"{potentiallyBreaking} potentially breaking");
         return parts.Count > 0 ? string.Join(", ", parts) : "no changes";
+    }
+
+    private static List<DiffChangeRow>? WindowChangeRows(List<DiffChangeRow>? rows, RowWindow? window)
+        => WindowRows(rows, window);
+
+    /// <summary>
+    /// Applies a declared-item window to a document-view row list, matching
+    /// <see cref="BuildDetailedChangesView"/>'s pattern of windowing at construction time so
+    /// that document-JSON serialization (which bypasses the Markout writer's own windowing)
+    /// still honors <c>-n</c>/<c>--top</c>.
+    /// </summary>
+    private static List<T>? WindowRows<T>(List<T>? rows, RowWindow? window)
+    {
+        if (rows is null)
+            return null;
+        var windowed = RowWindow.Apply(window, rows);
+        return windowed.Count > 0 ? [.. windowed] : null;
     }
 
     private static List<DiffChangeRow>? BuildChangeRows(ChangeClassification classification, IReadOnlyList<TypeDiff> typeDiffs)

@@ -4,6 +4,7 @@ using DotnetInspector.Views;
 using System.Text.Json;
 using DotnetInspector.Options;
 using DotnetInspector.Sections;
+using ILInspector.Metadata;
 using Markout;
 using Markout.Formatting;
 
@@ -27,7 +28,12 @@ public static class OutputFormatter
         return sw.ToString();
     }
 
-    public static void WriteTable(TextWriter output, bool showHeader, Action<TextWriter, IMarkoutFormatter> serialize, RowWindow? maxRows = null)
+    public static void WriteTable(
+        TextWriter output,
+        bool showHeader,
+        Action<TextWriter, IMarkoutFormatter> serialize,
+        RowWindow? maxRows = null,
+        string? humanRowWindowNote = null)
     {
         // Row-limiting operates on the rendered text, so the capped path must materialize
         // the table first. Without a cap, serialize straight to the destination writer and
@@ -37,13 +43,22 @@ public static class OutputFormatter
         // so a single buffered Write(string) is not interchangeable with row-by-row writes
         // (it changes which trailing content survives the limit). Keep the buffered path for
         // those wrappers to preserve byte-identical output; their output is already small.
-        if (maxRows is null or { IsUnlimited: true } && output is not (LineLimitingTextWriter or TailLineLimitingTextWriter))
+        //
+        // A note is also buffered: whether the window actually applied to any data is only
+        // known after rendering, and an empty result must not gain a "first N"/"top N" note
+        // with nothing beneath it.
+        if (humanRowWindowNote is null
+            && maxRows is null or { IsUnlimited: true }
+            && output is not (LineLimitingTextWriter or TailLineLimitingTextWriter))
         {
             serialize(output, new TableFormatter(showHeader));
             return;
         }
 
-        output.Write(LimitRenderedTableRows(RenderTable(showHeader, serialize), maxRows, showHeader));
+        var rendered = LimitRenderedTableRows(RenderTable(showHeader, serialize), maxRows, showHeader);
+        if (!string.IsNullOrWhiteSpace(rendered))
+            WriteHumanRowWindowNote(output, humanRowWindowNote);
+        output.Write(rendered);
     }
 
     /// <summary>
@@ -135,8 +150,14 @@ public static class OutputFormatter
         string[]? columns,
         string[]? fields,
         Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize,
-        RowWindow? maxRows = null) =>
-        output.Write(RenderProjectedTable(showHeader, tsv, jsonl, columns, fields, serialize, maxRows));
+        RowWindow? maxRows = null,
+        string? humanRowWindowNote = null)
+    {
+        var rendered = RenderProjectedTable(showHeader, tsv, jsonl, columns, fields, serialize, maxRows);
+        if (!string.IsNullOrWhiteSpace(rendered))
+            WriteHumanRowWindowNote(output, tsv || jsonl ? null : humanRowWindowNote);
+        output.Write(rendered);
+    }
 
     /// <summary>
     /// Renders a view as the lowered JSON view: the same section and projection decisions the
@@ -213,8 +234,11 @@ public static class OutputFormatter
         RowWindow? rows,
         Func<MarkoutWriterOptions, string> serialize,
         string[]? columns = null,
-        string[]? fields = null) =>
-        output.WriteLine(serialize(CreateWindowedOptions(rows, columns, fields)).TrimEnd());
+        string[]? fields = null,
+        string? humanRowWindowNote = null) =>
+        output.WriteLine(AddHumanRowWindowNote(
+            serialize(CreateWindowedOptions(rows, columns, fields)).TrimEnd(),
+            humanRowWindowNote));
 
     /// <summary>
     /// Creates writer options carrying a <c>--rows</c> window and optional projection, for callers
@@ -248,6 +272,39 @@ public static class OutputFormatter
     {
         output.Write(payload);
         output.Write('\n');
+    }
+
+    internal static string AddHumanRowWindowNote(string rendered, string? humanRowWindowNote)
+    {
+        if (string.IsNullOrWhiteSpace(humanRowWindowNote) || string.IsNullOrWhiteSpace(rendered))
+            return rendered;
+
+        const string SectionHeadingPrefix = "\n## ";
+        var normalized = rendered.ReplaceLineEndings("\n").TrimEnd();
+        int headingStart = normalized.StartsWith("## ", StringComparison.Ordinal)
+            ? 0
+            : normalized.IndexOf(SectionHeadingPrefix, StringComparison.Ordinal);
+        if (headingStart < 0)
+            return $"{humanRowWindowNote}\n\n{normalized}";
+
+        if (headingStart > 0)
+            headingStart += 1;
+
+        int headingEnd = normalized.IndexOf('\n', headingStart);
+        if (headingEnd < 0)
+            return $"{normalized}\n\n{humanRowWindowNote}";
+
+        string before = normalized[..headingEnd];
+        string after = normalized[(headingEnd + 1)..].TrimStart('\n');
+        return after.Length == 0
+            ? $"{before}\n\n{humanRowWindowNote}"
+            : $"{before}\n\n{humanRowWindowNote}\n\n{after}";
+    }
+
+    internal static void WriteHumanRowWindowNote(TextWriter output, string? humanRowWindowNote)
+    {
+        if (!string.IsNullOrWhiteSpace(humanRowWindowNote))
+            WriteLfLine(output, humanRowWindowNote);
     }
 
     /// <summary>
@@ -294,7 +351,7 @@ public static class OutputFormatter
     }
 
     public static void WriteStringList(IEnumerable<string> values, string displayName, string stableName,
-        bool tsv, bool jsonl, TextWriter output)
+        bool tsv, bool jsonl, TextWriter output, string? humanRowWindowNote = null)
     {
         var rows = values.Select(value => new[] { value }).ToArray();
         WriteTable(output, showHeader: false, (writer, formatter) =>
@@ -305,7 +362,7 @@ public static class OutputFormatter
             else
                 markoutWriter.WriteList(rows.Select(row => row[0]).ToArray());
             markoutWriter.Flush();
-        });
+        }, humanRowWindowNote: tsv || jsonl ? null : humanRowWindowNote);
     }
 
     /// <summary>
@@ -379,8 +436,12 @@ public static class OutputFormatter
                 projection, ordered, options.Format, options.NoHeader);
         }
 
-        return MarkoutSerializer.Serialize(
+        var markdown = MarkoutSerializer.Serialize(
             view, InspectionContext.Default, writerOptions).TrimEnd();
+        return options.Verbosity != Verbosity.Quiet
+               && writerOptions.IncludeSections is { Count: 1 }
+            ? AddHumanRowWindowNote(markdown, options.HumanRowWindowNote)
+            : markdown;
     }
 
     internal static CountProjection CapturePackageCountProjection(
@@ -423,7 +484,10 @@ public static class OutputFormatter
         var view = new InspectionResultView(result);
         WriteTable(Console.Out, showHeader,
             (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, InspectionContext.Default, writerOpts),
-            options.Rows);
+            options.Rows,
+            options.Verbosity != Verbosity.Quiet && !options.Tsv && !options.Jsonl
+                ? options.HumanRowWindowNote
+                : null);
     }
 
     /// <summary>
@@ -486,8 +550,7 @@ public static class OutputFormatter
         {
             OutputDestination.Write(
                 options.OutputPath,
-                options.Rows,
-                output => WriteReferenceTree(inspection, output));
+                output => WriteReferenceTree(inspection, options.Rows, output));
             return;
         }
 
@@ -499,13 +562,18 @@ public static class OutputFormatter
 
         if (options.Format == OutputFormat.PlainText)
         {
-            WriteLfLine(Console.Out, SerializeLibraryPlainText(
-                auditView, inspection, writerOpts, options.Rows));
+            var plain = SerializeLibraryPlainText(
+                auditView, inspection, writerOpts, options.Rows);
+            if (options.Verbosity != Verbosity.Quiet && writerOpts.IncludeSections is { Count: 1 })
+                plain = AddHumanRowWindowNote(plain, options.HumanRowWindowNote);
+            WriteLfLine(Console.Out, plain);
         }
         else if (options.VerbosityEnabled)
         {
             var markdown = SerializeLibraryMarkdown(
                 auditView, inspection, writerOpts, pipeline, options.Rows);
+            if (options.Verbosity != Verbosity.Quiet && writerOpts.IncludeSections is { Count: 1 })
+                markdown = AddHumanRowWindowNote(markdown, options.HumanRowWindowNote);
             WriteLfLine(Console.Out, markdown);
         }
         else if (writerOpts.IncludeSections is { Count: > 1 } && !options.TabularExplicitlySet)
@@ -513,6 +581,8 @@ public static class OutputFormatter
             // Auto-promote to markdown when multiple sections and tabular output wasn't explicitly requested
             var markdown = SerializeLibraryMarkdown(
                 auditView, inspection, writerOpts, pipeline, options.Rows);
+            if (options.Verbosity != Verbosity.Quiet && writerOpts.IncludeSections is { Count: 1 })
+                markdown = AddHumanRowWindowNote(markdown, options.HumanRowWindowNote);
             WriteLfLine(Console.Out, markdown);
         }
         else
@@ -561,15 +631,48 @@ public static class OutputFormatter
 
     private static void WriteReferenceTree(
         LibraryInspection inspection,
+        RowWindow? rows,
         TextWriter output)
     {
         var references = inspection.AssemblyInfo?.TransitiveReferences ?? [];
-        var tree = LibraryInspectionView.BuildNestedReferenceTree(references);
+        var tree = LibraryInspectionView.BuildNestedReferenceTree(
+            SelectReferenceTreeNodes(references, rows));
         var writer = MarkoutWriter.Create(output, new MarkdownFormatter());
         writer.WriteHeading(1, LibraryViewText.Contain(inspection.FileName) ?? string.Empty);
         writer.WriteHeading(2, SectionNames.References);
         writer.WriteTree([.. tree]);
         writer.Flush();
+    }
+
+    internal static List<AssemblyReferenceNode> SelectReferenceTreeNodes(
+        List<AssemblyReferenceNode> references,
+        RowWindow? rows)
+    {
+        if (rows is null || references.Count == 0)
+            return references;
+
+        var selectedIndexes = RowWindow.Apply(
+            rows,
+            Enumerable.Range(0, references.Count).ToArray());
+        HashSet<int> included = [.. selectedIndexes];
+        foreach (var selectedIndex in selectedIndexes)
+        {
+            var parentDepth = references[selectedIndex].Depth;
+            for (var index = selectedIndex - 1;
+                 index >= 0 && parentDepth > 0;
+                 index--)
+            {
+                if (references[index].Depth >= parentDepth)
+                    continue;
+
+                included.Add(index);
+                parentDepth = references[index].Depth;
+            }
+        }
+
+        return references
+            .Where((_, index) => included.Contains(index))
+            .ToList();
     }
 
     /// <summary>
@@ -665,13 +768,19 @@ public static class OutputFormatter
                 new MarkoutWriterOptions { Projection = writerOpts.Projection }, options.Tsv, options.Jsonl);
             WriteTable(Console.Out, !options.NoHeader,
                 (writer, formatter) => MarkoutSerializer.Serialize(groupView, writer, formatter, InspectionContext.Default, groupOpts),
-                options.Rows);
+                options.Rows,
+                options.Verbosity != Verbosity.Quiet && !options.Tsv && !options.Jsonl
+                    ? options.HumanRowWindowNote
+                    : null);
         }
         else
         {
             WriteTable(Console.Out, !options.NoHeader,
                 (writer, formatter) => MarkoutSerializer.Serialize(auditView, writer, formatter, InspectionContext.Default, writerOpts),
-                options.Rows);
+                options.Rows,
+                options.Verbosity != Verbosity.Quiet && !options.Tsv && !options.Jsonl
+                    ? options.HumanRowWindowNote
+                    : null);
         }
     }
 
