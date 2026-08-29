@@ -1051,17 +1051,27 @@ public static class TimelineCommand
         out string? typeFullName,
         out string? error)
     {
-        var types = evaluations
+        string[] typeNames = evaluations
             .Where(evaluation => evaluation.Surface is not null)
-            .SelectMany(evaluation => evaluation.Surface!.Types)
+            .SelectMany(evaluation =>
+                EnumerateResolvableTypeNames(evaluation.Surface!))
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
             .ToArray();
-        var exactMatches = types
-            .Where(type => string.Equals(
-                type.FullName,
+        string? ordinalMatch = typeNames.FirstOrDefault(typeName =>
+            string.Equals(typeName, requested, StringComparison.Ordinal));
+        if (ordinalMatch is not null)
+        {
+            typeFullName = ordinalMatch;
+            error = null;
+            return true;
+        }
+
+        string[] exactMatches = typeNames
+            .Where(typeName => string.Equals(
+                typeName,
                 requested,
                 StringComparison.OrdinalIgnoreCase))
-            .Select(type => type.FullName)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
         if (exactMatches.Length == 1)
         {
@@ -1069,13 +1079,18 @@ public static class TimelineCommand
             error = null;
             return true;
         }
+        if (exactMatches.Length > 1)
+        {
+            typeFullName = null;
+            error =
+                $"Type selector '{requested}' is ambiguous: "
+                + $"{string.Join(", ", exactMatches)}.";
+            return false;
+        }
 
-        var matches = types
-            .Where(type =>
-                string.Equals(type.Name, requested, StringComparison.OrdinalIgnoreCase)
-                || type.FullName.EndsWith($".{requested}", StringComparison.OrdinalIgnoreCase))
-            .Select(type => type.FullName)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+        string[] matches = typeNames
+            .Where(typeName =>
+                TypeMatcher.MatchesTypeFilter(typeName, requested))
             .ToArray();
 
         if (matches.Length > 1)
@@ -1088,6 +1103,29 @@ public static class TimelineCommand
         typeFullName = matches.Length == 1 ? matches[0] : requested;
         error = null;
         return true;
+    }
+
+    static IEnumerable<string> EnumerateResolvableTypeNames(
+        ApiSurface surface)
+    {
+        foreach (ApiType type in surface.Types)
+            yield return type.FullName;
+
+        foreach (ApiSurfaceInspectionFailure failure
+            in surface.InspectionFailures)
+        {
+            if (failure.OwningTypeDefinition is { } owner)
+                yield return owner.ToMetadataFullName();
+
+            if (failure.AffectedTypeDefinitions.IsDefaultOrEmpty)
+                continue;
+
+            foreach (MetadataTypeDefinitionName affected in
+                failure.AffectedTypeDefinitions)
+            {
+                yield return affected.ToMetadataFullName();
+            }
+        }
     }
 
     static bool TrySelectAddresses(

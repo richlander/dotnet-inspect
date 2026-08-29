@@ -2379,7 +2379,7 @@ public class DiffCommand
                 .Concat(FindTypes(toSurface, filter))
                 .Select(type => type.FullName)
                 .DefaultIfEmpty(filter))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal)
             .ToArray();
         return names;

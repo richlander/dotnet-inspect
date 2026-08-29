@@ -668,6 +668,30 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void BuildFindingTransitions_CaseOnlyTypeChangePreservesBothIdentities()
+    {
+        var rows = DiffCommand.BuildFindingTransitions(
+            DiffSurface(DiffType("Sample", "Widget")),
+            DiffSurface(DiffType("Sample", "widget")),
+            "1.0.0",
+            "2.0.0",
+            new DiffOptions { TypeFilter = ["Sample.Widget"] });
+
+        Assert.Collection(
+            rows.OrderBy(row => row.Target, StringComparer.Ordinal),
+            row =>
+            {
+                Assert.Equal("Sample.Widget", row.Target);
+                Assert.Equal("PairFinding.Removed", row.Transition);
+            },
+            row =>
+            {
+                Assert.Equal("Sample.widget", row.Target);
+                Assert.Equal("PairFinding.Added", row.Transition);
+            });
+    }
+
+    [Fact]
     public void BuildFindingTransitions_TypeMissingAtBothEndpoints_HasNoPair()
     {
         var rows = DiffCommand.BuildFindingTransitions(

@@ -5,6 +5,7 @@ using System.Collections.Immutable;
 using System.Reflection.PortableExecutable;
 using ILInspector.Findings;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -646,6 +647,29 @@ public class MetadataFindingsTests
                 partial,
                 Subject,
                 "TestNamespace.Widget").Value);
+    }
+
+    [Fact]
+    public void TypeScopedAttributeCensus_IgnoresTypeForwarderFailure()
+    {
+        var surface = Surface(Type(
+            "Widget",
+            attributes: ["System.ObsoleteAttribute"]));
+        surface.InspectionFailures.Add(new ApiSurfaceInspectionFailure(
+            ApiSurfaceInspectionFailure.TypeForwarderRowOperation,
+            0x27000001,
+            MetadataTypeNameFailureMechanism.Metadata,
+            "MalformedMetadata",
+            "The exported type row could not be decoded."));
+
+        var inspection = Assert.IsType<
+            FindingInspection<ApiAttributeHandle>.Complete>(
+                MetadataFindings.InspectApiAttributes(
+                    surface,
+                    Subject,
+                    "TestNamespace.Widget").Value);
+
+        Assert.Single(inspection.Findings);
     }
 
     [Fact]

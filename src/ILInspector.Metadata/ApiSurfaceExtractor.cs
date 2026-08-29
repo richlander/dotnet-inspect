@@ -2044,8 +2044,9 @@ public static class ApiSurfaceExtractor
                             MetadataTypeDefinitionNameReadResult.Read read => read.Name,
                             MetadataTypeDefinitionNameReadResult.Rejected rejected =>
                                 throw new MetadataRowRejectedException(
-                                    "type forwarder identity",
-                                    rejected.Failure),
+                                ApiSurfaceInspectionFailure
+                                    .TypeForwarderIdentityOperation,
+                                rejected.Failure),
                             _ => throw new InvalidOperationException(
                                 "Unknown exported-type name result."),
                         };
@@ -2088,7 +2089,7 @@ public static class ApiSurfaceExtractor
                 AddInspectionFailure(
                     surface,
                     budget,
-                    "type forwarder row",
+                    ApiSurfaceInspectionFailure.TypeForwarderRowOperation,
                     exportedTypeHandle,
                     MetadataTypeNameFailure.Malformed(exportedTypeHandle, ex.Message));
             }

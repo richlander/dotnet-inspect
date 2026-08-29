@@ -911,6 +911,72 @@ public sealed class TimelineCommandTests
         Assert.Equal("Sample.Widget", typeFullName);
     }
 
+    [Fact]
+    public void ExactCaseTypeName_TakesPrecedenceOverCaseInsensitiveMatch()
+    {
+        var vector = Vector("1.0.0");
+        TimelineCommand.TimelineEvaluation[] evaluations =
+        [
+            Evaluation(
+                vector,
+                0,
+                Surface(
+                    Type("Widget"),
+                    Type("widget"))),
+        ];
+
+        bool resolved = TimelineCommand.TryResolveTypeName(
+            "Sample.Widget",
+            evaluations,
+            out string? typeFullName,
+            out string? error);
+
+        Assert.True(resolved, error);
+        Assert.Equal("Sample.Widget", typeFullName);
+    }
+
+    [Theory]
+    [InlineData("Widget")]
+    [InlineData("sample.widget")]
+    public void PartialTypeIdentity_CanonicalizesSelectorAndFailsCensus(
+        string selector)
+    {
+        var owner = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("Sample", ["Widget"])).Name;
+        var partialSurface = new ApiSurface();
+        partialSurface.InspectionFailures.Add(
+            new ApiSurfaceInspectionFailure(
+                "type row",
+                0x02000001,
+                MetadataTypeNameFailureMechanism.Metadata,
+                "MalformedMetadata",
+                "The type row could not be decoded.")
+            {
+                OwningTypeDefinition = owner,
+            });
+        var vector = Vector("1.0.0");
+        TimelineCommand.TimelineEvaluation[] evaluations =
+        [
+            Evaluation(vector, 0, partialSurface),
+        ];
+
+        bool resolved = TimelineCommand.TryResolveTypeName(
+            selector,
+            evaluations,
+            out string? typeFullName,
+            out string? error);
+
+        Assert.True(resolved, error);
+        Assert.Equal("Sample.Widget", typeFullName);
+        var view = TimelineCommand.BuildView(
+            vector,
+            typeFullName!,
+            "api.member",
+            evaluations,
+            Sections());
+        Assert.Equal("Failed", Assert.Single(view.Evaluations!).State);
+    }
+
     static TimelineCommand.TimelineEvaluation Evaluation(
         PackageVersionVector vector,
         int position,

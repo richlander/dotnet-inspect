@@ -232,6 +232,12 @@ public static partial class MetadataFindings
             failure.Operation
                 != ApiSurfaceInspectionFailure
                     .GenericParameterConstraintResolutionOperation
+            && failure.Operation
+                != ApiSurfaceInspectionFailure
+                    .TypeForwarderIdentityOperation
+            && failure.Operation
+                != ApiSurfaceInspectionFailure
+                    .TypeForwarderRowOperation
             && MayAffectType(failure, typeFullName));
 
     static bool MayAffectType(

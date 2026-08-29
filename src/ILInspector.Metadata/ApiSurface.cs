@@ -395,6 +395,10 @@ public sealed record ApiSurfaceInspectionFailure(
             "resolve generic parameter constraints";
     public const string EnumAttributeTypeIndexOperation =
         "enum attribute type index";
+    public const string TypeForwarderIdentityOperation =
+        "type forwarder identity";
+    public const string TypeForwarderRowOperation =
+        "type forwarder row";
 
     [JsonIgnore]
     public string? SourceAssemblyPath { get; init; }
