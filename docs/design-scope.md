@@ -56,33 +56,33 @@ non-claims.
 
 ## Stage implementation after locking the design
 
-A cross-cutting design (a new pattern, containment model, or convention meant
-to apply repo-wide) is itself a focused effort: it gets its own owning
-document, informed by a survey of the components it will eventually touch, and
-it is locked and reviewed before broad implementation starts. Do not fold the
-design and every affected component's migration into one PR. A design that
-tries to convert all components in a single shot produces a PR that cannot
-close: reviewers keep finding subsystem-specific issues the design didn't
-anticipate, rounds never converge, and the true, high-value defects get lost
-in the noise of unrelated subsystem detail.
+A new cross-cutting pattern, containment model, or convention gets its own
+focused design document under [One owner per focused
+design](#one-owner-per-focused-design): informed by a survey of the components
+that will eventually adopt it, the document defines the pattern's own
+contract — its type, construction, validation, and invariants — and is locked
+and reviewed before adoption starts. It must not also redefine how any
+existing owner's internals change to adopt the pattern; specifying every
+adopting owner's migration in the same document is the multiple-owners case
+that [What makes a design broad](#what-makes-a-design-broad) already gates,
+and needs that same explicit approval.
 
-Once the design document is locked, apply it through scoped implementation
-efforts, one subsystem (or a small, coherent group of subsystems) at a time.
-Each implementation PR names the design it applies, the one subsystem it
-converts, and any subsystem-specific adaptation the design didn't already
-cover. The first subsystem's conversion may land together with the design in
-one PR when that pairing is the cheapest way to prove the design works; every
-other subsystem stages as its own follow-on effort or stack slice. Track
-remaining subsystems as filed issues or a stack rather than reopening the
-locked design to add them.
+Once the pattern document is locked, each existing owner adopts it as its own
+focused effort. An adoption PR names the pattern document, names the one owner
+adopting it, and states that owner's adoption-specific decisions; do not fold
+one owner's adoption into another's PR, and do not adopt the pattern across
+every owner in a single PR. The first owner's adoption may land together with
+the pattern document in one PR when that pairing is the cheapest way to prove
+the pattern works end to end; every other owner's adoption stages as its own
+follow-on effort or stack slice, tracked as filed issues rather than reopening
+the locked pattern document to add them.
 
-This mirrors [What makes a design broad](#what-makes-a-design-broad): a design
-that normatively converts multiple independently owned components in one
-effort is a broad design and needs the same explicit approval. Staging
-subsystem-by-subsystem is what keeps both the design and each conversion
-closable, and closable work is what actually finds the critical issues —
-an unclosable, boil-the-ocean PR finds nothing because it never gets read
-closely enough to matter.
+Folding every owner's adoption into the pattern document, or into one
+implementation PR, is what makes this kind of work unclosable: reviewers keep
+finding owner-specific issues the pattern document didn't anticipate, rounds
+never converge, and the critical issues get lost in the noise of unrelated
+owner detail. Staging the pattern first, then one owner at a time, is what
+keeps both closable.
 
 ## Keep specifications readable; model interactions
 

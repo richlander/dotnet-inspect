@@ -245,9 +245,9 @@ over-broad-design recovery procedure live in
   not approval.
 - If review keeps discovering new component-internal contracts, stop and apply
   the [scope-violation recovery transition](#recovery-transitions).
-- Lock a focused design as its own document before implementing broadly, then
-  apply it through scoped, subsystem-by-subsystem efforts rather than one PR
-  sweeping every affected component; see
+- Lock a new cross-cutting pattern as its own focused design document — defining
+  only the pattern's contract, not other owners' internals — then have each
+  owner adopt it one at a time rather than one PR sweeping every owner; see
   [Stage implementation after locking the design](docs/design-scope.md#stage-implementation-after-locking-the-design).
 
 ## Repository-wide engineering constraints
