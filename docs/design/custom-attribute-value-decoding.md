@@ -15,6 +15,13 @@ Seven verified divergences are open against it, listed under [Known
 gaps](#known-gaps). Treat any statement that an invariant *holds* as unverified
 until the differential oracle of issue #5065 exists.
 
+The same caution applies to this document's **detail-level claims** — the
+mechanism tables, cited line numbers, and failure-semantics rows. They were
+established by reading, and adversarial review has twice corrected rows that
+reading got wrong. They are checked by no gate. #5065 is the instrument that
+would verify them mechanically; until it exists, verify against the code
+before relying on any specific row.
+
 ## Responsibility
 
 This design owns the safety contract for decoding custom-attribute
