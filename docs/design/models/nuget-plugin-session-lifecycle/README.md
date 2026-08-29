@@ -128,7 +128,7 @@ product behavior:
 | Model rule | Implementation evidence |
 | --- | --- |
 | Initialization follows the required wire sequence | `PluginProtocolTests.InitializationFollowsTheProtocolSequence` |
-| The host answers the plugin-originated handshake | Unverified; the fake plugin records the response but does not require or assert it. |
+| The host answers the plugin-originated handshake | `PluginProtocolTests.CompatibleInboundHandshakeUsesProtocolTwo` and `PluginProtocolTests.InvalidOrUnsupportedInboundHandshakeReceivesAnErrorResponse` |
 | A dying process settles the current request as plugin failure | `PluginProtocolTests.WhenOnePluginDiesDuringTheRequest_TheNextIsTried` |
 | Caller cancellation remains caller cancellation | `PluginProtocolTests.CallerCancellationContinuesToPropagate` |
 | A malformed response header does not end the read loop | `PluginProtocolTests.AProtocolMessageWithNonStringHeadersIsIgnoredRatherThanEndingTheConversation` |
@@ -136,7 +136,7 @@ product behavior:
 | Progress renews the matching implementation timer | Unverified; the design previously described this as tested, but no matching test exists. |
 | Pipe loss closes admission before pending requests are collected | Not implemented; `CurrentShutdownAdmission.cfg` and `CurrentShutdownSnapshot.cfg` abstract the current ordering. |
 | A stalled in-progress write is bounded by terminating the connection | Not implemented; `CurrentStalledWrite.cfg` abstracts the current control flow. |
-| Malformed plugin-originated payloads settle inbound work | `PluginProtocolTests.MalformedInboundHandshakeReceivesAnErrorResponse` and `PluginProtocolTests.MalformedInboundLogReceivesAnErrorResponse` |
+| Malformed plugin-originated payloads settle inbound work | `PluginProtocolTests.InvalidOrUnsupportedInboundHandshakeReceivesAnErrorResponse` and `PluginProtocolTests.MalformedInboundLogReceivesAnErrorResponse` |
 
 Formal model-to-implementation correspondence is unverified. In particular,
 `CurrentInboundFailure.cfg` abstracts the untracked malformed-payload path in

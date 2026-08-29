@@ -145,8 +145,12 @@ Two details are easy to get wrong:
 
 - **The handshake is symmetric.** The plugin sends its *own* handshake request at the same time
   as the host sends one. A host that only waits for a reply, without answering, deadlocks.
-  `ReadyRequiresSymmetricHandshake` checks the design interaction; implementation correspondence
-  for the host's response remains unverified.
+  This client requires protocol 2.0.0 because its source-agnostic `GetOperationClaims` request is
+  only valid in that protocol version.
+  `ReadyRequiresSymmetricHandshake` checks the design interaction;
+  `PluginProtocolTests.CompatibleInboundHandshakeUsesProtocolTwo` and
+  `PluginProtocolTests.InvalidOrUnsupportedInboundHandshakeReceivesAnErrorResponse` enforce the
+  implementation response.
 - **`Progress` messages restart the request timer.** They are the plugin saying "still working"
   during a slow sign-in. A host that ignores them times out a request that is progressing fine.
   `ProgressRenewsOnlyItsRequest` checks the design interaction; implementation correspondence is
@@ -163,7 +167,8 @@ plugin-originated request receives an error response or the connection terminate
 abandoned work, checked by `InboundFailureIsContained` and
 `MalformedInboundEventuallySettles`. The current implementation does not yet enforce the
 stalled-write or shutdown-admission rules. Malformed inbound Handshake and Log payload handling is
-enforced by `PluginProtocolTests.MalformedInboundHandshakeReceivesAnErrorResponse` and
+enforced by
+`PluginProtocolTests.InvalidOrUnsupportedInboundHandshakeReceivesAnErrorResponse` and
 `PluginProtocolTests.MalformedInboundLogReceivesAnErrorResponse`.
 
 Implementation: [`PluginConnection`](../../src/NuGetFetch/Plugins/PluginConnection.cs) and

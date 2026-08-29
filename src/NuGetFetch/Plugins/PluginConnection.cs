@@ -20,7 +20,7 @@ namespace NuGetFetch.Plugins;
 internal sealed class PluginConnection : IAsyncDisposable
 {
     private const string ProtocolVersion = "2.0.0";
-    private const string MinimumProtocolVersion = "1.0.0";
+    private const string MinimumProtocolVersion = ProtocolVersion;
     private static readonly string[] LogLevels =
         ["Debug", "Verbose", "Information", "Minimal", "Warning", "Error"];
 

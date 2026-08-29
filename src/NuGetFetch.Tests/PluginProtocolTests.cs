@@ -288,7 +288,10 @@ public sealed class PluginProtocolTests : IDisposable
     [InlineData(
         "reversed-range",
         """{"ProtocolVersion":"1.0.0","MinimumProtocolVersion":"2.0.0"}""")]
-    public async Task MalformedInboundHandshakeReceivesAnErrorResponse(
+    [InlineData(
+        "unsupported-version",
+        """{"ProtocolVersion":"1.0.0","MinimumProtocolVersion":"1.0.0"}""")]
+    public async Task InvalidOrUnsupportedInboundHandshakeReceivesAnErrorResponse(
         string name,
         string payload)
     {
@@ -314,14 +317,14 @@ public sealed class PluginProtocolTests : IDisposable
     }
 
     [Fact]
-    public async Task CompatibleInboundHandshakeNegotiatesTheSharedVersion()
+    public async Task CompatibleInboundHandshakeUsesProtocolTwo()
     {
         FakePlugin plugin = CreatePlugin(
             "compatible-inbound-handshake",
             username: "u",
             password: "p",
             inboundHandshakePayload:
-                """{"ProtocolVersion":"1.0.0","MinimumProtocolVersion":"1.0.0"}""");
+                """{"ProtocolVersion":"2.0.0","MinimumProtocolVersion":"2.0.0"}""");
 
         await using var provider = new PluginCredentialProvider(null, [plugin.Executable]);
         PackageSourceCredential? credential = await provider.GetCredentialsAsync(
@@ -337,7 +340,7 @@ public sealed class PluginProtocolTests : IDisposable
             ResponseCodes.Success,
             response.Payload.GetProperty("ResponseCode").GetString());
         Assert.Equal(
-            "1.0.0",
+            "2.0.0",
             response.Payload.GetProperty("ProtocolVersion").GetString());
     }
 
