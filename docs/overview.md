@@ -193,6 +193,12 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Member ordering](design/member-order.md): canonical type/member section order and member-kind mapping.
 - [Package source model](design/package-source-model.md): source eligibility,
   mapping, local stores, source-bound caches, selection, and enrichment.
+- [NuGetFetch source-result identity](design/browser-package-sources.md#nugetfetch-typed-source-result-identity):
+  credential-free producer provenance, caller association, transport evidence,
+  factory-bound result propagation, and safe retained failures. It consumes
+  normalized endpoint and path-redaction handoffs; package composition, cache
+  authority, presentation, and post-return stream failures remain with their
+  focused owners.
 - [Version resolution](design/version-resolution.md): package/platform version and cache behavior.
 - [Cache concurrency and publication](design/cache-concurrency.md): process-local single-flight, atomic publication, dependency overlap, and filesystem guarantees.
 - [Skill guidance taste](../taste/skill-guidance.md): how to maintain the embedded agent skill.
