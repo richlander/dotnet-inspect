@@ -44,14 +44,14 @@ public static class MarkdownContent
         {
             var lineEnd = FindLineEnd(content, lineStart);
             var indent = CountIndent(content, lineStart, lineEnd);
-            var line = content[lineStart..lineEnd].Trim();
+            var line = TrimYamlWhitespace(content[lineStart..lineEnd]);
             if (line.Length > 0 && !line.StartsWith('#'))
             {
                 var colon = line.IndexOf(':');
                 if (colon > 0)
                 {
-                    var key = line[..colon].Trim();
-                    var rawValue = line[(colon + 1)..].Trim();
+                    var key = TrimYamlWhitespace(line[..colon]);
+                    var rawValue = TrimYamlWhitespace(line[(colon + 1)..]);
                     if (key.Length > 0)
                     {
                         if (TryGetBlockScalarStyle(rawValue, out var folded))
@@ -89,7 +89,7 @@ public static class MarkdownContent
         var commentStart = rest.IndexOf('#');
         if (commentStart >= 0)
             rest = rest[..commentStart];
-        foreach (var ch in rest.Trim())
+        foreach (var ch in TrimYamlWhitespace(rest))
         {
             if (ch is not ('-' or '+') && !char.IsDigit(ch))
                 return false;
@@ -186,7 +186,7 @@ public static class MarkdownContent
 
     private static string TrimYamlScalar(string value)
     {
-        value = RemoveYamlInlineComment(value).TrimEnd();
+        value = TrimEndYamlWhitespace(RemoveYamlInlineComment(value));
         if (value.Length >= 2)
         {
             if ((value[0] == '"' && value[^1] == '"')
@@ -198,6 +198,12 @@ public static class MarkdownContent
 
         return value;
     }
+
+    private static string TrimYamlWhitespace(string value)
+        => value.Trim(' ', '\t', '\r');
+
+    private static string TrimEndYamlWhitespace(string value)
+        => value.TrimEnd(' ', '\t', '\r');
 
     private static string RemoveYamlInlineComment(string value)
     {
