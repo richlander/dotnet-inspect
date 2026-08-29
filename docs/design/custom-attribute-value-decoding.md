@@ -50,7 +50,7 @@ The implementation lives in `src/ILInspector.MetadataPrimitives/`:
 | **Actor** | Whoever authored a package, symbol, or assembly the user inspects. Publishing to a public feed is enough; no local access is needed. |
 | **Input path** | `CustomAttribute.Value` (the value blob) together with the constructor signature blob reached through the attribute's constructor handle, plus the `TypeDef`/`TypeRef` rows those signatures name. |
 | **Affected boundary** | `AttributeDecoder`, and every caller that renders, indexes, counts, or searches attribute values. |
-| **Containment invariant** | Stated below. |
+| **Containment invariants** | Three, stated below. |
 | **Enforcement gate** | Stated below. |
 
 The tool never executes inspected code, so the realistic damage is not code
@@ -60,8 +60,8 @@ wrong offset.
 
 ## The containment invariants
 
-Two properties must hold together. They are independent: either can break while
-the other holds, and each has produced a real defect.
+Three properties must hold together. They are independent: any one can break
+while the others hold, and each has produced a real defect.
 
 > **I1 — Alignment.** For any blob the guard reports safe, on every path where
 > SRM's `CustomAttributeDecoder` continues decoding, the guard must have
@@ -71,17 +71,28 @@ the other holds, and each has produced a real defect.
 > attacker-declared quantity SRM would act on — `SZArray` element counts,
 > named-argument counts, nesting depth, and charged work — regardless of
 > whether the two walkers agree about where those quantities live.
+>
+> **I3 — Guard work.** The guard's own cost must stay proportional to the blob
+> it is bounding. Work repeated per declared element must be performed once per
+> distinct input, or charged, even when I1 and I2 both hold.
 
-I1 is about *agreement*; I2 is about *magnitude*.
+I1 is about *agreement*; I2 is about *magnitude*; I3 is about *the cost of
+asking*.
 
 I2 is the reason this component exists at all. SRM reads a declared `Int32`
 `SZArray` count or `UInt16` named-argument count and allocates an
-`ImmutableArray` builder from it **before** reading any element and before any
-provider callback fires. Four attacker-chosen bytes can therefore request a
-gigabyte-scale builder, and the blob-length charge on the value heap never sees
-that amplification. No amount of cursor agreement prevents this.
+`ImmutableArray` builder from it immediately — before reading any element, and
+before any further callback through which that count could be observed or
+charged. Four attacker-chosen bytes can therefore request a gigabyte-scale
+builder, and the blob-length charge on the value heap never sees that
+amplification. No amount of cursor agreement prevents this.
 
-Defects therefore fall into three categories, not two:
+I3 exists because a guard that refuses an attack expensively has not prevented
+it. The guard walks each declared element, so any work placed on the
+per-element path is multiplied by an attacker-chosen count *before* the refusal
+that count would eventually trigger.
+
+Defects therefore fall into four categories:
 
 - **Fidelity.** Both walkers use the same wrong width. Output is wrong; nothing
   is unsafe. They still agree where every element ends, so the guard's bounds
@@ -96,8 +107,13 @@ Defects therefore fall into three categories, not two:
   still locate the same count at the same offset; the guard reports `Truncated`
   — which becomes `true` — and SRM allocates from that count before reading
   elements. Agreement is preserved and the attack succeeds.
+- **Aligned, bounded, and expensive (I3).** The guard refuses correctly and
+  cheaply *for SRM*, having already spent attacker-multiplied effort reaching
+  that refusal. Nothing about the cursor, the declared counts, or SRM's
+  behavior records that the guard did the work.
 
-The third category is why I1 alone is not the contract. A gate that checks only
+The third and fourth categories are why I1 alone is not the contract. A gate
+that checks only
 offset agreement passes the unbounded case.
 
 Both divergence and unboundedness are fail-opens, and both fail open precisely
@@ -132,21 +148,27 @@ Two consequences follow, and both are load-bearing:
    same provider instance — never through two implementations believed to be
    equivalent. The next section states which mechanism applies where, because
    they are not the same on both paths.
-2. **Fail open to SRM, not past it.** Where the guard cannot understand a blob,
-   it hands the blob to SRM rather than inventing a judgment, because SRM's own
-   failure is catchable and ours would be a guess.
+2. **Fail open to SRM only where we genuinely cannot judge.** Where the guard
+   *runs out of bytes*, or a parser exception reaches the public boundary, it
+   hands the blob to SRM rather than inventing a judgment, because SRM's own
+   failure is catchable and ours would be a guess. This does **not** extend to
+   forms the guard positively identifies as unsupported: an unrecognized
+   element code or an unsupported serialized form is refused, not deferred.
+   Widening the rule past that distinction would convert a deliberate refusal
+   into approval.
 
 ## Enforcement gate
 
-**Current state: `unverified`.** Both invariants are currently supported by
-`tests/ILInspector.Metadata.Tests/CustomAttributeValueGuardTests.cs`, which
-pins individual hostile shapes by example. That is a regression suite, not a
-gate: it proves the shapes somebody already thought of, and every divergence
-found so far was found by a reviewer imagining a new one.
+**Current state: `unverified`.** All three invariants are currently supported
+only by `tests/ILInspector.Metadata.Tests/CustomAttributeValueGuardTests.cs`,
+which pins individual hostile shapes by example. That is a regression suite,
+not a gate: it proves the shapes somebody already thought of, and every
+divergence found so far was found by a reviewer imagining a new one.
 
 **Required gate:** a differential oracle, tracked as issue #5065, that
-generates inputs over the grammar below, runs both walkers, and asserts I1 and
-I2 separately.
+generates inputs over the grammar below, runs both walkers, and asserts I1, I2,
+and I3 separately. A gate that asserts only offset agreement passes both the
+unbounded and the expensive attack.
 
 ### Generated grammar
 
@@ -155,9 +177,12 @@ The generator must cover, and must be able to combine:
 - **Fixed-argument types:** each primitive; `string`; `object` (boxed);
   `System.Type` as a serialized name; `SZARRAY` of each of these; `VAR`/`MVAR`
   where generic substitution applies.
-- **Enum spellings:** `ELEMENT_TYPE_VALUETYPE` with a `TypeDef` handle, the
-  same with a `TypeRef` handle, and the serialized (`0x55`) name form — each
-  independently, because they resolve differently.
+- **Enum spellings:** the handle forms and the serialized (`0x55`) name form,
+  each independently, because they resolve differently. The handle forms must
+  be generated with **both** `ELEMENT_TYPE_VALUETYPE` and
+  `ELEMENT_TYPE_CLASS`, each with a `TypeDef` and a `TypeRef` handle. The
+  guard routes both spellings through the same path, and metadata is
+  untrusted, so the gate cannot assume an enum is spelled legally.
 - **Nesting:** boxed and `SZARRAY` nesting at, just below, and just above
   `MaxSerializedDepth`.
 - **Custom-modifier chains** preceding element types, at and above the
@@ -184,20 +209,36 @@ are available together, and the design requires all three:
    can be compared against directly.
 2. **Decoded values.** The fixed and named argument values SRM returns say
    which bytes it interpreted and as what width.
-3. **Sentinel discrimination.** Appending a byte pattern at the offset the
-   guard skipped to distinguishes the aligned case from the divergent one: if
-   the walkers agree, the sentinel is never interpreted as data; if they
-   diverge, it is consumed and appears in a decoded value or changes the
-   outcome.
+3. **Boundary discrimination, in both directions.** A single sentinel appended
+   at the offset the guard skipped to is **not sufficient**, because it only
+   detects the case where SRM consumes *farther* than the guard. Neither the
+   guard nor SRM rejects trailing bytes, so when the guard skips farther than
+   SRM, the sentinel lies in data SRM never reads: the decode succeeds with
+   exactly the provider calls and values the aligned case would produce.
+   The gate must therefore make each candidate boundary *consequential* —
+   for example by requiring a following argument whose successful decode is
+   possible only at the correct boundary, so an under-consuming and an
+   over-consuming guard are both observable.
+
+I1 must be established in both directions. Guard-consumes-more and
+SRM-consumes-more are distinct failures, and only the second is self-revealing.
 
 I2 is checked separately and does not depend on these: the gate asserts that a
 blob whose declared quantities exceed the remaining bytes is refused *before*
 `DecodeValue` is invoked at all.
 
+I3 is checked separately as well, and cannot be observed from SRM at all. The
+gate asserts that guard-side work does not scale with attacker-declared
+quantities: hold the blob's distinct content fixed, raise the declared element
+count, and require that per-distinct-input work — signature reparses, name
+renderings, definition scans, enum-width resolutions — stays flat. Four
+existing tests, each named for the defect it pins, already assert exactly this
+shape one instance at a time; the gate generalizes them.
+
 Seed the corpus with the regressions already found by hand so the gate is
 demonstrably non-vacuous, and pin any failing seed as an ordinary case.
 
-Until that gate exists, any statement in this document that either invariant
+Until that gate exists, any statement in this document that any invariant
 *holds* is unverified in the sense of [Asserted properties name their
 gate](../../AGENTS.md#asserted-properties-name-their-gate). Statements about
 what the invariants *require* are normative regardless.
@@ -242,14 +283,14 @@ Width agreement is established by *two different mechanisms* depending on how
 the enum is spelled. Conflating them is the mistake this section exists to
 prevent.
 
-### Handle-typed enums: same handle, same resolution function
+### Handle-typed enums: same handle, same resolution function — when it resolves
 
-When an argument is spelled `ELEMENT_TYPE_VALUETYPE` followed by a coded
-handle, the guard resolves the width **directly from the handle** —
-`EnumUnderlyingPrimitive.TryResolveDefinition`, then `FromDefinition` — and
-does not consult the caller's resolver at all. SRM later reaches
-`ArgTypeProvider`, whose pending-handle path calls those same two functions on
-the same handle.
+When an argument is spelled `ELEMENT_TYPE_VALUETYPE` or `ELEMENT_TYPE_CLASS`
+followed by a coded handle, the guard first attempts to resolve the width
+**directly from the handle** — `EnumUnderlyingPrimitive.TryResolveDefinition`,
+then `FromDefinition`. On that path it does not consult the caller's resolver.
+SRM later reaches `ArgTypeProvider`, whose pending-handle path calls those same
+two functions on the same handle.
 
 Agreement here comes from a shared *handle and resolution function*, not from a
 shared object. That is deliberate, and routing this path through a resolver
@@ -257,6 +298,19 @@ would break it: a resolver is keyed by name, a name is a flattened spelling,
 and a flattened spelling discards the resolution scope that distinguishes two
 definitions or an external reference from a local type. Issue #4914 was exactly
 that collapse.
+
+**But the handle path is not unconditionally structural.** When
+`TryResolveDefinition` fails — an unresolvable or external `TypeRef` is the
+ordinary case — the guard renders the handle to a name and calls the caller's
+resolver, and `ArgTypeProvider` falls through to its own name index and then to
+the same resolver. So an unresolved handle-typed enum is resolved by the
+*serialized-name* mechanism described next, and inherits its requirements,
+including referential stability. Treating every handle-typed enum as
+structurally resolved is wrong in exactly the population most likely to be
+hostile: references into assemblies that are absent or attacker-named.
+
+The structural path must stay handle-keyed; the fallback must be recognized as
+a name path and held to the name path's rules.
 
 > **Rule.** The handle path must stay handle-keyed. Do not "simplify" it to go
 > through the resolver.
@@ -343,13 +397,23 @@ signature. The guard replays it: `ProcessSzArrayElements` rewinds
 type for every element, restoring the signature offset once the last element is
 done.
 
-**This replay is the component's principal hazard.** Any work reachable from
-element-type parsing is multiplied by an attacker-chosen element count, on
-input the guard *accepts* — so no refusal bounds it. Four separate
-amplifications of this shape have been found and fixed individually (a
-re-materialized type name, a re-validated constructor `TypeSpec`, a replayed
-custom-modifier chain, and a re-skipped nested descendant, the last measured at
-a 537x multiplier). The structure that produced all four remains.
+**This replay is the component's principal hazard, and it is what I3 exists to
+bound.** Any work reachable from element-type parsing is multiplied by an
+attacker-chosen element count, on input the guard *accepts* — so no refusal
+bounds it. Four separate amplifications of this shape have been found and fixed
+individually (a re-materialized type name, a re-validated constructor
+`TypeSpec`, a replayed custom-modifier chain, and a re-skipped nested
+descendant, the last measured at a 537x multiplier). The structure that
+produced all four remains.
+
+Each of those four is now pinned by its own hand-written test —
+`ArrayElementCustomModifiers_AreSkippedOncePerArray`,
+`GenericParameterArrayElements_ResolveTheTypeSpecOnce`,
+`SignatureTypedArrayElements_RenderTheTypeNameOncePerHandle`, and
+`EnumArrayElements_ResolveTheWidthOncePerName`. Four tests named for the four
+scars is the signature of a missing invariant: each was written after the fact,
+and none of them would catch the fifth. That is why I3 is stated as a contract
+and given a gate rather than left as review discipline.
 
 SRM does not do this: it resolves an `ArgumentTypeInfo` once and then loops.
 Issue #5047 tracks converging on that shape.
@@ -399,14 +463,24 @@ Reading a large charge as evidence of materialization has misled three separate
 reviewers. State it explicitly in any new charging code.
 
 The guard contains no `throw` for budget purposes; a caller's observer raises.
-How that exception travels depends on which side raised it:
+How that exception travels depends on where it was raised and what type it is,
+and the combination is not clean:
 
-- **Guard-side observer calls are direct**, so the caller's exception
-  propagates as-is.
-- **Provider callbacks made during `DecodeValue` are wrapped** in
-  `MaterializationObserverException` and rethrown afterwards, because an
-  exception crossing SRM's callback boundary would otherwise be swallowed by
-  SRM's own catch behavior and turn a budget stop into a silent decode failure.
+- **Provider callbacks are wrapped** in `MaterializationObserverException` and
+  rethrown, because an exception crossing SRM's callback boundary would
+  otherwise be swallowed by SRM's own catch behavior and turn a budget stop
+  into a silent decode failure. This applies during `DecodeValue` and also when
+  the guard drives the provider.
+- **Direct guard-side observer calls are not wrapped**, so the exception type
+  decides the outcome. Most types propagate. But `BadImageFormatException` and
+  `ArgumentOutOfRangeException` are caught by the public boundary's
+  malformed-metadata handlers and converted to `true` — meaning an observer
+  that raises either type to stop the walk instead **approves the blob**, and
+  SRM then runs.
+
+> That last case is a real hazard, not a documentation detail: it makes a
+> caller's budget stop indistinguishable from a malformed-blob deferral. The
+> two concerns should not share a catch. Tracked as issue #5085.
 
 ## Failure semantics
 
@@ -416,12 +490,13 @@ a malformed state is detected decides which one you get.
 
 | Condition | Result | Why |
 | --- | --- | --- |
-| Truncated blob | `true` | SRM's failure is catchable and precise; ours would be a guess. Let the decoder own the error. |
+| Value-walk read runs out of bytes (`Result.Truncated`) | `true` | SRM's failure is catchable and precise; ours would be a guess. Let the decoder own the error. |
+| Truncation inside a generic-substitution helper | `false` | These helpers report failure rather than a plausible offset, and the caller maps that to `Unsafe`. Truncation is **not** uniformly `true`. |
 | Unknown fixed-argument element code, unsupported serialized type, invalid named-argument kind | `false` | The guard positively classifies these as forms it cannot track. It refuses rather than walking blind alongside a decoder it can no longer follow. |
 | Declared count exceeds what the remaining bytes can describe | `false` | Invariant I2. The count is the amplification vector and must be refused before SRM allocates from it. |
 | Serialized nesting past `MaxSerializedDepth` | `false` | Refuse rather than truncate. |
-| `TypeDefinitionIndexException` while binding the resolver | `false` | The walk never finished, so a later `DecodeValue` with a different provider must not run. A genuine failure, not a blob-format success. |
-| `BadImageFormatException` / `ArgumentOutOfRangeException` **reaching the public boundary** | `true` | Same reasoning as truncation: hand it to SRM. |
+| `TypeDefinitionIndexException` raised while building the type-definition index during guard-side name fallback | `false` | The walk never finished, so a later `DecodeValue` with a different provider must not run. Note this is raised lazily when the bound delegate is *invoked*, not when the resolver is bound, so prefix values may already have been walked and charged. |
+| `BadImageFormatException` / `ArgumentOutOfRangeException` **reaching the public boundary** | `true` | Same reasoning as truncation: hand it to SRM. Also catches observer exceptions of these types; see the hazard above. |
 | The same exceptions **caught inside a parsing helper** | `false` | A helper that cannot complete its own read has lost track of the blob; it reports failure rather than returning a plausible offset. |
 
 Two consequences worth stating for anyone editing this:
@@ -435,16 +510,19 @@ Two consequences worth stating for anyone editing this:
 The deliberate `true` results are the reason this component is easy to misread.
 They are *not* fail-open in the safety sense, because they hand the blob to a
 decoder that will itself fail closed and catchably. The genuine fail-opens are
-a `true` reached by skipping the wrong bytes (I1) and a `true` reached without
-refusing an attacker-declared quantity (I2).
+a `true` reached by skipping the wrong bytes (I1), a `true` reached without
+refusing an attacker-declared quantity (I2), and — as #5085 shows — a `true`
+reached because the *caller's own* attempt to stop the walk was mistaken for a
+malformed blob.
 
 ## Open work
 
 | Issue | Concern |
 | --- | --- |
 | #4992 | Whether the width-alignment collapse fixed on the handle path remains reachable on the blob-authored name path. Open and unproven. |
-| #5047 | Per-element element-type replay; resolve once and loop, as SRM does. |
+| #5047 | Per-element element-type replay; resolve once and loop, as SRM does. Closing it would discharge much of I3 structurally. |
 | #5065 | The differential oracle named above as this design's enforcement gate. |
+| #5085 | An observer exception can be caught as malformed metadata and turned into an approval. Found while reviewing this document. |
 | #4879 | Enum constants whose signature does not match `value__`. Fidelity. |
 | #5062 | Signature decode laundering internal errors into `SignatureRejected`. |
 
