@@ -66,6 +66,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Dynamic Leak-Watch](design/dynamic-leak-watch.md) | The retention axis: how `runfaster leak-watch` separates a managed leak from a churn storm from native/committed growth, and why static triage and the allocation-tick join cannot. |
 | [Rendering Model](design/rendering-model.md) | Historical/current rendering model notes; prefer [Progressive Disclosure](design/progressive-disclosure.md) for current agent-facing behavior. |
 | [Section Model](design/section-model.md) | Section selection design notes; use with [Progressive Disclosure](design/progressive-disclosure.md). |
+| [View-Facet Registry](design/view-facet-registry.md) | View-facet identity and discovery: how facets are registered and looked up across CLI and browser hosts. |
 | [Schema Query](design/schema-query.md) | `-D`/`-S` schema/query implementation notes. |
 | [Query Vocabulary](design/vocabulary.md) | Shared static catalogs for legal query values across CLI and browser hosts. |
 | [Hidden-Fact Annotations](design/hidden-fact-annotations.md) | Allocation/unsafety/lifetime annotation model and the static IL pair-agreement oracle strategy. |
@@ -80,6 +81,43 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Cache concurrency and publication](design/cache-concurrency.md) | Process-local single-flight, cross-process atomic publication, dependency overlap, and filesystem guarantees. |
 | [Assembly Inspection Query Model](design/assembly-inspection-query.md) | Target boundary where the CLI forms a query and the metadata/service layer resolves, opens, and returns the final shape (why the CLI should not hold a `PEReader`). |
 | [Skill Guidance Taste](../taste/skill-guidance.md) | Good and bad examples for maintaining the embedded skill. |
+| [Inspection Layers](design/inspection-layers.md) | Layering and consumer-boundary rules between Metadata, Analysis, CSharpText, CSharp, Research, and the CLI. |
+| [Artifact Acquisition and Workspaces](design/artifact-acquisition-and-workspaces.md) | How artifacts are acquired and composed into an inspection workspace. |
+| [Platform Composition and Overlays](design/platform-composition-and-overlays.md) | Platform library composition, overlays, and core-library entitlement. |
+| [Type, Member, and API Representation](design/type-member-api-representation.md) | Canonical type, member, and API identity model. |
+| [Source Finding Producers](design/source-finding-producers.md) | How source-derived Findings are produced. |
+| [Untrusted Data Threat Model](design/untrusted-data-threat-model.md) | Trust boundaries, existing controls, and the security-scope rationale for untrusted internet-origin data. |
+| [Finding Adoption](design/finding-adoption.md) | How Analysis, Findings, and Research compose. |
+| [Call Graph Projection](design/call-graph-projection.md) | Projecting the inspection graph into a call graph. |
+| [Instruction Substrate](design/instruction-substrate.md) | Shared IL/control-flow substrate consumed by Analysis and the Decompiler. |
+| [TypeScript Facades for `[JSExport]`](design/ts-jsexport.md) | Generating TypeScript facades for JSExport members. |
+| [Classic Async Reconstruction](design/classic-async-reconstruction.md) | Reconstructing classic (non-builder) async state machines in the decompiler. |
+| [Decompiler Raise Discipline](decompiler-raise-discipline.md) | Rules for raising IL into decompiler structures. |
+
+### Contributor workflow and process docs
+
+| Document | Need served |
+| -------- | ----------- |
+| [Design Scope and Composition](../docs/design-scope.md) | Full mechanics for one-owner-per-design, broad-design gating, TLA+ modeling, and over-broad-design recovery. |
+| [Evidence and Validation](evidence-and-validation.md) | Matching evidence to claims, the style-oracle consultation procedure, and the harness/product boundary. |
+| [Round Orchestration](round-orchestration.md) | Running an adversarial review round: status discovery, dispatch, reconciliation, carry-forward, and block boundaries. |
+| [GitHub Status Queries](github-status-queries.md) | Querying PR mergeability and CI status without wasting API quota. |
+| [GitHub API Operations](github-api-operations.md) | Correct `gh api` usage for PR/issue metadata changes. |
+| [Stacked PRs](stacked-prs.md) | Mechanics for stacking multiple PRs for a multi-slice issue. |
+| [Agent Session State](agent-session-state.md) | tmux window naming and `@agent`/`@agent_state` publishing mechanics for concurrent agents. |
+| [Local Development Environment](dev-environment.md) | NuGet source overrides and file-based throwaway probes. |
+| [Release Workflow](release-workflow.md) | Coordinated package-and-site release process. |
+| [Markout Co-development](markout-co-development.md) | The (rare) peer-checkout workflow for changes spanning Markout and this repo. |
+| [Inspect-web Demo Hosting](runbooks/inspect-web-demo-hosting.md) | Hosting a network-accessible inspect-web demo. |
+| [Installing TLA+ and Java](runbooks/tla-plus-setup.md) | Installing and pinning the TLA+ tools and Java. |
+| [TLA+ Methodology](tla-plus-methodology.md) | TLA+ modeling methodology and curated examples. |
+| [IL Round-trip Tests](../tests/DotnetInspector.ILRoundtrip.Tests/README.md) | Dependency restore and fast/full test commands for the IL round-trip suite. |
+
+PR templates live under `docs/templates/`: `decompiler-pr.md` (raising,
+structuring, validity, fidelity, or corpus behavior), `decompiler-burndown-fix-pr.md`
+(a focused invalid-`Full` or burndown row fix), and
+`decompiler-compile-back-harness-pr.md` (compile-back harness, fidelity
+skeleton, or ReturnToSender coverage).
 
 ### Design history and backlog
 

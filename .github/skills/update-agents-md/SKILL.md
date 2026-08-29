@@ -42,20 +42,35 @@ agent is deep in a specific task, it belongs in that task's owning doc instead.
 3. Put any accompanying detail (steps, tables, worked cases) in the owning doc
    and link to it. Prefer creating a new focused doc over inflating an
    unrelated one or leaving the detail in AGENTS.md.
-4. Re-run `wc -l AGENTS.md`. If still over 600, extract further content — from
-   the section you just changed or from whichever existing section most
-   duplicates a linked doc — until it fits.
+4. Re-run `wc -l AGENTS.md`. If still over 600, migrate another whole section
+   or subsection to its owning doc — see the extraction checklist below.
+   Repeat with a full section each time; do not switch to shaving individual
+   lines to close a small remaining gap.
 5. Run `npx markdownlint-cli AGENTS.md` (and any doc you edited) before
    committing.
 
 ## Extraction checklist when over budget
 
+Move content in whole, section-sized blocks, not by trimming prose word by
+word. A block move is legible as a genuine reorganization; shaving a line here
+and there to squeak under the cap is not — it reads as gaming the number and
+tends to fuse unrelated sentences, drop headings that readers or other docs
+depend on, or otherwise degrade the file it was supposed to keep skimmable.
+
+- A whole subsection whose detail belongs in a focused doc: cut the entire
+  subsection over, leave one summary paragraph plus a pointer in AGENTS.md.
 - A bullet that restates a longer explanation already in the linked doc: keep
   the bullet, delete the restatement.
-- Mechanics or tables that only matter mid-task: move to the owning doc, leave
-  one linking sentence in AGENTS.md.
 - A rarely invoked scenario (well under one PR in twenty): reduce to a single
   pointer sentence, as with the Markout co-development loop.
+
+If after moving the obvious block-sized candidates the file is still over (or
+barely under) 600, that is a signal to find one more whole section to
+relocate — not to start merging headings into prose, deleting blank lines
+between unrelated paragraphs, or rewording sentences purely to save a line.
+Never remove or fold a heading to save space; if it is not clearly
+disposable as a whole subsection, leave it and find a different block to
+move instead.
 
 ## Table of contents discipline
 
