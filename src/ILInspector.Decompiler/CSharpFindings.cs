@@ -166,6 +166,7 @@ public static class CSharpFindings
                     oldIndex,
                     representative.StableAssemblyKey,
                     representative.TypeFullName,
+                    representative.MethodName,
                     subject,
                     "old")
                 : Inspect(sources.Open(oldMethod), oldMethod.MethodHandle, subject);
@@ -174,6 +175,7 @@ public static class CSharpFindings
                     newIndex,
                     representative.StableAssemblyKey,
                     representative.TypeFullName,
+                    representative.MethodName,
                     subject,
                     "new")
                 : Inspect(sources.Open(newMethod), newMethod.MethodHandle, subject);
@@ -195,6 +197,7 @@ public static class CSharpFindings
         CSharpBodyDiff.CSharpMethodIndex index,
         string stableAssemblyKey,
         string typeFullName,
+        string methodName,
         FindingSubject subject,
         string side)
     {
@@ -208,6 +211,11 @@ public static class CSharpFindings
                     || string.Equals(
                         omission.OwningTypeFullName,
                         typeFullName,
+                        StringComparison.Ordinal))
+                && (omission.MethodName is null
+                    || string.Equals(
+                        omission.MethodName,
+                        methodName,
                         StringComparison.Ordinal)))
             .ToArray();
         if (failures.Length == 0)

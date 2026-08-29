@@ -2356,16 +2356,17 @@ public class DiffCommand
 
     static bool TryFindSingleType(ApiSurface fromSurface, ApiSurface toSurface, string query, out string typeName, out string? error)
     {
-        ApiType? oldType = FindSelectedType(
+        string? oldTypeName = SelectTypeName(
             fromSurface,
             query,
             out string? oldError);
-        ApiType? newType = FindSelectedType(
+        string? newTypeName = SelectTypeName(
             toSurface,
             query,
             out string? newError);
         error = oldError ?? newError;
-        if (error is not null || oldType is null && newType is null)
+        if (error is not null
+            || oldTypeName is null && newTypeName is null)
         {
             typeName = "";
             return false;
@@ -2373,13 +2374,6 @@ public class DiffCommand
 
         typeName = query;
         return true;
-    }
-
-    static IEnumerable<ApiType> FindTypes(ApiSurface surface, string query)
-    {
-        foreach (var type in surface.Types)
-            if (TypeMatcher.MatchesTypeFilter(type.FullName, query))
-                yield return type;
     }
 
     static IReadOnlyList<string> ResolveFindingTypeNames(
@@ -2417,22 +2411,30 @@ public class DiffCommand
         string query,
         out string? error)
     {
-        ApiType[] matches = FindTypes(surface, query)
-            .DistinctBy(type => type.FullName, StringComparer.Ordinal)
-            .OrderBy(type => type.FullName, StringComparer.Ordinal)
-            .ToArray();
-        ApiType? exact = matches.FirstOrDefault(type =>
-            type.FullName.Equals(query, StringComparison.Ordinal));
-        if (exact is not null)
-        {
-            error = null;
-            return exact;
-        }
+        string? selectedName = SelectTypeName(
+            surface,
+            query,
+            out error);
+        if (selectedName is null)
+            return null;
 
+        return surface.Types.FirstOrDefault(type =>
+            type.FullName.Equals(
+                selectedName,
+                StringComparison.Ordinal));
+    }
+
+    static string? SelectTypeName(
+        ApiSurface surface,
+        string query,
+        out string? error)
+    {
+        string[] matches = ResolveFindingTypeNames(surface, query)
+            .ToArray();
         if (matches.Length > 1)
         {
             error = $"Type target '{query}' is ambiguous. Use one of: "
-                + $"{string.Join(", ", matches.Select(type => type.FullName))}.";
+                + $"{string.Join(", ", matches)}.";
             return null;
         }
 

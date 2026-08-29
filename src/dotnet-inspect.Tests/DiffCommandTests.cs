@@ -783,6 +783,40 @@ public class DiffCommandTests
         Assert.Contains("No members matched selector 'Run'.", error.Message);
     }
 
+    [Fact]
+    public void BuildFindingTransitions_ExactFailedTypePreventsCaseFallback()
+    {
+        var owner = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("Sample", ["Widget"])).Name;
+        var oldSurface = DiffSurface(
+            DiffType("Sample", "widget", DiffMember("Run")));
+        oldSurface.InspectionFailures.Add(
+            new ApiSurfaceInspectionFailure(
+                "type row",
+                0x02000001,
+                MetadataTypeNameFailureMechanism.Metadata,
+                "MalformedMetadata",
+                "The exact-case type row could not be decoded.")
+            {
+                OwningTypeDefinition = owner,
+            });
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            DiffCommand.BuildFindingTransitions(
+                oldSurface,
+                new ApiSurface(),
+                "1.0.0",
+                "2.0.0",
+                new DiffOptions
+                {
+                    Finding = MetadataFindings.MemberDescriptor.Id,
+                    TypeFilter = ["Sample.Widget"],
+                    MemberFilter = ["Run"],
+                }));
+
+        Assert.Contains("did not resolve", error.Message);
+    }
+
     [Theory]
     [InlineData("Widget")]
     [InlineData("sample.widget")]

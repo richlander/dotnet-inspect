@@ -133,6 +133,7 @@ public class CSharpBodyDiffRelationshipFailureTests
                     index,
                     stableAssemblyKey,
                     "Other",
+                    "Added",
                     new FindingSubject("added", "Added"),
                     "old");
 
@@ -164,13 +165,14 @@ public class CSharpBodyDiffRelationshipFailureTests
             new Dictionary<string, CSharpBodyDiff.CSharpMethodEntry>(
                 StringComparer.Ordinal),
             [failure],
-            [new(failure, "Sample.Broken")]);
+            [new(failure, "Sample.Broken", "Broken")]);
 
         FindingInspection<CSharpCanonicalLine> unrelated =
             CSharpFindings.MissingInspection(
                 index,
                 "assembly",
                 "Sample.Other",
+                "Added",
                 new FindingSubject("other", "Sample.Other.Added"),
                 "old");
         FindingInspection<CSharpCanonicalLine> affected =
@@ -178,7 +180,8 @@ public class CSharpBodyDiffRelationshipFailureTests
                 index,
                 "assembly",
                 "Sample.Broken",
-                new FindingSubject("broken", "Sample.Broken.Added"),
+                "Broken",
+                new FindingSubject("broken", "Sample.Broken.Broken"),
                 "old");
 
         var absent = Assert.IsType<

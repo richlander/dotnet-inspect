@@ -702,7 +702,8 @@ public static partial class CSharpBodyDiff
                         stableAssemblyKey,
                         typeHandle,
                         ex.Failure),
-                    typeFullName));
+                    typeFullName,
+                    MethodName: null));
                 continue;
             }
 
@@ -727,7 +728,8 @@ public static partial class CSharpBodyDiff
                     declarationOmissionFailures,
                     typeFullName,
                     typeKey,
-                    overloadIndex);
+                    overloadIndex,
+                    methodName);
                 if (entry is not null)
                     yield return entry;
             }
@@ -745,7 +747,8 @@ public static partial class CSharpBodyDiff
             declarationOmissionFailures = null,
         string? typeFullName = null,
         string? typeKey = null,
-        int? overloadIndex = null)
+        int? overloadIndex = null,
+        string? methodName = null)
     {
         CSharpMethodEntry entry;
         try
@@ -770,7 +773,8 @@ public static partial class CSharpBodyDiff
                 ex.Failure);
             declarationOmissionFailures?.Add(new(
                 failure,
-                typeFullName));
+                typeFullName,
+                methodName));
             return null;
         }
 
@@ -2524,7 +2528,8 @@ public static partial class CSharpBodyDiff
 
     internal sealed record CSharpDeclarationOmissionFailure(
         CSharpIdentityResolutionFailure Failure,
-        string? OwningTypeFullName);
+        string? OwningTypeFullName,
+        string? MethodName = null);
 
     internal sealed record ExplicitImplementationVisibility(
         HashSet<MethodDefinitionHandle> Handles,
