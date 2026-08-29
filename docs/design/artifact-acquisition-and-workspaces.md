@@ -533,6 +533,14 @@ group as an empty API surface, or route package-root access through an
 acquisition-only assembly set. A selected assembly that fails metadata decoding
 remains a distinct visible participant failure.
 
+Browser workspace registry identity frames every package, version, and
+framework component with its length before composing a multi-package key.
+Caller-controlled framework text therefore remains data inside one coordinate
+and cannot create or remove coordinate boundaries. Manifest dependency groups
+with a missing or blank framework project as NuGet's framework-neutral `any`;
+nonblank framework text that the Browser cannot represent still fails visibly
+rather than being emitted or silently dropped.
+
 This contract does not choose the initial UI subject or define package-view
 presentation. Inspection Subject Navigation owns subject availability and
 initial subject recommendation; host presentation consumes those decisions.
@@ -966,8 +974,10 @@ The target is complete only when tests equivalent to these exist:
 - `PackageCoordinate_RejectsDifferentContentWithSameIdentity`
 - `PackageScope_DoesNotCollapseDifferentContentAtSameCoordinate`
 - `PackageScope_ValidatesEveryCoordinateAgainstCacheProvenance`
+- `PackageScope_RequestedFrameworkCannotForgeCompositeRegistryKey`
 - `MixedPackageScope_RealizesOnlySelectedCoordinates`
 - `PackageFrameworkUnavailability_DoesNotEmitArtifactFramework`
+- `PackageDependencies_BlankDeclaredFrameworkDoesNotAbortProjection`
 - `QueryPackage_ToolsPointerRetainsRootAndManifestDependencies`
 - `QueryPackage_ExplicitEmptyCompileGroupRetainsTypedAbsence`
 - `QueryPackage_NoMatchingFrameworkRetainsRequestedRoot`

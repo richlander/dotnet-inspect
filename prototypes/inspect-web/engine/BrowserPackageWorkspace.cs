@@ -297,9 +297,7 @@ internal static class BrowserPackageWorkspace
         if (coordinates.Count == 0)
             throw new ArgumentException("A workspace requires at least one package coordinate.");
 
-        string key = "packages|" + string.Join(
-            "|",
-            coordinates.Select(coordinate => coordinate.Key).Order(StringComparer.Ordinal));
+        string key = PackageScopeKey(coordinates);
         if (Scopes.TryGetValue(key, out ScopeEntry? entry))
         {
             if (entry.Scope is not BrowserInspectionScope retained)
@@ -1098,6 +1096,29 @@ internal static class BrowserPackageWorkspace
     internal static string PackageKey(string packageId, string version) =>
         $"{packageId.ToLowerInvariant()}@{version.ToLowerInvariant()}";
 
+    static string PackageScopeKey(
+        IReadOnlyList<BrowserPackageCoordinate> coordinates) =>
+        CompositeKey(
+            [
+                "packages",
+                .. coordinates
+                .Select(coordinate => coordinate.Key)
+                .Order(StringComparer.Ordinal),
+            ]);
+
+    internal static string CompositeKey(params string[] components)
+    {
+        var key = new StringBuilder();
+        foreach (string component in components)
+        {
+            key.Append(component.Length);
+            key.Append(':');
+            key.Append(component);
+        }
+
+        return key.ToString();
+    }
+
     internal static void ValidateArchive(byte[] archive)
     {
         if (PackageArchiveValidator.Validate(archive, PayloadLimits)
@@ -1500,12 +1521,14 @@ internal sealed class BrowserPackageCoordinate
         ?? "";
 
     /// <summary>
-    /// The exact coordinate this workspace answers for. It is the registry key, so two requests
-    /// for the same package, resolved version, and framework reuse one open workspace rather than
-    /// reacquiring every image.
+    /// The exact coordinate this workspace answers for. Each component is length-prefixed so
+    /// caller-controlled framework text cannot alter coordinate or workspace key boundaries.
     /// </summary>
     public string Key =>
-        $"{PackageId.ToLowerInvariant()}@{Version.ToLowerInvariant()}/{Framework.ToLowerInvariant()}";
+        BrowserPackageWorkspace.CompositeKey(
+            PackageId.ToLowerInvariant(),
+            Version.ToLowerInvariant(),
+            Framework.ToLowerInvariant());
 
     public bool HasExactContentAs(BrowserPackageCoordinate other)
     {

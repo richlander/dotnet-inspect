@@ -1614,6 +1614,64 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void PackageScope_RequestedFrameworkCannotForgeCompositeRegistryKey()
+    {
+        string suffix = Guid.NewGuid().ToString("N");
+        string firstId = $"Scope.Collision.First.{suffix}";
+        string secondId = $"Scope.Collision.Second.{suffix}";
+        var firstPackage = new BrowserPackage(
+            firstId,
+            "1.0.0",
+            PackageEntries(($"tools/net11.0/any/{firstId}.dll", [0x01])),
+            fromCache: false);
+        var secondPackage = new BrowserPackage(
+            secondId,
+            "1.0.0",
+            PackageEntries(($"tools/net11.0/any/{secondId}.dll", [0x02])),
+            fromCache: false);
+        BrowserPackageWorkspace.RegisterAcquiredPackage(firstPackage);
+        BrowserPackageWorkspace.RegisterAcquiredPackage(secondPackage);
+
+        BrowserPackageCoordinate crafted = new(
+            firstPackage,
+            new PackageRootRealization(
+                firstPackage.Content,
+                firstId,
+                "1.0.0",
+                $"net8.0|{secondId.ToLowerInvariant()}@1.0.0/net9.0"));
+        BrowserPackageCoordinate first = new(
+            firstPackage,
+            new PackageRootRealization(
+                firstPackage.Content,
+                firstId,
+                "1.0.0",
+                "net8.0"));
+        BrowserPackageCoordinate second = new(
+            secondPackage,
+            new PackageRootRealization(
+                secondPackage.Content,
+                secondId,
+                "1.0.0",
+                "net9.0"));
+
+        BrowserInspectionScope craftedScope =
+            BrowserPackageWorkspace.OpenScope([crafted]);
+        BrowserInspectionScope legitimateScope =
+            BrowserPackageWorkspace.OpenScope([first, second]);
+        try
+        {
+            Assert.NotSame(craftedScope, legitimateScope);
+            Assert.Single(craftedScope.Coordinates);
+            Assert.Equal(2, legitimateScope.Coordinates.Length);
+        }
+        finally
+        {
+            BrowserPackageWorkspace.RemoveScope(craftedScope);
+            BrowserPackageWorkspace.RemoveScope(legitimateScope);
+        }
+    }
+
+    [Fact]
     public void MixedPackageScope_RealizesOnlySelectedCoordinates()
     {
         byte[] image =
@@ -3610,6 +3668,57 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Equal(
             JsonValueKind.Null,
             root.GetProperty("assemblyReferenceError").ValueKind);
+    }
+
+    [Fact]
+    public async Task PackageDependencies_BlankDeclaredFrameworkDoesNotAbortProjection()
+    {
+        string packageId = $"Blank.Dependency.Framework.{Guid.NewGuid():N}";
+        byte[] image = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] nupkg = PackageWithManifest(
+            image,
+            $"lib/net11.0/{packageId}.dll",
+            $"""
+             <package>
+               <metadata>
+                 <id>{packageId}</id>
+                 <version>1.0.0</version>
+                 <dependencies>
+                   <group targetFramework="net11.0">
+                     <dependency id="Valid.Dependency" version="[1.0.0]" />
+                   </group>
+                   <group targetFramework="" />
+                 </dependencies>
+               </metadata>
+             </package>
+             """);
+        BrowserPackageWorkspace.RegisterAcquiredPackage(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                nupkg,
+                fromCache: false));
+
+        BrowserPackageDependencies dependencies =
+            Assert.IsType<BrowserPackageDependencies>(
+                JsonSerializer.Deserialize(
+                    await InspectionEngine.QueryPackageDependencies(
+                        packageId,
+                        "1.0.0",
+                        "net11.0",
+                        $"{packageId}.dll"),
+                    BrowserJsonContext.Default.BrowserPackageDependencies));
+
+        Assert.Equal(2, dependencies.DependencyGroups.Length);
+        Assert.Equal("net11.0", dependencies.DependencyGroups[0].Framework);
+        Assert.Equal("any", dependencies.DependencyGroups[1].Framework);
+        Assert.Equal(
+            "Valid.Dependency",
+            Assert.Single(dependencies.DependencyGroups[0].Dependencies).Id);
+        Assert.Equal(
+            BrowserCompileLibraryStatus.Selected,
+            dependencies.CompileLibrary.Status);
     }
 
     [Fact]

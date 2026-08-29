@@ -241,6 +241,11 @@ public static partial class InspectionEngine
         ?? throw new InvalidOperationException(
             "A framework identifier cannot be represented safely.");
 
+    static string BrowserDependencyGroupFramework(string framework) =>
+        string.IsNullOrWhiteSpace(framework)
+            ? "any"
+            : RequiredBrowserFramework(framework);
+
     static string? BrowserFramework(string? framework)
     {
         if (string.IsNullOrWhiteSpace(framework)
@@ -730,7 +735,7 @@ public static partial class InspectionEngine
                     .. dependencies.Groups.Select((group, index) =>
                         new BrowserPackageDependencyGroup(
                             index,
-                            RequiredBrowserFramework(group.TargetFramework),
+                            BrowserDependencyGroupFramework(group.TargetFramework),
                             index == dependencies.SelectedGroupIndex,
                             [
                                 .. group.Dependencies.Select(dependency =>
