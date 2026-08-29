@@ -86,22 +86,54 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
 
         AssemblyBindingTarget.AssemblyReference? reference =
             request.Target as AssemblyBindingTarget.AssemblyReference;
+        AssemblyBindingSelection? pendingDesignated = null;
         if (reference is not null)
         {
-            ImmutableArray<ResolvedAssemblyReference> matches =
-            [
-                .. _roots.Where(
-                    root => SameIdentity(
-                        root.Identity,
-                        reference.Identity)),
-            ];
-            if (matches.Length == 1)
-                return AssemblyBindingSelection.Found(matches[0]);
-            if (matches.Length > 1)
-                return AssemblyBindingSelection.Multiple(matches);
+            bool nonEntitledNameOwner =
+                request.Scope == AssemblyResolutionScope.Any
+                && _roots.Any(root =>
+                    root.Provenance
+                        is not (
+                            AssemblyResolutionProvenance.DesignatedAsset
+                            or AssemblyResolutionProvenance.PlatformAsset)
+                    && string.Equals(
+                        root.Identity.Name,
+                        reference.Identity.Name,
+                        StringComparison.OrdinalIgnoreCase));
+            if (!nonEntitledNameOwner
+                && DesignatedAssemblyBindingPrecedence.TrySelect(
+                        reference.Identity,
+                        _roots)
+                    is { } precedenceSelection)
+            {
+                pendingDesignated = precedenceSelection;
+            }
+
+            if (pendingDesignated is null)
+            {
+                ImmutableArray<ResolvedAssemblyReference> matches =
+                [
+                    .. _roots.Where(
+                        root => SameIdentity(
+                            root.Identity,
+                            reference.Identity)),
+                ];
+                if (matches.Length == 1)
+                    return AssemblyBindingSelection.Found(matches[0]);
+                if (matches.Length > 1)
+                    return AssemblyBindingSelection.Multiple(matches);
+            }
         }
 
         AssemblyBindingSelection selection = policy.Select(request);
+        if (reference is not null
+            && pendingDesignated is not null)
+        {
+            selection = ComposePendingDesignated(
+                reference.Identity,
+                pendingDesignated,
+                selection);
+        }
         if (reference is not null
             && selection
                 is AssemblyBindingSelection.Missing
@@ -131,6 +163,128 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
 
         return selection;
     }
+
+    static AssemblyBindingSelection ComposePendingDesignated(
+        AssemblyReferenceIdentity requested,
+        AssemblyBindingSelection designated,
+        AssemblyBindingSelection policySelection)
+    {
+        if (policySelection is AssemblyBindingSelection.Missing)
+        {
+            return designated;
+        }
+
+        if (policySelection
+            is AssemblyBindingSelection.Unavailable
+                or AssemblyBindingSelection.Rejected)
+        {
+            return policySelection;
+        }
+
+        ImmutableArray<ResolvedAssemblyReference> policyCandidates =
+            policySelection switch
+            {
+                AssemblyBindingSelection.Selected selected =>
+                    [selected.Assembly],
+                AssemblyBindingSelection.Ambiguous ambiguous =>
+                    ambiguous.Assemblies,
+                _ => [],
+            };
+        if (policyCandidates.IsEmpty
+            || policyCandidates.Any(candidate =>
+                !IsCompatibleEntitled(requested, candidate)))
+        {
+            return policySelection;
+        }
+
+        ImmutableArray<ResolvedAssemblyReference> designatedCandidates =
+            DistinctRegistrations(
+                DesignatedCandidates(designated)
+                    .Concat(policyCandidates.Where(candidate =>
+                        candidate.Provenance
+                            is AssemblyResolutionProvenance
+                                .DesignatedAsset)));
+        if (designatedCandidates.Length > 1)
+        {
+            return AssemblyBindingSelection.Multiple(
+                designatedCandidates);
+        }
+
+        IEnumerable<ResolvedAssemblyReference> policyShadows =
+            policySelection
+                is AssemblyBindingSelection.Selected selectedWithShadows
+                    ? selectedWithShadows.ShadowedAssemblies
+                    : [];
+        IEnumerable<ResolvedAssemblyReference> designatedShadows =
+            designated
+                is AssemblyBindingSelection.Selected selectedDesignated
+                    ? selectedDesignated.ShadowedAssemblies
+                    : [];
+        ImmutableArray<ResolvedAssemblyReference> platforms =
+            DistinctRegistrations(
+                designatedShadows
+                    .Concat(policyCandidates)
+                    .Concat(policyShadows)
+                    .Where(candidate => IsCompatiblePlatform(
+                        requested,
+                        candidate,
+                        ignoreVersion: true)));
+        return AssemblyBindingSelection.Found(
+            designatedCandidates[0],
+            platforms);
+    }
+
+    static ImmutableArray<ResolvedAssemblyReference> DesignatedCandidates(
+        AssemblyBindingSelection selection) =>
+        selection switch
+        {
+            AssemblyBindingSelection.Selected selected
+                when selected.Assembly.Provenance
+                    is AssemblyResolutionProvenance.DesignatedAsset =>
+                [selected.Assembly],
+            AssemblyBindingSelection.Ambiguous ambiguous =>
+                [
+                    .. ambiguous.Assemblies.Where(candidate =>
+                        candidate.Provenance
+                            is AssemblyResolutionProvenance
+                                .DesignatedAsset),
+                ],
+            _ => [],
+        };
+
+    static ImmutableArray<ResolvedAssemblyReference> DistinctRegistrations(
+        IEnumerable<ResolvedAssemblyReference> candidates)
+    {
+        var seen = new HashSet<AssemblyAcquisitionRegistration>(
+            ReferenceEqualityComparer.Instance);
+        return
+        [
+            .. candidates.Where(candidate =>
+                seen.Add(candidate.Registration)),
+        ];
+    }
+
+    static bool IsCompatibleEntitled(
+        AssemblyReferenceIdentity requested,
+        ResolvedAssemblyReference candidate) =>
+        candidate.Provenance is (
+            AssemblyResolutionProvenance.DesignatedAsset
+            or AssemblyResolutionProvenance.PlatformAsset)
+        && requested.MatchesCandidate(
+            candidate.Identity,
+            allowVersionRollForward: false,
+            ignoreVersion: true);
+
+    static bool IsCompatiblePlatform(
+        AssemblyReferenceIdentity requested,
+        ResolvedAssemblyReference candidate,
+        bool ignoreVersion) =>
+        candidate.Provenance
+            is AssemblyResolutionProvenance.PlatformAsset
+        && requested.MatchesCandidate(
+            candidate.Identity,
+            allowVersionRollForward: false,
+            ignoreVersion);
 
     AssemblyBindingSelection? IdentityMismatchSelection(
         AssemblyReferenceIdentity requested,
