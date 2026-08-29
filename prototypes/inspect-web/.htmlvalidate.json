@@ -1,0 +1,12 @@
+{
+  "$schema": "./node_modules/html-validate/dist/schema/config.json",
+  "root": true,
+  "extends": [
+    "html-validate:standard",
+    "html-validate:document",
+    "html-validate:a11y"
+  ],
+  "rules": {
+    "require-sri": ["error", { "target": "crossorigin" }]
+  }
+}
