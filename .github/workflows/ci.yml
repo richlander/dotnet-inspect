@@ -178,6 +178,9 @@ jobs:
       - name: Install browser Wasm workload
         run: dotnet workload install wasm-experimental
 
+      - name: Run MethodSemantics Browser/Wasm probe
+        run: eng/run-method-semantics-platform-probe.sh browser
+
       - name: Build platform-index generator
         run: dotnet build prototypes/inspect-web/tools/gen-platform-index/genindex.cs
 
@@ -358,6 +361,9 @@ jobs:
 
       - name: Build
         run: dotnet build dotnet-inspect.slnx -c Release
+
+      - name: Run MethodSemantics NativeAOT probe
+        run: eng/run-method-semantics-platform-probe.sh nativeaot ${{ matrix.rid }}
 
       - name: Build package-manifest corpus verifier
         run: dotnet build eng/verify-package-manifest-corpus.cs -c Release
