@@ -233,16 +233,16 @@ Starting an operation follows one owner-controlled synchronous sequence:
 3. allocate the next page-wide identity and unpublished candidate record, and
    capture the session revision plus current identity;
 4. ask the adapter to prepare against that identity and candidate sink;
-5. on producer rejection, return `producer-rejected` and discard the candidate
-   without an outer authority transition; any reentrant session transition
-   remains authoritative;
-6. on preparation, compare the session revision and current identity with the
-   captured values;
-7. if the session was disposed, abandon the prepared binding and return
+5. compare the session revision and current identity with the captured values
+   regardless of the preparation result;
+6. if the session was disposed, abandon a prepared binding and return
    `session-disposed`;
-8. if another session transition occurred, abandon the prepared binding and
+7. if another session transition occurred, abandon a prepared binding and
    return `session-changed`;
-9. otherwise atomically install the candidate as current, complete the
+8. if the unchanged session received producer rejection, return
+   `producer-rejected` and discard the candidate without an authority
+   transition;
+9. otherwise atomically install the prepared candidate as current, complete the
    prior pending outcome as `canceled("superseded")`, and reserve the prior
    operation's one cancellation forwarding;
 10. activate the prepared current binding;
@@ -259,7 +259,10 @@ handle without overwriting the reentrant replacement.
 Preparation may synchronously reenter `start()`, `cancelCurrent()`, or
 `dispose()`. The revision check ensures the outer attempt never overwrites that
 nested transition. A prepared candidate that lost the comparison is abandoned
-before the outer call returns and never becomes current.
+before the outer call returns and never becomes current. A producer rejection
+from a stale preparation is consumed without feature publication; the returned
+start reason reflects `session-disposed` or `session-changed`, so feature code
+cannot publish the stale producer error into the newer view.
 
 The authority commit in step 9 completes before either later external callout.
 Cancellation-forwarded state is reserved before invoking its endpoint.
@@ -321,6 +324,9 @@ after success, failure, or cancellation is a strict local no-op.
 authority state and forwarding flag commit before its external cancellation
 callout; endpoint exceptions are diagnosed and do not escape or undo the
 transition. Reentrant producer events therefore observe the canceled outcome.
+Each handle remains bound to its originating operation record. Calling an old
+handle never delegates to the session's current operation and cannot change a
+replacement's outcome, authority, cancellation count, or producer endpoint.
 
 Starting a replacement operation applies the same transition to the prior
 current operation with reason `"superseded"`. The replacement becomes current
@@ -452,6 +458,10 @@ exist and must include:
   session recreation;
 - reuse of an identity observed by a rejecting producer in the same and a
   recreated session;
+- reuse of an identity observed by a prepared binding later abandoned for
+  `session-changed` or `session-disposed`, in the same and a recreated session;
+- exhaustion after a rejected or abandoned preparation consumes the final
+  available sequence without rolling allocation state back;
 - visible allocation exhaustion without adapter preparation and without
   changing any existing current operation or cancellation count;
 - typed `session-disposed`, `session-changed`, `identity-exhausted`, and
@@ -462,7 +472,8 @@ exist and must include:
   followed by revision mismatch, non-throwing abandonment, no activation, and
   no outer authority commit;
 - producer rejection after preparation reentrancy preserving the nested
-  transition and producing no outer authority commit;
+  transition, returning the session-change reason, publishing no stale
+  producer error, and producing no outer authority commit;
 - prepared cancellation availability before activation, immediate callback
   cancellation through `OperationSession`, and activation failure through
   terminal plus quiescence events;
@@ -478,6 +489,9 @@ exist and must include:
 - unexpected stale failure reaching diagnostics without reaching feature
   state;
 - terminal, cancel, and release races;
+- stale-handle cancellation after supersession and after terminal/quiescence,
+  leaving the replacement outcome, authority, cancellation count, and producer
+  endpoint unchanged;
 - duplicate producer reports remaining visible contract failures;
 - disposal preventing starts and publication while retaining event
   consumption through quiescence;
