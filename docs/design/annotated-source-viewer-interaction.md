@@ -258,7 +258,7 @@ restores focus to the exact opener if it still exists:
 - a chip-opened detail returns to the exact medium-specific chip while that
   chip is still rendered; and
 - if that exact chip disappeared, focus returns to the Finding's persistent
-  inspector action, even if a sibling chip remains.
+  inspector action, even if a same- or different-medium sibling chip remains.
 
 Removing the primary annotation closes detail indirectly and leaves focus on
 the annotation toggle that performed the removal. **Default** and **Clear**
