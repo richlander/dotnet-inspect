@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using ILInspector.Findings;
 using ILInspector.Metadata;
 
 namespace ILInspector.Metadata.Tests;
@@ -688,6 +689,28 @@ public sealed class ApiSurfaceExtractorBoundsTests
         Assert.Equal(MetadataTypeNameFailureMechanism.Metadata, failure.Mechanism);
         ApiType attributed = Assert.Single(surface.Types, type => type.Name == "Attributed");
         Assert.Empty(attributed.Attributes);
+        var inspection = MetadataFindings.InspectApiAttributes(
+            surface,
+            new FindingSubject("Attributed", "Attributed"),
+            attributed.FullName);
+        var failed = Assert.IsType<FindingInspection<ApiAttributeHandle>.Failed>(
+            inspection.Value);
+        Assert.Contains("enum attribute type index", failed.Error.Reason);
+        var missingType = Assert.IsType<FindingInspection<ApiTypeHandle>.Complete>(
+            MetadataFindings.InspectApiType(
+                surface,
+                new FindingSubject("Missing", "Missing"),
+                "Missing").Value);
+        Assert.Empty(missingType.Findings);
+        var missingMembers =
+            Assert.IsType<FindingInspection<ApiMemberHandle>.Absent>(
+                MetadataFindings.InspectApiMembers(
+                    surface,
+                    new FindingSubject("Missing", "Missing"),
+                    "Missing").Value);
+        Assert.Equal(
+            FindingInspectionAbsenceKind.SubjectAbsent,
+            missingMembers.Kind);
         Assert.True(
             allocated < 64L * 1024 * 1024,
             $"{(bounded ? "bounded" : "unbounded")} extraction allocated {allocated:N0} bytes");

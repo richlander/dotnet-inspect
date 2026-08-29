@@ -686,13 +686,15 @@ public static partial class InspectionEngine
                     ?? "The workspace reported no failure."));
         }
 
+        string framework = RequiredBrowserFramework(resolution.Scope.Framework);
         return JsonSerializer.Serialize(
             new BrowserPackageSurface(
                 PlatformPackageName,
                 resolution.Coordinate.Version,
-                [resolution.Scope.Framework],
-                resolution.Scope.Framework,
+                [framework],
+                framework,
                 assembly,
+                SelectedCompileLibrary(framework),
                 projected.Assemblies,
                 projected.Types,
                 projected.Accessibility,

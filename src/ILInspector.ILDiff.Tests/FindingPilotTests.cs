@@ -38,7 +38,8 @@ public class FindingPilotTests
     public void FindingInspection_CasesRemainDistinctWithAnEmptyCensus()
     {
         FindingInspection<string> complete = new FindingInspection<string>.Complete([]);
-        FindingInspection<string> absent = new FindingInspection<string>.Absent();
+        FindingInspection<string> absent = new FindingInspection<string>.Absent(
+            FindingInspectionAbsenceKind.SubjectAbsent);
         var error = new InspectionError(Subject, Descriptor, "declined");
         FindingInspection<string> failed = new FindingInspection<string>.Failed(error);
 
@@ -58,7 +59,11 @@ public class FindingPilotTests
             key,
             [
                 new(new FindingVersion("v1", "1.0.0", 0), new FindingInspection<string>.Complete([])),
-                new(new FindingVersion("v2", "2.0.0", 1), new FindingInspection<string>.Absent("no body")),
+                new(
+                    new FindingVersion("v2", "2.0.0", 1),
+                    new FindingInspection<string>.Absent(
+                        FindingInspectionAbsenceKind.SubjectAbsent,
+                        "subject absent")),
                 new(new FindingVersion("v3", "3.0.0", 2), new FindingInspection<string>.Failed(error)),
                 new(new FindingVersion("v4", "4.0.0", 3), new FindingInspection<string>.Complete([present])),
             ]);
@@ -81,7 +86,11 @@ public class FindingPilotTests
         [
             new(new FindingVersion("v3", "3.0.0", 2), new FindingInspection<string>.Failed(error)),
             new(new FindingVersion("v1", "1.0.0", 0), new FindingInspection<string>.Complete([])),
-            new(new FindingVersion("v2", "2.0.0", 1), new FindingInspection<string>.Absent("no body")),
+            new(
+                new FindingVersion("v2", "2.0.0", 1),
+                new FindingInspection<string>.Absent(
+                    FindingInspectionAbsenceKind.NoApplicableInput,
+                    "no body")),
             new(new FindingVersion("v4", "4.0.0", 3), new FindingInspection<string>.Complete([present])),
         ]);
 
@@ -228,7 +237,8 @@ public class FindingPilotTests
         FindingInspection<string> completeInspection =
             new FindingInspection<string>.Complete([]);
         FindingInspection<string> absentInspection =
-            new FindingInspection<string>.Absent();
+            new FindingInspection<string>.Absent(
+                FindingInspectionAbsenceKind.SubjectAbsent);
         FindingInspection<string> failedInspection =
             new FindingInspection<string>.Failed(
                 new InspectionError(Subject, Descriptor, "declined"));
