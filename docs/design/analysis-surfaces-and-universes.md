@@ -399,6 +399,7 @@ The target implementation is unverified until these named gates land:
 - `AnalysisPlan_RetainsExactRequestFieldsAndDescriptorRequirements`
 - `AnalysisPlan_RetainsUniverseCompletenessAndFailureInputs`
 - `AnalysisPlanningResults_HavePlannerOwnedConstruction`
+- `AnalysisUniverseCapabilities_RejectNullDeclaration`
 - `AnalysisProjection_RowsAndGraphRetainOneAnalysisIdentity`
 - `AnalysisUniverseProviderKindDoesNotChangeRequestFieldSemantics`
 

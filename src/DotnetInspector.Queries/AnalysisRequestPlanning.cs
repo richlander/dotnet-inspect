@@ -296,6 +296,7 @@ public abstract class AnalysisUniverseDescription
         IReadOnlyList<AnalysisUniverseCapabilityDescriptor> capabilities)
     {
         AnalysisRequestGuard.EnumDefined(boundKind, nameof(boundKind));
+        ArgumentNullException.ThrowIfNull(capabilities);
         BoundKind = boundKind;
         Capabilities = AnalysisRequestGuard.FreezeDefinitions(
             capabilities,
@@ -381,7 +382,7 @@ public sealed class AnalysisValidatedPlan<TAnalysis, TTargetIdentity, TUniverse>
 }
 
 /// <summary>A typed pre-execution request rejection.</summary>
-public abstract record AnalysisRequestRejection
+public abstract class AnalysisRequestRejection
 {
     private AnalysisRequestRejection()
     {
@@ -389,7 +390,7 @@ public abstract record AnalysisRequestRejection
 
     public abstract string Guidance { get; }
 
-    public sealed record UnconfiguredAnalysis : AnalysisRequestRejection
+    public sealed class UnconfiguredAnalysis : AnalysisRequestRejection
     {
         internal UnconfiguredAnalysis(AnalysisDescriptor analysis)
         {
@@ -403,7 +404,7 @@ public abstract record AnalysisRequestRejection
             $"Analysis '{Analysis.Name}' is not configured in this capability catalog.";
     }
 
-    public sealed record InvalidReportSurface : AnalysisRequestRejection
+    public sealed class InvalidReportSurface : AnalysisRequestRejection
     {
         internal InvalidReportSurface(
             AnalysisReportSurfaceKind surfaceKind,
@@ -429,7 +430,7 @@ public abstract record AnalysisRequestRejection
         };
     }
 
-    public sealed record UnsupportedMode : AnalysisRequestRejection
+    public sealed class UnsupportedMode : AnalysisRequestRejection
     {
         internal UnsupportedMode(AnalysisQuestionMode mode)
         {
@@ -442,7 +443,7 @@ public abstract record AnalysisRequestRejection
         public override string Guidance => $"Analysis does not support mode '{Mode}'.";
     }
 
-    public sealed record UnsupportedSurface : AnalysisRequestRejection
+    public sealed class UnsupportedSurface : AnalysisRequestRejection
     {
         internal UnsupportedSurface(AnalysisReportSurfaceKind surfaceKind)
         {
@@ -456,7 +457,7 @@ public abstract record AnalysisRequestRejection
             $"Analysis does not support report surface '{SurfaceKind}'.";
     }
 
-    public sealed record UnsupportedTargetRole : AnalysisRequestRejection
+    public sealed class UnsupportedTargetRole : AnalysisRequestRejection
     {
         internal UnsupportedTargetRole(AnalysisTargetRoleDescriptor role)
         {
@@ -470,7 +471,7 @@ public abstract record AnalysisRequestRejection
             $"Analysis does not support target role '{Role.Name}'.";
     }
 
-    public sealed record InvalidMode : AnalysisRequestRejection
+    public sealed class InvalidMode : AnalysisRequestRejection
     {
         internal InvalidMode(
             AnalysisQuestionMode mode,
@@ -511,7 +512,7 @@ public abstract record AnalysisRequestRejection
         };
     }
 
-    public sealed record MissingUniverse : AnalysisRequestRejection
+    public sealed class MissingUniverse : AnalysisRequestRejection
     {
         internal MissingUniverse()
         {
@@ -520,7 +521,7 @@ public abstract record AnalysisRequestRejection
         public override string Guidance => "Supply an owner-issued finite universe.";
     }
 
-    public sealed record UnboundedUniverse : AnalysisRequestRejection
+    public sealed class UnboundedUniverse : AnalysisRequestRejection
     {
         internal UnboundedUniverse()
         {
@@ -529,7 +530,7 @@ public abstract record AnalysisRequestRejection
         public override string Guidance => "Supply a universe with an explicit finite bound.";
     }
 
-    public sealed record UnsatisfiedUniverse : AnalysisRequestRejection
+    public sealed class UnsatisfiedUniverse : AnalysisRequestRejection
     {
         internal UnsatisfiedUniverse(
             ImmutableArray<AnalysisUniverseRequirementDescriptor> requirements)
@@ -550,7 +551,7 @@ public abstract record AnalysisRequestRejection
             $"Universe does not satisfy: {string.Join(", ", Requirements.Select(r => r.Name))}.";
     }
 
-    public sealed record MissingStructuralPrerequisites : AnalysisRequestRejection
+    public sealed class MissingStructuralPrerequisites : AnalysisRequestRejection
     {
         internal MissingStructuralPrerequisites(
             ImmutableArray<AnalysisStructuralPrerequisiteDescriptor> prerequisites)
@@ -571,7 +572,7 @@ public abstract record AnalysisRequestRejection
             $"Missing structural prerequisites: {string.Join(", ", Prerequisites.Select(p => p.Name))}.";
     }
 
-    public sealed record UnsupportedProjection : AnalysisRequestRejection
+    public sealed class UnsupportedProjection : AnalysisRequestRejection
     {
         internal UnsupportedProjection(AnalysisProjectionDescriptor projection)
         {
@@ -587,7 +588,7 @@ public abstract record AnalysisRequestRejection
 }
 
 /// <summary>A validated plan or one typed pre-execution rejection.</summary>
-public abstract record AnalysisRequestPlanningResult<TAnalysis, TTargetIdentity, TUniverse>
+public abstract class AnalysisRequestPlanningResult<TAnalysis, TTargetIdentity, TUniverse>
     where TAnalysis : AnalysisDescriptor
     where TUniverse : AnalysisUniverseDescription
 {
@@ -595,7 +596,7 @@ public abstract record AnalysisRequestPlanningResult<TAnalysis, TTargetIdentity,
     {
     }
 
-    public sealed record Validated
+    public sealed class Validated
         : AnalysisRequestPlanningResult<TAnalysis, TTargetIdentity, TUniverse>
     {
         internal Validated(AnalysisValidatedPlan<TAnalysis, TTargetIdentity, TUniverse> plan)
@@ -607,7 +608,7 @@ public abstract record AnalysisRequestPlanningResult<TAnalysis, TTargetIdentity,
         public AnalysisValidatedPlan<TAnalysis, TTargetIdentity, TUniverse> Plan { get; }
     }
 
-    public sealed record Rejected
+    public sealed class Rejected
         : AnalysisRequestPlanningResult<TAnalysis, TTargetIdentity, TUniverse>
     {
         internal Rejected(AnalysisRequestRejection rejection)

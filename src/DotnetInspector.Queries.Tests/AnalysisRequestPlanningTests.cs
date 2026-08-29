@@ -49,6 +49,10 @@ public sealed class AnalysisRequestPlanningTests
             rejectionFamilies,
             family => Assert.Empty(
                 family.GetConstructors(BindingFlags.Public | BindingFlags.Instance)));
+        Assert.All(
+            typeof(AnalysisRequestRejection)
+                .GetConstructors(BindingFlags.NonPublic | BindingFlags.Instance),
+            constructor => Assert.True(constructor.IsPrivate));
         Assert.True(typeof(AnalysisTargetRoleDescriptor).IsAbstract);
         Assert.True(typeof(AnalysisTargetRoleDeclaration).IsAbstract);
         Assert.True(typeof(AnalysisDescriptor).IsAbstract);
@@ -501,6 +505,12 @@ public sealed class AnalysisRequestPlanningTests
                 .Order());
         Assert.All(rejections, rejection => Assert.NotEmpty(rejection.Guidance));
         Assert.Equal(0, scenario.ProviderExecutionCount);
+        Type[] contractTypes = AnalysisContractTypes();
+        Type[] planningResultCases = typeof(AnalysisRequestPlanningResult<,,>)
+            .GetNestedTypes(BindingFlags.Public);
+        Assert.All(
+            RejectionFamilies().Concat(planningResultCases),
+            nestedCase => Assert.Contains(nestedCase, contractTypes));
         Assert.DoesNotContain(AnalysisContractMemberTypes(), ContainsDelegate);
     }
 
@@ -702,6 +712,51 @@ public sealed class AnalysisRequestPlanningTests
         Assert.Empty(rejected.GetConstructors(BindingFlags.Public | BindingFlags.Instance));
         Assert.False(validated.GetProperty("Plan")!.CanWrite);
         Assert.False(rejected.GetProperty("Rejection")!.CanWrite);
+        Assert.All(
+            openResult.GetConstructors(BindingFlags.NonPublic | BindingFlags.Instance),
+            constructor => Assert.True(constructor.IsPrivate));
+    }
+
+    [Fact]
+    public void AnalysisUniverseCapabilities_RejectNullDeclaration()
+    {
+        Scenario scenario = new();
+        var zeroRequirementAnalysis = new TestAnalysisDescriptor(
+            "Zero requirements",
+            "v1",
+            [AnalysisQuestionMode.Targeted],
+            [
+                new AnalysisTargetRoleDeclaration<LibraryIdentity>(
+                    AnalysisReportSurfaceKind.Library,
+                    AnalysisQuestionMode.Targeted,
+                    scenario.LibraryAnchorRole,
+                    AnalysisTargetFunction.PrivilegedAnchor),
+            ],
+            [scenario.RowsProjection]);
+        var planner = new AnalysisRequestPlanner([zeroRequirementAnalysis], []);
+
+        Assert.Throws<ArgumentNullException>(() =>
+        {
+            var universe = new WorkspaceTypeUniverse(
+                AnalysisUniverseBoundKind.Finite,
+                capabilities: null!,
+                new("requested"),
+                new("realized"),
+                new("Complete"),
+                [],
+                "Workspace",
+                () => throw new InvalidOperationException());
+            planner.Plan(
+                new AnalysisRequest<
+                    TestAnalysisDescriptor,
+                    LibraryIdentity,
+                    WorkspaceTypeUniverse>(
+                        zeroRequirementAnalysis,
+                        scenario.ValidLibrarySurface(),
+                        universe,
+                        AnalysisQuestionMode.Targeted,
+                        scenario.RowsProjection));
+        });
     }
 
     [Fact]
@@ -828,14 +883,22 @@ public sealed class AnalysisRequestPlanningTests
             .OrderBy(type => type.Name, StringComparer.Ordinal)
             .ToArray();
 
-    private static Type[] AnalysisContractMemberTypes()
+    private static Type[] AnalysisContractTypes()
     {
-        Type[] contractTypes = typeof(AnalysisRequestPlanner).Assembly
+        return typeof(AnalysisRequestPlanner).Assembly
             .GetExportedTypes()
             .Where(
                 type => type.Namespace == typeof(AnalysisRequestPlanner).Namespace
-                    && type.Name.StartsWith("Analysis", StringComparison.Ordinal))
+                    && DeclaringTypeChain(type).Any(
+                        candidate => candidate.Name.StartsWith(
+                            "Analysis",
+                            StringComparison.Ordinal)))
             .ToArray();
+    }
+
+    private static Type[] AnalysisContractMemberTypes()
+    {
+        Type[] contractTypes = AnalysisContractTypes();
         return
         [
             .. contractTypes.SelectMany(
@@ -877,6 +940,12 @@ public sealed class AnalysisRequestPlanningTests
                         | BindingFlags.Static)
                     .Select(field => field.FieldType)),
         ];
+    }
+
+    private static IEnumerable<Type> DeclaringTypeChain(Type type)
+    {
+        for (Type? current = type; current is not null; current = current.DeclaringType)
+            yield return current;
     }
 
     private static bool ContainsDelegate(Type type)
