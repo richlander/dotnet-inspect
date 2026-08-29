@@ -83,8 +83,9 @@ CSharpText; it does not create a competing scalar policy. Structured punctuation
 comes only from fixed product syntax. Rendered fragments must arrive under a
 typed fragment contract or remain compatibility input.
 
-`CSharpDeclarationProvenanceTests.StructuredOutputContainsTheAdversarialMetadataCorpus`
-and the slot-collision gates in [Verification](#verification) are the planned
+`CSharpDeclarationProvenanceTests.StructuredOutputContainsTheMetadataConfusionFixture`,
+`CompatibilityOutputAndDiagnosticsContainTheMetadataConfusionFixture`, and the
+slot-collision gates in [Verification](#verification) are the planned
 enforcement. The invariant is unverified until those gates exist.
 
 Local repository actors and callers that deliberately bypass the public
@@ -93,12 +94,27 @@ not stronger declaration types, governs those cases.
 
 ## Demo mockup
 
-The implementation PR must turn this mockup into a real compiled or persisted
-metadata demonstration. The examples below describe the target; they are not
-current validation.
+The implementation PR must turn this CSharp-owned mockup into a real compiled
+or persisted metadata demonstration. Given a method generic parameter whose raw
+name is `class` and a parameter whose raw name is `event`, the structured
+declaration is:
 
-Given a generic owner whose raw type-parameter name is `class` and whose
-explicit interface is `I<class>`, the structured declaration is:
+```csharp
+void Map<@class>(int @event, string text = "class");
+```
+
+What to notice:
+
+- the generic declaration and parameter name are identifier slots while the
+  primitive and string literal keep their own meanings;
+- the default expression is not searched for the generic-parameter name; and
+- the raw metadata name remains `class`.
+
+Two additional end-to-end examples are prerequisites rather than current
+CSharp-only claims. After
+[#5114](https://github.com/richlander/dotnet-inspect/issues/5114)
+supplies a Metadata-owned qualifier/name handoff, an owner generic parameter
+named `class` and explicit interface `I<class>` must render as:
 
 ```csharp
 class C<@class> : I<@class>
@@ -113,6 +129,9 @@ The failed structured composition from #4656 was:
 void I<class>.Map();
 ```
 
+That example and its gate remain pending on #5114; combined dotted text is
+`Compatibility` until the handoff lands.
+
 A neighboring provenance case must keep a primitive and a same-spelled generic
 parameter distinct:
 
@@ -120,19 +139,10 @@ parameter distinct:
 void Pair<@int>(int primitive, @int parameter);
 ```
 
-What to notice:
-
-- the explicit-interface qualifier is a type-expression slot, separate from
-  the simple member-name slot;
-- the primitive keyword remains syntax while the generic parameter is escaped
-  as an identifier;
-- default expressions and attribute arguments are not searched for either
-  name; and
-- the raw metadata names remain `class` and `int`.
-
-The final neighboring example depends on the additional type provenance tracked
-by #5076. Until that currency exists, CSharp reports the affected declaration as
-compatibility or unavailable rather than claiming structured fidelity.
+The final example and its gate remain pending on the additional type provenance
+tracked by #5076. Until that currency exists, CSharp reports the affected
+declaration as `Compatibility` or `Unavailable` rather than claiming structured
+fidelity.
 
 ## Immediate boundaries
 
@@ -166,11 +176,21 @@ The target public result is a closed `CSharpDeclarationResult` with two arms:
 - **Unavailable** carries a stable reason and diagnostics, but no
   success-shaped empty declaration.
 
-`CSharpDeclarationText` is presentation currency, not a string identity. Its
-construction is restricted to the CSharp composer and means that every
-artifact-derived value reached the output through a declared slot handler.
-It does not mean the declaration compiles, corresponds to a body, or identifies
-a metadata row.
+`CSharpDeclarationText` is contained presentation currency, not a string
+identity. Its construction is restricted to the CSharp composer and means that
+no artifact-controlled display control remains active. That containment
+guarantee applies to both rendered modes.
+
+`Structured` additionally means that every artifact-derived value reached the
+output through a complete declared slot plan. `Compatibility` means that an
+opaque fragment crossed one explicitly contained compatibility boundary; it
+does not claim internal slot provenance. Neither mode means the declaration
+compiles, corresponds to a body, or identifies a metadata row.
+
+Diagnostics carry a closed `CSharpDeclarationDiagnosticReason` and optional
+`InertString Detail` constructed under the shared `TextPolicy.Field` policy.
+Raw artifact-controlled text cannot be interpolated into an ordinary diagnostic
+string, and this design does not create another scalar policy.
 
 Existing string-returning formatter methods may remain compatibility adapters
 during migration. New consumers that require the structured guarantee consume
@@ -190,20 +210,26 @@ during migration. New consumers that require the structured guarantee consume
 
 ## Slot value classes
 
-Every catalog entry selects exactly one value class.
+Every catalog entry selects exactly one value class. Composite declarations
+contain child catalog entries; they do not combine classes in one entry.
 
 | Value class | Input meaning | CSharp treatment |
 | --- | --- | --- |
 | Raw identifier | Exact metadata name for one identifier position | Apply visual containment and C# identifier escaping once, at that position |
+| Segmented identifier | Exact ordered namespace or nested-name segments | Prepare each raw identifier independently, then join with fixed punctuation |
 | Type expression | Model-bound type spelling plus all available type/generic-reference evidence | Render or lex within this slot; apply qualification, alias, and identifier policy without inspecting neighboring slots |
+| Bound generic reference | Generic owner plus ordinal and raw declared name | Spell the bound declaration name as an identifier; equal text alone cannot construct this class |
 | Closed syntax | Enum, Boolean, or other bounded choice owned by product code | Map to a fixed keyword, modifier, punctuation, or empty choice; artifact text cannot enter |
 | Rendered fragment | Producer-issued C# expression or attribute fragment whose internal provenance is no longer available | Preserve its syntax and contain it under its fragment contract; never search it for declaration identifiers |
 | Raw literal value | Artifact value that CSharp itself places in a C# literal | Escape according to the selected literal form before composition |
+| Composite subplan | Ordered child slots for a parameter, accessor, constraint, or other repeated declaration structure | Validate and prepare every child before joining them with fixed syntax |
 | Opaque compatibility | Historical declaration text with no complete slot map | Keep on the compatibility path; bounded model-free repair is allowed, but the result cannot be labeled `Structured` |
 
 A bare `string` does not establish any of these classes. The declaration plan
 records the class at construction so later code cannot silently promote an
-opaque value by passing it to a different helper.
+opaque value by passing it to a different helper. Missing evidence is not a
+value class: it selects a fixed omitted/default syntax, `Compatibility`, or
+`Unavailable` according to the declaration form.
 
 ## Normative slot inventory
 
@@ -215,35 +241,44 @@ enter composition without a catalog entry and handler.
 
 | Slot | Value class | Current source |
 | --- | --- | --- |
-| Namespace declaration and `using` segment | Raw identifier | `ApiType.Namespace`, formatter options, derived namespace identities |
-| Type declaration name segment | Raw identifier | `ApiType.DefinitionName`, with legacy `Name` fallback |
+| Namespace declaration and `using` chain | Segmented identifier | exact namespace segments from `ApiType.Namespace`, formatter options, or derived namespace identities |
+| Type declaration name segment | Raw identifier | `ApiType.DefinitionName`; legacy flattened `Name` is compatibility input |
 | Type kind, accessibility, and modifiers | Closed syntax | `ApiType.Kind`, accessibility, and modifier flags |
-| Type generic-parameter declaration | Raw identifier plus closed variance | `ApiType.TypeParameters` |
-| Primary-constructor parameter | Structured parameter subplan | caller-supplied `ApiParameter` values |
-| Enum underlying type | Closed primitive syntax or unavailable | `ApiType.EnumUnderlyingType` |
+| Type generic-parameter name | Raw identifier | `ApiType.TypeParameters[].Name` |
+| Type generic-parameter variance | Closed syntax | `ApiType.TypeParameters[].Variance` |
+| Primary-constructor parameter | Composite subplan | caller-supplied `ApiParameter` values |
+| Enum underlying type | Type expression | `ApiType.EnumUnderlyingType`; absent/default `int` emits no clause |
 | Base type | Type expression | `ApiType.BaseType` and typed reference evidence |
 | Implemented interface | Type expression | `ApiType.Interfaces` and available typed reference evidence |
-| Type generic constraint | Closed special constraint or type expression | `TypeParameter.StructuredConstraints`; unstructured constraints are compatibility input |
-| Type attribute | Rendered attribute fragment | `ApiType.Attributes` |
+| Type special constraint | Closed syntax | non-type entries in `TypeParameter.StructuredConstraints` |
+| Type constraint type | Type expression | type entries in `TypeParameter.StructuredConstraints`; unstructured constraints are compatibility input |
+| Type attribute | Rendered fragment | `ApiType.Attributes` |
 
 ### Common member slots
 
 | Slot | Value class | Current source |
 | --- | --- | --- |
-| Member attribute and return attribute | Rendered attribute fragment | `ApiMember.Attributes`, `ApiSignature.ReturnAttributes` |
+| Member attribute | Rendered fragment | `ApiMember.Attributes` |
+| Return attribute | Rendered fragment | `ApiSignature.ReturnAttributes` |
 | Accessibility and declaration modifier | Closed syntax | `ApiMember` flags and formatter options |
 | Return, field, property, or event type | Type expression | `ApiSignature.ReturnType` or `ApiMember.ReturnType`, with typed evidence when available |
 | Simple member name | Raw identifier | exact `ApiMember.Name` or a separately issued simple-name slot |
 | Explicit-interface qualifier | Type expression | requires an owner-issued qualifier separate from the simple name |
 | Method generic-parameter declaration | Raw identifier | `ApiSignature.TypeParameters` or an explicitly paired caller override |
-| Method generic-parameter reference | Bound generic-parameter identity | type-expression evidence; equal rendered text is insufficient |
-| Method generic constraint | Closed special constraint or type expression | `TypeParameter.StructuredConstraints`; inherited-restatement policy remains CSharp-owned |
-| Parameter attribute | Rendered attribute fragment | `ApiParameter.Attributes` |
+| Method generic-parameter reference | Bound generic reference | owner/ordinal type-expression evidence; equal rendered text is insufficient |
+| Method special constraint | Closed syntax | non-type entries in `TypeParameter.StructuredConstraints`; inherited-restatement policy remains CSharp-owned |
+| Method constraint type | Type expression | type entries in `TypeParameter.StructuredConstraints` |
+| Parameter | Composite subplan | ordered parameter child slots |
+| Parameter attribute | Rendered fragment | `ApiParameter.Attributes` |
 | Parameter modifier | Closed syntax | `ApiParameter.Modifier` |
 | Parameter type | Type expression | `ApiParameter.Type` and typed evidence when available |
 | Parameter name | Raw identifier | `ApiParameter.Name` |
-| Parameter default | Rendered expression fragment | `ApiParameter.DefaultValueText` |
-| Accessor attribute, accessibility, and kind | Rendered attribute fragment plus closed syntax | `ApiAccessor` |
+| Parameter default | Rendered fragment | `ApiParameter.DefaultValueText` |
+| Accessor | Composite subplan | ordered accessor child slots |
+| Accessor return attribute | Rendered fragment | `ApiAccessor.ReturnAttributes` |
+| Accessor accessibility and kind | Closed syntax | `ApiAccessor.Accessibility` and `ApiAccessor.Kind` |
+| Enum-member name | Raw identifier | enum `ApiMember.Name` |
+| Field or enum initializer | Rendered fragment | `CSharpFieldInitializer.Source` |
 | Obsolete message | Raw literal value | `ApiMember.ObsoleteMessage` |
 
 ### Declaration-form requirements
@@ -252,18 +287,21 @@ enter composition without a catalog entry and handler.
 | --- | --- |
 | Constructor, static constructor, finalizer | Exact declaring-type leaf name; punctuation and destructor marker are closed syntax |
 | Ordinary or extension method | Return type, simple name, method generic parameters, parameters, and constraints; extension `this` is closed syntax |
-| Explicit-interface method | Separate qualifier type expression and simple member name; a combined dotted string is compatibility input |
+| Explicit-interface method | Separate qualifier type expression and simple member name; pending #5114, a combined dotted string is compatibility input |
 | Property | Property type, simple name, and accessor list |
 | Indexer | Property type, closed `this` token, index parameters, and accessor list |
-| Explicit-interface property or indexer | Separate qualifier, simple name or closed `this` token, parameters, and accessors |
-| Event | Event type, simple name, and optional explicit-interface qualifier |
-| Field or constant | Field type, simple name, and any literal initializer |
+| Explicit-interface property or indexer | Separate qualifier, simple name or closed `this` token, parameters, and accessors; structured mode is pending #5114 |
+| Event | Event type, simple name, and optional explicit-interface qualifier; structured explicit forms are pending #5114 |
+| Field or constant | Field type, simple name, and optional initializer fragment |
+| Enum member | Simple name and optional initializer fragment; no field-type slot |
 | Unary, binary, conversion, or checked operator | Metadata operator kind mapped through a closed catalog, typed return/conversion target, and parameters |
 | Delegate | Return type, type name, generic parameters, parameters, and constraints |
 
-This table covers the declaration forms CSharp currently emits. Body text,
-initializer recovery, namespace selection, and member grouping are not new
-declaration slots merely because `CSharpTypePrinter` composes them nearby.
+This table covers the declaration forms CSharp currently emits. Recovered body
+text, initializer recovery mechanics, namespace selection, and member grouping
+remain outside this contract, but an initializer fragment becomes a declaration
+slot when `CSharpTypePrinter` composes it into a field or enum-member
+declaration.
 
 ## Composition rules
 
@@ -274,8 +312,10 @@ declaration slots merely because `CSharpTypePrinter` composes them nearby.
 3. Prepare every slot independently. Raw identities remain untouched in the
    source model.
 4. Compose prepared values only with CSharp-owned fixed syntax and layout.
-5. Issue `CSharpDeclarationText` only after the plan reports that every emitted
-   artifact-derived value came through its registered handler.
+5. Issue `CSharpDeclarationText` only after every emitted artifact-derived value
+   has crossed either a structured slot handler or the contained compatibility
+   boundary. Label the result `Structured` only when the complete form plan used
+   structured slots.
 
 The structured path therefore forbids:
 
@@ -305,18 +345,20 @@ may themselves contain punctuation, and equal text does not establish whether a
 generic argument is a primitive, named type, or generic parameter.
 
 Until an adjacent producer supplies the two values separately, these forms are
-`Compatibility`. This design does not specify the producer's extraction or
-persistence mechanics. The implementation issue must record that prerequisite
-as an independently owned Metadata handoff rather than adding text inference to
-CSharp.
+`Compatibility`. Metadata issue
+[#5114](https://github.com/richlander/dotnet-inspect/issues/5114)
+owns that prerequisite. This design does not specify its extraction or
+persistence mechanics.
 
 ## Compatibility and migration
 
 `ApiMember.Signature` remains useful for older serialized surfaces and
 declaration forms whose structured facts are incomplete. Compatibility output
-may retain the current bounded lexical repairs, but it has three restrictions:
+may retain the current bounded lexical repairs, but it has four restrictions:
 
 - it is explicitly labeled `Compatibility`;
+- its complete output and diagnostics satisfy the same display-containment
+  invariant as structured output;
 - it cannot be converted to `Structured` after rescanning; and
 - consumers requiring compile-back or a structured containment claim reject it
   or surface the degradation.
@@ -327,7 +369,8 @@ pass:
 1. introduce the result, text currency, slot catalog, and compatibility mode;
 2. route currently structured type, constructor, ordinary method, property,
    event, field, parameter, constraint, and accessor paths through plans;
-3. add the owner-issued explicit-interface handoff before promoting those forms;
+3. consume #5114's owner-issued explicit-interface handoff before promoting
+   those forms;
 4. remove a compatibility repair only after its final form has structured
    coverage and close negative cases; and
 5. address #5076 separately before claiming primitive/generic alias fidelity.
@@ -358,31 +401,42 @@ The implementation must add these named gates; until then the corresponding
 properties remain unverified:
 
 - `CSharpDeclarationSlotCatalogTests.DeclaredSlotsAndHandlersAgree` derives the
-  complete expected handler set from the normative code catalog and fails for
-  missing and stale handlers.
+  complete slot-to-value-class map and handler set from the normative code
+  catalog and fails for undefined classes, compound entries, and missing or
+  stale slots and handlers.
 - `CSharpDeclarationProvenanceTests.StructuredCompositionDoesNotRescanFinalText`
   uses colliding identifiers inside a default literal, attribute argument,
   return type, qualifier, and member name to prove substitutions stay in their
   slots.
 - `CSharpDeclarationProvenanceTests.ExplicitInterfaceGenericKeyword_IsEscapedWithoutChangingRawIdentity`
-  exercises a real compiled or persisted metadata artifact and verifies both
-  `I<@class>.Map` and unchanged raw names.
+  remains pending on #5114, then exercises a real compiled or persisted metadata
+  artifact and verifies both `I<@class>.Map` and unchanged raw names.
 - `CSharpDeclarationProvenanceTests.PrimitiveAndSameNamedGenericRemainDistinct`
   is the #5076 gate and remains pending until that issue supplies provenance.
-- `CSharpDeclarationProvenanceTests.EverySupportedDeclarationFormHasStructuredAndNeighborCases`
-  covers every row of the form inventory, including constructors, properties,
-  indexers, events, operators, bases, interfaces, and constraints.
+- `CSharpDeclarationProvenanceTests.EveryDeclarationFormHasExpectedModeAndNeighborCases`
+  derives every row of the form inventory and verifies its expected
+  `Structured`, `Compatibility`, or `Unavailable` outcome, including
+  constructors, properties, indexers, events, operators, enum members,
+  initializers, bases, interfaces, and constraints.
+- `CSharpDeclarationProvenanceTests.LegacyFlattenedTypeNameWithLiteralPunctuationIsNotStructured`
+  proves that `ApiType.Name` cannot stand in for exact definition-name segments.
 - `CSharpDeclarationProvenanceTests.MissingStructureIsVisible`
   proves that each target failure selects `Compatibility` or `Unavailable`,
   never `Structured` or success-shaped empty output.
-- `CSharpDeclarationProvenanceTests.StructuredOutputContainsTheAdversarialMetadataCorpus`
-  runs the repository-owned metadata-confusion fixture through the public
-  CSharp seam and verifies inert, single-declaration output.
+- `CSharpDeclarationProvenanceTests.StructuredOutputContainsTheMetadataConfusionFixture`
+  runs `eng/package-fixtures/metadata-confusion/1.0.0` through the public CSharp
+  seam and verifies inert, single-declaration output. The implementation must
+  extend a new fixture version with keyword generic declarations/references and
+  cross-slot literal collisions; #5114 adds explicit-interface cases in its
+  owner effort.
+- `CSharpDeclarationProvenanceTests.CompatibilityOutputAndDiagnosticsContainTheMetadataConfusionFixture`
+  forces opaque compatibility declarations and artifact-derived diagnostics,
+  then verifies that both are inert and line-safe.
 
-The implementation PR must run these gates in Release and show the demo's
-actual output beside a neighboring clean declaration. A synthetic unit case may
-isolate a slot handler, but the explicit-interface claim requires real metadata
-evidence.
+The implementation PR must run the non-pending gates in Release and show the
+CSharp-owned demo's actual output beside a neighboring clean declaration. A
+synthetic unit case may isolate a slot handler, but the explicit-interface claim
+remains pending until #5114 supplies real Metadata evidence.
 
 ## Non-claims
 
