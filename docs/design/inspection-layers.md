@@ -940,8 +940,7 @@ target framework, runtime identifier, and resolved producer -- see
 `src/DotnetInspector.Queries/WorkspaceAcquisitionCoordinates.cs`) each
 independently reopen content and mint an unrelated `AssemblyContextGroup`
 and participant set. `PackageAssemblyContextRealizationConcurrentDemandTests`
-(pending in #4958, not yet merged) is intended to demonstrate this; the
-admission gap itself is tracked by issue #4960.
+demonstrates this behavior; issue #4960 tracks the admission gap itself.
 
 ### Why the coordinate, not the assembly content
 
