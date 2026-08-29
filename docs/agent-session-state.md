@@ -1,0 +1,93 @@
+# Agent session state
+
+[Making your work findable](../AGENTS.md#making-your-work-findable) states the
+binding rules: every window identifies its PR, current state, and any decision
+it needs. This document owns the tmux mechanics and the reasoning behind them.
+
+## Name the window for identity
+
+```sh
+tmux rename-window -t "${TMUX_PANE:?}" pr<number>
+```
+
+Always target `"${TMUX_PANE:?}"`; a bare command renames another window, and an
+empty variable silently targets the current one — `tmux rename-window -t "" …`
+does not error, it silently renames whichever window is *current*, which may be
+someone else's. Rename the window, never the shared session. Use `pr<number>`,
+or `i<number>` before a PR exists. Keep the name stable except for these
+temporary suffixes:
+
+| Suffix | Meaning |
+| --- | --- |
+| `-blocked` | waiting on a human decision |
+| `-conflict` | in conflict recovery |
+
+## Publish your state where tooling can read it
+
+Update both window-scoped options whenever state changes:
+
+```sh
+tmux set -w -t "${TMUX_PANE:?}" @agent "round 6 on pr4405, waiting on CI"
+tmux set -w -t "${TMUX_PANE:?}" @agent_state "pr=4463 head=595e5d4b round=6 reviews=1/2 blocked=4597,4611 rec=wait"
+
+# Clear when this window no longer owns the PR.
+tmux set -w -t "${TMUX_PANE:?}" -u @agent
+tmux set -w -t "${TMUX_PANE:?}" -u @agent_state
+```
+
+**Publish state as single, separate commands.** Never wrap them in `if`, `&&`,
+or a `for` loop. Publishing is the one thing that must never stop to ask
+permission: an approval prompt on it blocks the agent on the very act of
+reporting that it is blocked, and semi-autonomous work stops dead. A bare
+`tmux …` matches an approval rule for `tmux`; `if [ … ]; then tmux … && tmux …;
+fi` does not match it, because the command being judged is now the compound.
+That difference has stalled real work.
+
+The state must include `head` and either `pr` or, before a PR exists, `issue`;
+add `round`, `reviews`, `blocked`, `waiting`, and `rec` when applicable. Values
+contain no spaces. `rec` is `continue`, `wait`, `merge`, `split`, `approve`, or
+`stop`. Clear both options when the window no longer owns the work.
+
+### `blocked` vs. `waiting`
+
+Both are things you are waiting on, split by **who can act on them**:
+
+- **`blocked`** takes issue or PR numbers only — things a person can open and
+  prioritise, and that the next agent hitting the same wall can find instead of
+  re-investigating it. If a flake blocks you and no issue exists, file one and
+  cite it.
+- **`waiting`** takes one or more comma-separated predicates a tool can evaluate
+  against your `head`: `check:<name>`, `checks`, `merge`, or `review`. The wait
+  ends only when every listed predicate clears. Use it when nothing is wrong
+  and nothing is openable — a check that has not reported yet is not a defect
+  and does not deserve an issue.
+
+`rec=wait` is coherent when either is populated. `blocked=ci` is the specific
+error this split exists to remove: it names nothing a person can open and
+nothing a tool can evaluate, so it reads as a wait on nothing.
+
+### Status-wait fields
+
+When GitHub status is being acquired, publish `goal=advance|merge` and the
+unresolved status predicates in `waiting`. During a bounded wait, also publish
+`status-deadline=<UTC>` and at most one active `schedule=<id>`. Key that
+schedule to the recorded `head`, `waiting`, `goal`, and deadline; cancel stale
+runs and clear the ID before querying GitHub. Follow
+[GitHub status queries](github-status-queries.md) for the request and
+response contract and
+[Status discovery](round-orchestration.md#status-discovery) for round
+transitions and the 60-minute budget.
+
+## Signal when you need a person
+
+When blocked on a human decision, set a persistent `HELP` state and send one
+best-effort nudge:
+
+```sh
+tmux set -w -t "${TMUX_PANE:?}" @agent "HELP: integrate main into pr4405, or close it?"
+tmux display-message -d 10000 -t "${TMUX_PANE:?}" \
+  "HELP pr4405 in w#{window_index}: integrate main, or close it?"
+```
+
+Send the nudge once, then stop and wait; the flag is not an answer. Clear `HELP`
+as soon as the decision arrives. Use ordinary state for progress and completion.
