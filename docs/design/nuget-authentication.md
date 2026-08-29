@@ -168,8 +168,12 @@ closes request admission before the read loop collects and settles pending reque
 plugin-originated request receives an error response or the connection terminates; it never becomes
 abandoned work, checked by `InboundFailureIsContained` and
 `MalformedInboundEventuallySettles`. The current implementation does not yet enforce the
-stalled-write or shutdown-admission rules. Malformed inbound Handshake and Log payload handling is
-enforced by
+stalled-write rule. Terminal admission and pending settlement are enforced by
+`PluginProtocolTests.ARequestAfterReceiverLossIsRejectedWithoutWaitingForItsTimeout` and
+`PluginProtocolTests.ReceiverLossSettlesARequestAdmittedBeforeThePendingSnapshot`, with the
+atomic overlap enforced by
+`PluginProtocolTests.AdmissionCannotRegisterDuringTheTerminalPendingSnapshot`. Malformed inbound
+Handshake and Log payload handling is enforced by
 `PluginProtocolTests.InvalidOrUnsupportedInboundHandshakeReceivesAnErrorResponse` and
 `PluginProtocolTests.MalformedInboundLogReceivesAnErrorResponse`.
 
@@ -177,9 +181,9 @@ Implementation: [`PluginConnection`](../../src/NuGetFetch/Plugins/PluginConnecti
 [`PluginCredentialProvider`](../../src/NuGetFetch/Plugins/PluginCredentialProvider.cs).
 The concurrent conversation and shutdown rules are checked by the
 [NuGet credential-plugin session lifecycle model](models/nuget-plugin-session-lifecycle/README.md).
-The model checks the design under finite bounds; implementation correspondence
-for progress renewal, concurrent correlation, and pipe-loss admission remains
-unverified.
+The model checks the design under finite bounds; implementation correspondence for progress
+renewal and concurrent correlation remains unverified. Terminal admission and pending settlement
+are enforced by the gates named above.
 
 Plugins are started lazily and kept for the process lifetime, because a launch costs a process
 start plus five round trips. A plugin that fails to start, or that does not claim the
@@ -188,7 +192,11 @@ start plus five round trips. A plugin that fails to start, or that does not clai
 A plugin process or pipe that dies during a request is likewise treated as no credential from
 that plugin. Timeouts, malformed responses, I/O failures, disposed pipes, and invalid process
 state are contained at the request boundary so another provider can answer or the feed's 401 can
-surface normally. Caller cancellation is not a plugin fault and continues to propagate.
+surface normally. Caller cancellation is not a plugin fault and continues to propagate, enforced
+before and after receiver loss by `PluginProtocolTests.CallerCancellationContinuesToPropagate` and
+`PluginProtocolTests.CanceledRequestAfterReceiverLossRemainsCancellation`, including the
+admission-monitor race checked by
+`PluginProtocolTests.CancellationWhileWaitingForClosedAdmissionRemainsCancellation`.
 
 ### Unattended by default
 
