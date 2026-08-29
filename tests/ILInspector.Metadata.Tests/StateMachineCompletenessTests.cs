@@ -93,17 +93,131 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
+    /// The same property, held over every assembly this test binds against
+    /// rather than two hand-picked ones.
+    ///
+    /// Round 11 is why this exists. The two specimens above are the only place
+    /// <c>Absent</c> is asserted at all: the corpus sweep records it and
+    /// deliberately does not fail on it, because reference assemblies and F#
+    /// output make it legitimate there. A reviewer mutated
+    /// StateMachineRelationshipIndex to answer Absent above 1,000 type rows and
+    /// found it survived everything -- the corpus gate tolerates Absent by
+    /// design, and both specimens are small enough that the mutation never
+    /// fired. The Absent direction was being held by two assemblies that happen
+    /// to sit at one end of the size range.
+    ///
+    /// The set here is derived from the build rather than listed, so it widens
+    /// when dependencies do and cannot silently shrink to the convenient cases.
+    /// Today it is 35 assemblies carrying 464 structural machines, including
+    /// Microsoft.CodeAnalysis and Microsoft.Testing.Platform, both an order of
+    /// magnitude larger than either specimen. The assertion that some neighbour
+    /// exceeds the larger specimen is what keeps that true: it is derived from
+    /// the specimens rather than pinned to a number, so it stays meaningful if
+    /// the specimens grow.
+    ///
+    /// A neighbour reporting Absent is not automatically a product defect -- a
+    /// reference assembly retains the nested machine while stripping the
+    /// kickoff, and F# emits no attribute. If one appears here, the answer is to
+    /// exclude that neighbour and say why, not to weaken the assertion.
+    /// </summary>
+    [Fact]
+    public void Neighbours_EveryStructuralAsyncStateMachineIsAuthenticated()
+    {
+        string directory = Path.GetDirectoryName(
+            typeof(StateMachineCompletenessTests).Assembly.Location)!;
+
+        var offenders = new List<string>();
+        int examined = 0;
+        int structural = 0;
+        int widest = 0;
+
+        foreach (string path in
+            Directory.EnumerateFiles(directory, "*.dll").OrderBy(p => p))
+        {
+            switch (TryMeasure(path, out CompletenessReport report, out string? detail))
+            {
+                case CorpusOutcome.Measured:
+                    break;
+
+                // A native dependency is legitimate here and carries no claim.
+                case CorpusOutcome.NotManaged:
+                    continue;
+
+                default:
+                    offenders.Add($"{Path.GetFileName(path)}: {detail}");
+                    continue;
+            }
+
+            examined++;
+            structural += report.Structural;
+            widest = Math.Max(widest, TypeRowCount(path));
+
+            if (report.Absent != 0 || report.Rejected != 0)
+            {
+                offenders.Add(
+                    $"{Path.GetFileName(path)}: {report.Structural} structural, "
+                        + $"{report.Resolved} resolved, {report.Absent} absent, "
+                        + $"{report.Rejected} rejected");
+            }
+        }
+
+        int specimen = Math.Max(
+            TypeRowCount(typeof(Fixtures).Assembly.Location),
+            TypeRowCount(typeof(StateMachineCompletenessTests).Assembly.Location));
+
+        Assert.NotEqual(0, examined);
+        Assert.True(
+            structural != 0,
+            $"{examined} assemblies were measured and none carried a structural "
+                + "state machine, so this gate proves nothing.");
+        Assert.True(
+            widest > specimen,
+            $"the widest neighbour has {widest} type rows and the larger specimen "
+                + $"has {specimen}, so this gate no longer reaches past the two "
+                + "hand-picked assemblies that missed the round-11 mutation.");
+        Assert.True(
+            offenders.Count == 0,
+            $"""
+            {offenders.Count} of {examined} assemblies beside this test did not
+            authenticate every structural state machine they carry.
+
+            {Truncated(offenders)}
+            """);
+    }
+
+    /// <summary>
+    /// Type rows in an image, used to show this gate reaches past the two
+    /// hand-picked specimens rather than asserting a bare number.
+    /// </summary>
+    static int TypeRowCount(string path)
+    {
+        using var stream = File.OpenRead(path);
+        using var reader = new PEReader(stream);
+        return reader.GetMetadataReader().TypeDefinitions.Count;
+    }
+
+    /// <summary>
     /// The property that held across every real assembly measured to date: a
     /// state machine is never claimed by an attribute and then refused. Sweeping
     /// 23,829 assemblies (NuGet cache plus shared framework) produced 145,413
-    /// claims and 145,413 authenticated relationships, so any
-    /// <c>Rejected</c> here is a genuine finding rather than corpus noise.
+    /// claims and 145,413 authenticated relationships.
+    ///
+    /// That sweep contained no trimmed output, and the qualifier matters:
+    /// trimming is a known cause of refusal, because ILLink removes
+    /// SetStateMachine, which both ClassicAsync and AsyncIterator require. So a
+    /// Rejected here is a genuine finding for an untrimmed corpus, and expected
+    /// noise for a trimmed one — the failure message below says which, because
+    /// an earlier revision of this comment claimed the property held over every
+    /// real assembly while the message underneath it named the exception.
     ///
     /// <c>Absent</c> is reported but deliberately not asserted: reference
     /// assemblies retain the nested machine type while stripping the private
     /// kickoff, and F# emits no state-machine attribute at all. Both are
     /// legitimate, so asserting on them would make this test track the shape of
-    /// whatever directory it was pointed at.
+    /// whatever directory it was pointed at. That tolerance is exactly why the
+    /// Absent direction is held elsewhere, over a build-derived set, by
+    /// Neighbours_EveryStructuralAsyncStateMachineIsAuthenticated: a product
+    /// that simply stopped making claims would pass this test.
     /// </summary>
     [Fact]
     public void Corpus_NoStructuralStateMachineIsClaimedThenRejected()
@@ -1436,7 +1550,8 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
-    /// A FIFO cannot be measured, but it must not abort the sweep.
+    /// A FIFO that is already open cannot be measured, but it must not abort
+    /// the sweep.
     ///
     /// <c>File.OpenRead</c> succeeds on a FIFO opened for reading, and the
     /// oracle's first act is to seek, which throws <c>NotSupportedException</c>
@@ -1448,9 +1563,24 @@ public sealed class StateMachineCompletenessTests
     /// longer has to be named like an assembly to be opened.
     ///
     /// Reported as Inaccessible, which is accounted and visible.
+    ///
+    /// The name says "opened" because that is the whole of what this proves,
+    /// and round 11 caught the earlier name claiming more. The test holds a
+    /// read-write handle so the oracle's own <c>File.OpenRead</c> returns; an
+    /// <em>unattended</em> FIFO blocks in the open itself, and the sweep hangs
+    /// rather than failing. Measured: a corpus containing one bare FIFO does not
+    /// terminate.
+    ///
+    /// That is a known limit, not a fixed one. Avoiding it needs the file's type
+    /// before opening, and .NET does not expose it -- a FIFO and an empty
+    /// ordinary file report the same Attributes (Normal), the same
+    /// UnixFileMode, and the same zero Length, so only a P/Invoke to stat could
+    /// tell them apart. That is platform-specific machinery this harness should
+    /// not carry for an entry no assembly corpus plausibly holds, and a hang is
+    /// at least loud: unlike a silent skip, nobody mistakes it for a pass.
     /// </summary>
     [Fact]
-    public void TryMeasure_NonSeekableFile_IsInaccessibleRatherThanFatal()
+    public void TryMeasure_OpenedNonSeekableFile_IsInaccessibleRatherThanFatal()
     {
         string root = Path.Combine(
             Path.GetTempPath(),
@@ -2511,6 +2641,25 @@ public sealed class StateMachineCompletenessTests
     /// Matches the interface by namespace and name only, ignoring which assembly
     /// it resolves to. That is deliberately more inclusive than any trust policy
     /// the product applies, so this ground truth cannot under-count.
+    ///
+    /// The one shape it does not read is a TypeSpecification, which round 11
+    /// raised as a circularity risk: a machine reached only through a TypeSpec
+    /// would never be counted structural, so the index would never be asked
+    /// about it, and a defect in the product's own TypeSpec decoding would be
+    /// invisible to this gate by construction. That is the right thing to worry
+    /// about, and it is measured rather than argued. Across the shared framework
+    /// and this test's dependencies -- 272 assemblies, 1,488 IAsyncStateMachine
+    /// implementations -- every one arrives as a TypeReference (1,417) or a
+    /// TypeDefinition (71) and none as a TypeSpecification, while those same
+    /// assemblies carry 4,288 TypeSpec interface implementations for generic
+    /// interfaces. The path is busy in general and empty for this interface,
+    /// which follows from IAsyncStateMachine being non-generic: a TypeSpec
+    /// encoding needs a generic instantiation or a custom modifier, and no C#
+    /// or F# compiler emits one here.
+    ///
+    /// So this is a documented limit rather than an under-count: were a
+    /// compiler to start emitting one, this detector would stop seeing those
+    /// machines, and the gate would go quiet about them rather than fail.
     /// </summary>
     static bool ImplementsAsyncStateMachine(
         MetadataReader reader,
