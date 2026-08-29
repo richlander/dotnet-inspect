@@ -826,7 +826,7 @@ type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
 let failedWorkspaceUrlState: FailedWorkspaceUrlState | null = null;
 let lastCanonicalWorkspaceHref: string | null = null;
 let packageQueryWorkspaceFocusNavigationSeq: number | null = null;
-let packageQueryHandoffInProgress = false;
+let packageQueryHandoffNavigationSeq: number | null = null;
 
 interface CanonicalWorkspaceRestoreSnapshot {
   state: AppState;
@@ -1264,6 +1264,11 @@ const navigationHistory = createNavigationHistory({
   onExhausted: render,
 });
 const navigationSequence = createNavigationSequence();
+
+function currentPackageQueryHandoff() {
+  return packageQueryHandoffNavigationSeq !== null
+    && navigationSequence.isCurrent(packageQueryHandoffNavigationSeq);
+}
 
 function recordNav() {
   navigationHistory.record();
@@ -6326,7 +6331,7 @@ function workspaceUrlProjection() {
 }
 
 function syncUrl() {
-  if (packageQueryHandoffInProgress) return;
+  if (currentPackageQueryHandoff()) return;
   if (retainFailedWorkspaceUrl()) return;
   try {
     if (state.atPackageRoot && state.package && !state.loading) {
@@ -7086,7 +7091,7 @@ function openPackageQueryRoute(seed = "") {
   dismissModalsForRoutedNavigation();
   navigationSequence.begin();
   packageQueryController.cancel();
-  packageQueryHandoffInProgress = false;
+  packageQueryHandoffNavigationSeq = null;
   resetPackageQueryState();
   resetPackageQueryAnnouncements();
   state.packageQueryPrefix = validPackageQueryPrefix(seed);
@@ -7186,8 +7191,8 @@ async function openPackageQueryRow(
 ) {
   packageQueryController.cancel();
   state.packageQueryOpen = false;
-  packageQueryHandoffInProgress = true;
   const navigationSeq = navigationSequence.begin();
+  packageQueryHandoffNavigationSeq = navigationSeq;
   state.packageQueryNavigationError = "";
   packageQueryAnnouncements.beginNavigationAttempt();
   const loaded = await loadPackage(
@@ -7195,9 +7200,13 @@ async function openPackageQueryRow(
     version,
     "",
     { navigationSeq });
-  if (!navigationSequence.isCurrent(navigationSeq)) return;
+  if (!navigationSequence.isCurrent(navigationSeq)) {
+    if (packageQueryHandoffNavigationSeq === navigationSeq)
+      packageQueryHandoffNavigationSeq = null;
+    return;
+  }
   if (!loaded) {
-    packageQueryHandoffInProgress = false;
+    packageQueryHandoffNavigationSeq = null;
     const failure = state.error || state.queryNotice
       || `Couldn’t open ${packageId}@${version} in the workspace.`;
     state.loading = false;
@@ -7217,7 +7226,7 @@ async function openPackageQueryRow(
     return;
   }
 
-  packageQueryHandoffInProgress = false;
+  packageQueryHandoffNavigationSeq = null;
   workspaceLocation.push(buildStateUrl().toString());
   render();
   focusTypeList();
@@ -10439,7 +10448,7 @@ window.addEventListener("popstate", () => {
   if (isPackageQueryPath(location.pathname)) {
     clearNavigationError();
     applyPackageQueryHistory(history.state);
-    packageQueryHandoffInProgress = false;
+    packageQueryHandoffNavigationSeq = null;
     state.packageQueryOpen = true;
     state.credits = false;
     state.home = false;
@@ -10449,9 +10458,9 @@ window.addEventListener("popstate", () => {
     return;
   }
   state.loading = false;
-  if (state.packageQueryOpen || packageQueryHandoffInProgress) {
+  if (state.packageQueryOpen || currentPackageQueryHandoff()) {
     state.packageQueryOpen = false;
-    packageQueryHandoffInProgress = false;
+    packageQueryHandoffNavigationSeq = null;
     packageQueryController.cancel();
     state.packageQueryReturnFocusPending =
       state.packageQueryReturnFocus !== null

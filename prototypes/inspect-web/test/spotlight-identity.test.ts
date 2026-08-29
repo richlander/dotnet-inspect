@@ -2747,10 +2747,10 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /if \(state\.packageQueryOpen\s*&& state\.engineReady\s*&& !state\.loading\s*&& !state\.error\)/);
   assert.match(
     handoff,
-    /packageQueryController\.cancel\(\);\s*state\.packageQueryOpen = false;\s*packageQueryHandoffInProgress = true;\s*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*await loadPackage\([\s\S]*\{ navigationSeq }\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*packageQueryHandoffInProgress = false;\s*workspaceLocation\.push\(buildStateUrl\(\)\.toString\(\)\)/);
+    /packageQueryController\.cancel\(\);\s*state\.packageQueryOpen = false;\s*const navigationSeq = navigationSequence\.begin\(\);\s*packageQueryHandoffNavigationSeq = navigationSeq;[\s\S]*await loadPackage\([\s\S]*\{ navigationSeq }\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) \{\s*if \(packageQueryHandoffNavigationSeq === navigationSeq\)\s*packageQueryHandoffNavigationSeq = null;\s*return;\s*\}[\s\S]*packageQueryHandoffNavigationSeq = null;\s*workspaceLocation\.push\(buildStateUrl\(\)\.toString\(\)\)/);
   assert.match(
     syncUrl,
-    /function syncUrl\(\) \{\s*if \(packageQueryHandoffInProgress\) return;\s*if \(retainFailedWorkspaceUrl\(\)\) return;/);
+    /function syncUrl\(\) \{\s*if \(currentPackageQueryHandoff\(\)\) return;\s*if \(retainFailedWorkspaceUrl\(\)\) return;/);
   assert.match(
     handoff,
     /state\.packageQueryNavigationError = failure;[\s\S]*data-query-row-open=/);
@@ -2785,7 +2785,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /state\.loading = !state\.engineReady;\s*render\(\);\s*if \(state\.engineReady\) focusPackageQueryInput\(\)/);
   assert.match(
     popstate,
-    /if \(state\.packageQueryOpen \|\| packageQueryHandoffInProgress\) \{[\s\S]*packageQueryHandoffInProgress = false;[\s\S]*state\.packageQueryReturnFocusPending =\s*state\.packageQueryReturnFocus !== null[\s\S]*isPackageQueryPredecessor\(\s*history\.state,\s*state\.packageQueryPredecessorEntryId\)/);
+    /if \(state\.packageQueryOpen \|\| currentPackageQueryHandoff\(\)\) \{[\s\S]*packageQueryHandoffNavigationSeq = null;[\s\S]*state\.packageQueryReturnFocusPending =\s*state\.packageQueryReturnFocus !== null[\s\S]*isPackageQueryPredecessor\(\s*history\.state,\s*state\.packageQueryPredecessorEntryId\)/);
   assert.match(
     appSource,
     /function closePackageQueryRoute\(\) \{\s*navigationSequence\.begin\(\);[\s\S]*history\.back\(\)/);
