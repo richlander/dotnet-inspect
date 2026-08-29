@@ -14,22 +14,24 @@ CONSTANTS
   IlOnly,
   Unanchored,
   DualCs,
+  DualCsSibling,
   DualIl,
   IlOnlyIl,
   Node
 
 Findings == {Dual, IlOnly, Unanchored}
-Targets == {DualCs, DualIl, IlOnlyIl}
+Targets == {DualCs, DualCsSibling, DualIl, IlOnlyIl}
 TargetPairs ==
-  {<<DualCs, Dual>>, <<DualIl, Dual>>, <<IlOnlyIl, IlOnly>>}
-CSharpTargets == {DualCs}
+  {<<DualCs, Dual>>, <<DualCsSibling, Dual>>, <<DualIl, Dual>>,
+   <<IlOnlyIl, IlOnly>>}
+CSharpTargets == {DualCs, DualCsSibling}
 IlTargets == {DualIl, IlOnlyIl}
 Nodes == {Node}
 
 NoValue == "none"
 
 ASSUME /\ Cardinality(Findings) = 3
-       /\ Cardinality(Targets) = 3
+       /\ Cardinality(Targets) = 4
        /\ Cardinality(Nodes) = 1
        /\ NoValue \notin Findings \cup Targets \cup Nodes
        /\ TargetPairs \subseteq Targets \X Findings
@@ -49,11 +51,16 @@ ASSUME /\ Cardinality(Findings) = 3
             /\ \E target \in IlTargets :
                  <<target, finding>> \in TargetPairs
        /\ \E finding \in Findings :
+            Cardinality(
+              {target \in CSharpTargets :
+                 <<target, finding>> \in TargetPairs}) = 2
+       /\ \E finding \in Findings :
             ~\E target \in Targets :
                 <<target, finding>> \in TargetPairs
 
 Surfaces == {"Embedded", "Modal"}
 Media == {"CSharp", "IL"}
+SupportedMediaSets == {{"CSharp"}, Media}
 PrimaryKinds == {"None", "Finding", "Node"}
 OpenerKinds == {"None", "Chip", "Inspector"}
 FocusKinds ==
@@ -140,6 +147,7 @@ VARIABLES
   modalPrimary,
   modalDetail,
   active,
+  supportedMedia,
   visibleMedia,
   coordinatesVisible,
   reported,
@@ -149,9 +157,14 @@ VARIABLES
   escapeLayered,
   closedDetail,
   closedSurface,
+  closedPrimary,
   closedActive,
   closedMedia,
+  closedCoordinates,
   dismissedPrimary,
+  openedFinding,
+  openedOpener,
+  openedTarget,
   toggledFinding,
   togglePriorActive,
   togglePriorPrimary,
@@ -165,9 +178,11 @@ VARIABLES
 
 vars ==
   <<defaults, surface, embeddedPrimary, embeddedDetail, modalPrimary,
-    modalDetail, active, visibleMedia, coordinatesVisible, reported, focus,
-    eventPulse, lastAction, escapeLayered, closedDetail, closedSurface,
-    closedActive, closedMedia, dismissedPrimary, toggledFinding,
+    modalDetail, active, supportedMedia, visibleMedia, coordinatesVisible,
+    reported, focus, eventPulse, lastAction, escapeLayered, closedDetail,
+    closedSurface, closedPrimary, closedActive, closedMedia,
+    closedCoordinates, dismissedPrimary, openedFinding, openedOpener,
+    openedTarget, toggledFinding,
     togglePriorActive, togglePriorPrimary, togglePriorDetail,
     activatedControl, controlPriorActive, controlPriorPrimary,
     controlPriorDetail, controlPriorMedia, controlPriorCoordinates>>
@@ -201,7 +216,10 @@ FocusIsValid ==
          /\ focus = ModalHeadingFocus
     [] focus.kind = "Chip" ->
          /\ focus.value \in Targets
-         /\ ExactChipAvailable(focus.value, surface, active, visibleMedia)
+         /\ IF surface = "Embedded"
+            THEN /\ focus.value \in CSharpTargets
+                 /\ FindingOf(focus.value) \in defaults
+            ELSE focus.value \in VisibleTargets(active, visibleMedia)
     [] focus.kind = "Inspector" ->
          /\ surface = "Modal"
          /\ focus.value \in Findings
@@ -217,7 +235,7 @@ FocusIsValid ==
          /\ focus.value \in Annotatable
     [] focus.kind = "MediumToggle" ->
          /\ surface = "Modal"
-         /\ focus.value \in Media
+         /\ focus.value \in supportedMedia
     [] focus.kind = "CoordinateToggle" ->
          /\ surface = "Modal"
          /\ focus = CoordinateToggleFocus
@@ -226,11 +244,18 @@ FocusIsValid ==
 ClearCloseHistory ==
   /\ closedDetail' = NoDetail
   /\ closedSurface' = "Embedded"
+  /\ closedPrimary' = NoPrimary
   /\ closedActive' = defaults
   /\ closedMedia' = {"CSharp"}
+  /\ closedCoordinates' = FALSE
 
 ClearDismissHistory ==
   dismissedPrimary' = NoPrimary
+
+ClearOpenHistory ==
+  /\ openedFinding' = NoValue
+  /\ openedOpener' = "None"
+  /\ openedTarget' = NoValue
 
 ClearToggleHistory ==
   /\ toggledFinding' = NoValue
@@ -257,11 +282,13 @@ RecordControlHistory(control) ==
 ClearHistory ==
   /\ ClearCloseHistory
   /\ ClearDismissHistory
+  /\ ClearOpenHistory
   /\ ClearToggleHistory
   /\ ClearControlHistory
 
 Init ==
   /\ defaults \in SUBSET Annotatable
+  /\ supportedMedia \in SupportedMediaSets
   /\ surface = "Embedded"
   /\ embeddedPrimary = NoPrimary
   /\ embeddedDetail = NoDetail
@@ -277,9 +304,14 @@ Init ==
   /\ escapeLayered = TRUE
   /\ closedDetail = NoDetail
   /\ closedSurface = "Embedded"
+  /\ closedPrimary = NoPrimary
   /\ closedActive = defaults
   /\ closedMedia = {"CSharp"}
+  /\ closedCoordinates = FALSE
   /\ dismissedPrimary = NoPrimary
+  /\ openedFinding = NoValue
+  /\ openedOpener = "None"
+  /\ openedTarget = NoValue
   /\ toggledFinding = NoValue
   /\ togglePriorActive = defaults
   /\ togglePriorPrimary = NoPrimary
@@ -302,7 +334,8 @@ OpenEmbeddedChip(target) ==
   /\ lastAction' = "OpenEmbeddedChip"
   /\ ClearHistory
   /\ UNCHANGED <<defaults, surface, modalPrimary, modalDetail, active,
-                 visibleMedia, coordinatesVisible, reported, escapeLayered>>
+                 supportedMedia, visibleMedia, coordinatesVisible, reported,
+                 escapeLayered>>
 
 OpenModal ==
   /\ surface = "Embedded"
@@ -321,7 +354,7 @@ OpenModal ==
   /\ eventPulse' = ~eventPulse
   /\ lastAction' = "OpenModal"
   /\ ClearHistory
-  /\ UNCHANGED <<defaults, embeddedPrimary, escapeLayered>>
+  /\ UNCHANGED <<defaults, embeddedPrimary, supportedMedia, escapeLayered>>
 
 DismissModal ==
   /\ surface = "Modal"
@@ -341,9 +374,10 @@ DismissModal ==
   /\ eventPulse' = ~eventPulse
   /\ dismissedPrimary' = modalPrimary
   /\ ClearCloseHistory
+  /\ ClearOpenHistory
   /\ ClearToggleHistory
   /\ ClearControlHistory
-  /\ UNCHANGED defaults
+  /\ UNCHANGED <<defaults, supportedMedia>>
 
 DismissModalByEscape ==
   /\ surface = "Modal"
@@ -374,9 +408,16 @@ OpenModalFinding(finding, opener, target) ==
   /\ focus' = DetailFocus(finding)
   /\ eventPulse' = ~eventPulse
   /\ lastAction' = "OpenModalFinding"
-  /\ ClearHistory
+  /\ openedFinding' = finding
+  /\ openedOpener' = opener
+  /\ openedTarget' = target
+  /\ ClearCloseHistory
+  /\ ClearDismissHistory
+  /\ ClearToggleHistory
+  /\ ClearControlHistory
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, embeddedDetail, active,
-                 visibleMedia, coordinatesVisible, reported, escapeLayered>>
+                 supportedMedia, visibleMedia, coordinatesVisible, reported,
+                 escapeLayered>>
 
 SelectModalNode(node) ==
   /\ surface = "Modal"
@@ -388,7 +429,8 @@ SelectModalNode(node) ==
   /\ lastAction' = "SelectModalNode"
   /\ ClearHistory
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, embeddedDetail, active,
-                 visibleMedia, coordinatesVisible, reported, escapeLayered>>
+                 supportedMedia, visibleMedia, coordinatesVisible, reported,
+                 escapeLayered>>
 
 CloseCurrentDetail ==
   /\ CurrentDetail # NoDetail
@@ -404,24 +446,29 @@ CloseCurrentDetail ==
   /\ lastAction' = "CloseDetail"
   /\ closedDetail' = CurrentDetail
   /\ closedSurface' = surface
+  /\ closedPrimary' =
+       IF surface = "Embedded" THEN embeddedPrimary ELSE modalPrimary
   /\ closedActive' = active
   /\ closedMedia' = visibleMedia
+  /\ closedCoordinates' = coordinatesVisible
   /\ ClearDismissHistory
+  /\ ClearOpenHistory
   /\ ClearToggleHistory
   /\ ClearControlHistory
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, modalPrimary, active,
-                 visibleMedia, coordinatesVisible, reported, escapeLayered>>
+                 supportedMedia, visibleMedia, coordinatesVisible, reported,
+                 escapeLayered>>
 
 EmbeddedEscapeFallsThrough ==
   /\ surface = "Embedded"
   /\ embeddedDetail = NoDetail
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, embeddedDetail,
-                 modalPrimary, modalDetail, active, visibleMedia,
+                 modalPrimary, modalDetail, active, supportedMedia, visibleMedia,
                  coordinatesVisible, reported, focus>>
   /\ eventPulse' = ~eventPulse
   /\ lastAction' = "EmbeddedEscape"
   /\ ClearHistory
-  /\ UNCHANGED escapeLayered
+  /\ escapeLayered' = (escapeLayered /\ embeddedDetail = NoDetail)
 
 SetDefault ==
   /\ surface = "Modal"
@@ -437,9 +484,10 @@ SetDefault ==
   /\ RecordControlHistory("DefaultControl")
   /\ ClearCloseHistory
   /\ ClearDismissHistory
+  /\ ClearOpenHistory
   /\ ClearToggleHistory
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, embeddedDetail,
-                 escapeLayered>>
+                 supportedMedia, escapeLayered>>
 
 SetAll ==
   /\ surface = "Modal"
@@ -455,9 +503,10 @@ SetAll ==
   /\ RecordControlHistory("AllControl")
   /\ ClearCloseHistory
   /\ ClearDismissHistory
+  /\ ClearOpenHistory
   /\ ClearToggleHistory
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, embeddedDetail,
-                 escapeLayered>>
+                 supportedMedia, escapeLayered>>
 
 ClearAll ==
   /\ surface = "Modal"
@@ -473,9 +522,10 @@ ClearAll ==
   /\ RecordControlHistory("ClearControl")
   /\ ClearCloseHistory
   /\ ClearDismissHistory
+  /\ ClearOpenHistory
   /\ ClearToggleHistory
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, embeddedDetail,
-                 escapeLayered>>
+                 supportedMedia, escapeLayered>>
 
 ToggleAnnotation(finding) ==
   /\ surface = "Modal"
@@ -503,13 +553,15 @@ ToggleAnnotation(finding) ==
   /\ lastAction' = "ToggleAnnotation"
   /\ ClearCloseHistory
   /\ ClearDismissHistory
+  /\ ClearOpenHistory
   /\ ClearControlHistory
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, embeddedDetail,
-                 visibleMedia, coordinatesVisible, escapeLayered>>
+                 supportedMedia, visibleMedia, coordinatesVisible,
+                 escapeLayered>>
 
 ToggleMedium(medium) ==
   /\ surface = "Modal"
-  /\ medium \in Media
+  /\ medium \in supportedMedia
   /\ LET nextMedia ==
            IF medium \in visibleMedia
               /\ Cardinality(visibleMedia) = 1
@@ -529,9 +581,10 @@ ToggleMedium(medium) ==
   /\ RecordControlHistory(medium)
   /\ ClearCloseHistory
   /\ ClearDismissHistory
+  /\ ClearOpenHistory
   /\ ClearToggleHistory
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, embeddedDetail,
-          escapeLayered>>
+          supportedMedia, escapeLayered>>
 
 ToggleCoordinates ==
   /\ surface = "Modal"
@@ -547,9 +600,10 @@ ToggleCoordinates ==
   /\ RecordControlHistory(CoordinateControl)
   /\ ClearCloseHistory
   /\ ClearDismissHistory
+  /\ ClearOpenHistory
   /\ ClearToggleHistory
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, embeddedDetail,
-          escapeLayered>>
+          supportedMedia, escapeLayered>>
 
 Next ==
   \/ \E target \in Targets : OpenEmbeddedChip(target)
@@ -567,7 +621,7 @@ Next ==
   \/ SetAll
   \/ ClearAll
   \/ \E finding \in Annotatable : ToggleAnnotation(finding)
-  \/ \E medium \in Media : ToggleMedium(medium)
+  \/ \E medium \in supportedMedia : ToggleMedium(medium)
   \/ ToggleCoordinates
 
 Spec == Init /\ [][Next]_vars
@@ -586,7 +640,9 @@ TypeOK ==
         opener  : OpenerKinds,
         target  : Targets \cup {NoValue}]
   /\ active \in SUBSET Annotatable
+  /\ supportedMedia \in SupportedMediaSets
   /\ visibleMedia \in SUBSET Media
+  /\ visibleMedia \subseteq supportedMedia
   /\ coordinatesVisible \in BOOLEAN
   /\ reported \in ReportedStates
   /\ focus \in [kind : FocusKinds, value : FocusValues]
@@ -598,9 +654,14 @@ TypeOK ==
         opener  : OpenerKinds,
         target  : Targets \cup {NoValue}]
   /\ closedSurface \in Surfaces
+  /\ closedPrimary \in [kind : PrimaryKinds, value : Values]
   /\ closedActive \in SUBSET Annotatable
   /\ closedMedia \in SUBSET Media
+  /\ closedCoordinates \in BOOLEAN
   /\ dismissedPrimary \in [kind : PrimaryKinds, value : Values]
+  /\ openedFinding \in Findings \cup {NoValue}
+  /\ openedOpener \in OpenerKinds
+  /\ openedTarget \in Targets \cup {NoValue}
   /\ toggledFinding \in Findings \cup {NoValue}
   /\ togglePriorActive \in SUBSET Annotatable
   /\ togglePriorPrimary \in [kind : PrimaryKinds, value : Values]
@@ -653,25 +714,60 @@ EmbeddedStateIsConstrained ==
 ModalDetailExistsOnlyWhileOpen ==
   surface = "Embedded" => modalDetail = NoDetail
 
+EmbeddedDetailExistsOnlyWhileEmbedded ==
+  surface = "Modal" => embeddedDetail = NoDetail
+
 CoordinatesExistOnlyWhileModal ==
   surface = "Embedded" => ~coordinatesVisible
 
 AtLeastOneMediumIsVisible ==
-  visibleMedia # {}
+  /\ visibleMedia # {}
+  /\ visibleMedia \subseteq supportedMedia
 
 ReportedStateIsDerived ==
-  reported = Reported(active, defaults)
+  CASE active = defaults ->
+         reported = "Default"
+    [] active # defaults /\ active = Annotatable ->
+         reported = "All"
+    [] active # defaults /\ active # Annotatable /\ active = {} ->
+         reported = "Clear"
+    [] OTHER ->
+         reported = "Custom"
 
 ModalAlwaysHasFocus ==
   surface = "Modal" => focus # NoFocus
 
-DetailClosureRestoresExactFocus ==
+DetailClosureOutcomeIsExact ==
   lastAction = "CloseDetail" =>
-    IF closedDetail.opener = "Chip"
-       /\ ExactChipAvailable(closedDetail.target, closedSurface,
-                             closedActive, closedMedia)
-    THEN focus = ChipFocus(closedDetail.target)
-    ELSE focus = InspectorFocus(closedDetail.finding)
+    LET exactChipWasAvailable ==
+          /\ closedDetail.opener = "Chip"
+          /\ IF closedSurface = "Embedded"
+             THEN /\ closedDetail.target \in CSharpTargets
+                  /\ FindingOf(closedDetail.target) \in defaults
+             ELSE closedDetail.target \in
+                    VisibleTargets(closedActive, closedMedia)
+        expectedFocus ==
+          IF exactChipWasAvailable
+          THEN ChipFocus(closedDetail.target)
+          ELSE InspectorFocus(closedDetail.finding)
+    IN /\ CurrentDetail = NoDetail
+       /\ active = closedActive
+       /\ visibleMedia = closedMedia
+       /\ coordinatesVisible = closedCoordinates
+       /\ IF closedSurface = "Embedded"
+          THEN embeddedPrimary = closedPrimary
+          ELSE modalPrimary = closedPrimary
+       /\ focus = expectedFocus
+
+ModalFindingOpeningIsExact ==
+  lastAction = "OpenModalFinding" =>
+    /\ surface = "Modal"
+    /\ modalPrimary = FindingPrimary(openedFinding)
+    /\ modalDetail =
+         IF openedOpener = "Chip"
+         THEN ChipDetail(openedFinding, openedTarget)
+         ELSE InspectorDetail(openedFinding)
+    /\ focus = DetailFocus(openedFinding)
 
 AnnotationToggleOutcomeIsExact ==
   lastAction = "ToggleAnnotation" =>
@@ -727,7 +823,7 @@ ControlOutcomeIsExact ==
                  ELSE IF medium \in controlPriorMedia
                       THEN controlPriorMedia \ {medium}
                       ELSE controlPriorMedia \cup {medium}
-           IN /\ medium \in Media
+           IN /\ medium \in supportedMedia
               /\ active = controlPriorActive
               /\ modalPrimary = controlPriorPrimary
               /\ modalDetail = controlPriorDetail
@@ -751,6 +847,7 @@ ModalOpeningIsFresh ==
          THEN embeddedPrimary
          ELSE NoPrimary
     /\ modalDetail = NoDetail
+    /\ embeddedDetail = NoDetail
     /\ active = defaults
     /\ visibleMedia = {"CSharp"}
     /\ coordinatesVisible = FALSE

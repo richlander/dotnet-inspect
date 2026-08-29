@@ -12,8 +12,8 @@ redefines:
 
 - the modal lifecycle, shell composition, browser history, and destination
   focus rules in [Inspect Web UI](inspect-web-ui.md);
-- the annotated document, Finding, target, node, and coordinate contracts
-  produced by the product;
+- the annotated document, supported-media set, Finding, target, node, and
+  coordinate contracts produced by the product;
 - canonical view and packet state from
   [Workspace Definitions](workspace-definitions.md);
 - complete C# declaration text from the CSharp layer;
@@ -85,7 +85,7 @@ destinations appear interchangeable.
 | Finding toggle chip | No | Every annotatable Finding | Adds or removes one active annotation |
 | Finding inspector action | No | Every Finding | Makes that Finding primary and opens detail |
 | Node selection chip | No | Selected/related nodes | Selects or focuses that exact node |
-| Medium toggle | No | C# and IL | Shows or hides that medium; rejects hiding the last visible medium |
+| Medium toggle | No | Each document-supported medium | Shows or hides that medium; rejects hiding the last visible medium |
 | Coordinate toggle | No | Product coordinates available | Shows or hides offsets and source ranges |
 | Named destination | No | Product capability only | Requests that exact destination |
 | **Explore** | Yes | No | Opens a fresh modal session |
@@ -209,15 +209,21 @@ off the only default instance produces **Clear**.
 
 ## Media and coordinates
 
-C#/IL visibility changes presentation, not annotation membership. Revealing IL
-may render an already-active IL-only Finding; hiding IL hides that target
-without removing the Finding from the active set or changing the reported
-annotation state.
+The product supplies the media that the current document actually contains.
+C# is always supported; IL is supported only when the document contains IL
+lines. The viewer exposes toggles only for that set and never treats an absent
+medium as visible.
 
-At least one source medium is always visible. Activating the control for the
-last visible medium leaves media, annotations, selection, detail, and
-coordinates unchanged, with focus on that control. A document with no visible
-medium would look like a successful empty result.
+C#/IL visibility changes presentation, not annotation membership. Revealing
+supported IL may render an already-active IL-only Finding; hiding IL hides that
+target without removing the Finding from the active set or changing the
+reported annotation state.
+
+At least one supported source medium is always visible. Activating the control
+for the last visible medium leaves media, annotations, selection, detail, and
+coordinates unchanged, with focus on that control. An unsupported medium
+cannot satisfy this guard. A document with no available visible medium would
+look like a successful empty result.
 
 Hiding a medium does not clear primary or close detail. If it removes the
 detail's exact annotation chip, closing detail focuses the same Finding's
@@ -244,7 +250,9 @@ unanchored, inactive, attached to the member header, or rendered only on a
 hidden medium. An annotation chip is an additional spatial opener, never the
 only way to inspect a Finding.
 
-Closing detail restores focus to the exact opener if it still exists:
+Closing detail leaves primary selection, active annotations, media, and
+coordinate visibility unchanged. It clears only the transient detail and
+restores focus to the exact opener if it still exists:
 
 - an inspector-opened detail returns to that Finding's inspector action;
 - a chip-opened detail returns to the exact medium-specific chip while that
@@ -325,14 +333,17 @@ bounded executable design model for viewer-local interaction. It checks:
 
 - fresh modal initialization and eligible primary transfer;
 - modal dismissal and exercised embedded-primary eligibility derivation;
-- exact chip versus persistent-inspector detail openers;
+- exact chip versus persistent-inspector detail openers, including distinct
+  same-medium targets for one Finding;
 - primary selection, active annotations, rendered annotations, and derived
-  reported state;
+  reported state with independently checked precedence;
 - exact **Default**, **All**, **Clear**, medium, and coordinate control
   outcomes, including preserved orthogonal state;
-- C#/IL visibility with at least one medium and coordinate visibility;
-- layered Escape and pointer dismissal; and
-- focus validity after explicit and indirect detail closure.
+- document-supported C#/IL visibility with at least one available medium and
+  coordinate visibility;
+- layered Escape on both surfaces and pointer dismissal;
+- destruction of embedded detail on modal opening; and
+- exact focus and state preservation after direct or indirect detail closure.
 
 The model deliberately omits shell history, modal stacking outside this
 viewer, asynchronous navigation authority, packet state, declaration
@@ -349,19 +360,25 @@ Conformance requires:
 - action-matrix tests proving every chip-shaped element is a button with one
   documented verb and equivalent pointer/keyboard activation;
 - modal-session tests proving fresh initialization, eligible primary transfer,
-  state destruction on dismissal, and no detail transfer;
+  embedded-detail destruction on opening, state destruction on dismissal, and
+  no detail transfer;
 - active-versus-rendered tests covering C#-only, IL-only, dual-target, and
   unanchored Findings;
 - **Default**, **All**, **Clear**, and **Custom** precedence tests, including
   empty and universe-equal defaults;
-- media tests proving membership is orthogonal, a hidden opener falls back to
-  the exact Finding's inspector action, a sibling chip is not substituted,
-  toggles retain focus, and the final visible medium cannot be disabled;
+- media tests proving controls come only from the product-supported set,
+  unsupported media cannot satisfy the non-empty guard, membership is
+  orthogonal, a hidden opener falls back to the exact Finding's inspector
+  action, a same- or different-medium sibling chip is not substituted, toggles
+  retain focus, and the final visible medium cannot be disabled;
 - coordinate tests proving hidden fresh state, exact toggling and focus,
   annotation-set and media preservation, dismissal destruction, and hidden
   state on reopening;
 - primary tests proving Finding and node transitions are explicit and toggles
   do not select;
+- detail-open and close tests proving exact opener identity, including two
+  same-medium targets for one Finding, and preservation of primary selection,
+  annotation membership, media, and coordinates on direct close;
 - layered Escape tests distinguishing detail closure, modal dismissal, and
   embedded fall-through;
 - focus tests for direct close, annotation-set controls, annotation, media, and
