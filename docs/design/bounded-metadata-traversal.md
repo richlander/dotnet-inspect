@@ -423,7 +423,7 @@ Current and candidate ceilings are:
 | TypeSpec active bytes | 4,096 | Active existing `TypeSpecGuard` policy |
 | Signature structural depth | 512 | Active existing `SignatureBlobGuard` policy |
 | Metadata rows admitted | Operation `MaxMetadataRows` | Active in API extraction; charges each declared table row once before traversal |
-| Retained MethodSemantics associations | Corpus-derived before activation | Candidate; separately bounds the immutable association index without double-charging admitted rows |
+| Retained MethodSemantics associations | 65,536 | Active primitive policy; separately bounds the immutable association index without double-charging admitted rows, while product activation remains a later slice |
 
 Image admission is unconditional. An explicit `Unbounded` policy preserves
 compatibility for callers that have not migrated, but no product entry point
@@ -437,6 +437,18 @@ ordered input DLL digest was
 `d6d2fef7d7ccdf240f308cbfddd90fa21fdeb82b55d89d0028ef37ffd87e04af`.
 The 256-node ceiling leaves more than 50 times the observed TypeDef depth while
 aligning with the existing TypeSpec re-entry ceiling.
+
+The retained-MethodSemantics ceiling was activated after scanning the .NET 11
+preview 7 Microsoft.NETCore.App and Microsoft.AspNetCore.App runtime and
+reference packs (`11.0.0-preview.7.26381.103`): 621 managed assemblies, no
+malformed images, 78,554 total rows, and a maximum of 6,592 rows in
+`System.Private.CoreLib.dll`. The ordered
+`<corpus-kind>/<relative-path>` plus per-file SHA-256 manifest digest was
+`a4d47210be7201a20226ae21b6aa849745d3c7ed89a7d7a3b750609483be7eec`.
+The 65,536-row ceiling leaves more than nine times the observed maximum while
+remaining independently lower than the operation's broader metadata-row
+ceiling. `Mdp016_DefaultBudgetPinsMeasuredCorpusMargin` pins the measured
+maximum and active ceiling together.
 
 The text and arity values come from prior hardening experiments but are not
 active policy until an implementation PR records a pinned corpus's maximum
