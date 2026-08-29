@@ -167,8 +167,18 @@ closes request admission before the read loop collects and settles pending reque
 `RequestAdmissionHasLiveReceiver` and `ShutdownSettlementIsComplete`. A malformed
 plugin-originated request receives an error response or the connection terminates; it never becomes
 abandoned work, checked by `InboundFailureIsContained` and
-`MalformedInboundEventuallySettles`. The current implementation does not yet enforce the
-stalled-write rule. Terminal admission and pending settlement are enforced by
+`MalformedInboundEventuallySettles`. Active-writer timeout, cancellation, response, and write-fault
+containment are enforced by
+`PluginProtocolTests.AStalledWriterTimeoutTerminatesTheConnectionAndSettlesQueuedRequests`,
+`PluginProtocolTests.CallerCancellationOfAStalledWriterRemainsCancellation`,
+`PluginProtocolTests.AResponseCannotLeaveItsRequestWriterStalled`, and
+`PluginProtocolTests.CallerCancellationWinsAConcurrentWriteFailure`. Connection resources remain
+alive until admitted requests and inbound response writers have unwound, enforced by
+`PluginProtocolTests.ConnectionResourcesWaitForInterruptedRequestsToQuiesce` and
+`PluginProtocolTests.ConnectionResourcesWaitForInboundResponseWritersToQuiesce`; if a terminated
+transport write cannot be observed completing, its resources remain retained, enforced by
+`PluginProtocolTests.AnUnfinishedInterruptedWriteRetainsConnectionResources`. Terminal admission
+and pending settlement are enforced by
 `PluginProtocolTests.ARequestAfterReceiverLossIsRejectedWithoutWaitingForItsTimeout` and
 `PluginProtocolTests.ReceiverLossSettlesARequestAdmittedBeforeThePendingSnapshot`, with the
 atomic overlap enforced by
@@ -182,12 +192,17 @@ Implementation: [`PluginConnection`](../../src/NuGetFetch/Plugins/PluginConnecti
 The concurrent conversation and shutdown rules are checked by the
 [NuGet credential-plugin session lifecycle model](models/nuget-plugin-session-lifecycle/README.md).
 The model checks the design under finite bounds; implementation correspondence for progress
-renewal and concurrent correlation remains unverified. Terminal admission and pending settlement
-are enforced by the gates named above.
+renewal and concurrent correlation remains unverified. Writer preemption, terminal admission, and
+pending settlement are enforced by the gates named above.
 
-Plugins are started lazily and kept for the process lifetime, because a launch costs a process
-start plus five round trips. A plugin that fails to start, or that does not claim the
-`Authentication` operation, is remembered as unusable rather than retried.
+Plugins are started lazily and kept until their connection closes, because a launch costs a process
+start plus five round trips. A request that loses a race with terminal publication retries once on
+a replacement connection, and later requests likewise replace a cached terminal connection. These
+rules are enforced by
+`PluginProtocolTests.ARequestRacingTerminalPublicationRetriesOnAReplacementConnection` and
+`PluginProtocolTests.AClosedCachedPluginConnectionIsRestartedOnTheNextRequest`. A plugin that fails
+to start, or that does not claim the `Authentication` operation, is remembered as unusable rather
+than retried.
 
 A plugin process or pipe that dies during a request is likewise treated as no credential from
 that plugin. Timeouts, malformed responses, I/O failures, disposed pipes, and invalid process
@@ -197,6 +212,8 @@ before and after receiver loss by `PluginProtocolTests.CallerCancellationContinu
 `PluginProtocolTests.CanceledRequestAfterReceiverLossRemainsCancellation`, including the
 admission-monitor race checked by
 `PluginProtocolTests.CancellationWhileWaitingForClosedAdmissionRemainsCancellation`.
+Cancellation while a terminal cached connection is being replaced likewise propagates, enforced by
+`PluginProtocolTests.CancellationWhileReplacingAClosedConnectionRemainsCancellation`.
 
 ### Unattended by default
 
