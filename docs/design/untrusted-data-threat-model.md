@@ -175,7 +175,17 @@ must not pass an unseparated URL or reconstruct removed components from the
 safe result. Producer identity, endpoint validation, cache authority, and
 presentation policy remain outside this owner.
 
+`UrlRedaction.PathComponentContractVersion` is the InertText-owned semantic
+compatibility discriminator for the encoded text returned by
+`ForPathComponent`. Its current value is `1`. Increment it before merging any
+change for which an admitted path can produce different `ToString()` output,
+including changes to the credential-slot grammar, `RedactedMarker`,
+`TextPolicy.Field`, or visual spelling. It is independent of assembly and
+package versions. Changes to `InertString` metadata or APIs that leave the
+encoded text unchanged do not increment it.
+
 This contract is gated by
+`ForPathComponent_ContractVersionPinsCurrentOutput`,
 `ForPathComponent_PreservesNonCredentialPathText`,
 `ForPathComponent_RedactsCredentialSlots`, and
 `ForPathComponent_EncodesNonGraphicScalars` in the Release
