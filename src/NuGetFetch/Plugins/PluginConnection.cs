@@ -249,7 +249,7 @@ internal sealed class PluginConnection : IAsyncDisposable
 
                 _testHooks?.RequestAdmissionAccepted?.Invoke();
                 _pending[requestId] = pending;
-                _testHooks?.RequestRegistered?.Invoke();
+                _testHooks?.RequestRegistered?.Invoke(Monitor.IsEntered(_pendingGate));
             }
 
             await WriteAsync(
@@ -349,7 +349,7 @@ internal sealed class PluginConnection : IAsyncDisposable
         {
             _acceptingRequests = false;
             pending = [.. _pending.Values];
-            _testHooks?.PendingSnapshotCaptured?.Invoke();
+            _testHooks?.PendingSnapshotCaptured?.Invoke(Monitor.IsEntered(_pendingGate));
             _pending.Clear();
         }
 
@@ -366,11 +366,11 @@ internal sealed class PluginConnection : IAsyncDisposable
     {
         public Action? RequestAdmissionAccepted { get; init; }
 
-        public Action? RequestRegistered { get; init; }
+        public Action<bool>? RequestRegistered { get; init; }
 
         public Action? TerminalSettlementAttempted { get; init; }
 
-        public Action? PendingSnapshotCaptured { get; init; }
+        public Action<bool>? PendingSnapshotCaptured { get; init; }
     }
 
     /// <summary>

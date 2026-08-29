@@ -550,11 +550,11 @@ public sealed class PluginProtocolTests : IDisposable
             TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseAdmission = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        var requestRegistered = new TaskCompletionSource(
+        var requestRegistered = new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var settlementAttempted = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        var snapshotCaptured = new TaskCompletionSource(
+        var snapshotCaptured = new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         using var hooksEnabled = new ManualResetEventSlim();
         var hooks = new PluginConnection.PluginConnectionTestHooks
@@ -572,11 +572,11 @@ public sealed class PluginProtocolTests : IDisposable
                         .GetResult();
                 }
             },
-            RequestRegistered = () =>
+            RequestRegistered = gateHeld =>
             {
                 if (hooksEnabled.IsSet)
                 {
-                    requestRegistered.TrySetResult();
+                    requestRegistered.TrySetResult(gateHeld);
                 }
             },
             TerminalSettlementAttempted = () =>
@@ -586,11 +586,11 @@ public sealed class PluginProtocolTests : IDisposable
                     settlementAttempted.TrySetResult();
                 }
             },
-            PendingSnapshotCaptured = () =>
+            PendingSnapshotCaptured = gateHeld =>
             {
                 if (hooksEnabled.IsSet)
                 {
-                    snapshotCaptured.TrySetResult();
+                    snapshotCaptured.TrySetResult(gateHeld);
                 }
             },
         };
@@ -636,10 +636,10 @@ public sealed class PluginProtocolTests : IDisposable
 
                 releaseAdmission.TrySetResult();
 
-                await requestRegistered.Task.WaitAsync(
+                bool registrationHeldGate = await requestRegistered.Task.WaitAsync(
                     TimeSpan.FromSeconds(1),
                     TestContext.Current.CancellationToken);
-                await snapshotCaptured.Task.WaitAsync(
+                bool snapshotHeldGate = await snapshotCaptured.Task.WaitAsync(
                     TimeSpan.FromSeconds(1),
                     TestContext.Current.CancellationToken);
 
@@ -648,6 +648,8 @@ public sealed class PluginProtocolTests : IDisposable
                     TestContext.Current.CancellationToken);
 
                 Assert.Null(response);
+                Assert.True(registrationHeldGate);
+                Assert.True(snapshotHeldGate);
             }
             finally
             {
