@@ -211,9 +211,9 @@ checks do not parse or compare the opaque ID.
 Logical operation identity is independent of worker identity. A worker-backed
 dispatch separately carries the current `workerEpoch`; main-thread work such as
 browser `fetch` has an operation ID but no worker assignment. Worker restart
-fails and quiesces only operations assigned to that epoch. The epoch check,
-rather than an operation-ID encoding convention, prevents a message from a
-terminated worker realm from acquiring authority in its replacement.
+affects only operations assigned to that epoch. The epoch check, rather than an
+operation-ID encoding convention, prevents a message from a terminated worker
+realm from acquiring authority in its replacement.
 
 For worker-backed operations, allocation and placement in the worker owner's
 dispatch queue are one synchronous action. When the assigned epoch is ready,
@@ -249,9 +249,11 @@ session observers. This removes the repeated, fallible requirement that every
 ### Logical completion and producer quiescence
 
 Each handle has exactly one logical outcome. User cancellation, supersession,
-disposal, or restart of an assigned worker may complete that outcome before
-physical work settles. The separate `quiesced` promise resolves after the
-producer adapter reports settlement and operation-scoped resource release. For
+disposal, a logical timeout, or planned restart of an assigned worker may
+complete that outcome as canceled before physical work settles. Unexpected
+startup failure, crash, watchdog loss, or protocol failure completes a pending
+outcome as failed. The separate `quiesced` promise resolves after the producer
+adapter reports settlement and operation-scoped resource release. For
 worker-backed work, closing the assigned epoch and destroying its realm also
 resolves quiescence when no `Quiesced` message can arrive.
 
@@ -268,7 +270,10 @@ work, and sends one cancellation request when the operation is worker-backed.
 An omitted reason is normalized to `"user"` before any state or transport
 transition. A worker cancellation request is sent only after `Start` was
 posted; a held pre-readiness start follows the local path above. Later calls
-change nothing.
+change nothing. Any call after the logical outcome is already terminal is also
+a strict local no-op: it records no reason, changes no state, and sends no
+transport message. A feature-owned logical deadline uses `cancel("timeout")`;
+that reason does not claim physical work has stopped.
 
 The worker acknowledges whether it observed the operation as queued, running,
 or not active. An acknowledgment is not proof that managed work stopped. C#
@@ -386,18 +391,21 @@ means queue admission, not producer start or completion. Progress, `Terminal`,
 or `Quiesced` before `Accepted` is a protocol failure; `Rejected` is the
 explicit alternative to acceptance. The main-thread owner records acceptance
 and the advertised maximum silent interval for worker-level liveness
-accounting, and rejects an interval that does not match the registered policy
-for that operation kind.
+accounting. An interval that does not exactly match the registered policy for
+that operation kind is an epoch-level protocol failure: the owner applies the
+registered allowance while it reports the failure and terminates the realm. It
+never omits the accepted operation from liveness accounting or falls back to
+the shorter idle allowance.
 
-Unknown message kinds, ambiguous active duplicates, and repeated terminal
-messages are epoch-level protocol failures. The operation owner gates the
-complementary cross-epoch property: one operation ID and sequence pair is
-assigned and dispatched at most once. A `Cancel` race is the sole
-unknown-operation exception: `not-active` says that no queued or running
-producer received the request. The main thread accepts that acknowledgment only
-when it has observed, or subsequently observes, either `Rejected` or the
-operation's terminal and quiesced messages. It is never interpreted as
-successful physical cancellation.
+Unknown message kinds, ambiguous active duplicates, non-conforming accepted
+allowances, and repeated terminal messages are epoch-level protocol failures.
+The operation owner gates the complementary cross-epoch property: one operation
+ID and sequence pair is assigned and dispatched at most once. A `Cancel` race
+is the sole unknown-operation exception: `not-active` says that no queued or
+running producer received the request. The main thread accepts that
+acknowledgment only when it has observed, or subsequently observes, either
+`Rejected` or the operation's terminal and quiesced messages. It is never
+interpreted as successful physical cancellation.
 
 The main-thread owner records whether it sent `Cancel` and retains the protocol
 record until it has received either `Rejected` or both `Terminal` and
@@ -435,14 +443,20 @@ The worker initializes one generated facade and one .NET runtime. Concurrent
 operations reuse that runtime and its package/workspace caches. Feature owners
 or the operation session do not dispose the shared runtime.
 
-Worker creation starts a measured startup allowance. `Ready` ends startup,
-establishes the validated idle heartbeat interval, and permits the first
-`Start`. The worker posts `Heartbeat` from its event loop while it can process
-tasks, including when no operation is accepted. Before managed invocation,
-each operation kind declares through `Accepted` either a measured maximum
-interval during which it may legitimately prevent the worker from emitting any
-liveness message, or `unbounded`. The idle allowance is the validated heartbeat
-interval plus scheduling tolerance.
+Worker creation starts a measured startup active-time budget. Only a matching
+`Ready` completes startup, establishes the validated idle heartbeat interval,
+and permits the first `Start`. `Heartbeat` or `ProbeAcknowledged` can show that
+the JavaScript realm is responsive, but cannot renew, reset, or satisfy the
+startup budget while .NET or facade initialization remains incomplete. Budget
+expiry is startup failure: the main thread terminates the partial realm, fails
+and quiesces its held operations, and closes the epoch.
+
+After readiness, the worker posts `Heartbeat` from its event loop while it can
+process tasks, including when no operation is accepted. Before managed
+invocation, each operation kind declares through `Accepted` either a measured
+maximum interval during which it may legitimately prevent the worker from
+emitting any liveness message, or `unbounded`. The idle allowance is the
+validated heartbeat interval plus scheduling tolerance.
 
 Physical work that can outlive all accepted operation wrappers acquires an
 epoch-owned lease through `EpochWorkStarted` before the last related operation
@@ -459,14 +473,15 @@ never shrinks that allowance. Each valid liveness message renews that epoch
 deadline from its receipt. Silence cannot justify automatic termination while
 any accepted operation or epoch-work lease is `unbounded`.
 
-Expiry never terminates the worker on the watchdog task that first observes it.
-The owner enters a suspect state, posts `Probe`, and rebases one full current
-epoch allowance from that send. Any valid worker message, including the matching
-`ProbeAcknowledged`, clears suspicion. Termination is eligible only when that
-post-probe allowance expires without liveness while the main-loop cadence
-monitor shows no local scheduling gap beyond tolerance. A late watchdog task or
-other main-loop discontinuity rebases the allowance and requires a new probe
-rather than judging already-queued worker messages.
+After readiness, allowance expiry never terminates the worker on the watchdog
+task that first observes it. The owner enters a suspect state, posts `Probe`,
+and rebases one full current epoch allowance from that send. Any valid worker
+message, including the matching `ProbeAcknowledged`, clears suspicion.
+Termination is eligible only when that post-probe allowance expires without
+liveness while the main-loop cadence monitor shows no local scheduling gap
+beyond tolerance. A late watchdog task or other main-loop discontinuity rebases
+the allowance and requires a new probe rather than judging already-queued
+worker messages.
 
 This two-stage expiry is a worker-level lease violation, not an operation
 timeout. A bounded advertisement requires a real-browser gate measuring that
@@ -478,19 +493,23 @@ reports the loss of in-flight work and worker-local caches.
 Watchdog time does not accrue while the document is hidden, frozen, in the
 back-forward cache, or otherwise lifecycle-suspended. The lifecycle handler
 suspends evaluation before background timer throttling can be mistaken for
-worker silence. On resume, it rebases the full current startup, idle, accepted,
-and epoch-work allowance from the resume time and requires a new probe.
-Automatic termination is not eligible until that complete post-resume allowance
-elapses without a fresh valid liveness message and the main loop remains
-continuously schedulable.
+worker silence. Startup preserves only its remaining active-time budget across
+that suspension or a detected main-loop discontinuity; it does not receive a
+fresh full budget, and only `Ready` succeeds. After readiness, resume rebases
+the full current idle, accepted, and epoch-work allowance and requires a new
+probe. Automatic termination is not eligible until that complete post-resume
+allowance elapses without a fresh valid liveness message and the main loop
+remains continuously schedulable.
 
-A worker startup failure is terminal for that worker epoch. The main thread
-fails every operation assigned to it, including held pre-readiness starts,
-revokes the epoch, and may create a new worker under explicit retry policy.
-Main-thread-native operations remain owned by their producers and are not
-failed merely because the worker changed. A worker crash or hard termination
-loses runtime-owned caches and in-flight physical work; messages from the old
-epoch remain stale.
+An unexpected startup failure, worker crash, watchdog loss, or epoch-level
+protocol failure completes every pending operation assigned to that epoch as
+failed with a boundary error. A planned restart first completes each pending
+assigned operation as canceled with reason `"worker-restarted"`. Both paths
+resolve quiescence only when the realm is destroyed, revoke the epoch, and may
+create a new worker under explicit retry policy. Main-thread-native operations
+remain owned by their producers and are not affected. Worker loss discards
+runtime-owned caches and in-flight physical work; messages from the old epoch
+remain stale.
 
 Closing an epoch also resolves every outstanding `quiesced` promise assigned to
 that epoch. Realm destruction is the physical release boundary for its managed
@@ -754,14 +773,17 @@ These gates are design requirements and do not yet exist:
   at-most-once assignment, explicit safe-integer sequence ordering and
   exhaustion, replay after record removal, duplicate/unknown IDs, readiness,
   held pre-readiness start, cancellation, supersession, and startup-failure
-  closure, accepted-versus-rejected start closure, active-duplicate epoch
-  failure, payload-bearing terminal variants, queued cancellation settlement,
-  bare-cancel reason normalization, outstanding-acknowledgment races,
-  settlement deadlines that cannot terminate an epoch, startup, idle,
-  accepted-operation, and epoch-work leases, bounded and unbounded liveness,
-  probe and main-loop-discontinuity handling, busy-versus-wedged
-  discrimination, shared-waiter quiescence, record release, crash, restart,
-  main-thread-operation isolation, and stale-message tests;
+  closure, absolute startup-budget expiry that only `Ready` satisfies,
+  accepted-versus-rejected start closure, active-duplicate and
+  accepted-allowance-mismatch epoch failure, payload-bearing terminal variants,
+  queued cancellation settlement, bare-cancel reason normalization,
+  post-terminal cancellation as a transport-free no-op,
+  outstanding-acknowledgment races, settlement deadlines that cannot terminate
+  an epoch, startup, idle, accepted-operation, and epoch-work leases, bounded
+  and unbounded liveness, probe and main-loop-discontinuity handling,
+  busy-versus-wedged discrimination, planned-restart cancellation versus
+  unexpected-loss failure, shared-waiter quiescence, record release, crash,
+  restart, main-thread-operation isolation, and stale-message tests;
 - `inspect-web-async-interop`: compiled and browser-executed typed managed
   result classification before Task/Promise projection, Promise-rejection
   failure handling, authenticated operation- and epoch-scoped synchronous
@@ -770,10 +792,12 @@ These gates are design requirements and do not yet exist:
 - `inspect-web-async-browser`: a real browser heartbeat and paint canary while
   a pinned managed CPU operation runs, measured maximum silent occupancy for
   every bounded operation kind, a shorter sibling that cannot terminate a
-  healthy busy worker, cold and warm readiness, idle and broker-owned work,
-  hide, freeze, resume, back-forward-cache transitions, an overdue watchdog
-  task, and a long main-thread task with already-queued worker messages, plus
-  progress, cancellation, supersession, and worker-restart scenarios; and
+  healthy busy worker, cold and warm readiness, responsive JavaScript with
+  permanently stalled .NET startup, idle and broker-owned work, hide, freeze,
+  resume, back-forward-cache transitions, an overdue watchdog task, and a long
+  main-thread task with already-queued worker messages, plus progress,
+  cancellation, supersession, planned restart, crash, and watchdog-loss
+  scenarios; and
 - `inspect-web-async-performance`: pinned interpreter and AOT measurements for
   worker startup, first operation, cached operation, message payload transfer,
   and peak memory.
