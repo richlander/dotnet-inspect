@@ -480,14 +480,23 @@ as `InvalidOperationException`.
 
 Once an inner package or symbol operation returns a successful payload outcome,
 the adapter owns the payload stream provisionally until validation succeeds.
-Validation success transfers the stream to the adapter's caller unchanged. On
-foreign-factory, wrong-capability, wrong-payload-kind, wrong-coordinate, or
-otherwise invalid payload success, the adapter awaits `DisposeAsync` on the
-stream exactly once before rejecting the outcome. The contract violation
-remains primary: if asynchronous stream disposal also fails, an
-`AggregateException` exposes the `InvalidOperationException` first and the
-disposal failure second. The callback client remains owned by the adapter and
-is not disposed as a consequence of one invalid outcome.
+The custom-client contract requires each successful package or symbol outcome
+to transfer exclusive ownership of a fresh stream reference. That reference
+must not have appeared in an earlier outcome and must not be the callback client
+itself or alias a resource whose lifetime the callback client retains. The
+adapter relies on this trusted in-process precondition rather than maintaining
+a global stream-reference registry; reuse or lifetime aliasing by the callback
+client is outside the supported contract.
+
+For a conforming custom client, validation success transfers the stream to the
+adapter's caller unchanged. On foreign-factory, wrong-capability,
+wrong-payload-kind, wrong-coordinate, or otherwise invalid payload success, the
+adapter awaits `DisposeAsync` on the stream exactly once before rejecting the
+outcome. The contract violation remains primary: if asynchronous stream
+disposal also fails, an `AggregateException` exposes the
+`InvalidOperationException` first and the disposal failure second. The callback
+client remains owned by the adapter and is not disposed as a consequence of one
+invalid outcome.
 
 The adapter remains caller-owned for disposal. The callback has no issuer
 accessor and no generic result or outcome construction path.
@@ -821,8 +830,11 @@ Implementation is not complete until Release gates establish:
   disposal-counting streams prove each rejected stream is asynchronously
   disposed exactly once. A disposal failure produces validation-first
   `AggregateException` ordering without disposing the callback client. Valid
-  same-factory outcomes and their payload streams pass unchanged, and adapter
-  `Source` is the exact bound factory reference;
+  same-factory outcomes with fresh exclusively transferred payload streams pass
+  unchanged, remain undisposed until the caller disposes them, and adapter
+  `Source` is the exact bound factory reference. Reused streams and streams
+  aliased to callback-client-owned lifetimes are explicit custom-client
+  precondition violations, not adapter-hardening vectors;
 - `CustomClientAdapterForwardsOperationsExactly` uses a recording external
   client to prove each adapter `Capabilities` read returns the exact inner
   flags and each of the six operations invokes only its corresponding inner
