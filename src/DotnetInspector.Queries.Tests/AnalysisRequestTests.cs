@@ -50,6 +50,16 @@ public sealed class AnalysisRequestTests
     }
 
     [Fact]
+    public void AnalysisCapability_ProducerExecutionProbeIsObservable()
+    {
+        Fixture fixture = new();
+
+        fixture.QueryCatalog.Run([fixture.ProducerQuery], new object());
+
+        Assert.Equal(1, fixture.ProducerExecutions);
+    }
+
+    [Fact]
     public void AnalysisCapability_ListsConfiguredUnobservedIntegrationDescriptors()
     {
         Fixture fixture = new();
@@ -225,6 +235,9 @@ public sealed class AnalysisRequestTests
             [
                 fixture.SelectedTypesCapability,
                 fixture.OrderedParticipantsCapability,
+                new AnalysisUniverseCapabilityDescriptor(
+                    fixture.ObservedEvidenceCapability.Id,
+                    "same textual identity"),
             ]);
 
         AnalysisRequestRejection rejection = fixture.Rejected(
@@ -289,6 +302,10 @@ public sealed class AnalysisRequestTests
             InspectionCost.NetworkFree,
             [AnalysisQuestionMode.Targeted],
             [
+                new AnalysisReportSurfaceSupport(
+                    AnalysisReportSurfaceKind.Type,
+                    AnalysisQuestionMode.Targeted,
+                    [anchor]),
                 new AnalysisReportSurfaceSupport(
                     AnalysisReportSurfaceKind.Member,
                     AnalysisQuestionMode.Targeted,
@@ -370,6 +387,16 @@ public sealed class AnalysisRequestTests
             AnalysisRequestRejectionReason.MissingStructuralPrerequisite,
             rejection.Reason);
         Assert.Equal([fixture.QueryPrerequisite], rejection.StructuralPrerequisites);
+
+        AnalysisRequestRejection producerRejection = fixture.Rejected(
+            fixture.Request(),
+            new AnalysisPlanningEnvironment(fixture.QueryCatalog));
+        Assert.Equal(
+            AnalysisRequestRejectionReason.MissingStructuralPrerequisite,
+            producerRejection.Reason);
+        Assert.Equal(
+            [fixture.ProducerPrerequisite],
+            producerRejection.StructuralPrerequisites);
     }
 
     [Fact]
@@ -520,6 +547,23 @@ public sealed class AnalysisRequestTests
         Assert.Equal(fixture.Analysis.HostRequirements, plan.HostRequirements);
         Assert.Equal(InspectionCost.Unbounded, plan.Cost);
         Assert.Equal(0, fixture.ProducerExecutions);
+    }
+
+    [Fact]
+    public void AnalysisPlan_CostIsMaximumOfAnalysisAndTransitiveQueries()
+    {
+        Fixture queryDominated = new();
+        Fixture analysisDominated = new(
+            analysisCost: InspectionCost.Unbounded,
+            queryDependencyCost: InspectionCost.NetworkFree);
+
+        AnalysisRequestPlan queryPlan = queryDominated.Accepted(
+            queryDominated.Request());
+        AnalysisRequestPlan analysisPlan = analysisDominated.Accepted(
+            analysisDominated.Request());
+
+        Assert.Equal(InspectionCost.Unbounded, queryPlan.Cost);
+        Assert.Equal(InspectionCost.Unbounded, analysisPlan.Cost);
     }
 
     [Fact]
@@ -704,7 +748,9 @@ public sealed class AnalysisRequestTests
             AnalysisTargetFunction memberTargetFunction =
                 AnalysisTargetFunction.PrivilegedAnchor,
             IEnumerable<AnalysisQuestionMode>? observedRequirementModes = null,
-            IEnumerable<AnalysisQuestionMode>? graphProjectionModes = null)
+            IEnumerable<AnalysisQuestionMode>? graphProjectionModes = null,
+            InspectionCost analysisCost = InspectionCost.NetworkFree,
+            InspectionCost queryDependencyCost = InspectionCost.Unbounded)
         {
             AnalysisQuestionMode[] modes =
                 supportedModes?.ToArray()
@@ -784,7 +830,7 @@ public sealed class AnalysisRequestTests
             Analysis = new AnalysisDescriptor(
                 IntegrationAnalysisId,
                 revision: 1,
-                InspectionCost.NetworkFree,
+                analysisCost,
                 modes,
                 surfaces,
                 [
@@ -809,7 +855,7 @@ public sealed class AnalysisRequestTests
                 new Boundary("three selected types"));
             var expensiveDependency = new InspectionQuery<int>(
                 "Integration evidence",
-                InspectionCost.Unbounded);
+                queryDependencyCost);
             QueryCatalog = new InspectionQueryRegistry<object>()
                 .Add(expensiveDependency, static _ => 0)
                 .Add(
@@ -846,7 +892,7 @@ public sealed class AnalysisRequestTests
         public AnalysisCapabilityCatalog Catalog { get; }
         public AnalysisUniverseDescription HealthyUniverse { get; }
         public AnalysisPlanningEnvironment Environment { get; }
-        public IInspectionQueryCatalog QueryCatalog { get; }
+        public InspectionQueryCatalog<object> QueryCatalog { get; }
         public int ProducerExecutions { get; private set; }
 
         public AnalysisReportSurface WorkspaceSurface() =>

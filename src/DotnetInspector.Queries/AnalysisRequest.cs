@@ -483,12 +483,15 @@ public sealed class AnalysisDescriptor
                     nameof(Projections));
             }
 
-            bool hasViableSurface = ReportSurfaces.Any(surface =>
-                surface.Mode == mode && IsViable(surface, mode));
-            if (!hasViableSurface)
+            ImmutableArray<AnalysisReportSurfaceSupport> modeSurfaces =
+            [
+                .. ReportSurfaces.Where(surface => surface.Mode == mode),
+            ];
+            if (modeSurfaces.IsEmpty
+                || modeSurfaces.Any(surface => !IsViable(surface, mode)))
             {
                 throw new ArgumentException(
-                    "Every supported mode must have a satisfiable report surface.",
+                    "Every supported report surface must be satisfiable.",
                     nameof(ReportSurfaces));
             }
         }

@@ -375,6 +375,7 @@ The runtime implementation is verified by these named gates:
 - `AnalysisRequest_ModeValidationDerivesFromDeclaredTargetFunctions`
 - `AnalysisRequest_RejectsMissingOrUnboundedUniverseBeforeProducerExecution`
 - `AnalysisCapability_StructuralDiscoveryDoesNotResolveContentExecuteProducersOrProbeEffectiveness`
+- `AnalysisCapability_ProducerExecutionProbeIsObservable`
 - `AnalysisCapability_ListsConfiguredUnobservedIntegrationDescriptors`
 - `AnalysisCapability_RejectsUnsupportedModeBeforeProducerExecution`
 - `AnalysisCapability_RejectsUnsupportedSurfaceBeforeProducerExecution`
@@ -389,6 +390,7 @@ The runtime implementation is verified by these named gates:
 - `AnalysisCapability_RejectsTargetRoleCardinalityMismatch`
 - `AnalysisDescriptor_RejectsModeWithoutSatisfiableSurfaceOrProjection`
 - `AnalysisPlan_RetainsExactRequestFieldsAndDescriptorRequirements`
+- `AnalysisPlan_CostIsMaximumOfAnalysisAndTransitiveQueries`
 - `AnalysisPlan_RetainsUniverseCompletenessAndFailureInputs`
 - `AnalysisProjection_RowsAndGraphRetainOneAnalysisIdentity`
 - `AnalysisUniverseProviderKindDoesNotChangeRequestFieldSemantics`
