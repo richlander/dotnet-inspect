@@ -474,6 +474,322 @@ public sealed class PluginProtocolTests : IDisposable
     }
 
     [Fact]
+    public async Task ARequestAfterReceiverLossIsRejectedWithoutWaitingForItsTimeout()
+    {
+        FakePlugin plugin = CreatePlugin(
+            "closed-admission",
+            username: "u",
+            password: "p",
+            afterSetLogLevel: "exec 1>&-",
+            exitOnCredentialRequest: true);
+        PluginConnection connection = Assert.IsType<PluginConnection>(
+            await PluginConnection.StartAsync(
+                plugin.Executable,
+                log: null,
+                TestContext.Current.CancellationToken));
+        GetAuthenticationCredentialsResponse? response;
+
+        await using (connection)
+        {
+            await connection.Closed.WaitAsync(
+                TimeSpan.FromSeconds(2),
+                TestContext.Current.CancellationToken);
+
+            response = await connection
+                .GetCredentialsAsync(
+                    new Uri("https://feed.example/v3/index.json"),
+                    isRetry: false,
+                    isNonInteractive: true,
+                    canShowDialog: false,
+                    TestContext.Current.CancellationToken)
+                .WaitAsync(
+                    TimeSpan.FromSeconds(1),
+                    TestContext.Current.CancellationToken);
+
+            Assert.Null(response);
+        }
+
+        Assert.DoesNotContain(
+            plugin.ReceivedRequests(),
+            request => request.Method == MessageMethods.GetAuthenticationCredentials);
+    }
+
+    [Fact]
+    public async Task ReceiverLossSettlesARequestAdmittedBeforeThePendingSnapshot()
+    {
+        FakePlugin plugin = CreatePlugin(
+            "closed-with-pending-request",
+            username: "u",
+            password: "p",
+            closeOutputOnCredentialRequest: true);
+        PluginConnection connection = Assert.IsType<PluginConnection>(
+            await PluginConnection.StartAsync(
+                plugin.Executable,
+                log: null,
+                TestContext.Current.CancellationToken));
+        await using (connection)
+        {
+            GetAuthenticationCredentialsResponse? response = await connection
+                .GetCredentialsAsync(
+                    new Uri("https://feed.example/v3/index.json"),
+                    isRetry: false,
+                    isNonInteractive: true,
+                    canShowDialog: false,
+                    TestContext.Current.CancellationToken)
+                .WaitAsync(
+                    TimeSpan.FromSeconds(1),
+                    TestContext.Current.CancellationToken);
+
+            Assert.Null(response);
+            Assert.Contains(
+                plugin.ReceivedRequests(),
+                request => request.Method == MessageMethods.GetAuthenticationCredentials);
+        }
+    }
+
+    [Fact]
+    public async Task AdmissionCannotRegisterDuringTheTerminalPendingSnapshot()
+    {
+        var admissionAccepted = new TaskCompletionSource<long>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseAdmission = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var requestRegistered = new TaskCompletionSource<(long GateEntry, bool GateHeld)>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var settlementAttempted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var snapshotCaptured = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var hooksEnabled = new ManualResetEventSlim();
+        var hooks = new PluginConnection.PluginConnectionTestHooks
+        {
+            RequestAdmissionAccepted = gateEntry =>
+            {
+                if (hooksEnabled.IsSet)
+                {
+                    admissionAccepted.TrySetResult(gateEntry);
+                    releaseAdmission.Task
+                        .WaitAsync(
+                            TimeSpan.FromSeconds(5),
+                            TestContext.Current.CancellationToken)
+                        .GetAwaiter()
+                        .GetResult();
+                }
+            },
+            RequestRegistered = observation =>
+            {
+                if (hooksEnabled.IsSet)
+                {
+                    requestRegistered.TrySetResult(observation);
+                }
+            },
+            TerminalSettlementAttempted = () =>
+            {
+                if (hooksEnabled.IsSet)
+                {
+                    settlementAttempted.TrySetResult();
+                }
+            },
+            PendingSnapshotCaptured = gateHeld =>
+            {
+                if (hooksEnabled.IsSet)
+                {
+                    snapshotCaptured.TrySetResult(gateHeld);
+                }
+            },
+        };
+        FakePlugin plugin = CreatePlugin(
+            "admission-during-terminal-snapshot",
+            username: "u",
+            password: "p",
+            afterSetLogLevel:
+                """while [ ! -f "$RECORD.close" ]; do sleep 0.01; done; exec 1>&-""",
+            exitOnCredentialRequest: true);
+        PluginConnection connection = Assert.IsType<PluginConnection>(
+            await PluginConnection.StartAsync(
+                plugin.Executable,
+                log: null,
+                TestContext.Current.CancellationToken,
+                hooks));
+        await using (connection)
+        {
+            hooksEnabled.Set();
+
+            try
+            {
+                Task<GetAuthenticationCredentialsResponse?> request = Task.Run(
+                    () => connection.GetCredentialsAsync(
+                        new Uri("https://feed.example/v3/index.json"),
+                        isRetry: false,
+                        isNonInteractive: true,
+                        canShowDialog: false,
+                        TestContext.Current.CancellationToken),
+                    TestContext.Current.CancellationToken);
+
+                long acceptedGateEntry = await admissionAccepted.Task.WaitAsync(
+                    TimeSpan.FromSeconds(1),
+                    TestContext.Current.CancellationToken);
+
+                File.WriteAllText(plugin.RecordPath + ".close", string.Empty);
+
+                await settlementAttempted.Task.WaitAsync(
+                    TimeSpan.FromSeconds(2),
+                    TestContext.Current.CancellationToken);
+
+                Assert.False(snapshotCaptured.Task.IsCompleted);
+
+                releaseAdmission.TrySetResult();
+
+                (long registeredGateEntry, bool registrationHeldGate) =
+                    await requestRegistered.Task.WaitAsync(
+                    TimeSpan.FromSeconds(1),
+                    TestContext.Current.CancellationToken);
+                bool snapshotHeldGate = await snapshotCaptured.Task.WaitAsync(
+                    TimeSpan.FromSeconds(1),
+                    TestContext.Current.CancellationToken);
+
+                GetAuthenticationCredentialsResponse? response = await request.WaitAsync(
+                    TimeSpan.FromSeconds(1),
+                    TestContext.Current.CancellationToken);
+
+                Assert.Null(response);
+                Assert.Equal(acceptedGateEntry, registeredGateEntry);
+                Assert.True(registrationHeldGate);
+                Assert.True(snapshotHeldGate);
+            }
+            finally
+            {
+                releaseAdmission.TrySetResult();
+            }
+        }
+    }
+
+    [Fact]
+    public async Task CanceledRequestAfterReceiverLossRemainsCancellation()
+    {
+        FakePlugin plugin = CreatePlugin(
+            "canceled-after-receiver-loss",
+            username: "u",
+            password: "p",
+            afterSetLogLevel: "exec 1>&-");
+        PluginConnection connection = Assert.IsType<PluginConnection>(
+            await PluginConnection.StartAsync(
+                plugin.Executable,
+                log: null,
+                TestContext.Current.CancellationToken));
+        await using (connection)
+        {
+            await connection.Closed.WaitAsync(
+                TimeSpan.FromSeconds(2),
+                TestContext.Current.CancellationToken);
+
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                connection.GetCredentialsAsync(
+                    new Uri("https://feed.example/v3/index.json"),
+                    isRetry: false,
+                    isNonInteractive: true,
+                    canShowDialog: false,
+                    cancellation.Token));
+        }
+
+        Assert.DoesNotContain(
+            plugin.ReceivedRequests(),
+            recorded => recorded.Method == MessageMethods.GetAuthenticationCredentials);
+    }
+
+    [Fact]
+    public async Task CancellationWhileWaitingForClosedAdmissionRemainsCancellation()
+    {
+        var admissionAttempted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var snapshotCaptured = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSnapshot = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var hooksEnabled = new ManualResetEventSlim();
+        var hooks = new PluginConnection.PluginConnectionTestHooks
+        {
+            RequestAdmissionAttempted = () =>
+            {
+                if (hooksEnabled.IsSet)
+                {
+                    admissionAttempted.TrySetResult();
+                }
+            },
+            PendingSnapshotCaptured = _ =>
+            {
+                if (hooksEnabled.IsSet)
+                {
+                    snapshotCaptured.TrySetResult();
+                    releaseSnapshot.Task
+                        .WaitAsync(
+                            TimeSpan.FromSeconds(5),
+                            TestContext.Current.CancellationToken)
+                        .GetAwaiter()
+                        .GetResult();
+                }
+            },
+        };
+        FakePlugin plugin = CreatePlugin(
+            "canceled-while-waiting-for-closed-admission",
+            username: "u",
+            password: "p",
+            afterSetLogLevel:
+                """while [ ! -f "$RECORD.close" ]; do sleep 0.01; done; exec 1>&-""",
+            exitOnCredentialRequest: true);
+        PluginConnection connection = Assert.IsType<PluginConnection>(
+            await PluginConnection.StartAsync(
+                plugin.Executable,
+                log: null,
+                TestContext.Current.CancellationToken,
+                hooks));
+        await using (connection)
+        {
+            hooksEnabled.Set();
+
+            try
+            {
+                File.WriteAllText(plugin.RecordPath + ".close", string.Empty);
+                await snapshotCaptured.Task.WaitAsync(
+                    TimeSpan.FromSeconds(2),
+                    TestContext.Current.CancellationToken);
+
+                using var cancellation = new CancellationTokenSource();
+                Task<GetAuthenticationCredentialsResponse?> request = Task.Run(
+                    () => connection.GetCredentialsAsync(
+                        new Uri("https://feed.example/v3/index.json"),
+                        isRetry: false,
+                        isNonInteractive: true,
+                        canShowDialog: false,
+                        cancellation.Token),
+                    TestContext.Current.CancellationToken);
+
+                await admissionAttempted.Task.WaitAsync(
+                    TimeSpan.FromSeconds(1),
+                    TestContext.Current.CancellationToken);
+                cancellation.Cancel();
+                releaseSnapshot.TrySetResult();
+
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+                    await request.WaitAsync(
+                        TimeSpan.FromSeconds(1),
+                        TestContext.Current.CancellationToken));
+            }
+            finally
+            {
+                releaseSnapshot.TrySetResult();
+            }
+        }
+
+        Assert.DoesNotContain(
+            plugin.ReceivedRequests(),
+            recorded => recorded.Method == MessageMethods.GetAuthenticationCredentials);
+    }
+
+    [Fact]
     public async Task CallerCancellationContinuesToPropagate()
     {
         FakePlugin plugin = CreatePlugin("cancelled-request", username: "u", password: "p");
@@ -528,6 +844,7 @@ public sealed class PluginProtocolTests : IDisposable
         string? inboundHandshakePayload = null,
         string? outboundHandshakePayload = null,
         string? afterSetLogLevel = null,
+        bool closeOutputOnCredentialRequest = false,
         bool exitOnCredentialRequest = false)
     {
         // Values are embedded in a double-quoted bash string, so every JSON quote needs a
@@ -542,11 +859,13 @@ public sealed class PluginProtocolTests : IDisposable
                 + "," + Quoted("AuthenticationTypes") + ":" + types
                 + "," + Quoted("ResponseCode") + ":" + Quoted("Success") + "}"
             : "{" + Quoted("ResponseCode") + ":" + Quoted(responseCode) + "}";
-        string credentialAction = exitOnCredentialRequest
-            ? "exit 0"
-            : """
-              emit "{\"RequestId\":\"$id\",\"Type\":\"Response\",\"Method\":\"GetAuthenticationCredentials\",\"Payload\":__CREDENTIAL__}"
-              """;
+        string credentialAction = closeOutputOnCredentialRequest
+            ? "exec 1>&-"
+            : exitOnCredentialRequest
+                ? "exit 0"
+                : """
+                  emit "{\"RequestId\":\"$id\",\"Type\":\"Response\",\"Method\":\"GetAuthenticationCredentials\",\"Payload\":__CREDENTIAL__}"
+                  """;
 
         // A non-interpolated raw string with tokens: the script is dense with braces, and
         // interpolation holes would be indistinguishable from JSON.
