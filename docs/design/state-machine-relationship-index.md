@@ -320,26 +320,49 @@ component during construction, transitively: a claim naming machines *a* and
 forward and reverse entry in that component freezes to the same immutable
 result and the same evidence.
 
-The component's accumulated evidence — its kickoffs, state machines, and
-claimed types — is a union, and so does not depend on discovery order. Its
-`Kind` and `Detail` do. `FreezeRejections` seeds them from the **first**
-contributing component it meets in append order, which is the earliest-
-discovered member of the merged set. Discovery order follows `TypeDef` and
-`MethodDef` row order, so those two fields are derived from a compiler
-artifact.
+The unit here is the **published rejection**, not the machine. `RejectClaims`
+builds one `RejectionComponent` from a list of claims, so a single publication
+can name several machines and carries one `Kind` and `Detail` for all of them.
+A machine can also appear in several publications, which is what
+`MergeExisting` unions.
 
-An earlier draft of this section claimed the merged result was independent of
-discovery order. That is false of the implementation. The property that does
-hold is weaker and worth stating precisely: the merged `Kind` and `Detail` are
-**stable for a given image** — they are a deterministic function of the
-component's members and their row order, not of the order in which merge
-operations happened to be applied. A consumer may rely on that stability. It
-must not rely on *which* contributing claim supplied them.
+Order sensitivity is easy to state too strongly, and an earlier draft of this
+section did. Three distinct things are involved:
+
+- **Component membership** is a union, and does not depend on discovery order.
+- **The merged `Kind` and `Detail`** are seeded by `FreezeRejections` from the
+  **first** contributing publication in append order — the earliest-discovered
+  member of the merged set.
+- **The accumulated evidence arrays** — `KickoffCandidates`,
+  `StateMachineCandidates`, `ClaimedTypes` — are built by `OrderedEvidence`,
+  which preserves first-seen order. Their *membership* is order-independent;
+  their *ordering* is not.
+
+So the property that holds is not order independence. It is that all three are
+a deterministic function of the component's members and their metadata row
+order, and therefore **stable for a given image**. Because row order is a
+compiler artifact, a consumer may rely on that stability but must not rely on
+which contributing claim supplied the kind, or on where a candidate falls
+within an evidence array.
 
 Gate: `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_MergesEveryOverlappingRejection`,
 `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RejectsSharedStateMachineClaims`.
-Neither gates the first-discovered rule for `Kind` and `Detail`; that half is
-`unverified`.
+
+Both are narrower than the invariant, and the gaps are worth naming precisely:
+
+- They gate **shared identity** — each entry returns the same `Failure`
+  reference — and `MergesEveryOverlappingRejection` additionally pins
+  `KickoffCandidates` as an exact ordered sequence, which gates the first-seen
+  ordering above for kickoffs.
+- They do **not** gate transitivity beyond two directly overlapping
+  publications. Neither builds a three-publication chain, so a merge that
+  failed to reach a component's far side would pass both.
+- They do **not** gate the union of `ClaimedTypes`, nor
+  `StateMachineCandidates` across more than one state machine —
+  `RejectsSharedStateMachineClaims` asserts `Single` on that array.
+- They do **not** gate the first-published rule for `Kind` and `Detail`.
+
+Those four gaps are `unverified`.
 
 ### C6 — Completeness is externally checkable
 

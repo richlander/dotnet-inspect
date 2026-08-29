@@ -40,8 +40,9 @@ state machine of the construction can express.
 | Variable | Meaning |
 | --- | --- |
 | `truth` | per machine: what it **actually** is, independent of the index |
-| `seq` | per machine: its discovery position once rejected |
-| `claimed` | per machine: its per-claim kind, never rewritten by a merge |
+| `published` | how many rejections have been published so far |
+| `covers` | per publication: the machines its claim names |
+| `claimKind` | per publication: its own kind, never rewritten by a merge |
 | `phase` | `"Building"`, `"Built"`, or `"Failed"` |
 | `kind` | the typed failure kind once `phase = "Failed"` |
 | `result` | per machine: `Unclassified`, `Resolved`, `Absent`, `Rejected` |
@@ -55,29 +56,35 @@ Without it, C1 said only that no machine retained an `Unclassified` marker — a
 a real index that loses a row publishes no such marker. It publishes `Absent`,
 which is exactly what it publishes for a machine that genuinely has no claim.
 The invariant was therefore satisfiable by an index that dropped rows, which is
-the failure it exists to catch. `BrokenDroppedRow.cfg` is the regression test
-for that mistake.
+the failure it exists to catch. `BrokenDroppedRow.cfg` is the regression test.
 
-`evidence` and `claimed` exist for the same reason one level down. Merging only
-fires on two already-rejected machines, so "members of a component agree on
-their result" was true by construction. Carrying a per-claim kind that can
-differ between members is what gives the invariant something to be false about;
-`claimed` preserves the original so the merged value has a specification rather
-than just a consistency check. `BrokenPartialMerge.cfg` covers it.
+**The publication is the unit, not the machine.** This is the correction that
+took two review rounds to reach. `RejectClaims` builds one `RejectionComponent`
+from a *list* of claims and appends it to `_rejectionComponents`, so a single
+publication names several machines and carries one kind for all of them; a
+machine may also appear in several publications, which is what `MergeExisting`
+unions. A previous draft gave each machine its own kind and its own discovery
+position, which cannot express "the first appended component wins" — in that
+model no component spans machines, so the rule had nothing to range over.
+`covers` and `claimKind` are indexed by publication for this reason, and
+`PublishRejection` mirrors the real `PublishRejection` + `MergeExisting` pair.
 
-`seq` records discovery position because **the implementation is not
-order-independent**, and the first draft of this model assumed it was. Merged
-`Kind` and `Detail` are seeded from the first contributing component in append
-order (`FreezeRejections` in `StateMachineRelationshipIndex.cs`). Combining
-evidence with a commutative minimum, as the first draft did, made confluence
-true of the model and unfalsifiable — while the design document asserted an
-order independence the code does not have. `C5_EvidenceIsFirstDiscovered` states
-what actually holds, and `BrokenOrderDependentMerge.cfg` falsifies it.
+`MustMerge` is **derived** from `covers` rather than configured, so the merging
+obligation is exactly the one the input creates, and transitivity falls out of
+applying it across overlapping publications. An earlier draft configured a fixed
+chain of pairs, which stated the obligation independently of the claims that
+produce it.
 
-`SharedPairs` is derived rather than configured: consecutive machines share a
-contributor, forming one chain. A chain is the interesting topology because
-merging must be transitive — machines 1 and 3 must end up together even though
-no single claim names both.
+`evidence` carries one value standing for the `(Kind, Detail)` pair. Production
+captures both together from a single component — `new(component.Kind,
+component.Detail)` — so no reachable behavior takes them from different
+components, and splitting them would add states without adding a checkable
+claim.
+
+`Finish` deliberately has **no** "everything is merged" precondition. Production
+merges eagerly when publishing and performs no such check before freezing, so
+requiring one would be an obligation the model invented — and it would also mask
+`BrokenUnmergedPublish`, since an unmerged state could then never reach `Built`.
 
 ## Checked properties
 
@@ -87,8 +94,8 @@ no single claim names both.
 | `C2_FailureIsTyped` | C2 | `Failed` implies a typed kind, and never a success-shaped state |
 | `C3_FailureRejectsAll` | C3 | `Failed` implies *every* machine reports `Rejected` |
 | `C5_ComponentsAgree` | C5 | Machines in one component share a result and evidence |
-| `C5_EvidenceIsFirstDiscovered` | C5 | A component's evidence is its earliest-discovered member's claim |
-| `C5_SharedRejectionsMerge` | C5 | Once `Built`, rejections that share a contributor share a component |
+| `C5_EvidenceIsFirstDiscovered` | C5 | A component's evidence is its earliest-**published** contributing claim's |
+| `C5_SharedRejectionsMerge` | C5 | Once `Built`, machines named by one publication share a component, transitively |
 | `FailureIsAbsorbing` | C2, C3 | `Failed` is never left, and results never change after it |
 | `EventuallyTerminal` | — | Construction always reaches `Built` or `Failed` |
 
@@ -99,8 +106,8 @@ invariants.
 
 | Configuration | Bounds | Purpose | Result |
 | --- | --- | --- | --- |
-| `StateMachineCompleteness.cfg` | `MachineCount = 3`, `MaxBudget = 3` | Both success and malformed-input failure reachable | 3,841 states, 2,074 distinct, depth 7 |
-| `BudgetExhaustion.cfg` | `MachineCount = 3`, `MaxBudget = 2` | Budget too small to classify every machine, forcing `BudgetExceeded` | 1,833 states, 1,014 distinct, depth 5 |
+| `StateMachineCompleteness.cfg` | `MachineCount = 3`, `MaxRejections = 3`, `MaxBudget = 4` | Both success and malformed-input failure reachable | 13,825 states, 8,080 distinct, depth 6 |
+| `BudgetExhaustion.cfg` | `MachineCount = 3`, `MaxRejections = 3`, `MaxBudget = 2` | Budget too small to classify every machine, forcing `BudgetExceeded` | 2,641 states, 1,500 distinct, depth 4 |
 
 `MachineCount = 3` is the smallest bound that makes transitive merging real: two
 machines can only merge directly, so a chain of three is required to distinguish
@@ -112,6 +119,9 @@ This is what the model is for. `BrokenPartialFailure.cfg` encodes the defect tha
 took nineteen review rounds to find by hand in #4835: whole-module failure that
 leaves already-recorded results standing, producing a *partial* rejection where
 the contract requires a total one.
+
+TLC prints every variable in each state; the states below are **abridged to the
+three that carry the argument**. Run the command to see them in full.
 
 ```console
 $ java -XX:+UseParallelGC -cp "$TLA_TOOLS" tlc2.TLC \
@@ -167,11 +177,11 @@ loudly if a later change makes an invariant weaker than it looks.
 | --- | --- | --- |
 | `BrokenPartialFailure.cfg` | Module failure preserves results already recorded, rejecting only unclassified machines | `C3_FailureRejectsAll` |
 | `BrokenAbsentOnFailure.cfg` | Module failure reports `Absent` rather than `Rejected` | `C2_FailureIsTyped` |
-| `BrokenPartialMerge.cfg` | Merge unifies evidence for only the two named machines, not the component they join | `C5_ComponentsAgree` |
+| `BrokenPartialMerge.cfg` | Publishing sets evidence only on the machines the new claim names | `C5_ComponentsAgree` |
 | `BrokenUnvisitedPublish.cfg` | Construction publishes before classifying every machine | `C1_Totality` |
-| `BrokenUnmergedPublish.cfg` | Construction publishes without merging rejections that share a contributor | `C5_SharedRejectionsMerge` |
+| `BrokenUnmergedPublish.cfg` | Publishing skips the components the named machines already belong to (`MergeExisting` omitted) | `C5_SharedRejectionsMerge` |
 | `BrokenDroppedRow.cfg` | A row never reached is published as `Absent` | `C1_Totality` |
-| `BrokenOrderDependentMerge.cfg` | Merged kind follows merge order rather than discovery order | `C5_EvidenceIsFirstDiscovered` |
+| `BrokenOrderDependentMerge.cfg` | Merged kind comes from the newest contributing claim rather than the earliest published | `C5_EvidenceIsFirstDiscovered` |
 
 `BrokenPartialFailure.cfg` is the one worth dwelling on. It is the bug a reviewer
 found by accident in the nineteenth review round of the accompanying test change,
@@ -182,10 +192,9 @@ Three of these configurations record holes that earlier revisions of this model
 did not detect. They are kept because each one is the regression test for a way
 this model was, at some point, checking less than it appeared to.
 
-- `BrokenUnmergedPublish.cfg` — the first revision had no `SharedPairs` and no
-  `C5_SharedRejectionsMerge`. With no notion of which machines *ought* to share
-  a component, an index that merged nothing satisfied component agreement
-  vacuously.
+- `BrokenUnmergedPublish.cfg` — the first revision had no notion of which
+  machines *ought* to share a component, so an index that merged nothing
+  satisfied component agreement vacuously.
 - `BrokenDroppedRow.cfg` — the first revision modeled a lost row as a
   distinguished `Unclassified` marker. Real indexes publish `Absent`. Changing
   the mutation to match reality made `C1_Totality` pass, which is how the
@@ -193,11 +202,15 @@ this model was, at some point, checking less than it appeared to.
 - `BrokenOrderDependentMerge.cfg` — the first revision combined merged evidence
   with a minimum, which is commutative. That made order independence true of
   the model and impossible to falsify, while the design document asserted an
-  order independence the implementation does not have.
+  order independence the implementation does not have. The second revision
+  fixed the invariant but kept the wrong *unit*, modeling per-machine kinds
+  when production carries one kind per published component.
 
-The last of those is the one worth generalizing from. A model that idealizes the
-system will happily prove properties the system lacks, and the modeler is the
-least likely person to notice.
+The last of those is the one worth generalizing from, and note that it took two
+attempts. A model that idealizes the system will happily prove properties the
+system lacks; correcting the property is not enough if the abstraction still
+does not match the operation the code performs. The modeler is the least likely
+person to notice either.
 
 ## Running it
 
