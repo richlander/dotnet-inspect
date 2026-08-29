@@ -729,7 +729,12 @@ Research overlay bridge, and the application layer:
   request/result contracts. It coordinates domain providers without taking
   filesystem paths or presentation dependencies.
 - **Services** return DTOs (`NuspecData`, `DepsJsonData`, `PackageMetadata`), never mutate app types. They use `Action<string>?` for logging instead of app-specific logger types.
-- **CSharp** owns model-bound C# spelling through `CSharpFormatter` and exact typed-request composition through `CSharpTypePrinter`, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes. It does not depend on Decompiler or Research.
+- **CSharp** owns model-bound C# spelling through `CSharpFormatter`; its
+  [structured declaration provenance](design/csharp-structured-declaration-provenance.md)
+  contract defines declaration slots, composition, compatibility, and visible
+  failure. It owns exact typed-request composition through `CSharpTypePrinter`,
+  including skeleton, full, stub, mixed-accessor, primary-constructor, and
+  nested-type shapes. It does not depend on Decompiler or Research.
 - **CSharpText** owns dependency-free, model-free C# and XML-documentation textual grammars: primitive aliases, canonical member signatures, XML-documentation identity notation and comment extraction, FQN/member-selector normalization, operator notation, identifier and keyword policy, expression-body recognition, member text layout, lexing, and conservative declaration/source ranges. It has no metadata, SRM, PDB, SourceLink, acquisition, decompiler, or presentation dependency and does not claim to be a parser.
   `DeclarationIndexBuilder` owns the single forward token traversal, scope and
   trust state, and linear span finalization.

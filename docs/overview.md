@@ -54,7 +54,14 @@ substrates, and inspection producers that will extend that space.
   Metadata suggestion ranking does not acquire the Finding-backed Text layer;
   `MetadataNameMatching_DoesNotDependOnFindingBackedText` gates that boundary.
 - `src/CSharpText/` is a dependency-free leaf for model-free C# and XML-documentation textual grammars: primitive aliases, canonical member signatures, XML-documentation identity notation and comment extraction, FQN/member-selector normalization, operator notation, identifier and keyword policy, expression-body recognition, member text layout, lexing, and conservative declaration/source-range recognition. It is not a parser and makes uncertainty explicit rather than guessing a span.
-- `src/ILInspector.CSharp/` is the lightweight model-bound C# spelling and type-view layer over Metadata shapes. `CSharpFormatter` is the declaration-spelling seam; `CSharpTypePrinter` composes exact typed requests, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes, without taking a Decompiler or Research dependency.
+- `src/ILInspector.CSharp/` is the lightweight model-bound C# spelling and
+  type-view layer over Metadata shapes.
+  [Structured declaration provenance](design/csharp-structured-declaration-provenance.md)
+  owns `CSharpFormatter`'s declaration-slot classification, composition,
+  compatibility, and visible-failure contract. `CSharpTypePrinter` composes
+  exact typed requests, including skeleton, full, stub, mixed-accessor,
+  primary-constructor, and nested-type shapes, without taking a Decompiler or
+  Research dependency.
 - `src/ILInspector.Analysis/` indexes IL method-body evidence such as direct call sites, allocation and unsafety occurrences, method signals, and whole-assembly leverage without decompiling to C#. `AnalysisFindings` exposes reusable typed censuses and comparisons for allocations, call sites, unsafe operations, and unsafe declaration/body evidence.
 - `src/ILInspector.Analysis.App/` is a temporary console harness for exercising Analysis queries until CLI wiring exists.
 - `src/ILInspector.ControlFlow/` contains shared block-edge, dominance, and dataflow kernels used below Analysis and Decompiler without depending on either.
@@ -146,6 +153,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   call-specific mapping from current topology, signals, loop state, and
   physical occurrences into the inspection-graph descriptor model.
 - [Type, member, and API representation](design/type-member-api-representation.md): authoritative currency map for lookup, shape, identity, correspondence, location, selectors, and display.
+- [C# structured declaration provenance](design/csharp-structured-declaration-provenance.md):
+  CSharp-owned slot classification, composition, compatibility, and failure
+  contract for model-bound declarations.
 - [State-machine relationship index](design/state-machine-relationship-index.md):
   Metadata-owned kickoff, state-machine type, implementation-method, and typed
   structural-failure relationships shared by higher layers.

@@ -70,6 +70,19 @@ binding is unverified pending
 | `MemberSignatureShape` | One same-named source/metadata candidate set | Whether generic arity, parameter type shapes, and a conversion return shape discriminate one candidate | Member identity, named-type binding through using/alias context, or proof that source belongs to a MethodDef |
 | `MemberSignatureShapeResult` and `MemberSignatureCorrespondence<T>` | One shape projection or candidate comparison | Available, unique, ambiguous, or unavailable evidence without collapsing refusal into absence | Permission to treat a unique shape match as authoritative identity |
 
+#### `ILInspector.CSharp`
+
+| Currency | Scope | Answers | Does not answer |
+| --- | --- | --- | --- |
+| Current `CSharpFormattedDeclaration` and formatter string results | One model-bound declaration request | Current C# display text, namespace imports, and available diagnostics | Metadata identity, slot provenance, structured-versus-compatibility fidelity, or body correspondence |
+| Target `CSharpDeclarationResult` and `CSharpDeclarationText` | One declaration plan | Whether CSharp rendered classified slots, emitted compatibility text, or refused; carries final presentation text only for rendered outcomes | Metadata extraction, identity, API serialization, call-graph correspondence, or proof that the declaration compiles |
+
+The target currencies and their slot inventory are owned by
+[C# structured declaration provenance](csharp-structured-declaration-provenance.md).
+They preserve the rule that a display string is an output, never a source from
+which identity or provenance is reconstructed. Their properties are unverified
+until that document's named gates exist.
+
 #### `ILInspector.Metadata`
 
 | Currency | Scope | Answers | Does not answer |
