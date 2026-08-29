@@ -19,9 +19,9 @@ documentation.
 - **Design first.** Work must be covered by a design or reasonably extend one;
   ask the user when it is unclear whether a new design is needed. Finding
   defects in a design is always cheaper than finding them in code.
-- **Markdown-only PRs do not wait on CI.** When every changed file is `*.md`,
-  `markdownlint` is the only pre-review and per-round gate. Dispatch review
-  without checking or waiting for `ci-required`.
+- **Markdown-only PRs do not wait on CI before review.** When every changed
+  file is `*.md`, `markdownlint` is the only pre-review and per-round gate.
+  Dispatch review without checking or waiting for `ci-required`.
 - **Complicated features need extraordinary evidence and pre-work** before
   code is written: corpus evidence, an established oracle, a TLA+ model, or a
   spec developed with close user input are examples of high-value levers.
@@ -269,9 +269,10 @@ over-broad-design recovery procedure live in
 
 ### Keep design and adversarial review within scope
 
-Do not add design requirements or adversarial-review findings for symlinks or
-reparse points; other users or agents acting on the same machine; or files
-mutating during inspection unless an owning design explicitly opts in.
+Unless an owning design explicitly opts in, do not add design requirements or
+adversarial-review findings for symlinks/reparse points, same-machine users or
+agents, or files mutating during inspection. Existing explicit controls remain
+governed by their owning designs.
 nuget.org content is immutable; local files may change freely between
 operations rather than provide stable snapshots. The primary threat is
 untrusted internet data; the tool never executes inspected code. Additional
@@ -392,8 +393,8 @@ section and [round orchestration](docs/round-orchestration.md) explain them.
    A known-red current-head `ci-required` still blocks; unavailable or pending
    status follows
    [Bounded status waiting](docs/round-orchestration.md#bounded-status-waiting).
-   A Markdown-only PR never waits for `ci-required`; its per-round gate is
-   pre-commit `markdownlint`. An author-change failure restarts the *same* round.
+   A Markdown-only PR's per-round gate is pre-commit `markdownlint`; do not wait
+   for `ci-required` before review. Author changes restart the *same* round.
 7. **Six rounds, then stop** and ask for another block.
 8. **Never merge without explicit user authorization** for that specific PR.
    Auto-merge armed at the user's direction is that authorization; see
