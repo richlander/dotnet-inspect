@@ -2172,6 +2172,11 @@ internal static class CSharpDeclarationWriter
         => EscapeTypeKeywords(
             EscapeKnownIdentifiersInRawSlot(type, parameterNames));
 
+    internal static bool RawTypeRequiresKnownIdentifierEscape(
+        string type,
+        IEnumerable<string> parameterNames)
+        => EscapeKnownIdentifiersInRawSlot(type, parameterNames) != type;
+
     static string EscapeKnownIdentifiersInRawSlot(
         string text,
         IEnumerable<string> rawNames)

@@ -1649,9 +1649,9 @@ public static class ApiOutputFormatter
         var ownerModel = owner.SignatureModel;
         var accessorEntry = ownerModel?.Accessors.FirstOrDefault(
             accessor => accessor.Kind == accessorKind);
-        string name = string.IsNullOrWhiteSpace(accessorEntry?.Name)
+        string name = accessorEntry?.Name is null
             ? fallbackName
-            : accessorEntry.Name!;
+            : accessorEntry.Name;
         var valueType = ownerModel?.ReturnType ?? owner.ReturnType ?? "object";
         var parameters = ownerModel?.Parameters is { Count: > 0 } indexParameters
             ? indexParameters.Select(CloneAccessorParameter).ToList()

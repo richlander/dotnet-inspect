@@ -552,6 +552,89 @@ public class UntrustedMemberSignatureTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    public void SynthesizedAccessor_PreservesPresentMethodDefName(
+        string recordedName)
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "Probe",
+            Kind = "class",
+        };
+        var property = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            GetterToken = 0x0600_0001,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "string",
+                Accessors =
+                [
+                    new ApiAccessor
+                    {
+                        Kind = "get",
+                        Name = recordedName,
+                    },
+                ],
+            },
+        };
+
+        ApiMember accessor = Assert.Single(
+            ApiOutputFormatter.AccessorMethods(property, type));
+
+        Assert.Equal(recordedName, accessor.Name);
+        Assert.Equal(recordedName, accessor.SignatureModel!.MemberName);
+        Assert.DoesNotContain(
+            "get_Value",
+            accessor.Signature,
+            StringComparison.Ordinal);
+        AssertContained(accessor.Signature!);
+    }
+
+    [Fact]
+    public void SynthesizedAccessor_PreservesWhitespaceMethodDefNameFromMetadata()
+    {
+        string path = EmitPropertyWithAccessorName("\n");
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            ApiSurface surface = ApiSurfaceExtractor.Extract(
+                peReader,
+                includeAll: true);
+            ApiType type = Assert.Single(
+                surface.Types,
+                candidate => candidate.Name == "Probe");
+            ApiMember property = Assert.Single(
+                type.Members,
+                candidate => candidate.Kind == "property");
+            ApiAccessor recordedAccessor = Assert.Single(
+                property.SignatureModel!.Accessors,
+                candidate => candidate.Kind == "get");
+            ApiMember accessor = Assert.Single(
+                ApiOutputFormatter.AccessorMethods(property, type));
+
+            Assert.Equal("\n", recordedAccessor.Name);
+            Assert.Equal(recordedAccessor.Name, accessor.Name);
+            Assert.Equal(
+                recordedAccessor.Name,
+                accessor.SignatureModel!.MemberName);
+            Assert.DoesNotContain(
+                "get_Value",
+                accessor.Signature,
+                StringComparison.Ordinal);
+            AssertContained(accessor.Signature!);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     static string EmitStructuredMetadataDefault()
     {
         var assemblyName = new AssemblyName("StructuredMetadataDefault");
@@ -706,6 +789,40 @@ public class UntrustedMemberSignatureTests
         string path = Path.Combine(
             Path.GetTempPath(),
             $"ExplicitInterfaceProperty-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
+    static string EmitPropertyWithAccessorName(string accessorName)
+    {
+        var assemblyName = new AssemblyName("WhitespaceAccessorProperty");
+        var assembly = new PersistedAssemblyBuilder(
+            assemblyName,
+            typeof(object).Assembly);
+        ModuleBuilder module =
+            assembly.DefineDynamicModule(assemblyName.Name!);
+        TypeBuilder type = module.DefineType(
+            "Probe",
+            TypeAttributes.Public | TypeAttributes.Class);
+        MethodBuilder getter = type.DefineMethod(
+            accessorName,
+            MethodAttributes.Public | MethodAttributes.SpecialName,
+            typeof(string),
+            Type.EmptyTypes);
+        ILGenerator il = getter.GetILGenerator();
+        il.Emit(OpCodes.Ldnull);
+        il.Emit(OpCodes.Ret);
+        PropertyBuilder property = type.DefineProperty(
+            "Value",
+            PropertyAttributes.None,
+            typeof(string),
+            Type.EmptyTypes);
+        property.SetGetMethod(getter);
+        type.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"WhitespaceAccessorProperty-{Guid.NewGuid():N}.dll");
         assembly.Save(path);
         return path;
     }

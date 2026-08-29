@@ -147,8 +147,9 @@ boundary, keeping a literal escape spelling distinct from the hostile scalar it
 resembles. Artifact JSON always marks a model-free signature `Degraded`;
 structured signatures preserve their typed raw slots and rendered default
 literals without this fallback.
-When a literal backslash in a structured raw slot requires disambiguation,
-document JSON prepares that declaration without mutating `ApiMember`; benign
+When a literal backslash in a structured raw slot requires disambiguation, or
+an owning keyword-named generic parameter requires identifier escaping,
+document JSON prepares that declaration without mutating `ApiMember`; unrelated
 signatures stay byte-neutral. Generic-constraint JSON uses the metadata
 type-versus-keyword classification, so type-name entries cross the raw boundary
 without changing `class`, `struct`, `default`, or `new()` syntax.
@@ -157,6 +158,7 @@ rather than re-importing its visible spelling as clean text.
 `SemanticTypeOutputContainmentTests.CSharpField_PreservesEscapesAndContainsResidualScalars`,
 `SemanticTypeOutputContainmentTests.RawTypePresentation_DistinguishesLiteralEscapeFromScalar`,
 `SemanticTypeOutputContainmentTests.PreparedJsonSignature_PreservesCSharpLiteralEscapes`,
+`SemanticTypeOutputContainmentTests.PreparedJsonSignature_UsesOwningKeywordGenericContext`,
 `SemanticTypeOutputContainmentTests.PreparedJsonSignature_DistinguishesRawParameterNameEscapes`,
 `SemanticTypeOutputContainmentTests.PreparedJsonSignature_DoesNotPromoteParameterAttributes`,
 `SemanticTypeOutputContainmentTests.PreparedJsonSignature_ModelFreeHazardsRemainDistinctAndVisible`,
@@ -174,6 +176,8 @@ rather than re-importing its visible spelling as clean text.
 `UntrustedMemberSignatureTests.SynthesizedAccessorFallback_ContainsRawSignatureSlotsInDecompiledSource`,
 `UntrustedMemberSignatureTests.SynthesizedExplicitInterfaceAccessor_UsesRecordedMethodDefName`,
 `UntrustedMemberSignatureTests.SynthesizedAccessor_OlderSurfaceUsesConventionalNameFallback`,
+`UntrustedMemberSignatureTests.SynthesizedAccessor_PreservesPresentMethodDefName`,
+`UntrustedMemberSignatureTests.SynthesizedAccessor_PreservesWhitespaceMethodDefNameFromMetadata`,
 `MetadataDeclarationQueryTests.TypeSurface_ContainsRawTypeSlotsInCompatibilitySignatures`,
 `DefaultValueRenderingTests.HostileEnumDefaults_ContainRawTypeAndMemberSlots`,
 `UntrustedLibraryViewContainmentTests.TypeJson_WithLiteralEscapeMetadataName_PreservesIdentity`,

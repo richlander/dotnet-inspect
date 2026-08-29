@@ -392,6 +392,76 @@ public sealed class SemanticTypeOutputContainmentTests
     }
 
     [Fact]
+    public void PreparedJsonSignature_UsesOwningKeywordGenericContext()
+    {
+        const string genericSignature = "int Echo(int value)";
+        const string literalSignature =
+            "string Literal(string value = \"line\\n\")";
+        var genericMember = new ApiMember
+        {
+            Name = "Echo",
+            Kind = "method",
+            Signature = genericSignature,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Echo",
+                Parameters =
+                [
+                    new ApiParameter { Name = "value", Type = "int" },
+                ],
+            },
+        };
+        var literalMember = new ApiMember
+        {
+            Name = "Literal",
+            Kind = "method",
+            Signature = literalSignature,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "string",
+                MemberName = "Literal",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Name = "value",
+                        Type = "string",
+                        HasDefault = true,
+                        DefaultValueText = "\"line\\n\"",
+                    },
+                ],
+            },
+        };
+        var type = new ApiType
+        {
+            Name = "Probe`1",
+            Kind = "class",
+            TypeParameters = [new TypeParameter { Name = "int" }],
+            Members = [genericMember, literalMember],
+        };
+
+        ApiArtifactJson.Prepare(type);
+        foreach (var jsonType in
+            new[] { ApiArtifactJson.Type, ApiArtifactJson.CompactType })
+        {
+            using JsonDocument document = JsonDocument.Parse(
+                JsonSerializer.Serialize(type, jsonType));
+            JsonElement members = document.RootElement.GetProperty("members");
+
+            Assert.Equal(
+                "@int Echo(@int value)",
+                members[0].GetProperty("signature").GetString());
+            Assert.Equal(
+                literalSignature,
+                members[1].GetProperty("signature").GetString());
+        }
+
+        Assert.Equal(genericSignature, genericMember.Signature);
+        Assert.Equal(literalSignature, literalMember.Signature);
+    }
+
+    [Fact]
     public void PreparedJsonSignature_DistinguishesRawParameterNameEscapes()
     {
         const string literalName = @"arg\u202E";

@@ -107,7 +107,8 @@ internal static class ApiArtifactJson
         if (member.SignatureModel is not { } signature)
             return false;
 
-        return ContainsLiteralBackslash(signature.ReturnType)
+        return RequiresKeywordGenericPreparation(type, signature)
+            || ContainsLiteralBackslash(signature.ReturnType)
             || signature.Parameters.Any(
                 static parameter =>
                     ContainsLiteralBackslash(parameter.Type)
@@ -120,6 +121,43 @@ internal static class ApiArtifactJson
 
         static bool ContainsLiteralBackslash(string? value)
             => value?.Contains('\\') == true;
+    }
+
+    private static bool RequiresKeywordGenericPreparation(
+        ApiType type,
+        ApiSignature signature)
+    {
+        string[] parameterNames =
+        [
+            .. type.TypeParameters.Select(parameter => parameter.Name),
+            .. signature.TypeParameters.Select(parameter => parameter.Name),
+        ];
+        if (!parameterNames.Any(
+                name => CSharpFormatter.EscapeIdentifier(name) != name))
+        {
+            return false;
+        }
+
+        if (signature.TypeParameters.Any(
+                parameter =>
+                    CSharpFormatter.EscapeIdentifier(parameter.Name)
+                        != parameter.Name))
+        {
+            return true;
+        }
+
+        return RawTypeRequiresEscape(signature.ReturnType)
+            || signature.Parameters.Any(
+                parameter => RawTypeRequiresEscape(parameter.Type))
+            || signature.TypeParameters.Any(
+                parameter => parameter.Constraints.Any(
+                    RawTypeRequiresEscape));
+
+        bool RawTypeRequiresEscape(string? value)
+            => value is not null
+                && CSharpFormatter.RawTypeRequiresKnownIdentifierEscape(
+                    value,
+                    parameterNames);
     }
 
     private static JsonTypeInfo<T> CreateTypeInfo<T>(

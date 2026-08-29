@@ -321,6 +321,21 @@ public sealed class CSharpFormatter
     public static string EscapeIdentifier(string identifier)
         => CSharpDeclarationWriter.EscapeIdentifier(identifier);
 
+    /// <summary>
+    /// Reports whether a raw type slot contains an owning generic-parameter
+    /// reference whose identifier requires C# declaration escaping.
+    /// </summary>
+    public static bool RawTypeRequiresKnownIdentifierEscape(
+        string type,
+        IEnumerable<string> parameterNames)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(parameterNames);
+        return CSharpDeclarationWriter.RawTypeRequiresKnownIdentifierEscape(
+            type,
+            parameterNames);
+    }
+
     public static string EscapeNamespace(string @namespace)
         => CSharpDeclarationWriter.EscapeNamespace(@namespace);
 
