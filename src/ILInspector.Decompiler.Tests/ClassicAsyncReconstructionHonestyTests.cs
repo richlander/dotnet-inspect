@@ -30,7 +30,6 @@ public class ClassicAsyncReconstructionHonestyTests
     [InlineData("LoopWithFieldStore")]
     [InlineData("LoopWithAccumulatorWrite")]
     [InlineData("LoopWithClamp")]
-    [InlineData("AwaitInTryFinallyWithGuardedCall")]
     public void UnconsumedUserStoreDeclinesAtPartialFidelity(
         string methodName)
     {
@@ -74,6 +73,28 @@ public class ClassicAsyncReconstructionHonestyTests
     }
 
     [Fact]
+    public void UserGuardedFinallyEffectDeclinesAtPartialFidelity()
+    {
+        using var source = OpenClassicFixture(readSymbols: true);
+        IrFunction function = ImportAndRaise(
+            source,
+            "AwaitInTryFinallyWithGuardedCall");
+
+        DecompilerResult result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.False(result.RequiresAsyncBodyModifier);
+        Assert.Contains(
+            "unconsumed user effects",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "RecordObserved(1)",
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void SameNamedFieldFromAnotherModuleIsNotMachineStorage()
     {
         Guid machineMvid = Guid.NewGuid();
@@ -98,6 +119,51 @@ public class ClassicAsyncReconstructionHonestyTests
                 machine));
     }
 
+    [Fact]
+    public void FinallyStateGuardRequiresExactMachineStateAndNoElse()
+    {
+        Guid machineMvid = Guid.NewGuid();
+        TypeRef machine = Definition(
+            machineMvid,
+            MetadataTokens.TypeDefinitionHandle(2));
+        TypeRef foreign = Definition(
+            Guid.NewGuid(),
+            MetadataTokens.TypeDefinitionHandle(2));
+        (IrFunction exactFunction, IfStatement exactGuard) =
+            BuildFinallyGuard(machine, machine, hasElse: false);
+        (IrFunction foreignFunction, IfStatement foreignGuard) =
+            BuildFinallyGuard(machine, foreign, hasElse: false);
+        (IrFunction elseFunction, IfStatement elseGuard) =
+            BuildFinallyGuard(machine, machine, hasElse: true);
+        (IrFunction reassignedFunction, IfStatement reassignedGuard) =
+            BuildFinallyGuard(
+                machine,
+                machine,
+                hasElse: false,
+                reassignFromUser: true);
+
+        Assert.True(
+            ClassicAsyncReconstructionPass
+                .IsCompilerFinallyStateGuard(
+                    exactFunction,
+                    exactGuard));
+        Assert.False(
+            ClassicAsyncReconstructionPass
+                .IsCompilerFinallyStateGuard(
+                    foreignFunction,
+                    foreignGuard));
+        Assert.False(
+            ClassicAsyncReconstructionPass
+                .IsCompilerFinallyStateGuard(
+                    elseFunction,
+                    elseGuard));
+        Assert.False(
+            ClassicAsyncReconstructionPass
+                .IsCompilerFinallyStateGuard(
+                    reassignedFunction,
+                    reassignedGuard));
+    }
+
     [Theory]
     [InlineData("TwoSequentialAwaits", "GC.KeepAlive((x, y));")]
     [InlineData("AwaitInLoop", "foreach (Task<int> task in tasks)")]
@@ -108,6 +174,7 @@ public class ClassicAsyncReconstructionHonestyTests
         "AwaitConditional",
         "return flag ? (await a) : 0;")]
     [InlineData("AwaitInTryFinally", "finally")]
+    [InlineData("AwaitInTryFinally", "GC.KeepAlive(a);")]
     [InlineData(
         "SequentialWithRealizedInitializer",
         "Value = alpha + beta")]
@@ -309,6 +376,54 @@ public class ClassicAsyncReconstructionHonestyTests
             resolutionAssembly: null,
             definitionHandle: handle,
             definitionModuleVersionId: moduleVersionId);
+    }
+
+    static (IrFunction Function, IfStatement Guard) BuildFinallyGuard(
+        TypeRef machine,
+        TypeRef stateFieldOwner,
+        bool hasElse,
+        bool reassignFromUser = false)
+    {
+        TypeRef int32 = TypeRef.CoreLib("System", "Int32");
+        var entry = new Block(0);
+        entry.Add(new StoreLocal(
+            0,
+            int32,
+            new LoadField(
+                new FieldRef(
+                    stateFieldOwner,
+                    "<>1__state",
+                    int32),
+                new LoadArgument(0, "this", machine))));
+        if (reassignFromUser)
+        {
+            entry.Add(new StoreLocal(
+                0,
+                int32,
+                new LoadArgument(1, "value", int32)));
+        }
+        var guard = new IfStatement(
+            new Comparison(
+                ComparisonKind.LessThan,
+                isUnsigned: false,
+                new LoadLocal(0, int32),
+                new Constant(0, int32)),
+            new Block(1),
+            hasElse ? new Block(2) : null);
+        entry.Add(guard);
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction(
+            "MoveNext",
+            machine,
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [],
+                true,
+                0),
+            [],
+            body);
+        return (function, guard);
     }
 
     static StoreField Store(TypeRef declaringType)

@@ -350,6 +350,16 @@ position and the same recursive typed expression identity. Compound and
 guarded predicates remain declines until recipes model their complete control
 and effect regions.
 
+The first guarded-effect realization gate covers the accepted `try`/`finally`
+recipe. The input effect must be one direct call under the exact compiler
+finally-state guard; the guard itself remains protocol structure, not a user
+predicate. That guard has no else arm, uses the unique local seeded from the
+exact machine's `<>1__state` field, and has no user-derived reaching
+assignment. The call is remapped to kickoff parameters and paired with one
+call in the reconstructed `finally` by global guarded-effect position and
+exact typed call identity. A nested user guard or non-call effect remains a
+decline.
+
 ## Planning and stage application
 
 `ClassicAsyncReconstructionPass` remains the single classic recognizer and
@@ -574,12 +584,13 @@ Implemented:
 - complete physical statement-slot partitioning;
 - checked and unsigned arithmetic plus abrupt-control declines;
 - exact awaited-operand realization; and
-- exact predicate realization for the accepted conditional recipe.
+- exact predicate and guarded-effect realization for the accepted conditional
+  and `try`/`finally` recipes.
 
-The remaining guarded effects, result receivers, returns and leaves, and user
-calls and writes are unverified. Until each family has input-derived regions,
-exact output realizations, compiler-produced positives, and close declines, its
-presence prevents reconstruction.
+Result receivers, returns and leaves, and general user calls and writes remain
+unverified. Until each family has input-derived regions, exact output
+realizations, compiler-produced positives, and close declines, its presence
+prevents reconstruction.
 
 ### New raises
 
@@ -604,7 +615,7 @@ Every asserted property below names its enforcing gate. Tests run in Release.
 | Planning-sequence derivation | Set/order equality against the registered prefix before `ClassicAsyncReconstructionPass` for kickoff planning and `ForReconstruction<ClassicAsyncReconstructionPass>()` for execution planning | Planning uses a copied list, omits a registered prerequisite, includes the requesting/application pass, replays a post-classic pass over the kickoff, or changes order |
 | Bounded population equality | Existing accepted classic fixture set plus close negatives | A semantic gate unintentionally adds or removes an accepted reconstruction |
 | Plan-region partition | Accepted compiler fixtures plus injected extra-region, external-entry, duplicate-consumption, overlap, and unconsumed-use negatives | A physical kickoff/execution region is neither consumed nor preserved, appears in both sets, is consumed twice, has an unmodeled entry/use, or is rewritten while preserved |
-| User-region realization | `CheckedRegionHasOnePrimaryRealization`, `AwaitedOperandsHaveOnePrimaryRealization`, `PredicateRegionHasOnePrimaryRealization`, and the `RegionLedgerRejects*` negatives | A modeled user region has no realization or more than one, its typed semantics or position changes, or preserved physical material supplies reconstructed semantics |
+| User-region realization | `CheckedRegionHasOnePrimaryRealization`, `AwaitedOperandsHaveOnePrimaryRealization`, `PredicateRegionHasOnePrimaryRealization`, `GuardedEffectRegionHasOnePrimaryRealization`, and the `RegionLedgerRejects*` negatives | A modeled user region has no realization or more than one, its typed semantics or position changes, or preserved physical material supplies reconstructed semantics |
 | Decline honesty | Narrow and non-narrow classic kickoff fixtures for every decline category | A healthy decline lacks a marker/reason; a narrow handoff survives; a non-narrow statement changes or disappears; or a failure fabricates a marker-only success |
 | Narrow ownership non-vacuity | One-machine positives plus mixed-local, extra-call/store/return, duplicate-step, and unmapped-address negatives | Shape resemblance establishes ownership without complete correlation |
 | Support preservation | Classic, runtime, iterator, custom-builder, and unrelated support-like methods | An Execution/Support host is not `NotApplicable`, broad builder-name recognition edits a method, or any support body/local changes |

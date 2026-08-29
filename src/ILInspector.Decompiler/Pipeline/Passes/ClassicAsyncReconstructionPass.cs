@@ -1081,6 +1081,52 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             }
             predicateOccurrence++;
         }
+
+        var guardedEffectOccurrence = 0;
+        foreach (IfStatement guard
+            in moveNext.DescendantsOutsideNestedFunctions
+                .OfType<IfStatement>())
+        {
+            if (!IsInFinallyBody(guard)
+                || !IsCompilerFinallyStateGuard(
+                    moveNext,
+                    guard))
+            {
+                continue;
+            }
+            if (guard.Then.Children is not
+                [
+                    ExpressionStatement
+                    {
+                        Expression: Call effect,
+                    },
+                ])
+            {
+                regions = [];
+                return false;
+            }
+
+            Call? normalized = CloneAndRemap<Call>(
+                effect,
+                kickoff);
+            if (normalized is null
+                || !TryGetSemanticExpressionKey(
+                    normalized,
+                    out string effectKey)
+                || !TryAddUserRegion(
+                    moveNext,
+                    executionAddress,
+                    effect,
+                    ClassicAsyncUserRegionKind.GuardedEffect,
+                    SemanticParts("finally", effectKey),
+                    guardedEffectOccurrence,
+                    regions))
+            {
+                regions = [];
+                return false;
+            }
+            guardedEffectOccurrence++;
+        }
         return true;
     }
 
@@ -1201,6 +1247,33 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 discriminator,
                 predicateOccurrence)));
             predicateOccurrence++;
+        }
+
+        var guardedEffectOccurrence = 0;
+        foreach (ExpressionStatement statement
+            in output.DescendantsOutsideNestedFunctions
+                .OfType<ExpressionStatement>())
+        {
+            if (!IsInFinallyBody(statement))
+                continue;
+            if (statement.Expression is not Call effect)
+            {
+                nodes = [];
+                return false;
+            }
+            if (!TryGetSemanticExpressionKey(
+                    effect,
+                    out string effectKey))
+            {
+                nodes = [];
+                return false;
+            }
+
+            nodes.Add(new(new(
+                ClassicAsyncUserRegionKind.GuardedEffect,
+                SemanticParts("finally", effectKey),
+                guardedEffectOccurrence)));
+            guardedEffectOccurrence++;
         }
         return true;
     }
@@ -2376,8 +2449,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         if (setResult.Arguments is not [_, LoadLocal result] || getResults.Count != 1)
             return false;
 
-        var originalTryFinally = moveNext.Descendants.OfType<TryFinally>().FirstOrDefault();
-        if (originalTryFinally is null)
+        TryFinally[] tryFinallyRegions =
+        [
+            .. moveNext.DescendantsOutsideNestedFunctions
+                .OfType<TryFinally>(),
+        ];
+        if (tryFinallyRegions is not [var originalTryFinally])
             return false;
 
         var resultStore = originalTryFinally.TryBody.Descendants.OfType<StoreLocal>()
@@ -2393,11 +2470,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             .OfType<IfStatement>()
             .ToList();
         if (finallyGuards is not [var finallyGuard]
-            || finallyGuard.Then.Children is not [ExpressionStatement finallyStatement])
+            || finallyGuard.Then.Children
+                is not [ExpressionStatement finallyStatement])
         {
             return false;
         }
-        if (!IsCompilerFinallyStateGuard(moveNext, finallyGuard.Condition))
+        if (!IsCompilerFinallyStateGuard(moveNext, finallyGuard))
         {
             hasUnconsumedStore = true;
             return true;
@@ -2433,20 +2511,81 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         return true;
     }
 
-    static bool IsCompilerFinallyStateGuard(
+    internal static bool IsCompilerFinallyStateGuard(
         IrFunction moveNext,
-        IrExpression condition)
+        IfStatement guard)
     {
         var stateLocal = StateLocalIndex(moveNext);
-        return stateLocal is { } state
-            && condition is Comparison
+        return !guard.HasElse
+            && stateLocal is { } state
+            && HasOnlyRecognizedStateLocalAssignments(
+                moveNext,
+                state)
+            && guard.Condition is Comparison
             {
                 Kind: ComparisonKind.LessThan,
                 IsUnsigned: false,
                 Left: LoadLocal load,
-                Right: Constant { Value: 0 },
+                Right: Constant { Value: 0 } zero,
             }
-            && load.Index == state;
+            && load.Index == state
+            && IsInt32(load.Type)
+            && IsInt32(zero.Type);
+    }
+
+    static bool HasOnlyRecognizedStateLocalAssignments(
+        IrFunction moveNext,
+        int stateLocal)
+    {
+        TypeRef machine = DefinitionType(moveNext.DeclaringType);
+        return moveNext.Descendants
+            .OfType<StoreLocal>()
+            .Where(store => store.Index == stateLocal)
+            .All(store => IsRecognizedStateValue(
+                moveNext,
+                machine,
+                store.Value,
+                []));
+    }
+
+    static bool IsRecognizedStateValue(
+        IrFunction moveNext,
+        TypeRef machine,
+        IrExpression value,
+        HashSet<int> visitingSlots)
+    {
+        if (value is Constant { Value: int } constant)
+            return IsInt32(constant.Type);
+        if (value is LoadField
+            {
+                Field.Name: "<>1__state",
+                Field: var field,
+                Instance: LoadArgument { Index: 0 },
+            })
+        {
+            return IsInt32(field.Type)
+                && IsMachineField(field, machine);
+        }
+        if (value is not LoadStackSlot load
+            || !visitingSlots.Add(load.Slot))
+        {
+            return false;
+        }
+
+        StoreStackSlot[] definitions =
+        [
+            .. moveNext.Descendants
+                .OfType<StoreStackSlot>()
+                .Where(store => store.Slot == load.Slot),
+        ];
+        bool recognized = definitions.Length > 0
+            && definitions.All(store => IsRecognizedStateValue(
+                moveNext,
+                machine,
+                store.Value,
+                visitingSlots));
+        visitingSlots.Remove(load.Slot);
+        return recognized;
     }
 
     static AwaitExpression? AwaitForGetResult(IrFunction moveNext, IrFunction kickoff, Call getResult)
@@ -2647,10 +2786,29 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
     }
 
     static int? StateLocalIndex(IrFunction moveNext)
-        => moveNext.Descendants.OfType<StoreLocal>()
-            .FirstOrDefault(static store =>
-                store.Value is LoadField { Field.Name: "<>1__state" })
-            ?.Index;
+    {
+        TypeRef machine = DefinitionType(moveNext.DeclaringType);
+        int[] candidates =
+        [
+            .. moveNext.Descendants
+                .OfType<StoreLocal>()
+                .Where(store => store.Value is LoadField
+                {
+                    Field.Name: "<>1__state",
+                    Field: var field,
+                    Instance: LoadArgument { Index: 0 },
+                }
+                    && IsInt32(store.Type)
+                    && IsInt32(field.Type)
+                    && IsMachineField(field, machine))
+                .Select(static store => store.Index)
+                .Distinct(),
+        ];
+        return candidates is [var state] ? state : null;
+    }
+
+    static bool IsInt32(TypeRef type)
+        => type is { Namespace: "System", Name: "Int32" };
 
     static bool IsCompilerHousekeepingField(string name)
         => name is "<>1__state" or "<>t__builder" or "<>4__this"
@@ -2830,6 +2988,18 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
     static bool ContainsNode(IrNode root, IrNode target)
         => ReferenceEquals(root, target) || root.Descendants.Any(descendant => ReferenceEquals(descendant, target));
+
+    static bool IsInFinallyBody(IrNode node)
+    {
+        for (IrNode? ancestor = node.Parent;
+            ancestor is not null;
+            ancestor = ancestor.Parent)
+        {
+            if (ancestor is TryFinally tryFinally)
+                return ContainsNode(tryFinally.FinallyBody, node);
+        }
+        return false;
+    }
 
     static bool IsAsyncMethodBuilder(TypeRef type)
     {

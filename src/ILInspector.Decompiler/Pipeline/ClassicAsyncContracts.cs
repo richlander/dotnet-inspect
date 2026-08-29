@@ -198,6 +198,7 @@ internal enum ClassicAsyncUserRegionKind
 {
     AwaitedOperand,
     Predicate,
+    GuardedEffect,
     CheckedArithmetic,
     Throw,
     Break,

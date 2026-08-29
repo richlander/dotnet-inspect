@@ -651,6 +651,111 @@ public class ClassicAsyncReconstructionPassTests
             out _));
     }
 
+    [Fact]
+    public void GuardedEffectRegionHasOnePrimaryRealization()
+    {
+        using var source = OpenClassicFixture();
+        IrFunction function = ImportClassicFixture(
+            source,
+            "AwaitInTryFinally");
+        var evidence = Assert.IsType<ClassicAsyncRelationshipEvidence>(
+            function.ClassicAsyncRelationship);
+        var reconstruct =
+            Assert.IsType<ClassicAsyncDecision.Reconstruct>(
+                PublishedDecision(evidence));
+        ClassicAsyncRegionLedger ledger =
+            reconstruct.Plan.RegionLedger;
+        ClassicAsyncUserRegion effect = Assert.Single(
+            ledger.UserRegions,
+            static region =>
+                region.Semantics.Kind
+                    == ClassicAsyncUserRegionKind.GuardedEffect);
+        ClassicAsyncUserRegionRealization realization = Assert.Single(
+            ledger.Realizations,
+            realization => realization.UserRegion == effect.Id);
+
+        Assert.Equal(
+            effect.Semantics,
+            realization.PrimaryOutputNode.Semantics);
+        Assert.Contains(
+            "KeepAlive",
+            effect.Semantics.Discriminator,
+            StringComparison.Ordinal);
+        Assert.Contains(effect.PhysicalRegion, ledger.ConsumedRegions);
+        Assert.DoesNotContain(
+            effect.PhysicalRegion,
+            ledger.PreservedRegions);
+    }
+
+    [Fact]
+    public void RegionLedgerRejectsChangedGuardedEffect()
+    {
+        using var source = OpenClassicFixture();
+        IrFunction function = ImportClassicFixture(
+            source,
+            "AwaitInTryFinally");
+        var evidence = Assert.IsType<ClassicAsyncRelationshipEvidence>(
+            function.ClassicAsyncRelationship);
+        var reconstruct =
+            Assert.IsType<ClassicAsyncDecision.Reconstruct>(
+                PublishedDecision(evidence));
+        ClassicAsyncUserRegion effect = Assert.Single(
+            reconstruct.Plan.RegionLedger.UserRegions,
+            static region =>
+                region.Semantics.Kind
+                    == ClassicAsyncUserRegionKind.GuardedEffect);
+        BlockContainer output = reconstruct.Plan.Body.Materialize();
+        Call keepAlive = Assert.Single(
+            output.Descendants.OfType<Call>(),
+            static call => call.Callee.Name == "KeepAlive");
+        LoadArgument argument = Assert.IsType<LoadArgument>(
+            Assert.Single(keepAlive.Arguments));
+        argument.ReplaceWith(new LoadArgument(
+            argument.Index + 1,
+            "other",
+            argument.Type));
+
+        Assert.True(
+            ClassicAsyncReconstructionPass.TryCaptureOutputNodes(
+                output,
+                out List<ClassicAsyncOutputNode> outputNodes));
+        ClassicAsyncOutputNode changed = Assert.Single(
+            outputNodes,
+            static node =>
+                node.Semantics.Kind
+                    == ClassicAsyncUserRegionKind.GuardedEffect);
+        Assert.NotEqual(effect.Semantics, changed.Semantics);
+
+        Assert.False(TryCreateRegionLedger(
+            [effect],
+            [new(effect.Id, changed)],
+            out _));
+    }
+
+    [Fact]
+    public void OutputGuardedEffectInventoryRejectsNonCall()
+    {
+        TypeRef int32 = TypeRef.CoreLib("System", "Int32");
+        var tryBlock = new Block(0);
+        tryBlock.Add(new Return(new Constant(0, int32)));
+        var tryBody = new BlockContainer();
+        tryBody.Add(tryBlock);
+        var finallyBlock = new Block(1);
+        finallyBlock.Add(
+            new ExpressionStatement(new Constant(1, int32)));
+        var finallyBody = new BlockContainer();
+        finallyBody.Add(finallyBlock);
+        var outputBlock = new Block(2);
+        outputBlock.Add(new TryFinally(tryBody, finallyBody));
+        var output = new BlockContainer();
+        output.Add(outputBlock);
+
+        Assert.False(
+            ClassicAsyncReconstructionPass.TryCaptureOutputNodes(
+                output,
+                out _));
+    }
+
     [Theory]
     [InlineData("AwaitValue", "9:parameter1:01:a", "9:parameter1:01:a")]
     [InlineData(
