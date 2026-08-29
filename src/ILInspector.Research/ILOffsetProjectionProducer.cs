@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection.Metadata;
 using ILInspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
@@ -135,10 +136,19 @@ public static class ILOffsetProjectionProducer
         bool wantsCost = Includes(request, ILOffsetProjectionCapabilities.CostContext);
         if (wantsAllocation || wantsSafety || wantsCost)
         {
+            string assemblyDisplayName =
+                request.Assembly?.Path
+                ?? request.Assembly?.Identity.Name
+                ?? context.AssemblyPath;
             // One shared, cached index acquisition for all three semantic contexts: opening the
             // library body index is expensive, and each context is just a different filtered
             // projection over the same Analysis evidence.
-            if (!TryOpenAnalysisIndex(context.AssemblyPath, out var index, out var indexError))
+            if (!TryOpenAnalysisIndex(
+                    request.Assembly,
+                    context,
+                    assemblyDisplayName,
+                    out var index,
+                    out var indexError))
             {
                 var failureKind = wantsAllocation
                     ? ILOffsetProjectionFailureKind.AllocationAnalysisUnavailable
@@ -150,7 +160,11 @@ public static class ILOffsetProjectionProducer
             if (wantsAllocation)
                 allocationContext = BuildAllocationContext(index, request.MethodToken, request.ILOffset);
             if (wantsSafety)
-                safetyContext = BuildSafetyContext(index, context.AssemblyPath, request.MethodToken, request.ILOffset);
+                safetyContext = BuildSafetyContext(
+                    index,
+                    assemblyDisplayName,
+                    request.MethodToken,
+                    request.ILOffset);
             if (wantsCost)
                 costContext = BuildCostContext(index, request.MethodToken, request.ILOffset);
         }
@@ -274,13 +288,33 @@ public static class ILOffsetProjectionProducer
     /// contexts instead of re-opening the assembly for each one.
     /// </summary>
     static bool TryOpenAnalysisIndex(
+        ResolvedAssemblyReference? assembly,
+        PdbContext sourceContext,
         string assemblyPath,
         [NotNullWhen(true)] out Analysis.LibraryBodyIndex? index,
         out string error)
     {
         try
         {
-            index = AnalysisIndexCache.ForPath(assemblyPath);
+            if (assembly is null)
+            {
+                index = AnalysisIndexCache.ForPath(assemblyPath);
+            }
+            else
+            {
+                index = AnalysisIndexCache.ForAssembly(
+                    assembly,
+                    out Guid analysisModuleVersionId);
+                Guid sourceModuleVersionId =
+                    ReadModuleVersionId(sourceContext);
+                if (sourceModuleVersionId
+                    != analysisModuleVersionId)
+                {
+                    throw new InvalidOperationException(
+                        "The SourceLink context and Analysis descriptor "
+                        + "represent different module generations.");
+                }
+            }
             error = "";
             return true;
         }
@@ -295,6 +329,16 @@ public static class ILOffsetProjectionProducer
             return false;
         }
     }
+
+    static Guid ReadModuleVersionId(PdbContext context) =>
+        context.InspectImage(
+            static image =>
+            {
+                MetadataReader metadata =
+                    image.GetMetadataReader();
+                return metadata.GetGuid(
+                    metadata.GetModuleDefinition().Mvid);
+            });
 
     static List<ILOffsetAllocationContext> BuildAllocationContext(
         Analysis.LibraryBodyIndex index,
