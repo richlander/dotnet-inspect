@@ -205,9 +205,7 @@ mechanics — see that document for the exact rule. This section states only
 the cross-process rationale those mechanics exist to satisfy: an older
 `dotnet-inspect` process must never destroy a cache contract written by a
 newer one, and a newer process must tolerate an older one still running
-concurrently and recreating a contract the newer process just retired —
-which is why retirement re-scans on every initialization rather than
-trusting a persisted high-water mark.
+concurrently and recreating a contract the newer process just retired.
 
 ## Filesystem coordination
 

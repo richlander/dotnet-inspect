@@ -32,11 +32,14 @@ docs-only change.
   a category;
 - read, write, and background-maintenance operations whose *filesystem-access*
   failures are swallowed and observed only as a miss or as maintenance making
-  no progress. This is not a blanket best-effort guarantee: path construction
+  no progress. This is not a blanket best-effort guarantee, and it is not
+  symmetric between reads and writes: on the read path, path construction
   (which reads `AppName`, throwing before initialization) and miss-side
-  telemetry both run outside the guarded region and propagate — see
-  [Telemetry](#telemetry-is-fire-and-forget-but-not-exception-isolated) and
-  the pre-initialization note in
+  telemetry both run outside the guarded region and propagate; on the write
+  path, `Set`/`SetBytes` wrap path construction in their own blanket `catch`,
+  so the identical pre-initialization failure is swallowed there instead —
+  see [Telemetry](#telemetry-is-fire-and-forget-but-not-exception-isolated)
+  and the pre-initialization note in
   [Initialization lifecycle](#initialization-lifecycle);
 - a `Clear` operation that surfaces most failures rather than swallowing them
   (see [Clear and concurrent writers](#clear-and-concurrent-writers)); and
@@ -110,31 +113,38 @@ constrains it once accepted.
 **Gap:** the contract above is enforced only by code review convention today.
 `GetCategoryPath`, `GetFilePath`, `GetDefaultBasePath`, `GetCacheInfo`,
 `TryGet`, `TryGetBytes`, `Set`, and `SetBytes` do not reject a `category`,
-`extension`, or `appName` containing a path separator or a `..` segment, and
-`GetBasePath`/`Initialize` place no constraint on `basePath` at all, so a
-future caller that violates the contract (for example, building a category
-from a package id, or an `extension`/`basePath` from configuration) would
+`extension`, or `appName` containing a path separator or a `..` segment, so
+a future caller that violates the contract (for example, building a
+category from a package id, or an `extension` from configuration) would
 silently gain a path-traversal write/read/enumerate primitive outside the
-intended cache root, undetected by any existing test. Closing this gap — for
-example, asserting `category`/`extension`/`appName` contain no directory
-separator and no `.` segment before every path computation, and constraining
-`basePath` to a directory the process already controls — is recommended
-follow-up work; this document records the invariant so that follow-up has a
-contract to enforce against.
+intended cache root, undetected by any existing test. `basePath` is exempt
+from this particular gap since it is already the accepted exception above,
+but `GetBasePath`/`Initialize` still place no containment constraint on it
+at all — a `basePath` sourced from untrusted *content* rather than trusted
+operator configuration would be unconstrained in a different way, as noted
+above. Closing the `category`/`extension`/`appName` gap — for example,
+asserting each contains no directory separator and no `.` segment before
+every path computation — is recommended follow-up work; this document
+records the invariant so that follow-up has a contract to enforce against.
 
 ## Path-context containment
 
-`EnsurePathInCacheContext`/`IsPathInCacheContext` are a public guard against
-deleting outside the cache: a path is in context when it equals or is a
-descendant of the active base path (`GetBasePath()`) or the legacy pre-XDG
-path (`GetLegacyBasePath()`). `IsPathInCacheContext` fails closed — any
-exception while resolving the full path (malformed path, denied access)
-returns `false`, never `true`. `Clear` calls it internally, and other owners
-call it directly before their own destructive filesystem operations —
-package-content and staging deletion (`NuGetCache`), platform-pack target and
-staging deletion (`PlatformPackService`), and legacy-cache deletion
-(`PackageCacheService`) all invoke it. It is the mechanism's one exported
-containment primitive; any future caller that deletes a path derived from
+`EnsurePathInCacheContext`/`IsPathInCacheContext` are a public guard that
+confines a path to the cache root: a path is in context when it equals or is
+a descendant of the active base path (`GetBasePath()`) or the legacy
+pre-XDG path (`GetLegacyBasePath()`). `IsPathInCacheContext` fails closed —
+any exception while resolving the full path (malformed path, denied access)
+returns `false`, never `true`. `Clear` calls it internally before deleting;
+other owners call it directly, but not exclusively before deletion —
+`NuGetCache` and `PlatformPackService` each guard both their commit
+`targetPath` and their staging `stagingPath` before *publish/write*
+operations (`Directory.CreateDirectory`, copying staged contents in), not
+before deletion; only `PlatformPackService`'s separate `destDir` guard
+(inside its content-copy helper, before overwriting an existing destination
+subdirectory) and `PackageCacheService`'s legacy-cache guard precede an
+actual `Directory.Delete`. It is the
+mechanism's one exported containment primitive; any future caller that
+writes, deletes, or otherwise mutates a path derived from
 `GetBasePath()`/`GetCategoryPath()` should call it too.
 
 **Gap:** the descendant check (`IsSameOrChildPath`) and the root-equality
@@ -154,6 +164,22 @@ behavior, not a verified guarantee on a case-sensitive filesystem; treat that
 as an open, unenforced case, not as closed by `EnsurePathInCacheContext`/
 `IsSamePath` alone.
 
+**Gap:** both checks also rely on `Path.TrimEndingDirectorySeparator`, which
+does not strip the separator from a filesystem root — `TrimEndingDirectorySeparator("/")`
+returns `"/"` unchanged, confirmed directly. If `basePath` (or the legacy
+base path) is ever configured as a bare root such as `/`,
+`IsSameOrChildPath` compares an ordinary descendant path like `/tmp/x`
+against `"//"` (the root with its separator re-appended for the prefix
+check) rather than `"/"`, so the prefix match fails and a path that is in
+fact under the root is reported as **not** contained. This does not create a
+traversal exposure — the guard still fails closed, rejecting a legitimate
+path rather than admitting an illegitimate one — but it does mean
+`EnsurePathInCacheContext`/`Clear` would incorrectly refuse a legitimate,
+in-root operation whenever `basePath` is a filesystem root. This is a narrow
+edge case — no current caller configures `basePath` as a filesystem root —
+but it is unverified by any existing test and not stated as a constraint on
+`basePath` anywhere.
+
 **Gap:** `CoreCache`'s own read/write/statistics entry points (`TryGet`,
 `TryGetBytes`, `Set`, `SetBytes`, `GetFilePath`, `GetCacheInfo`) never call
 the guard themselves — only `Clear` and the external callers above do.
@@ -170,6 +196,18 @@ that already guards itself) is not caught by this mechanism at all. A future
 defensive check on `category`/`extension`/`appName` (the trust-boundary gap
 above) would close this without relying on every future caller remembering
 to call the guard itself.
+
+`Set`/`SetBytes` publish file content through a private `WriteAtomically`
+helper: it writes the new content to a sibling temp file named
+`{path}.{Guid.NewGuid():N}.tmp`, then calls `File.Move(tempPath, path,
+overwrite: true)` to publish it, then unconditionally attempts
+`File.Delete(tempPath)` in a `finally` block (a no-op after a successful
+move, since the temp path no longer exists). This is `CoreCache`'s own
+atomic single-file publication mechanism — a reader never observes a
+partially-written file — and is distinct from
+[`cache-concurrency.md`](cache-concurrency.md)'s package-*directory* staging
+protocol (stage into a temp directory, then `Directory.Move` the whole tree
+into place), which that document owns.
 
 ## Initialization lifecycle
 
@@ -193,22 +231,25 @@ every previously registered category under that new root.
 
 **Gap:** `_appName`/`_basePathOverride` are written only inside `Initialize`'s
 `lock (s_maintenanceLock)`, and every other method that also takes that lock
-— `RegisterVersionedCategory`, `Clear`, `WaitForMaintenance` (and therefore
-`CancelAndWaitForMaintenance`), and `RequestVersionedCategoryCleanupAsync` —
-is safely serialized against a concurrent `Initialize`; none of these can
-observe a partial field write. The unsynchronized race is narrower but wider
-than only the read/write path: the lock-free surface — `GetBasePath`,
-`GetDefaultBasePath`, `GetLegacyBasePath`, `GetCategoryPath`, `GetFilePath`,
-`TryGet`/`TryGetBytes`, `Set`/`SetBytes`, `GetCacheInfo`,
-`IsPathInCacheContext`, and (transitively, since it calls
+— including concurrent `Initialize` calls themselves, `RegisterVersionedCategory`,
+`Clear`, `WaitForMaintenance` (and therefore `CancelAndWaitForMaintenance`),
+and `RequestVersionedCategoryCleanupAsync` — is safely serialized against
+each other; none of these can observe a partial field write, and multiple
+concurrent `Initialize` calls are not by themselves a data race (whichever
+one takes the lock last determines the resulting root). The unsynchronized
+race is narrower but wider than only the read/write path: the lock-free
+surface — `GetBasePath`, `GetDefaultBasePath`, `GetLegacyBasePath`,
+`GetCategoryPath`, `GetFilePath`, `TryGet`/`TryGetBytes`, `Set`/`SetBytes`,
+`GetCacheInfo`, `IsPathInCacheContext`, and (transitively, since it calls
 `IsPathInCacheContext`) `EnsurePathInCacheContext` — reads
-`_appName`/`_basePathOverride` without the lock and without `volatile`. **At
-most one `Initialize` call may be outstanding, and no lock-free method may
-run concurrently with it.** Today's callers satisfy this by calling
-`Initialize` once at process startup before any other cache use, but the
-contract is not stated anywhere and not enforced by an assertion. A
-production build that calls `Initialize` a second time for any reason (for
-example, a hosted/long-lived process switching app identity) while a
+`_appName`/`_basePathOverride` without the lock and without `volatile`. **No
+lock-free method may run concurrently with any `Initialize` call** — this is
+the actual race boundary, not a restriction on how many `Initialize` calls
+may be outstanding. Today's callers satisfy this by calling `Initialize`
+once at process startup before any other cache use, but the contract is not
+stated anywhere and not enforced by an assertion. A production build that
+calls `Initialize` a second time for any reason (for example, a
+hosted/long-lived process switching app identity) while a
 concurrent `TryGet`/`Set`/`IsPathInCacheContext` is in flight has a data race
 on `_appName`/`_basePathOverride` — including the possibility that
 `IsPathInCacheContext` combines an active-root check against one
@@ -233,7 +274,14 @@ documented behavior above already states its own case.
 
 A versioned category family is identified by a `prefix` plus the current
 member's own integer suffix (for example prefix `pkg-index-v`, current
-`pkg-index-v8`). Retirement:
+`pkg-index-v8`). `RegisterVersionedCategory(prefix, current)` validates both
+arguments before scheduling any retirement: `prefix` and `current` must each
+be non-null and non-whitespace, and `current` must start with `prefix`
+case-insensitively and have the remainder parse as a non-negative integer
+via `int.TryParse(..., NumberStyles.None, ...)` (so no leading `+`/`-` sign,
+no thousands separator, and no leading/trailing whitespace in the suffix) —
+any violation throws `ArgumentException` synchronously from the call itself,
+before any background work is scheduled. Retirement:
 
 - deletes only sibling directories whose suffix parses as a non-negative
   integer strictly less than the current version;
@@ -279,11 +327,16 @@ error, an `IOException` from a file another process still has open, or a
 directory-enumeration error while measuring size — propagates to `Clear`'s
 caller rather than being swallowed. `Clear`'s `long` return value is not a
 confirmed bytes-freed count: it is the tree size *measured before deletion*,
-plus (for `Clear(null)` only) the consumed maintenance byte counter — if
-another process deletes some or all of the tree concurrently (the
-`DirectoryNotFoundException` case, or a race that removes only some files
-before `Clear` measures or deletes), the returned value can be higher or
-lower than what `Clear` itself actually removed. It also omits the
+plus (for `Clear(null)` only) the consumed maintenance byte counter. That
+measurement can diverge from what this `Clear` call actually removed in
+either direction, for different reasons: a concurrent deletion of some or
+all of the tree between the measurement and `Directory.Delete` (including
+the `DirectoryNotFoundException` case) can only make the returned value an
+*overcount*, since it reports bytes that this `Clear` no longer needed to
+remove; a concurrent `Set`/`SetBytes` that adds or grows a file in the same
+tree after the measurement but before `Directory.Delete` can make it an
+*undercount*, since those bytes are swept into the same recursive delete
+without ever being measured. It also omits the
 directory-deleted count even when `Clear(null)` consumes it from maintenance
 (see [Versioned category retirement](#versioned-category-retirement)) — a
 caller that needs the directory count must use `CancelAndWaitForMaintenance`
@@ -369,10 +422,14 @@ case-insensitively equals `"symbol-misses"`, but *rewrites* it as
 `$"{category}/{extension}"` — preserving the caller's original spelling and
 casing rather than canonicalizing it. `TryGet("symbol-misses", key,
 extension: "forbidden")` reports `symbol-misses/forbidden`, distinct from
-`symbol-misses/miss`, but a caller passing `"SYMBOL-MISSES"` would observe
-`SYMBOL-MISSES/forbidden`, not the lowercase form. Every other `category`
-passes through unchanged. This is an intentional, tested part of the
-observable telemetry contract, not an undocumented side effect.
+`symbol-misses/miss` — this extension-remapping behavior is covered by
+`HttpClientFactoryTests.CacheTelemetry_SymbolMissesIncludeExtensionInCategory`.
+A caller passing `"SYMBOL-MISSES"` would observe `SYMBOL-MISSES/forbidden`,
+not the lowercase form, per the `$"{category}/{extension}"` interpolation
+above — this casing-preservation consequence follows from reading the source
+and is not itself exercised by any existing test. Every other `category`
+passes through unchanged. This is an intentional part of the observable
+telemetry contract, not an undocumented side effect.
 
 ## `maxAge` freshness is a mechanism-owned rule, not a caller policy
 
