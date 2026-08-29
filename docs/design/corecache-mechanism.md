@@ -81,19 +81,31 @@ differently, but the difference is enforced for only one of them:
 - **`basePath`** (`Initialize`'s second, optional parameter) is returned
   verbatim by `GetBasePath()` with no validation at all — not even the
   null/whitespace check `appName` gets — and becomes the trusted root that
-  `IsPathInCacheContext` anchors every containment decision to. A caller that
-  passes an override derived from untrusted input controls the cache root
-  itself, which is a strictly larger trust concession than `category` or
-  `extension`.
+  `IsPathInCacheContext` anchors every containment decision to. Unlike
+  `category`/`extension`/`appName`, this is **not** a fixed-literal value in
+  production today: `dotnet-inspect`'s CLI entry point
+  (`src/dotnet-inspect/Program.cs`) reads it verbatim from the
+  `DOTNET_INSPECT_CACHE_DIR` environment variable, or — for `--isolated`/
+  `DOTNET_INSPECT_ISOLATED` — builds it by concatenating that environment
+  value into a temp-directory path, then forwards it unchanged through
+  `NuGetCache.Initialize` to `CoreCache.Initialize`. A caller (here, an
+  end user or their shell environment) that controls `basePath` controls the
+  cache root itself, which is a strictly larger trust concession than
+  `category` or `extension` — and it is exercised in production, not merely
+  hypothetical.
 
-The contract is: **`category`, `extension`, `appName`, and `basePath` are
-caller-owned values that every current producer restricts to a fixed literal
-or a bounded, hardcoded selection, never external content; `key` is the only
-parameter this mechanism defends by construction.** This must hold for every
-future caller, including one that builds a category name from a feed,
-package, or platform identifier, or a `basePath` from a configuration value
-of unknown provenance — those must be routed through `key`, not `category`,
-`extension`, `appName`, or `basePath`.
+The contract is: **`category`, `extension`, and `appName` are caller-owned
+values that every current producer restricts to a fixed literal or a
+bounded, hardcoded selection, never external content; `key` is the only
+parameter this mechanism defends by construction; `basePath` is the one
+exception — it is intentionally operator/environment-controlled configuration,
+accepted verbatim with no sanitization or containment constraint of its
+own.** This must hold for every future caller, including one that builds a
+category name from a feed, package, or platform identifier — that must be
+routed through `key`, not `category`, `extension`, or `appName`. A future
+`basePath` source should still avoid deriving it from untrusted *content*
+(as opposed to trusted operator configuration), since nothing here
+constrains it once accepted.
 
 **Gap:** the contract above is enforced only by code review convention today.
 `GetCategoryPath`, `GetFilePath`, `GetDefaultBasePath`, `GetCacheInfo`,
@@ -184,26 +196,38 @@ every previously registered category under that new root.
 — `RegisterVersionedCategory`, `Clear`, `WaitForMaintenance` (and therefore
 `CancelAndWaitForMaintenance`), and `RequestVersionedCategoryCleanupAsync` —
 is safely serialized against a concurrent `Initialize`; none of these can
-observe a partial field write. The unsynchronized race is narrower: the
-lock-free path/read/write/statistics surface —`GetBasePath`, `GetDefaultBasePath`,
-`GetCategoryPath`, `GetFilePath`, `TryGet`/`TryGetBytes`, `Set`/`SetBytes`, and
-`GetCacheInfo` — reads `_appName`/`_basePathOverride` without the lock and
-without `volatile`. **At most one `Initialize` call may be outstanding, and no
-lock-free method may run concurrently with it.** Today's callers satisfy this
-by calling `Initialize` once at process startup before any other cache use,
-but the contract is not stated anywhere and not enforced by an assertion. A
+observe a partial field write. The unsynchronized race is narrower but wider
+than only the read/write path: the lock-free surface — `GetBasePath`,
+`GetDefaultBasePath`, `GetLegacyBasePath`, `GetCategoryPath`, `GetFilePath`,
+`TryGet`/`TryGetBytes`, `Set`/`SetBytes`, `GetCacheInfo`,
+`IsPathInCacheContext`, and (transitively, since it calls
+`IsPathInCacheContext`) `EnsurePathInCacheContext` — reads
+`_appName`/`_basePathOverride` without the lock and without `volatile`. **At
+most one `Initialize` call may be outstanding, and no lock-free method may
+run concurrently with it.** Today's callers satisfy this by calling
+`Initialize` once at process startup before any other cache use, but the
+contract is not stated anywhere and not enforced by an assertion. A
 production build that calls `Initialize` a second time for any reason (for
 example, a hosted/long-lived process switching app identity) while a
-concurrent `TryGet`/`Set` is in flight has a data race on
-`_appName`/`_basePathOverride`.
+concurrent `TryGet`/`Set`/`IsPathInCacheContext` is in flight has a data race
+on `_appName`/`_basePathOverride` — including the possibility that
+`IsPathInCacheContext` combines an active-root check against one
+initialization generation with a legacy-root check against another.
 
-Before the first `Initialize` call, every lock-free method throws
-`InvalidOperationException` from the `AppName` property getter — this is not
-best-effort and not a miss; `Set`/`SetBytes` only *look* silent because that
+Before the first `Initialize` call, the lock-free surface does not behave
+uniformly, because each method's own exception handling (or lack of it)
+around the `AppName` property getter's `InvalidOperationException` differs:
+`TryGet`/`TryGetBytes` construct the path (and so throw) before entering any
+guarded region at all; `Set`/`SetBytes` only *look* silent because that same
 exception is caught by their own blanket `try`/`catch` (see
-[Telemetry](#telemetry-is-fire-and-forget-but-not-exception-isolated)),
-while `TryGet`/`TryGetBytes` construct the path (and so throw) before
-entering any guarded region at all.
+[Telemetry](#telemetry-is-fire-and-forget-but-not-exception-isolated));
+`IsPathInCacheContext` catches it too and returns `false` rather than
+propagating, so `EnsurePathInCacheContext` throws its own refusal exception
+instead of the pre-initialization one; and `GetLegacyBasePath` reads `AppName`
+only on non-Windows platforms, so it throws there but returns `null` on
+Windows without touching `AppName` at all. There is no single
+"every lock-free method does X" pre-initialization rule; each method's
+documented behavior above already states its own case.
 
 ## Versioned category retirement
 
@@ -253,11 +277,17 @@ cache context, measures the tree, and deletes it, catching only
 already completed the same deletion. Any other failure — an authorization
 error, an `IOException` from a file another process still has open, or a
 directory-enumeration error while measuring size — propagates to `Clear`'s
-caller rather than being swallowed. `Clear`'s `long` return value is bytes
-freed only: `Clear(null)` consumes both the byte and directory counters from
-maintenance (see [Versioned category retirement](#versioned-category-retirement))
-but adds only the byte count to its return value — a caller that needs the
-directory count must use `CancelAndWaitForMaintenance` instead.
+caller rather than being swallowed. `Clear`'s `long` return value is not a
+confirmed bytes-freed count: it is the tree size *measured before deletion*,
+plus (for `Clear(null)` only) the consumed maintenance byte counter — if
+another process deletes some or all of the tree concurrently (the
+`DirectoryNotFoundException` case, or a race that removes only some files
+before `Clear` measures or deletes), the returned value can be higher or
+lower than what `Clear` itself actually removed. It also omits the
+directory-deleted count even when `Clear(null)` consumes it from maintenance
+(see [Versioned category retirement](#versioned-category-retirement)) — a
+caller that needs the directory count must use `CancelAndWaitForMaintenance`
+instead.
 
 **Gap:** `Clear` does not coordinate with concurrent `Set`/`SetBytes` calls,
 which do not take `s_maintenanceLock` at all — and `s_maintenanceLock` is a
@@ -290,20 +320,26 @@ accept both the silent-loss and the `Clear`-throws possibilities.
 `InfoTracker.RecordCacheHit`/`RecordCacheMiss` and `CacheTelemetry.Record` are
 recorded on cache outcomes, but recording itself does nothing to protect a
 cache result: `CacheTelemetry.Record` first adds an `ActivityEvent` to
-`Activity.Current` unconditionally, then calls every subscribed
+`Activity.Current` when one exists (`Activity.Current?.AddEvent(...)` — no
+event is added when there is no current activity, which is the ordinary
+state unless one has been established), then calls every subscribed
 `IObserver<CacheObservation>.OnNext` synchronously and in registration order,
-with no surrounding `try`/`catch`. The activity event and every subscriber
-before a throwing one have already observed the outcome by the time an
-exception surfaces; only subscribers *after* the throwing one are skipped,
-and `Record` itself does not complete normally. A throwing subscriber then
-changes cache behavior differently depending on which method and overload
-observed it:
+with no surrounding `try`/`catch`. When a current activity does exist, its
+event and every subscriber before a throwing one have already observed the
+outcome by the time an exception surfaces; only subscribers *after* the
+throwing one are not invoked at all, and `Record` itself does not complete
+normally. (The throwing subscriber's own `OnNext` *was* called — it received
+the observation before throwing; "not invoked" describes only the
+subscribers after it, not the throwing one itself.) A throwing subscriber
+then changes cache behavior differently depending on which method and
+overload observed it:
 
 - **`TryGet`/`TryGetBytes` without `maxAge`:** the hit-telemetry call is
   inside the method's own blanket `catch`, so a throwing subscriber silently
-  turns a hit into a miss (`null`); the miss path — including its own
-  telemetry call — then runs unguarded, so a throwing subscriber there
-  propagates to the caller instead.
+  turns a hit into a `null` return — this `catch` returns directly, so the
+  separate miss path (including its own telemetry call and
+  `InfoTracker.RecordCacheMiss()`) never runs; a hit that fails this way is
+  not counted as a miss either.
 - **`TryGet`/`TryGetBytes` *with* `maxAge`:** the hit-telemetry call is inside
   a `catch` that swallows the exception and falls through to the *same*
   unguarded miss-telemetry call below it. A subscriber that throws on the
@@ -313,9 +349,9 @@ observed it:
   throwing hit subscriber does not reliably degrade to a silent `null` here.
 - **`Set`/`SetBytes`:** the telemetry call is inside the method's own blanket
   `catch`, so a throwing subscriber is swallowed the same way any other write
-  failure is — the activity event and any subscribers ahead of the throwing
-  one still observed the store; only the throwing subscriber and any after
-  it do not.
+  failure is — the activity event (if any) and any subscribers up to and
+  including the throwing one were still invoked with the observation; only
+  subscribers *after* the throwing one are not.
 
 This mechanism does not isolate telemetry from the operation it is
 recording; "fire-and-forget" describes the caller's intent, not an enforced
@@ -328,12 +364,15 @@ only as an operational signal, and only when every subscriber is known not
 to throw.
 
 `CoreCache` also remaps the observed `category` for one family before
-telemetry is recorded: `GetTelemetryCategory` rewrites a `category` that
-case-insensitively equals `"symbol-misses"` to `"symbol-misses/{extension}"`
-(so `TryGet("symbol-misses", key, extension: "forbidden")` reports
-`symbol-misses/forbidden`, distinct from `symbol-misses/miss`), and passes
-every other `category` through unchanged. This is an intentional, tested part
-of the observable telemetry contract, not an undocumented side effect.
+telemetry is recorded: `GetTelemetryCategory` *detects* a `category` that
+case-insensitively equals `"symbol-misses"`, but *rewrites* it as
+`$"{category}/{extension}"` — preserving the caller's original spelling and
+casing rather than canonicalizing it. `TryGet("symbol-misses", key,
+extension: "forbidden")` reports `symbol-misses/forbidden`, distinct from
+`symbol-misses/miss`, but a caller passing `"SYMBOL-MISSES"` would observe
+`SYMBOL-MISSES/forbidden`, not the lowercase form. Every other `category`
+passes through unchanged. This is an intentional, tested part of the
+observable telemetry contract, not an undocumented side effect.
 
 ## `maxAge` freshness is a mechanism-owned rule, not a caller policy
 
