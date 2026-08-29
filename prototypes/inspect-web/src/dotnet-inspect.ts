@@ -7170,6 +7170,7 @@ function runPackageQuery(prefix: string) {
   const request = state.packageQueryState.request
     ? withScopeQuery(state.packageQueryState.request, validPrefix)
     : createQueryRequest(validPrefix);
+  packageQueryLiveAnnouncer.reset();
   void packageQueryController.run(request);
 }
 
@@ -7192,6 +7193,7 @@ function togglePackageQueryFacet(facetKey: string, prefix: string) {
   const current = state.packageQueryState.request
     ? withScopeQuery(state.packageQueryState.request, validPrefix)
     : createQueryRequest(validPrefix);
+  packageQueryLiveAnnouncer.reset();
   void packageQueryController.run(toggleFacet(current, facet));
 }
 

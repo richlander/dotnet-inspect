@@ -2825,6 +2825,11 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
       /\? withScopeQuery\(state\.packageQueryState\.request, validPrefix\)/g)
       ?.length,
     2);
+  assert.equal(
+    appSource.match(
+      /packageQueryLiveAnnouncer\.reset\(\);\s*void packageQueryController\.run/g)
+      ?.length,
+    2);
   assert.match(
     appSource,
     /state\.packageQueryCatalogError =\s*`Package-query facets are unavailable/);
