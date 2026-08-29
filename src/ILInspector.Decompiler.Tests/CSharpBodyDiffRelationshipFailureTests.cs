@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using ILInspector.Decompiler;
+using ILInspector.Findings;
 using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
@@ -103,7 +104,135 @@ public class CSharpBodyDiffRelationshipFailureTests
         }
     }
 
-    static byte[] BuildImage(int value)
+    [Fact]
+    public void MissingInspection_RetainedBodyFailureDoesNotPoisonAbsence()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-csharp-retained-failure-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "old.dll");
+
+        try
+        {
+            File.WriteAllBytes(path, BuildBodyReferenceImage());
+
+            CSharpBodyDiff.CSharpMethodIndex index =
+                CSharpBodyDiff.BuildMethodIndexWithFailures(
+                    [path],
+                    includeNonPublic: true,
+                    typeFilters: null,
+                    side: "old");
+            Assert.Single(index.Failures);
+            Assert.Empty(index.DeclarationOmissionFailures);
+            string stableAssemblyKey =
+                Assert.Single(index.Methods.Values).StableAssemblyKey;
+
+            FindingInspection<CSharpCanonicalLine> inspection =
+                CSharpFindings.MissingInspection(
+                    index,
+                    stableAssemblyKey,
+                    "Other",
+                    "Added",
+                    new FindingSubject("added", "Added"),
+                    "old");
+
+            var absent = Assert.IsType<
+                FindingInspection<CSharpCanonicalLine>.Absent>(
+                    inspection.Value);
+            Assert.Equal(
+                FindingInspectionAbsenceKind.SubjectAbsent,
+                absent.Kind);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void MissingInspection_KnownOwnerDoesNotPoisonUnrelatedType()
+    {
+        var failure = new CSharpIdentityResolutionFailure(
+            "old",
+            "old.dll",
+            0x06000001,
+            MetadataTypeNameFailureMechanism.Metadata,
+            "MalformedMetadata",
+            "The method declaration could not be indexed.",
+            "assembly");
+        var index = new CSharpBodyDiff.CSharpMethodIndex(
+            new Dictionary<string, CSharpBodyDiff.CSharpMethodEntry>(
+                StringComparer.Ordinal),
+            [failure],
+            [new(failure, "Sample.Broken", "Broken")]);
+
+        FindingInspection<CSharpCanonicalLine> unrelated =
+            CSharpFindings.MissingInspection(
+                index,
+                "assembly",
+                "Sample.Other",
+                "Added",
+                new FindingSubject("other", "Sample.Other.Added"),
+                "old");
+        FindingInspection<CSharpCanonicalLine> affected =
+            CSharpFindings.MissingInspection(
+                index,
+                "assembly",
+                "Sample.Broken",
+                "Broken",
+                new FindingSubject("broken", "Sample.Broken.Broken"),
+                "old");
+
+        var absent = Assert.IsType<
+            FindingInspection<CSharpCanonicalLine>.Absent>(
+                unrelated.Value);
+        Assert.Equal(
+            FindingInspectionAbsenceKind.SubjectAbsent,
+            absent.Kind);
+        Assert.IsType<FindingInspection<CSharpCanonicalLine>.Failed>(
+            affected.Value);
+    }
+
+    [Fact]
+    public void CompareAssemblies_AsymmetricIdentityFailureDoesNotBecomeAddedFinding()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-csharp-asymmetric-relationship-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string oldPath = Path.Combine(directory, "old.dll");
+        string newPath = Path.Combine(directory, "new.dll");
+
+        try
+        {
+            File.WriteAllBytes(oldPath, BuildImage(1, cyclicRejectedType: true));
+            File.WriteAllBytes(newPath, BuildImage(1, cyclicRejectedType: false));
+
+            CSharpAssemblyFindingComparisonResult findings =
+                CSharpFindings.CompareAssemblies(
+                    [oldPath],
+                    [newPath],
+                    includeNonPublic: true);
+
+            Assert.Single(findings.IdentityFailures);
+            CSharpMemberFindingComparison rejected = Assert.Single(
+                findings.Comparisons,
+                comparison => comparison.Member.Contains(
+                    "RejectedMethod",
+                    StringComparison.Ordinal));
+            Assert.IsType<FindingComparison<CSharpCanonicalLine>.Failed>(
+                rejected.Comparison.Value);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    static byte[] BuildImage(
+        int value,
+        bool cyclicRejectedType = true)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -127,13 +256,16 @@ public class CSharpBodyDiffRelationshipFailureTests
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));
         var rejected = metadata.AddTypeDefinition(
-            TypeAttributes.NestedPublic,
+            cyclicRejectedType
+                ? TypeAttributes.NestedPublic
+                : TypeAttributes.Public,
             default,
             metadata.GetOrAddString("Rejected"),
             baseType: default,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));
-        metadata.AddNestedType(rejected, rejected);
+        if (cyclicRejectedType)
+            metadata.AddNestedType(rejected, rejected);
         metadata.AddTypeDefinition(
             TypeAttributes.Public,
             default,
