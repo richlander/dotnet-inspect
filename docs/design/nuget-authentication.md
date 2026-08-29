@@ -141,15 +141,37 @@ exchange one compact JSON object per line, UTF-8 without a BOM. The sequence is 
 `MonitorNuGetProcessExit`, `Initialize`, `GetOperationClaims`, `SetLogLevel`, and then
 `GetAuthenticationCredentials`.
 
-Two details are easy to get wrong and are pinned by tests:
+Two details are easy to get wrong:
 
 - **The handshake is symmetric.** The plugin sends its *own* handshake request at the same time
   as the host sends one. A host that only waits for a reply, without answering, deadlocks.
+  `ReadyRequiresSymmetricHandshake` checks the design interaction; implementation correspondence
+  for the host's response remains unverified.
 - **`Progress` messages restart the request timer.** They are the plugin saying "still working"
   during a slow sign-in. A host that ignores them times out a request that is progressing fine.
+  `ProgressRenewsOnlyItsRequest` checks the design interaction; implementation correspondence is
+  unverified. Progress may continue renewing the request indefinitely; the model's request
+  liveness guarantee begins once those renewals stop.
+
+The request timeout covers the whole admitted operation: registration, waiting for the serialized
+writer, and waiting for a response. If timeout or caller cancellation preempts the request that
+owns an in-progress pipe write, the connection terminates before another writer can use that pipe;
+`WriterPreemptionIsContained` and `ClosedConnectionIsAbsorbing` check that rule. Terminal pipe loss
+closes request admission before the read loop collects and settles pending requests, checked by
+`RequestAdmissionHasLiveReceiver` and `ShutdownSettlementIsComplete`. A malformed
+plugin-originated request receives an error response or the connection terminates; it never becomes
+abandoned work, checked by `InboundFailureIsContained` and
+`MalformedInboundEventuallySettles`. The current implementation does not yet enforce the
+stalled-write or shutdown-admission rules, and malformed inbound payload handling remains tracked
+by #3551.
 
 Implementation: [`PluginConnection`](../../src/NuGetFetch/Plugins/PluginConnection.cs) and
 [`PluginCredentialProvider`](../../src/NuGetFetch/Plugins/PluginCredentialProvider.cs).
+The concurrent conversation and shutdown rules are checked by the
+[NuGet credential-plugin session lifecycle model](models/nuget-plugin-session-lifecycle/README.md).
+The model checks the design under finite bounds; implementation correspondence
+for progress renewal, concurrent correlation, and pipe-loss admission remains
+unverified.
 
 Plugins are started lazily and kept for the process lifetime, because a launch costs a process
 start plus five round trips. A plugin that fails to start, or that does not claim the
@@ -468,8 +490,10 @@ Two tiers, in `src/NuGetFetch.Tests`:
     Artifacts, redirect isolation from credential scope and returned content, 403 opt-in, and that
     an existing credential is not overwritten.
   - `PluginProtocolTests` runs a **real plugin process** — a shell script that genuinely speaks
-    the line protocol — so framing, the symmetric handshake, `Progress`-driven timeout extension,
-    and shutdown are exercised end to end rather than mocked.
+    the line protocol — so framing, the symmetric handshake, process death, selected shutdown
+    behavior, and caller-cancellation classification are exercised end to end rather than mocked.
+    Concurrent request correlation, `Progress`-driven timeout extension, and pipe-loss admission
+    remain unverified at the implementation boundary.
 - **Live**, tagged `[Trait("Network", "Live")]` and skipped unless a feed and token are supplied.
   `AzureDevOpsFeedTests` covers the config path; `AzureDevOpsCredentialProviderTests` covers the
   provider path against a genuinely installed provider. Only a real Azure DevOps feed exercises
