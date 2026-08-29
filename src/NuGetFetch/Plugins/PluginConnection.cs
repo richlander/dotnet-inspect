@@ -243,9 +243,8 @@ internal sealed class PluginConnection : IAsyncDisposable
         {
             _testHooks?.RequestAdmissionAttempted?.Invoke();
 
-            lock (_pendingGate)
+            using (PendingGateLease gate = EnterPendingGate())
             {
-                long gateEntry = ++_pendingGateEntry;
                 cancellationToken.ThrowIfCancellationRequested();
 
                 if (!_acceptingRequests)
@@ -253,10 +252,10 @@ internal sealed class PluginConnection : IAsyncDisposable
                     throw new IOException("Credential plugin closed the connection.");
                 }
 
-                _testHooks?.RequestAdmissionAccepted?.Invoke(gateEntry);
+                _testHooks?.RequestAdmissionAccepted?.Invoke(gate.Entry);
                 _pending[requestId] = pending;
                 _testHooks?.RequestRegistered?.Invoke(
-                    (gateEntry, Monitor.IsEntered(_pendingGate)));
+                    (gate.Entry, Monitor.IsEntered(_pendingGate)));
             }
 
             await WriteAsync(
@@ -352,9 +351,8 @@ internal sealed class PluginConnection : IAsyncDisposable
 
         _testHooks?.TerminalSettlementAttempted?.Invoke();
 
-        lock (_pendingGate)
+        using (EnterPendingGate())
         {
-            _pendingGateEntry++;
             _acceptingRequests = false;
             pending = [.. _pending.Values];
             _testHooks?.PendingSnapshotCaptured?.Invoke(Monitor.IsEntered(_pendingGate));
@@ -368,6 +366,24 @@ internal sealed class PluginConnection : IAsyncDisposable
             request.Completion.TrySetException(
                 new IOException("Credential plugin closed the connection."));
         }
+    }
+
+    private PendingGateLease EnterPendingGate() => new(this);
+
+    private readonly struct PendingGateLease : IDisposable
+    {
+        private readonly PluginConnection _owner;
+
+        public PendingGateLease(PluginConnection owner)
+        {
+            _owner = owner;
+            Monitor.Enter(owner._pendingGate);
+            Entry = ++owner._pendingGateEntry;
+        }
+
+        public long Entry { get; }
+
+        public void Dispose() => Monitor.Exit(_owner._pendingGate);
     }
 
     internal sealed class PluginConnectionTestHooks
