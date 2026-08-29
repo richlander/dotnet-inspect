@@ -10,6 +10,12 @@ The former document combined CLI grammar, semantic row selection, source
 execution, payload projection, line windows, printing, and presentation. It is
 superseded and must not guide implementation.
 
+Unchanged documents may still cite this path as the owner of the retired
+[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) target. Those
+citations refer to superseded umbrella text and are non-normative: they preserve
+neither the deleted decisions nor their former ownership. Each affected passage
+must be reconciled by its focused owner before it can guide implementation.
+
 The current CLI remains unchanged. This document defines no product syntax or
 behavior. Its only normative section is [Composition](#composition).
 
@@ -21,7 +27,8 @@ This table identifies authority; it does not define a participant's behavior.
 | --- | --- | --- |
 | Ordered Head, Tail, Window, and Top stages | Shared `DotnetInspector.RowSelection` leaf component | [Semantic row selection](semantic-row-selection.md) |
 | Row predicates, schema-defined ordering, and ranking metadata | L2 `DotnetInspector.Sections` | [Row-query authority boundary](row-query-order.md#authority-boundary) |
-| Declared row sets, field/column shape projection, logical reductions such as count, and common result binding | L2 `DotnetInspector.Sections` | Pending focused design |
+| Declared row units and the Document-to-Scalar shape ladder | L2 `DotnetInspector.Sections` | [Output shapes](output-shapes.md#the-shape-ladder) |
+| Declared-row-set binding, field/column shape projection, logical reductions such as count, and common result binding | L2 `DotnetInspector.Sections` | Pending focused design |
 | CLI aliases, argv lowering, conflicts, and diagnostics | L3 `dotnet-inspect` | Pending focused design |
 | Source execution, exact upstream optimization, merge, deduplication, and completion evidence | L1 query or source-owning component | Pending focused design |
 | Payload projection, printing, export, and rendered-line selection | L3 `dotnet-inspect` | Pending focused design |
