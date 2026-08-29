@@ -32,8 +32,11 @@ read that way:
   and lenses appear only as opaque values.
 - **Availability classification.** Descriptor classification and the
   reconciliation tables are not modelled. `NavigationSession.tla` does model
-  the narrower rule that an `Unavailable` result advances revision exactly
-  when its complete returned snapshot changed.
+  the narrower rule that a completed `Unavailable` or `Failed` result advances
+  revision exactly when its complete returned snapshot changed. The model
+  distinguishes Navigation preparation failure, which has no installable
+  replacement snapshot, from a failed Registry or policy evaluation. It does
+  not distinguish Registry failure from policy failure.
 - **UI accessibility.** Focus, roving `tabindex`, menu and tablist semantics,
   history, and rendering belong to [Inspect Web UI](../../inspect-web-ui.md)
   and appear here only as an abstract "consumer installs the complete current
@@ -86,8 +89,10 @@ Modelled behaviour includes: a newer explicit intent superseding older explicit
 and maintenance work; a superseded operation returning late; an external
 prerequisite abort that ends an intent without a navigation result; standalone
 maintenance queued in request order while its facts complete in any order; and
-a consumer holding authority that has since stopped being current. It also
-models abandonment preserving acknowledgement debt before or after
+a consumer holding authority that has since stopped being current. Completed
+`Unavailable` and Registry or policy `Failed` results carry complete returned
+snapshots; Navigation preparation failure is a distinct retaining action.
+It also models abandonment preserving acknowledgement debt before or after
 installation, a later non-installing result synchronizing that debt, and a
 dedicated fresh-authority synchronization result after queued maintenance
 drains. Synchronization request generation is finite; the product response path
@@ -102,7 +107,8 @@ has no modeled retry ceiling.
 | `MaintenanceRequestOrder` | Maintenance was admitted in owner-issued request order, never fact-completion order, and the queue stays ordered and outstanding |
 | `NoStaleVisibleEffect` | Every consumer-visible effect executed under exactly the session's current unconsumed authority |
 | `MaintenanceRegatherDiscipline` | A stale request cannot become ready or admit until rebuilding requires and gathering completes a re-gather |
-| `UnavailableRevisionMatchesSnapshotChange` | An unavailable result advances revision exactly when the complete returned snapshot changed |
+| `NonSuccessRevisionMatchesSnapshotChange` | A completed unavailable or failed result advances revision exactly when the complete returned snapshot changed |
+| `PreparationFailureRetainsSnapshotAndRevision` | Navigation preparation failure retains the complete installed snapshot and revision, identifies its source, and returns fresh retained product and host authority |
 | `ConsumerSynchronizationShape` | The acknowledged receipt never leads consumer-installed state, consumer-installed state never leads the product, and equal revisions carry equal complete snapshots |
 | `ConsumerVisibleEffectSynchronizes` | A current visible effect installs the complete result snapshot, revision, and exact effect epoch before acknowledgement |
 | `AcknowledgementRequiresConsumerSynchronization` | Acknowledgement advances the receipt only after the complete current snapshot was installed under the current effect epoch |
@@ -227,11 +233,14 @@ remaining differences are deliberate abstractions rather than disagreements:
 - **Outcome classes.** Effect authority still uses the internal `applied` and
   `retained` execution classes, but `NavigationSession.tla` now separately
   records semantic outcome, complete-snapshot change, prior revision, and
-  result revision. This explicitly checks that changed `Unavailable` advances
-  revision while unchanged `Unavailable` retains it. `Rejected` and `Failed`
-  retain revision; superseded work returns no visible effect. The model-only
-  `synchronize` class changes no semantic navigation state and carries the
-  complete installed snapshot under fresh authority.
+  result revision. Changed `Unavailable` and Registry or policy `Failed`
+  results advance revision; unchanged ones retain it. `Rejected` and
+  Navigation preparation `Failed` results always retain revision; superseded
+  work returns no visible effect. The model-only `synchronize` class changes no
+  semantic navigation state and carries the complete installed snapshot under
+  fresh authority. A model-only occurrence field identifies a result produced
+  by the Navigation preparation-failure action independently from its reported
+  source.
 - **Consumer receipt.** The model records the complete snapshot and revision
   last acknowledged by one retained consumer separately from the consumer's
   installed snapshot, revision, and effect epoch. It abstracts host rendering
@@ -256,8 +265,8 @@ remaining differences are deliberate abstractions rather than disagreements:
 - **Unmodelled currencies.** Action IDs, generations, descriptor states,
   diagnostics, and correspondence are not modelled. Subjects, lenses, and
   snapshots are opaque values. Operation IDs, synchronization request numbers,
-  and retained request maps are model correlation currencies, not proposed
-  product fields.
+  retained request maps, and the preparation-failure occurrence field are model
+  correlation currencies, not proposed product fields.
 
 ## Guard witnesses
 
@@ -276,6 +285,16 @@ conjoins it into the witness. The paired invariant then asserts the witness was
 never falsified. If a future edit weakens an action guard, the witness still
 evaluates the real pre-state, so TLC reports a counterexample. Witnesses are
 model bookkeeping, not product state.
+
+`revisionWitness` independently compares complete non-success results with
+their pre-state installation. For Navigation preparation failure it also
+latches the exact failure source and fresh retained product and host authority,
+so removing authority or coherently rewriting result and authority to another
+post-state is still caught. The result's model-only
+`preparationFailureOccurred` field records that the preparation-failure action
+ran without deriving that fact from the reported source. The dedicated
+invariant correlates the independently recorded occurrence with the exact
+source.
 
 `snapshotStabilityWitness` compares the whole installed snapshot record rather
 than its revision, so a step that rewrote the snapshot's lens or provenance
@@ -313,9 +332,8 @@ them.
 The results below came from:
 
 - TLC `TLC2 Version 2026.08.21.155922 (rev: 9787e65)`, from the official
-  `v1.8.0` `tla2tools.jar` asset.
-- OpenJDK `25.0.4.1`, Homebrew build.
-- macOS 26.6.2 on Apple silicon.
+  `v1.8.0` `tla2tools.jar` asset downloaded on 2026-08-27.
+- OpenJDK `21.0.12+8-1-24.04`, Ubuntu Linux `amd64`.
 - Run on 2026-08-29.
 
 ## Evidence
@@ -328,25 +346,31 @@ rule.
 
 ### Exhaustive model checking
 
-Each run is an exhaustive breadth-first exploration of the shipped `.cfg`, so
-the counts are stable across repeated runs on the same tools version. All three
-report `Model checking completed. No error has been found.`
+Each run is an exhaustive breadth-first exploration of the shipped `.cfg`.
+Generated and distinct state counts are stable across repeated runs on the same
+tools version. All three report
+`Model checking completed. No error has been found.`
 
 | Model | States generated | Distinct states | Search depth |
 | --- | --- | --- | --- |
-| `NavigationSession.tla` | 466,061 | 91,521 | 23 |
+| `NavigationSession.tla` | 668,938 | 116,745 | 23 |
 | `AtomicRestoration.tla` | 8,081 | 2,333 | 9 |
 | `SnapshotAuthority.tla` | 36,755 | 13,790 | 9 |
 
-The additional state records semantic unavailable outcomes independently from
-their apply/retain execution class, retains canonical request payloads
-independently from prepared results, and retains each operation's requested
-lens independently from its result. Stale maintenance also records whether the
-same request still owes a re-gather before admission. `NavigationSession.tla`
-now separately records the product-installed, consumer-installed, and
-product-acknowledged complete snapshots. `MaxSynchronization = 2` bounds
-external request generation while preserving two request/abandon cycles; it
-does not bound product responses.
+The recorded `NavigationSession.tla` depth is from the single-worker action
+coverage run. Automatic-worker runs produced the same generated and distinct
+state counts with reported depths 23 and 24, so parallel traversal depth is not
+treated as stable evidence.
+
+The additional state records semantic unavailable and failed outcomes
+independently from their source and apply/retain execution class, retains
+canonical request payloads independently from prepared results, and retains
+each operation's requested lens independently from its result. Stale
+maintenance also records whether the same request still owes a re-gather
+before admission. `NavigationSession.tla` now separately records the
+product-installed, consumer-installed, and product-acknowledged complete
+snapshots. `MaxSynchronization = 2` bounds external request generation while
+preserving two request/abandon cycles; it does not bound product responses.
 
 Deadlock checking is disabled in all three configs. A behaviour that has issued
 every intent, drained its queue, and consumed its last effect has nothing left
@@ -357,10 +381,10 @@ to do; termination is the intended end state, not a defect.
 `tlc2.TLC -coverage 1` reports that every action in every model contributes
 transitions in the shipped configuration, so no modelled step is dead. In the
 single-worker `NavigationSession.tla` run,
-`RequestConsumerSynchronization` contributes 9,912 distinct transitions across
-16,251 invocations, `SynchronizeConsumer` contributes 477 across 7,064,
-`VisibleEffect` contributes 4,540 across 23,056, and `AcknowledgeEffect`
-contributes 4,436 across 4,540. `ExecuteEffectWork` in
+`RequestConsumerSynchronization` contributes 12,786 distinct transitions
+across 20,923 invocations, `SynchronizeConsumer` contributes 477 across 8,764,
+`VisibleEffect` contributes 5,938 across 29,629, and `AcknowledgeEffect`
+contributes 5,804 across 5,938. `ExecuteEffectWork` in
 `SnapshotAuthority.tla` contributes transitions but no new distinct states
 because it only latches a witness that is already true.
 
@@ -391,9 +415,9 @@ records how to reproduce them.
 | NS11 | Stop releasing the effect on acknowledgement | `EffectEventuallyConsumed` | violated |
 | NS12 | Stop releasing the effect on acknowledgement | `MaintenanceEventuallyDrains` | violated |
 | NS13 | Let a superseded operation stay outstanding forever | `EveryExplicitIntentSettles` | violated |
-| NS14 | Keep the revision unchanged for a changed-snapshot unavailable result | `UnavailableRevisionMatchesSnapshotChange` | violated |
-| NS15 | Advance the revision for an unchanged-snapshot unavailable result | `UnavailableRevisionMatchesSnapshotChange` | violated |
-| NS16 | Install an unavailable result at a revision different from its recorded result revision | `UnavailableRevisionMatchesSnapshotChange` | violated |
+| NS14 | Keep the revision unchanged for a changed-snapshot unavailable result | `NonSuccessRevisionMatchesSnapshotChange` | violated |
+| NS15 | Advance the revision for an unchanged-snapshot unavailable result | `NonSuccessRevisionMatchesSnapshotChange` | violated |
+| NS16 | Install an unavailable result at a revision different from its recorded result revision | `NonSuccessRevisionMatchesSnapshotChange` | violated |
 | NS17 | Mark a stale request ready and clear its re-gather debt during rebuild | `MaintenanceRegatherDiscipline` | violated |
 | NS18 | Drop an earlier queued request while allowing a later request to be admitted | `EveryQueuedRequestIsAdmitted` | violated |
 | NS19 | Acknowledge while the consumer still holds an older snapshot | `AcknowledgementRequiresConsumerSynchronization` | violated |
@@ -408,6 +432,14 @@ records how to reproduce them.
 | NS28 | Advance the acknowledgement receipt during post-install abandonment | `AbandonmentPreservesAcknowledgement` | violated |
 | NS29 | Admit dedicated synchronization while explicit work is unresolved | `SynchronizationRequestDiscipline` | violated |
 | NS30 | Admit dedicated synchronization before queued maintenance drains | `SynchronizationRequestDiscipline` | violated |
+| NS31 | Keep the revision unchanged for a changed-snapshot failed result | `NonSuccessRevisionMatchesSnapshotChange` | violated |
+| NS32 | Advance the revision for an unchanged-snapshot Registry or policy failed result | `NonSuccessRevisionMatchesSnapshotChange` | violated |
+| NS33 | Advance the Navigation preparation-failure revision and coherently rewrite its result and authority to the post-state | `PreparationFailureRetainsSnapshotAndRevision` | violated |
+| NS34 | Rewrite the Navigation preparation-failure source as evaluation | `PreparationFailureRetainsSnapshotAndRevision` | violated |
+| NS35 | Omit product and host authority from Navigation preparation failure | `PreparationFailureRetainsSnapshotAndRevision` | violated |
+| NS36 | Rewrite both Navigation preparation failure and its witness to use applied authority | `PreparationFailureRetainsSnapshotAndRevision` | violated |
+| NS37 | Rewrite both Navigation preparation failure and its source witness as evaluation | `PreparationFailureRetainsSnapshotAndRevision` | violated |
+| NS38 | Coherently install a changed snapshot and revision during Navigation preparation failure | `PreparationFailureRetainsSnapshotAndRevision` | violated |
 | AR1 | Drop the current-intent requirement from preparation publication | `PreparationRequiresReadyPairAndCurrentIntent` | violated |
 | AR2 | Publish a different subject than the independently retained request | `PreparedPairEqualsRequestedPayload` | violated |
 | AR3 | Allow a superseded preparation to publish | `NoSupersededPreparationResult` | violated |
@@ -434,14 +466,15 @@ records how to reproduce them.
 | SA17 | Return a result that does not record its operation ID | `OperationAndResultAreCorrelated` | violated |
 | SA18 | Install and return another admissible session lens instead of the exact requested lens | `AppliedResultEqualsExactRequest` | violated |
 
-Fifty-five probes, fifty-four expected violations and one expected pass. `SA6`
+Sixty-three probes, sixty-two expected violations and one expected pass. `SA6`
 is the one probe expected not to fire: it applies the same mutation as `SA5`
 and checks the revision-arithmetic invariant instead, which does not notice a
 snapshot rewritten in place. That pair is why
 `NonApplyStepsPreserveInstalledSnapshot` compares the record.
 
-Nineteen probes exist specifically because a claim used to be satisfiable by the
-wrong thing. `NS16` separates installed revision from a self-consistent result,
+Twenty-five probes exist specifically because a claim used to be satisfiable
+by the wrong thing. `NS16` separates installed revision from a self-consistent
+result,
 `NS17` admits stale work without re-gathering, `NS18` lets a later admission
 stand in for a lost earlier request, `NS19` prevents acknowledgement from
 standing in for snapshot consumption, `NS20` distinguishes the result snapshot
@@ -455,11 +488,21 @@ prevents another request's settlement from discharging the named request.
 `NS27` prevents correlated receipt and disposition fields from replacing the
 product-owned pre-state receipt, `NS28` makes post-install abandonment directly
 observable, and `NS29`/`NS30` protect synchronization admission relative to
-explicit work and queued maintenance. `AR2` publishes a payload that differs
-from the retained request, `SA14` applies a later supplied-prior operation after
-an earlier one was rejected, `SA15` adopts only the stale same-session supplied
-snapshot whose origin and lens resemble session data, and `SA18` returns
-another admissible session lens under the correct operation ID.
+explicit work and queued maintenance. `NS33` rewrites preparation-failure
+authority and result to the wrong post-state, `NS34` erases its distinct
+source, `NS35` erases its returned authority, and `NS36` changes both the
+action and shared witness so only the dedicated preparation-failure invariant
+rejects the wrong authority class. `NS37` changes both the action and source
+witness while the independent occurrence field still identifies preparation
+failure, proving the dedicated invariant rejects the source rewrite. `NS38`
+coherently rewrites the action, result, disposition, authority, and
+shared revision witness so only the dedicated invariant's named retention
+clauses reject the changed snapshot and revision. `AR2` publishes a payload
+that differs from the retained request, `SA14` applies a later supplied-prior
+operation after an earlier one was rejected, `SA15` adopts only the stale
+same-session supplied snapshot whose origin and lens resemble session data,
+and `SA18` returns another admissible session lens under the correct operation
+ID.
 
 ## Changing a model
 
