@@ -14,8 +14,11 @@ Tracking: [#4967](https://github.com/richlander/dotnet-inspect/issues/4967).
 
 ## Status
 
-This is a target design. Runtime implementation and every property in
-[Verification](#verification) remain unverified until their named gates land.
+The host-neutral request model, structural capability catalog, planner, typed
+rejections, and retained validated plan are implemented in
+`src/DotnetInspector.Queries/AnalysisRequest.cs`. The properties in
+[Verification](#verification) are enforced by the named gates in
+`src/DotnetInspector.Queries.Tests/AnalysisRequestTests.cs`.
 
 The word *analysis* is generic here: it means a producer-backed inspection
 question such as Integrations, calls, metadata, API shape, or body analysis.
@@ -361,7 +364,7 @@ their inventories or reinterpret their outcomes.
 
 ## Verification
 
-The target implementation is unverified until these named gates land:
+The runtime implementation is verified by these named gates:
 
 - `AnalysisRequest_DeclaresCompleteClosedFieldSet`
 - `AnalysisRequest_ReportSurfaceAndUniverseAreIndependent`
@@ -369,9 +372,11 @@ The target implementation is unverified until these named gates land:
 - `AnalysisRequest_UniverseBreadthCannotWidenReportSurface`
 - `AnalysisRequest_TargetedRequiresAcceptedAnchor`
 - `AnalysisRequest_CensusRejectsPrivilegedContainedAnchor`
+- `AnalysisRequest_CensusRequiresAcceptedReportDomain`
 - `AnalysisRequest_ModeValidationDerivesFromDeclaredTargetFunctions`
 - `AnalysisRequest_RejectsMissingOrUnboundedUniverseBeforeProducerExecution`
 - `AnalysisCapability_StructuralDiscoveryDoesNotResolveContentExecuteProducersOrProbeEffectiveness`
+- `AnalysisCapability_ProducerExecutionProbeIsObservable`
 - `AnalysisCapability_ListsConfiguredUnobservedIntegrationDescriptors`
 - `AnalysisCapability_RejectsUnsupportedModeBeforeProducerExecution`
 - `AnalysisCapability_RejectsUnsupportedSurfaceBeforeProducerExecution`
@@ -380,8 +385,16 @@ The target implementation is unverified until these named gates land:
 - `AnalysisCapability_RejectsMissingStructuralPrerequisiteBeforeProducerExecution`
 - `AnalysisCapability_RejectsUnsupportedProjectionBeforeProducerExecution`
 - `AnalysisCapability_AllDeclaredRejectionsPrecedeProducerExecution`
+- `AnalysisCapability_RejectsStructurallyInvalidRequestsBeforeProducerExecution`
 - `AnalysisCapability_RejectionDoesNotUseFindingInspectionState`
+- `AnalysisCapability_RequiresConfiguredOwnerIssuedDescriptorIdentity`
+- `AnalysisCapability_SelectsReportSurfaceDeclarationByMode`
+- `AnalysisCapability_ModeScopesUniverseRequirementsAndProjections`
+- `AnalysisCapability_RejectsTargetRoleCardinalityMismatch`
+- `AnalysisDescriptor_RejectsModeWithoutSatisfiableSurfaceOrProjection`
+- `AnalysisDescriptor_RequiresOneExactCapabilityIdentityPerId`
 - `AnalysisPlan_RetainsExactRequestFieldsAndDescriptorRequirements`
+- `AnalysisPlan_CostIsMaximumOfAnalysisAndTransitiveQueries`
 - `AnalysisPlan_RetainsUniverseCompletenessAndFailureInputs`
 - `AnalysisProjection_RowsAndGraphRetainOneAnalysisIdentity`
 - `AnalysisUniverseProviderKindDoesNotChangeRequestFieldSemantics`
