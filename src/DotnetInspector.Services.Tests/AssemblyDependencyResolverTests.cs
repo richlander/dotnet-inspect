@@ -882,6 +882,103 @@ public class AssemblyDependencyResolverTests
         Assert.Equal(1, policy.SelectionCount);
     }
 
+    [Fact]
+    public void AssemblyGroup_SkewedAmbiguityPreservesOriginFailure()
+    {
+        var requested = new AssemblyReferenceIdentity(
+            "Platform.Library",
+            new Version(1, 0, 0, 0),
+            null,
+            "001122aabbccddee");
+        ResolvedAssemblyReference owner = Descriptor(
+            new AssemblyReferenceIdentity(
+                "Owner",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            AssemblyResolutionProvenance.Local("owner"));
+        ResolvedAssemblyReference first = Descriptor(
+            requested with { Version = new Version(2, 0, 0, 0) },
+            AssemblyResolutionProvenance.Designated(
+                "first group overlay"));
+        ResolvedAssemblyReference second = Descriptor(
+            requested with { Version = new Version(3, 0, 0, 0) },
+            AssemblyResolutionProvenance.Designated(
+                "second group overlay"));
+        var policy = new FixedSelectionPolicy(
+            AssemblyBindingSelection.CannotSelect(
+                new AssemblyBindingFailure(
+                    AssemblyBindingFailureKind.CandidateUnavailable,
+                    CandidateOpenFailureKind.Unreadable)));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (owner, (IAssemblyBindingPolicy)policy),
+                (first, (IAssemblyBindingPolicy)policy),
+                (second, (IAssemblyBindingPolicy)policy),
+            ]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(requested),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+
+        var unavailable = Assert.IsType<AssemblyBindingSelection.Unavailable>(
+            group.Select(request));
+
+        Assert.Equal(
+            AssemblyBindingFailureKind.CandidateUnavailable,
+            unavailable.Failure.Kind);
+        Assert.Equal(
+            CandidateOpenFailureKind.Unreadable,
+            unavailable.Failure.CandidateFailureKind);
+        Assert.Equal(1, policy.SelectionCount);
+    }
+
+    [Fact]
+    public void AssemblyGroup_PolicyDesignatedCandidateJoinsAmbiguity()
+    {
+        var requested = new AssemblyReferenceIdentity(
+            "Platform.Library",
+            new Version(1, 0, 0, 0),
+            null,
+            "001122aabbccddee");
+        ResolvedAssemblyReference owner = Descriptor(
+            new AssemblyReferenceIdentity(
+                "Owner",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            AssemblyResolutionProvenance.Local("owner"));
+        AssemblyReferenceIdentity designatedIdentity =
+            requested with { Version = new Version(2, 0, 0, 0) };
+        ResolvedAssemblyReference root = Descriptor(
+            designatedIdentity,
+            AssemblyResolutionProvenance.Designated(
+                "root group overlay"));
+        ResolvedAssemblyReference policyCandidate = Descriptor(
+            designatedIdentity,
+            AssemblyResolutionProvenance.Designated(
+                "policy group overlay"));
+        var policy = new FixedSelectionPolicy(
+            AssemblyBindingSelection.Found(policyCandidate));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (owner, (IAssemblyBindingPolicy)policy),
+                (root, (IAssemblyBindingPolicy)policy),
+            ]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(requested),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+
+        var ambiguous = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
+            group.Select(request));
+
+        Assert.Equal(2, ambiguous.Assemblies.Length);
+        Assert.Contains(root, ambiguous.Assemblies);
+        Assert.Contains(policyCandidate, ambiguous.Assemblies);
+        Assert.Equal(1, policy.SelectionCount);
+    }
+
     [Theory]
     [InlineData("fr-FR", "001122aabbccddee")]
     [InlineData("en-US", "ffeeddccbbaa1100")]
@@ -1062,6 +1159,56 @@ public class AssemblyDependencyResolverTests
             string designatedPath = Path.Combine(
                 root,
                 Path.GetFileName(platformPath));
+            File.Copy(platformPath, designatedPath);
+            using var stream = File.OpenRead(platformPath);
+            using var peReader = new PEReader(stream);
+            AssemblyReferenceIdentity platformIdentity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    peReader.GetMetadataReader());
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(platformPath)
+                {
+                    PackageRoots = [],
+                    CorpusAssemblyPaths = [designatedPath],
+                    IncludeSiblingAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                    SnapshotAssemblyImages = true,
+                    MaxSnapshotImageBytes =
+                        new FileInfo(platformPath).Length,
+                });
+            var request = new AssemblyBindingRequest(
+                AssemblyBindingTarget.Reference(platformIdentity),
+                AssemblyBindingOrigin.Global(),
+                AssemblyResolutionScope.Platform);
+
+            var unavailable =
+                Assert.IsType<AssemblyBindingSelection.Unavailable>(
+                    resolver.Select(request));
+
+            Assert.Equal(
+                AssemblyBindingFailureKind.CandidateUnavailable,
+                unavailable.Failure.Kind);
+            Assert.Equal(
+                CandidateOpenFailureKind.ResourceBudget,
+                unavailable.Failure.CandidateFailureKind);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Select_RenamedSnapshotBudgetCannotFallBackToPlatform()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-renamed-overlay-budget-").FullName;
+        try
+        {
+            string platformPath = typeof(System.Runtime.GCSettings)
+                .Assembly.Location;
+            string designatedPath = Path.Combine(root, "overlay.dll");
             File.Copy(platformPath, designatedPath);
             using var stream = File.OpenRead(platformPath);
             using var peReader = new PEReader(stream);
@@ -1526,6 +1673,21 @@ public class AssemblyDependencyResolverTests
         public AssemblyBindingSelection Select(
             AssemblyBindingRequest request) =>
             AssemblyBindingSelection.NotFound();
+    }
+
+    sealed class FixedSelectionPolicy(
+        AssemblyBindingSelection selection) : IAssemblyBindingPolicy
+    {
+        internal int SelectionCount { get; private set; }
+
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request)
+        {
+            SelectionCount++;
+            return selection;
+        }
     }
 
     [Fact]

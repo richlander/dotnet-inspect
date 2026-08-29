@@ -415,9 +415,10 @@ public sealed partial class AssemblyDependencyResolver :
             {
                 entitled.Add(assembly);
             }
-            else if (PathNameMatches(dependency, identity)
-                && descriptor.FailureKind
-                    is CandidateOpenFailureKind.ResourceBudget)
+            else if (descriptor.FailureKind
+                    is CandidateOpenFailureKind.ResourceBudget
+                && (designated
+                    || PathNameMatches(dependency, identity)))
             {
                 budgetFailure =
                     CandidateOpenFailureKind.ResourceBudget;
