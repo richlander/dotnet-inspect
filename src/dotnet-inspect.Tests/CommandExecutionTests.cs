@@ -953,7 +953,8 @@ public partial class CommandExecutionTests
     }
 
     private static (string PackagePath, string TempDir)
-        CreateMetadataAdmissionMixedPackage()
+        CreateMetadataAdmissionMixedPackage(
+            bool includeIdentifierAuditFailure = false)
     {
         string tempDir = Path.Combine(
             Path.GetTempPath(),
@@ -974,9 +975,22 @@ public partial class CommandExecutionTests
         Directory.CreateDirectory(net8Directory);
         Directory.CreateDirectory(net9Directory);
         Directory.CreateDirectory(net10Directory);
-        File.Copy(
-            TestAssemblyPath,
-            Path.Combine(net8Directory, "Lib.dll"));
+        if (includeIdentifierAuditFailure)
+        {
+            WriteReferenceFixtureAssembly(
+                Path.Combine(net8Directory, "Lib.dll"),
+                "Lib",
+                "Bridge");
+            File.WriteAllText(
+                Path.Combine(net8Directory, "Bridge.dll"),
+                "not a managed assembly");
+        }
+        else
+        {
+            File.Copy(
+                TestAssemblyPath,
+                Path.Combine(net8Directory, "Lib.dll"));
+        }
         WriteMalformedMetadataRootAssembly(
             Path.Combine(net9Directory, "Lib.dll"));
         WriteUnsupportedMetadataAssembly(
@@ -984,7 +998,36 @@ public partial class CommandExecutionTests
 
         string packagePath = Path.Combine(
             tempDir,
-            "Metadata.Admission.Mixed.1.0.0.nupkg");
+            includeIdentifierAuditFailure
+                ? "Metadata.Admission.Audit.1.0.0.nupkg"
+                : "Metadata.Admission.Mixed.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreateMetadataAdmissionSinglePackage(bool unsupported)
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"metadata-admission-single-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string libraryDirectory = Path.Combine(
+            packageRoot,
+            "lib",
+            "net10.0");
+        Directory.CreateDirectory(libraryDirectory);
+        string assemblyPath = Path.Combine(libraryDirectory, "Lib.dll");
+        if (unsupported)
+            WriteUnsupportedMetadataAssembly(assemblyPath);
+        else
+            WriteMalformedMetadataRootAssembly(assemblyPath);
+
+        string packagePath = Path.Combine(
+            tempDir,
+            unsupported
+                ? "Metadata.Admission.Unsupported.1.0.0.nupkg"
+                : "Metadata.Admission.Malformed.1.0.0.nupkg");
         ZipFile.CreateFromDirectory(packageRoot, packagePath);
         return (packagePath, tempDir);
     }
@@ -24733,6 +24776,105 @@ public partial class CommandExecutionTests
                     "MalformedMetadataRootException",
                     result.Error);
             }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(
+        true,
+        "Windows Metadata is not a supported metadata format.")]
+    [InlineData(
+        false,
+        "The assembly metadata root is malformed (InvalidSignature).")]
+    public async Task PackageInspection_SingleFormatRejectedMemberPreservesTypedError(
+        bool unsupported,
+        string expectedError)
+    {
+        var (packagePath, tempDir) =
+            CreateMetadataAdmissionSinglePackage(unsupported);
+        try
+        {
+            var library = await RunAppAsync(
+                "library",
+                "Lib.dll",
+                "--package",
+                packagePath,
+                "-S",
+                "Metadata: Image",
+                "--tips",
+                "q");
+            var package = await RunAppAsync(
+                "package",
+                packagePath,
+                "--library",
+                "Lib.dll",
+                "-S",
+                "Metadata: Image",
+                "--tips",
+                "q");
+
+            foreach (var result in new[] { library, package })
+            {
+                Assert.Equal(1, result.Exit);
+                Assert.Empty(result.Output);
+                Assert.Equal(
+                    $"Error: {expectedError}{Environment.NewLine}",
+                    result.Error);
+                Assert.DoesNotContain(
+                    "Library inspection failed",
+                    result.Error);
+                Assert.DoesNotContain(
+                    "No libraries could be read",
+                    result.Error);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_TfmAll_FormatAndAuditFailuresRemainVisible()
+    {
+        var (packagePath, tempDir) =
+            CreateMetadataAdmissionMixedPackage(
+                includeIdentifierAuditFailure: true);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "Lib.dll",
+                "--package",
+                packagePath,
+                "--tfm",
+                "all",
+                "-S",
+                SectionNames.IdentifierConfusion,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Library inspection failed for "
+                + "'lib/net10.0/Lib.dll': unsupported metadata format",
+                error);
+            Assert.Contains(
+                "Library inspection failed for "
+                + "'lib/net9.0/Lib.dll': malformed metadata root",
+                error);
+            Assert.Contains(
+                "Identifier audit failed for "
+                + "'lib/net8.0/Lib.dll': invalid assembly metadata",
+                error);
+            Assert.DoesNotContain(
+                "Error: Identifier audit could not inspect",
+                error);
         }
         finally
         {

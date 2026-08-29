@@ -4328,6 +4328,7 @@ public class PackageCommand
                 : null;
         List<LibraryInspection> inspections = [];
         List<(string FileName, string Reason)> libraryInspectionFailures = [];
+        bool scopeFormatFailures = selected.Count > 1;
         List<(string FileName, string Reason)> groupedIntegrationsFailures = [];
         List<(string FileName, IdentifierConfusionAuditFailureKind FailureKind)>
             identifierAuditFailures = [];
@@ -4378,8 +4379,9 @@ public class PackageCommand
                 continue;
             }
             catch (Exception ex) when (
-                ex is UnsupportedMetadataFormatException
-                    or MalformedMetadataRootException)
+                scopeFormatFailures
+                && (ex is UnsupportedMetadataFormatException
+                        or MalformedMetadataRootException))
             {
                 libraryInspectionFailures.Add(
                     (

@@ -807,7 +807,8 @@ public class LibraryCommand
 
                 foreach (var insp in inspections)
                     insp.Source = SourceKind.NuGet;
-                if (inspections.Count == 1
+                if (inspectionPaths.Count == 1
+                    && inspections.Count == 1
                     && RejectFailedExactIdentifierAudit(
                         inspections[0],
                         options))
@@ -2819,6 +2820,7 @@ public class LibraryCommand
     {
         List<LibraryInspection> inspections = [];
         List<(string FileName, string Reason)> inspectionFailures = [];
+        bool scopeFormatFailures = assemblyPaths.Count > 1;
         List<(
             string FileName,
             IdentifierConfusionAuditFailureKind FailureKind)>
@@ -2861,8 +2863,9 @@ public class LibraryCommand
                 continue;
             }
             catch (Exception ex) when (
-                ex is UnsupportedMetadataFormatException
-                    or MalformedMetadataRootException)
+                scopeFormatFailures
+                && (ex is UnsupportedMetadataFormatException
+                        or MalformedMetadataRootException))
             {
                 inspectionFailures.Add(
                     (
