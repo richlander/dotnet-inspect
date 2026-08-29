@@ -349,6 +349,7 @@ public class ApiCommand
             MemberPipelineDeferredToLookup = false,
             MemberSelectionDeferredToLookup = false
         };
+        resolved = IncludeCallerScopeSection(resolved, pipeline);
 
         return ValidateResolvedMemberSelection(resolved, pipeline);
     }
@@ -424,11 +425,13 @@ public class ApiCommand
         MemberOptions options,
         SectionPipeline<ApiType> pipeline)
     {
-        var resolved = options with
-        {
-            MemberPipelineDeferredToLookup = false,
-            MemberSelectionDeferredToLookup = false
-        };
+        var resolved = IncludeCallerScopeSection(
+            options with
+            {
+                MemberPipelineDeferredToLookup = false,
+                MemberSelectionDeferredToLookup = false
+            },
+            pipeline);
         return ValidateResolvedMemberSelection(resolved, pipeline);
     }
 
@@ -531,6 +534,101 @@ public class ApiCommand
 
         return resolvedSelection;
     }
+
+    private static MemberOptions IncludeCallerScopeSection(
+        MemberOptions options,
+        SectionPipeline<ApiType> pipeline)
+    {
+        var discoveredCallerSections =
+            ResolveDiscoveredCallerScopeSections(options, pipeline);
+        if (!options.HasCallerScope
+            || options.Tree
+            || IsStandaloneMermaid(options)
+            || IsWholeDocumentJson(options)
+            || HasAuthoredMemberSectionRequest(options)
+                && discoveredCallerSections.Count == 0)
+            return options;
+
+        if (discoveredCallerSections.Count == 0)
+        {
+            if (!pipeline.SelectableSectionNames.Contains(
+                    SectionNames.Callers,
+                    StringComparer.OrdinalIgnoreCase))
+            {
+                return options;
+            }
+
+            discoveredCallerSections.Add(SectionNames.Callers);
+        }
+
+        if (discoveredCallerSections.All(
+                section => options.IncludeSections?.Contains(
+                    section,
+                    StringComparer.OrdinalIgnoreCase) == true))
+        {
+            return options;
+        }
+
+        var includeSections = options.IncludeSections is { Count: > 0 } existing
+            ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        includeSections.UnionWith(discoveredCallerSections);
+        return options with
+        {
+            IncludeSections = includeSections,
+            CallerScopeSectionImplicitlySelected =
+                discoveredCallerSections.Contains(SectionNames.Callers)
+        };
+    }
+
+    private static HashSet<string> ResolveDiscoveredCallerScopeSections(
+        MemberOptions options,
+        SectionPipeline<ApiType> pipeline)
+    {
+        if (options.Discover is not { Length: > 0 } discover)
+            return [];
+
+        var resolved = SelectResolver.ResolveSelectAsSections(
+            discover,
+            pipeline.SelectableSectionNames,
+            pipeline.InfoSectionNames,
+            pipeline.GetCategoryMap());
+        if (resolved.HasError || resolved.Sections is not { } sections)
+            return [];
+
+        return sections
+            .Where(section =>
+                section.Equals(
+                    SectionNames.Callers,
+                    StringComparison.OrdinalIgnoreCase)
+                || section.Equals(
+                    SectionNames.CallGraph,
+                    StringComparison.OrdinalIgnoreCase))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static bool HasAuthoredMemberSectionRequest(MemberOptions options)
+        => options.MemberSectionsPreResolved
+           || options.Select is { Length: > 0 }
+           || options.SelectDefault
+           || options.Discover is { Length: > 0 }
+           || options.BodyKindQuery.HasFilter;
+
+    internal static bool RequiresCallerScopeResolution(MemberOptions options, ApiType type)
+        => !MemberCommand.IsWholeDocumentJson(options)
+           && options.HasCallerScope
+           && options.IncludeSections is { } sections
+           && (sections.Contains(SectionNames.Callers, StringComparer.OrdinalIgnoreCase)
+               && (ApiMemberSectionPipelines.ShouldAggregateCallers(type, options)
+                   || ApiMemberDetailSectionDescriptors.Callers.CanRender(type))
+               || sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase)
+               && ApiMemberDetailSectionDescriptors.CallGraph.CanRender(type));
+
+    private static bool IsStandaloneMermaid(MemberOptions options)
+        => options.MermaidOutput
+           && (options.FormatFlagExplicitlySet
+               || options.IncludeSections is { Count: 1 } sections
+               && sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase));
 
     internal static int ExecuteStructuralTypeDiscovery(
         ApiOptions options,
@@ -739,7 +837,8 @@ public class ApiCommand
         var deferMemberSelection = memberPipelineRequiresLookup
             && options.IncludeSections is null
             && (options.Select is not null
-                || options.SelectDefault);
+                || options.SelectDefault
+                || options is MemberOptions { HasCallerScope: true });
         if (options is MemberOptions memberOptions && memberPipelineRequiresLookup)
         {
             options = memberOptions with
@@ -887,6 +986,12 @@ public class ApiCommand
             {
                 IncludeSections = [SectionNames.BodyShapes],
             };
+        }
+
+        if (options is MemberOptions callerScopeOptions
+            && !callerScopeOptions.MemberPipelineDeferredToLookup)
+        {
+            options = IncludeCallerScopeSection(callerScopeOptions, memberPipeline);
         }
 
         // A deferred select has no IncludeSections yet, and the preamble cannot know whether a
@@ -2607,12 +2712,11 @@ public class ApiCommand
     {
         var sink = output ?? Console.Out;
 
-        if (IsInvalidAnnotatedSourceDocumentJsonSelection(options))
-        {
-            CommandError.Write(
-                $"section '{SectionNames.AnnotatedSourceDocument}' must be the only selected section under --json.");
+        if (RejectUnsupportedAnnotatedSourceDocumentJson(options))
             return 1;
-        }
+
+        if (RejectUnsupportedCallerDocumentJson(options))
+            return 1;
 
         if (options is TypeOptions { ShapeOutput: true } typeOptions && !options.Count)
         {
@@ -4133,9 +4237,11 @@ public class ApiCommand
         => options.JsonOutput
            && !options.Count
            && !IsProjectionRequested(options)
-           && options.IncludeSections is { Count: 1 } sections
-           && sections.Contains(SectionNames.AnnotatedSourceDocument)
-           && HasOnlyExplicitAnnotatedSourceDocumentSelectors(options);
+           && (options.IncludeSections is { Count: 1 } sections
+               && sections.Contains(SectionNames.AnnotatedSourceDocument)
+               && HasOnlyExplicitAnnotatedSourceDocumentSelectors(options)
+               || options.IncludeSections is null
+               && HasOnlyExplicitAnnotatedSourceDocumentSelectors(options));
 
     private static bool IsInvalidAnnotatedSourceDocumentJsonSelection(ApiOptions options)
         => options.JsonOutput
@@ -4146,6 +4252,17 @@ public class ApiCommand
            && HasExplicitAnnotatedSourceDocumentSelector(options)
            && (sections.Count != 1
                || !HasOnlyExplicitAnnotatedSourceDocumentSelectors(options));
+
+    internal static bool RejectUnsupportedAnnotatedSourceDocumentJson(
+        ApiOptions options)
+    {
+        if (!IsInvalidAnnotatedSourceDocumentJsonSelection(options))
+            return false;
+
+        CommandError.Write(
+            $"section '{SectionNames.AnnotatedSourceDocument}' must be the only selected section under --json.");
+        return true;
+    }
 
     private static bool HasOnlyExplicitAnnotatedSourceDocumentSelectors(ApiOptions options)
         => options is MemberOptions { MemberSectionsPreResolved: true }
@@ -4176,6 +4293,82 @@ public class ApiCommand
                    || selector.Equals(
                        "Optimization Opportunities",
                        StringComparison.OrdinalIgnoreCase)) == true;
+
+    internal static bool RejectUnsupportedCallerDocumentJson(
+        ApiOptions options)
+    {
+        if (!IsWholeDocumentJson(options)
+            || GetExplicitCallerAnalysisSection(options) is not { } section)
+        {
+            return false;
+        }
+
+        CommandError.Write(
+            $"Document --json cannot represent {section} analysis. "
+            + "Use --jsonl, --tsv, --table, --count, or a graph output format.");
+        return true;
+    }
+
+    private static bool IsWholeDocumentJson(ApiOptions options)
+        => options.JsonOutput
+           && !options.Count
+           && options.Discover is null
+           && !IsProjectionRequested(options);
+
+    private static string? GetExplicitCallerAnalysisSection(
+        ApiOptions options)
+    {
+        if (options is MemberOptions
+            {
+                MemberSectionsPreResolved: true,
+                ExactIncludeSections: { } authoritativeSections
+            })
+        {
+            return authoritativeSections.Contains(SectionNames.Callers)
+                ? SectionNames.Callers
+                : authoritativeSections.Contains(SectionNames.CallGraph)
+                    ? SectionNames.CallGraph
+                    : null;
+        }
+
+        foreach (var selector in options.Select ?? [])
+        {
+            if (selector.Equals(
+                    SectionNames.Callers,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return SectionNames.Callers;
+            }
+            if (selector.Equals(
+                    SectionNames.CallGraph,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return SectionNames.CallGraph;
+            }
+        }
+
+        if (options is MemberOptions
+            && options.Select is { Length: > 0 })
+        {
+            var pipeline = ApiMemberSectionPipelines.Create(options);
+            var resolved = SelectResolver.ResolveSelectAsSections(
+                options.Select,
+                pipeline.SelectableSectionNames,
+                pipeline.InfoSectionNames,
+                pipeline.GetCategoryMap(),
+                options.SelectDefault);
+            if (!resolved.HasError
+                && resolved.Sections is { Count: 1 } singleton)
+            {
+                if (singleton.Contains(SectionNames.Callers))
+                    return SectionNames.Callers;
+                if (singleton.Contains(SectionNames.CallGraph))
+                    return SectionNames.CallGraph;
+            }
+        }
+
+        return null;
+    }
 
     private static bool ShouldRenderMemberIndex(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.MemberIndex) == true;

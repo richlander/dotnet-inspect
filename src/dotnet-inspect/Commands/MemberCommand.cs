@@ -32,10 +32,19 @@ public static class MemberCommand
             return 1;
         }
 
+        if (options.IncludeSections is not null)
+            options = options with { MemberSectionsPreResolved = true };
+
         if (ApiCommand.RejectUniversallyInvalidMemberSelect(options))
             return 1;
         if (ApiCommand.RejectRouteIndependentOptionShape(options))
             return 1;
+        if (options.RouterDeferredTypeOrMember
+            && (ApiCommand.RejectUnsupportedCallerDocumentJson(options)
+                || ApiCommand.RejectUnsupportedAnnotatedSourceDocumentJson(options)))
+        {
+            return 1;
+        }
 
         var unresolvedOptions = options;
         if (!options.RouterDeferredTypeOrMember)
@@ -44,6 +53,11 @@ public static class MemberCommand
             var (preamble, error) = ApiCommand.RunPreamble(options);
             if (error.HasValue) return error.Value;
             options = (MemberOptions)preamble.Options;
+            if (ApiCommand.RejectUnsupportedCallerDocumentJson(options)
+                || ApiCommand.RejectUnsupportedAnnotatedSourceDocumentJson(options))
+            {
+                return 1;
+            }
         }
         else if (options.Discover != null
                  && !options.EffectiveDiscovery)
@@ -211,6 +225,11 @@ public static class MemberCommand
                     PackageRangeAddress = null,
                     ProjectAssetsPath = projectAssetsPath,
                 };
+                if (ApiCommand.RejectUnsupportedCallerDocumentJson(options)
+                    || ApiCommand.RejectUnsupportedAnnotatedSourceDocumentJson(options))
+                {
+                    return 1;
+                }
             }
             var memberPipeline = ApiMemberSectionPipelines.Create(options);
 
@@ -251,6 +270,12 @@ public static class MemberCommand
             }
             else
                 return 1;
+
+            if (ApiCommand.RejectUnsupportedCallerDocumentJson(options)
+                || ApiCommand.RejectUnsupportedAnnotatedSourceDocumentJson(options))
+            {
+                return 1;
+            }
 
             if (options.BodyKindQuery.HasFilter
                 && options.IncludeSections is null
@@ -296,18 +321,6 @@ public static class MemberCommand
             MemberOptions effectiveOptions = options;
             if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
                 effectiveOptions = options with { ShowDocs = true };
-            var discoveredCallerSections =
-                GetDiscoveredCallerSections(effectiveOptions);
-            var callersImplicitlySelected = effectiveOptions.HasCallerScope
-                && !IsWholeDocumentJson(effectiveOptions)
-                && (!HasAuthoredSectionRequest(effectiveOptions)
-                    || discoveredCallerSections.Count > 0);
-            if (callersImplicitlySelected)
-            {
-                effectiveOptions = IncludeCallerScopeSections(
-                    effectiveOptions,
-                    discoveredCallerSections);
-            }
             var aggregateCallers =
                 ApiMemberSectionPipelines.ShouldAggregateCallers(
                     apiType,
@@ -356,18 +369,18 @@ public static class MemberCommand
                         OverloadIndex = autoCandidate.SelectorIndex,
                         AutoSelectedSingleOverload = true
                     };
+                    if (aggregateCallers
+                        && !effectiveOptions.CallerScopeSectionImplicitlySelected)
+                    {
+                        inventorySections = IncludeCallersSection(inventorySections);
+                    }
                     var detailPipeline = ApiMemberSectionPipelines.Create(inventorySections);
                     if (ApiCommand.FinalizeResolvedMemberSelection(
                             inventorySections,
                             detailPipeline)
                         is not { } detailOptions)
                         return 1;
-                    effectiveOptions = aggregateCallers
-                        ? IncludeCallerScopeSections(
-                            detailOptions,
-                            discoveredCallerSections,
-                            callersImplicitlySelected)
-                        : detailOptions;
+                    effectiveOptions = detailOptions;
                 }
             }
 
@@ -623,7 +636,7 @@ public static class MemberCommand
             // Expand --bin/--directory, --project, and --caller-package into assemblies
             // for cross-assembly callers and Call Graph traversal, in addition to the
             // selected member's own assembly.
-            if (RequiresCallerScopeResolution(effectiveOptions))
+            if (ApiCommand.RequiresCallerScopeResolution(effectiveOptions, apiType))
             {
                 var ownAssembly = effectiveOptions.DllPath ?? runtimeAssemblyPath ?? apiDllPath;
                 callerScopeAssemblySet = await CallerScopeResolver.ResolveAsync(
@@ -936,82 +949,6 @@ public static class MemberCommand
         return sections.Count > 0;
     }
 
-    private static MemberOptions IncludeCallerScopeSections(
-        MemberOptions options,
-        IReadOnlySet<string> discoveredCallerSections,
-        bool implicitlySelected = true)
-    {
-        var includeSections = options.IncludeSections is { Count: > 0 } existing
-            ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
-            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (discoveredCallerSections.Count > 0)
-            includeSections.UnionWith(discoveredCallerSections);
-        else
-            includeSections.Add(SectionNames.Callers);
-        return options with
-        {
-            IncludeSections = includeSections,
-            CallerScopeSectionImplicitlySelected =
-                implicitlySelected
-                && includeSections.Contains(SectionNames.Callers)
-        };
-    }
-
-    private static HashSet<string> GetDiscoveredCallerSections(
-        MemberOptions options)
-    {
-        if (options.Discover is not { Length: > 0 } discover)
-            return [];
-
-        var pipeline = ApiMemberSectionPipelines.Create(options);
-        var resolved = SelectResolver.ResolveSelectAsSections(
-            discover,
-            pipeline.SelectableSectionNames,
-            pipeline.InfoSectionNames,
-            pipeline.GetCategoryMap());
-        if (resolved.HasError || resolved.Sections is not { } sections)
-            return [];
-
-        return sections
-            .Where(section =>
-                section.Equals(
-                    SectionNames.Callers,
-                    StringComparison.OrdinalIgnoreCase)
-                || section.Equals(
-                    SectionNames.CallGraph,
-                    StringComparison.OrdinalIgnoreCase))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-    }
-
-    private static bool RequiresCallerScopeResolution(MemberOptions options)
-        => !IsWholeDocumentJson(options)
-           && options.HasCallerScope
-           && options.IncludeSections is { } sections
-           && (sections.Contains(SectionNames.Callers)
-               || sections.Contains(SectionNames.CallGraph));
-
-    private static MemberOptions ExcludeCallersSection(MemberOptions options)
-    {
-        var includeSections = options.IncludeSections is { } existing
-            ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
-            : [];
-        includeSections.Remove(SectionNames.Callers);
-        HashSet<string>? exactIncludeSections = null;
-        if (options.ExactIncludeSectionsOverride is { } exactExisting)
-        {
-            exactIncludeSections = new HashSet<string>(
-                exactExisting,
-                StringComparer.OrdinalIgnoreCase);
-            exactIncludeSections.Remove(SectionNames.Callers);
-        }
-        return options with
-        {
-            IncludeSections = includeSections,
-            ExactIncludeSectionsOverride = exactIncludeSections,
-            CallerScopeSectionImplicitlySelected = false
-        };
-    }
-
     private static bool HasAuthoredSectionRequest(MemberOptions options)
         => options.MemberSectionsPreResolved
            || options.Select is { Length: > 0 }
@@ -1019,7 +956,7 @@ public static class MemberCommand
            || options.Discover is { Length: > 0 }
            || options.BodyKindQuery.HasFilter;
 
-    private static bool IsWholeDocumentJson(MemberOptions options)
+    internal static bool IsWholeDocumentJson(MemberOptions options)
         => options.JsonOutput
            && !options.Count
            && options.Discover is null
@@ -1117,6 +1054,37 @@ public static class MemberCommand
             members = members.Where(arityCandidates.Contains);
         }
         return members;
+    }
+
+    private static MemberOptions ExcludeCallersSection(MemberOptions options)
+    {
+        var includeSections = options.IncludeSections is { } existing
+            ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
+            : [];
+        includeSections.Remove(SectionNames.Callers);
+        HashSet<string>? exactIncludeSections = null;
+        if (options.ExactIncludeSectionsOverride is { } exactExisting)
+        {
+            exactIncludeSections = new HashSet<string>(
+                exactExisting,
+                StringComparer.OrdinalIgnoreCase);
+            exactIncludeSections.Remove(SectionNames.Callers);
+        }
+        return options with
+        {
+            IncludeSections = includeSections,
+            ExactIncludeSectionsOverride = exactIncludeSections,
+            CallerScopeSectionImplicitlySelected = false
+        };
+    }
+
+    private static MemberOptions IncludeCallersSection(MemberOptions options)
+    {
+        var includeSections = options.IncludeSections is { } existing
+            ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
+            : [];
+        includeSections.Add(SectionNames.Callers);
+        return options with { IncludeSections = includeSections };
     }
 
     private static readonly string[] SingleOverloadSectionNames =

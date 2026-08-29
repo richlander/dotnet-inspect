@@ -15461,6 +15461,49 @@ public partial class CommandExecutionTests
             row => row.GetProperty("name").GetString() == SectionNames.Callers);
     }
 
+    [Theory]
+    [InlineData("--count")]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    [InlineData("--value")]
+    [InlineData("--print")]
+    public async Task Member_BareNameCallersWithCallerScope_SingleSectionOutputPreservesSelection(
+        string outputOption)
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallGraphFixture.Inner), "-S", SectionNames.Callers,
+            "--bin", testDirectory, outputOption, "--tips", "q");
+
+        if (outputOption == "--value")
+        {
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                $"section '{SectionNames.Callers}' does not expose value values.",
+                error);
+            return;
+        }
+        if (outputOption == "--print")
+        {
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                $"section '{SectionNames.Callers}' is not printable.",
+                error);
+            return;
+        }
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        if (outputOption == "--count")
+            Assert.True(int.Parse(output.Trim()) > 0);
+        else
+            Assert.Contains(nameof(MemberCallGraphFixture.Mid), output);
+    }
+
     [Fact]
     public async Task Member_NamedCallerDiscoveryRetainsCallerSection()
     {
@@ -15735,6 +15778,50 @@ public partial class CommandExecutionTests
         Assert.Equal(2, document.RootElement.GetProperty("members").GetArrayLength());
     }
 
+    [Fact]
+    public async Task Member_PreResolvedDocumentJson_IgnoresStaleCallerSelector()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(MemberCallsFixture).FullName!,
+                AssemblyPath = TestAssemblyPath,
+                MemberFilter = [nameof(MemberCallsFixture.Overloaded)],
+                OverloadIndex = 1,
+                Select = [SectionNames.Callers],
+                IncludeSections = [SectionNames.Signature],
+                JsonOutput = true,
+                TipLevel = TipLevel.Quiet
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var _ = JsonDocument.Parse(result.Output);
+    }
+
+    [Fact]
+    public async Task Member_PreResolvedCallerDocumentJson_IgnoresStaleNonCallerSelector()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(MemberCallsFixture).FullName!,
+                AssemblyPath = TestAssemblyPath,
+                MemberFilter = [nameof(MemberCallsFixture.Overloaded)],
+                OverloadIndex = 1,
+                Select = [SectionNames.Signature],
+                IncludeSections = [SectionNames.Callers],
+                JsonOutput = true,
+                TipLevel = TipLevel.Quiet
+            }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"Document --json cannot represent {SectionNames.Callers} analysis.",
+            result.Error);
+    }
+
     [Theory]
     [InlineData("Method Groups", false)]
     [InlineData("Properties", true)]
@@ -15877,6 +15964,40 @@ public partial class CommandExecutionTests
         Assert.Empty(result.Error);
         Assert.Contains("## Callers", result.Output);
         Assert.Contains(nameof(CallerScopeCountFixture.Root), result.Output);
+    }
+
+    [Theory]
+    [InlineData(SectionNames.Callers, SectionNames.Callers)]
+    [InlineData(SectionNames.CallGraph, SectionNames.CallGraph)]
+    [InlineData("Caller?", SectionNames.Callers)]
+    [InlineData("Call Grap?", SectionNames.CallGraph)]
+    public async Task Member_DocumentJsonWithExplicitCallerAnalysis_FailsClosed(
+        string selector,
+        string expectedSection)
+    {
+        var missingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}");
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            $"{nameof(MemberCallsFixture.Overloaded)}:1",
+            "-S",
+            selector,
+            "--bin",
+            missingDirectory,
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Document --json cannot represent {expectedSection} analysis.",
+            error);
+        Assert.DoesNotContain("Directory not found", error);
     }
 
     [Fact]
@@ -16437,6 +16558,82 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_DeferredCallerGlobDocumentJsonFailsBeforeCallerScopeAcquisition()
+    {
+        var missingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}");
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            $"{typeof(MemberCallGraphFixture).FullName}.{nameof(MemberCallGraphFixture.RootCall)}",
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            "Caller?",
+            "--bin",
+            missingDirectory,
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Document --json cannot represent {SectionNames.Callers} analysis.",
+            error);
+        Assert.DoesNotContain("Directory not found", error);
+    }
+
+    [Fact]
+    public async Task Router_DeferredCallerDocumentJsonFailsBeforeSourceAcquisition()
+    {
+        string missingAssembly = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+        var (exit, output, error) = await RunAppAsync(
+            "System.Collections.Generic.List<>.Add",
+            "--library",
+            missingAssembly,
+            "-S",
+            SectionNames.Callers,
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Document --json cannot represent {SectionNames.Callers} analysis.",
+            error);
+        Assert.DoesNotContain("File not found", error);
+    }
+
+    [Fact]
+    public async Task Member_SelectedDocumentJsonDoesNotAcquireImplicitCallerScope()
+    {
+        var missingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}");
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            $"{typeof(MemberCallGraphFixture).FullName}.{nameof(MemberCallGraphFixture.RootCall)}",
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            SectionNames.Signature,
+            "--bin",
+            missingDirectory,
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.NotEqual(string.Empty, output.Trim());
+        using var _ = JsonDocument.Parse(output);
+        Assert.DoesNotContain("Directory not found", error);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_SelectDecompiledSource_RendersPlainCSharp()
     {
         var options = new MemberOptions
@@ -16872,6 +17069,24 @@ public partial class CommandExecutionTests
             "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
             "Pump:1", "-S", "Annotated Source Document", "--json",
             "--bin", Path.GetDirectoryName(TestAssemblyPath)!, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.True(document.RootElement.TryGetProperty("text", out _));
+        Assert.False(document.RootElement.TryGetProperty("namespace", out _));
+    }
+
+    [Fact]
+    public async Task Member_AnnotatedSourceDocumentJson_DoesNotAcquireUnusedCallerScope()
+    {
+        string missingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}");
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", SectionNames.AnnotatedSourceDocument, "--json",
+            "--bin", missingDirectory, "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
