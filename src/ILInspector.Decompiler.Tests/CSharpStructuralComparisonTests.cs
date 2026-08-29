@@ -461,6 +461,258 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void CompareStructure_NarrowsUsingStatementSpanToHeaderAndStopsAnnotatingUnchangedBody()
+    {
+        // Reproduces the #4113 shape recorded in #4952 (issue #5022, items 2
+        // and 7): a disposed-only `using` resource is raised to the
+        // variable-less form. Only the header line's variable declaration
+        // changes; the body (`{`, `n = 1;`, `}`) is untouched. Previously the
+        // matched UsingStatement row's spans covered the whole construct, so
+        // RenderAnnotatedBody repeated a "construct; text changed"
+        // annotation on all four lines. Narrowing the row's spans to the
+        // printer's own recorded Header sub-region (a) confines the caret to
+        // the header line (item 2) and (b) stops annotating the unchanged
+        // body lines as a side effect, with no separate propagation step to
+        // suppress (item 7).
+        const string beforeText = """
+            int n = 0;
+            using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))
+            {
+                n = 1;
+            }
+            return n;
+            """;
+        const string afterText = """
+            int n = 0;
+            using (DisposableFromObjectSpan([a, b]))
+            {
+                n = 1;
+            }
+            return n;
+            """;
+
+        var before = UsingStatementDocument(beforeText);
+        var after = UsingStatementDocument(afterText);
+
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            before,
+            after,
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+
+        var row = Assert.Single(comparison.Rows);
+        Assert.Equal(CSharpStructuralChangeKind.Changed, row.Change);
+        var beforeSpan = Assert.Single(row.BeforeSpans);
+        var afterSpan = Assert.Single(row.AfterSpans);
+        Assert.Equal(
+            "using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))",
+            before.Text.Substring(beforeSpan.Start, beforeSpan.Length));
+        Assert.Equal(
+            "using (DisposableFromObjectSpan([a, b]))",
+            after.Text.Substring(afterSpan.Start, afterSpan.Length));
+
+        // Round-2 review: the row's reported region role must reflect the
+        // narrowed spans it actually renders (Header), not the full
+        // statement's Construct region the node used to span before
+        // narrowing -- otherwise the caret narrows but the label still says
+        // "construct", contradicting itself.
+        Assert.Equal(PrintedRegionRole.Header, row.BeforeRegion);
+        Assert.Equal(PrintedRegionRole.Header, row.AfterRegion);
+
+        string beforeBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison,
+            CSharpStructuralSide.Before);
+        string afterBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison,
+            CSharpStructuralSide.After);
+
+        AssertCaret(
+            beforeBody,
+            "using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))",
+            "raise: UsingStatement header;");
+        AssertCaret(
+            afterBody,
+            "using (DisposableFromObjectSpan([a, b]))",
+            "raise: UsingStatement header;");
+        Assert.DoesNotContain("raise: UsingStatement construct", beforeBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("raise: UsingStatement construct", afterBody, StringComparison.Ordinal);
+        foreach (string unchangedLine in new[] { "{", "n = 1;", "}" })
+        {
+            Assert.DoesNotContain($"raise: {unchangedLine}", beforeBody, StringComparison.Ordinal);
+            Assert.DoesNotContain($"raise: {unchangedLine}", afterBody, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void CompareStructure_DoesNotNarrowMovedOnlyRowsWithUnchangedHeaderText()
+    {
+        // Round-1 review (both reviewers, independently): NarrowToChangedHeader
+        // ran for every matched pair, including Moved-only rows whose text is
+        // completely unchanged on both sides -- the prefix/suffix equality
+        // checks trivially pass in that case, so a moved statement's row would
+        // be narrowed down to just its header even though nothing about the
+        // header itself changed. Narrowing is now gated on the row actually
+        // carrying the Changed flag; a Moved-only row keeps the node's full
+        // span.
+        const string text = """
+            using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))
+            {
+                n = 1;
+            }
+            """;
+
+        var before = UsingStatementDocument(text);
+        var after = UsingStatementDocument(text);
+
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            before,
+            after,
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0, Moved: true)]));
+
+        var row = Assert.Single(comparison.Rows);
+        Assert.Equal(CSharpStructuralChangeKind.Moved, row.Change);
+        var beforeSpan = Assert.Single(row.BeforeSpans);
+        var afterSpan = Assert.Single(row.AfterSpans);
+        Assert.Equal(before.Nodes[0].Spans[0], beforeSpan);
+        Assert.Equal(after.Nodes[0].Spans[0], afterSpan);
+    }
+
+    [Fact]
+    public void CompareStructure_DoesNotAdoptNestedConstructHeaderForHeaderlessAncestor()
+    {
+        // Round-1 review (both reviewers, independently): document.Regions is
+        // a flat, node-identity-free list of positional spans, so containment
+        // alone cannot prove a Header region belongs to the node being
+        // narrowed rather than to a nested construct inside its body.
+        // TryCatch/TryFinally never record their own Header region (see
+        // HasNamedRegions in CSharpPrinter.cs), so a naive containment search
+        // could mistake a nested UsingStatement's header for the enclosing
+        // TryStatement's own header. Both node kinds are matched here, with
+        // only the nested using's header text changing; the TryStatement row
+        // must keep its full span (so item 1's ancestor-suppression -- which
+        // requires the ancestor to strictly contain the descendant -- still
+        // recognizes and suppresses it), never the nested header's span.
+        const string beforeText = """
+            try
+            {
+                using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))
+                {
+                    n = 1;
+                }
+            }
+            catch
+            {
+                Recover();
+            }
+            """;
+        const string afterText = """
+            try
+            {
+                using (DisposableFromObjectSpan([a, b]))
+                {
+                    n = 1;
+                }
+            }
+            catch
+            {
+                Recover();
+            }
+            """;
+
+        var before = TryStatementWithNestedUsingDocument(beforeText);
+        var after = TryStatementWithNestedUsingDocument(afterText);
+
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            before,
+            after,
+            [0, 1],
+            [0, 1],
+            [
+                new CSharpNodeCorrespondence(0, 0),
+                new CSharpNodeCorrespondence(1, 1),
+            ]));
+
+        // Item 1 (ancestor collapsing) recognizes the nested UsingStatement's
+        // narrowed header row as the sole explanation for the TryStatement's
+        // text change and suppresses the redundant ancestor row.
+        var row = Assert.Single(comparison.Rows);
+        Assert.Equal(1, row.BeforeNodeId);
+        Assert.Equal(1, row.AfterNodeId);
+        var beforeSpan = Assert.Single(row.BeforeSpans);
+        var afterSpan = Assert.Single(row.AfterSpans);
+        Assert.Equal(
+            "using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))",
+            before.Text.Substring(beforeSpan.Start, beforeSpan.Length));
+        Assert.Equal(
+            "using (DisposableFromObjectSpan([a, b]))",
+            after.Text.Substring(afterSpan.Start, afterSpan.Length));
+    }
+
+    static AnnotatedSourceDocument TryStatementWithNestedUsingDocument(string text)
+    {
+        int tryStart = text.IndexOf("try", StringComparison.Ordinal);
+        int tryEnd = text.Length;
+
+        int headerStart = text.IndexOf("using (", StringComparison.Ordinal);
+        int headerEnd = text.IndexOf('\n', headerStart);
+        int bodyStart = text.IndexOf('{', headerEnd);
+        int bodyEnd = text.IndexOf('}', bodyStart) + 1;
+
+        var tryNode = new AnnotatedSourceNode(
+            0,
+            "TryStatement",
+            SourceLineKind.CSharp,
+            [new AnnotatedSourceSpan(tryStart, tryEnd - tryStart)]);
+        var usingNode = new AnnotatedSourceNode(
+            1,
+            "UsingStatement",
+            SourceLineKind.CSharp,
+            [new AnnotatedSourceSpan(headerStart, bodyEnd - headerStart)]);
+        var regions = (AnnotatedSourceRegion[])
+        [
+            // Matches real printer output: TryCatch is in HasNamedRegions and
+            // so records its own Construct region (spanning the whole
+            // try/catch), but -- per HasNamedRegions -- never a Header
+            // region; only the nested UsingStatement does.
+            new(PrintedRegionRole.Construct, [new AnnotatedSourceSpan(tryStart, tryEnd - tryStart)]),
+            new(PrintedRegionRole.Construct, [new AnnotatedSourceSpan(headerStart, bodyEnd - headerStart)]),
+            new(PrintedRegionRole.Header, [new AnnotatedSourceSpan(headerStart, headerEnd - headerStart)]),
+            new(PrintedRegionRole.Body, [new AnnotatedSourceSpan(bodyStart, bodyEnd - bodyStart)]),
+        ];
+        return new AnnotatedSourceDocument(text, [tryNode, usingNode], regions, [], []);
+    }
+
+    static AnnotatedSourceDocument UsingStatementDocument(string text)
+    {
+        int headerStart = text.IndexOf("using (", StringComparison.Ordinal);
+        int headerEnd = text.IndexOf('\n', headerStart);
+        int bodyStart = text.IndexOf('{', headerEnd);
+        int bodyEnd = text.IndexOf('}', bodyStart) + 1;
+
+        var node = new AnnotatedSourceNode(
+            0,
+            "UsingStatement",
+            SourceLineKind.CSharp,
+            [new AnnotatedSourceSpan(headerStart, bodyEnd - headerStart)]);
+        var regions = (AnnotatedSourceRegion[])
+        [
+            // Matches real printer output (CSharpPrinter.cs, HasNamedRegions):
+            // every header-bearing statement also records a Construct region
+            // spanning the whole statement, alongside its own Header region.
+            new(PrintedRegionRole.Construct, [new AnnotatedSourceSpan(headerStart, bodyEnd - headerStart)]),
+            new(PrintedRegionRole.Header, [new AnnotatedSourceSpan(headerStart, headerEnd - headerStart)]),
+            new(PrintedRegionRole.Body, [new AnnotatedSourceSpan(bodyStart, bodyEnd - bodyStart)]),
+        ];
+        return new AnnotatedSourceDocument(text, [node], regions, [], []);
+    }
+
+    [Fact]
     public void RenderAnnotatedBody_DescribesQualifierArgumentRoleTransition()
     {
         // Item 3 (issue #5022): once item 1 collapses #4942's stacked rows to
