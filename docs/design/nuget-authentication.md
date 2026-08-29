@@ -194,7 +194,9 @@ that plugin. Timeouts, malformed responses, I/O failures, disposed pipes, and in
 state are contained at the request boundary so another provider can answer or the feed's 401 can
 surface normally. Caller cancellation is not a plugin fault and continues to propagate, enforced
 before and after receiver loss by `PluginProtocolTests.CallerCancellationContinuesToPropagate` and
-`PluginProtocolTests.CanceledRequestAfterReceiverLossRemainsCancellation`.
+`PluginProtocolTests.CanceledRequestAfterReceiverLossRemainsCancellation`, including the
+admission-monitor race checked by
+`PluginProtocolTests.CancellationWhileWaitingForClosedAdmissionRemainsCancellation`.
 
 ### Unattended by default
 

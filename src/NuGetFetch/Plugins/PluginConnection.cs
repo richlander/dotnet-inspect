@@ -240,8 +240,12 @@ internal sealed class PluginConnection : IAsyncDisposable
 
         try
         {
+            _testHooks?.RequestAdmissionAttempted?.Invoke();
+
             lock (_pendingGate)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 if (!_acceptingRequests)
                 {
                     throw new IOException("Credential plugin closed the connection.");
@@ -364,6 +368,8 @@ internal sealed class PluginConnection : IAsyncDisposable
 
     internal sealed class PluginConnectionTestHooks
     {
+        public Action? RequestAdmissionAttempted { get; init; }
+
         public Action? RequestAdmissionAccepted { get; init; }
 
         public Action<bool>? RequestRegistered { get; init; }
