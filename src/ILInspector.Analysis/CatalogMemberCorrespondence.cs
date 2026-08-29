@@ -678,6 +678,10 @@ public sealed class CatalogMemberCorrespondencePlan
     internal AssemblyReferenceIdentity?
         DeclaringTypeResolutionAssemblyIdentity(
             TypeResolutionContext context)
+        => DeclaringTypeResolution(context)?.TerminalAssemblyIdentity;
+
+    internal TypeResolutionOutcome.Resolved? DeclaringTypeResolution(
+        TypeResolutionContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
 
@@ -689,9 +693,8 @@ public sealed class CatalogMemberCorrespondencePlan
         }
 
         return declaring.Kind == PlannedTypeKind.Named
-            ? context.Resolve(
-                    Requests[declaring.RequestIndex])
-                .TerminalAssemblyIdentity
+            ? context.Resolve(Requests[declaring.RequestIndex])
+                as TypeResolutionOutcome.Resolved
             : null;
     }
 
@@ -709,6 +712,38 @@ public sealed class CatalogMemberCorrespondencePlan
         CatalogMemberJoinProjection.Issued otherProjection,
         TypeResolutionRequest? correspondingTypeRequest = null,
         TypeResolutionRequest? otherCorrespondingTypeRequest = null)
+        => CorrespondsToCore(
+            other,
+            projection,
+            otherProjection,
+            (request, otherRequest) =>
+                MatchesEstablishedCorrespondence(
+                    request,
+                    correspondingTypeRequest,
+                    otherRequest,
+                    otherCorrespondingTypeRequest));
+
+    internal bool CorrespondsToEstablished(
+        CatalogMemberCorrespondencePlan other,
+        CatalogMemberJoinProjection.Issued projection,
+        CatalogMemberJoinProjection.Issued otherProjection,
+        Func<TypeResolutionRequest, TypeResolutionRequest, bool>
+            establishedCorrespondence)
+    {
+        ArgumentNullException.ThrowIfNull(establishedCorrespondence);
+        return CorrespondsToCore(
+            other,
+            projection,
+            otherProjection,
+            establishedCorrespondence);
+    }
+
+    bool CorrespondsToCore(
+        CatalogMemberCorrespondencePlan other,
+        CatalogMemberJoinProjection.Issued projection,
+        CatalogMemberJoinProjection.Issued otherProjection,
+        Func<TypeResolutionRequest, TypeResolutionRequest, bool>
+            establishedCorrespondence)
     {
         ArgumentNullException.ThrowIfNull(other);
         ArgumentNullException.ThrowIfNull(projection);
@@ -731,25 +766,23 @@ public sealed class CatalogMemberCorrespondencePlan
             return false;
         }
 
-        bool usedUnresolvedContract = false;
+        bool usedNonKeyCorrespondence = false;
         if (!CompatibleType(
                 _declaringType,
                 key.DeclaringType,
                 other,
                 other._declaringType,
                 otherKey.DeclaringType,
-                correspondingTypeRequest,
-                otherCorrespondingTypeRequest,
-                ref usedUnresolvedContract)
+                establishedCorrespondence,
+                ref usedNonKeyCorrespondence)
             || !CompatibleType(
                 _returnType,
                 key.ReturnType,
                 other,
                 other._returnType,
                 otherKey.ReturnType,
-                correspondingTypeRequest,
-                otherCorrespondingTypeRequest,
-                ref usedUnresolvedContract))
+                establishedCorrespondence,
+                ref usedNonKeyCorrespondence))
         {
             return false;
         }
@@ -762,15 +795,14 @@ public sealed class CatalogMemberCorrespondencePlan
                     other,
                     other._parameterTypes[i],
                     otherKey.ParameterTypes[i],
-                    correspondingTypeRequest,
-                    otherCorrespondingTypeRequest,
-                    ref usedUnresolvedContract))
+                    establishedCorrespondence,
+                    ref usedNonKeyCorrespondence))
             {
                 return false;
             }
         }
 
-        return key.Kind == otherKey.Kind || usedUnresolvedContract;
+        return key.Kind == otherKey.Kind || usedNonKeyCorrespondence;
     }
 
     bool CompatibleType(
@@ -779,9 +811,9 @@ public sealed class CatalogMemberCorrespondencePlan
         CatalogMemberCorrespondencePlan other,
         PlannedType otherPlanned,
         CatalogTypeShape otherShape,
-        TypeResolutionRequest? correspondingTypeRequest,
-        TypeResolutionRequest? otherCorrespondingTypeRequest,
-        ref bool usedUnresolvedContract)
+        Func<TypeResolutionRequest, TypeResolutionRequest, bool>
+            establishedCorrespondence,
+        ref bool usedNonKeyCorrespondence)
     {
         if (shape.Equals(otherShape))
             return true;
@@ -791,19 +823,21 @@ public sealed class CatalogMemberCorrespondencePlan
         switch (planned.Kind)
         {
             case PlannedTypeKind.Named:
+                if (establishedCorrespondence(
+                        Requests[planned.RequestIndex],
+                        other.Requests[otherPlanned.RequestIndex]))
+                {
+                    usedNonKeyCorrespondence = true;
+                    return true;
+                }
                 bool equivalent =
                     (shape.Kind == CatalogTypeShapeKind.DegradedDefinition
                         || otherShape.Kind
                             == CatalogTypeShapeKind.DegradedDefinition)
-                    && (EquivalentUnresolvedContract(
-                            Requests[planned.RequestIndex],
-                            other.Requests[otherPlanned.RequestIndex])
-                        || MatchesEstablishedCorrespondence(
-                            Requests[planned.RequestIndex],
-                            correspondingTypeRequest,
-                            other.Requests[otherPlanned.RequestIndex],
-                            otherCorrespondingTypeRequest));
-                usedUnresolvedContract |= equivalent;
+                    && EquivalentUnresolvedContract(
+                        Requests[planned.RequestIndex],
+                        other.Requests[otherPlanned.RequestIndex]);
+                usedNonKeyCorrespondence |= equivalent;
                 return equivalent;
             case PlannedTypeKind.GenericInstance:
                 return CompatibleType(
@@ -812,18 +846,16 @@ public sealed class CatalogMemberCorrespondencePlan
                         other,
                         otherPlanned.ElementType!,
                         otherShape.ElementType!,
-                        correspondingTypeRequest,
-                        otherCorrespondingTypeRequest,
-                        ref usedUnresolvedContract)
+                        establishedCorrespondence,
+                        ref usedNonKeyCorrespondence)
                     && CompatibleMany(
                         planned.Components,
                         shape.Components,
                         other,
                         otherPlanned.Components,
                         otherShape.Components,
-                        correspondingTypeRequest,
-                        otherCorrespondingTypeRequest,
-                        ref usedUnresolvedContract);
+                        establishedCorrespondence,
+                        ref usedNonKeyCorrespondence);
             case PlannedTypeKind.SzArray:
             case PlannedTypeKind.Array:
             case PlannedTypeKind.ByRef:
@@ -836,9 +868,8 @@ public sealed class CatalogMemberCorrespondencePlan
                         other,
                         otherPlanned.ElementType!,
                         otherShape.ElementType!,
-                        correspondingTypeRequest,
-                        otherCorrespondingTypeRequest,
-                        ref usedUnresolvedContract);
+                        establishedCorrespondence,
+                        ref usedNonKeyCorrespondence);
             case PlannedTypeKind.Modified:
                 return planned.IsRequiredModifier
                         == otherPlanned.IsRequiredModifier
@@ -848,18 +879,16 @@ public sealed class CatalogMemberCorrespondencePlan
                         other,
                         otherPlanned.ElementType!,
                         otherShape.ElementType!,
-                        correspondingTypeRequest,
-                        otherCorrespondingTypeRequest,
-                        ref usedUnresolvedContract)
+                        establishedCorrespondence,
+                        ref usedNonKeyCorrespondence)
                     && CompatibleMany(
                         planned.Components,
                         shape.Components,
                         other,
                         otherPlanned.Components,
                         otherShape.Components,
-                        correspondingTypeRequest,
-                        otherCorrespondingTypeRequest,
-                        ref usedUnresolvedContract);
+                        establishedCorrespondence,
+                        ref usedNonKeyCorrespondence);
             case PlannedTypeKind.FunctionPointer:
                 return planned.SignatureHeader
                         == otherPlanned.SignatureHeader
@@ -872,18 +901,16 @@ public sealed class CatalogMemberCorrespondencePlan
                         other,
                         otherPlanned.ElementType!,
                         otherShape.ElementType!,
-                        correspondingTypeRequest,
-                        otherCorrespondingTypeRequest,
-                        ref usedUnresolvedContract)
+                        establishedCorrespondence,
+                        ref usedNonKeyCorrespondence)
                     && CompatibleMany(
                         planned.Components,
                         shape.Components,
                         other,
                         otherPlanned.Components,
                         otherShape.Components,
-                        correspondingTypeRequest,
-                        otherCorrespondingTypeRequest,
-                        ref usedUnresolvedContract);
+                        establishedCorrespondence,
+                        ref usedNonKeyCorrespondence);
             case PlannedTypeKind.GenericParameter:
             case PlannedTypeKind.MethodGenericParameter:
                 return planned.GenericParameterIndex
@@ -899,9 +926,9 @@ public sealed class CatalogMemberCorrespondencePlan
         CatalogMemberCorrespondencePlan other,
         ImmutableArray<PlannedType> otherPlanned,
         ImmutableArray<CatalogTypeShape> otherShapes,
-        TypeResolutionRequest? correspondingTypeRequest,
-        TypeResolutionRequest? otherCorrespondingTypeRequest,
-        ref bool usedUnresolvedContract)
+        Func<TypeResolutionRequest, TypeResolutionRequest, bool>
+            establishedCorrespondence,
+        ref bool usedNonKeyCorrespondence)
     {
         if (planned.Length != otherPlanned.Length
             || shapes.Length != otherShapes.Length
@@ -918,9 +945,8 @@ public sealed class CatalogMemberCorrespondencePlan
                     other,
                     otherPlanned[i],
                     otherShapes[i],
-                    correspondingTypeRequest,
-                    otherCorrespondingTypeRequest,
-                    ref usedUnresolvedContract))
+                    establishedCorrespondence,
+                    ref usedNonKeyCorrespondence))
             {
                 return false;
             }
