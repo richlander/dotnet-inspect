@@ -513,6 +513,14 @@ public class CSharpStructuralComparisonTests
             "using (DisposableFromObjectSpan([a, b]))",
             after.Text.Substring(afterSpan.Start, afterSpan.Length));
 
+        // Round-2 review: the row's reported region role must reflect the
+        // narrowed spans it actually renders (Header), not the full
+        // statement's Construct region the node used to span before
+        // narrowing -- otherwise the caret narrows but the label still says
+        // "construct", contradicting itself.
+        Assert.Equal(PrintedRegionRole.Header, row.BeforeRegion);
+        Assert.Equal(PrintedRegionRole.Header, row.AfterRegion);
+
         string beforeBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
             comparison,
             CSharpStructuralSide.Before);
@@ -523,11 +531,11 @@ public class CSharpStructuralComparisonTests
         AssertCaret(
             beforeBody,
             "using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))",
-            "raise: UsingStatement;");
+            "raise: UsingStatement header;");
         AssertCaret(
             afterBody,
             "using (DisposableFromObjectSpan([a, b]))",
-            "raise: UsingStatement;");
+            "raise: UsingStatement header;");
         Assert.DoesNotContain("raise: UsingStatement construct", beforeBody, StringComparison.Ordinal);
         Assert.DoesNotContain("raise: UsingStatement construct", afterBody, StringComparison.Ordinal);
         foreach (string unchangedLine in new[] { "{", "n = 1;", "}" })
@@ -668,8 +676,12 @@ public class CSharpStructuralComparisonTests
             [new AnnotatedSourceSpan(headerStart, bodyEnd - headerStart)]);
         var regions = (AnnotatedSourceRegion[])
         [
-            // TryStatement never records its own Header region -- only the
-            // nested UsingStatement does.
+            // Matches real printer output: TryCatch is in HasNamedRegions and
+            // so records its own Construct region (spanning the whole
+            // try/catch), but -- per HasNamedRegions -- never a Header
+            // region; only the nested UsingStatement does.
+            new(PrintedRegionRole.Construct, [new AnnotatedSourceSpan(tryStart, tryEnd - tryStart)]),
+            new(PrintedRegionRole.Construct, [new AnnotatedSourceSpan(headerStart, bodyEnd - headerStart)]),
             new(PrintedRegionRole.Header, [new AnnotatedSourceSpan(headerStart, headerEnd - headerStart)]),
             new(PrintedRegionRole.Body, [new AnnotatedSourceSpan(bodyStart, bodyEnd - bodyStart)]),
         ];
@@ -690,6 +702,10 @@ public class CSharpStructuralComparisonTests
             [new AnnotatedSourceSpan(headerStart, bodyEnd - headerStart)]);
         var regions = (AnnotatedSourceRegion[])
         [
+            // Matches real printer output (CSharpPrinter.cs, HasNamedRegions):
+            // every header-bearing statement also records a Construct region
+            // spanning the whole statement, alongside its own Header region.
+            new(PrintedRegionRole.Construct, [new AnnotatedSourceSpan(headerStart, bodyEnd - headerStart)]),
             new(PrintedRegionRole.Header, [new AnnotatedSourceSpan(headerStart, headerEnd - headerStart)]),
             new(PrintedRegionRole.Body, [new AnnotatedSourceSpan(bodyStart, bodyEnd - bodyStart)]),
         ];

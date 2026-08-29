@@ -729,8 +729,8 @@ public static partial class CSharpBodyDiff
             afterNode?.Kind,
             beforeNode is null ? null : AnnotatedSourceNodeKinds.GetDisplayLabel(beforeNode.Kind),
             afterNode is null ? null : AnnotatedSourceNodeKinds.GetDisplayLabel(afterNode.Kind),
-            beforeNode is null ? null : EnclosingRegion(beforeDocument!, beforeNode),
-            afterNode is null ? null : EnclosingRegion(afterDocument!, afterNode),
+            beforeNode is null ? null : EnclosingRegion(beforeDocument!, beforeSpans),
+            afterNode is null ? null : EnclosingRegion(afterDocument!, afterSpans),
             beforeSpans,
             afterSpans);
     }
@@ -856,11 +856,15 @@ public static partial class CSharpBodyDiff
             .SequenceEqual(afterDocument.Text.AsSpan(afterSpan.Value.Start, afterSpan.Value.Length));
     }
 
+    // Takes the row's final spans (after any header-narrowing), not the raw
+    // node's full span, so a narrowed row's reported region role (e.g.
+    // "header") matches the caret it actually renders instead of describing
+    // the enclosing statement's full "construct" region it no longer spans.
     static PrintedRegionRole? EnclosingRegion(
         AnnotatedSourceDocument document,
-        AnnotatedSourceNode node)
+        IReadOnlyList<AnnotatedSourceSpan> spans)
         => document.Regions
-            .Where(region => ContainsAll(region.Spans, node.Spans))
+            .Where(region => ContainsAll(region.Spans, spans))
             .OrderBy(static region => region.Spans.Sum(static span => (long)span.Length))
             .ThenBy(static region => region.Spans[0].Start)
             .ThenBy(static region => region.Role)
