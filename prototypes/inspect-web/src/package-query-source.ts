@@ -28,10 +28,7 @@ export interface BrowserPackageQueryEngine {
 export function packageQueryFacets(
   catalog: BrowserPackageQueryFacetCatalog,
 ): QueryFacetTerm[] {
-  return catalog.facets
-    .map(toQueryFacet)
-    .sort((left, right) =>
-      (left.weight ?? 0) - (right.weight ?? 0));
+  return catalog.facets.map(toQueryFacet);
 }
 
 function toQueryFacet(

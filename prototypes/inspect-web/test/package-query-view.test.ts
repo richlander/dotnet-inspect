@@ -3,7 +3,9 @@ import test from "node:test";
 
 import {
   bindPackageQueryView,
+  capturePackageQueryFocus,
   renderPackageQueryView,
+  restorePackageQueryFocus,
   type PackageQueryBindingActions,
 } from "../src/package-query-view.ts";
 import {
@@ -279,10 +281,19 @@ test("a cancelled query with zero rows never renders as a confirmed empty result
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
+  readonly id: string;
+  focusCount = 0;
+  selectionStart: number | null = null;
+  selectionEnd: number | null = null;
+  selectionRange: readonly [number, number] | null = null;
   private readonly listeners = new Map<string, EventListener[]>();
 
-  constructor(dataset: Record<string, string | undefined> = {}) {
+  constructor(
+    dataset: Record<string, string | undefined> = {},
+    id = "",
+  ) {
     this.dataset = dataset;
+    this.id = id;
   }
 
   addEventListener(type: string, listener: EventListener) {
@@ -294,10 +305,23 @@ class FakeElement {
   dispatch(type: string) {
     for (const listener of this.listeners.get(type) ?? []) listener(fakeDom.event());
   }
+
+  focus() {
+    this.focusCount++;
+  }
+
+  setSelectionRange(start: number, end: number) {
+    this.selectionRange = [start, end];
+  }
 }
 
 class FakeRoot {
   private readonly elements = new Map<string, FakeElement[]>();
+  readonly activeElement: FakeElement | null;
+
+  constructor(activeElement: FakeElement | null = null) {
+    this.activeElement = activeElement;
+  }
 
   add(selector: string, ...elements: FakeElement[]) {
     this.elements.set(selector, elements);
@@ -318,6 +342,63 @@ class FakeRoot {
     return found as unknown as Element | null;
   }
 }
+
+test("query focus snapshots restore semantic controls after a full render", () => {
+  const cases = [
+    {
+      active: new FakeElement({}, "package-query-run"),
+      selector: "#package-query-run",
+      replacement: new FakeElement({}, "package-query-run"),
+    },
+    {
+      active: new FakeElement({ queryFacet: "downloads-1m" }),
+      selector: "[data-query-facet]",
+      replacement: new FakeElement({ queryFacet: "downloads-1m" }),
+    },
+    {
+      active: new FakeElement({
+        queryRowOpen: "Microsoft.Extensions.Logging",
+        queryRowVersion: "9.0.0",
+      }),
+      selector: "[data-query-row-open]",
+      replacement: new FakeElement({
+        queryRowOpen: "Microsoft.Extensions.Logging",
+        queryRowVersion: "9.0.0",
+      }),
+    },
+  ];
+
+  for (const scenario of cases) {
+    const root = new FakeRoot(scenario.active);
+    root.add(scenario.selector, scenario.replacement);
+    // Test fake implements the Document and ParentNode subset consumed by the helpers.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+    const documentRoot = root as unknown as Document;
+
+    const snapshot = capturePackageQueryFocus(documentRoot);
+    restorePackageQueryFocus(documentRoot, snapshot);
+
+    assert.equal(scenario.replacement.focusCount, 1);
+  }
+});
+
+test("query prefix focus preserves its selection across a full render", () => {
+  const active = new FakeElement({}, "package-query-prefix");
+  active.selectionStart = 3;
+  active.selectionEnd = 8;
+  const replacement = new FakeElement({}, "package-query-prefix");
+  const root = new FakeRoot(active);
+  root.add("#package-query-prefix", replacement);
+  // Test fake implements the Document and ParentNode subset consumed by the helpers.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  const documentRoot = root as unknown as Document;
+
+  const snapshot = capturePackageQueryFocus(documentRoot);
+  restorePackageQueryFocus(documentRoot, snapshot);
+
+  assert.equal(replacement.focusCount, 1);
+  assert.deepEqual(replacement.selectionRange, [3, 8]);
+});
 
 test("bindPackageQueryView wires back, row-open, facet, and cancel", () => {
   const root = new FakeRoot();

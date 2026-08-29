@@ -2740,10 +2740,27 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /state\.packageQueryOpen = true;[\s\S]*workspaceLocation\.push\("\/query"\);[\s\S]*focusPackageQueryInput\(\)/);
   assert.match(
     handoff,
-    /packageQueryController\.cancel\(\);[\s\S]*await loadPackage\(packageId, version, ""\)[\s\S]*workspaceLocation\.push\(buildStateUrl\(\)\.toString\(\)\)/);
+    /packageQueryController\.cancel\(\);[\s\S]*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*await loadPackage\([\s\S]*\{ navigationSeq }\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*workspaceLocation\.push\(buildStateUrl\(\)\.toString\(\)\)/);
   assert.match(
     handoff,
     /state\.packageQueryNavigationError = failure;[\s\S]*data-query-row-open=/);
+  assert.doesNotMatch(handoff, /state\.packageQueryOpenedFromApp = false/);
+  assert.doesNotMatch(handoff, /state\.packageQueryReturnFocus = null/);
+  assert.match(
+    appSource,
+    /function renderPackageQueryPage\(\) \{\s*const focus = capturePackageQueryFocus\(document\);[\s\S]*app\.innerHTML = renderPackageQueryView\([\s\S]*bindPackageQueryView\(document, packageQueryActions\);\s*restorePackageQueryFocus\(document, focus\)/);
+  const popstate =
+    appSource.match(/window\.addEventListener\("popstate",[\s\S]*?\n}\);/)?.[0]
+    ?? "";
+  assert.match(
+    popstate,
+    /const navigationSeq = navigationSequence\.begin\(\)/);
+  assert.match(
+    appSource,
+    /function closePackageQueryRoute\(\) \{\s*navigationSequence\.begin\(\);[\s\S]*history\.back\(\)/);
+  assert.match(
+    appSource,
+    /function openCredits\(\) \{[\s\S]*?navigationSequence\.begin\(\);\s*state\.packageQueryOpen = false/);
 });
 
 test("authoritative location restore clears filters and applies aggregate Platform scope", () => {

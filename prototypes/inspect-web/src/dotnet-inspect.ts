@@ -288,7 +288,9 @@ import {
 } from "./package-query-source.ts";
 import {
   bindPackageQueryView,
+  capturePackageQueryFocus,
   renderPackageQueryView,
+  restorePackageQueryFocus,
   type PackageQueryBindingActions,
 } from "./package-query-view.ts";
 import {
@@ -6923,6 +6925,7 @@ function openCredits() {
     render();
     return;
   }
+  navigationSequence.begin();
   state.packageQueryOpen = false;
   packageQueryController.cancel();
   state.credits = true;
@@ -6964,6 +6967,7 @@ function resetPackageQueryState() {
 
 function openPackageQueryRoute(seed = "") {
   if (!state.engineReady || state.loading || state.error) return;
+  navigationSequence.begin();
   packageQueryController.cancel();
   resetPackageQueryState();
   state.packageQueryPrefix = validPackageQueryPrefix(seed);
@@ -6986,12 +6990,15 @@ function openPackageQueryRoute(seed = "") {
 }
 
 function closePackageQueryRoute() {
+  navigationSequence.begin();
   if (state.packageQueryOpenedFromApp) {
     history.back();
     return;
   }
   state.packageQueryOpen = false;
   packageQueryController.cancel();
+  state.packageQueryOpenedFromApp = false;
+  state.packageQueryReturnFocus = null;
   state.credits = false;
   state.home = true;
   spotlight.reset();
@@ -7046,8 +7053,14 @@ async function openPackageQueryRow(
   version: string,
 ) {
   packageQueryController.cancel();
+  const navigationSeq = navigationSequence.begin();
   state.packageQueryNavigationError = "";
-  const loaded = await loadPackage(packageId, version, "");
+  const loaded = await loadPackage(
+    packageId,
+    version,
+    "",
+    { navigationSeq });
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (!loaded) {
     const failure = state.error || state.queryNotice
       || `Couldn’t open ${packageId}@${version} in the workspace.`;
@@ -7069,8 +7082,6 @@ async function openPackageQueryRow(
   }
 
   state.packageQueryOpen = false;
-  state.packageQueryOpenedFromApp = false;
-  state.packageQueryReturnFocus = null;
   workspaceLocation.push(buildStateUrl().toString());
   render();
   focusTypeList();
@@ -7097,6 +7108,7 @@ const packageQueryActions: PackageQueryBindingActions = {
 };
 
 function renderPackageQueryPage() {
+  const focus = capturePackageQueryFocus(document);
   document.title = "Package query · dotnet-inspect";
   app.innerHTML = renderPackageQueryView({
     state: state.packageQueryState,
@@ -7106,6 +7118,7 @@ function renderPackageQueryPage() {
     escapeHtml,
   });
   bindPackageQueryView(document, packageQueryActions);
+  restorePackageQueryFocus(document, focus);
 }
 
 // Loads the resident runtime pack and lands on its package Overview (the runtime pack has no

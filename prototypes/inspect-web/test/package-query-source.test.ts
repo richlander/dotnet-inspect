@@ -52,20 +52,20 @@ test("packageQueryFacets preserves product descriptors and producer ordering", (
 
   assert.deepEqual(packageQueryFacets(catalog), [
     {
-      key: "package.query.source-verified",
-      label: "Verified source",
-      summary: "Packages with repository provenance.",
-      weight: 10,
-      tier: "nuspec",
-      selectionGroupId: null,
-    },
-    {
       key: "package.query.no-dependencies",
       label: "No dependencies",
       summary: "Packages with no dependency groups.",
       weight: 20,
       tier: "nuspec",
       selectionGroupId: "package.query.dependencies",
+    },
+    {
+      key: "package.query.source-verified",
+      label: "Verified source",
+      summary: "Packages with repository provenance.",
+      weight: 10,
+      tier: "nuspec",
+      selectionGroupId: null,
     },
   ]);
 });

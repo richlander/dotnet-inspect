@@ -17,6 +17,129 @@ export interface PackageQueryBindingActions {
   onRun: (prefix: string) => void;
 }
 
+export type PackageQueryFocusSnapshot =
+  | {
+      kind: "prefix";
+      selectionStart: number | null;
+      selectionEnd: number | null;
+    }
+  | { kind: "back" }
+  | { kind: "run" }
+  | { kind: "facet"; facetKey: string }
+  | { kind: "row"; packageId: string; version: string }
+  | { kind: "cancel"; index: number };
+
+interface FocusableQueryElement extends Element {
+  readonly dataset: DOMStringMap;
+  focus(): void;
+}
+
+interface SelectableQueryElement extends FocusableQueryElement {
+  setSelectionRange(start: number, end: number): void;
+}
+
+function isFocusableQueryElement(
+  element: Element | null,
+): element is FocusableQueryElement {
+  return element !== null
+    && "dataset" in element
+    && "focus" in element
+    && typeof element.focus === "function";
+}
+
+function supportsSelectionRange(
+  element: FocusableQueryElement,
+): element is SelectableQueryElement {
+  return "setSelectionRange" in element
+    && typeof element.setSelectionRange === "function";
+}
+
+export function capturePackageQueryFocus(
+  root: Document,
+): PackageQueryFocusSnapshot | null {
+  const active = root.activeElement;
+  if (!isFocusableQueryElement(active)) return null;
+  if (active.id === "package-query-prefix") {
+    return {
+      kind: "prefix",
+      selectionStart: "selectionStart" in active
+        && typeof active.selectionStart === "number"
+        ? active.selectionStart
+        : null,
+      selectionEnd: "selectionEnd" in active
+        && typeof active.selectionEnd === "number"
+        ? active.selectionEnd
+        : null,
+    };
+  }
+  if (active.id === "package-query-back") return { kind: "back" };
+  if (active.id === "package-query-run") return { kind: "run" };
+  if (active.dataset.queryFacet) {
+    return { kind: "facet", facetKey: active.dataset.queryFacet };
+  }
+  if (active.dataset.queryRowOpen && active.dataset.queryRowVersion) {
+    return {
+      kind: "row",
+      packageId: active.dataset.queryRowOpen,
+      version: active.dataset.queryRowVersion,
+    };
+  }
+  const cancelButtons = [
+    ...root.querySelectorAll<HTMLElement>("[data-query-cancel]"),
+  ];
+  const cancelIndex = cancelButtons.findIndex(element => element === active);
+  return cancelIndex >= 0
+    ? { kind: "cancel", index: cancelIndex }
+    : null;
+}
+
+export function restorePackageQueryFocus(
+  root: ParentNode,
+  snapshot: PackageQueryFocusSnapshot | null,
+): void {
+  if (!snapshot) return;
+  let target: Element | null;
+  switch (snapshot.kind) {
+    case "prefix":
+      target = root.querySelector("#package-query-prefix");
+      break;
+    case "back":
+      target = root.querySelector("#package-query-back");
+      break;
+    case "run":
+      target = root.querySelector("#package-query-run");
+      break;
+    case "facet":
+      target = [...root.querySelectorAll<HTMLElement>("[data-query-facet]")]
+        .find(element => element.dataset.queryFacet === snapshot.facetKey)
+        ?? null;
+      break;
+    case "row":
+      target = [...root.querySelectorAll<HTMLElement>("[data-query-row-open]")]
+        .find(element =>
+          element.dataset.queryRowOpen === snapshot.packageId
+          && element.dataset.queryRowVersion === snapshot.version)
+        ?? null;
+      break;
+    case "cancel":
+      target = [
+        ...root.querySelectorAll<HTMLElement>("[data-query-cancel]"),
+      ][snapshot.index] ?? null;
+      break;
+  }
+  if (!isFocusableQueryElement(target)) {
+    target = root.querySelector("#package-query-prefix");
+  }
+  if (!isFocusableQueryElement(target)) return;
+  target.focus();
+  if (snapshot.kind === "prefix"
+    && supportsSelectionRange(target)
+    && snapshot.selectionStart !== null
+    && snapshot.selectionEnd !== null) {
+    target.setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd);
+  }
+}
+
 export function bindPackageQueryView(
   root: ParentNode,
   actions: PackageQueryBindingActions,
@@ -227,7 +350,7 @@ export function renderPackageQueryView(
         <form id="package-query-form" class="query-bar" role="search">
           <label for="package-query-prefix">Package ID prefix</label>
           <input id="package-query-prefix" name="prefix" value="${escapeHtml(prefix)}" autocomplete="off" spellcheck="false" placeholder="Microsoft.Extensions." required maxlength="100" />
-          <button type="submit">Run query</button>
+          <button id="package-query-run" type="submit">Run query</button>
           ${state.outcome.completion.kind === "streaming" && state.request
             ? `<button type="button" class="query-bar-cancel" data-query-cancel="1">Cancel</button>`
             : ""}
