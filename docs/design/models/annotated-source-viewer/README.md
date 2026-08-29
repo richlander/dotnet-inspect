@@ -48,9 +48,9 @@ The safety invariants check:
 - a concrete valid focus target throughout an open modal;
 - exact embedded and modal chip-or-inspector opening, including the exact
   same-medium target, plus historical eligible-primary transfer;
-- exact persistent-inspector inventory equality with the Finding census,
-  including an unanchored-Finding witness, and enabled inspector opening for
-  every Finding while the modal is open;
+- exact enabled-action-set equality for embedded and modal annotation chips,
+  persistent inspector actions, annotatable-Finding toggles, and
+  supported-medium toggles, including an unanchored inspector witness;
 - exact rendered-target derivation from active membership and currently
   visible media;
 - exact annotation and presentation preservation across modal Finding and node
@@ -76,10 +76,14 @@ modal exercises both eligible and ineligible primary derivation.
 dismissal, chip and inspector Finding detail, node selection, detail closure,
 embedded Escape fall-through, **Default**, **All**, **Clear**, annotation
 toggle, media toggle, and coordinate toggle. The action-coverage run reached
-every action.
+every action. `CloseCurrentDetail` abstracts the identical viewer-state outcome
+of the detail close control and detail-level Escape; the distinct Escape
+actions model only modal dismissal and embedded fall-through after detail is
+absent.
 
 This is a safety model only. It makes no liveness claim: users may stop after
-any gesture, and asynchronous navigation progress belongs to another owner.
+any gesture, ignored input is admitted as stuttering, and asynchronous
+navigation progress belongs to another owner.
 
 ## Running TLC
 
@@ -115,7 +119,7 @@ each for `ToggleAnnotation` and `ToggleMedium`, and 3,096 for
 
 ## Mutation evidence
 
-Forty deliberate targeted mutations were run against the same
+Forty-five deliberate targeted mutations were run against the same
 configuration.
 Each produced a concrete counterexample:
 
@@ -161,6 +165,11 @@ Each produced a concrete counterexample:
 | Reset coordinates while selecting a node | `NodeSelectionOutcomeIsExact` |
 | Restrict the inspector action guard to annotatable Findings | `InspectorActionsAreAvailable` |
 | Make rendered-target derivation ignore visible media | `RenderedTargetsAreExact` |
+| Remove one default rendered embedded chip action | `EmbeddedChipActionsAreExact` |
+| Remove one rendered modal chip action | `ModalChipActionsAreExact` |
+| Allow a hidden modal chip action | `ModalChipActionsAreExact` |
+| Remove one annotatable-Finding toggle action | `AnnotationToggleActionsAreExact` |
+| Remove one supported-medium toggle action | `MediumToggleActionsAreExact` |
 
 The mutations are evidence that these properties are observed by the checked
 invariants rather than restatements that TLC cannot falsify.

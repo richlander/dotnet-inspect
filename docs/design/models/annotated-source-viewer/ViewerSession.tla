@@ -199,9 +199,6 @@ vars ==
 Annotatable ==
   AnnotatableFor(supportedMedia)
 
-InspectorFindings ==
-  Findings
-
 Reported(activeSet, defaultSet) ==
   IF activeSet = defaultSet
   THEN "Default"
@@ -469,8 +466,7 @@ OpenModalFinding(finding, opener, target) ==
   /\ IF opener = "Chip"
      THEN /\ target \in VisibleTargets(active, visibleMedia)
           /\ FindingOf(target) = finding
-     ELSE /\ target = NoValue
-          /\ finding \in InspectorFindings
+     ELSE target = NoValue
   /\ modalPrimary' = FindingPrimary(finding)
   /\ modalDetail' =
        IF opener = "Chip"
@@ -833,14 +829,35 @@ AnnotatableUniverseIsSupported ==
       (\E target \in FindingTargets(finding) :
          TargetMedium(target) \in supportedMedia)
 
-InspectorInventoryIsComplete ==
-  /\ InspectorFindings = Findings
-  /\ Unanchored \in InspectorFindings
-
 InspectorActionsAreAvailable ==
-  surface = "Modal" =>
-    \A finding \in Findings :
+  \A finding \in Findings :
+    (surface = "Modal") =
       ENABLED OpenModalFinding(finding, "Inspector", NoValue)
+
+EmbeddedChipActionsAreExact ==
+  \A target \in Targets :
+    (/\ surface = "Embedded"
+     /\ target \in CSharpTargets
+     /\ FindingOf(target) \in defaults) =
+      ENABLED OpenEmbeddedChip(target)
+
+ModalChipActionsAreExact ==
+  \A target \in Targets :
+    (/\ surface = "Modal"
+     /\ target \in VisibleTargets(active, visibleMedia)) =
+      ENABLED OpenModalFinding(FindingOf(target), "Chip", target)
+
+AnnotationToggleActionsAreExact ==
+  \A finding \in Findings :
+    (/\ surface = "Modal"
+     /\ finding \in Annotatable) =
+      ENABLED ToggleAnnotation(finding)
+
+MediumToggleActionsAreExact ==
+  \A medium \in Media :
+    (/\ surface = "Modal"
+     /\ medium \in supportedMedia) =
+      ENABLED ToggleMedium(medium)
 
 RenderedTargetsAreExact ==
   \A target \in Targets :

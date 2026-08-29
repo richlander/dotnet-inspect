@@ -341,8 +341,9 @@ bounded executable design model for viewer-local interaction. It checks:
 - modal dismissal and exercised embedded-primary eligibility derivation;
 - exact chip versus persistent-inspector detail openers, including distinct
   same-medium targets for one Finding and embedded-chip activation;
-- exact persistent-inspector action coverage for the consumed Finding census,
-  including enabled opening for an unanchored Finding;
+- exact enabled action sets for embedded and modal annotation chips,
+  persistent inspector actions, annotatable-Finding toggles, and
+  supported-medium toggles, including an unanchored inspector witness;
 - exact rendered-target derivation from active annotations and visible media;
 - primary selection, active annotations, rendered annotations, and derived
   reported state with independently checked precedence;
@@ -369,9 +370,10 @@ Conformance requires:
 - TLC success and nonzero action coverage for the checked-in model, plus the
   documented mutation counterexamples;
 - action-matrix tests proving every chip-shaped element is a button with one
-  documented verb and equivalent pointer/keyboard activation, plus set equality
-  between enabled persistent inspector actions and the consumed Finding census
-  with an unanchored-Finding witness;
+  documented verb and equivalent pointer/keyboard activation, plus exact set
+  equality for enabled embedded and modal annotation chips, persistent
+  inspector actions, annotatable-Finding toggles, and supported-medium toggles,
+  with an unanchored inspector witness;
 - modal-session tests proving fresh initialization, eligible primary transfer,
   independently derived transfer eligibility, embedded-detail destruction on
   opening, state destruction on dismissal, and no detail transfer;
