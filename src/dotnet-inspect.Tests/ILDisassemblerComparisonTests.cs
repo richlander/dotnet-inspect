@@ -166,9 +166,9 @@ public class ILDisassemblerComparisonTests
 
     /// <summary>
     /// The signature-fidelity gate for <see cref="ArrayShapeText"/>: ILAsm spells a rank-1
-    /// multi-dimensional array <c>int32[...]</c>, which is a different signature from the vector
-    /// <c>int32[]</c>. <c>CanonicalIL</c> emits IL that is reassembled elsewhere, so collapsing
-    /// the two would silently emit a different type.
+    /// multi-dimensional array <c>int32[...]</c>, and preserves explicit sizes and lower bounds.
+    /// <c>CanonicalIL</c> emits IL that is reassembled elsewhere, so collapsing any of those
+    /// shapes would silently emit a different type.
     /// </summary>
     /// <remarks>
     /// Comparing the rendered text against itself would be circular, so this reassembles what
@@ -180,7 +180,17 @@ public class ILDisassemblerComparisonTests
     {
         Assert.SkipUnless(HasILAsm, "ildasm/ilasm not found — install them with `source eng/activate-iltools.sh`");
 
-        string[] sourceSpellings = ["int32[...]", "int32[]", "int32[,]"];
+        string[] sourceSpellings =
+        [
+            "int32[...]",
+            "int32[]",
+            "int32[,]",
+            "int32[0...,0...]",
+            "int32[0...,]",
+            "int32[0,6]",
+            "int32[-2...,6]",
+            "int32[6,-2...3]",
+        ];
         var tempDir = Path.Combine(Path.GetTempPath(), $"array-shape-fidelity-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
 
@@ -188,11 +198,10 @@ public class ILDisassemblerComparisonTests
         {
             var (originalBlobs, rendered) = AssembleAndRender(sourceSpellings, tempDir, "original");
 
-            // The distinction the fix exists to preserve: three source spellings, three renderings.
-            Assert.Equal("int32[...]", rendered[0]);
-            Assert.Equal("int32[]", rendered[1]);
-            Assert.Equal("int32[,]", rendered[2]);
-            Assert.Equal(3, rendered.Distinct(StringComparer.Ordinal).Count());
+            Assert.Equal(sourceSpellings, rendered);
+            Assert.Equal(
+                sourceSpellings.Length,
+                rendered.Distinct(StringComparer.Ordinal).Count());
 
             // Reassembling what CanonicalIL spelled must reproduce the exact signatures.
             var (roundtrippedBlobs, _) = AssembleAndRender(rendered, tempDir, "roundtripped");
@@ -201,6 +210,42 @@ public class ILDisassemblerComparisonTests
             {
                 Assert.Equal(originalBlobs[i], roundtrippedBlobs[i]);
             }
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Fact]
+    public void CanonicalIL_UnrepresentableArrayShape_IsRejectedByILAsm()
+    {
+        Assert.SkipUnless(HasILAsm, "ildasm/ilasm not found — install them with `source eng/activate-iltools.sh`");
+
+        string rendered = ArrayShapeText.Format(
+            "int32",
+            new ArrayShape(1, [6], []));
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"array-shape-rejection-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            string ilPath = Path.Combine(tempDir, "invalid.il");
+            string outputDll = Path.Combine(tempDir, "invalid.dll");
+            File.WriteAllText(
+                ilPath,
+                $$"""
+                .assembly invalid { }
+                .class public Shapes {
+                  .method public static void M({{rendered}} a) cil managed { ret }
+                }
+                """);
+
+            Assert.False(
+                TryRunTool("ilasm", [ilPath, "-dll", $"-output={outputDll}", "-quiet"]));
+            Assert.False(File.Exists(outputDll));
         }
         finally
         {
