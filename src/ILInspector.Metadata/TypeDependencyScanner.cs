@@ -78,7 +78,11 @@ public static class TypeDependencyScanner
                     }
                 }
                 // Skip assemblies that can't be read
-                catch { }
+                catch (Exception ex) when (
+                    ex is not UnsupportedMetadataFormatException
+                        and not MalformedMetadataRootException)
+                {
+                }
             }
 
             // Find the target type

@@ -1,5 +1,7 @@
 using System.Buffers.Binary;
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
@@ -16,6 +18,7 @@ using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using InertText;
+using TypeAttributes = System.Reflection.TypeAttributes;
 
 namespace DotnetInspector.Tests;
 
@@ -1065,6 +1068,55 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
+    public void AssemblyContextIntegrationsRunner_SkipsUnsupportedMetadataBesideManagedInput()
+    {
+        string unsupportedPath = Path.Combine(
+            Path.GetTempPath(),
+            $"unsupported-metadata-{Guid.NewGuid():N}.dll");
+        string managedPath =
+            typeof(LibraryFindingConsumerTests).Assembly.Location;
+        File.WriteAllBytes(
+            unsupportedPath,
+            CreateUnsupportedMetadataImage());
+        try
+        {
+            Assert.Throws<UnsupportedMetadataFormatException>(
+                () => ResolvedAssemblyReference.CreateFromPathIfManaged(
+                    unsupportedPath,
+                    AssemblyResolutionProvenance.Local(
+                        "unsupported compatibility test")));
+            HashSet<InspectionQueryDefinition> queries =
+                [AssemblyContextIntegrationsQuery.Definition];
+
+            AssemblyContextIntegrationsBatch batch =
+                Assert.IsType<AssemblyContextIntegrationsBatch>(
+                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                        queries,
+                        LibrarySections.CreateGroupQueryRegistry(),
+                        [
+                            new AssemblyContextIntegrationsInput(
+                                unsupportedPath,
+                                AssemblyResolutionProvenance.Local(
+                                    "unsupported compatibility test")),
+                            new AssemblyContextIntegrationsInput(
+                                managedPath,
+                                AssemblyResolutionProvenance.Local(
+                                    "managed compatibility test")),
+                        ]));
+
+            Assert.Null(batch.EntryFor(unsupportedPath));
+            Assert.Null(batch.AssemblyForInspection(unsupportedPath));
+            Assert.IsType<AssemblyIntegrationsEntry.Available>(
+                batch.EntryFor(managedPath));
+            Assert.NotNull(batch.AssemblyForInspection(managedPath));
+        }
+        finally
+        {
+            File.Delete(unsupportedPath);
+        }
+    }
+
+    [Fact]
     public void AssemblyContextIntegrationsRunner_SkipsMissingFileBesideManagedInput()
     {
         string missingPath = Path.Combine(
@@ -1448,6 +1500,53 @@ public class LibraryFindingConsumerTests
 
         throw new InvalidOperationException(
             "The test assembly has no metadata table stream.");
+    }
+
+    static byte[] CreateUnsupportedMetadataImage()
+    {
+        const int fixedMetadataRootPrefixLength = 16;
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Unsupported.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Unsupported"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var peBuilder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                "WindowsRuntime 1.4;CLR v4.0.30319",
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var imageBuilder = new BlobBuilder();
+        peBuilder.Serialize(imageBuilder);
+        byte[] image = imageBuilder.ToArray();
+        using var peReader = new PEReader(ImmutableArray.Create(image));
+        int metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            image.AsSpan(metadataStart + 12, sizeof(int)));
+        BinaryPrimitives.WriteInt32LittleEndian(
+            image.AsSpan(
+                peReader.PEHeaders.CorHeaderStartOffset + 12,
+                sizeof(int)),
+            fixedMetadataRootPrefixLength + versionLength);
+        return image;
     }
 
     static byte[] CorruptMetadataStreamCount(byte[] bytes)

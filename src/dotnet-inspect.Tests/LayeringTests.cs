@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -350,6 +351,24 @@ public sealed class LayeringTests
     }
 
     [Fact]
+    public void MetadataReaderConstructionGateRecognizesProviderFactories()
+    {
+        string[] sites = MetadataReaderConstructionSites(
+                typeof(LayeringTests).Assembly.Location)
+            .ToArray();
+
+        Assert.Contains(
+            "DotnetInspector.Tests.LayeringTests.MetadataProviderFromImageFixture/1",
+            sites);
+        Assert.Contains(
+            "DotnetInspector.Tests.LayeringTests.MetadataProviderFromStreamFixture/1",
+            sites);
+        Assert.DoesNotContain(
+            "DotnetInspector.Tests.LayeringTests.PortablePdbProviderFixture/1",
+            sites);
+    }
+
+    [Fact]
     public void InstructionDiff_DoesNotExpandInstructionSubstrate()
     {
         Assert.Equal(
@@ -645,7 +664,9 @@ public sealed class LayeringTests
                         == nameof(MetadataFormatAdmission.GetMetadataReader))
                 || (typeName == nameof(MetadataReaderProvider)
                     && typeNamespace == typeof(MetadataReader).Namespace
-                    && methodName == "FromPortableExecutableImage")
+                    && methodName
+                        is nameof(MetadataReaderProvider.FromMetadataImage)
+                            or nameof(MetadataReaderProvider.FromMetadataStream))
                 || (typeName == nameof(MetadataReader)
                     && typeNamespace == typeof(MetadataReader).Namespace
                     && methodName == ".ctor"))
@@ -656,6 +677,17 @@ public sealed class LayeringTests
 
         return false;
     }
+
+    static MetadataReaderProvider MetadataProviderFromImageFixture(
+        ImmutableArray<byte> image)
+        => MetadataReaderProvider.FromMetadataImage(image);
+
+    static MetadataReaderProvider MetadataProviderFromStreamFixture(
+        Stream stream)
+        => MetadataReaderProvider.FromMetadataStream(stream);
+
+    static MetadataReaderProvider PortablePdbProviderFixture(Stream stream)
+        => MetadataReaderProvider.FromPortablePdbStream(stream);
 
     private static bool IsNuGetImplementationPackage(string package) =>
         package.Equals("NuGet", StringComparison.OrdinalIgnoreCase)

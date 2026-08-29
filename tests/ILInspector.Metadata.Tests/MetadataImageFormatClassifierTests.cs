@@ -197,6 +197,27 @@ public sealed class MetadataImageFormatClassifierTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Mdp017_PathScannersPreserveUnsupportedRejection()
+    {
+        byte[] image = BuildImage(
+            "WindowsRuntime 1.4;CLR v4.0.30319");
+        TruncateMetadataAfterVersionField(image);
+
+        AssertPathScannersReject<UnsupportedMetadataFormatException>(image);
+    }
+
+    [Fact]
+    public void Mdp017_PathScannersPreserveMalformedRejection()
+    {
+        byte[] image = BuildImage("v4.0.30319");
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            image.AsSpan(MetadataStart(image), sizeof(uint)),
+            0xDEADBEEF);
+
+        AssertPathScannersReject<MalformedMetadataRootException>(image);
+    }
+
     [Theory]
     [InlineData("windowsRuntime 1.4")]
     [InlineData("WINDOWSRUNTIME 1.4")]
@@ -431,6 +452,31 @@ public sealed class MetadataImageFormatClassifierTests
             Assert.IsType<MetadataImageFormatResult.MalformedRoot>(
                 MetadataImageFormatClassifier.Classify(peReader));
         Assert.Equal(expected, malformed.Reason);
+    }
+
+    static void AssertPathScannersReject<TException>(byte[] image)
+        where TException : Exception
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"metadata-format-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, image);
+        try
+        {
+            Assert.Throws<TException>(
+                () => TypeDependencyScanner.BuildDependencyTree(
+                    "Missing.Type",
+                    [path]));
+            Assert.Throws<TException>(
+                () => ExtensionMethodScanner.FindReachableTypes(
+                    "Missing.Type",
+                    [path],
+                    maxDepth: 1));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     static PEReader Open(byte[] image)

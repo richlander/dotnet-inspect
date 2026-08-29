@@ -406,7 +406,11 @@ public static class ExtensionMethodScanner
                     }
                 }
                 // Skip assemblies with unreadable metadata
-                catch { }
+                catch (Exception ex) when (
+                    ex is not UnsupportedMetadataFormatException
+                        and not MalformedMetadataRootException)
+                {
+                }
             }
 
             while (toProcess.Count > 0)
