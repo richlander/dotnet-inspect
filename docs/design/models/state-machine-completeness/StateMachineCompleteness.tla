@@ -25,6 +25,7 @@ CONSTANTS
 (*   FailureMode = "Total"              reject the whole module             *)
 (*               = "PreserveClassified" leave earlier results standing      *)
 (*               = "ReportAbsent"       report Absent instead of Rejected   *)
+(*               = "Untyped"            publish failure with no typed kind  *)
 (*                                                                         *)
 (*   FailureMutationMode = "Stable"      published failure is immutable      *)
 (*                       = "RewriteDetail" mutate it after publication        *)
@@ -36,7 +37,8 @@ CONSTANTS
 ASSUME
     /\ MachineCount \in Nat \ {0}
     /\ MaxBudget \in Nat
-    /\ FailureMode \in {"Total", "PreserveClassified", "ReportAbsent"}
+    /\ FailureMode \in
+        {"Total", "PreserveClassified", "ReportAbsent", "Untyped"}
     /\ FailureMutationMode \in {"Stable", "RewriteDetail"}
     /\ FinishMode \in {"Guarded", "AllowUnvisited", "DropAsAbsent"}
 
@@ -57,10 +59,13 @@ VARIABLES
     kind,         \* whole-module failure kind, or None
     failureDetail,\* abstract published failure detail, or zero
     result,       \* published result per structural machine
-    visited,      \* structural machines construction reached
     budget        \* remaining classification steps
 
-vars == <<truth, phase, kind, failureDetail, result, visited, budget>>
+vars == <<truth, phase, kind, failureDetail, result, budget>>
+
+Visited == {m \in Machines : result[m] # "Unclassified"}
+
+FailureProjection == <<phase, kind, failureDetail, result>>
 
 TypeOK ==
     /\ truth \in [Machines -> Truths]
@@ -68,7 +73,6 @@ TypeOK ==
     /\ kind \in FailureKinds \cup {"None"}
     /\ failureDetail \in 0..2
     /\ result \in [Machines -> Results]
-    /\ visited \subseteq Machines
     /\ budget \in 0..MaxBudget
 
 Init ==
@@ -77,16 +81,14 @@ Init ==
     /\ kind = "None"
     /\ failureDetail = 0
     /\ result = [m \in Machines |-> "Unclassified"]
-    /\ visited = {}
     /\ budget = MaxBudget
 
 ClassifyOne(m, expectedTruth, classification) ==
     /\ phase = "Building"
-    /\ m \notin visited
+    /\ m \notin Visited
     /\ budget > 0
     /\ truth[m] = expectedTruth
     /\ result' = [result EXCEPT ![m] = classification]
-    /\ visited' = visited \cup {m}
     /\ budget' = budget - 1
     /\ UNCHANGED <<truth, phase, kind, failureDetail>>
 
@@ -101,7 +103,7 @@ AbsentOne(m) == ClassifyOne(m, "NoClaim", "Absent")
 FailModule(k) ==
     /\ phase = "Building"
     /\ phase' = "Failed"
-    /\ kind' = k
+    /\ kind' = IF FailureMode = "Untyped" THEN "None" ELSE k
     /\ failureDetail' = 1
     /\ result' = [m \in Machines |->
                     CASE FailureMode = "ReportAbsent" -> "Absent"
@@ -109,32 +111,31 @@ FailModule(k) ==
                             IF result[m] = "Unclassified" THEN "Rejected"
                             ELSE result[m]
                       [] OTHER -> "Rejected"]
-    /\ visited' = Machines
     /\ UNCHANGED <<truth, budget>>
 
 Malform == FailModule("Malformed")
 
 ExhaustBudget ==
     /\ budget = 0
-    /\ visited # Machines
+    /\ Visited # Machines
     /\ FailModule("BudgetExceeded")
 
 MutateFailedDetail ==
     /\ phase = "Failed"
     /\ FailureMutationMode = "RewriteDetail"
     /\ failureDetail' = 2
-    /\ UNCHANGED <<truth, phase, kind, result, visited, budget>>
+    /\ UNCHANGED <<truth, phase, kind, result, budget>>
 
 Finish ==
     /\ phase = "Building"
-    /\ (FinishMode \in {"AllowUnvisited", "DropAsAbsent"} \/ visited = Machines)
+    /\ (FinishMode \in {"AllowUnvisited", "DropAsAbsent"} \/ Visited = Machines)
     /\ phase' = "Built"
     /\ result' = IF FinishMode = "DropAsAbsent"
                  THEN [m \in Machines |->
                          IF result[m] = "Unclassified" THEN "Absent"
                          ELSE result[m]]
                  ELSE result
-    /\ UNCHANGED <<truth, kind, failureDetail, visited, budget>>
+    /\ UNCHANGED <<truth, kind, failureDetail, budget>>
 
 Next ==
     \/ \E m \in Machines : ResolveOne(m)
@@ -162,7 +163,7 @@ C3_FailureRejectsAll ==
     (phase = "Failed") => \A m \in Machines : result[m] = "Rejected"
 
 FailureIsAbsorbing ==
-    [][ (phase = "Failed") => UNCHANGED vars ]_vars
+    [][ (phase = "Failed") => UNCHANGED FailureProjection ]_vars
 
 EventuallyTerminal == <>Terminal
 

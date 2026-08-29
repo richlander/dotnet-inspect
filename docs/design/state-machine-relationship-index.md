@@ -227,9 +227,8 @@ this population matches only that one interface.
 
 Each invariant below names the gate that enforces it, or is marked
 `unverified`, per
-[`AGENTS.md`](../../AGENTS.md#asserted-properties-name-their-gate). Several
-gates are marked pending: they exist in #4835, which has not landed, and
-therefore enforce nothing on `main` today.
+[`AGENTS.md`](../../AGENTS.md#asserted-properties-name-their-gate).
+References to #4835 describe proposed evidence, not gates on `main`.
 
 ### C1 — Totality
 
@@ -244,12 +243,11 @@ it answers for a machine that genuinely has no claim. Nothing *inside* the
 index separates those two cases. Totality is therefore only checkable against a
 population computed without the index, which is what C6 requires.
 
-Gate: `unverified` on `main`. #4835 adds
-`StateMachineCompletenessTests.OwnBuildOutputs_EveryStructuralAsyncStateMachineIsAuthenticated`,
-which recomputes the population independently and requires
-`Structural == Resolved` with no rejections or absences over its own build
-outputs. That gates this invariant for corpora in which every machine is
-expected to resolve; it does not exercise the absent or rejected columns.
+Gate: `unverified` on `main`. #4835 proposes an own-build-output check that
+recomputes the population independently and requires `Structural == Resolved`
+with no rejections or absences. That would cover only corpora in which every
+machine is expected to resolve; it would not exercise the absent or rejected
+columns.
 
 ### C2 — Failure is never success-shaped
 
@@ -280,20 +278,15 @@ proves the failure was per-claim, while observing a total one proves nothing
 about which path produced it. Combined with C4, a consumer that needs the
 distinction cannot obtain it from the index as it stands.
 
-This is the invariant that makes the trimming case observable. When ILLink
-removes `SetStateMachine`, the attribute claim survives and the role lookup
-finds nothing, so the module's machines are all refused together rather than
-disappearing (see #4827). A fixture reproducing that shape must convert *all*
-of its machines, not merely one; a partial conversion is a different phenomenon
-wearing the same name.
+Trimming is explicitly **not** evidence for this invariant. When ILLink removes
+`SetStateMachine`, the attribute claim survives and role lookup refuses it
+(see #4827). A fixture can make that per-claim refusal total by converting all
+of its machines, but it still never reaches the whole-module failure path.
 
-Gate: `unverified`. #4835's
-`StateMachineCompletenessTests.Sweep_RejectedStateMachine_FailsTheSweep`
-asserts `Resolved == 0` and `Rejected == Structural` against a
-string-heap-damaged fixture, but that fixture produces *per-claim* refusals that
-happen to be total; it never reaches the whole-module failure path. C2's budget
-gates do reach that path, but each inspects a single kickoff rather than the
-whole module. No current test asserts that a global failure rejects every
+Gate: `unverified`. #4835 proposes exactly that total per-claim fixture; it is
+useful negative evidence for a completeness sweep, not a C3 gate. C2's budget
+gates do reach the whole-module path, but each inspects one kickoff rather than
+the whole module. No current test asserts that a global failure rejects every
 machine.
 
 ### C4 — `Failure.Kind` does not identify the cause
@@ -348,7 +341,8 @@ consumers must not depend on evidence positions or on which contributing
 publication supplied the reason.
 
 Gate: `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_MergesEveryOverlappingRejection`,
-`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RejectsSharedStateMachineClaims`.
+`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RejectsSharedStateMachineClaims`,
+`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_ExpandsAmbiguousClaimsOnce`.
 
 Both are narrower than the invariant.
 `RejectsSharedStateMachineClaims` creates one publication and gates its shared
@@ -356,9 +350,14 @@ projection across kickoff and state-machine indexes.
 `MergesEveryOverlappingRejection` creates two publications joined by one
 state-machine key. It gates their shared projection and the union of their
 kickoff evidence; its ordered token assertion is stronger than C5 requires.
+`ExpandsAmbiguousClaimsOnce` creates 4,000 publications. Only the first expands
+the shared claimed name to state-machine tokens; the rest can join it only
+through the registered claimed-name component. Its 4,000-kickoff evidence
+assertion therefore gates that merge-key path and accumulated kickoff
+membership.
 
-Transitive closure across three publications, claimed-name and implementation
-merge keys, the union of `ClaimedTypes`, state-machine evidence from multiple
+Transitive closure through mixed key domains, implementation merge keys, the
+union of `ClaimedTypes`, state-machine evidence contributed by multiple
 publications, and intact selection of `(Kind, Detail)` are `unverified`.
 
 ### C6 — Completeness is externally checkable
@@ -371,9 +370,9 @@ This is what keeps C1 from being self-certifying, and per C1 it is not optional
 garnish: a consumer that asked the index for both the population and the
 classification could not detect a lost row at all.
 
-Gate: `unverified` on `main`. #4835 adds a cross-check that computes the
-population via its own `ImplementsAsyncStateMachine` walk over
-`reader.TypeDefinitions`, sharing no code with the index.
+Gate: `unverified` on `main`. #4835 proposes a cross-check that computes the
+population with its own walk over `reader.TypeDefinitions`, sharing no code
+with the index.
 
 ### Model
 

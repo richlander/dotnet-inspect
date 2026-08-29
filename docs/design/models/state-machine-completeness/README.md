@@ -35,6 +35,14 @@ may infer from a value, not about system state. C6 is a statement about an
 external observer's ability to recompute a population, which is not something a
 state machine of the construction can express.
 
+The two models also do not prove their composition. The completeness model
+treats `Rejected` as one classification; the merge model begins from rejection
+publications. The implementation must still ensure that a refused structural
+machine is represented by a publication and projected through its
+state-machine index. Keeping that seam explicit is preferable to putting
+kickoff, state-machine, implementation, and claimed-name keys back into C1's
+structural-machine domain.
+
 ## Structure
 
 There are two models because the invariants have different units.
@@ -47,21 +55,24 @@ There are two models because the invariants have different units.
 | `kind` | the typed failure kind once `phase = "Failed"` |
 | `failureDetail` | abstract published whole-module failure detail |
 | `result` | per machine: `Unclassified`, `Resolved`, `Absent`, `Rejected` |
-| `visited` | machines construction has reached |
 | `budget` | construction steps remaining |
 
 `RejectionComponentMerge.tla` ranges over published rejections:
 
 | Variable | Meaning |
 | --- | --- |
+| `phase` | `"Building"` or `"Frozen"` |
 | `published` | number of rejection publications |
 | `links` | per publication: tagged keys that connect components |
 | `payload` | per publication: contributed diagnostic evidence |
 | `claimKind`, `claimDetail` | per publication: its own failure reason |
 | `component` | per publication: union-find component identity |
-| `owner` | per merge key: the current publication representative |
 | `frozenEvidence` | per publication: frozen evidence membership |
 | `frozenKind`, `frozenDetail` | per publication: frozen component reason |
+
+The completeness model derives `Visited` from non-`Unclassified` results. The
+merge model derives each key's latest owner from publication history. Neither
+is independent state.
 
 `truth` is the most important variable, and the first draft did not have it.
 Without it, C1 said only that no machine retained an `Unclassified` marker — and
@@ -114,11 +125,12 @@ vacuous: a broken merge could never reach the state in which it is checked.
 | `C5_ComponentProjectionAgrees` | C5 | One component has one frozen evidence set and reason |
 | `C5_EvidenceMembershipIsComplete` | C5 | Frozen evidence is the union of every component publication's payload |
 | `C5_ReasonComesFromComponent` | C5 | The selected `(Kind, Detail)` pair belongs intact to one component publication |
-| `FailureIsAbsorbing` | C2, C3 | No modeled part of a published whole-module failure can change |
+| `FailureIsAbsorbing` | C2, C3 | The published classification and reason cannot change after failure |
 | `EventuallyTerminal` | — | Construction always reaches `Built` or `Failed` |
+| `EventuallyFrozen` | — | A non-empty rejection publication set eventually freezes |
 
-`FailureIsAbsorbing` and `EventuallyTerminal` are temporal; the rest are
-invariants.
+`FailureIsAbsorbing`, `EventuallyTerminal`, and `EventuallyFrozen` are
+temporal; the rest are invariants.
 
 ## Scenarios
 
@@ -127,6 +139,14 @@ invariants.
 | `StateMachineCompleteness.cfg` | `MachineCount = 3`, `MaxBudget = 3` | Success and malformed-input failure reachable | 729 states, 351 distinct, depth 5 |
 | `BudgetExhaustion.cfg` | `MachineCount = 3`, `MaxBudget = 2` | Budget too small to classify every machine | 648 states, 297 distinct, depth 4 |
 | `RejectionComponentMerge.cfg` | three keys, two evidence values, three publications | Exact graph partition, projection, and evidence | 4,899,805 states, 1,157,521 distinct, depth 5 |
+
+`BudgetExhaustion.cfg` intentionally omits C1: `Built` is unreachable when the
+budget is smaller than the machine population, so C1 would be vacuous there.
+`StateMachineCompleteness.cfg` checks C1 with reachable successful
+construction; the budget scenario checks the typed global-failure path.
+
+Counts were recorded with TLC v1.8.0 build `2026.08.21.155922`
+(`9787e65`). They describe state-graph size, not elapsed performance.
 
 Three publications are the smallest bound that distinguishes joining a
 representative from joining its whole component. Three merge keys permit both
@@ -141,11 +161,13 @@ took nineteen review rounds to find by hand in #4835: whole-module failure that
 leaves already-recorded results standing, producing a *partial* rejection where
 the contract requires a total one.
 
-TLC prints every variable in each state; the states below are **abridged to the
-three that carry the argument**. Run the command to see them in full.
+TLC prints every variable and each action's source range. The states below are
+**abridged to the three variables that carry the argument**, and action labels
+omit source ranges. Run the command to see them in full.
 
 ```console
-$ java -XX:+UseParallelGC -cp "$TLA_TOOLS" tlc2.TLC \
+$ java -XX:+UseParallelGC -cp "$TLA_TOOLS/tla2tools.jar" tlc2.TLC \
+    -workers 1 -cleanup -noGenerateSpecTE \
     -config BrokenPartialFailure.cfg StateMachineCompleteness.tla
 
 Error: Invariant C3_FailureRejectsAll is violated.
@@ -156,7 +178,7 @@ State 1: <Initial predicate>
   /\ result = <<"Unclassified", "Unclassified", "Unclassified">>
   /\ phase  = "Building"
 
-State 2: <ResolveOne(1)>
+State 2: <ClassifyOne(1,"Resolvable","Resolved")>
   /\ result = <<"Resolved", "Unclassified", "Unclassified">>
   /\ phase  = "Building"
 
@@ -201,6 +223,7 @@ weaker than it looks.
 | --- | --- | --- |
 | `BrokenPartialFailure.cfg` | Module failure preserves results already recorded, rejecting only unclassified machines | `C3_FailureRejectsAll` |
 | `BrokenAbsentOnFailure.cfg` | Module failure reports `Absent` rather than `Rejected` | `C2_FailureIsTyped` |
+| `BrokenUntypedFailure.cfg` | Module failure publishes no typed failure kind | `C2_FailureIsTyped` |
 | `BrokenMutatingFailure.cfg` | A published whole-module failure changes its detail | `FailureIsAbsorbing` |
 | `BrokenPartialMerge.cfg` | A publication joins current representatives but not their whole components | `C5_ComponentsEqualGraphClosure` |
 | `BrokenUnvisitedPublish.cfg` | Construction publishes before classifying every machine | `C1_Totality` |
@@ -208,7 +231,7 @@ weaker than it looks.
 | `BrokenOvermerge.cfg` | A publication joins disconnected prior publications | `C5_ComponentsEqualGraphClosure` |
 | `BrokenDroppedRow.cfg` | A row never reached is published as `Absent` | `C1_Totality` |
 | `BrokenDroppedEvidence.cfg` | Freeze retains only each publication's local diagnostic payload | `C5_EvidenceMembershipIsComplete` |
-| `BrokenSplitReason.cfg` | Publications in one component retain different local reasons | `C5_ComponentProjectionAgrees` |
+| `BrokenLocalReason.cfg` | Publications in one component retain different local reasons | `C5_ComponentProjectionAgrees` |
 | `BrokenHybridReason.cfg` | Freeze combines kind and detail from different publications | `C5_ReasonComesFromComponent` |
 
 `BrokenPartialFailure.cfg` is the one worth dwelling on. It is the bug a reviewer
@@ -233,7 +256,7 @@ was checking less than it appeared to.
 - `BrokenOvermerge.cfg` — requiring every graph edge to merge checked only one
   direction. Unrelated publications could still merge without violating any
   invariant.
-- `BrokenSplitReason.cfg` replaces an earlier first-publication-wins mutation.
+- `BrokenLocalReason.cfg` replaces an earlier first-publication-wins mutation.
   The current implementation does select the first appended publication, but
   no consumer needs that selection rule and no gate enforces it. The contract
   is that one intact component reason is shared, not which reason wins.
@@ -241,7 +264,7 @@ was checking less than it appeared to.
   modeled kind and detail, so a hybrid pair can now falsify the intact-pair
   statement.
 - `BrokenMutatingFailure.cfg` rewrites only the abstract failure detail while
-  phase, kind, classifications, and budget stay fixed. It makes every-variable
+  phase, kind, classifications, and budget stay fixed. It makes detail
   absorption load-bearing without also producing a successful index that
   violates C1.
 
@@ -254,15 +277,21 @@ needs.
 ## Running it
 
 Follow [`docs/runbooks/tla-plus-setup.md`](../../../runbooks/tla-plus-setup.md)
-to obtain the pinned `tla2tools.jar`, then:
+to obtain the pinned tools. From this directory, with `tla2tools.jar` in
+`$TLA_TOOLS`, run the configurations sequentially: concurrent TLC processes
+using `-cleanup` can remove one another's metadata.
 
 ```bash
-for cfg in StateMachineCompleteness BudgetExhaustion; do
-  java -XX:+UseParallelGC -cp "$TLA_TOOLS" tlc2.TLC \
-    -config "$cfg.cfg" StateMachineCompleteness.tla
-done
+set -euo pipefail
 
-java -XX:+UseParallelGC -cp "$TLA_TOOLS" tlc2.TLC \
+java -XX:+UseParallelGC -cp "$TLA_TOOLS/tla2tools.jar" tlc2.TLC \
+  -workers auto -cleanup \
+  -config StateMachineCompleteness.cfg StateMachineCompleteness.tla
+java -XX:+UseParallelGC -cp "$TLA_TOOLS/tla2tools.jar" tlc2.TLC \
+  -workers auto -cleanup \
+  -config BudgetExhaustion.cfg StateMachineCompleteness.tla
+java -XX:+UseParallelGC -cp "$TLA_TOOLS/tla2tools.jar" tlc2.TLC \
+  -workers auto -cleanup \
   -config RejectionComponentMerge.cfg RejectionComponentMerge.tla
 ```
 
@@ -272,15 +301,42 @@ The counterexamples are run the same way and each must report its expected
 violation:
 
 ```bash
-for cfg in BrokenPartialFailure BrokenAbsentOnFailure \
-  BrokenMutatingFailure BrokenUnvisitedPublish BrokenDroppedRow; do
-  java -XX:+UseParallelGC -cp "$TLA_TOOLS" tlc2.TLC \
-    -config "$cfg.cfg" StateMachineCompleteness.tla
-done
+set -euo pipefail
 
-for cfg in BrokenPartialMerge BrokenUnmergedPublish BrokenOvermerge \
-  BrokenDroppedEvidence BrokenSplitReason BrokenHybridReason; do
-  java -XX:+UseParallelGC -cp "$TLA_TOOLS" tlc2.TLC \
-    -config "$cfg.cfg" RejectionComponentMerge.tla
-done
+expect_violation() {
+  local config=$1 module=$2 expected=$3 output
+  if output=$(java -XX:+UseParallelGC \
+      -cp "$TLA_TOOLS/tla2tools.jar" tlc2.TLC \
+      -workers 1 -cleanup -noGenerateSpecTE \
+      -config "$config.cfg" "$module.tla" 2>&1); then
+    echo "$config unexpectedly passed" >&2
+    return 1
+  fi
+  grep -Fq "$expected is violated" <<<"$output"
+}
+
+expect_violation BrokenPartialFailure StateMachineCompleteness \
+  "Invariant C3_FailureRejectsAll"
+expect_violation BrokenAbsentOnFailure StateMachineCompleteness \
+  "Invariant C2_FailureIsTyped"
+expect_violation BrokenUntypedFailure StateMachineCompleteness \
+  "Invariant C2_FailureIsTyped"
+expect_violation BrokenMutatingFailure StateMachineCompleteness \
+  "Action property FailureIsAbsorbing"
+expect_violation BrokenUnvisitedPublish StateMachineCompleteness \
+  "Invariant C1_Totality"
+expect_violation BrokenDroppedRow StateMachineCompleteness \
+  "Invariant C1_Totality"
+expect_violation BrokenPartialMerge RejectionComponentMerge \
+  "Invariant C5_ComponentsEqualGraphClosure"
+expect_violation BrokenUnmergedPublish RejectionComponentMerge \
+  "Invariant C5_ComponentsEqualGraphClosure"
+expect_violation BrokenOvermerge RejectionComponentMerge \
+  "Invariant C5_ComponentsEqualGraphClosure"
+expect_violation BrokenDroppedEvidence RejectionComponentMerge \
+  "Invariant C5_EvidenceMembershipIsComplete"
+expect_violation BrokenLocalReason RejectionComponentMerge \
+  "Invariant C5_ComponentProjectionAgrees"
+expect_violation BrokenHybridReason RejectionComponentMerge \
+  "Invariant C5_ReasonComesFromComponent"
 ```

@@ -17,8 +17,8 @@
 (* candidates, state-machine candidates, and claimed types. Claimed-name   *)
 (* links have the same connectivity semantics even though production stores *)
 (* their representative in a separate dictionary. Which representative a   *)
-(* dictionary retains cannot change the connected components, so one       *)
-(* `owner` function is sufficient.                                         *)
+(* dictionary retains cannot change connected components; `LatestOwners`   *)
+(* derives one representative per key from the publication history.        *)
 (***************************************************************************)
 
 EXTENDS FiniteSets, Naturals
@@ -54,7 +54,6 @@ EvidenceItems == 1..EvidenceCount
 PublicationIds == 1..MaxPublications
 Kinds == 1..2
 Details == 1..2
-NoPublication == 0
 NoKind == 0
 NoDetail == 0
 Phases == {"Building", "Frozen"}
@@ -67,14 +66,13 @@ VARIABLES
     claimKind,      \* publication -> its own failure kind
     claimDetail,    \* publication -> its own failure detail
     component,      \* publication -> union-find component id
-    owner,          \* merge key -> current publication representative
     frozenEvidence, \* publication -> component evidence membership
     frozenKind,     \* publication -> selected component kind
     frozenDetail    \* publication -> selected component detail
 
 vars ==
     <<phase, published, links, payload, claimKind, claimDetail, component,
-      owner, frozenEvidence, frozenKind, frozenDetail>>
+      frozenEvidence, frozenKind, frozenDetail>>
 
 Published == 1..published
 
@@ -94,6 +92,12 @@ FirstPublication(p) == MinId(ComponentOf(p))
 MaxId(S) == CHOOSE i \in S : \A j \in S : i >= j
 
 LastPublication(p) == MaxId(ComponentOf(p))
+
+UsedKeys(S) ==
+    {k \in S : \E p \in Published : k \in links[p]}
+
+LatestOwners(S) ==
+    {MaxId({p \in Published : k \in links[p]}) : k \in UsedKeys(S)}
 
 Overlap(p, q) == links[p] \cap links[q] # {}
 
@@ -116,7 +120,6 @@ TypeOK ==
     /\ claimKind \in [PublicationIds -> Kinds \cup {NoKind}]
     /\ claimDetail \in [PublicationIds -> Details \cup {NoDetail}]
     /\ component \in [PublicationIds -> PublicationIds]
-    /\ owner \in [MergeKeys -> PublicationIds \cup {NoPublication}]
     /\ frozenEvidence \in
         [PublicationIds -> SUBSET EvidenceItems]
     /\ frozenKind \in [PublicationIds -> Kinds \cup {NoKind}]
@@ -130,7 +133,6 @@ Init ==
     /\ claimKind = [p \in PublicationIds |-> NoKind]
     /\ claimDetail = [p \in PublicationIds |-> NoDetail]
     /\ component = [p \in PublicationIds |-> p]
-    /\ owner = [k \in MergeKeys |-> NoPublication]
     /\ frozenEvidence = [p \in PublicationIds |-> {}]
     /\ frozenKind = [p \in PublicationIds |-> NoKind]
     /\ frozenDetail = [p \in PublicationIds |-> NoDetail]
@@ -147,9 +149,7 @@ Publish(linkSet, evidenceSet, kind, detail) ==
         \/ claimKind[p] # kind
         \/ claimDetail[p] # detail
     /\ LET pid == published + 1
-           representatives ==
-               {owner[k] : k \in linkSet}
-                   \ {NoPublication}
+           representatives == LatestOwners(linkSet)
            reached ==
                UNION {ComponentOf(p) : p \in representatives}
            merged ==
@@ -167,8 +167,6 @@ Publish(linkSet, evidenceSet, kind, detail) ==
            /\ component' = [p \in PublicationIds |->
                                 IF p \in merged THEN id
                                 ELSE component[p]]
-           /\ owner' = [k \in MergeKeys |->
-                            IF k \in linkSet THEN pid ELSE owner[k]]
     /\ UNCHANGED <<phase, frozenEvidence, frozenKind, frozenDetail>>
 
 Freeze ==
@@ -193,7 +191,7 @@ Freeze ==
                 THEN claimDetail[LastPublication(p)]
             ELSE claimDetail[FirstPublication(p)]]
     /\ UNCHANGED
-        <<published, links, payload, claimKind, claimDetail, component, owner>>
+        <<published, links, payload, claimKind, claimDetail, component>>
 
 Next ==
     \/ \E linkSet \in (SUBSET MergeKeys) \ {{}},
