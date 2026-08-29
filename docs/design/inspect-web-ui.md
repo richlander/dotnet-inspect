@@ -771,6 +771,8 @@ visible `Package query` action that closes Spotlight, preserves the current
 package-search text as the initial prefix when it is valid, and pushes the
 route. A direct or refreshed `/query` visit starts with an empty prefix; query
 requests are session state and are not encoded in the URL in this slice.
+Seeding the prefix does not start source work; Run or facet selection dispatches
+the request.
 
 The route renders one visible level-one `Package query` heading followed by an
 editable `Package ID prefix` input and `Run query` action. Entry focuses that
@@ -788,7 +790,8 @@ column and lets rows consume the remaining width. At a narrow viewport the
 query bar remains first, facets become a wrapping horizontal control region,
 and results follow in one column. The prefix input, Run, Cancel, every facet,
 Back, and every `Open in workspace` action keep visible text or an explicit
-accessible name at both widths.
+accessible name at both widths. Streamed row appends preserve the current
+query-page scroll position.
 
 Selecting a facet submits its opaque product ID and starts a fresh request; it
 never filters the current rows locally. The Browser adapter streams product

@@ -140,6 +140,19 @@ export function restorePackageQueryFocus(
   }
 }
 
+export function capturePackageQueryScroll(root: ParentNode): number | null {
+  return root.querySelector<HTMLElement>(".query-main")?.scrollTop ?? null;
+}
+
+export function restorePackageQueryScroll(
+  root: ParentNode,
+  scrollTop: number | null,
+): void {
+  if (scrollTop === null) return;
+  const main = root.querySelector<HTMLElement>(".query-main");
+  if (main) main.scrollTop = scrollTop;
+}
+
 export function bindPackageQueryView(
   root: ParentNode,
   actions: PackageQueryBindingActions,

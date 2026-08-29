@@ -290,8 +290,10 @@ import {
 import {
   bindPackageQueryView,
   capturePackageQueryFocus,
+  capturePackageQueryScroll,
   renderPackageQueryView,
   restorePackageQueryFocus,
+  restorePackageQueryScroll,
   type PackageQueryBindingActions,
 } from "./package-query-view.ts";
 import {
@@ -1488,7 +1490,7 @@ function focusTypeList(generation = spotlightFocusGeneration) {
   if (generation !== spotlightFocusGeneration
       || state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen
       || isTextEntry()) return;
-  requestAnimationFrame(() => {
+  afterCurrentNavigationFrame(() => {
     if (generation !== spotlightFocusGeneration
         || state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen
         || isTextEntry()) return;
@@ -7069,10 +7071,6 @@ function openPackageQueryRoute(seed = "") {
       : null);
   render();
   focusPackageQueryInput();
-  if (state.packageQueryPrefix) {
-    void packageQueryController.run(
-      createQueryRequest(state.packageQueryPrefix));
-  }
 }
 
 function closePackageQueryRoute() {
@@ -7198,6 +7196,7 @@ const packageQueryActions: PackageQueryBindingActions = {
 
 function renderPackageQueryPage() {
   const focus = capturePackageQueryFocus(document);
+  const scrollTop = capturePackageQueryScroll(document);
   document.title = "Package query · dotnet-inspect";
   app.innerHTML = renderPackageQueryView({
     state: state.packageQueryState,
@@ -7211,6 +7210,7 @@ function renderPackageQueryPage() {
   });
   bindPackageQueryView(document, packageQueryActions);
   restorePackageQueryFocus(document, focus);
+  restorePackageQueryScroll(document, scrollTop);
 }
 
 // Loads the resident runtime pack and lands on its package Overview (the runtime pack has no

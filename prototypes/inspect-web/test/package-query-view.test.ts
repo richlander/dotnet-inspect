@@ -4,8 +4,10 @@ import test from "node:test";
 import {
   bindPackageQueryView,
   capturePackageQueryFocus,
+  capturePackageQueryScroll,
   renderPackageQueryView,
   restorePackageQueryFocus,
+  restorePackageQueryScroll,
   type PackageQueryBindingActions,
 } from "../src/package-query-view.ts";
 import {
@@ -310,6 +312,7 @@ class FakeElement {
   readonly dataset: Record<string, string | undefined>;
   readonly id: string;
   focusCount = 0;
+  scrollTop = 0;
   selectionStart: number | null = null;
   selectionEnd: number | null = null;
   selectionRange: readonly [number, number] | null = null;
@@ -428,6 +431,23 @@ test("query cancel focus restores by rendered position", () => {
   restorePackageQueryFocus(documentRoot, snapshot);
 
   assert.equal(replacement.focusCount, 1);
+});
+
+test("query scroll position survives streamed full renders", () => {
+  const oldMain = new FakeElement();
+  oldMain.scrollTop = 480;
+  const replacement = new FakeElement();
+  const root = new FakeRoot();
+  root.add(".query-main", oldMain);
+  // Test fake implements the ParentNode subset consumed by the helpers.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  const parent = root as unknown as ParentNode;
+
+  const scrollTop = capturePackageQueryScroll(parent);
+  root.add(".query-main", replacement);
+  restorePackageQueryScroll(parent, scrollTop);
+
+  assert.equal(replacement.scrollTop, 480);
 });
 
 test("unrecognized or vanished query controls fall back to the prefix", () => {
