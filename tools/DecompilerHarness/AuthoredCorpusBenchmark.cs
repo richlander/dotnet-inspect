@@ -541,20 +541,8 @@ static class AuthoredCorpusBenchmark
                     $"    Syntax inventory v{oracleReport.SyntaxInventoryVersion}"
                     + $"              : {observedFeatures.Count} feature(s) "
                     + $"across {oracleReport.FilesInventoryTracked} file(s)");
-                foreach (var group in observedFeatures
-                    .GroupBy(
-                        feature => feature.Contains('.', StringComparison.Ordinal)
-                            ? feature[..feature.IndexOf('.')]
-                            : "syntax",
-                        StringComparer.Ordinal))
-                {
-                    output.WriteLine(
-                        $"      {group.Key,-30}: "
-                        + string.Join(", ", group.Select(feature =>
-                            feature.Contains('.', StringComparison.Ordinal)
-                                ? feature[(feature.IndexOf('.') + 1)..]
-                                : feature)));
-                }
+                foreach (string line in SyntaxInventoryGroupLines(observedFeatures))
+                    output.WriteLine(line);
             }
             foreach (string failure in oracleReport.Failures)
                 output.WriteLine($"    BLOCKER                          : {failure}");
@@ -593,6 +581,24 @@ static class AuthoredCorpusBenchmark
             contract,
             frontierPartitionClosed,
             oracleReport?.Passed ?? true);
+    }
+
+    internal static IReadOnlyList<string> SyntaxInventoryGroupLines(
+        IReadOnlyList<string> features)
+    {
+        ArgumentNullException.ThrowIfNull(features);
+
+        return
+        [
+            .. features
+                .GroupBy(
+                    feature => feature[..feature.IndexOf('.')],
+                    StringComparer.Ordinal)
+                .Select(group =>
+                    $"      {group.Key,-30}: "
+                    + string.Join(", ", group.Select(feature =>
+                        feature[(feature.IndexOf('.') + 1)..]))),
+        ];
     }
 
     /// <summary>

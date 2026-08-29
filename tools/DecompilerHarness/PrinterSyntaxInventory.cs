@@ -67,6 +67,9 @@ static class PrinterSyntaxInventory
                 case RefTypeSyntax:
                     Features.Add("type.ref");
                     break;
+                case ScopedTypeSyntax:
+                    Features.Add("type.scoped");
+                    break;
                 case TupleTypeSyntax:
                     Features.Add("type.tuple");
                     break;
@@ -105,7 +108,7 @@ static class PrinterSyntaxInventory
                     Features.Add("clause.when");
                     break;
                 case InterpolationSyntax interpolation:
-                    Features.Add("interpolation");
+                    Features.Add("interpolation.hole");
                     if (interpolation.AlignmentClause is not null)
                         Features.Add("interpolation.alignment");
                     if (interpolation.FormatClause is not null)

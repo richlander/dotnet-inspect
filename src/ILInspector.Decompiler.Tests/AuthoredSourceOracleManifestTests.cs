@@ -264,6 +264,51 @@ public sealed class AuthoredSourceOracleManifestTests
     }
 
     [Fact]
+    public void SyntaxInventory_TracksScopedTypesAndRendersInterpolationFamily()
+    {
+        const string body = """
+            scoped Span<int> values;
+            return $"{values.Length,5:D3}";
+            """;
+
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            body,
+            out IReadOnlyList<string> features,
+            out string? error),
+            error);
+        Assert.Equal(
+            [
+                "declaration.local.explicit-type",
+                "expression.interpolated-string",
+                "expression.numeric-literal",
+                "expression.simple-member-access",
+                "interpolation.alignment",
+                "interpolation.format",
+                "interpolation.hole",
+                "statement.local-declaration",
+                "statement.return",
+                "syntax.generic-name",
+                "type.scoped",
+            ],
+            features);
+
+        Assert.Equal(
+            $"      {"interpolation",-30}: alignment, format, hole",
+            Assert.Single(
+                AuthoredCorpusBenchmark.SyntaxInventoryGroupLines(features),
+                line => line.Contains(
+                    "interpolation",
+                    StringComparison.Ordinal)));
+
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            "Span<int> values;",
+            out IReadOnlyList<string> unscopedFeatures,
+            out error),
+            error);
+        Assert.DoesNotContain("type.scoped", unscopedFeatures);
+    }
+
+    [Fact]
     public void Manifest_SyntaxInventoryRequiresExactObservedFeatureSet()
     {
         var row = Row(
