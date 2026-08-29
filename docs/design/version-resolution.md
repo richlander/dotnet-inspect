@@ -417,11 +417,12 @@ versions and then emits every feed carrying each selected version;
 `SourcePrecedenceTests.GetVersionListingsWithSource_LimitCountsVersionsNotRows`
 gates that cutoff. The pending L3 and source-pushdown designs own how future
 semantic selection composes with the rendered rows; this document chooses no
-replacement count syntax or cutoff rule. The primary version order is the
-containing Vector's order: newest-first for a bare package and caller direction
-for `Package@A..B`. Equal-version rows then sort by the credential-free
-canonical producer key in ordinal order. Presentation labels do not define
-this tie-breaker.
+replacement count syntax or cutoff rule. The released view orders versions
+newest-first and preserves configured source order among feeds carrying the
+same version;
+`SourcePrecedenceTests.GetVersionListingsWithSource_EmitsOneRowPerFeedCarryingAVersion`
+gates that order. The pending designs also own range-coordinate behavior and
+any future canonical producer tie-break.
 
 ### Listing status across sources
 
