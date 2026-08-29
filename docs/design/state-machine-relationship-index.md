@@ -210,6 +210,139 @@ value-blob preflight; and
 kickoff-by-duplicate fan-out stays linear while preserving every kickoff and
 type-definition candidate in the merged failure.
 
+## Completeness
+
+The sections above specify what one query returns. This section specifies what
+must hold across *every* structural state machine in an image at once. The
+distinction matters because the failure modes differ: a single lookup can be
+correct while the index as a whole has silently lost rows.
+
+A **structural state machine** is a `TypeDef` in the image that directly
+declares a required state-machine interface, judged by namespace and name only.
+That is deliberately more inclusive than any trust policy the index applies, so
+it cannot under-count the population the index is answerable for.
+
+Each invariant below names the gate that enforces it, or is marked
+`unverified`, per
+[`AGENTS.md`](../../AGENTS.md#asserted-properties-name-their-gate).
+
+### C1 — Totality
+
+Every structural state machine receives exactly one result: `Resolved`,
+`Rejected`, or `Absent`. None is silently unclassified, and none receives two.
+
+Totality is what makes the other invariants checkable: a consumer can count the
+structural population from raw metadata, count the results, and require the two
+to agree. An index that dropped a row would otherwise be indistinguishable from
+an image that never had it.
+
+Gate: `StateMachineCompletenessTests.OwnBuildOutputs_EveryStructuralMachineIsClassified`.
+
+### C2 — Failure is never success-shaped
+
+A construction failure is reported as a failure. Exhausting a bound yields
+`BudgetExceeded`; malformed SRM data yields `Malformed`. Neither becomes an
+empty successful index, and neither becomes an index that answers `Absent` for
+rows it never examined.
+
+Gate: `StateMachineRelationshipIndex_PropagatesTypedBudgetFailure`,
+`StateMachineRelationshipIndex_RejectsMethodTableBeyondScanBudget`.
+
+### C3 — Whole-module failure rejects the whole module
+
+When construction fails for the module, **every** structural state machine in
+that module reports `Rejected` — not `Absent`, and not a mixture. A per-claim
+refusal is the narrow case: it rejects only the machines its claim reaches, and
+leaves the rest to resolve normally.
+
+The two are therefore distinguishable by their *shape* even though C4 says they
+are not distinguishable by their kind. Whole-module failure is total;
+per-claim refusal is partial. A consumer that observes a partial rejection where
+it expected a total one is observing a different failure than the one it
+diagnosed.
+
+This is the invariant that makes the trimming case observable. When ILLink
+removes `SetStateMachine`, the attribute claim survives and the role lookup
+finds nothing, so the module's machines are all refused together rather than
+disappearing (see #4827). A fixture reproducing that shape must convert *all*
+of its machines, not merely one; a partial conversion is a different phenomenon
+wearing the same name.
+
+Gate: `StateMachineCompletenessTests.Sweep_RejectedStateMachine_FailsTheSweep`,
+which asserts `Resolved == 0` and `Rejected == Structural` against a
+string-heap-damaged fixture rather than against a literal count.
+
+### C4 — `Failure.Kind` does not identify the cause
+
+`Failure.Kind` alone does not separate a refused claim from a module that
+failed to index. `Malformed` and `BudgetExceeded` each arise from both paths.
+`Unresolved`, `Ambiguous`, `CrossKind`, and `Duplicate` arise only from the
+per-claim path, so the kinds are informative but not decisive.
+
+A consumer needing the distinction must take it from the shape described in C3,
+or from a future explicit discriminator. It must not infer it from
+`Failure.Kind` and must not infer it from rendered failure text.
+
+Gate: `unverified`. No test currently forces a consumer to respect this, and
+the index exposes no discriminator that would make one meaningful. #4833 tracks
+consolidating the failure contract so that this invariant becomes enforceable
+rather than advisory.
+
+### C5 — Merged rejections are confluent
+
+Rejections that share a kickoff or a state-machine type merge into one
+component during construction. Every forward and reverse entry in a component
+freezes to the same immutable result, and that result does not depend on the
+order in which the contributing claims were discovered.
+
+This has two halves, and stating only one of them is a trap the model caught.
+*Merging happens*: two rejections that share a contributor end up in one
+component, transitively, so a claim naming machines 1 and 2 and a claim naming
+2 and 3 leave all three together. *Merging is confluent*: within a component
+every entry carries the same result and the same evidence, whatever order the
+claims arrived in. An index that merged nothing would satisfy the second half
+trivially, so the first is not decoration.
+
+Order independence is the substantive part of the second half. Discovery order
+follows `TypeDef` and `MethodDef` row order, which is a compiler artifact, so
+an index whose answers varied with merge order would give different results for
+semantically identical assemblies.
+
+Gate: `StateMachineRelationshipIndex_MergesEveryOverlappingRejection`,
+`StateMachineRelationshipIndex_RejectsSharedStateMachineClaims`.
+
+### C6 — Completeness is externally checkable
+
+The population in C1 is derivable from raw metadata without loading the
+assembly, without the index, and without trusting either. A cross-check may
+therefore recompute it independently and compare.
+
+This is what keeps C1 from being self-certifying. A consumer that asked the
+index for both the population and the classification would learn nothing about
+rows the index had lost.
+
+Gate: `StateMachineCompletenessTests` computes the population via its own
+`ImplementsAsyncStateMachine` walk over `reader.TypeDefinitions`, which shares
+no code with the index.
+
+### Model
+
+[`models/state-machine-completeness/`](models/state-machine-completeness/)
+holds a small TLA+ model of the fragment of this section that is genuinely
+stateful: construction that may fail at any step, rejection components that
+merge as claims are discovered, and the relationship between a whole-module
+failure and the results individual queries then return.
+
+The model checks C1, C2, C3, and C5 as invariants, and failure absorption as a
+temporal property. It does not model C4, which is a statement about what a
+consumer may infer rather than about system state, or C6, which is a statement
+about an external observer.
+
+The model establishes evidence about the model. It is not evidence about the
+implementation; the gates named above are. Its assumptions, bounds, checked
+properties, and deliberate counterexamples are recorded in its
+[`README.md`](models/state-machine-completeness/README.md).
+
 ## Ownership boundaries
 
 Metadata owns the structural relationship and structural refusal. Consumers
