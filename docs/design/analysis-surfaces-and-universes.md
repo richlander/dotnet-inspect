@@ -384,6 +384,10 @@ The runtime implementation is verified by these named gates:
 - `AnalysisCapability_RejectsUnsupportedProjectionBeforeProducerExecution`
 - `AnalysisCapability_AllDeclaredRejectionsPrecedeProducerExecution`
 - `AnalysisCapability_RejectionDoesNotUseFindingInspectionState`
+- `AnalysisCapability_RequiresConfiguredOwnerIssuedDescriptorIdentity`
+- `AnalysisCapability_ModeScopesUniverseRequirementsAndProjections`
+- `AnalysisCapability_RejectsTargetRoleCardinalityMismatch`
+- `AnalysisDescriptor_RejectsModeWithoutSatisfiableSurfaceOrProjection`
 - `AnalysisPlan_RetainsExactRequestFieldsAndDescriptorRequirements`
 - `AnalysisPlan_RetainsUniverseCompletenessAndFailureInputs`
 - `AnalysisProjection_RowsAndGraphRetainOneAnalysisIdentity`

@@ -46,13 +46,7 @@ public sealed class AnalysisRequestTests
 
         Assert.Same(fixture.Analysis, descriptor);
         Assert.Equal(Fixture.IntegrationAnalysisId, descriptor.Id);
-        Assert.DoesNotContain(
-            typeof(AnalysisDescriptor).GetProperties(),
-            property => typeof(Delegate).IsAssignableFrom(property.PropertyType));
-        Assert.DoesNotContain(
-            typeof(AnalysisCapabilityCatalog).GetMethods(),
-            method => method.GetParameters().Any(parameter =>
-                typeof(Delegate).IsAssignableFrom(parameter.ParameterType)));
+        Assert.Equal(0, fixture.ProducerExecutions);
     }
 
     [Fact]
@@ -173,12 +167,29 @@ public sealed class AnalysisRequestTests
     [Fact]
     public void AnalysisRequest_ModeValidationDerivesFromDeclaredTargetFunctions()
     {
-        Assert.Equal(
-            AnalysisTargetFunction.ReportDomain,
-            new Fixture().WorkspaceDomain.Function);
+        Fixture anchor = new(
+            memberTargetFunction: AnalysisTargetFunction.PrivilegedAnchor);
+        Fixture domain = new(
+            memberTargetFunction: AnalysisTargetFunction.ReportDomain);
+        AnalysisReportSurface anchorSurface = anchor.MemberSurface();
+        AnalysisReportSurface domainSurface = domain.MemberSurface();
+
+        AnalysisRequestPlan accepted = anchor.Accepted(
+            anchor.Request(
+                surface: anchorSurface,
+                mode: AnalysisQuestionMode.Targeted));
+        AnalysisRequestRejection rejected = domain.Rejected(
+            domain.Request(
+                surface: domainSurface,
+                mode: AnalysisQuestionMode.Targeted));
+
+        Assert.Equal(anchor.MemberAnchor.Id, domain.MemberAnchor.Id);
         Assert.Equal(
             AnalysisTargetFunction.PrivilegedAnchor,
-            new Fixture().MemberAnchor.Function);
+            accepted.ReportSurface.Targets.Single().Role.Function);
+        Assert.Equal(
+            AnalysisRequestRejectionReason.InvalidMode,
+            rejected.Reason);
     }
 
     [Fact]
@@ -257,6 +268,69 @@ public sealed class AnalysisRequestTests
     }
 
     [Fact]
+    public void AnalysisDescriptor_RejectsModeWithoutSatisfiableSurfaceOrProjection()
+    {
+        var reportDomain = new AnalysisTargetRoleDescriptor(
+            new AnalysisDeclarationId("target.domain"),
+            AnalysisTargetFunction.ReportDomain,
+            1,
+            1);
+        var anchor = new AnalysisTargetRoleDescriptor(
+            new AnalysisDeclarationId("target.anchor"),
+            AnalysisTargetFunction.PrivilegedAnchor,
+            1,
+            1);
+        var rows = new AnalysisProjectionDescriptor(
+            new AnalysisDeclarationId("projection.rows"));
+
+        Assert.Throws<ArgumentException>(() => new AnalysisDescriptor(
+            new AnalysisDeclarationId("analysis.impossible-surface"),
+            revision: 1,
+            InspectionCost.NetworkFree,
+            [AnalysisQuestionMode.Targeted],
+            [
+                new AnalysisReportSurfaceSupport(
+                    AnalysisReportSurfaceKind.Member,
+                    AnalysisQuestionMode.Targeted,
+                    [reportDomain]),
+            ],
+            [],
+            [],
+            [],
+            [
+                new AnalysisProjectionSupport(
+                    rows,
+                    [AnalysisQuestionMode.Targeted]),
+            ]));
+        Assert.Throws<ArgumentException>(() => new AnalysisDescriptor(
+            new AnalysisDeclarationId("analysis.missing-projection"),
+            revision: 1,
+            InspectionCost.NetworkFree,
+            [
+                AnalysisQuestionMode.Targeted,
+                AnalysisQuestionMode.Census,
+            ],
+            [
+                new AnalysisReportSurfaceSupport(
+                    AnalysisReportSurfaceKind.Member,
+                    AnalysisQuestionMode.Targeted,
+                    [anchor]),
+                new AnalysisReportSurfaceSupport(
+                    AnalysisReportSurfaceKind.Workspace,
+                    AnalysisQuestionMode.Census,
+                    [reportDomain]),
+            ],
+            [],
+            [],
+            [],
+            [
+                new AnalysisProjectionSupport(
+                    rows,
+                    [AnalysisQuestionMode.Targeted]),
+            ]));
+    }
+
+    [Fact]
     public void AnalysisCapability_RejectsUnsupportedSurfaceBeforeProducerExecution()
     {
         Assert.Equal(
@@ -276,20 +350,113 @@ public sealed class AnalysisRequestTests
     public void AnalysisCapability_RejectsMissingStructuralPrerequisiteBeforeProducerExecution()
     {
         Fixture fixture = new();
+        var lookalikeQuery = new InspectionQuery<int>(
+            fixture.ProducerQuery.Name,
+            fixture.ProducerQuery.Cost);
+        IInspectionQueryCatalog lookalikeCatalog =
+            new InspectionQueryRegistry<object>()
+                .Add(lookalikeQuery, static _ => 0)
+                .Compile();
 
         AnalysisRequestRejection rejection = fixture.Rejected(
             fixture.Request(),
             new AnalysisPlanningEnvironment(
+                lookalikeCatalog,
                 [
                     fixture.ProducerPrerequisite,
-                    new AnalysisStructuralPrerequisiteDescriptor(
-                        fixture.QueryPrerequisite.Id),
                 ]));
 
         Assert.Equal(
             AnalysisRequestRejectionReason.MissingStructuralPrerequisite,
             rejection.Reason);
         Assert.Equal([fixture.QueryPrerequisite], rejection.StructuralPrerequisites);
+    }
+
+    [Fact]
+    public void AnalysisCapability_ModeScopesUniverseRequirementsAndProjections()
+    {
+        Fixture fixture = new(
+            observedRequirementModes: [AnalysisQuestionMode.Targeted],
+            graphProjectionModes: [AnalysisQuestionMode.Targeted]);
+        AnalysisUniverseDescription censusUniverse = fixture.Universe(
+            new UniverseIdentity("census"),
+            new Boundary("selected types"),
+            capabilities:
+            [
+                fixture.SelectedTypesCapability,
+                fixture.OrderedParticipantsCapability,
+            ]);
+
+        AnalysisRequestPlan accepted = fixture.Accepted(
+            fixture.Request(universe: censusUniverse));
+        AnalysisRequestRejection rejected = fixture.Rejected(
+            fixture.Request(
+                universe: censusUniverse,
+                projection: fixture.GraphProjection));
+
+        Assert.DoesNotContain(
+            fixture.ObservedEvidenceRequirement,
+            accepted.UniverseRequirements);
+        Assert.Equal(
+            AnalysisRequestRejectionReason.UnsupportedProjection,
+            rejected.Reason);
+    }
+
+    [Fact]
+    public void AnalysisCapability_RejectsTargetRoleCardinalityMismatch()
+    {
+        Fixture fixture = new();
+        var requiredDomain = new AnalysisTargetRoleDescriptor(
+            new AnalysisDeclarationId("target.required-domain"),
+            AnalysisTargetFunction.ReportDomain,
+            1,
+            1);
+        AnalysisDescriptor analysis = fixture.WithWorkspaceRoles(
+            fixture.WorkspaceDomain,
+            requiredDomain);
+        AnalysisReportSurface missing = new(
+            AnalysisReportSurfaceKind.Workspace,
+            new SurfaceIdentity("workspace"),
+            [
+                new AnalysisTargetBinding(
+                    fixture.WorkspaceDomain,
+                    new TargetIdentity("workspace")),
+            ]);
+        AnalysisReportSurface duplicate = new(
+            AnalysisReportSurfaceKind.Workspace,
+            new SurfaceIdentity("workspace"),
+            [
+                new AnalysisTargetBinding(
+                    fixture.WorkspaceDomain,
+                    new TargetIdentity("workspace-1")),
+                new AnalysisTargetBinding(
+                    fixture.WorkspaceDomain,
+                    new TargetIdentity("workspace-2")),
+                new AnalysisTargetBinding(
+                    requiredDomain,
+                    new TargetIdentity("required")),
+            ]);
+        var catalog = new AnalysisCapabilityCatalog([analysis]);
+
+        AnalysisRequestRejection missingRejection = Assert.IsType<
+            AnalysisRequestPlanResult.Rejected>(
+                catalog.Plan(
+                    fixture.Request(
+                        analysis: analysis,
+                        surface: missing),
+                    fixture.Environment)).Rejection;
+        AnalysisRequestRejection duplicateRejection = Assert.IsType<
+            AnalysisRequestPlanResult.Rejected>(
+                catalog.Plan(
+                    fixture.Request(
+                        analysis: analysis,
+                        surface: duplicate),
+                    fixture.Environment)).Rejection;
+
+        Assert.Equal([requiredDomain], missingRejection.TargetRoles);
+        Assert.Equal(
+            [fixture.WorkspaceDomain],
+            duplicateRejection.TargetRoles);
     }
 
     [Fact]
@@ -351,6 +518,8 @@ public sealed class AnalysisRequestTests
             fixture.Analysis.StructuralPrerequisites,
             plan.StructuralPrerequisites);
         Assert.Equal(fixture.Analysis.HostRequirements, plan.HostRequirements);
+        Assert.Equal(InspectionCost.Unbounded, plan.Cost);
+        Assert.Equal(0, fixture.ProducerExecutions);
     }
 
     [Fact]
@@ -531,7 +700,11 @@ public sealed class AnalysisRequestTests
 
         public Fixture(
             bool allowCensusAnchor = false,
-            IEnumerable<AnalysisQuestionMode>? supportedModes = null)
+            IEnumerable<AnalysisQuestionMode>? supportedModes = null,
+            AnalysisTargetFunction memberTargetFunction =
+                AnalysisTargetFunction.PrivilegedAnchor,
+            IEnumerable<AnalysisQuestionMode>? observedRequirementModes = null,
+            IEnumerable<AnalysisQuestionMode>? graphProjectionModes = null)
         {
             AnalysisQuestionMode[] modes =
                 supportedModes?.ToArray()
@@ -559,7 +732,7 @@ public sealed class AnalysisRequestTests
             ObservedEvidenceRequirement = Requirement(
                 "requirement.integration-observed",
                 ObservedEvidenceCapability,
-                modes,
+                observedRequirementModes ?? modes,
                 LoggingConcept,
                 OpenTelemetryConcept);
             WorkspaceDomain = new AnalysisTargetRoleDescriptor(
@@ -568,14 +741,25 @@ public sealed class AnalysisRequestTests
                 1,
                 1);
             MemberAnchor = new AnalysisTargetRoleDescriptor(
-                new AnalysisDeclarationId("target.member-anchor"),
-                AnalysisTargetFunction.PrivilegedAnchor,
+                new AnalysisDeclarationId("target.member"),
+                memberTargetFunction,
                 allowCensusAnchor ? 0 : 1,
+                1);
+            FallbackAnchor = new AnalysisTargetRoleDescriptor(
+                new AnalysisDeclarationId("target.fallback"),
+                AnalysisTargetFunction.PrivilegedAnchor,
+                0,
                 1);
             RowsProjection = Projection("projection.rows");
             GraphProjection = Projection("projection.graph");
-            ProducerPrerequisite = Prerequisite("producer.integrations");
-            QueryPrerequisite = Prerequisite("query.type-resolution");
+            ProducerQuery = new InspectionQuery<int>(
+                "Integration producer",
+                InspectionCost.NetworkFree);
+            ProducerPrerequisite = new AnalysisProducerPrerequisiteDescriptor(
+                new AnalysisDeclarationId("producer.integrations"));
+            QueryPrerequisite = new AnalysisQueryPrerequisiteDescriptor(
+                new AnalysisDeclarationId("query.integrations"),
+                ProducerQuery);
             var surfaces = new List<AnalysisReportSurfaceSupport>
             {
             };
@@ -594,12 +778,13 @@ public sealed class AnalysisRequestTests
                     new AnalysisReportSurfaceSupport(
                         AnalysisReportSurfaceKind.Member,
                         AnalysisQuestionMode.Targeted,
-                        [MemberAnchor]));
+                        [MemberAnchor, FallbackAnchor]));
             }
 
             Analysis = new AnalysisDescriptor(
                 IntegrationAnalysisId,
                 revision: 1,
+                InspectionCost.NetworkFree,
                 modes,
                 surfaces,
                 [
@@ -610,19 +795,35 @@ public sealed class AnalysisRequestTests
                 [ProducerPrerequisite, QueryPrerequisite],
                 [
                     new AnalysisHostRequirementDescriptor(
-                        new AnalysisDeclarationId("host.explicit-unbounded"),
-                        InspectionCost.Unbounded),
+                        new AnalysisDeclarationId("host.explicit-analysis")),
                 ],
                 [
                     new AnalysisProjectionSupport(RowsProjection, modes),
-                    new AnalysisProjectionSupport(GraphProjection, modes),
+                    new AnalysisProjectionSupport(
+                        GraphProjection,
+                        graphProjectionModes ?? modes),
                 ]);
             Catalog = new AnalysisCapabilityCatalog([Analysis]);
             HealthyUniverse = Universe(
                 new UniverseIdentity("workspace-types"),
                 new Boundary("three selected types"));
+            var expensiveDependency = new InspectionQuery<int>(
+                "Integration evidence",
+                InspectionCost.Unbounded);
+            QueryCatalog = new InspectionQueryRegistry<object>()
+                .Add(expensiveDependency, static _ => 0)
+                .Add(
+                    ProducerQuery,
+                    _ =>
+                    {
+                        ProducerExecutions++;
+                        return 0;
+                    },
+                    expensiveDependency)
+                .Compile();
             Environment = new AnalysisPlanningEnvironment(
-                [ProducerPrerequisite, QueryPrerequisite]);
+                QueryCatalog,
+                [ProducerPrerequisite]);
         }
 
         public AffectedIdentity LoggingConcept { get; }
@@ -635,14 +836,18 @@ public sealed class AnalysisRequestTests
         public AnalysisUniverseRequirementDescriptor ObservedEvidenceRequirement { get; }
         public AnalysisTargetRoleDescriptor WorkspaceDomain { get; }
         public AnalysisTargetRoleDescriptor MemberAnchor { get; }
+        public AnalysisTargetRoleDescriptor FallbackAnchor { get; }
         public AnalysisProjectionDescriptor RowsProjection { get; }
         public AnalysisProjectionDescriptor GraphProjection { get; }
-        public AnalysisStructuralPrerequisiteDescriptor ProducerPrerequisite { get; }
-        public AnalysisStructuralPrerequisiteDescriptor QueryPrerequisite { get; }
+        public InspectionQuery<int> ProducerQuery { get; }
+        public AnalysisProducerPrerequisiteDescriptor ProducerPrerequisite { get; }
+        public AnalysisQueryPrerequisiteDescriptor QueryPrerequisite { get; }
         public AnalysisDescriptor Analysis { get; }
         public AnalysisCapabilityCatalog Catalog { get; }
         public AnalysisUniverseDescription HealthyUniverse { get; }
         public AnalysisPlanningEnvironment Environment { get; }
+        public IInspectionQueryCatalog QueryCatalog { get; }
+        public int ProducerExecutions { get; private set; }
 
         public AnalysisReportSurface WorkspaceSurface() =>
             new(
@@ -653,6 +858,38 @@ public sealed class AnalysisRequestTests
                         WorkspaceDomain,
                         new TargetIdentity("workspace")),
                 ]);
+
+        public AnalysisReportSurface MemberSurface() =>
+            new(
+                AnalysisReportSurfaceKind.Member,
+                new SurfaceIdentity("member"),
+                [
+                    new AnalysisTargetBinding(
+                        MemberAnchor,
+                        new TargetIdentity("member")),
+                ]);
+
+        public AnalysisDescriptor WithWorkspaceRoles(
+            params AnalysisTargetRoleDescriptor[] roles) =>
+            new(
+                Analysis.Id,
+                Analysis.Revision,
+                Analysis.Cost,
+                Analysis.Modes,
+                [
+                    new AnalysisReportSurfaceSupport(
+                        AnalysisReportSurfaceKind.Workspace,
+                        AnalysisQuestionMode.Census,
+                        roles),
+                    new AnalysisReportSurfaceSupport(
+                        AnalysisReportSurfaceKind.Member,
+                        AnalysisQuestionMode.Targeted,
+                        [MemberAnchor, FallbackAnchor]),
+                ],
+                Analysis.UniverseRequirements,
+                Analysis.StructuralPrerequisites,
+                Analysis.HostRequirements,
+                Analysis.Projections);
 
         public AnalysisRequest Request(
             AnalysisDescriptor? analysis = default,
@@ -690,15 +927,25 @@ public sealed class AnalysisRequestTests
 
         public AnalysisRequestPlan Accepted(
             AnalysisRequest request,
-            AnalysisPlanningEnvironment? environment = null) =>
-            Assert.IsType<AnalysisRequestPlanResult.Accepted>(
-                Catalog.Plan(request, environment ?? Environment)).Plan;
+            AnalysisPlanningEnvironment? environment = null)
+        {
+            AnalysisRequestPlan plan =
+                Assert.IsType<AnalysisRequestPlanResult.Accepted>(
+                    Catalog.Plan(request, environment ?? Environment)).Plan;
+            Assert.Equal(0, ProducerExecutions);
+            return plan;
+        }
 
         public AnalysisRequestRejection Rejected(
             AnalysisRequest request,
-            AnalysisPlanningEnvironment? environment = null) =>
-            Assert.IsType<AnalysisRequestPlanResult.Rejected>(
-                Catalog.Plan(request, environment ?? Environment)).Rejection;
+            AnalysisPlanningEnvironment? environment = null)
+        {
+            AnalysisRequestRejection rejection =
+                Assert.IsType<AnalysisRequestPlanResult.Rejected>(
+                    Catalog.Plan(request, environment ?? Environment)).Rejection;
+            Assert.Equal(0, ProducerExecutions);
+            return rejection;
+        }
 
         static AnalysisUniverseCapabilityDescriptor Capability(string id) =>
             new(new AnalysisDeclarationId(id), id);
@@ -717,8 +964,6 @@ public sealed class AnalysisRequestTests
         static AnalysisProjectionDescriptor Projection(string id) =>
             new(new AnalysisDeclarationId(id));
 
-        static AnalysisStructuralPrerequisiteDescriptor Prerequisite(string id) =>
-            new(new AnalysisDeclarationId(id));
     }
 
     sealed record SurfaceIdentity(string Value)

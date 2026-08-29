@@ -224,15 +224,44 @@ public sealed class AnalysisUniverseRequirementDescriptor
 }
 
 /// <summary>One producer or query registration required before execution.</summary>
-public sealed class AnalysisStructuralPrerequisiteDescriptor
+public abstract class AnalysisStructuralPrerequisiteDescriptor
 {
-    public AnalysisStructuralPrerequisiteDescriptor(AnalysisDeclarationId id)
+    private protected AnalysisStructuralPrerequisiteDescriptor(
+        AnalysisDeclarationId id)
     {
         ArgumentNullException.ThrowIfNull(id);
         Id = id;
     }
 
     public AnalysisDeclarationId Id { get; }
+}
+
+/// <summary>An exact typed query registration required before execution.</summary>
+public sealed class AnalysisQueryPrerequisiteDescriptor
+    : AnalysisStructuralPrerequisiteDescriptor
+{
+    public AnalysisQueryPrerequisiteDescriptor(
+        AnalysisDeclarationId id,
+        InspectionQueryDefinition query)
+        : base(id)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        Query = query;
+    }
+
+    public InspectionQueryDefinition Query { get; }
+}
+
+/// <summary>
+/// One owner-issued non-query producer registration required before execution.
+/// </summary>
+public sealed class AnalysisProducerPrerequisiteDescriptor
+    : AnalysisStructuralPrerequisiteDescriptor
+{
+    public AnalysisProducerPrerequisiteDescriptor(AnalysisDeclarationId id)
+        : base(id)
+    {
+    }
 }
 
 /// <summary>
@@ -242,18 +271,13 @@ public sealed class AnalysisStructuralPrerequisiteDescriptor
 public sealed class AnalysisHostRequirementDescriptor
 {
     public AnalysisHostRequirementDescriptor(
-        AnalysisDeclarationId id,
-        InspectionCost cost)
+        AnalysisDeclarationId id)
     {
         ArgumentNullException.ThrowIfNull(id);
-        if (!Enum.IsDefined(cost))
-            throw new ArgumentOutOfRangeException(nameof(cost));
         Id = id;
-        Cost = cost;
     }
 
     public AnalysisDeclarationId Id { get; }
-    public InspectionCost Cost { get; }
 }
 
 /// <summary>One owner-issued result projection supported by an analysis.</summary>
@@ -341,6 +365,7 @@ public sealed class AnalysisDescriptor
     public AnalysisDescriptor(
         AnalysisDeclarationId id,
         int revision,
+        InspectionCost cost,
         IEnumerable<AnalysisQuestionMode> modes,
         IEnumerable<AnalysisReportSurfaceSupport> reportSurfaces,
         IEnumerable<AnalysisUniverseRequirementDescriptor> universeRequirements,
@@ -350,9 +375,12 @@ public sealed class AnalysisDescriptor
     {
         ArgumentNullException.ThrowIfNull(id);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(revision);
+        if (!Enum.IsDefined(cost))
+            throw new ArgumentOutOfRangeException(nameof(cost));
         ArgumentNullException.ThrowIfNull(modes);
         Id = id;
         Revision = revision;
+        Cost = cost;
         Modes = CopyDistinctModes(modes, nameof(modes));
         if (Modes.IsEmpty)
             throw new ArgumentException("At least one question mode is required.", nameof(modes));
@@ -380,10 +408,12 @@ public sealed class AnalysisDescriptor
         ValidateSurfaceDeclarations();
         ValidateProjectionDeclarations();
         ValidateRequirementModes();
+        ValidateModeCoherence();
     }
 
     public AnalysisDeclarationId Id { get; }
     public int Revision { get; }
+    public InspectionCost Cost { get; }
     public ImmutableArray<AnalysisQuestionMode> Modes { get; }
     public ImmutableArray<AnalysisReportSurfaceSupport> ReportSurfaces { get; }
     public ImmutableArray<AnalysisUniverseRequirementDescriptor> UniverseRequirements { get; }
@@ -441,6 +471,46 @@ public sealed class AnalysisDescriptor
                 nameof(UniverseRequirements));
         }
     }
+
+    void ValidateModeCoherence()
+    {
+        foreach (AnalysisQuestionMode mode in Modes)
+        {
+            if (!Projections.Any(projection => projection.Modes.Contains(mode)))
+            {
+                throw new ArgumentException(
+                    "Every supported mode must have a supported projection.",
+                    nameof(Projections));
+            }
+
+            bool hasViableSurface = ReportSurfaces.Any(surface =>
+                surface.Mode == mode && IsViable(surface, mode));
+            if (!hasViableSurface)
+            {
+                throw new ArgumentException(
+                    "Every supported mode must have a satisfiable report surface.",
+                    nameof(ReportSurfaces));
+            }
+        }
+    }
+
+    static bool IsViable(
+        AnalysisReportSurfaceSupport surface,
+        AnalysisQuestionMode mode) =>
+        mode switch
+        {
+            AnalysisQuestionMode.Targeted => surface.TargetRoles.Any(role =>
+                role.Function == AnalysisTargetFunction.PrivilegedAnchor
+                && role.MaximumCount > 0),
+            AnalysisQuestionMode.Census =>
+                surface.TargetRoles.Any(role =>
+                    role.Function == AnalysisTargetFunction.ReportDomain
+                    && role.MaximumCount > 0)
+                && !surface.TargetRoles.Any(role =>
+                    role.Function == AnalysisTargetFunction.PrivilegedAnchor
+                    && role.MinimumCount > 0),
+            _ => false,
+        };
 
     static ImmutableArray<AnalysisQuestionMode> CopyDistinctModes(
         IEnumerable<AnalysisQuestionMode> values,
@@ -644,7 +714,8 @@ public sealed class AnalysisRequestPlan
         AnalysisReportSurface reportSurface,
         AnalysisUniverseDescription universe,
         AnalysisProjectionDescriptor projection,
-        ImmutableArray<AnalysisUniverseRequirementDescriptor> universeRequirements)
+        ImmutableArray<AnalysisUniverseRequirementDescriptor> universeRequirements,
+        InspectionCost cost)
     {
         Request = request;
         Analysis = analysis;
@@ -652,6 +723,7 @@ public sealed class AnalysisRequestPlan
         Universe = universe;
         Mode = request.Mode;
         Projection = projection;
+        Cost = cost;
         UniverseRequirements = universeRequirements;
         StructuralPrerequisites = analysis.StructuralPrerequisites;
         HostRequirements = analysis.HostRequirements;
@@ -663,6 +735,7 @@ public sealed class AnalysisRequestPlan
     public AnalysisUniverseDescription Universe { get; }
     public AnalysisQuestionMode Mode { get; }
     public AnalysisProjectionDescriptor Projection { get; }
+    public InspectionCost Cost { get; }
     public ImmutableArray<AnalysisUniverseRequirementDescriptor> UniverseRequirements { get; }
     public ImmutableArray<AnalysisStructuralPrerequisiteDescriptor> StructuralPrerequisites { get; }
     public ImmutableArray<AnalysisHostRequirementDescriptor> HostRequirements { get; }
@@ -675,37 +748,63 @@ public sealed class AnalysisRequestPlan
 /// <summary>Structural prerequisite availability for one planning host.</summary>
 public sealed class AnalysisPlanningEnvironment
 {
-    readonly ImmutableHashSet<AnalysisStructuralPrerequisiteDescriptor>
-        _availablePrerequisites;
+    readonly IInspectionQueryCatalog? _queryCatalog;
+    readonly ImmutableHashSet<AnalysisProducerPrerequisiteDescriptor>
+        _availableProducerPrerequisites;
 
     public AnalysisPlanningEnvironment(
-        IEnumerable<AnalysisStructuralPrerequisiteDescriptor>? availablePrerequisites = null)
+        IInspectionQueryCatalog? queryCatalog = null,
+        IEnumerable<AnalysisProducerPrerequisiteDescriptor>?
+            availableProducerPrerequisites = null)
     {
-        if (availablePrerequisites is null)
+        _queryCatalog = queryCatalog;
+        if (availableProducerPrerequisites is null)
         {
-            _availablePrerequisites =
-                ImmutableHashSet.Create<AnalysisStructuralPrerequisiteDescriptor>(
+            _availableProducerPrerequisites =
+                ImmutableHashSet.Create<AnalysisProducerPrerequisiteDescriptor>(
                     ReferenceEqualityComparer.Instance);
             return;
         }
 
-        ImmutableArray<AnalysisStructuralPrerequisiteDescriptor> prerequisites =
-            [.. availablePrerequisites];
+        ImmutableArray<AnalysisProducerPrerequisiteDescriptor> prerequisites =
+            [.. availableProducerPrerequisites];
         if (prerequisites.Any(prerequisite => prerequisite is null))
         {
             throw new ArgumentException(
                 "The environment cannot contain null.",
-                nameof(availablePrerequisites));
+                nameof(availableProducerPrerequisites));
         }
-        _availablePrerequisites = ImmutableHashSet.CreateRange<
-            AnalysisStructuralPrerequisiteDescriptor>(
+        _availableProducerPrerequisites = ImmutableHashSet.CreateRange<
+            AnalysisProducerPrerequisiteDescriptor>(
             ReferenceEqualityComparer.Instance,
             prerequisites);
     }
 
     internal bool IsAvailable(
         AnalysisStructuralPrerequisiteDescriptor prerequisite) =>
-        _availablePrerequisites.Contains(prerequisite);
+        prerequisite switch
+        {
+            AnalysisQueryPrerequisiteDescriptor query =>
+                _queryCatalog?.Contains(query.Query) is true,
+            AnalysisProducerPrerequisiteDescriptor producer =>
+                _availableProducerPrerequisites.Contains(producer),
+            _ => false,
+        };
+
+    internal InspectionCost CostOf(
+        AnalysisDescriptor analysis,
+        IEnumerable<AnalysisStructuralPrerequisiteDescriptor> prerequisites)
+    {
+        InspectionCost cost = analysis.Cost;
+        foreach (AnalysisQueryPrerequisiteDescriptor query in
+            prerequisites.OfType<AnalysisQueryPrerequisiteDescriptor>())
+        {
+            InspectionCost queryCost = _queryCatalog!.CostOf(query.Query);
+            if (queryCost > cost)
+                cost = queryCost;
+        }
+        return cost;
+    }
 }
 
 /// <summary>
@@ -783,8 +882,11 @@ public sealed class AnalysisCapabilityCatalog
 
         bool hasAnchor = reportSurface.Targets.Any(target =>
             target.Role.Function == AnalysisTargetFunction.PrivilegedAnchor);
+        bool hasReportDomain = reportSurface.Targets.Any(target =>
+            target.Role.Function == AnalysisTargetFunction.ReportDomain);
         if ((request.Mode == AnalysisQuestionMode.Targeted && !hasAnchor)
-            || (request.Mode == AnalysisQuestionMode.Census && hasAnchor))
+            || (request.Mode == AnalysisQuestionMode.Census
+                && (hasAnchor || !hasReportDomain)))
         {
             return Reject(AnalysisRequestRejectionReason.InvalidMode);
         }
@@ -850,6 +952,9 @@ public sealed class AnalysisCapabilityCatalog
         if (supportedProjection is null)
             return Reject(AnalysisRequestRejectionReason.UnsupportedProjection);
 
+        InspectionCost cost = environment.CostOf(
+            analysis,
+            analysis.StructuralPrerequisites);
         return new AnalysisRequestPlanResult.Accepted(
             new AnalysisRequestPlan(
                 request,
@@ -857,7 +962,8 @@ public sealed class AnalysisCapabilityCatalog
                 reportSurface,
                 request.Universe,
                 projection,
-                requiredUniverseCapabilities));
+                requiredUniverseCapabilities,
+                cost));
     }
 
     static AnalysisRequestPlanResult.Rejected Reject(
