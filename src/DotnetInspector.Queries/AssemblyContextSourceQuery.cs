@@ -981,7 +981,8 @@ public static class AssemblyContextSourceQuery
             {
                 AssemblyBindingSelection.Selected selected =>
                     AssemblyBindingSelection.Found(
-                        Observe(selected.Assembly)),
+                        Observe(selected.Assembly),
+                        [.. selected.ShadowedAssemblies.Select(Observe)]),
                 AssemblyBindingSelection.Ambiguous ambiguous =>
                     AssemblyBindingSelection.Multiple(
                         [.. ambiguous.Assemblies.Select(Observe)]),

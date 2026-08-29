@@ -97,7 +97,7 @@ stderr rather than mixed into structured output.
 | Capability | Commands | Highlights |
 | ---------- | -------- | ---------- |
 | Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, vulnerability data, custom feeds, and NuGet config support. |
-| Project package skills and docs | `project` | Direct dependency `Skills` rows from package `skills/**/SKILL.md` files plus version-resolved package docs when present in a restored project context. |
+| Project package skills and docs | `project` | Direct dependency `Skills` rows from valid package `skills/**/SKILL.md` files plus version-resolved package docs in a restored project context. Skill inventory values and complete documents that require containment become `[Text omitted: required containment]`. |
 | Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, SourceLink, PDBs, references, resources, async methods, and body-shape search. |
 | API and package discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, direct calls/callers, source, decompiled C#, IL, and package-prefix discovery. |
