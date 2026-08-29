@@ -47,7 +47,6 @@ public class SkillCommand
         new SkillEntry("sourcelink", "dotnet-inspect.skills.sourcelink.md"),
         new SkillEntry("metadata", "dotnet-inspect.skills.metadata.md"),
         new SkillEntry("decompiler", "dotnet-inspect.skills.decompiler.md"),
-        new SkillEntry("deep-inspect", "dotnet-inspect.skills.deep-inspect.md"),
         new SkillEntry("performance", "dotnet-inspect.skills.performance.md"),
         new SkillEntry("relationships", "dotnet-inspect.skills.relationships.md"),
     ];
