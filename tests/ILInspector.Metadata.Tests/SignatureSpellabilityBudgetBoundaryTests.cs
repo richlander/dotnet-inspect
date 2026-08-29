@@ -94,59 +94,156 @@ public class SignatureSpellabilityBudgetBoundaryTests
     }
 
     // MetadataTypeDefinitionNameReader.Read walks a chain before it
-    // materializes any segment, and that chain's length is itself a charged
-    // quantity. Every call site must price the walk one of two ways: hand the
-    // reader a callback, or charge the same chain directly.
+    // materializes any segment, and that walk is charged work. There is exactly
+    // one way to pay for it: hand the reader the chargeChain callback. Every
+    // call site in the provider does so, including GetTypeFromReference, whose
+    // own explicit ChargeMetadataWork pays for its *second* walk over the same
+    // resolution scope rather than for the read's walk.
     //
-    // GetTypeFromDefinition takes the first route, because nothing else walks a
-    // TypeDef's declaring chain. GetTypeFromReference takes the second, because
-    // the chain its name read walks is the resolution scope it already walks and
-    // charges itself -- passing a callback there would charge that chain twice.
-    // A call site that does neither reintroduces an unpriced walk.
+    // The single rule matters as much as the charge. An earlier version of this
+    // gate accepted either a callback or a bare ChargeMetadataWork call
+    // somewhere in the method, and had to guess which route a site had taken.
+    // Both guesses were bypassable: Read(reader, handle, null) satisfied an
+    // argument-count test while charging nothing, and ChargeMetadataWork(0)
+    // satisfied a method-wide existence test while removing the accounting.
+    // This gate therefore checks the argument itself.
     [Fact]
     public void NameReadsChargeTheChainTheyWalk()
     {
         ClassDeclarationSyntax provider = Provider();
-        var reads = new List<(string Method, int Arguments, bool ChargesChain)>();
+        var reads = new List<(string Method, bool ChargesChain)>();
         foreach (MethodDeclarationSyntax method in
             provider.Members.OfType<MethodDeclarationSyntax>())
         {
-            bool chargesChain = method
-                .DescendantNodes()
-                .OfType<InvocationExpressionSyntax>()
-                .Any(invocation =>
-                    invocation.Expression
-                        is MemberAccessExpressionSyntax charge
-                    && charge.Name.Identifier.ValueText
-                        == "ChargeMetadataWork");
-
             foreach (InvocationExpressionSyntax invocation in
                 method.DescendantNodes().OfType<InvocationExpressionSyntax>())
             {
-                if (invocation.Expression is MemberAccessExpressionSyntax access
-                    && access.Name.Identifier.ValueText == "Read"
-                    && access.Expression is IdentifierNameSyntax reader
-                    && reader.Identifier.ValueText
-                        == "MetadataTypeDefinitionNameReader")
+                if (invocation.Expression is not MemberAccessExpressionSyntax access
+                    || access.Name.Identifier.ValueText != "Read"
+                    || access.Expression is not IdentifierNameSyntax reader
+                    || reader.Identifier.ValueText
+                        != "MetadataTypeDefinitionNameReader")
                 {
-                    reads.Add((
-                        method.Identifier.ValueText,
-                        invocation.ArgumentList.Arguments.Count,
-                        chargesChain));
+                    continue;
                 }
+
+                // Only the field itself counts. A null literal, a default
+                // expression, or any other constant is not a charge, however
+                // it is spelled or positioned.
+                bool chargesChain = invocation.ArgumentList.Arguments.Any(
+                    argument =>
+                        argument.Expression is IdentifierNameSyntax charge
+                        && charge.Identifier.ValueText == "_chargeChainWalk");
+
+                reads.Add((method.Identifier.ValueText, chargesChain));
             }
         }
 
-        // A gate that matches nothing passes for the wrong reason. Both the
-        // reads and the TypeDef site must actually be found.
-        Assert.NotEmpty(reads);
+        // A gate that matches nothing passes for the wrong reason. Both read
+        // sites must actually be found before the charge assertion means
+        // anything.
+        Assert.Equal(2, reads.Count);
         Assert.Contains(reads, read => read.Method == "GetTypeFromDefinition");
+        Assert.Contains(reads, read => read.Method == "GetTypeFromReference");
 
         string[] unpriced = reads
-            .Where(read => read.Arguments < 3 && !read.ChargesChain)
+            .Where(read => !read.ChargesChain)
             .Select(read => read.Method)
             .ToArray();
         Assert.Empty(unpriced);
+
+        // GetTypeFromReference walks the resolution scope a second time to
+        // recover the terminal, and charges that walk itself. Asserting only
+        // that some ChargeMetadataWork call exists lets the accounting be
+        // replaced by ChargeMetadataWork(0), so bind the charge to the length
+        // the traversal produced.
+        MethodDeclarationSyntax fromReference = Assert.Single(
+            provider.Members.OfType<MethodDeclarationSyntax>(),
+            candidate =>
+                candidate.Identifier.ValueText == "GetTypeFromReference");
+        Assert.Contains(
+            fromReference.DescendantNodes().OfType<InvocationExpressionSyntax>(),
+            invocation =>
+                invocation.Expression is MemberAccessExpressionSyntax charge
+                && charge.Name.Identifier.ValueText == "ChargeMetadataWork"
+                && invocation.ArgumentList.Arguments.Count == 1
+                && invocation.ArgumentList.Arguments[0].Expression
+                    is IdentifierNameSyntax length
+                && length.Identifier.ValueText == "chainLength");
+    }
+
+    // Every charge above is routed through one delegate, so the delegate's own
+    // body is the single point where all of them can be silently zeroed.
+    // Gating only the call sites leaves that point unguarded: rewriting the
+    // lambda to ChargeMetadataWork(0) keeps every call site spelled correctly
+    // while charging nothing anywhere. The lambda's parameter must reach the
+    // charge.
+    [Fact]
+    public void ChainChargeDelegateChargesItsOwnArgument()
+    {
+        ClassDeclarationSyntax provider = Provider();
+        SimpleLambdaExpressionSyntax lambda = Assert.Single(
+            provider
+                .DescendantNodes()
+                .OfType<AssignmentExpressionSyntax>()
+                .Where(assignment =>
+                    assignment.Left is IdentifierNameSyntax target
+                    && target.Identifier.ValueText == "_chargeChainWalk")
+                .Select(assignment => assignment.Right)
+                .OfType<SimpleLambdaExpressionSyntax>());
+
+        string parameter = lambda.Parameter.Identifier.ValueText;
+        Assert.Contains(
+            lambda.DescendantNodes().OfType<InvocationExpressionSyntax>(),
+            invocation =>
+                invocation.Expression is MemberAccessExpressionSyntax charge
+                && charge.Name.Identifier.ValueText == "ChargeMetadataWork"
+                && invocation.ArgumentList.Arguments.Count == 1
+                && invocation.ArgumentList.Arguments[0].Expression
+                    is IdentifierNameSyntax argument
+                && argument.Identifier.ValueText == parameter);
+    }
+
+    // The chargeChain callback must stay distinct from beforeMaterialize.
+    // MetadataTypeNameBudget.TryRead invokes beforeMaterialize once per name
+    // component with that component's UTF-8 length, so a provider that passed
+    // its chain charge as beforeMaterialize would also pay for every name --
+    // and pay again through ChargeName, which charges the decoded characters.
+    [Fact]
+    public void ChainChargeIsNotPassedAsTheMaterializationHook()
+    {
+        ClassDeclarationSyntax provider = Provider();
+        foreach (InvocationExpressionSyntax invocation in provider
+            .DescendantNodes()
+            .OfType<InvocationExpressionSyntax>())
+        {
+            if (invocation.Expression is not MemberAccessExpressionSyntax access
+                || access.Name.Identifier.ValueText != "Read"
+                || access.Expression is not IdentifierNameSyntax reader
+                || reader.Identifier.ValueText
+                    != "MetadataTypeDefinitionNameReader")
+            {
+                continue;
+            }
+
+            foreach (ArgumentSyntax argument in invocation.ArgumentList.Arguments)
+            {
+                if (argument.Expression is not IdentifierNameSyntax charge
+                    || charge.Identifier.ValueText != "_chargeChainWalk")
+                {
+                    continue;
+                }
+
+                Assert.True(
+                    argument.NameColon?.Name.Identifier.ValueText
+                        == "chargeChain",
+                    "The chain charge must be passed as the chargeChain "
+                        + "argument. Passing it positionally or as "
+                        + "beforeMaterialize also charges every name "
+                        + "component's UTF-8 length, which ChargeName then "
+                        + "charges a second time.");
+            }
+        }
     }
 
     static ClassDeclarationSyntax Provider()

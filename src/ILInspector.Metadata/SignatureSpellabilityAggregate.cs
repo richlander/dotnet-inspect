@@ -881,16 +881,25 @@ internal sealed class SignatureOccurrenceProvider
         _scopeProjections = [];
     MetadataReader? _projectionReader;
 
-    // A nested TypeDef name is built by walking its declaring chain, which the
-    // name reader prices through this callback before it materializes any
-    // segment. The TypeRef path needs no equivalent: the chain its name reader
-    // walks is the resolution scope, which GetTypeFromReference already walks
-    // and charges itself, so passing a callback there would charge it twice.
+    // Every name read walks a chain -- the declaring chain for a TypeDef, the
+    // resolution scope for a TypeRef -- and each walk is real work that the
+    // ledger must price. This callback charges exactly the node count, once per
+    // walk, and is passed at every read site.
+    //
+    // It is deliberately not the reader's beforeMaterialize hook. That hook
+    // also fires per name component with the component's UTF-8 length, so an
+    // observer that charges names through ChargeName would pay for them twice.
+    //
+    // GetTypeFromReference passes it even though it charges a chain length of
+    // its own: the read walks the resolution scope, and the explicit walk that
+    // recovers the terminal walks it a second time. Two walks happen, so two
+    // charges are owed.
+    //
     // The delegate is cached because a decode projects many names.
-    readonly Action<int> _chargeDeclaringChain;
+    readonly Action<int> _chargeChainWalk;
 
     internal SignatureOccurrenceProvider() =>
-        _chargeDeclaringChain =
+        _chargeChainWalk =
             chainLength => _workBudget.ChargeMetadataWork(chainLength);
 
     public SignatureTypeOccurrences GetPrimitiveType(
@@ -939,7 +948,7 @@ internal sealed class SignatureOccurrenceProvider
             if (MetadataTypeDefinitionNameReader.Read(
                     reader,
                     handle,
-                    _chargeDeclaringChain)
+                    chargeChain: _chargeChainWalk)
                 is not MetadataTypeDefinitionNameReadResult.Read read)
             {
                 throw new BadImageFormatException(
@@ -970,7 +979,10 @@ internal sealed class SignatureOccurrenceProvider
             return One(cached);
         }
 
-        if (MetadataTypeDefinitionNameReader.Read(reader, handle)
+        if (MetadataTypeDefinitionNameReader.Read(
+                reader,
+                handle,
+                chargeChain: _chargeChainWalk)
             is not MetadataTypeDefinitionNameReadResult.Read read)
         {
             throw new BadImageFormatException(

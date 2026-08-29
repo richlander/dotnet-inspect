@@ -542,7 +542,8 @@ internal static class MetadataTypeDefinitionNameReader
     internal static MetadataTypeDefinitionNameReadResult Read(
         MetadataReader reader,
         TypeDefinitionHandle handle,
-        Action<int>? beforeMaterialize = null)
+        Action<int>? beforeMaterialize = null,
+        Action<int>? chargeChain = null)
     {
         Span<TypeDefinitionHandle> rootToLeaf =
             stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -560,7 +561,8 @@ internal static class MetadataTypeDefinitionNameReader
         return ReadChain<TypeDefinitionHandle, TypeDefinitionNameRow>(
             reader,
             rootToLeaf[..consumedNodes],
-            beforeMaterialize);
+            beforeMaterialize,
+            chargeChain);
     }
 
     internal static MetadataTypeDefinitionNameMatch Matches(
@@ -723,7 +725,8 @@ internal static class MetadataTypeDefinitionNameReader
     internal static MetadataTypeDefinitionNameReadResult Read(
         MetadataReader reader,
         TypeReferenceHandle handle,
-        Action<int>? beforeMaterialize = null)
+        Action<int>? beforeMaterialize = null,
+        Action<int>? chargeChain = null)
     {
         Span<TypeReferenceHandle> rootToLeaf =
             stackalloc TypeReferenceHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -741,13 +744,15 @@ internal static class MetadataTypeDefinitionNameReader
         return ReadChain<TypeReferenceHandle, TypeReferenceNameRow>(
             reader,
             rootToLeaf[..consumedNodes],
-            beforeMaterialize);
+            beforeMaterialize,
+            chargeChain);
     }
 
     internal static MetadataTypeDefinitionNameReadResult Read(
         MetadataReader reader,
         ExportedTypeHandle handle,
-        Action<int>? beforeMaterialize = null)
+        Action<int>? beforeMaterialize = null,
+        Action<int>? chargeChain = null)
     {
         Span<ExportedTypeHandle> rootToLeaf =
             stackalloc ExportedTypeHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -765,13 +770,15 @@ internal static class MetadataTypeDefinitionNameReader
         return ReadChain<ExportedTypeHandle, ExportedTypeNameRow>(
             reader,
             rootToLeaf[..consumedNodes],
-            beforeMaterialize);
+            beforeMaterialize,
+            chargeChain);
     }
 
     static MetadataTypeDefinitionNameReadResult ReadChain<THandle, TRow>(
         MetadataReader reader,
         ReadOnlySpan<THandle> rootToLeaf,
-        Action<int>? beforeMaterialize = null)
+        Action<int>? beforeMaterialize = null,
+        Action<int>? chargeChain = null)
         where THandle : struct
         where TRow : struct, IMetadataTypeNameRow<THandle>
     {
@@ -779,6 +786,13 @@ internal static class MetadataTypeDefinitionNameReader
         // per chain node before any name is read, so charge that structural
         // cost up front rather than relying on the per-component charges alone.
         beforeMaterialize?.Invoke(rootToLeaf.Length);
+
+        // chargeChain prices only the walk: it fires once, with the node count,
+        // and never per component. beforeMaterialize cannot serve that role,
+        // because MetadataTypeNameBudget.TryRead also invokes it with each
+        // component's UTF-8 length. An observer that charges names separately
+        // would pay for them twice through that hook.
+        chargeChain?.Invoke(rootToLeaf.Length);
         var segments = ImmutableArray.CreateBuilder<string>(rootToLeaf.Length);
         string? @namespace = null;
         var budget = new MetadataTypeNameBudget();
