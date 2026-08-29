@@ -195,6 +195,7 @@ public sealed class PluginCredentialProvider : ICredentialSource, IAsyncDisposab
                 }
 
                 await existing.DisposeAsync().ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
                 _connections.Remove(executable.Path);
             }
 

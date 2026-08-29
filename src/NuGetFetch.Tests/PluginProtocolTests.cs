@@ -352,6 +352,65 @@ public sealed class PluginProtocolTests : IDisposable
     }
 
     [Fact]
+    public async Task CancellationWhileReplacingAClosedConnectionRemainsCancellation()
+    {
+        var quiescenceAwaiting = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseQuiescence = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var hooksEnabled = new ManualResetEventSlim();
+        int blockNextQuiescence = 1;
+        var hooks = new PluginConnection.PluginConnectionTestHooks
+        {
+            ConnectionQuiescenceAwaiting = () =>
+            {
+                if (hooksEnabled.IsSet
+                    && Interlocked.Exchange(ref blockNextQuiescence, 0) == 1)
+                {
+                    quiescenceAwaiting.TrySetResult();
+                    releaseQuiescence.Task
+                        .WaitAsync(
+                            TimeSpan.FromSeconds(2),
+                            TestContext.Current.CancellationToken)
+                        .GetAwaiter()
+                        .GetResult();
+                }
+            },
+        };
+        FakePlugin plugin = CreatePlugin(
+            "cancel-closed-replacement",
+            username: "right",
+            password: "token",
+            exitOnFirstCredentialRequest: true);
+
+        await using var provider = new PluginCredentialProvider(null, [plugin.Executable], hooks);
+        Assert.Null(await provider.GetCredentialsAsync(
+            new Uri("https://first.example/v3/index.json"),
+            false,
+            TestContext.Current.CancellationToken));
+
+        hooksEnabled.Set();
+        using var cancellation = new CancellationTokenSource();
+        Task<PackageSourceCredential?> replacement = Task.Run(
+            () => provider.GetCredentialsAsync(
+                new Uri("https://second.example/v3/index.json"),
+                false,
+                cancellation.Token),
+            TestContext.Current.CancellationToken);
+
+        await quiescenceAwaiting.Task.WaitAsync(
+            TimeSpan.FromSeconds(2),
+            TestContext.Current.CancellationToken);
+        cancellation.Cancel();
+        releaseQuiescence.TrySetResult();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await replacement.WaitAsync(
+                TimeSpan.FromSeconds(2),
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task CredentialsRestrictedToOtherAuthSchemesAreNotUsed()
     {
         FakePlugin plugin = CreatePlugin("negotiate", username: "u", password: "p", authenticationTypes: "negotiate");

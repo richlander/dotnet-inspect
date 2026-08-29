@@ -136,6 +136,11 @@ internal sealed class PluginConnection : IAsyncDisposable
                 return connection;
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            await connection.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
         catch (Exception ex)
         {
             log?.Invoke($"Credential plugin initialization failed ({plugin.Path}): {ex.Message}");

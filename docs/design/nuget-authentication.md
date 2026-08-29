@@ -212,6 +212,8 @@ before and after receiver loss by `PluginProtocolTests.CallerCancellationContinu
 `PluginProtocolTests.CanceledRequestAfterReceiverLossRemainsCancellation`, including the
 admission-monitor race checked by
 `PluginProtocolTests.CancellationWhileWaitingForClosedAdmissionRemainsCancellation`.
+Cancellation while a terminal cached connection is being replaced likewise propagates, enforced by
+`PluginProtocolTests.CancellationWhileReplacingAClosedConnectionRemainsCancellation`.
 
 ### Unattended by default
 
