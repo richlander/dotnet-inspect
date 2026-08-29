@@ -354,11 +354,27 @@ static class EnumUnderlyingPrimitive
         return false;
     }
 
+    /// <summary>
+    /// Caps <see cref="Matches"/> recursion. Each step walks outward along two
+    /// chains at once -- a reference's resolution scope and a definition's
+    /// declaring type -- and metadata is untrusted, so neither chain is
+    /// guaranteed to reach an end. A NestedClass table naming two types as each
+    /// other's declaring type, paired with two references naming each other as
+    /// resolution scope, otherwise recurses until the stack is exhausted, and a
+    /// stack overflow cannot be caught. Real nesting is orders of magnitude
+    /// shallower than this bound.
+    /// </summary>
+    const int MaxNestingDepth = 128;
+
     static bool Matches(
         MetadataReader reader,
         TypeReferenceHandle referenceHandle,
-        TypeDefinitionHandle definitionHandle)
+        TypeDefinitionHandle definitionHandle,
+        int depth = 0)
     {
+        if (depth > MaxNestingDepth)
+            return false;
+
         var comparer = reader.StringComparer;
         var reference = reader.GetTypeReference(referenceHandle);
         var definition = reader.GetTypeDefinition(definitionHandle);
@@ -372,7 +388,8 @@ static class EnumUnderlyingPrimitive
                 && Matches(
                     reader,
                     (TypeReferenceHandle)reference.ResolutionScope,
-                    enclosing);
+                    enclosing,
+                    depth + 1);
         }
 
         return definition.GetDeclaringType().IsNil

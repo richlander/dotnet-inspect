@@ -171,6 +171,8 @@ public static class CustomAttributeValueGuard
         bool _substituteGenerics = true;
         string? _memoEnumName;
         PrimitiveTypeCode _memoEnumWidth;
+        EntityHandle _memoEnumHandle;
+        PrimitiveTypeCode _memoEnumHandleWidth;
 
         public void Push(WorkItem item) => _work.Push(item);
 
@@ -201,6 +203,37 @@ public static class CustomAttributeValueGuard
             {
                 _memoEnumName = enumName;
                 _memoEnumWidth = width;
+            }
+
+            return width;
+        }
+
+        /// <summary>
+        /// Resolves a signature-named enum handle to its width, reusing the
+        /// previous answer when the handle repeats. This is the handle-typed
+        /// twin of <see cref="ResolveEnumNameMemoized"/> and exists for the
+        /// same reason: every element of a typed enum array re-parses the same
+        /// element type, so without this the walk resolves that handle once per
+        /// attacker-chosen element. Resolving a reference scans the definition
+        /// table, which would make the scan itself the amplification the guard
+        /// is meant to bound. The width is a pure function of the reader and
+        /// the handle, so a repeated handle has a repeated answer and
+        /// guard/SRM alignment is unaffected.
+        /// </summary>
+        PrimitiveTypeCode ResolveEnumHandleMemoized(EntityHandle handle)
+        {
+            if (!handle.IsNil && handle == _memoEnumHandle)
+                return _memoEnumHandleWidth;
+
+            PrimitiveTypeCode width = ResolveEnum(
+                _reader,
+                handle,
+                _beforeMaterialize,
+                _enumUnderlyingType);
+            if (!handle.IsNil)
+            {
+                _memoEnumHandle = handle;
+                _memoEnumHandleWidth = width;
             }
 
             return width;
@@ -305,7 +338,7 @@ public static class CustomAttributeValueGuard
                     _signature.ReadTypeHandle(),
                     ref _value,
                     _beforeMaterialize,
-                    _enumUnderlyingType),
+                    ResolveEnumHandleMemoized),
                 ElementTypeVar or ElementTypeMVar => _substituteGenerics
                     ? ProcessGenericParameter(
                         depth,
@@ -640,7 +673,7 @@ public static class CustomAttributeValueGuard
         EntityHandle handle,
         ref BlobReader value,
         Action<int>? beforeMaterialize,
-        Func<string, PrimitiveTypeCode>? enumUnderlyingType)
+        Func<EntityHandle, PrimitiveTypeCode> resolveEnum)
     {
         // SRM special-cases only a rendered name of "System.Type"
         // (ArgTypeProvider.IsSystemType). Structural ns+name checks miss
@@ -652,8 +685,7 @@ public static class CustomAttributeValueGuard
                 beforeMaterialize);
         return SkipBytes(
             ref value,
-            EnumUnderlyingPrimitive.ByteSize(
-                ResolveEnum(reader, handle, beforeMaterialize, enumUnderlyingType)));
+            EnumUnderlyingPrimitive.ByteSize(resolveEnum(handle)));
     }
 
     static Result ReadFieldOrPropType(

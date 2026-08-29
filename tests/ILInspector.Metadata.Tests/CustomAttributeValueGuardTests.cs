@@ -2337,6 +2337,102 @@ public sealed class CustomAttributeValueGuardTests
     }
 
     [Fact]
+    public void CyclicNestingAndResolutionScope_TerminatesInsteadOfOverflowing()
+    {
+        // Structural matching walks two chains outward at once: a reference's
+        // resolution scope and a definition's declaring type. Neither is
+        // trustworthy. A NestedClass table naming two types as each other's
+        // declaring type, paired with two references naming each other as
+        // resolution scope, advances both chains forever.
+        //
+        // The guard exists to make hostile metadata safe, and it resolves every
+        // handle-typed enum through this path, so unbounded recursion here is a
+        // process kill: a stack overflow cannot be caught. This test fails by
+        // taking the whole test host down, so keep the bound in place.
+        using var image = Open(BuildCyclicNestingImage());
+        MetadataReader reader = image.Reader;
+
+        TypeDefinition a = reader.GetTypeDefinition(MetadataTokens.TypeDefinitionHandle(2));
+        TypeDefinition b = reader.GetTypeDefinition(MetadataTokens.TypeDefinitionHandle(3));
+        Assert.Equal(3, MetadataTokens.GetRowNumber(a.GetDeclaringType()));
+        Assert.Equal(2, MetadataTokens.GetRowNumber(b.GetDeclaringType()));
+
+        TypeReference refA = reader.GetTypeReference(MetadataTokens.TypeReferenceHandle(2));
+        TypeReference refB = reader.GetTypeReference(MetadataTokens.TypeReferenceHandle(3));
+        Assert.Equal(HandleKind.TypeReference, refA.ResolutionScope.Kind);
+        Assert.Equal(HandleKind.TypeReference, refB.ResolutionScope.Kind);
+
+        Assert.False(
+            EnumUnderlyingPrimitive.TryResolveDefinition(
+                reader,
+                MetadataTokens.TypeReferenceHandle(2),
+                out _));
+    }
+
+    static byte[] BuildCyclicNestingImage()
+    {
+        var metadata = CreateMetadata("CyclicNesting");
+        AssemblyReferenceHandle other = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle systemEnum = metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Enum"));
+
+        // Rows 2 and 3 name each other as resolution scope.
+        TypeReferenceHandle referenceA = metadata.AddTypeReference(
+            MetadataTokens.TypeReferenceHandle(3),
+            default,
+            metadata.GetOrAddString("A"));
+        TypeReferenceHandle referenceB = metadata.AddTypeReference(
+            MetadataTokens.TypeReferenceHandle(2),
+            default,
+            metadata.GetOrAddString("B"));
+        Assert.Equal(2, MetadataTokens.GetRowNumber(referenceA));
+        Assert.Equal(3, MetadataTokens.GetRowNumber(referenceB));
+
+        var int32Field = new BlobBuilder();
+        new BlobEncoder(int32Field).FieldSignature().Int32();
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName,
+            metadata.GetOrAddString("value__"),
+            metadata.GetOrAddBlob(int32Field));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle definitionA = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            default,
+            metadata.GetOrAddString("A"),
+            systemEnum,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle definitionB = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            default,
+            metadata.GetOrAddString("B"),
+            systemEnum,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        // And each is declared inside the other.
+        metadata.AddNestedType(definitionA, definitionB);
+        metadata.AddNestedType(definitionB, definitionA);
+
+        return Serialize(metadata);
+    }
+
+    [Fact]
     public void EnumArrayElements_ResolveTheWidthOncePerName()
     {
         // Every element of a typed enum array carries the same enum name. The
