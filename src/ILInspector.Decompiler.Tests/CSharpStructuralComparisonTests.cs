@@ -1670,6 +1670,39 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void IssuedCorrespondence_RoundTripsInferredDeclarationReason()
+    {
+        // Regression: the strict JSON converter for CSharpUnmatchedNodeReason
+        // must know about InferredDeclaration too, or serializing it throws
+        // (AnnotatedSourceContractJsonException) instead of round-tripping.
+        var before = TrustedDocument(
+            "__CallsEmpty_g__F_0_0();",
+            new NodeSpec("InvocationExpression", "__CallsEmpty_g__F_0_0()", [0x10]));
+        var after = TrustedDocument(
+            "F();\nstatic void F() { }",
+            new NodeSpec("InvocationExpression", "F()", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void F() { }", null));
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+        Assert.Equal(
+            CSharpUnmatchedNodeReason.InferredDeclaration,
+            Assert.Single(issued.UnmatchedAfter).Reason);
+
+        string json = JsonSerializer.Serialize(
+            issued,
+            AnnotatedSourceDocumentJsonContext.Default.CSharpNodeCorrespondenceResult);
+        var replayed = JsonSerializer.Deserialize(
+            json,
+            AnnotatedSourceDocumentJsonContext.Default.CSharpNodeCorrespondenceResult);
+
+        Assert.NotNull(replayed);
+        Assert.Equal(issued.UnmatchedAfter, replayed.UnmatchedAfter);
+        Assert.Equal(
+            CSharpUnmatchedNodeReason.InferredDeclaration,
+            Assert.Single(replayed.UnmatchedAfter).Reason);
+        Assert.Equal(2, CSharpBodyDiff.CompareStructure(replayed).Rows.Length);
+    }
+
+    [Fact]
     public void StructuralDiffDocument_ReissuesCorrespondenceAndDerivesRows()
     {
         var before = TrustedDocument(
