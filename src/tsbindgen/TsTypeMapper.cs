@@ -294,9 +294,10 @@ static class TsTypeMapper
         // JSObject is an intentionally opaque direct-interop handle. Its members are owned by
         // the JavaScript caller, so a generated structural type would be less accurate than
         // requiring the caller to supply an explicit host object.
-        if (trimmed is
-            "System.Runtime.InteropServices.JavaScript.JSObject"
-            or "JSObject")
+        if (mappingContext == TsTypeMappingContext.JsInterop
+            && trimmed is (
+                "System.Runtime.InteropServices.JavaScript.JSObject"
+                or "JSObject"))
         {
             return "unknown";
         }

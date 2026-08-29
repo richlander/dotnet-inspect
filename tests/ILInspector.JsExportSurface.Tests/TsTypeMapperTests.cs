@@ -259,4 +259,27 @@ public sealed class TsTypeMapperTests
                 "InspectionEngine.RunPackageQuery.eventSink"));
         Assert.Empty(diagnostics.UnmappedTypes);
     }
+
+    [Theory]
+    [InlineData("System.Runtime.InteropServices.JavaScript.JSObject")]
+    [InlineData("JSObject")]
+    public void MapJsonWireType_JSObjectReportsUnmappedType(string csharpType)
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+
+        Assert.Equal(
+            "unknown",
+            TsTypeMapper.MapJsonWireType(
+                csharpType,
+                RecordNames,
+                diagnostics,
+                "QueryEvent.Sink"));
+        Assert.Collection(
+            diagnostics.UnmappedTypes,
+            diagnostic =>
+            {
+                Assert.Equal("QueryEvent.Sink", diagnostic.Location);
+                Assert.Equal(csharpType, diagnostic.CSharpType);
+            });
+    }
 }

@@ -2536,7 +2536,10 @@ function render() {
     renderCreditsView();
     return;
   }
-  if (state.packageQueryOpen && !state.loading && !state.error) {
+  if (state.packageQueryOpen
+    && state.engineReady
+    && !state.loading
+    && !state.error) {
     loadingBotSrc = null;
     renderPackageQueryPage();
     return;
@@ -9977,14 +9980,30 @@ function navigateInAppUrl(url: URL) {
     goHome();
     return;
   }
-  if (state.packageQueryOpen) {
+  const focusWorkspace = state.packageQueryOpen;
+  if (focusWorkspace) {
     state.packageQueryOpen = false;
     packageQueryController.cancel();
     state.packageQueryNavigationError = "";
   }
+  const navigationSeq = navigationSequence.begin();
   workspaceLocation.push(url.toString());
   const loc = parseLocation();
-  observeAsync(restoreWorkspaceFromLocation(loc, loc), "Navigating");
+  observeAsync((async () => {
+    await restoreWorkspaceFromLocation(loc, loc, navigationSeq);
+    if (!focusWorkspace
+      || !navigationSequence.isCurrent(navigationSeq)
+      || state.loading
+      || state.error
+      || state.packageQueryOpen) {
+      return;
+    }
+    afterCurrentNavigationFrame(() => {
+      if (!focusLevelOneHeading()) {
+        document.querySelector<HTMLElement>("#type-list")?.focus();
+      }
+    });
+  })(), "Navigating");
 }
 
 bindWorkspaceLinkNavigation(document, {
@@ -10405,17 +10424,18 @@ window.addEventListener("popstate", () => {
   dismissModalsForRoutedNavigation();
   invalidateMemberCallGraphWork(state);
   invalidateGraphMemberNavigation();
-  state.loading = false;
   if (isPackageQueryPath(location.pathname)) {
     clearNavigationError();
     applyPackageQueryHistory(history.state);
     state.packageQueryOpen = true;
     state.credits = false;
     state.home = false;
+    state.loading = !state.engineReady;
     render();
-    focusPackageQueryInput();
+    if (state.engineReady) focusPackageQueryInput();
     return;
   }
+  state.loading = false;
   if (state.packageQueryOpen) {
     state.packageQueryOpen = false;
     packageQueryController.cancel();

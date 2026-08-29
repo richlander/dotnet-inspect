@@ -1485,7 +1485,7 @@ test("typed type panel owns its rendered control bindings", () => {
       "#namespace-jump": 0,
     });
   assert.equal(selectorCount("#type-filter"), 1);
-  assert.equal(selectorCount("#type-list"), 5);
+    assert.equal(selectorCount("#type-list"), 6);
 });
 
 test("typed scope bar owns its rendered control bindings", () => {
@@ -2740,6 +2740,9 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /const predecessorEntryId = ensureCurrentHistoryEntryId\(\);[\s\S]*state\.packageQueryOpen = true;[\s\S]*workspaceLocation\.push\([\s\S]*"\/query",[\s\S]*packageQueryHistoryState\([\s\S]*predecessorEntryId,[\s\S]*returnFocus[\s\S]*focusPackageQueryInput\(\)/);
   assert.doesNotMatch(route, /packageQueryController\.run/);
   assert.match(
+    appSource,
+    /if \(state\.packageQueryOpen\s*&& state\.engineReady\s*&& !state\.loading\s*&& !state\.error\)/);
+  assert.match(
     handoff,
     /packageQueryController\.cancel\(\);[\s\S]*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*await loadPackage\([\s\S]*\{ navigationSeq }\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*workspaceLocation\.push\(buildStateUrl\(\)\.toString\(\)\)/);
   assert.match(
@@ -2771,6 +2774,9 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
   assert.match(
     popstate,
     /if \(isPackageQueryPath\(location\.pathname\)\) \{[\s\S]*applyPackageQueryHistory\(history\.state\)/);
+  assert.match(
+    popstate,
+    /state\.loading = !state\.engineReady;\s*render\(\);\s*if \(state\.engineReady\) focusPackageQueryInput\(\)/);
   assert.match(
     popstate,
     /state\.packageQueryReturnFocusPending =\s*state\.packageQueryReturnFocus !== null[\s\S]*isPackageQueryPredecessor\(\s*history\.state,\s*state\.packageQueryPredecessorEntryId\)/);
@@ -2820,7 +2826,10 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /function packageQueryWorkspaceHref\(\): string \{[\s\S]*lastCanonicalWorkspaceHref[\s\S]*buildPackageRootStateUrl/);
   assert.match(
     appSource,
-    /if \(state\.packageQueryOpen\) \{\s*state\.packageQueryOpen = false;\s*packageQueryController\.cancel\(\);\s*state\.packageQueryNavigationError = "";\s*\}\s*workspaceLocation\.push/);
+    /const focusWorkspace = state\.packageQueryOpen;\s*if \(focusWorkspace\) \{\s*state\.packageQueryOpen = false;\s*packageQueryController\.cancel\(\);\s*state\.packageQueryNavigationError = "";\s*\}\s*const navigationSeq = navigationSequence\.begin\(\);\s*workspaceLocation\.push/);
+  assert.match(
+    appSource,
+    /await restoreWorkspaceFromLocation\(loc, loc, navigationSeq\);[\s\S]*navigationSequence\.isCurrent\(navigationSeq\)[\s\S]*afterCurrentNavigationFrame\(\(\) => \{\s*if \(!focusLevelOneHeading\(\)\) \{\s*document\.querySelector<HTMLElement>\("#type-list"\)\?\.focus\(\)/);
   assert.match(
     appSource,
     /url => workspaceLocation\.replace\(url, history\.state\)/);
