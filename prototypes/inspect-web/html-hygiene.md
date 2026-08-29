@@ -52,12 +52,13 @@ Both linters run in `npm run lint`, which CI invokes through `npm run analyze`.
 
 | Tool | Configuration | What it covers |
 | --- | --- | --- |
-| [html-validate][hv] | `.htmlvalidate.json`, `html-elements.json` | HTML validity and the `recommended` preset; `attr-pattern` rejecting every `on*` event handler attribute, in HTML and SVG alike; `require-sri` for cross-origin `<script>` and `<link rel="stylesheet\|modulepreload">` and `rel="preload"` with `as="script\|style"`; the SRI digest grammar, declared as element metadata; `allowed-links` restricting external references to an allow list, on `<a href>`, `<img src>`, `<link href>` and `<script src>` only |
+| [html-validate][hv] | `.htmlvalidate.json`, `html-elements.json` | HTML validity and the `recommended` preset; `attr-pattern` rejecting every `on*` event handler attribute on HTML elements and on the root of an inline SVG or MathML subtree, but *not* on their descendants; `require-sri` for cross-origin `<script>` and `<link rel="stylesheet\|modulepreload">` and `rel="preload"` with `as="script\|style"`; the SRI digest grammar, declared as element metadata; `allowed-links` restricting external references to an allow list, on `<a href>`, `<img src>`, `<link href>` and `<script src>` only |
 | [htmlhint][hh] | `.htmlhintrc` | `inline-script-disabled` -- `javascript:` URLs in link and source attributes |
 
 Inline event handlers are owned by html-validate's `attr-pattern`, configured with a
 pattern that rejects any attribute name beginning `on`, with `ignoreForeign` turned off so
-that it applies inside SVG too. That is deliberately a *shape*
+that it also applies to the root of an inline SVG or MathML subtree (its descendants are a
+[review responsibility](#script-inside-svg)). That is deliberately a *shape*
 rather than a list. htmlhint's `inline-script-disabled` also flags event handlers, but it
 enumerates event names and its list predates the modern ones -- `onpointerdown`,
 `onbeforeinput`, `onanimationstart` and `ontoggle` all pass it. A rule that has to be
@@ -186,7 +187,8 @@ running unpinned.
 `.htmlvalidate.json`. That pattern pins the *version*, not just the host: it matches
 `cdn.jsdelivr.net/npm/<package>@<major>.<minor>.<patch>/`, so `@latest`, a major-only
 `@1`, a bare package name with no version, and `/gh/<user>/<repo>@<branch>/` are all
-rejected.
+rejected. Path segments after the version accept `+`, so jsDelivr's `/+esm` module form
+stays available to a future dependency.
 
 The pattern is anchored at both ends and refuses any URL containing `..`, which is load
 bearing rather than defensive. `allowed-links` matches the **raw attribute string**, not
@@ -195,14 +197,23 @@ fetching: an unanchored prefix match accepted
 `npm/prismjs@1.30.0/../../gh/user/repo/x.js`, which normalises to the `/gh/` route the
 pattern is supposed to reject, and reached real bytes.
 
-That raw-string matching has one residual that configuration cannot close, because it is
-in how `allowed-links` decides what counts as an external link at all: a URL whose
-*scheme* is upper-cased, such as `HTTPS://unpkg.com/...`, is not classified as external
-and so is never tested against the pattern. Both linters accept it and the browser fetches
-it normally.
+That raw-string matching also drives the "external or relative?" decision, and it decided
+wrongly for a whole family of spellings. A leading space or tab, an upper-cased scheme
+(`HTTPS://unpkg.com/...`), a protocol-relative `//host/x.js`, and backslash separators
+(`https:\\host\x.js`) were each classified *relative* -- and a value classified relative
+is never tested against the allow list or by `require-sri`, so any of them loaded
+unpinned third-party code past the entire configuration. Round 5 review found this, and
+it is closed in configuration by `allowRelative.exclude`, which forces anything that
+looks like a scheme or an authority down the external path:
 
-**In review, reject:** any absolute URL whose scheme is not lower-case `https`, and any
-URL containing `..`, wherever it appears.
+```text
+^[ \t\n\f\r]*(?:[A-Za-z][A-Za-z0-9+.-]*:|[/\\]{2})
+```
+
+`/local/x`, `./local/x`, and `src/styles.css` remain relative and are unaffected.
+Specimens in `toolchain.test.ts` hold the setting in place.
+
+**In review, reject:** any URL containing `..`, wherever it appears.
 
 Pinning the version there is not redundant with SRI. SRI does not apply to every element
 that loads bytes -- `<img>` has no `integrity` -- so for those the URL is the only pin
@@ -292,16 +303,26 @@ different attribute in a different namespace, and none of the URL rules look at 
 SVG `<script href>` passes those gates. Element metadata does not help either, because
 html-validate does not apply it to foreign-namespace content.
 
-Inline event handlers *inside* SVG are covered, but only because the configuration says
-so. `attr-pattern` defaults to `ignoreForeign: true`, which skips foreign-namespace
+Inline event handlers on the SVG *root* are covered, but only because the configuration
+says so. `attr-pattern` defaults to `ignoreForeign: true`, which skips foreign-namespace
 content entirely and let `<svg onpointerdown="...">` through both linters while the
 identical handler on an HTML element was rejected. `.htmlvalidate.json` sets
 `ignoreForeign: false`, and a specimen in `toolchain.test.ts` holds it there.
 
+That setting covers the root element and nothing below it. Handlers on SVG and MathML
+*descendants* -- `<circle onpointerdown="...">`, `<path onclick="...">` -- pass both
+linters, because html-validate has no metadata for those elements and skips them.
+Round 5 found this; the round before had shipped a root-element specimen as evidence for
+the broader claim. Closing it in configuration would mean enumerating every SVG element
+in `html-elements.json`, which is the failure mode this whole document exists to get out
+of, so it stays a review responsibility. `toolchain.test.ts` pins the gap, so if a later
+html-validate covers descendants the test fails and this paragraph gets narrowed.
+
 There are no `.svg` files in this project today, and no inline SVG in `index.html`.
 
 **In review, reject:** `<script>` inside SVG, whether it carries `href`, `xlink:href`, or
-a body.
+a body; and any `on*` handler attribute on any SVG or MathML element other than the root,
+including in standalone `.svg` files.
 
 ## Adding a document
 

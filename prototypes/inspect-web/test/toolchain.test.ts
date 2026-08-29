@@ -478,11 +478,19 @@ const markupLinters: readonly MarkupLinter[] = [
           + "</body></html>",
         rule: "attr-pattern",
       },
-      // The same handler inside SVG. This is a separate specimen rather than a variant
-      // of the one above because `attr-pattern` defaults to `ignoreForeign: true` and so
-      // skips foreign-namespace content entirely: with that default an inline SVG
-      // handler passes both linters while the HTML one is rejected. The config turns it
-      // off, and this is what holds that setting in place.
+      // The same handler on the SVG *root*. This is a separate specimen rather than a
+      // variant of the one above because `attr-pattern` defaults to `ignoreForeign:
+      // true` and so skips foreign-namespace content entirely: with that default an
+      // inline SVG handler passes both linters while the HTML one is rejected. The
+      // config turns it off, and this is what holds that setting in place.
+      //
+      // Read this specimen for exactly what it says. It proves `ignoreForeign: false`
+      // is in effect on the foreign root, and nothing about the elements underneath it
+      // -- handlers on SVG *descendants* are not covered by either linter, which is a
+      // review responsibility recorded in `html-hygiene.md` and pinned by
+      // `MARKUP_DESCENDANT_GAP` below. Round 4 shipped this specimen as evidence for
+      // the broader claim, and rounds 5 (GPT-5.6 Sol and Gemini 3.1 Pro, concurrently)
+      // showed the broader claim was false.
       {
         markup: '<!DOCTYPE html><html lang="en"><head><title>t</title></head><body>'
           + '<svg xmlns="http://www.w3.org/2000/svg" onpointerdown="doThing()">'
@@ -518,6 +526,27 @@ const markupLinters: readonly MarkupLinter[] = [
         markup: '<!DOCTYPE html><html lang="en"><head><title>t</title></head><body>'
           + '<img src="https://cdn.jsdelivr.net/npm/prismjs@1.30.0/../../gh/u/r/x.png"'
           + ' alt="x" /></body></html>',
+        rule: "allowed-links",
+      },
+      // `allowed-links` decides "external or relative?" by looking at the raw attribute
+      // string, and it decides wrongly for several spellings the browser's URL parser
+      // resolves to a real external origin: a leading space, a leading tab, an
+      // upper-cased scheme, a protocol-relative `//host`, and backslash separators.
+      // Each was classified relative, and a value classified relative is never tested
+      // against `allowExternal` or by `require-sri` -- so an unpinned third-party
+      // script loaded by any of those spellings passed the whole configuration. Round 5
+      // (GPT-5.6 Sol) found this and validated the `allowRelative.exclude` pattern now
+      // in `.htmlvalidate.json`, which forces every one of them down the external path.
+      // These two specimens are what hold that setting in place.
+      {
+        markup: '<!DOCTYPE html><html lang="en"><head><title>t</title></head><body>'
+          + '<script src=" https://evil.example/x.js"></script>'
+          + "</body></html>",
+        rule: "allowed-links",
+      },
+      {
+        markup: '<!DOCTYPE html><html lang="en"><head><title>t</title></head><body>'
+          + '<img src="HTTPS://evil.example/x.png" alt="x" /></body></html>',
         rule: "allowed-links",
       },
     ],
@@ -604,8 +633,41 @@ test("the HTML linter configuration in this project still rejects markup", () =>
   }
 });
 
-// The gate above asks whether a file is TypeScript. It does not ask whether anything
-// compiles it, and those are different questions: `scripts/probe.mts` and a root-level
+// `html-hygiene.md` says inline handlers on SVG and MathML *descendants* are review's
+// job rather than a linter's. That caveat is a claim about tool behavior, and an
+// unverified one goes stale silently in whichever direction upstream moves: if a later
+// html-validate covers descendants, the document keeps telling reviewers to hand-check
+// something now gated, and the residual it describes reads as larger than it is.
+//
+// So pin it. A failure here is not a vulnerability -- it means the hole closed and the
+// document should be narrowed to match.
+const MARKUP_DESCENDANT_GAP = '<!DOCTYPE html><html lang="en"><head><title>t</title>'
+  + '</head><body><svg xmlns="http://www.w3.org/2000/svg">'
+  + '<circle cx="5" cy="5" r="5" onpointerdown="doThing()" /></svg></body></html>';
+
+test("the documented SVG-descendant handler gap is still the tools' behavior", () => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const scratch = mkdtempSync(join(tmpdir(), "inspect-web-markup-gap-"));
+
+  try {
+    const specimen = join(scratch, "specimen.html");
+    writeFileSync(specimen, MARKUP_DESCENDANT_GAP);
+
+    for (const linter of markupLinters) {
+      const run = runMarkupLinter(linter, root, [specimen]);
+      assert.equal(run.status, 0,
+        `${linter.command} now rejects an inline handler on an SVG descendant. That is `
+          + "an improvement, not a regression: narrow the SVG caveat in "
+          + `html-hygiene.md and drop this test.\n${run.output}`);
+    }
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+// The TypeScript-file gate above asks whether a file is TypeScript. It does not ask
+// whether anything compiles it, and those are different questions: `scripts/probe.mts`
+// and a root-level
 // `bypass.ts` are both unimpeachably TypeScript, and both sailed through every gate in
 // round 1 because no `tsconfig` include glob happened to match them.
 //
