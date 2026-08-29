@@ -526,15 +526,15 @@ no `.` or `..` segment; otherwise it is rejected as invalid. Any other
 non-empty path that cannot be normalized is also rejected rather than escaping
 as a platform exception.
 
-All local coordinates follow symbolic links and name-surrogate reparse points
-to their final target. The same policy preserves existing explicit-file
+All local coordinates follow symbolic links and supported link-like reparse
+points to their final target. The same policy preserves existing explicit-file
 behavior and supports symlinked build outputs without making directory
 acquisition a second policy domain. A dangling link is unavailable. A link
-whose final target has the wrong kind is rejected. A name-surrogate reparse
-point whose final target cannot be classified by the supported link API is
-rejected rather than opened as an unknown entry. Non-name-surrogate reparse
-points are ordinary filesystem entries whose own expected kind is classified;
-the `ReparsePoint` attribute alone does not reject them.
+whose final target has the wrong kind is rejected. A reparse entry whose tag
+denotes an unsupported link, a non-regular entry, or an unknown meaning is
+rejected rather than opened. Recognized non-link data-bearing reparse entries
+retain their own expected kind; the `ReparsePoint` attribute alone does not
+reject them.
 
 The canonical requested path remains the coordinate after link resolution. The
 adapter does not publish a physical target path or require the target to remain
@@ -553,7 +553,7 @@ deferred, but consumers cannot replace them with exception-message matching:
 | The path is missing, a link is dangling, or the entry disappears before the file open | `Unavailable` |
 | The path cannot be normalized | `Rejected` with an invalid-path reason |
 | The final target has the wrong expected kind | `Rejected` with a kind-mismatch reason |
-| The final target is a FIFO, socket, block device, character device, Windows device or pipe coordinate, or an unclassifiable name-surrogate reparse point | `Rejected` with a non-regular or unsupported-entry reason |
+| The final target is a FIFO, socket, block device, character device, Windows device or pipe coordinate, or an unsupported, special, ambiguous, or unknown reparse entry | `Rejected` with a non-regular or unsupported-entry reason |
 | Metadata inspection, native classification, or the file open fails for a reason other than absence | `Failed` with an admission-failed reason |
 | The current host has no supported classifier | `Failed` with a classification-unsupported reason |
 | Cancellation is observed | `OperationCanceledException` |
@@ -562,8 +562,15 @@ The shared result carries a typed reason and canonical path, not a
 source-neutral artifact outcome. The explicit-file and directory operations
 project it into their existing `LocalArtifactDiagnostic` surface. Equivalent
 reasons must retain the same result arm and meaning across coordinates;
-coordinate-specific context may refine the diagnostic code and summary. The
-existing explicit-file missing projection remains `local.file.missing`.
+coordinate-specific context may refine the diagnostic code and summary.
+Explicit-file projection preserves `local.file.missing`,
+`local.file.read-failed`, and `local.file.size-limit`: classification or open
+failures continue to use `Failed` with `local.file.read-failed`. Invalid paths
+use `Rejected` with `local.file.invalid-path`; an existing target that is a
+directory, non-regular entry, or unsupported reparse entry uses `Rejected` with
+`local.file.unsupported-entry`. The latter deliberately changes the current
+directory-target behavior from `Failed`/`local.file.read-failed` because the
+present path is now proven not to satisfy the explicit regular-file coordinate.
 Failures after a regular file is admitted, including bounded snapshot-copy
 failures, remain read failures owned by the consuming acquisition rather than
 being relabeled as path admission.
@@ -581,13 +588,22 @@ device coordinates. Extended-length disk and UNC paths are not rejected merely
 for using the `\\?\` prefix after their segments satisfy the normalization rule
 above. Ordinary filesystem paths are inspected through managed attributes. For
 a final reparse point, a metadata handle opened without following the point
-queries its tag. A name-surrogate tag denotes a link-like entry: supported
-symbolic-link and mount-point forms are resolved and their final target
-attributes inspected, while an unsupported name-surrogate tag is rejected. A
-non-name-surrogate tag, including an ordinary cloud placeholder, retains its
-own file or directory attributes and proceeds to normal expected-kind and
-post-open checks. This step must prove a file or directory target before a
-file-content open.
+queries its tag. Classification is tag-semantic rather than based only on the
+name-surrogate bit:
+
+- symbolic-link and mount-point tags are supported links, so their final target
+  is resolved and classified;
+- tags that can denote a special file or an unsupported link are rejected,
+  including AF_UNIX, WSL FIFO/character/block entries, and the entire NFS tag
+  unless a later design adds bounded subtype parsing;
+- audited non-link data-bearing tags, including cloud-placeholder,
+  deduplication, and projection forms, retain their own file or directory
+  attributes and proceed to expected-kind and post-open checks; and
+- unknown tags are rejected rather than assumed to be data-bearing.
+
+The tag policy is one enumerated classifier whose coverage gate fails when an
+implemented known-tag constant lacks a disposition. This step must prove a file
+or directory target before a file-content open.
 
 Regular-file admission then opens the canonical requested path exactly once and
 returns that owned read-only stream or handle to the consuming acquisition.
@@ -632,8 +648,9 @@ The implementation is complete when focused gates prove:
 
 - canonicalization, including extended-path segment rejection, expected-kind
   mismatches, final-target link following, dangling links, name-surrogate
-  rejection, non-name-surrogate treatment, and hard-link non-deduplication have
-  the same semantics for every consuming local coordinate;
+  handling, special and unknown reparse rejection, audited data-bearing
+  reparse treatment, and hard-link non-deduplication have the same semantics
+  for every consuming local coordinate;
 - stable FIFOs, sockets, devices, and their link aliases are rejected before a
   blocking content open, while an empty regular file remains admissible;
 - a regular-file consumer receives the once-opened, post-classified handle and
@@ -641,8 +658,9 @@ The implementation is complete when focused gates prove:
 - unavailable, rejected, failed, and cancellation results remain distinct; and
 - the normalized `Stat` and `FStat` classifier compiles and runs under both
   NativeAOT and Browser/Wasm, while Windows gates cover disk files,
-  directories, traversable links, reserved device names, and named-pipe
-  coordinates.
+  directories, traversable links, reserved device names, named-pipe
+  coordinates, allowed data-bearing reparse tags, every supported special-tag
+  family, and an unknown tag.
 
 These properties are represented by
 `LocalPathAdmission_ExpectedKindsAndLinksAreShared`,
@@ -710,16 +728,21 @@ Acquisition follows this order:
 4. Derive one direct-child relative name per observed entry and sort by that
    name with `StringComparer.Ordinal`. Filesystem enumeration order is never
    publication order.
-5. Ignore ordinary directories before filename selection, apply the extension
-   allow list and exclusions, and reject the batch if `MaxSelectedFiles` is
-   exceeded.
-6. In sorted order, admit each selected entry as a regular file through the
-   shared contract, then copy it into an adapter-private snapshot while
-   enforcing `MaxFileBytes` and the remaining `MaxTotalBytes`.
+5. Use enumeration attributes only to discard an entry already proven to be a
+   non-reparse directory. Apply the extension allow list and exclusions to the
+   remaining observed names, producing lexical candidates without deciding
+   their final target kind.
+6. In sorted order, classify each candidate through the shared contract. Ignore
+   a candidate whose final target is a directory. For each regular-file target,
+   increment the selected-file count, reject the batch if `MaxSelectedFiles` is
+   exceeded, then continue shared admission through its verified open handle
+   and consume that handle into an adapter-private snapshot while enforcing
+   `MaxFileBytes` and the remaining `MaxTotalBytes`. Any other classification
+   result rejects or fails the batch with its typed reason.
 7. Register the complete batch in one contribution scope only after every
-   selected snapshot succeeds. Any enumeration, selected-entry, limit,
-   registration, or outcome-construction failure publishes no contribution
-   from the batch.
+   selected snapshot succeeds. Any enumeration, candidate admission,
+   selected-entry, limit, registration, or outcome-construction failure
+   publishes no contribution from the batch.
 
 Copying stops before retaining a byte that would exceed either bound. The bound
 that would be exceeded first determines the rejection; when the same byte would
@@ -733,6 +756,9 @@ workspace acquisition retains its existing empty-batch failure; #5010 owns the
 supplemental path that can compose this result.
 
 Root and selected-entry admission outcomes remain those of the shared contract.
+A lexical candidate whose final target is a directory is a classification
+result used for filtering, not a selected coordinate, and emits no path
+outcome. Every other candidate classification failure remains visible.
 Directory-specific enumeration and snapshot-copy diagnostics use the canonical
 root and, when applicable, the observed relative name:
 
@@ -761,14 +787,16 @@ and bytes do not establish media or semantic kind.
 
 The adapter establishes an immutable batch of the bytes it actually copied,
 not a transactional filesystem snapshot. A file created after enumeration is
-outside that acquisition. Any selected-entry failure rejects the whole batch
-rather than shortening it. Shared admission owns the residual local-path race
-and classification guarantees; mutation after copying cannot change the
-retained snapshot.
+outside that acquisition. Any candidate classification, admission, or selected
+entry failure rejects the whole batch rather than shortening it. Shared
+admission owns the residual local-path race and classification guarantees;
+mutation after copying cannot change the retained snapshot.
 
 The implementation is complete when focused gates prove:
 
 - bounded top-level selection is deterministic and source-neutral;
+- plain and linked directory targets are ignored through the shared
+  final-target classification, while links to regular files remain selectable;
 - empty selection registers nothing, while enumeration failure remains failed
   rather than becoming empty success, and neither it nor entry admission,
   per-file and aggregate overflow with their defined precedence, read failure,
@@ -1243,8 +1271,14 @@ The migration is intentionally incremental:
    adapters land only with their own typed coordinates, capabilities, limits,
    and provenance gates.
 
-Each slice must preserve current visible diagnostics and selection semantics.
-The migration does not justify a success-shaped fallback or an unbounded eager
+Each slice must preserve current visible diagnostics and selection semantics
+unless its owning design names an intentional change. Shared local-path
+admission deliberately changes an explicit-file coordinate that resolves to a
+directory or another non-regular entry from
+`Failed`/`local.file.read-failed` to
+`Rejected`/`local.file.unsupported-entry`; its missing, size-limit, and genuine
+classification, open, or read failures retain their current projections. The
+migration does not justify a success-shaped fallback or an unbounded eager
 materialization.
 
 ## Required gates
