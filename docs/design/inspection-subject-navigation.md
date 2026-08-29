@@ -547,7 +547,7 @@ retaining a navigation session.
 
 | Model | Checked design properties |
 | --- | --- |
-| `NavigationSession.tla` | Latest explicit intent wins; completed unavailable and failed revision behavior follows complete-snapshot change; Navigation preparation failure retains snapshot and revision; maintenance is request ordered; abort and acknowledgement preserve liveness; stale authority has no effect |
+| `NavigationSession.tla` | Latest explicit intent wins; completed unavailable and failed revision behavior follows complete-snapshot change; Navigation preparation failure retains snapshot and revision with a distinct source and fresh retained authority; maintenance is request ordered; abort and acknowledgement preserve liveness; stale authority has no effect |
 | `AtomicRestoration.tla` | One exact requested subject+lens pair is prepared atomically; failed or superseded preparation is not published |
 | `SnapshotAuthority.tla` | Retained state comes only from the installed snapshot; applied lens results equal the independently retained request; stale or foreign authority is rejected |
 

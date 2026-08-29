@@ -275,6 +275,11 @@ NavigationPreparationFailure ==
        /\ lastResult'.resultSnapshot = installedSnapshot'
        /\ lastResult'.priorRev = installedRev
        /\ lastResult'.resultRev = installedRev'
+       /\ lastResult'.outcome = "failed"
+       /\ lastResult'.source = "navigationPreparation"
+       /\ effect' =
+            Authority("retained", installedRev, currentIntent, effectEpoch + 1)
+       /\ hostAuthority' = effect'
   /\ explicit' = NoExplicitWork
   /\ UNCHANGED << currentIntent, superseded, nextMaintenance,
                   maintenanceQueue, lastAdmitted,
@@ -592,7 +597,8 @@ NonSuccessRevisionMatchesSnapshotChange ==
 \* Navigation preparation failure has no complete replacement snapshot to
 \* install.  Its distinguishable result therefore records identical
 \* before/after state, and the live result authority names that retained
-\* revision.
+\* revision.  The pre-state witness also independently latches the source and
+\* full returned authority.
 PreparationFailureRetainsSnapshotAndRevision ==
   /\ revisionWitness
   /\ (lastResult.source = "navigationPreparation" =>

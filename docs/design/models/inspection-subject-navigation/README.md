@@ -97,7 +97,7 @@ snapshots; Navigation preparation failure is a distinct retaining action.
 | `NoStaleVisibleEffect` | Every consumer-visible effect executed under exactly the session's current unconsumed authority |
 | `MaintenanceRegatherDiscipline` | A stale request cannot become ready or admit until rebuilding requires and gathering completes a re-gather |
 | `NonSuccessRevisionMatchesSnapshotChange` | A completed unavailable or failed result advances revision exactly when the complete returned snapshot changed |
-| `PreparationFailureRetainsSnapshotAndRevision` | Navigation preparation failure retains the complete installed snapshot and revision under retained effect authority |
+| `PreparationFailureRetainsSnapshotAndRevision` | Navigation preparation failure retains the complete installed snapshot and revision, identifies its source, and returns fresh retained product and host authority |
 
 Progress is stated per request and per intent token rather than only for the
 session as a whole. Each property below names a specific blocker or a specific
@@ -251,9 +251,10 @@ evaluates the real pre-state, so TLC reports a counterexample. Witnesses are
 model bookkeeping, not product state.
 
 `revisionWitness` independently compares complete non-success results with
-their pre-state installation and proves that Navigation preparation failure
-retained that pre-state even if its result and authority were coherently
-rewritten to a different post-state.
+their pre-state installation. For Navigation preparation failure it also
+latches the exact failure source and fresh retained product and host authority,
+so removing authority or coherently rewriting result and authority to another
+post-state is still caught.
 
 `snapshotStabilityWitness` compares the whole installed snapshot record rather
 than its revision, so a step that rewrote the snapshot's lens or provenance
@@ -369,6 +370,8 @@ records how to reproduce them.
 | NS19 | Keep the revision unchanged for a changed-snapshot failed result | `NonSuccessRevisionMatchesSnapshotChange` | violated |
 | NS20 | Advance the revision for an unchanged-snapshot Registry or policy failed result | `NonSuccessRevisionMatchesSnapshotChange` | violated |
 | NS21 | Advance the Navigation preparation-failure revision and coherently rewrite its result and authority to the post-state | `PreparationFailureRetainsSnapshotAndRevision` | violated |
+| NS22 | Rewrite the Navigation preparation-failure source as evaluation | `PreparationFailureRetainsSnapshotAndRevision` | violated |
+| NS23 | Omit product and host authority from Navigation preparation failure | `PreparationFailureRetainsSnapshotAndRevision` | violated |
 | AR1 | Drop the current-intent requirement from preparation publication | `PreparationRequiresReadyPairAndCurrentIntent` | violated |
 | AR2 | Publish a different subject than the independently retained request | `PreparedPairEqualsRequestedPayload` | violated |
 | AR3 | Allow a superseded preparation to publish | `NoSupersededPreparationResult` | violated |
@@ -395,22 +398,22 @@ records how to reproduce them.
 | SA17 | Return a result that does not record its operation ID | `OperationAndResultAreCorrelated` | violated |
 | SA18 | Install and return another admissible session lens instead of the exact requested lens | `AppliedResultEqualsExactRequest` | violated |
 
-Forty-six probes, forty-five expected violations and one expected pass. `SA6`
+Forty-eight probes, forty-seven expected violations and one expected pass. `SA6`
 is the one probe expected not to fire: it applies the same mutation as `SA5`
 and checks the revision-arithmetic invariant instead, which does not notice a
 snapshot rewritten in place. That pair is why
 `NonApplyStepsPreserveInstalledSnapshot` compares the record.
 
-Eight probes exist specifically because a claim used to be satisfiable by the
+Ten probes exist specifically because a claim used to be satisfiable by the
 wrong thing. `NS16` separates installed revision from a self-consistent result,
 `NS17` admits stale work without re-gathering, `NS18` lets a later admission
 stand in for a lost earlier request, `NS21` rewrites preparation-failure
-authority and result to the wrong post-state, `AR2` publishes a payload that
-differs from the retained request, `SA14` applies a later supplied-prior
-operation after an earlier one was rejected, `SA15` adopts only the stale
-same-session supplied snapshot whose origin and lens resemble session data,
-and `SA18` returns another admissible session lens under the correct operation
-ID.
+authority and result to the wrong post-state, `NS22` erases its distinct source,
+`NS23` erases its returned authority, `AR2` publishes a payload that differs
+from the retained request, `SA14` applies a later supplied-prior operation after
+an earlier one was rejected, `SA15` adopts only the stale same-session supplied
+snapshot whose origin and lens resemble session data, and `SA18` returns
+another admissible session lens under the correct operation ID.
 
 ## Changing a model
 
