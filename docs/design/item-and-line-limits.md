@@ -48,10 +48,10 @@ CLI tokens
    and reduction identities
 -> typed execution request
 -> source owner may perform semantics-preserving execution
--> L2 completes residual predicates and effective baseline order
--> shared RowSelection component executes residual semantic stages
--> L2 completes residual reductions and binds the typed result
--> L2 field/column projection or L3 payload projection
+-> L2 completes its owner-defined residual operations and result binding,
+   invoking shared RowSelection for residual semantic stages where required
+-> typed L2 result
+-> L3 payload projection
 -> presentation and optional rendered-line selection
 ```
 
