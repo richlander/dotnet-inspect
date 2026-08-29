@@ -219,6 +219,29 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
     }
 
     [Fact]
+    public void DerivedValueTypeKind_RejectsExplicitClassEncoding()
+    {
+        FixturePair pair = OpenFixtures();
+        MethodIdentity source = WithParameterRawType(
+            Method(pair.SourceIndex, "Transform"),
+            rawTypeKind: 0);
+        MethodIdentity target = WithParameterRawType(
+            Method(pair.TargetIndex, "Transform"),
+            rawTypeKind: 0x12);
+        CatalogMethodDefinitionCorrespondencePlan plan =
+            CatalogMethodDefinitionCorrespondencePlan.Create(
+                pair.SourceAssembly,
+                pair.SourceSnapshot,
+                source,
+                pair.TargetAssembly,
+                pair.TargetSnapshot,
+                [target]);
+
+        Assert.IsType<CatalogMethodDefinitionCorrespondenceOutcome.Missing>(
+            Project(pair, plan));
+    }
+
+    [Fact]
     public void MalformedArrayBounds_AreUnavailable()
     {
         FixturePair pair = OpenFixtures();
@@ -608,6 +631,25 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
                     new TypeReferenceOrigin.AssemblyReference(
                         pair.TargetAssembly.Identity),
                     typeName)),
+        };
+    }
+
+    static MethodIdentity WithParameterRawType(
+        MethodIdentity method,
+        byte rawTypeKind)
+    {
+        TypeRef parameter = Assert.Single(method.ParameterTypes);
+        return method with
+        {
+            ParameterTypes =
+            [
+                TypeRef.Definition(
+                    parameter.Assembly,
+                    parameter.Namespace,
+                    parameter.Name,
+                    parameter.Resolution,
+                    rawTypeKind: rawTypeKind),
+            ],
         };
     }
 

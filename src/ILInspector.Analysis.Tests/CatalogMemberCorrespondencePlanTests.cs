@@ -617,6 +617,16 @@ public class CatalogMemberCorrespondencePlanTests
     }
 
     [Fact]
+    public void UnknownDefinitionKind_DiscardsUnverifiedSignatureKind()
+    {
+        Assert.Equal(
+            0,
+            CatalogMemberJoinProjector.EffectiveRawTypeKind(
+                rawTypeKind: 0x12,
+                MetadataTypeDefinitionKind.Unknown));
+    }
+
+    [Fact]
     public void EstablishedTypeRequestPairDoesNotVouchForAnotherType()
     {
         byte[] targetImage = BuildAssembly("Target", ["Api"]);

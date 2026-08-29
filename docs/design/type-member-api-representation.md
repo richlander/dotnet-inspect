@@ -229,8 +229,11 @@ reuses `CatalogMemberCorrespondencePlan` for complete open-member identity,
 including canonical signature headers, generic arity, required vararg
 parameters, multidimensional-array sizes and lower bounds, modifiers, and
 recursive function-pointer payloads. Named leaves retain the signature's
-class-versus-value-type discriminator. The result is one closed choice:
-`Exact`, `Missing`, `Ambiguous`, or `Unavailable`.
+class-versus-value-type discriminator when known. A resolved catalog definition
+fills an unspecified owner-side discriminator only when its kind was
+authenticated; an `Unknown` kind leaves it unspecified so partial resolution
+closure does not split otherwise corresponding members. The result is one
+closed choice: `Exact`, `Missing`, `Ambiguous`, or `Unavailable`.
 
 The selected pair establishes one narrow correspondence between the source and
 target root type definitions. Recursive named types still correspond only
@@ -255,6 +258,11 @@ identity; `RecursiveSameNameDefinitions_AreNotSelectedRootCorrespondence` and
 `SelectedRootClassAndValueType_DoNotCorrespond` gate the root boundary, while
 `MultidimensionalArrayBounds_AreIdentityBearing` and
 `MalformedArrayBounds_AreUnavailable` gate exact and malformed array shapes.
+`DerivedValueTypeKind_RejectsExplicitClassEncoding` and
+`UnknownDefinitionKind_DiscardsUnverifiedSignatureKind` gate effective
+class/value-type projection. `PlanCacheIdentityPreservesArrayBoundsAndRawTypeKind`
+gates the graph plan-cache input so distinct exact shapes cannot reuse one
+correspondence plan.
 `DuplicateExactTargetCandidates_ReportAmbiguous`,
 `TargetGenerationMismatch_IsUnavailable`,
 `SnapshotFromAnotherRegistration_IsUnavailable`,

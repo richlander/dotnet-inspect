@@ -199,10 +199,12 @@ internal sealed class CatalogMemberJoinProjector
         }
     }
 
-    static byte EffectiveRawTypeKind(
+    internal static byte EffectiveRawTypeKind(
         byte rawTypeKind,
         MetadataTypeDefinitionKind definitionKind) =>
-        rawTypeKind != 0
+        definitionKind == MetadataTypeDefinitionKind.Unknown
+            ? (byte)0
+            : rawTypeKind != 0
             ? rawTypeKind
             : definitionKind switch
             {

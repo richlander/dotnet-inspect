@@ -880,6 +880,12 @@ public sealed class CatalogMemberCorrespondencePlan
                 {
                     return false;
                 }
+                if (shape.RawTypeKind != 0
+                    && otherShape.RawTypeKind != 0
+                    && shape.RawTypeKind != otherShape.RawTypeKind)
+                {
+                    return false;
+                }
                 if (shape.Kind == otherShape.Kind
                     && shape.Definition == otherShape.Definition
                     && shape.UnresolvedBinding

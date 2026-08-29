@@ -548,6 +548,48 @@ public class CatalogCallGraphScopeTests
     }
 
     [Fact]
+    public void PlanCacheIdentityPreservesArrayBoundsAndRawTypeKind()
+    {
+        TypeRef owner = TypeRef.Definition("Owner", "", "Api");
+        TypeRef integer = TypeRef.CoreLib("System", "Int32");
+        TypeRef voidType = TypeRef.CoreLib("System", "Void");
+
+        GraphNodeIdentity Identity(TypeRef parameter) =>
+            GraphNodeIdentity.FromMember(
+                new MemberRef(
+                    owner,
+                    "Store",
+                    [parameter],
+                    voidType,
+                    MemberKind.Method));
+
+        Assert.NotEqual(
+            Identity(
+                TypeRef.MdArray(
+                    integer,
+                    new ArrayShape(1, [3], [0]))),
+            Identity(
+                TypeRef.MdArray(
+                    integer,
+                    new ArrayShape(1, [3], [1]))));
+        Assert.NotEqual(
+            Identity(
+                TypeRef.Definition(
+                    "Owner",
+                    "",
+                    "Value",
+                    resolution: null,
+                    rawTypeKind: 0x12)),
+            Identity(
+                TypeRef.Definition(
+                    "Owner",
+                    "",
+                    "Value",
+                    resolution: null,
+                    rawTypeKind: 0x11)));
+    }
+
+    [Fact]
     public void UnavailableCorrespondenceRemainsVisibleWithoutFabricatedJoins()
     {
         LibraryBodyIndex analysis = LibraryBodyIndex.Open(
