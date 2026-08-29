@@ -884,10 +884,15 @@ so a route that names one of these keys replaces the global value for its own
 paths and the file still reads as though the protection is global. A toolchain
 test pins the header set and requires the route keys to stay disjoint from it,
 compared case-insensitively because HTTP header names are — a route spelling
-`x-frame-options` overrides a global `X-Frame-Options` on the wire. That
-disjointness is what makes "every static response" true rather than merely
-intended. CI re-checks the headers in the published artifact, because the site is
-deployed from that copy rather than from the source file.
+`x-frame-options` overrides a global `X-Frame-Options` on the wire. It also
+rejects any route using `redirect`: Azure omits `globalHeaders` entirely on
+redirect responses ([Azure/static-web-apps#739][swa-739], open since 2022), so
+such a route names none of the four keys and still answers without them.
+Together those two properties are what make "every static response" true rather
+than merely intended. CI re-checks the headers in the published artifact,
+because the site is deployed from that copy rather than from the source file.
+
+[swa-739]: https://github.com/Azure/static-web-apps/issues/739
 
 The word "static" there is a real boundary, not hedging. Azure Static Web Apps
 does not apply `globalHeaders` to responses produced by the managed functions
@@ -899,18 +904,33 @@ The second is whether the third-party digests in `index.html` still describe wha
 the CDN serves. `require-sri` enforces that a cross-origin subresource *carries*
 a digest, and that is the whole of what a linter can see; whether the digest is
 still current is a fact about the network that changes without any commit here.
-`eng/check-inspect-web-sri.sh` re-fetches each pinned URL and compares hashes,
+`scripts/check-sri-freshness.ts` re-fetches each pinned URL and compares hashes,
 reading the pins out of the document so they cannot drift from what the site
-actually loads. It parses every attribute quoting form HTML allows and ignores
-commented-out tags, because html-validate accepts single-quoted attributes and
-uppercase tag names, and a pattern that understood only lowercase double-quoted
-markup would drop real subresources out of the check while still reporting
-success. It runs weekly rather than per pull request — reaching jsDelivr is
-required, and an outage there is not a defect in somebody's change — and files
-a tracking issue on drift. The exposure it closes is narrow and worth stating
-precisely: SRI means the browser *refuses* mismatched bytes, so a stale pin does
-not execute anything unexpected. It silently drops the subresource, which on this
-site means syntax highlighting stops working with nothing in CI to say why.
+actually loads.
+
+It reads the document with html-validate's own parser — the same parser that
+lints the file — rather than with a pattern, so the two cannot disagree about
+what the markup contains. That choice was forced by evidence. An earlier version
+matched tags and attributes with regular expressions and was defeated five ways
+in a single review round: `data-integrity` shadowed `integrity` because `\b`
+treats `-` as a word boundary, a `<!--` inside a quoted value opened a comment
+that swallowed a later real one, a quoted `>` ended the tag early, a
+backslash-form URL read as same-origin, and a `<noscript>` subresource the
+browser never requests was checked anyway. Those are five instances of one
+mistake, and patching them individually would have invited a sixth. The checker
+also resolves URLs the way a browser does and follows the SRI metadata grammar —
+whitespace-separated alternatives, case-insensitive algorithm names, strongest
+algorithm wins — so valid markup does not produce false drift.
+
+It runs weekly rather than per pull request — reaching jsDelivr is required, and
+an outage there is not a defect in somebody's change. It separates the two ways
+it can fail, because they need different responses: a stale pin is fixed by
+re-pinning, while an unreachable CDN is not a pin problem at all, and filing the
+second under the first sends somebody looking for drift that is not there. The
+exposure it closes is narrow and worth stating precisely: SRI means the browser
+*refuses* mismatched bytes, so a stale pin does not execute anything unexpected.
+It silently drops the subresource, which on this site means syntax highlighting
+stops working with nothing in CI to say why.
 
 A Content-Security-Policy is not yet in place; it is tracked separately, because
 the generated `<script type="importmap">` needs a per-build hash before

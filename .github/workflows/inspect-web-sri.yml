@@ -14,8 +14,13 @@ on:
     - cron: '0 7 * * 1'
   workflow_dispatch:
 
+# Scoped by event rather than shared. With one group across both events, running this
+# manually while the weekly run was in flight cancelled the weekly run -- and a cancelled
+# job satisfies neither `failure()` nor a failed conclusion, so its reporter never ran,
+# while the manual run that replaced it is excluded from reporting by design. Drift would
+# then go unreported precisely because somebody looked.
 concurrency:
-  group: inspect-web-sri
+  group: inspect-web-sri-${{ github.event_name }}
   cancel-in-progress: true
 
 permissions:
@@ -25,11 +30,45 @@ jobs:
   check:
     name: Verify pinned subresource digests
     runs-on: ubuntu-26.04
+    outputs:
+      outcome: ${{ steps.check.outputs.outcome }}
     steps:
       - uses: actions/checkout@v6
 
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: prototypes/inspect-web/package-lock.json
+
+      # The checker reads index.html with html-validate's parser -- the same parser that
+      # lints the file -- rather than with a pattern, so it needs the project's installed
+      # dependencies.
+      - name: Install dependencies
+        working-directory: prototypes/inspect-web
+        run: npm ci
+
       - name: Check pinned subresource digests
-        run: ./eng/check-inspect-web-sri.sh
+        id: check
+        working-directory: prototypes/inspect-web
+        shell: bash
+        run: |
+          set -uo pipefail
+          # `|| code=$?` rather than a bare call: GitHub runs `shell: bash` with `-e`, so
+          # a bare nonzero exit would abort this step before the code could be recorded and
+          # the reporter would lose the distinction it needs.
+          code=0
+          node scripts/check-sri-freshness.ts || code=$?
+          # Exit 1 means a pin is wrong and re-pinning is the fix. Exit 2 means the check
+          # could not reach a conclusion -- an unreachable CDN, say -- which is not a pin
+          # problem and must not be reported as one. Both still fail the job.
+          case "$code" in
+            0) echo "outcome=ok" >> "$GITHUB_OUTPUT" ;;
+            1) echo "outcome=drift" >> "$GITHUB_OUTPUT" ;;
+            *) echo "outcome=infrastructure" >> "$GITHUB_OUTPUT" ;;
+          esac
+          exit "$code"
 
   report:
     name: Report drift
@@ -43,10 +82,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          OUTCOME: ${{ needs.check.outputs.outcome }}
         shell: bash
         run: |
           set -euo pipefail
-          title="Pinned inspect-web subresource digests no longer match the CDN"
+
+          # The title distinguishes the two failures, because they need different people to
+          # do different things. Reporting an outage as a digest mismatch sends somebody to
+          # look for drift that is not there. `outcome` is empty when the job failed before
+          # the check ran at all, which is an infrastructure failure by definition.
+          if [ "${OUTCOME:-}" = "drift" ]; then
+            title="Pinned inspect-web subresource digests no longer match the CDN"
+            detail=$'The run log names each URL and shows the pinned and served digests.\n\nSubresource Integrity means the browser refuses a resource whose bytes do not match, so the visible effect is a subresource that silently stops loading -- on this site, syntax highlighting. Re-pin the digests in `prototypes/inspect-web/index.html`, or pin a different version deliberately.'
+          else
+            title="Inspect Web SRI freshness check could not complete"
+            detail=$'The check did not reach a verdict on the pinned digests -- an unreachable CDN, a failed install, or a broken checkout. This is not evidence that a pin is stale, and re-pinning is not the fix. Read the run log to see which step failed.\n\nIf this persists across several weekly runs it is protecting nothing, which is worth fixing in itself.'
+          fi
+
           num=$(gh issue list --repo "${{ github.repository }}" \
             --state open --search "$title in:title" \
             --json number,title \
@@ -57,5 +109,5 @@ jobs:
           else
             gh issue create --repo "${{ github.repository }}" \
               --title "$title" \
-              --body $'A scheduled SRI freshness check failed. The run log names each URL and shows the pinned and served digests.\n\nRun: '"$RUN_URL"$'\n\nSubresource Integrity means the browser refuses a resource whose bytes do not match, so the visible effect is a subresource that silently stops loading -- on this site, syntax highlighting. Re-pin the digests in `prototypes/inspect-web/index.html`, or pin a different version deliberately.\n\nReproduce locally with `./eng/check-inspect-web-sri.sh`. This issue was opened automatically and will not auto-close.'
+              --body "$detail"$'\n\nRun: '"$RUN_URL"$'\n\nReproduce locally with `npm ci && node scripts/check-sri-freshness.ts` in `prototypes/inspect-web`. This issue was opened automatically and will not auto-close.'
           fi

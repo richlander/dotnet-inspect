@@ -89,6 +89,7 @@ interface TsconfigFile {
 interface StaticWebAppRoute {
   readonly route: string;
   readonly rewrite?: string;
+  readonly redirect?: string;
   readonly headers?: Readonly<Record<string, string>>;
 }
 
@@ -2364,6 +2365,24 @@ test("static hosting sends its security headers on every static response", () =>
     "this route sets a header that `globalHeaders` also sets, and Azure Static Web Apps "
       + "lets the route value win, so paths under it would carry a weaker policy than "
       + "this file appears to apply everywhere");
+
+  // Key disjointness is necessary but not sufficient, because a redirect route drops the
+  // global headers without naming any of them. Azure has acknowledged this since 2022
+  // (Azure/static-web-apps#739): a route with `redirect` returns neither `globalHeaders`
+  // nor its own `headers`. Such a route passes the disjointness check above while serving
+  // a 302 with none of the four headers on it, which is exactly the silent weakening this
+  // test exists to prevent. There are no redirect routes today; this keeps it that way
+  // rather than waiting for one to be added and quietly punch a hole.
+  const redirecting = staticWebAppConfig.routes
+    .filter(route => route.redirect !== undefined)
+    .map(route => route.route);
+
+  assert.deepEqual(redirecting, [],
+    "Azure Static Web Apps omits `globalHeaders` on redirect responses "
+      + "(Azure/static-web-apps#739), so this route would answer without any of the four "
+      + "headers while the config still reads as though they are global; serve the "
+      + "redirect from a route that does not use `redirect`, or narrow this test's claim "
+      + "deliberately");
 });
 
 const linuxLibcs = ["glibc", "musl"];
