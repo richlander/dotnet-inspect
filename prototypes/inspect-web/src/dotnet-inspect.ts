@@ -295,8 +295,14 @@ import {
   type PackageQueryBindingActions,
 } from "./package-query-view.ts";
 import {
+  historyEntryId,
   isPackageQueryPath,
+  isPackageQueryPredecessor,
+  packageQueryHistoryState,
+  readPackageQueryHistory,
   validPackageQueryPrefix,
+  withHistoryEntryId,
+  type PackageQueryReturnFocus,
 } from "./package-query-route.ts";
 import type {
   BrowserBuildIdentity,
@@ -588,7 +594,9 @@ const initialState = {
   packageQueryOpen: false,
   packageQueryPrefix: "",
   packageQueryNavigationError: "",
+  packageQueryCatalogError: "",
   packageQueryOpenedFromApp: false,
+  packageQueryPredecessorEntryId: null,
   packageQueryReturnFocus: null,
   packageQueryReturnFocusPending: false,
   packageQueryState: initialQueryState(),
@@ -793,6 +801,7 @@ interface StateOverrides {
   packageCacheStats: BrowserPackageCacheStats | null;
   packageQueryState: PackageQueryState;
   packageQueryFacets: QueryFacetTerm[];
+  packageQueryPredecessorEntryId: string | null;
   packageQueryReturnFocus: "home-search" | "package-search" | null;
 }
 
@@ -1287,8 +1296,10 @@ const workspaceLocation = createWorkspaceLocationPersistence({
     search: location.search,
     hash: location.hash,
   }),
-  replace: url => history.replaceState(null, "", url),
-  push: url => history.pushState(null, "", url),
+  replace: (url, historyState) =>
+    history.replaceState(historyState, "", url),
+  push: (url, historyState) =>
+    history.pushState(historyState, "", url),
   decode: value => inspectDecodeWorkspaceShareState(value),
   encode: stateJson => inspectEncodeWorkspaceShareState(stateJson),
 });
@@ -1306,6 +1317,9 @@ const initialLocation = initialWorkspace.visible;
 // its workspace directly.
 state.credits = isCreditsPath(location.pathname);
 state.packageQueryOpen = isPackageQueryPath(location.pathname);
+if (state.packageQueryOpen) {
+  applyPackageQueryHistory(history.state);
+}
 state.home = state.credits
   || (!state.packageQueryOpen
     && !initialLocation.package
@@ -6866,12 +6880,19 @@ function bindHomeEvents() {
   requestAnimationFrame(() => {
     const input =
       document.querySelector<HTMLInputElement>("#spotlight-input");
-    input?.focus();
     if (input
       && state.packageQueryReturnFocusPending
       && state.packageQueryReturnFocus === "home-search") {
+      input.focus();
       state.packageQueryReturnFocus = null;
       state.packageQueryReturnFocusPending = false;
+    } else if (state.packageQueryReturnFocusPending
+      && state.packageQueryReturnFocus === "home-search"
+      && focusLevelOneHeading()) {
+      state.packageQueryReturnFocus = null;
+      state.packageQueryReturnFocusPending = false;
+    } else {
+      input?.focus();
     }
   });
 }
@@ -6955,14 +6976,25 @@ function focusPackageQueryInput() {
     document.querySelector<HTMLInputElement>("#package-query-prefix")?.focus());
 }
 
+function focusLevelOneHeading(): boolean {
+  const heading = document.querySelector<HTMLElement>("main h1");
+  if (!heading) return false;
+  heading.tabIndex = -1;
+  heading.focus();
+  return true;
+}
+
 function restorePackageQueryReturnFocus() {
   if (!state.packageQueryReturnFocusPending
     || state.packageQueryReturnFocus !== "package-search") return;
   requestAnimationFrame(() => {
     const input =
       document.querySelector<HTMLInputElement>("#package-query-input");
-    input?.focus();
     if (input) {
+      input.focus();
+      state.packageQueryReturnFocus = null;
+      state.packageQueryReturnFocusPending = false;
+    } else if (focusLevelOneHeading()) {
       state.packageQueryReturnFocus = null;
       state.packageQueryReturnFocusPending = false;
     }
@@ -6975,6 +7007,26 @@ function resetPackageQueryState() {
   state.packageQueryState.outcome = fresh.outcome;
 }
 
+function ensureCurrentHistoryEntryId(): string | null {
+  const current = historyEntryId(history.state);
+  if (current) return current;
+  const entryId = crypto.randomUUID();
+  return workspaceLocation.replace(
+    location.href,
+    withHistoryEntryId(history.state, entryId))
+    ? entryId
+    : null;
+}
+
+function applyPackageQueryHistory(historyState: unknown) {
+  const queryHistory = readPackageQueryHistory(historyState);
+  state.packageQueryOpenedFromApp = queryHistory !== null;
+  state.packageQueryPredecessorEntryId =
+    queryHistory?.predecessorEntryId ?? null;
+  state.packageQueryReturnFocus = queryHistory?.returnFocus ?? null;
+  state.packageQueryReturnFocusPending = false;
+}
+
 function openPackageQueryRoute(seed = "") {
   if (!state.engineReady || state.loading || state.error) return;
   navigationSequence.begin();
@@ -6982,16 +7034,30 @@ function openPackageQueryRoute(seed = "") {
   resetPackageQueryState();
   state.packageQueryPrefix = validPackageQueryPrefix(seed);
   state.packageQueryNavigationError = "";
-  state.packageQueryOpenedFromApp = true;
-  state.packageQueryReturnFocus = state.home
+  const returnFocus: PackageQueryReturnFocus = state.home
     ? "home-search"
     : "package-search";
-  state.packageQueryReturnFocusPending = false;
+  const predecessorEntryId = ensureCurrentHistoryEntryId();
+  if (predecessorEntryId) {
+    state.packageQueryOpenedFromApp = true;
+    state.packageQueryPredecessorEntryId = predecessorEntryId;
+    state.packageQueryReturnFocus = returnFocus;
+    state.packageQueryReturnFocusPending = false;
+  } else {
+    applyPackageQueryHistory(null);
+  }
   state.packageQueryOpen = true;
   state.credits = false;
   state.home = false;
   spotlight.reset();
-  workspaceLocation.push("/query");
+  workspaceLocation.push(
+    "/query",
+    predecessorEntryId
+      ? packageQueryHistoryState(
+          null,
+          crypto.randomUUID(),
+          { predecessorEntryId, returnFocus })
+      : null);
   render();
   focusPackageQueryInput();
   if (state.packageQueryPrefix) {
@@ -7011,6 +7077,7 @@ function closePackageQueryRoute() {
   state.packageQueryOpen = false;
   packageQueryController.cancel();
   state.packageQueryOpenedFromApp = false;
+  state.packageQueryPredecessorEntryId = null;
   state.packageQueryReturnFocus = null;
   state.packageQueryReturnFocusPending = false;
   state.credits = false;
@@ -7033,11 +7100,10 @@ function runPackageQuery(prefix: string) {
 
   state.packageQueryPrefix = validPrefix;
   state.packageQueryNavigationError = "";
-  const request = createQueryRequest(validPrefix);
-  void packageQueryController.run({
-    ...request,
-    facets: state.packageQueryState.request?.facets ?? [],
-  });
+  const request = state.packageQueryState.request
+    ? withScopeQuery(state.packageQueryState.request, validPrefix)
+    : createQueryRequest(validPrefix);
+  void packageQueryController.run(request);
 }
 
 function togglePackageQueryFacet(facetKey: string, prefix: string) {
@@ -7128,7 +7194,10 @@ function renderPackageQueryPage() {
     state: state.packageQueryState,
     prefix: state.packageQueryPrefix,
     availableFacets: state.packageQueryFacets,
-    navigationError: state.packageQueryNavigationError,
+    navigationError: [
+      state.packageQueryCatalogError,
+      state.packageQueryNavigationError,
+    ].filter(Boolean).join(" "),
     escapeHtml,
   });
   bindPackageQueryView(document, packageQueryActions);
@@ -9761,7 +9830,7 @@ async function bootstrap() {
         packageQueryFacets(inspectListPackageQueryFacets());
     } catch (error) {
       state.packageQueryFacets = [];
-      state.packageQueryNavigationError =
+      state.packageQueryCatalogError =
         `Package-query facets are unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
     state.engineReady = true;
@@ -9891,6 +9960,7 @@ function workspaceKeyboardContextIsActive(): boolean {
   return !state.explorer?.open
     && !state.settings
     && !state.home
+    && !state.packageQueryOpen
     && !state.loading
     && !state.error
     && !state.graphSourceOpen
@@ -9899,7 +9969,7 @@ function workspaceKeyboardContextIsActive(): boolean {
 }
 
 const workspaceModalContextIsAvailable = () =>
-  !state.home && !state.loading && !state.error;
+  !state.home && !state.packageQueryOpen && !state.loading && !state.error;
 const graphSourceContextIsActive = () =>
   workspaceModalContextIsAvailable() && state.graphSourceOpen;
 const documentViewerContextIsActive = () =>
@@ -10272,8 +10342,8 @@ window.addEventListener("popstate", () => {
   state.loading = false;
   if (isPackageQueryPath(location.pathname)) {
     clearNavigationError();
+    applyPackageQueryHistory(history.state);
     state.packageQueryOpen = true;
-    state.packageQueryReturnFocusPending = false;
     state.credits = false;
     state.home = false;
     spotlight.reset();
@@ -10285,7 +10355,10 @@ window.addEventListener("popstate", () => {
     state.packageQueryOpen = false;
     packageQueryController.cancel();
     state.packageQueryReturnFocusPending =
-      state.packageQueryReturnFocus !== null;
+      state.packageQueryReturnFocus !== null
+      && isPackageQueryPredecessor(
+        history.state,
+        state.packageQueryPredecessorEntryId);
   }
   const loc = parseLocation();
   if (isCreditsPath(location.pathname)) {

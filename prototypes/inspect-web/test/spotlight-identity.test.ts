@@ -2092,7 +2092,7 @@ test("global workbench shortcuts respect the topmost modal", () => {
     /const unavailableWorkspaceContext = \(\) =>[\s\S]*!state\.home && \(state\.loading \|\| Boolean\(state\.error\)\)[\s\S]*unavailable-workspace\.contain-browser-shortcut[\s\S]*unavailable-workspace\.contain-filter-shortcut/);
   assert.match(
     appSource,
-    /function workspaceKeyboardContextIsActive\(\)[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.settings[\s\S]*!state\.home[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!state\.graphSourceOpen[\s\S]*!state\.docViewerOpen[\s\S]*!state\.spotlightOpen/);
+    /function workspaceKeyboardContextIsActive\(\)[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.settings[\s\S]*!state\.home[\s\S]*!state\.packageQueryOpen[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!state\.graphSourceOpen[\s\S]*!state\.docViewerOpen[\s\S]*!state\.spotlightOpen/);
   assert.equal(
     keybindingRegistrySource.match(/addEventListener\("keydown"/g)?.length,
     1);
@@ -2737,7 +2737,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /case "package-query":\s*openPackageQueryRoute\(result\.prefix\);\s*break;/);
   assert.match(
     route,
-    /state\.packageQueryOpen = true;[\s\S]*workspaceLocation\.push\("\/query"\);[\s\S]*focusPackageQueryInput\(\)/);
+    /const predecessorEntryId = ensureCurrentHistoryEntryId\(\);[\s\S]*state\.packageQueryOpen = true;[\s\S]*workspaceLocation\.push\([\s\S]*"\/query",[\s\S]*packageQueryHistoryState\([\s\S]*predecessorEntryId,[\s\S]*returnFocus[\s\S]*focusPackageQueryInput\(\)/);
   assert.match(
     handoff,
     /packageQueryController\.cancel\(\);[\s\S]*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*await loadPackage\([\s\S]*\{ navigationSeq }\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*workspaceLocation\.push\(buildStateUrl\(\)\.toString\(\)\)/);
@@ -2759,6 +2759,12 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     popstate,
     /const navigationSeq = navigationSequence\.begin\(\)/);
   assert.match(
+    popstate,
+    /if \(isPackageQueryPath\(location\.pathname\)\) \{[\s\S]*applyPackageQueryHistory\(history\.state\)/);
+  assert.match(
+    popstate,
+    /state\.packageQueryReturnFocusPending =\s*state\.packageQueryReturnFocus !== null[\s\S]*isPackageQueryPredecessor\(\s*history\.state,\s*state\.packageQueryPredecessorEntryId\)/);
+  assert.match(
     appSource,
     /function closePackageQueryRoute\(\) \{\s*navigationSequence\.begin\(\);[\s\S]*history\.back\(\)/);
   assert.match(
@@ -2769,10 +2775,18 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /function openCredits\(\) \{[\s\S]*?navigationSequence\.begin\(\);\s*state\.packageQueryOpen = false/);
   assert.match(
     appSource,
-    /function restorePackageQueryReturnFocus\(\) \{\s*if \(!state\.packageQueryReturnFocusPending[\s\S]*state\.packageQueryReturnFocus = null;\s*state\.packageQueryReturnFocusPending = false/);
+    /function restorePackageQueryReturnFocus\(\) \{\s*if \(!state\.packageQueryReturnFocusPending[\s\S]*focusLevelOneHeading\(\)[\s\S]*state\.packageQueryReturnFocus = null;\s*state\.packageQueryReturnFocusPending = false/);
+  assert.equal(
+    appSource.match(
+      /\? withScopeQuery\(state\.packageQueryState\.request, validPrefix\)/g)
+      ?.length,
+    2);
   assert.match(
     appSource,
-    /const current = state\.packageQueryState\.request\s*\? withScopeQuery\(state\.packageQueryState\.request, validPrefix\)\s*: createQueryRequest\(validPrefix\)/);
+    /state\.packageQueryCatalogError =\s*`Package-query facets are unavailable/);
+  assert.match(
+    appSource,
+    /navigationError: \[\s*state\.packageQueryCatalogError,\s*state\.packageQueryNavigationError/);
 });
 
 test("authoritative location restore clears filters and applies aggregate Platform scope", () => {

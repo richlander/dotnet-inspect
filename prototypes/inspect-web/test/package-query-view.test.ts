@@ -83,6 +83,21 @@ test("a streaming result renders rows, product facets, and the streaming footer"
   assert.doesNotMatch(html, /Deepen|data-query-row-select/);
 });
 
+test("result rows render typed producer identity instead of a source literal", () => {
+  const state: PackageQueryState = {
+    request: createQueryRequest("Microsoft."),
+    outcome: appendRows(emptyOutcome(), [{
+      ...row("Microsoft.Extensions.Logging"),
+      producer: "contoso.example/v3",
+    }]),
+  };
+
+  const html = renderPackageQueryView({ state, availableFacets: FACETS, escapeHtml });
+
+  assert.match(html, />contoso\.example\/v3</);
+  assert.doesNotMatch(html, />nuget\.org<\/span>/);
+});
+
 test("facet buttons expose pressed state without shipping promoted placeholders", () => {
   const state: PackageQueryState = {
     request: withFacet(
@@ -100,6 +115,18 @@ test("facet buttons expose pressed state without shipping promoted placeholders"
     html,
     /data-query-facet="downloads-1m"[\s\S]*aria-pressed="false"/);
   assert.doesNotMatch(html, /promoted|Deepen/);
+});
+
+test("a facet catalog failure remains visible beside an empty facet rail", () => {
+  const html = renderPackageQueryView({
+    state: initialQueryState(),
+    availableFacets: [],
+    navigationError: "Package-query facets are unavailable: catalog failed.",
+    escapeHtml,
+  });
+
+  assert.match(html, /Package-query facets are unavailable: catalog failed/);
+  assert.match(html, /class="query-facets"><\/div>/);
 });
 
 test("failures render alongside already-streamed rows, never as a bare empty state", () => {
@@ -351,6 +378,11 @@ test("query focus snapshots restore semantic controls after a full render", () =
       replacement: new FakeElement({}, "package-query-run"),
     },
     {
+      active: new FakeElement({}, "package-query-back"),
+      selector: "#package-query-back",
+      replacement: new FakeElement({}, "package-query-back"),
+    },
+    {
       active: new FakeElement({ queryFacet: "downloads-1m" }),
       selector: "[data-query-facet]",
       replacement: new FakeElement({ queryFacet: "downloads-1m" }),
@@ -379,6 +411,46 @@ test("query focus snapshots restore semantic controls after a full render", () =
     restorePackageQueryFocus(documentRoot, snapshot);
 
     assert.equal(scenario.replacement.focusCount, 1);
+  }
+});
+
+test("query cancel focus restores by rendered position", () => {
+  const active = new FakeElement({ queryCancel: "1" });
+  const replacement = new FakeElement({ queryCancel: "1" });
+  const root = new FakeRoot(active);
+  root.add("[data-query-cancel]", active);
+  // Test fake implements the Document and ParentNode subset consumed by the helpers.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  const documentRoot = root as unknown as Document;
+
+  const snapshot = capturePackageQueryFocus(documentRoot);
+  root.add("[data-query-cancel]", replacement);
+  restorePackageQueryFocus(documentRoot, snapshot);
+
+  assert.equal(replacement.focusCount, 1);
+});
+
+test("unrecognized or vanished query controls fall back to the prefix", () => {
+  const cases = [
+    new FakeElement({}, "query-brand"),
+    new FakeElement({
+      queryRowOpen: "Vanished.Package",
+      queryRowVersion: "1.0.0",
+    }),
+  ];
+
+  for (const active of cases) {
+    const prefix = new FakeElement({}, "package-query-prefix");
+    const root = new FakeRoot(active);
+    root.add("#package-query-prefix", prefix);
+    // Test fake implements the Document and ParentNode subset consumed by the helpers.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+    const documentRoot = root as unknown as Document;
+
+    const snapshot = capturePackageQueryFocus(documentRoot);
+    restorePackageQueryFocus(documentRoot, snapshot);
+
+    assert.equal(prefix.focusCount, 1);
   }
 });
 

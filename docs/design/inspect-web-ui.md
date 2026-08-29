@@ -778,7 +778,10 @@ input. Browser Back and Forward own entry and return. Returning to the prior
 surface restores focus to the stable Search control when it is still rendered;
 otherwise it focuses that surface's level-one heading. The page's visible
 `Back` action invokes the same history transition, falling back to Home only
-when the route was loaded without an in-app predecessor.
+when the route was loaded without an in-app predecessor. Each query history
+entry carries its own predecessor identity and focus target in session-only
+history state, so a later query route cannot change an older entry's Back
+behavior.
 
 The desktop layout gives the product-ordered nuspec facet rail a fixed readable
 column and lets rows consume the remaining width. At a narrow viewport the

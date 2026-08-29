@@ -9,11 +9,7 @@ export interface PackageQueryBindingActions {
   onCancel: () => void;
   onFacetToggle: (facetKey: string, prefix: string) => void;
   onPrefixInput: (prefix: string) => void;
-  onRowOpen: (
-    packageId: string,
-    version: string,
-    invokingButton: HTMLElement,
-  ) => void;
+  onRowOpen: (packageId: string, version: string) => void;
   onRun: (prefix: string) => void;
 }
 
@@ -27,7 +23,8 @@ export type PackageQueryFocusSnapshot =
   | { kind: "run" }
   | { kind: "facet"; facetKey: string }
   | { kind: "row"; packageId: string; version: string }
-  | { kind: "cancel"; index: number };
+  | { kind: "cancel"; index: number }
+  | { kind: "fallback" };
 
 interface FocusableQueryElement extends Element {
   readonly dataset: DOMStringMap;
@@ -90,7 +87,7 @@ export function capturePackageQueryFocus(
   const cancelIndex = cancelButtons.findIndex(element => element === active);
   return cancelIndex >= 0
     ? { kind: "cancel", index: cancelIndex }
-    : null;
+    : { kind: "fallback" };
 }
 
 export function restorePackageQueryFocus(
@@ -125,6 +122,9 @@ export function restorePackageQueryFocus(
       target = [
         ...root.querySelectorAll<HTMLElement>("[data-query-cancel]"),
       ][snapshot.index] ?? null;
+      break;
+    case "fallback":
+      target = null;
       break;
   }
   if (!isFocusableQueryElement(target)) {
@@ -161,8 +161,7 @@ export function bindPackageQueryView(
   root.querySelectorAll<HTMLElement>("[data-query-row-open]").forEach(button =>
     button.addEventListener("click", () => actions.onRowOpen(
       button.dataset.queryRowOpen ?? "",
-      button.dataset.queryRowVersion ?? "",
-      button)));
+      button.dataset.queryRowVersion ?? "")));
   root.querySelectorAll<HTMLElement>("[data-query-facet]").forEach(button =>
     button.addEventListener("click", () => actions.onFacetToggle(
       button.dataset.queryFacet ?? "",
@@ -191,7 +190,7 @@ function renderRow(
       <div class="query-row-meta">
         <span>${row.totalDownloads.toLocaleString()} downloads</span>
         ${row.producer
-          ? `<span title="${escapeHtml(row.producer)}">nuget.org</span>`
+          ? `<span>${escapeHtml(row.producer)}</span>`
           : ""}
         <button type="button" data-query-row-open="${escapeHtml(row.packageId)}" data-query-row-version="${escapeHtml(row.version)}">Open in workspace</button>
       </div>

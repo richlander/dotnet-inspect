@@ -1091,8 +1091,8 @@ test("unsupported canonical Browser views fail visibly without partial state", (
 
 test("location persistence contains sync failures but leaves direct build failures visible", () => {
   const current = locationSnapshot("https://inspect.example/");
-  const replaced: string[] = [];
-  const pushed: string[] = [];
+  const replaced: Array<{ url: string; state: unknown }> = [];
+  const pushed: Array<{ url: string; state: unknown }> = [];
   let failEncoding = false;
   const encode = (): BrowserWorkspaceShareEncodeResult => failEncoding
     ? {
@@ -1107,19 +1107,25 @@ test("location persistence contains sync failures but leaves direct build failur
     : encoded();
   const persistence = createWorkspaceLocationPersistence({
     current: () => current,
-    replace: url => replaced.push(url),
-    push: url => pushed.push(url),
+    replace: (url, state) => replaced.push({ url, state }),
+    push: (url, state) => pushed.push({ url, state }),
     decode: () => rejected("unused"),
     encode,
   });
 
   persistence.sync(workspaceState());
-  persistence.push("/");
+  persistence.push("/", { route: "query" });
   assert.equal(persistence.replace("/valid"), true);
-  const replacedUrl = replaced[0];
-  assert.ok(replacedUrl);
-  assert.equal(new URL(replacedUrl).searchParams.get("package"), "Example.Second");
-  assert.deepEqual(pushed, ["/"]);
+  const replacedEntry = replaced[0];
+  assert.ok(replacedEntry);
+  assert.equal(
+    new URL(replacedEntry.url).searchParams.get("package"),
+    "Example.Second");
+  assert.equal(replacedEntry.state, null);
+  assert.deepEqual(pushed, [{
+    url: "/",
+    state: { route: "query" },
+  }]);
   const replacedCount = replaced.length;
   failEncoding = true;
   assert.doesNotThrow(() => persistence.sync(workspaceState()));
